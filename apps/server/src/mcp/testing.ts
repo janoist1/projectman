@@ -296,14 +296,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('listMergeChecks', ctx, args);
       return { runs: [], hasMore: false };
     },
-    async proposeRelease(ctx, args) {
-      await enter('proposeRelease', ctx, args);
-      const commit = args.commit ?? '0'.repeat(40);
-      const tasks = [{ key: 'FAKE-1', title: 'A merged card' }];
-      return args.preview
-        ? { commit, baseCommit: null, tasks }
-        : { releaseId: 'rel_fake', taskKey: 'FAKE-2', commit, baseCommit: null, tasks };
-    },
     async publishRelease(ctx, args) {
       await enter('publishRelease', ctx, args);
       const commit = args.commit ?? '0'.repeat(40);
@@ -315,18 +307,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         tag,
         url: args.preview ? null : `https://github.com/fake/fake/releases/tag/${tag}`,
         tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
-      };
-    },
-    async checkRelease(ctx, args) {
-      await enter('checkRelease', ctx, args);
-      return {
-        candidate: {
-          commit: args.commit ?? '0'.repeat(40),
-          baseCommit: null,
-          tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
-        },
-        refusal: null,
-        proposers: ['devops'],
       };
     },
     async getRoleConfiguration(ctx, args) {
@@ -378,24 +358,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         },
         result: null,
       };
-    },
-    async getMachineStatus(ctx, args) {
-      await enter('getMachineStatus', ctx, args);
-      return {
-        status: {
-          target: args.target,
-          online: true,
-          version: null,
-          bootId: null,
-          capabilities: ['status'],
-          activeOperationId: null,
-        },
-        machine: null,
-      };
-    },
-    async getMachineLogs(ctx, args) {
-      await enter('getMachineLogs', ctx, args);
-      return { entries: [] };
     },
     async startTask(ctx, args) {
       await enter('startTask', ctx, args);

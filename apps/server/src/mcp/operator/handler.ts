@@ -12,7 +12,6 @@ import {
 } from '@projectman/shared';
 import type { QuestionRecipient, QuestionRecipientRefusal } from '@projectman/shared';
 import type {
-  AdministrationTarget,
   OperatorOperation,
   BuiltInRoleId,
   RoleConfigurationRead,
@@ -27,7 +26,6 @@ import type {
 } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type {
-  AdministrationLogsOptions,
   ChecklistToolView,
   OperatorToolsHandler,
   UpdateChecklistInput,
@@ -55,13 +53,13 @@ import type {
 } from '../../services/operator';
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super-operator';
-import type { OperatorAppOperations, SuperAdministration } from '../../services/super-operator';
+import type { OperatorAppOperations, SuperOperations } from '../../services/super-operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 /** What the super-operation tools stand on (PM-888). */
 interface SuperPath {
   operations: OperatorAppOperations;
-  administration: Pick<SuperAdministration, 'operation'>;
+  direct: Pick<SuperOperations, 'operation'>;
 }
 
 /** The machine reads were the Operator's alone; with no Operator (decision 66, PM-1076) nobody holds them. */
@@ -590,28 +588,7 @@ export class OperatorTools implements OperatorToolsHandler {
   async getOperation(ctx: ToolContext, args: { operationId: string }) {
     try {
       await this.appCaller(ctx, 'get_operation');
-      return await this.superPath().administration.operation(ctx.projectKey, args.operationId);
-    } catch (err) {
-      throw this.appFailure(err);
-    }
-  }
-
-  async getMachineStatus(ctx: ToolContext, _args: { target: AdministrationTarget }): Promise<never> {
-    try {
-      await this.appCaller(ctx, 'get_machine_status');
-      throw machineReadRefused();
-    } catch (err) {
-      throw this.appFailure(err);
-    }
-  }
-
-  async getMachineLogs(
-    ctx: ToolContext,
-    _args: { target: AdministrationTarget } & AdministrationLogsOptions,
-  ): Promise<never> {
-    try {
-      await this.appCaller(ctx, 'get_machine_logs');
-      throw machineReadRefused();
+      return await this.superPath().direct.operation(ctx.projectKey, args.operationId);
     } catch (err) {
       throw this.appFailure(err);
     }

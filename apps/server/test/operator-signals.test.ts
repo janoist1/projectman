@@ -317,7 +317,7 @@ describe('Operator system signals', () => {
     const wake = h.domain.operatorSignals.deliver('AR');
     await flush();
     expect(get(signal.id).deliveredAt).toBeNull();
-    await expect(h.domain.admission.exclusive(async () => true)).resolves.toBe(true);
+    await expect(h.domain.admission.exclusive('test', async () => true)).resolves.toBe(true);
     h.runner.setState((await tool()).sessionId, 'failed');
     await wake;
     await flush();

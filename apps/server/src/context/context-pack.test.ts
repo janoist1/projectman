@@ -47,6 +47,34 @@ import { dutyPrompt, handover } from './work-item';
 const builder = createContextPackBuilder();
 
 describe('context preview sections', () => {
+  it.each(AI_BUILT_IN_ROLE_IDS)('keeps the %s launch prompt within its byte budget', (role) => {
+    const project = buildProject();
+    addMember(project, `budget-${role}`, role);
+    const pack = builder.build(input({ project, handle: `budget-${role}` }));
+    const bytes = Buffer.byteLength(pack.appendSystemPrompt);
+    const budgets = {
+      project_manager: 16_500,
+      business_analyst: 12_500,
+      architect: 12_500,
+      designer: 12_500,
+      developer: 12_500,
+      lead_developer: 14_000,
+      code_review: 12_750,
+      security_review: 12_000,
+      qa: 12_250,
+      devops: 13_000,
+      communication: 12_000,
+      support: 12_000,
+      researcher: 11_900,
+      maintainer: 11_800,
+      coach: 12_250,
+      watchdog: 12_100,
+      content: 11_800,
+      translator: 11_800,
+      docs: 11_800,
+    };
+    expect(bytes).toBeLessThanOrEqual(budgets[role]);
+  });
   it.each(['claude', undefined, 'codex', 'gemini', 'nanogpt'] as const)(
     'defers only placement-dependent sections for %s',
     (provider) => {

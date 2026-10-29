@@ -12,7 +12,6 @@ export type { EngineRecord } from './engines';
 import { createProjectEngineRepository } from './project-engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
-import { createOperatorGrantRepository } from './operator-grants';
 import { createSuperAuditRepository } from './super-audit';
 import { createSuperHandoffRepository } from './super-handoffs';
 export type { StoredSuperHandoff, StoredSuperOperation } from './super-handoffs';
@@ -64,7 +63,6 @@ import { createOperatorSignalRepository } from './operator-signals';
 export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectChangeEventRepository } from './project-change-events';
-import { createReleaseDeploymentRepository } from './release-deployments';
 import { createReleasePublicationRepository } from './release-publications';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
@@ -89,7 +87,7 @@ import { createTimelineRepository } from './timeline';
 import { createTokenUsageRepository } from './token-usage';
 import { createAuthSessionRepository, createUserRepository } from './users';
 
-export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion } from './database';
+export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion, statementCount } from './database';
 export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord } from './attachments';
@@ -109,6 +107,7 @@ export type { UserRecord } from './users';
 export type { ProjectRecord } from './projects';
 export type { TaskPatch } from './tasks';
 export { encodeWorkItem, decodeWorkItem } from './sessions';
+export type { TaskSessionActivity } from './sessions';
 
 /** All repositories over one database connection. */
 export function createRepositories(db: Db) {
@@ -121,7 +120,6 @@ export function createRepositories(db: Db) {
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
     integratorKeyAudit: createIntegratorKeyAuditRepository(db),
-    operatorGrants: createOperatorGrantRepository(db),
     superAudit: createSuperAuditRepository(db),
     superHandoffs: createSuperHandoffRepository(db),
     invitations: createInvitationRepository(db),
@@ -143,7 +141,6 @@ export function createRepositories(db: Db) {
     taskMerges: createTaskMergeRepository(db),
     mergeTrains: createMergeTrainRepository(db),
     releases: createReleaseRepository(db),
-    releaseDeployments: createReleaseDeploymentRepository(db),
     releasePublications: createReleasePublicationRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),

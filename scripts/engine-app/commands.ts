@@ -1,8 +1,11 @@
 import path from 'node:path';
 import { CloudError, badUsage } from '../cloud/errors';
 import type { EnginePackageRequest } from './package';
+import type { EngineAppBuildRequest } from './build';
+import { RELEASE_TAG_PATTERN } from '@projectman/shared';
 
-const USAGE = 'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>]';
+const USAGE =
+  'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>] | build --package <dir> --out <dir> [--ad-hoc | --identity <name> --team-id <id> --notary-profile <name>] | publish --tag <tag> --config <absolute-file>';
 
 export interface EngineAppCliDeps {
   /** The remote the commit is fetched from when `--repo` is absent: `origin` of the source checkout. */
@@ -10,6 +13,8 @@ export interface EngineAppCliDeps {
   sourceRepo: string;
   cwd: string;
   build(request: EnginePackageRequest): Promise<{ root: string }>;
+  buildApp?(request: EngineAppBuildRequest): Promise<{ root: string }>;
+  publish?(request: { tag: string; config?: string; repositoryUrl: string }): Promise<void>;
   out(text: string): void;
   err(text: string): void;
 }
@@ -19,10 +24,67 @@ function option(args: string[], name: string): string | undefined {
   return index === -1 ? undefined : args[index + 1];
 }
 
-/** `package --commit <sha> --out <dir> [--repo <url>]`. Exit status: 0 done, 1 failed, 2 refused, 64 wrong usage. */
+/** Engine package/app commands. Exit status: 0 done, 1 failed, 2 refused, 64 wrong usage. */
 export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): Promise<number> {
   try {
     const [command, ...args] = argv;
+    if (command === 'publish') {
+      const seen = new Set<string>();
+      for (let index = 0; index < args.length; index += 2) {
+        const key = args[index]!;
+        if (
+          !['--tag', '--config'].includes(key) ||
+          seen.has(key) ||
+          !args[index + 1] ||
+          args[index + 1]!.startsWith('--')
+        )
+          throw badUsage('usage: npm run engine-app -- publish --tag <tag> --config <absolute-file>');
+        seen.add(key);
+      }
+      const tag = option(args, '--tag');
+      const config = option(args, '--config');
+      if (!tag || !RELEASE_TAG_PATTERN.test(tag) || (config && !path.isAbsolute(config)) || !deps.publish)
+        throw badUsage('publish requires --tag <release-tag> and an absolute --config path');
+      const repositoryUrl = await deps.originUrl();
+      if (!repositoryUrl) throw badUsage('the source checkout has no origin remote');
+      await deps.publish({ tag, config, repositoryUrl });
+      deps.out(`published engine app for ${tag}`);
+      return 0;
+    }
+    if (command === 'build') {
+      const allowed = new Set(['--package', '--out', '--identity', '--team-id', '--notary-profile']);
+      const seen = new Set<string>();
+      for (let index = 0; index < args.length; index++) {
+        const key = args[index]!;
+        if (seen.has(key)) throw badUsage(USAGE);
+        seen.add(key);
+        if (key === '--ad-hoc') continue;
+        if (!allowed.has(key) || !args[index + 1] || args[index + 1]!.startsWith('--')) throw badUsage(USAGE);
+        index++;
+      }
+      if (
+        seen.has('--ad-hoc') &&
+        ['--identity', '--team-id', '--notary-profile'].some((key) => seen.has(key))
+      )
+        throw badUsage('--ad-hoc cannot be combined with signing options');
+      const packageDir = option(args, '--package');
+      const outDir = option(args, '--out');
+      if (!packageDir || !outDir || !deps.buildApp) throw badUsage(USAGE);
+      const originUrl = await deps.originUrl();
+      if (!originUrl) throw badUsage('the source checkout has no origin remote');
+      const { root } = await deps.buildApp({
+        packageDir: path.resolve(deps.cwd, packageDir),
+        outDir: path.resolve(deps.cwd, outDir),
+        sourceRepo: deps.sourceRepo,
+        originUrl,
+        adHoc: args.includes('--ad-hoc'),
+        identity: option(args, '--identity'),
+        teamId: option(args, '--team-id'),
+        notaryProfile: option(args, '--notary-profile'),
+      });
+      deps.out(root);
+      return 0;
+    }
     if (command !== 'package') throw badUsage(USAGE);
     const commit = option(args, '--commit');
     const out = option(args, '--out');
@@ -38,8 +100,7 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
     deps.out(root);
     return 0;
   } catch (error) {
-    if (!(error instanceof CloudError)) throw error;
-    deps.err(`engine-app: ${error.message}`);
-    return error.exitCode;
+    deps.err(`engine-app: ${error instanceof Error ? error.message : String(error)}`);
+    return error instanceof CloudError ? error.exitCode : 1;
   }
 }

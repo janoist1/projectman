@@ -8,6 +8,7 @@ export {
   recipientHasCardRole,
   staleReasonFor,
   senderResultLabelFor,
+  roundEventsOnce,
 } from './staleness';
 export type {
   MessageHoldName,

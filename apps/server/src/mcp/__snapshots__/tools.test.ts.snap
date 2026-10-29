@@ -122,7 +122,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "recipient": {
-          "description": "Suggested todo recipient (default owner); screening decides. integrator reaches the machine queue only from a member with machine access.",
+          "description": "Suggested todo recipient (default owner); screening decides. The integrator gets it when the screening member has machine access and an integrator is connected.",
           "enum": [
             "owner",
             "integrator",
@@ -651,7 +651,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Execute one command as the Operator or PM",
     },
-    "description": "Only the Operator or selected PM, in its own general conversation during an open owner message or answer. The PM may use task_create, task_update, task_labels, task_start, task_cancel, member_update, merge_order and operate. Every other kind, including administration, is refused with command_not_for_project_manager; with machine access enabled use open_integrator_todo for the integrator, otherwise ask the owners with ask_human. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; reason is the owner’s stated reason. workspace_release, inbox_resolve, merge, merge_order and invite_create run only when the open request is an owner’s own message or answer; for a queue item or another member’s message the server refuses them (operator_owner_only), so ask the owners with ask_human. On a member’s request task_labels runs with your own label rights: approval and human-only labels are refused. Use operate for configuration, member, session, message and project-pause changes. For the Operator, kinds operate and member_update are refused here with super_operation_unsupported. A K3 effect (deletion, security, cost and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Only the Operator may request machine operations (administration), which need the owner’s grant: without one the call fails with operator_grant_inactive, and you hand the matter over to the owner. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.",
+    "description": "Only the Operator or selected PM, in its own general conversation during an open owner message or answer. The PM may use task_create, task_update, task_labels, task_start, task_cancel, member_update, merge_order and operate. Every other kind is refused with command_not_for_project_manager; with machine access enabled use open_integrator_todo for the integrator, otherwise ask the owners with ask_human. Starts ONE command on the shared operation path, logged as you: {operation}. command is {kind, ...fields of that kind}. workspace_release frees the workspace an unresolved process cleanup keeps reserved without proof that the processes stopped: only on the owner’s explicit request in that conversation, never on a signal by itself; reason is the owner’s stated reason. workspace_release, inbox_resolve, merge, merge_order and invite_create run only when the open request is an owner’s own message or answer; for a queue item or another member’s message the server refuses them (operator_owner_only), so ask the owners with ask_human. On a member’s request task_labels runs with your own label rights: approval and human-only labels are refused. Use operate for configuration, member, session, message and project-pause changes. For the Operator, kinds operate and member_update are refused here with super_operation_unsupported. A K3 effect (deletion, security, cost and permission decisions) is not run: the operation waits in waiting_owner and the owner answers with their own login; after the owner’s yes the server runs it by itself, so do not repeat the call. Machine operations go through the integrator on the owner's request. request_key (1–100 characters of A-Z a-z 0-9 . _ -) names this call within the request: the same key is the same operation and never runs twice; the same key with another command is refused (super_request_conflict). Follow it with get_operation until the state is final.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -667,7 +667,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                 "invite_create",
                 "merge",
                 "merge_order",
-                "administration",
                 "task_create",
                 "task_update",
                 "task_labels",
@@ -3462,49 +3461,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "propose_operator_knowledge",
     "title": "Propose shared Operator knowledge",
-  },
-  {
-    "annotations": {
-      "destructiveHint": false,
-      "openWorldHint": false,
-      "readOnlyHint": false,
-      "title": "Propose a release",
-    },
-    "description": "Propose releasing this instance's default branch (or the merge commit \`commit\`) to the owners. Only a member with the deployment duty may call it. It makes a release card and an approval request in the owners' inbox; nothing is deployed until an owner approves, and the release watcher deploys it. The release has the merged cards between the last release and the commit. Only one release is open at a time. With \`preview: true\` nothing is recorded: the result lists the commit and the cards, so you can write the summary. Without it your session ends after the call: the owner decides and the watcher continues, so do nothing more afterwards.",
-    "inputSchema": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "additionalProperties": false,
-      "properties": {
-        "commit": {
-          "description": "A merge commit of a merged card; default: the head of the default branch.",
-          "pattern": "^[0-9a-f]{40}$",
-          "type": "string",
-        },
-        "preview": {
-          "description": "Only list the commit and the cards of the release; record nothing (default false).",
-          "type": "boolean",
-        },
-        "summary": {
-          "description": "English markdown: what the release changes, as short bullets with the card keys. It becomes the text of the GitHub release.",
-          "maxLength": 4000,
-          "minLength": 1,
-          "type": "string",
-        },
-        "title": {
-          "description": "The release card title, e.g. "Release 2026.10.11".",
-          "maxLength": 200,
-          "minLength": 1,
-          "type": "string",
-        },
-      },
-      "required": [
-        "title",
-        "summary",
-      ],
-      "type": "object",
-    },
-    "name": "propose_release",
-    "title": "Propose a release",
   },
   {
     "annotations": {

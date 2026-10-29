@@ -38,9 +38,6 @@ interface MemberQueueProjects {
 
 const TITLE_MAX = 200;
 
-/** How far back the startup repair of the untyped messages (PM-1108) looks; an older message is not sent now. */
-const UNTYPED_MESSAGE_REPAIR_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
-
 /**
  * How the PM's screening item ends when its question leaves screening: the PM decided it (done), the people
  * got it because the PM could not or did not (handed off), or something else ended it (null: cancelled).
@@ -398,19 +395,25 @@ export class MemberQueue {
 
   /**
    * PM-1108: a session that a screening or a signal started took the member's whole place batch, closed the
-   * messages in it as delivered, and typed none of them. Their receipts stay pending, so they come back to the
-   * queue; the ones older than the repair window are left alone. Once the items are open the query finds none.
+   * messages in it as delivered, and typed none of them. Their receipts stay pending. The victims are counted
+   * (read-only, every age) and logged, then opened again once: the mark in `instance_meta` keeps the repair
+   * from running at every start, as the cause is fixed and no new victim can appear.
    */
   private reopenUntypedMessages(): void {
     const repo = this.ctx.repos.memberQueue;
-    const since = new Date(this.ctx.now().getTime() - UNTYPED_MESSAGE_REPAIR_WINDOW_MS).toISOString();
-    const ids = repo.listUntypedMessages(since);
-    if (ids.length === 0) return;
-    const reopened = ids.filter((id) => repo.reopen(id));
-    this.ctx.logger.warn(
-      { found: ids.length, reopened: reopened.length, since },
-      'reopened message queue items that were closed as delivered without being typed',
+    if (repo.untypedRepairDone()) return;
+    const ids = repo.listUntypedMessages();
+    this.ctx.logger.info(
+      { found: ids.length },
+      'counted message queue items closed as delivered but not typed',
     );
+    const reopened = ids.filter((id) => repo.reopen(id));
+    repo.markUntypedRepairDone(isoNow(this.ctx));
+    if (reopened.length > 0)
+      this.ctx.logger.warn(
+        { found: ids.length, reopened: reopened.length },
+        'reopened message queue items that were closed as delivered without being typed',
+      );
     for (const id of reopened) {
       const item = repo.get(id);
       if (item) this.changed([item]);

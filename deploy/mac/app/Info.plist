@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.projectman.engine-app</string>
+<key>CFBundleExecutable</key><string>EngineMenu</string>
+<key>CFBundleName</key><string>projectman motor</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleDevelopmentRegion</key><string>hu</string>
+<key>CFBundleShortVersionString</key><string>{{shortVersion}}</string>
+<key>CFBundleVersion</key><string>{{bundleVersion}}</string>
+<key>LSUIElement</key><true/>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>LSArchitecturePriority</key><array><string>arm64</string></array>
+<key>ProjectmanReleaseTag</key><string>{{tag}}</string>
+<key>ProjectmanEngineVersion</key><string>{{version}}</string>
+<key>ProjectmanReleaseRepo</key><string>{{repo}}</string>
+<key>ProjectmanTeamId</key><string>{{teamId}}</string>
+</dict></plist>

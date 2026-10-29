@@ -552,7 +552,9 @@ export class MergeTrains {
     for (const { member, failure, url } of blamed) {
       const row = ctx.repos.taskMerges.get(member.mergeId);
       if (!row || row.state !== 'running' || row.trainId !== train.id) continue;
+      // The failure is the card's own now: leave the train so the merger gets the individual instruction.
       this.steps.save(row, {
+        trainId: undefined,
         check: { command, runId: failure.runId, status: 'failed', runner, ...(url ? { url } : {}) },
       });
       await this.steps.fail(row, config, failure);
@@ -567,46 +569,39 @@ export class MergeTrains {
     return true;
   }
 
-  private async terminal(
-    run: MergeRun,
-    reason: MergeBlockReason,
-    message: string,
-    failure?: MergeFailure,
-  ): Promise<void> {
+  private async terminal(run: MergeRun, reason: MergeBlockReason, message: string): Promise<void> {
     const train = run.train!;
     const { ctx, timeline } = this.deps;
     ctx.unitOfWork(() => {
-      this.save(train, { state: failure ? 'failed' : 'blocked', finishedAt: isoNow(ctx) });
+      this.save(train, { state: 'blocked', finishedAt: isoNow(ctx) });
       for (const row of this.rows(train)) {
         this.steps.save(row, {
-          state: failure ? 'failed' : 'blocked',
+          state: 'blocked',
           step: undefined,
-          failure,
-          block: failure ? undefined : { reason, message, at: isoNow(ctx) },
+          failure: undefined,
+          block: { reason, message, at: isoNow(ctx) },
         });
         this.steps.clearAlert(row);
-        const common = { projectKey: row.projectKey, taskKey: row.taskKey, actor: SYSTEM_ACTOR };
-        if (failure)
-          timeline.append({ ...common, type: 'task_merge_failed', data: { ...failure, mergeId: row.id } });
-        else
-          timeline.append({
-            ...common,
-            type: 'task_merge_blocked',
-            data: {
-              mergeId: row.id,
-              repo: row.repo,
-              base: row.base,
-              reason,
-              message,
-              landed: row.landed,
-              mergeCommit: row.mergeCommit,
-            },
-          });
+        timeline.append({
+          projectKey: row.projectKey,
+          taskKey: row.taskKey,
+          actor: SYSTEM_ACTOR,
+          type: 'task_merge_blocked',
+          data: {
+            mergeId: row.id,
+            repo: row.repo,
+            base: row.base,
+            reason,
+            message,
+            landed: row.landed,
+            mergeCommit: row.mergeCommit,
+          },
+        });
       }
     });
     const config = await this.deps.projects.config(train.projectKey);
     for (const row of this.rows(train)) {
-      if (!failure && memberOf(config, row.merger)?.kind === 'human')
+      if (memberOf(config, row.merger)?.kind === 'human')
         this.deps.inbox.create({
           projectKey: row.projectKey,
           taskKey: row.taskKey,

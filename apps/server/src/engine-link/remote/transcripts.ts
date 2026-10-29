@@ -57,8 +57,12 @@ export function createRemoteTranscripts(options: {
           uploadToken: ticket.token,
         });
         const received = ticket.take(receipt);
-        // The engine already cut the items to the window; the file is parsed and validated once, here.
-        return ChatItem.array().parse(JSON.parse(await readFile(received.path, 'utf8')));
+        // The engine already cut the items to the window. The file is parsed once; each item is
+        // validated in place, so the hub never holds the raw and the validated copy side by side.
+        const items: unknown = JSON.parse(await readFile(received.path, 'utf8'));
+        if (!Array.isArray(items)) throw new Error('the uploaded transcript is not a list of items');
+        for (let i = 0; i < items.length; i += 1) items[i] = ChatItem.parse(items[i]);
+        return items as ChatItem[];
       } finally {
         ticket.dispose();
       }

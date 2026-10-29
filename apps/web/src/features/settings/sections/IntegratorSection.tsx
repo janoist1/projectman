@@ -3,9 +3,6 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import type { CreateIntegratorAccessKeyRequest, IntegratorAccessKeyInfo } from '@projectman/shared';
 import { Link } from 'react-router';
 import { api } from '../../../api/endpoints';
-import { useOperatorGrant } from '../../../api/queries';
-import { queryKeys } from '../../../api/queryKeys';
-import { isApiError } from '../../../api/client';
 import { useProject } from '../../../app/contexts';
 import { Button } from '../../../components/Button';
 import { Chip } from '../../../components/Chip';
@@ -21,7 +18,6 @@ import { errorMessage } from '../../../lib/errors';
 import { AssistantInstruction, mcpUrl } from './AssistantInstruction';
 import { SettingsSection } from './SettingsSection';
 import styles from './IntegratorSection.module.css';
-import { OperatorGrantCard } from './OperatorGrantCard';
 
 export function IntegratorSection() {
   const { key, me } = useProject();
@@ -29,19 +25,12 @@ export function IntegratorSection() {
   const toast = useToast();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLElement | null>(null);
-  // The host owner and an owner account hold a key (PM-1063); the machine grant and the log are the host's.
+  // The host owner and an owner account hold a key (PM-1063); each sees their own credentials.
   const host = me.hostOwner === true;
   const holder = host || me.ownerAccount === true;
   const ownLogin = holder && !me.via;
   const queryKey = ['integrator-keys', me.userId];
   const query = useQuery({ queryKey, queryFn: api.integratorKeys, enabled: ownLogin });
-  const grant = useOperatorGrant(host);
-  const grantAudit = useQuery({
-    queryKey: queryKeys.operatorGrantAudit,
-    queryFn: api.operatorGrantAudit,
-    enabled: host,
-    retry: false,
-  });
   const [dialog, setDialog] = useState<'create' | 'revoke' | null>(null);
   const [mode, setMode] = useState<'super' | 'read'>('super');
   const [days, setDays] = useState<CreateIntegratorAccessKeyRequest['expiresInDays']>(7);
@@ -168,30 +157,7 @@ export function IntegratorSection() {
       </li>
     );
   };
-  const grantEntries = grantAudit.data?.entries ?? [];
   const log = [
-    ...grantEntries
-      .filter((entry) => entry.action !== 'replaced')
-      .map((entry) => ({
-        id: `${entry.grantId}-${entry.action}`,
-        at: entry.at,
-        text:
-          entry.action === 'expired'
-            ? t('operatorGrant.auditExpired')
-            : entry.action === 'revoked'
-              ? t('operatorGrant.auditRevoked', { by: entry.by })
-              : t(
-                  grantEntries.some((other) => other.action === 'replaced' && other.at === entry.at)
-                    ? 'operatorGrant.auditExtended'
-                    : 'operatorGrant.auditGranted',
-                  {
-                    by: entry.by,
-                    expiry: entry.expiresAt
-                      ? t('operatorGrant.until', { time: formatStamp(entry.expiresAt) })
-                      : t('operatorGrant.untilRevoked'),
-                  },
-                ),
-      })),
     ...(audit.data?.pages.flatMap((page) => page.entries) ?? []).map((entry) => ({
       id: `key-${entry.seq}`,
       at: entry.at,
@@ -199,23 +165,10 @@ export function IntegratorSection() {
     })),
   ].sort((a, b) => b.at.localeCompare(a.at));
   return (
-    <SettingsSection
-      id="settings-integrator"
-      title={t(host ? 'operatorGrant.title' : 'operatorGrant.clientTitle')}
-    >
+    <SettingsSection id="settings-integrator" title={t('integratorKey.title')}>
       <div ref={root} className={styles.content}>
-        {host ? (
-          <>
-            <p>{t('operatorGrant.intro')}</p>
-            <OperatorGrantCard />
-          </>
-        ) : null}
         <div className={styles.keyRow}>
-          {host ? <h3>{t('operatorGrant.clientTitle')}</h3> : null}
           <p>{t('integratorKey.intro')}</p>
-          {grant.data?.active === false && active.some((info) => info.mode === 'super') ? (
-            <p className={styles.info}>{t('operatorGrant.clientInactive')}</p>
-          ) : null}
           {!ownLogin ? <p role="status">{t('integratorKey.ownerOnly')}</p> : null}
           {ownLogin && query.isPending ? <LoadingState /> : null}
           {query.isError ? (
@@ -273,13 +226,8 @@ export function IntegratorSection() {
         </div>
         {host ? (
           <div className={styles.keyRow}>
-            <h3>{t('operatorGrant.audit')}</h3>
-            {grantAudit.isError && !(isApiError(grantAudit.error) && grantAudit.error.status === 403) ? (
-              <ErrorState error={grantAudit.error} onRetry={() => void grantAudit.refetch()} />
-            ) : null}
-            {!log.length && !audit.isLoading && !grantAudit.isLoading ? (
-              <p>{t('operatorGrant.auditEmpty')}</p>
-            ) : null}
+            <h3>{t('integratorKey.audit')}</h3>
+            {!log.length && !audit.isLoading ? <p>{t('integratorKey.auditEmpty')}</p> : null}
             {log.length ? (
               <ul className={styles.audit}>
                 {log.map((entry) => (

@@ -150,7 +150,7 @@ export class WorkStarts implements LabelWait, SeniorWait {
   }): Promise<boolean> {
     const { projectKey, taskKey, from, to, developer, pulled } = input;
     let assigned = false;
-    const done = await this.admission.exclusive(async () => {
+    const done = await this.admission.exclusive('work-start', async () => {
       try {
         return await this.starts.startLocked(projectKey, taskKey, {
           actor: SYSTEM_ACTOR,

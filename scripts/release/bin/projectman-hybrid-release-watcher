@@ -1,5 +1,0 @@
-#!/bin/sh
-# The hybrid release watcher's LaunchAgent starts this file, so that macOS (System Settings > General > Login Items &
-# Extensions) lists the job as "projectman-hybrid-release-watcher" and not as "node" (PM-751). It runs the command it
-# is given: the plist passes the absolute path of node and the watcher's arguments. Nothing else belongs here.
-exec "$@"

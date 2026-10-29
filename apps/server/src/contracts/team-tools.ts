@@ -19,7 +19,6 @@ import type {
   HistorySourceRead,
   HistoryStatsInput,
   MemberHandle,
-  MemberQueueItem,
   MergeCheckRun,
   MergeCheckRunKind,
   OperatorDiagnostics,
@@ -58,7 +57,7 @@ import type {
   OperatorPreferenceDocument,
   ConfigChangeRow,
   ProjectDoc,
-  SuperCommand,
+  NewSuperCommand,
   SuperHandoff,
   ExternalAttachmentRead,
   ExternalDocWriteState,
@@ -67,7 +66,6 @@ import type {
 } from '@projectman/shared';
 import type {
   Actor,
-  AdministrationTarget,
   InboxItem,
   ListSuperHandoffsQuery,
   HostRequestState,
@@ -80,12 +78,6 @@ import type {
   SuperOperation,
   SuperOperationDetail,
 } from '@projectman/shared';
-import type {
-  AdministrationLogsOptions,
-  AdministrationMachineSnapshot,
-  AdministrationStatus,
-  DiagnosticLogEntry,
-} from './administration';
 import type { IntegratorPrincipal } from './integrator-principal';
 import type { CardQuestion, CardWorker, GuideTopic } from './context';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
@@ -395,18 +387,6 @@ export interface ScreenshotRun {
   outputTail?: string;
 }
 
-/**
- * What propose_release answers (PM-491): the commit and the cards of the release. In preview
- * mode nothing was recorded, so there is no release id and no card.
- */
-export interface ProposedRelease {
-  releaseId?: string;
-  taskKey?: string;
-  commit: string;
-  baseCommit: string | null;
-  tasks: { key: string; title: string }[];
-}
-
 /** What publish_release answers (PM-968): the tag and the GitHub release of a merged commit. */
 export interface PublishedRelease {
   repo: string;
@@ -426,17 +406,6 @@ export interface PublishReleaseArgs {
   commit?: string;
   tag?: string;
   preview?: boolean;
-}
-
-/**
- * What check_release answers (PM-542): the rehearsal of propose_release. Either the candidate, or the refusal
- * propose_release would give now. Nothing is recorded.
- */
-export interface ReleaseCheckResult {
-  candidate: { commit: string; baseCommit: string | null; tasks: { key: string; title: string }[] } | null;
-  refusal: { code: string; message: string } | null;
-  /** The members with the deployment duty: they may propose the release. */
-  proposers: string[];
 }
 
 /** What became of the Operator's start of a member on work without a card (PM-541). */
@@ -644,21 +613,11 @@ export interface ScreenshotToolsHandler {
 /** The tools of services/releases (PM-606). */
 export interface ReleaseToolsHandler {
   /**
-   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
-   * branch's head (or `commit`); `preview` only lists what the release would contain.
-   */
-  proposeRelease(
-    ctx: ToolContext,
-    args: { title: string; summary: string; commit?: string; preview?: boolean },
-  ): Promise<ProposedRelease>;
-  /**
    * publish_release (PM-968): the member with the deployment duty tags a merged commit of a project repository
    * and makes its public GitHub release, with the merged cards since the previous release in the notes. No
    * approval; `preview` records nothing. Repeating a call finishes an interrupted publication.
    */
   publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease>;
-  /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
-  checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
 }
 
 /** The tools of services/email-channel (PM-941). */
@@ -1060,20 +1019,10 @@ export interface OperatorToolsHandler {
    */
   executeOperation(
     ctx: ToolContext,
-    args: { requestKey: string; taskKey?: string; command: SuperCommand },
+    args: { requestKey: string; taskKey?: string; command: NewSuperCommand },
   ): Promise<{ operation: SuperOperation }>;
   /** get_operation (PM-888): one operation of the project and, once recorded, its result. */
   getOperation(ctx: ToolContext, args: { operationId: string }): Promise<SuperOperationDetail>;
-  /** get_machine_status (PM-888): the administration status and, when the target has the capability, its machine. */
-  getMachineStatus(
-    ctx: ToolContext,
-    args: { target: AdministrationTarget },
-  ): Promise<{ status: AdministrationStatus; machine: AdministrationMachineSnapshot | null }>;
-  /** get_machine_logs (PM-888): the filtered diagnostic log of the hub or of an engine linked to the project. */
-  getMachineLogs(
-    ctx: ToolContext,
-    args: { target: AdministrationTarget } & AdministrationLogsOptions,
-  ): Promise<{ entries: DiagnosticLogEntry[] }>;
   startTask(
     ctx: ToolContext,
     args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
@@ -1226,7 +1175,6 @@ export interface ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: { taskKey: string; offset?: number; limit?: number },
   ): Promise<AttachmentPage>;
-  checkRelease(ctx: ExternalToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
   listSuperHandoffs(
     ctx: ExternalToolContext,
     query: ListSuperHandoffsQuery,
@@ -1244,18 +1192,6 @@ export interface ExternalToolsHandler {
     ctx: ExternalToolContext,
     request: SuperDiagnosticsRequest,
   ): Promise<SuperDiagnosticsResponse>;
-  getAdministrationStatus(
-    ctx: ExternalToolContext,
-    target: AdministrationTarget,
-  ): Promise<{ status: AdministrationStatus }>;
-  getAdministrationLogs(
-    ctx: ExternalToolContext,
-    args: { target: AdministrationTarget } & AdministrationLogsOptions,
-  ): Promise<{ entries: DiagnosticLogEntry[] }>;
-  getMachineSnapshot(
-    ctx: ExternalToolContext,
-    target: AdministrationTarget,
-  ): Promise<{ snapshot: AdministrationMachineSnapshot }>;
   resolveIntegratorTodo(
     ctx: ExternalToolContext,
     args: { itemId: string; optionId: 'todo_done' | 'todo_cannot'; note?: string },
@@ -1327,11 +1263,6 @@ export interface ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: { role: BuiltInRoleId },
   ): Promise<RoleConfigurationRead>;
-  /** propose_release (PM-784): super keys only; a `preview` records nothing. */
-  proposeRelease(
-    ctx: ExternalToolContext,
-    args: { title: string; summary: string; commit?: string; preview?: boolean },
-  ): Promise<ProposedRelease>;
   requestStructuralReview(
     ctx: ExternalToolContext,
     args: { signalId: string; note: string },

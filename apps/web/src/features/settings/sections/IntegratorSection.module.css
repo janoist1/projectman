@@ -1,31 +1,3 @@
-.rights {
-  padding: 12px 14px;
-  border-radius: var(--radius-lg);
-  background: var(--c-subtle);
-  color: var(--c-ink-3);
-  font-size: var(--text-sm);
-}
-.skeleton {
-  display: grid;
-  gap: 10px;
-}
-.skeleton span {
-  height: 14px;
-  border-radius: 6px;
-  background: var(--c-muted);
-}
-.skeleton span:last-child {
-  width: 70%;
-}
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--c-mark-off);
-}
-.rights p {
-  margin-bottom: 0;
-}
 .facts {
   margin: 0;
   display: grid;
@@ -78,13 +50,6 @@
   border-radius: var(--radius-lg);
   background: var(--c-accent-soft);
   color: var(--c-accent-text);
-}
-.grantDialog {
-  display: grid;
-  gap: 12px;
-}
-.grantDialog > p {
-  margin: 0;
 }
 .audit {
   list-style: none;

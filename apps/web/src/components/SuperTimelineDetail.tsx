@@ -40,7 +40,12 @@ export function SuperTimelineDetail({
   const handoff = handoffs.data?.handoff;
   const op = operation.data?.operation;
   const result = operation.data?.result;
-  const ownerCommand = op?.command.kind === 'administration' && op.command.request.kind === 'owner_command';
+  const ownerCommand =
+    op?.command.kind === 'administration' &&
+    typeof op.command.request === 'object' &&
+    op.command.request !== null &&
+    'kind' in op.command.request &&
+    op.command.request.kind === 'owner_command';
   const state = SuperState.safeParse(event.data.state);
   const source = op?.handoffId
     ? events.find((item) => item.type === 'super_handoff_changed' && item.data.handoffId === op.handoffId)

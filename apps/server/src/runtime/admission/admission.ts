@@ -58,6 +58,9 @@ import {
   waitingOf,
 } from './rules';
 
+/** How long the admission lock may be held before the log says who holds it (PM-1120). */
+export const ADMISSION_LOCK_WARN_MS = 10_000;
+
 /** What an `attempt` came to (PM-543): the start ran or no longer applies, or admission put it off. */
 type AttemptOutcome = { kind: 'done' } | { kind: 'deferred'; waiting: TaskStartWaiting };
 
@@ -162,9 +165,28 @@ export class Admission {
     this.onOutageRefusal = deps.onOutageRefusal;
   }
 
-  /** Runs `fn` alone among admission decisions and the starts they allow (across projects). */
-  exclusive<T>(fn: () => Promise<T>): Promise<T> {
-    return this.locks.run('ai-admission', fn);
+  /**
+   * Runs `fn` alone among admission decisions and the starts they allow (across projects). A lock held past
+   * `ADMISSION_LOCK_WARN_MS` is logged once with the holder's `label` (PM-1120): every other start waits for it.
+   */
+  exclusive<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    return this.locks.run('ai-admission', async () => {
+      const heldSince = Date.now();
+      const timer = setTimeout(
+        () =>
+          this.ctx.logger.warn(
+            { holder: label, heldMs: Date.now() - heldSince },
+            'the admission lock is held for a long time',
+          ),
+        ADMISSION_LOCK_WARN_MS,
+      );
+      timer.unref();
+      try {
+        return await fn();
+      } finally {
+        clearTimeout(timer);
+      }
+    });
   }
 
   /**
@@ -185,7 +207,7 @@ export class Admission {
   holders(config: ProjectConfig, handle: string, excludeTaskKey?: string): CapacityHolder[] {
     const holders: CapacityHolder[] = [];
     const ofTask = new Map<string, CapacityHolder>();
-    for (const s of this.sessions.list(config.project.key, { member: handle })) {
+    for (const s of this.sessions.listLive(config.project.key, handle)) {
       if (!this.sessions.isRunning(s.id)) continue;
       const awaitsFirstTurn = this.sessions.awaitsFirstTurn(s.id);
       const working = isSessionAtWork(s, { awaitsFirstTurn, pendingInput: false, messageOnItsWay: false });
@@ -499,7 +521,7 @@ export class Admission {
    * `done` (the start ran, or no longer applies) or `deferred` with why it waits.
    */
   async attempt(start: AutomaticStart): Promise<AttemptOutcome> {
-    return this.exclusive(() =>
+    return this.exclusive('deferred-attempt', () =>
       this.publishingWaitingChanges(start.taskKey, async (): Promise<AttemptOutcome> => {
         // The previous deferral of this start stays stored until the attempt settles.
         const previous = this.deferred.take(start.key);
@@ -796,7 +818,7 @@ export class Admission {
 
   private hasLiveScheduledRun(projectKey: string, handle: string): boolean {
     return this.sessions
-      .list(projectKey, { member: handle })
+      .listLive(projectKey, handle)
       .some((s) => s.workItem.type === 'schedule' && this.sessions.isRunning(s.id));
   }
 

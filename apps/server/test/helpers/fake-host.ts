@@ -102,11 +102,6 @@ class FakeMachine {
     crossOriginStatus: 403,
   };
 
-  /** What the control socket answers a relayed request (`release-control`, PM-749); one line, or anything a test sets. */
-  controlAnswer: RunResult = { code: 0, stdout: '{"ok":true,"pause":null}\n', stderr: '' };
-  /** The inputs the relay received, as they arrived. */
-  controlInputs: (string | undefined)[] = [];
-
   private pollsSinceStart = 0;
 
   private readonly now: () => string;
@@ -229,11 +224,6 @@ class FakeMachine {
       case 'public-check':
         if (!this.running) return refuse('the board is not running');
         return done(JSON.stringify(this.publicCheck));
-      case 'release-control':
-        if (args.length > 0) return refuse('release-control takes no arguments');
-        if (!this.running) return refuse('the board is not running');
-        this.controlInputs.push(input);
-        return this.controlAnswer;
       default:
         return { code: 2, stdout: '', stderr: `host.sh: unknown subcommand ${subcommand}\n` };
     }

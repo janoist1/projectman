@@ -664,9 +664,6 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       'super_operate',
       'get_super_operation',
       'query_super_diagnostics',
-      'get_administration_status',
-      'get_administration_logs',
-      'get_machine_snapshot',
       'relay_owner_answer',
       'resolve_integrator_todo',
       'resolve_integrator_fix_limit',
@@ -688,7 +685,6 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     // The Operator's tools the super mode got (PM-784): readers also in the read mode, writers super only,
     const superWriters = [
       'write_project_docs',
-      'propose_release',
       'request_structural_review',
       'ask_human',
       'withdraw_question',
@@ -865,7 +861,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
   });
 
   describe('a step on a queue item (decision 66)', () => {
-    const createItem = (source: string, assignees: string[]) =>
+    const createItem = (source: string, assignees: string[], screenedBy?: string) =>
       h.app.projectman.domain.inbox.create({
         projectKey: 'AR',
         kind: 'question',
@@ -879,6 +875,7 @@ describe('the bearer MCP endpoint (PM-760)', () => {
           screening: {
             until: now.toISOString(),
             outcome: 'todo',
+            ...(screenedBy ? { by: screenedBy } : {}),
             todo: { what: 'Fictional', where: 'Hub', expected: 'Result', recipient: 'integrator' },
           },
         },
@@ -906,6 +903,28 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       const item = createItem('ghost', ['owner']);
       const result = await operate(key('super').secret, item.id);
       expect(result.isError).toBe(true);
+      expect(result.structuredContent?.errorCode).toBe('issuer_without_machine_access');
+    });
+
+    it('makes the step as the screening member when the asker has no machine access', async () => {
+      const { secret, keyId, prefix } = key('super');
+      const item = createItem('dev-1', ['owner'], 'pm');
+      const result = await operate(secret, item.id);
+      expect(result.structuredContent?.operation.state).toBe('succeeded');
+      const sent = h.app.projectman.repos.messages
+        .list('AR')
+        .find((m) => m.to.includes('dev-2') && m.body.includes('Fictional'));
+      expect(sent?.actor).toEqual({
+        kind: 'ai',
+        handle: 'pm',
+        via: 'integrator',
+        through: { holder: 'owner', credential: { id: keyId, prefix } },
+      });
+    });
+
+    it('refuses an item whose screening member has no machine access', async () => {
+      const item = createItem('dev-1', ['owner'], 'dev-2');
+      const result = await operate(key('super').secret, item.id);
       expect(result.structuredContent?.errorCode).toBe('issuer_without_machine_access');
     });
 

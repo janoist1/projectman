@@ -213,7 +213,7 @@ one-writer pull guard and restore procedure are unchanged; see the EC2 live rehe
 Mac engine's outbound connection.
 
 The one-off `seed` (the first upload of the Mac's data) is retired (PM-1116): the cloud is already seeded.
-The commit before the retirement is tagged `retired-migrate-dns`. `pull-data` stays; see
+The commit before the retirement is `358bb7c7` on `main`, tagged `retired-migrate-dns`. `pull-data` stays; see
 [AWS.md](AWS.md#pull-data).
 
 1. Zero Trust → Networks → Tunnels → create a tunnel, choose Docker, and copy the **token** only
@@ -411,7 +411,10 @@ was lost: `UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key
 
 Build the new image and deploy it (`npm run cloud -- deploy` on EC2). The platform sends SIGTERM; the entrypoint stops
 the tunnel, the server (its own shutdown pause) and then Litestream, so the last writes are
-shipped, and the new container comes up on the same volume. The engine reconnects by itself.
+shipped, and the new container comes up on the same volume. The engine reconnects by itself. Update its checkout to the same approved commit, run
+`npm ci`, `npm run build -w @projectman/server`, then `npm run engine -- service install`.
+Publish the GitHub release on request with `publish_release` after its preview; see
+[DEPLOY.md](DEPLOY.md#release-pm-1113).
 A database migration of a newer build is refused by an older one: do not roll back across a
 migration, restore instead.
 
@@ -442,9 +445,13 @@ run on the loopback of a **disposable copy** of a home, with no network. The ima
   `idle-<minutes>` sample every 10 minutes, and `end` (snapshot); then SIGTERM, and SIGKILL after 60 s.
   RSS, peak and swap come from `/proc/<pid>/status` (`VmRSS`, `VmHWM`, `VmSwap`) on Linux, where the
   peak is reset after each snapshot; on macOS from `ps` (peak and swap are `null`).
-- `heap-summary.mjs <snapshot>` — prints `{ liveBytes, nodeCount, byType }` (the top 40 type and
-  constructor-name groups by self size). It reads the snapshot as a stream and never prints string
-  content. `liveHeapMb` of the report comes from it.
+- `heap-summary.mjs <snapshot>` — prints `{ liveBytes, nodeCount, byType, retainers }`: `byType` is the
+  top 40 type and constructor-name groups by self size; `retainers` (PM-1105) names what holds the memory,
+  the 20 objects with the largest retained size (from the dominator tree over the strong edges), each with
+  its shortest retaining path from the root as `<edge> -> <type> <name>` steps (`.property`, `[index]`; an
+  edge name that is not an identifier shows as `(name hidden)`). It reads the snapshot as a stream, keeps
+  the graph in typed arrays (about 60 bytes per node and 17 per edge, a few hundred MB for a snapshot near
+  a 256 MB heap; run it on a laptop, not on the cloud machine) and never prints string content. `liveHeapMb` of the report comes from it.
 
 The load (`--login-file`, JSON `{ "email": "...", "password": "..." }`) logs in once (the cookie lives
 in memory only), then `--rounds` times asks, for every project, the reads the web app makes
@@ -490,17 +497,41 @@ with each other, not with the live container.
 
 ### What the RSS is made of (PM-1116)
 
-The RSS of the cloud server is far above its live JavaScript heap (the PM-773 profile read about 65 MB of
-live heap against about 650 MB of RSS), so most of the RSS is not live JavaScript objects. What it is
-made of (native allocations such as the SQLite page cache, allocator arenas, mapped code) is **not measured
-yet**; those are the suspects, not findings. Before a smaller instance is considered, measure the
-composition on the running machine, in this order:
+The RSS of the cloud server is well above its live JavaScript heap, so a large part of it is not live
+JavaScript objects. The PM-773 profile read about 65 MB of live heap against about 650 MB of RSS. The
+measurement below shows a smaller and stable footprint today.
 
-1. **`/proc/<pid>/smaps_rollup`** of the server process (`docker exec projectman-cloud sh -c 'cat
-/proc/$(pidof node)/smaps_rollup'`): `Rss` is the total, `Pss` the proportional share, `Anonymous` the
-   heap and native allocations (the part a smaller instance must hold), `Private_Dirty` what was
-   written and cannot be dropped. File-backed `Rss` minus `Anonymous` is the code and mapped files, which
-   the kernel can drop under pressure.
+**Measured on 2026-10-29** (chopper, the arm64 host with 1834 MiB, server at `e5a3ae16`, about
+1600 s after its start):
+
+| Part                                         | MB  | Source                                   |
+| -------------------------------------------- | --- | ---------------------------------------- |
+| `Rss` (total)                                | 406 | `smaps_rollup`; `VmHWM` (peak) 438       |
+| `Anonymous` (V8 heap and native allocations) | 351 | `smaps_rollup` `Anonymous`, = `RssAnon`  |
+| file-backed (node binary, libraries, addons) | 54  | `RssFile`; clean, the kernel can drop it |
+| shared memory                                | 0   | `RssShmem`                               |
+| `Private_Dirty`                              | 351 | written pages that cannot be dropped     |
+| swap                                         | 1   | `Swap`                                   |
+
+The memory log of the 22 hours before (six evenly spread lines, several server starts) read `rssMb`
+366–485 against `heapTotalMb` 121–189 and `heapUsedMb` 86–152. `rssMb - heapTotalMb` stayed between
+245 and 296 MB; minus the 54 MB of file-backed pages, the native anonymous remainder (SQLite page cache,
+the allocator's arenas and free memory, buffers outside the heap) is about 190–240 MB. It does not grow
+with the uptime: a plateau, not a leak. The machine had 961 MiB available (`free -m`), 98 MiB of swap in use.
+
+So: the server process holds about 400–490 MB, of which the JavaScript heap is 120–190 MB; the 650 MB of
+the PM-773 reading is not today's state. What the native remainder is made of in detail (SQLite against
+the allocator) is not split further; the profile below with `MALLOC_ARENA_MAX=2` is the next reading if it
+matters for an instance choice.
+
+To measure again, in this order:
+
+1. **`/proc/<pid>/smaps_rollup`** of the server process, read **on the host** (inside the container
+   `/proc/<pid>` is `EACCES`): `sudo cat /proc/<pid>/smaps_rollup` and the `VmHWM|RssAnon|RssFile|RssShmem`
+   lines of `/proc/<pid>/status`, with the node pid from `pgrep -a node`. `Rss` is the total, `Pss` the
+   proportional share, `Anonymous` the heap and native allocations (the part a smaller instance must
+   hold), `Private_Dirty` what was written and cannot be dropped. File-backed `Rss` minus `Anonymous` is
+   the code and mapped files, which the kernel can drop under pressure.
 2. **The memory log.** Set `PROJECTMAN_MEMORY_LOG_SECONDS=600` in `cloud.env` and read the `memory` lines
    of `npm run cloud -- logs` (`rssMb`, `heapUsedMb`, `heapTotalMb`, `externalMb`, `arrayBuffersMb`,
    `heapLimitMb`, `uptimeS`, every 10 minutes). `rssMb - heapTotalMb - externalMb` is the native remainder;
@@ -610,7 +641,7 @@ frame is a question for the architect and the owner.
 **What the image must have, and what this does not check by itself.** The model is a release asset: the
 Dockerfile runs `npm run prepare:history-model` before `npm run build`, which copies it to
 `dist/models/history` and the native ONNX Runtime and `sharp` binaries come from the image's own `npm ci` on the
-ARM64 build. The single-machine path and the live-watcher's build do not prepare the model, so a build made there
+ARM64 build. The single-machine recovery build does not prepare the model, so a build made there
 searches by text only. Before the run, confirm that the ARM64 image has `dist/models/history/manifest.json`, that
 `node -e "require('onnxruntime-node')"` and the `sqlite-vec` extension load on it, and write the image digest in
 `PROJECTMAN_IMAGE_DIGEST`. A model folder without a manifest is `model_unavailable`, not a pass.
@@ -676,7 +707,7 @@ The tool is `npm run migrate -- …`. The engine's own commands are `npm run eng
 **The one-off move to the hybrid mode is done and its commands are retired (PM-1116):** `inventory`,
 `hybrid plan`, `hybrid package` and the cloud `seed` and `dns plan|import|verify|switch`. What stays is
 `verify`, `instance`, `hybrid back`, the cloud's `pull-data` and `dns status`. The last commit that still
-has the retired commands is tagged `retired-migrate-dns`; check it out in a separate worktree if a
+has the retired commands is `358bb7c7` on `main`, tagged `retired-migrate-dns`; check it out in a separate worktree if a
 move has to be done again. The sections below keep what the remaining commands rely on.
 
 For the data-preserving return from EC2 to Mac single,
@@ -715,7 +746,8 @@ The home's `instance.json` now says `engine`: a single-machine or cloud server r
 it, while the engine may (its `home_in_use` check allows the stale database of an `engine` home;
 sandboxes keep every session out of it). The engine, in turn, refuses a home that holds a database
 and is not marked `engine`. Then start the engine, in the foreground first: `npm run engine -- status`,
-`npm run engine -- start`, and let launchd keep it running.
+build with `npm run build -w @projectman/server`, run `npm run engine -- start`,
+and let launchd keep it running. Both foreground and service starts run the compiled server.
 
 The cloud's data never travels in a package that sits on the Mac: it holds the cookie key, the secrets
 and the whole database, and a session's sandbox only _denies_ named places (the home's own entries,
@@ -738,7 +770,9 @@ npm run engine -- service uninstall   # unloads it and removes the file; the log
 - `install` checks what `start` checks (configuration, key file, home role) and refuses another
   home's installed agent. The engine restarts after an exit, 30 s apart. Logs:
   `<home>/logs/engine-service.{out,err}.log`.
-- After a `git pull` in that checkout, restart it: `npm run engine -- service install` again.
+- The service runs `apps/server/dist/index.js` under Node. Build the checkout with
+  `npm run build -w @projectman/server` before installing it. After updating the checkout,
+  rebuild it and run `npm run engine -- service install` again.
 - `PATH` in the file is the installing shell's, without the `node_modules/.bin` folders that `npm run`
   puts in front of it. If a CLI of the sessions lives elsewhere, start `install` from a shell that
   finds it. A `bootstrap` that fails with "5: Input/output error" while launchd is still tearing the

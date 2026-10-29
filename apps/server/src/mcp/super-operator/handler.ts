@@ -6,8 +6,10 @@ import {
   isOpenTask,
   isTheme,
   machineTodoIssuerAllowed,
+  machineTodoIssuerOf,
   memberOf,
   needsRepoChoice,
+  questionPayloadOf,
   roleBundle,
   TaskKey,
   TaskStatus as TaskStatusSchema,
@@ -42,7 +44,6 @@ import type {
   ListTasksInput,
   OperatorKnowledgeStore,
   ProjectDocWrite,
-  ProposedRelease,
   TaskSummary,
   TaskToolDetail,
 } from '../../contracts';
@@ -67,7 +68,6 @@ import type { HostRequestsService } from '../../services/host-requests';
 import type { ProjectState, StructuralReviews } from '../../services/operator';
 import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
-import type { ReleaseService } from '../../services/releases';
 import {
   INTEGRATOR_INBOX_LIMIT,
   listIntegratorInbox,
@@ -76,7 +76,7 @@ import {
   resolveIntegratorTodo,
   updateInstanceKnowledge,
 } from '../../services/super-operator';
-import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../../services/super-operator';
+import type { SuperOperations, SuperHandoffService, SuperOperator } from '../../services/super-operator';
 
 /** Attachments get_task shows; the rest are paged with list_attachments. */
 const ATTACHMENTS_IN_TASK = 20;
@@ -98,12 +98,11 @@ interface ExternalToolsDeps {
   messaging: Pick<Messaging, 'sendReporting'>;
   members: Pick<MemberService, 'rosterFor'>;
   projectState: Pick<ProjectState, 'task' | 'message' | 'overview' | 'externalDiagnostics'>;
-  releases: Pick<ReleaseService, 'check' | 'previewExternal' | 'proposeExternal'>;
   docWrites: Pick<DocWrites, 'read' | 'requestExternal' | 'externalState'>;
   humanQuestions: HumanQuestionsPort;
   structuralReviews: Pick<StructuralReviews, 'requestExternal'>;
   superHandoffs: Pick<SuperHandoffService, 'list' | 'execute'>;
-  superAdministration: SuperAdministration;
+  superOperations: SuperOperations;
   inbox: Pick<
     InboxService,
     'get' | 'list' | 'resolve' | 'resolveIntegratorTodo' | 'resolveIntegratorFixLimit'
@@ -152,7 +151,8 @@ export class ExternalTools implements ExternalToolsHandler {
 
   /**
    * The member a step on an open queue item is made as (decision 66): the issuer of an integrator queue item
-   * that is open for the key's holder and was issued by a member with machine access. An item the system
+   * that is open for the key's holder and was put in the queue by a member with machine access (the screening
+   * member of a screened question, otherwise the item's source: `machineTodoIssuerOf`). An item the system
    * issued has no member behind it: null, and the holder acts in person.
    */
   async queueIssuer(
@@ -175,12 +175,13 @@ export class ExternalTools implements ExternalToolsHandler {
     )
       throw forbidden('queue_item_not_yours', 'the queue item is not open for the key’s holder');
     const config = await this.deps.projects.config(input.projectKey);
-    if (!machineTodoIssuerAllowed(config, item.source))
+    const issuer = machineTodoIssuerOf(item.source, questionPayloadOf(item)?.screening?.by);
+    if (!machineTodoIssuerAllowed(config, issuer))
       throw conflict(
         'issuer_without_machine_access',
         'the member who issued the queue item has no machine access',
       );
-    return memberOf(config, item.source) ? item.source : null;
+    return memberOf(config, issuer) ? issuer : null;
   }
 
   async bind(
@@ -462,10 +463,6 @@ export class ExternalTools implements ExternalToolsHandler {
     return { attachments: all.slice(offset, offset + limit), total: all.length, offset };
   }
 
-  async checkRelease(ctx: ExternalToolContext, args: { commit?: string }) {
-    return this.deps.releases.check(ctx.projectKey, args.commit);
-  }
-
   async listSuperHandoffs(
     ctx: ExternalToolContext,
     query: Parameters<ExternalToolsHandler['listSuperHandoffs']>[1],
@@ -486,41 +483,19 @@ export class ExternalTools implements ExternalToolsHandler {
 
   async superOperate(ctx: ExternalToolContext, request: Parameters<ExternalToolsHandler['superOperate']>[1]) {
     return {
-      operation: await this.deps.superAdministration.operate(ctx.projectKey, request, this.access(ctx)),
+      operation: await this.deps.superOperations.operate(ctx.projectKey, request, this.access(ctx)),
     };
   }
 
   async getSuperOperation(ctx: ExternalToolContext, operationId: string) {
-    return this.deps.superAdministration.operation(ctx.projectKey, operationId);
+    return this.deps.superOperations.operation(ctx.projectKey, operationId);
   }
 
   async querySuperDiagnostics(
     ctx: ExternalToolContext,
     request: Parameters<ExternalToolsHandler['querySuperDiagnostics']>[1],
   ) {
-    return this.deps.superAdministration.query(ctx.projectKey, request);
-  }
-
-  async getAdministrationStatus(
-    ctx: ExternalToolContext,
-    target: Parameters<ExternalToolsHandler['getAdministrationStatus']>[1],
-  ) {
-    return { status: await this.deps.superAdministration.status(ctx.projectKey, target) };
-  }
-
-  async getAdministrationLogs(
-    ctx: ExternalToolContext,
-    args: Parameters<ExternalToolsHandler['getAdministrationLogs']>[1],
-  ) {
-    const { target, ...options } = args;
-    return this.deps.superAdministration.logs(ctx.projectKey, target, options);
-  }
-
-  async getMachineSnapshot(
-    ctx: ExternalToolContext,
-    target: Parameters<ExternalToolsHandler['getMachineSnapshot']>[1],
-  ) {
-    return { snapshot: await this.deps.superAdministration.machine(ctx.projectKey, target) };
+    return this.deps.superOperations.query(ctx.projectKey, request);
   }
 
   async resolveIntegratorTodo(
@@ -728,28 +703,6 @@ export class ExternalTools implements ExternalToolsHandler {
       role: args.role,
       override: loaded.config.team.roleOverrides?.[args.role] ?? null,
       effective: roleBundle(loaded.config, args.role),
-    };
-  }
-
-  async proposeRelease(
-    ctx: ExternalToolContext,
-    args: Parameters<ExternalToolsHandler['proposeRelease']>[1],
-  ): Promise<ProposedRelease> {
-    if (args.preview) {
-      const candidate = await this.deps.releases.previewExternal(ctx.projectKey, args.commit);
-      return { commit: candidate.commit, baseCommit: candidate.baseCommit, tasks: candidate.tasks };
-    }
-    const { release, candidate } = await this.deps.releases.proposeExternal(ctx.projectKey, {
-      title: args.title,
-      summary: args.summary,
-      commit: args.commit,
-    });
-    return {
-      releaseId: release.id,
-      taskKey: release.taskKey,
-      commit: release.commit,
-      baseCommit: release.baseCommit,
-      tasks: candidate.tasks,
     };
   }
 

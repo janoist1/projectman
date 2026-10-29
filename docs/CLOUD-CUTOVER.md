@@ -42,15 +42,15 @@ Az owner előre elfogadott rollback-útja és konkrét határideje szerint; ezen
    régi Mac bejegyzések `pre-hybrid/<date>/` alatt. A confirm flag valódi leállítást
    állít; nem feloldó varázsszó. Nincs `--discard-cloud-data`, nincs régi DB visszamásolás.
 
-4. Csak most indíts single-t és watchert az owner által jóváhagyott, **az átvett DB
+4. Csak most indíts single-t az owner által jóváhagyott, **az átvett DB
    sémáját támogató** Mac buildből, annak checkoutjából:
 
    ```sh
-   npm run live -- install --root <LIVE_ROOT> --home <SOURCE_HOME> --port 4800 --remote <APPROVED_REPOSITORY_URL>
+   npm run live -- install --root <LIVE_ROOT> --home <SOURCE_HOME> --port 4800
    npm run live -- status --home <SOURCE_HOME>
    ```
 
-   Az install mindkét agentet elindítja és resume-ot végez; ezért csak activate és a
+   Az install a szerverszolgáltatást elindítja és resume-ot végez; ezért csak activate és a
    rollback-adatellenőrzés után fusson. A régi image vagy `cloud rollback` önmagában nem
    fordít vissza sémamigrációt. Ha régebbi build kell, az [AWS point-in-time recovery](AWS.md#restoring-the-database-to-a-point-in-time)
    útját előbb izolált másolaton igazold, és nevezd meg az elvesző DB/fájl időszakot,
@@ -64,7 +64,7 @@ Az owner előre elfogadott rollback-útja és konkrét határideje szerint; ezen
    megszüntetésük külön jóváhagyott művelet.
 
 **DNS-delegáció visszaváltás nincs az eszközökben** (PM-1116). A `dns switch --back` kivezetésre került
-(az utolsó commit, amelyben megvolt: `retired-migrate-dns` tag), ezért az [AWS.md](AWS.md#dns-pm-537-one-off-move-retired-in-pm-1116)
+(az utolsó commit, amelyben megvolt: `358bb7c7` a `main`-en, `retired-migrate-dns` taggel), ezért az [AWS.md](AWS.md#dns-pm-537-one-off-move-retired-in-pm-1116)
 sem ír elő ilyen lépést. A régi Route 53 hosted zone az owner döntéséig megmarad; ha a delegációt mégis
 vissza kell állítani, az az owner kézi lépése a Route 53 Domains felületén, utána levél- és
 kézbesítés-ellenőrzéssel.

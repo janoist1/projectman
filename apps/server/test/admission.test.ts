@@ -14,6 +14,7 @@ import type {
 } from '@projectman/shared';
 import { createRepositories, openDatabase } from '../src/db';
 import { Admission, DeferredStarts } from '../src/runtime/admission';
+import { ADMISSION_LOCK_WARN_MS } from '../src/runtime/admission/admission';
 import { conflict, DomainError } from '../src/kernel';
 import { isDeferrable } from '../src/runtime/admission';
 import type { AutomaticStart } from '../src/runtime/admission';
@@ -118,6 +119,8 @@ function admissionFor(world: World = {}) {
   const sessionFake = {
     list: (_projectKey: string, filter: { member?: string } = {}) =>
       sessions.filter((s) => !filter.member || s.member === filter.member),
+    listLive: (_projectKey: string, member?: string) =>
+      sessions.filter((s) => (!member || s.member === member) && !['exited', 'failed'].includes(s.state)),
     isRunning: (id: string) => running.has(id),
     awaitsFirstTurn: (id: string) => (world.awaitingFirstTurn ?? []).includes(id),
     busyCount: () => world.busy ?? 0,
@@ -618,6 +621,27 @@ describe('admission checks', () => {
       'ai_limit_reached',
     );
     expect(sessionFake.ensureSession).not.toHaveBeenCalled();
+  });
+
+  it('warns once, with the holder, when the exclusive lock is held longer than the limit (PM-1120)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { admission, log } = admissionFor({});
+      const quick = admission.exclusive('quick', async () => undefined);
+      await vi.advanceTimersByTimeAsync(ADMISSION_LOCK_WARN_MS);
+      await quick;
+      expect(log.warnings).toEqual([]);
+      const slow = admission.exclusive(
+        'slow-holder',
+        () => new Promise<void>((done) => setTimeout(done, ADMISSION_LOCK_WARN_MS + 1)),
+      );
+      await vi.advanceTimersByTimeAsync(ADMISSION_LOCK_WARN_MS + 1);
+      await slow;
+      expect(log.warnings).toHaveLength(1);
+      expect(JSON.stringify(log.warnings[0])).toContain('slow-holder');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

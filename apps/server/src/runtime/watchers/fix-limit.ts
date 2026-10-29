@@ -851,7 +851,7 @@ export class FixLimitWatch {
       const fixLimit = this.timeline.latest(task.projectKey, task.key, 'task_fix_limit');
       // The admission lock holds the decision and the start, as for the queue's own starts.
       await this.delivery.startAndDeliver(task.projectKey, handle, workItem, (messages) =>
-        this.admission.exclusive(() =>
+        this.admission.exclusive('fix-limit-start', () =>
           this.admission.start({
             config,
             member,

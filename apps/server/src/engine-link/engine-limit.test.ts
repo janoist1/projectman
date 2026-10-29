@@ -832,6 +832,24 @@ describe('engine local limit', () => {
         repos: [{ name: repoName, path: `/cloud/${repoName}${extra}` }],
       },
     });
+    it.each([
+      'worktree.listTaskWorktrees',
+      'workspace.listSnapshotTasks',
+      'workspace.removeTaskSnapshots',
+    ] as const)('binds %s to the registered repository', async (method) => {
+      const limit = make();
+      const [arg] = await limit.check(method, [
+        { project: projectConfig(), repoName: 'projectman', taskKeys: ['PM-1'] },
+      ] as never);
+      expect(arg.project.project.workspacePath).toBe(workspace);
+      expect(arg.project.project.repos[0]!.path).toBe(repo);
+      await refused(
+        limit,
+        method,
+        [{ project: projectConfig('other'), repoName: 'other', taskKeys: ['PM-1'] }],
+        'repo_not_registered',
+      );
+    });
     it('binds every merge-fix operation to the registered engine repository and rejects ref injection', async () => {
       const limit = make();
       for (const method of [

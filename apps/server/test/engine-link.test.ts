@@ -59,11 +59,14 @@ describe('cloud engine registry and link', () => {
   let cookie: string;
   let logs: string[];
   let intervals: ReturnType<typeof spyIntervals>;
+  let expectedErrors: RegExp[];
   const sockets: Socket[] = [];
   beforeEach(async () => {
     logs = [];
     intervals = spyIntervals();
+    expectedErrors = [];
     h = await createAppHarness({
+      expectedErrors,
       now: () => new Date(),
       app: { engineMode: 'cloud', appVersion: 'test-version', claudeTmpRoots: [] },
     });
@@ -252,6 +255,7 @@ describe('cloud engine registry and link', () => {
   });
 
   it('refuses protocol mismatch and oversized frames', async () => {
+    expectedErrors.push(/^Max payload size exceeded$/);
     const engine = await create();
     const mismatch = await connect(engine.key);
     mismatch.ws.send(encodeFrame({ ...hello, protocol: 2 }));

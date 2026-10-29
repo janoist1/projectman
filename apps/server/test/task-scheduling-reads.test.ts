@@ -146,82 +146,15 @@ describe('listed', () => {
   });
 });
 
-describe('closed-worktrees', () => {
-  const before = '2026-10-10T10:00:00.000Z';
-  const closed = (seq: number, closedAt: string | null, patch: Partial<Task> = {}) =>
-    add(seq, { status: 'done', closedAt, ...patch });
-
-  it('keeps the boundary inclusive, instants rather than text, and leaves invalid dates out', () => {
-    closed(1, '2026-10-10T09:59:59.999Z');
-    closed(2, '2026-10-10T10:00:00.000Z');
-    closed(3, '2026-10-10T10:00:00.001Z');
-    closed(4, '2026-10-10T11:30:00.000+02:00'); // 09:30Z
-    closed(5, '2026-10-10T10:30:00.000-01:00'); // 11:30Z
-    closed(6, 'not a date');
-    closed(7, '12345');
-    closed(8, null);
-    closed(9, '2026-10-01T00:00:00.000Z', { status: 'cancelled' });
-    closed(10, '2026-10-01T00:00:00.000Z', { kind: 'theme' });
-    add(11, { closedAt: '2026-10-01T00:00:00.000Z' });
-    expect(keys(read({ kind: 'closed-worktrees', closedBefore: before }))).toEqual([
-      'PM-1',
-      'PM-2',
-      'PM-4',
-      'PM-9',
-    ]);
-  });
-
-  it('pages by number and ends on an empty page', () => {
-    for (let seq = 1; seq <= 7; seq++) closed(seq, '2026-09-01T00:00:00.000Z');
-    const pages: string[][] = [];
-    let afterSeq = 0;
-    for (;;) {
-      const page = read({ kind: 'closed-worktrees', closedBefore: before, afterSeq, limit: 3 });
-      if (page.length === 0) break;
-      pages.push(keys(page));
-      afterSeq = Number(page.at(-1)!.key.split('-')[1]);
-    }
-    expect(pages).toEqual([['PM-1', 'PM-2', 'PM-3'], ['PM-4', 'PM-5', 'PM-6'], ['PM-7']]);
-  });
-
-  it('a card reopened between pages is not read on the next page', () => {
-    for (let seq = 1; seq <= 4; seq++) closed(seq, '2026-09-01T00:00:00.000Z');
-    const first = read({ kind: 'closed-worktrees', closedBefore: before, limit: 2 });
-    expect(keys(first)).toEqual(['PM-1', 'PM-2']);
-    repos.tasks.update(first[0]!.id, { status: 'active', closedAt: null });
-    repos.tasks.update(repos.tasks.get('PM-3')!.id, { status: 'active', closedAt: null });
-    expect(keys(read({ kind: 'closed-worktrees', closedBefore: before, afterSeq: 2, limit: 2 }))).toEqual([
-      'PM-4',
-    ]);
-  });
-
-  it('refuses invalid parameters with a RangeError', () => {
-    for (const closedBefore of [
-      '',
-      'yesterday',
-      '2026-10-10',
-      '2026-10-10T10:00:00+02:00',
-      '2026-13-40T10:00:00Z',
-    ])
-      expect(() => read({ kind: 'closed-worktrees', closedBefore })).toThrow(RangeError);
-    for (const afterSeq of [-1, 1.5, Number.NaN])
-      expect(() => read({ kind: 'closed-worktrees', closedBefore: before, afterSeq })).toThrow(RangeError);
-    for (const limit of [0, 501, 2.5, -3])
-      expect(() => read({ kind: 'closed-worktrees', closedBefore: before, limit })).toThrow(RangeError);
-    expect(() => read({ kind: 'closed-worktrees', closedBefore: before, limit: 500 })).not.toThrow();
-  });
-});
-
 describe('query plans', () => {
   const plan = (sql: string, ...params: unknown[]) =>
     (repos.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as { detail: string }[])
       .map((row) => row.detail)
       .join('\n');
 
-  it('serves the pull, open and closed reads from their partial indexes and never scans the table', () => {
+  it('serves the pull and open reads from their partial indexes and never scans the table', () => {
     expect(plan(SCHEDULING_SQL.pullUrgent, 'PM', 'ready')).toContain('tasks_scheduling_pull');
     expect(plan(SCHEDULING_SQL.open, 'PM')).toContain('tasks_scheduling_open');
-    expect(plan(SCHEDULING_SQL.closed, 'PM', 0, at, 10)).toContain('tasks_scheduling_closed');
   });
 
   it('reads the open and the waiting member queue items from their partial indexes', () => {

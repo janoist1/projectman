@@ -26,10 +26,8 @@ import type {
   LocatedAttachmentForTool,
   MergeCheckList,
   MessageAttachmentReading,
-  ProposedRelease,
   PublishedRelease,
   PublishReleaseArgs,
-  ReleaseCheckResult,
   ScreenshotRun,
   MemberStartResult,
   TakeScreenshotsInput,
@@ -358,19 +356,8 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.merges.listMergeChecks(ctx, args);
   }
 
-  async proposeRelease(
-    ctx: ToolContext,
-    args: { title: string; summary: string; commit?: string; preview?: boolean },
-  ): Promise<ProposedRelease> {
-    return this.tools.releases.proposeRelease(ctx, args);
-  }
-
   async publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease> {
     return this.tools.releases.publishRelease(ctx, args);
-  }
-
-  async checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult> {
-    return this.tools.releases.checkRelease(ctx, args);
   }
 
   async updateTask(
@@ -516,14 +503,6 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async getOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getOperation']>[1]) {
     return this.tools.operator.getOperation(ctx, args);
-  }
-
-  async getMachineStatus(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineStatus']>[1]) {
-    return this.tools.operator.getMachineStatus(ctx, args);
-  }
-
-  async getMachineLogs(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineLogs']>[1]) {
-    return this.tools.operator.getMachineLogs(ctx, args);
   }
 
   async readProjectDoc(

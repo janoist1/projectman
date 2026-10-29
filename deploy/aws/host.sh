@@ -24,12 +24,6 @@
 #                             (the feedback guard, PM-510); refused while the board is not running
 #   public-check <hostname> [integratorHostname]  readiness and optional machine-host isolation probes:
 #                             what the running board says about itself as the public board (PM-672)
-#   release-control           one ControlRequest JSON line on stdin (at most 16 KiB), one ControlResponse JSON line
-#                             on stdout: the board's local control socket through the fixed client in the
-#                             container (PM-749); refused while the board is not running
-#   release-probe <sha40> <imageId> linux/arm64
-#                             read-only: {"status":<status>,"imagePresent":b,"imageVerified":b,"imageLockHeld":b,
-#                             "databaseSchemaVersion":n|null} for the hybrid coordinator (PM-751)
 #
 # The container never gets a published port, the host network, extra privileges or the Docker socket: the
 # Cloudflare tunnel inside it connects outwards.
@@ -478,77 +472,6 @@ public_check() {
 # The admin channel to the board's local control socket (PM-749): one request line (at most 16 KiB, read
 # from the standard input) goes to the control client the image carries, which runs inside the running
 # container as the board's own user and answers with one JSON line. The command, the user, the container and
-# the socket path are fixed here; nothing from the input becomes an argument, a path or a process, and no
-# port or mount is opened. The client refuses a malformed or oversized request (exit 2 -> refused here).
-release_control() {
-  [ "$#" -eq 0 ] || die "release-control takes no arguments"
-  [ ! -t 0 ] || die "release-control needs one request line on the standard input"
-  board_running || refuse "the board is not running; there is no control socket to reach"
-  local status=0
-  # One byte over the limit is enough for the client to see that the request is too long.
-  # The relay starts with an empty environment (PM-754): `/usr/bin/env -i` clears what `docker exec` inherits from
-  # the container before Node starts, so NODE_OPTIONS, NODE_PATH and every secret of the board stay out. Only
-  # PATH and LANG are set; the socket path is an argument. There is no fallback to the inherited environment.
-  head -c $((16 * 1024 + 1)) | docker exec -i -u "$DATA_UID:$DATA_GID" "$CONTAINER" \
-    /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
-    /usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock || status=$?
-  case "$status" in
-    0) ;;
-    2) refuse "the control relay refused the request" ;;
-    *) die "the control relay failed (status $status)" ;;
-  esac
-}
-
-# The hybrid coordinator's read-only look at one immutable image (PM-751): `release-probe <sha40> <imageId>
-# linux/arm64`. Nothing is created, loaded, started or stopped. The answer is one JSON object and never holds a
-# path, a log line or an environment value:
-#   imageVerified    the same revision/version/platform/ID checks the start makes, on the image the ID names
-#   imageLockHeld    another host.sh run holds `.image.lock` (a non-blocking shared try on the existing file,
-#                    released at once; a missing file is not held, and none is created)
-#   databaseSchemaVersion  PRAGMA user_version of the board's database through a read-only connection as the
-#                    board's own user, or null when it cannot be read; no migration, copy or write
-release_probe() {
-  [ "$#" -eq 3 ] || die "release-probe needs three arguments"
-  local sha=$1 image_id=$2 platform=$3 present=false verified=false held=false schema=null
-  check_sha "$sha"
-  check_image_id "$image_id"
-  [ "$platform" = linux/arm64 ] || die "release-probe takes linux/arm64 only"
-  if docker image inspect "$image_id" >/dev/null 2>&1; then
-    present=true
-    if [ "$(host_platform)" = "$platform" ] && (verify_image "$sha" "$platform" "$image_id") >/dev/null 2>&1; then
-      verified=true
-    fi
-  fi
-  if [ -f "$STATE_DIR/.image.lock" ] && [ ! -L "$STATE_DIR/.image.lock" ]; then
-    # Opened read-only: the descriptor lives in this subshell only and goes away with it.
-    ( exec 8<"$STATE_DIR/.image.lock" && flock -s -n 8 ) >/dev/null 2>&1 || held=true
-  fi
-  schema=$(probe_schema_version)
-  jq -n --argjson status "$(status)" --argjson present "$present" --argjson verified "$verified" \
-    --argjson held "$held" --argjson schema "$schema" '{
-      status: $status,
-      imagePresent: $present,
-      imageVerified: $verified,
-      imageLockHeld: $held,
-      databaseSchemaVersion: $schema
-    }'
-}
-
-# Prints the schema version number, or `null`. The Python program takes no argument, path or SQL from outside.
-probe_schema_version() {
-  local database="$DATA_DIR/db.sqlite" value=""
-  if [ -f "$database" ] && [ ! -L "$database" ] && command -v python3 >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1; then
-    value=$(setpriv --reuid="$DATA_UID" --regid="$DATA_GID" --clear-groups \
-      python3 -I -S -c 'import sqlite3,sys
-try:
-    c = sqlite3.connect("file:" + sys.argv[1] + "?mode=ro", uri=True, timeout=5)
-    print(c.execute("PRAGMA user_version").fetchone()[0])
-except Exception:
-    pass' "$database" 2>/dev/null || true)
-  fi
-  if [[ "$value" =~ ^[0-9]{1,9}$ ]]; then echo "$value"; else echo null; fi
-}
-
 send_data() {
   board_running && refuse "the board is running; stop it first (a copy of a live database is no copy)"
   [ -d "$DATA_DIR" ] || die "$DATA_DIR does not exist"
@@ -572,9 +495,7 @@ main() {
     send-data) send_data ;;
     guard-check) guard_check "$@" ;;
     public-check) public_check "$@" ;;
-    release-control) release_control "$@" ;;
-    release-probe) release_probe "$@" ;;
-    *) die "usage: host.sh bootstrap|receive-env|receive-image|start|stop|status|logs|rehearse|seed-check|send-data|guard-check|public-check|release-control|release-probe" ;;
+    *) die "usage: host.sh bootstrap|receive-env|receive-image|start|stop|status|logs|rehearse|seed-check|send-data|guard-check|public-check" ;;
   esac
 }
 

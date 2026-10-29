@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -46,7 +47,7 @@ describe('engine menu bar installation', () => {
       supportDir: path.join(base, 'support'),
       buildDir: path.join(base, 'build'),
       out: () => undefined,
-      sleep: () => undefined,
+      sleep: async () => undefined,
       launchctl: (args) => {
         calls.push(['launchctl', ...args]);
         return failures[args[0]!] ?? ok;
@@ -58,8 +59,8 @@ describe('engine menu bar installation', () => {
     };
   });
   afterEach(() => rmSync(base, { recursive: true, force: true }));
-  it('builds, signs, assembles the bundle and starts the agent without shell environment', () => {
-    installMenubar(options);
+  it('builds, signs, assembles the bundle and starts the agent without shell environment', async () => {
+    await installMenubar(options);
     expect(calls.map((c) => c.slice(0, 2))).toEqual([
       ['swift', '--version'],
       ['swift', 'build'],
@@ -82,56 +83,56 @@ describe('engine menu bar installation', () => {
       path: '/usr/bin',
     });
   });
-  it('reports a missing toolchain before building', () => {
+  it('reports a missing toolchain before building', async () => {
     failures.swift = { status: 1, stdout: '', stderr: 'not found' };
-    expect(() => installMenubar(options)).toThrow(/xcode-select --install/);
+    await expect(installMenubar(options)).rejects.toThrow(/xcode-select --install/);
     expect(calls).toHaveLength(1);
   });
-  it('keeps the installed app when the new build fails', () => {
-    installMenubar(options);
+  it('keeps the installed app when the new build fails', async () => {
+    await installMenubar(options);
     calls.length = 0;
     options.run = (command, args) => {
       calls.push([command, ...args]);
       return args[0] === 'build' ? { status: 1, stdout: '', stderr: 'compiler failed' } : ok;
     };
-    expect(() => installMenubar(options)).toThrow(/compiler failed/);
+    await expect(installMenubar(options)).rejects.toThrow(/compiler failed/);
     expect(readFileSync(path.join(app(), 'Contents/MacOS/EngineMenu'), 'utf8')).toBe('binary');
     expect(calls.some((c) => c[0] === 'launchctl')).toBe(false);
   });
-  it('cleans the staged app after signing failure and preserves the old bundle', () => {
-    installMenubar(options);
+  it('cleans the staged app after signing failure and preserves the old bundle', async () => {
+    await installMenubar(options);
     failures.codesign = { status: 1, stdout: '', stderr: 'signing failed' };
-    expect(() => installMenubar(options)).toThrow(/signing failed/);
+    await expect(installMenubar(options)).rejects.toThrow(/signing failed/);
     expect(existsSync(app())).toBe(true);
     expect(existsSync(path.join(options.applicationsDir, '.projectman motor.app.new'))).toBe(false);
   });
   it.each([
     ['linux', '6.0', 'macOS'],
     ['darwin', '21.6', 'macOS 13'],
-  ] as const)('rejects unsupported system %s %s', (platform, osRelease, message) => {
-    expect(() => installMenubar({ ...options, platform, osRelease })).toThrow(message);
+  ] as const)('rejects unsupported system %s %s', async (platform, osRelease, message) => {
+    await expect(installMenubar({ ...options, platform, osRelease })).rejects.toThrow(message);
     expect(calls).toEqual([]);
   });
-  it('replaces an existing bundle on reinstall', () => {
-    installMenubar(options);
+  it('replaces an existing bundle on reinstall', async () => {
+    await installMenubar(options);
     writeFileSync(path.join(base, 'bin/EngineMenu'), 'updated');
-    installMenubar(options);
+    await installMenubar(options);
     expect(readFileSync(path.join(app(), 'Contents/MacOS/EngineMenu'), 'utf8')).toBe('updated');
     expect(existsSync(path.join(options.applicationsDir, '.projectman motor.app.old'))).toBe(false);
   });
-  it('removes the app, configuration, agent and build cache', () => {
-    installMenubar(options);
+  it('removes the app, configuration, agent and build cache', async () => {
+    await installMenubar(options);
     mkdirSync(options.buildDir);
     uninstallMenubar(options);
     for (const file of [app(), plist(), options.buildDir, path.join(options.supportDir, 'menubar.json')])
       expect(existsSync(file)).toBe(false);
   });
-  it('restores the previous bundle and metadata when activation fails', () => {
-    installMenubar(options);
+  it('restores the previous bundle and metadata when activation fails', async () => {
+    await installMenubar(options);
     const previous = readFileSync(plist(), 'utf8');
     writeFileSync(path.join(base, 'bin/EngineMenu'), 'updated');
     failures.bootstrap = { status: 1, stdout: '', stderr: 'background item disabled' };
-    expect(() => installMenubar(options)).toThrow(/background item disabled/);
+    await expect(installMenubar(options)).rejects.toThrow(/background item disabled/);
     expect(readFileSync(path.join(app(), 'Contents/MacOS/EngineMenu'), 'utf8')).toBe('binary');
     expect(readFileSync(plist(), 'utf8')).toBe(previous);
   });
@@ -139,8 +140,8 @@ describe('engine menu bar installation', () => {
     failures.bootout = { status: 113, stdout: '', stderr: 'not found' };
     expect(() => uninstallMenubar(options)).not.toThrow();
   });
-  it('does not delete an app whose job could not be unloaded', () => {
-    installMenubar(options);
+  it('does not delete an app whose job could not be unloaded', async () => {
+    await installMenubar(options);
     failures.bootout = { status: 1, stdout: '', stderr: 'refused' };
     expect(() => uninstallMenubar(options)).toThrow(/refused/);
     expect(existsSync(app())).toBe(true);
@@ -166,13 +167,11 @@ describe('engine menu bar installation', () => {
 
 describe('Swift contract fixtures', () => {
   const fixtures = path.join(ROOT, 'deploy/mac/menubar/Tests/EngineMenuCoreTests/Fixtures');
-  it.each(['running', 'no-cloud', 'stopped', 'not-initialised'])(
+  it.each(readdirSync(fixtures).filter((name) => /^status-.*\.json$/.test(name)))(
     'matches the strict snapshot contract: %s',
     (state) => {
       expect(() =>
-        EngineLocalSnapshot.parse(
-          JSON.parse(readFileSync(path.join(fixtures, `status-${state}.json`), 'utf8')),
-        ),
+        EngineLocalSnapshot.parse(JSON.parse(readFileSync(path.join(fixtures, state), 'utf8'))),
       ).not.toThrow();
     },
   );

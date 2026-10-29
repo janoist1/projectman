@@ -8,6 +8,7 @@ import {
 import type { QueryClient } from '@tanstack/react-query';
 import { SESSION_CHAT_WINDOW } from '@projectman/shared';
 import type {
+  Task,
   CreateOwnerInviteRequest,
   CreatedOwnerInvitation,
   AnswerHostRequestRequest,
@@ -998,19 +999,24 @@ export function useDeleteRole(key: string) {
   return useProjectMutation(key, (id: string) => api.deleteRole(key, id));
 }
 /**
- * The server answers with the changed task: write it to the board and the card, and read the card's detail again
- * (its timeline and rounds changed). The rest of the project follows by the socket events, not by a refetch.
+ * A change of one card: the server answers with the changed task, which is written to the board and the card,
+ * and the card's detail is read again (its timeline and rounds changed). The rest of the project follows by
+ * the socket events, not by a refetch of everything (PM-1109).
  */
-export function useUpdateTask(key: string) {
+function useTaskMutation<T, R extends Task>(key: string, mutationFn: (variables: T) => Promise<R>) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
-      api.updateTask(key, taskKey, body),
+    mutationFn,
     onSuccess: async (task) => {
       writeTask(client, key, task);
       await client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
     },
   });
+}
+export function useUpdateTask(key: string) {
+  return useTaskMutation(key, ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
+    api.updateTask(key, taskKey, body),
+  );
 }
 /** The server answers with the task's detail: write it instead of refetching the project. */
 export function useCreateTaskComment(key: string) {
@@ -1040,16 +1046,16 @@ export function useLabels(key: string): LabelView[] {
 }
 const EMPTY_LABELS: LabelView[] = [];
 export function useCancelTask(key: string) {
-  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: CancelTaskRequest }) =>
+  return useTaskMutation(key, ({ taskKey, body }: { taskKey: string; body: CancelTaskRequest }) =>
     api.cancelTask(key, taskKey, body),
   );
 }
 /** Closes a theme; the cards that belong to it are not touched (PM-192). */
 export function useCloseTheme(key: string) {
-  return useProjectMutation(key, (taskKey: string) => api.closeTheme(key, taskKey));
+  return useTaskMutation(key, (taskKey: string) => api.closeTheme(key, taskKey));
 }
 export function useReopenTask(key: string) {
-  return useProjectMutation(key, (taskKey: string) => api.reopenTask(key, taskKey));
+  return useTaskMutation(key, (taskKey: string) => api.reopenTask(key, taskKey));
 }
 
 /** Refresh even after approval_requested: the task waits and new inbox decisions exist. */
@@ -1348,16 +1354,6 @@ export function useOperatorQueue(key: string, handle: string, closedSince: strin
     queryKey: queryKeys.operatorQueue(key, handle, closedSince),
     queryFn: () => api.projectManagerQueue(key, closedSince),
     placeholderData: keepPreviousData,
-    enabled,
-  });
-}
-
-/** The grant of machine operations to the Operator (PM-881): whether it is active, until when, who manages it. */
-export function useOperatorGrant(enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.operatorGrant,
-    queryFn: () => api.operatorGrant(),
-    select: (response) => response.grant,
     enabled,
   });
 }

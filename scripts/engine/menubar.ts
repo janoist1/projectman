@@ -36,7 +36,7 @@ function checked(o: Options, command: string, args: string[], code: string): str
   if (result.status !== 0) throw new EngineConfigError(code, (result.stderr || result.stdout).slice(-4000));
   return result.stdout.trim();
 }
-export function installMenubar(o: Options): void {
+export async function installMenubar(o: Options): Promise<void> {
   requireMac(o);
   const toolchain = o.run('swift', ['--version']);
   if (toolchain.status !== 0)
@@ -100,7 +100,7 @@ export function installMenubar(o: Options): void {
         logErr: path.join(o.home, 'logs/engine-menubar.err.log'),
       }),
     );
-    bootstrapJob(o, p.plist, 'app_bootstrap');
+    await bootstrapJob(o, p.plist, 'app_bootstrap');
     rmSync(p.backup, { recursive: true, force: true });
     o.out(`menu bar app installed: ${p.app}`);
   } catch (error) {
@@ -116,7 +116,7 @@ export function installMenubar(o: Options): void {
       if (previousFiles[1]!.content !== null) {
         // Files are restored even if macOS still refuses the old background item.
         try {
-          bootstrapJob(o, p.plist, 'app_restore_bootstrap');
+          await bootstrapJob(o, p.plist, 'app_restore_bootstrap');
         } catch {
           /* Keep the original installation error. */
         }

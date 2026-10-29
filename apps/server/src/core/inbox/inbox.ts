@@ -37,9 +37,9 @@ import {
   hasBoundOrigin,
   hasConnectedOrigin,
   isPendingQuestion,
-  isLinkedQuestion,
   isRelayableQuestionItem,
   machineTodoIssuerAllowed,
+  machineTodoIssuerOf,
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
@@ -194,7 +194,6 @@ export interface Resolver {
 /** Who decides an inbox item another module owns (PM-593). Operator approvals are recognized by operatorApprovalOf. */
 type InboxDeciderKey =
   | 'merge_request'
-  | 'release'
   | 'hand_on'
   | 'email'
   | 'operator_approval'
@@ -309,19 +308,6 @@ export class InboxService {
       id,
       'resolved',
       this.decisionResolution(id, by, 'merge', null, at),
-      at,
-    );
-    if (item) this.publish(item);
-  }
-
-  /** Close a release approval item as part of the transaction that decided its release. */
-  resolveRelease(id: string, by: string, optionId: string, note: string | null): void {
-    assertOwnOrSuperApproval();
-    const at = isoNow(this.ctx);
-    const item = this.ctx.repos.inbox.close(
-      id,
-      'resolved',
-      this.decisionResolution(id, by, optionId, note, at),
       at,
     );
     if (item) this.publish(item);
@@ -1098,15 +1084,7 @@ export class InboxService {
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
     }
-    if (item.kind === 'release') {
-      const decide = this.deciders.get('release');
-      if (!decide) throw conflict('inbox_item_closed', 'the release approval is no longer available');
-      // The decision closes the item in its own transaction; a refused one leaves it open.
-      await decide(item, by, req.optionId, note);
-      const resolved = this.get(projectKey, id);
-      await this.ctx.events.emit('inbox_resolved', resolved);
-      return resolved;
-    }
+    if (item.kind === 'release') throw conflict('inbox_item_closed', 'release approvals have been retired');
     if (item.kind === 'hand_on') {
       const decide = this.deciders.get('hand_on');
       if (!handOnRequestOf(item) || !decide)
@@ -1604,7 +1582,8 @@ export class InboxService {
 
   /**
    * The payload, options and recipient a question has when it goes to the people (PM-558): the one rule of
-   * `releaseScreened` and of the todo the system opens itself (`openIntegratorTodo`).
+   * `releaseScreened` and of the todo the system opens itself (`openIntegratorTodo`). The machine access that
+   * counts is the one of `machineTodoIssuerOf`: the screening member, or the opener of its own todo.
    */
   private releaseFields(current: InboxItem, release: ScreeningRelease, config: ProjectConfig, at: string) {
     const { outcome, fallback } = release;
@@ -1614,7 +1593,7 @@ export class InboxService {
             current,
             release.todo!.recipient,
             this.integratorTodoAccess?.available(config) ?? false,
-            machineTodoIssuerAllowed(config, current.source),
+            machineTodoIssuerAllowed(config, machineTodoIssuerOf(current.source, release.by)),
           )
         : { recipient: 'owner' as const };
     const todo = release.todo ? { ...release.todo, recipient: selected.recipient } : undefined;

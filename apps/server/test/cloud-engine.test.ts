@@ -130,13 +130,18 @@ describe('the cloud without an engine', () => {
     await online();
     await vi.waitFor(() => expect(started().length).toBeGreaterThanOrEqual(2), { timeout: 15_000 });
     await vi.waitFor(() => expect(domain().tasks.get('AR', created.key).startWaiting).toBeUndefined());
+    // A remote start is observed before its first-input acknowledgement closes message receipts.
+    await vi.waitFor(
+      () =>
+        expect(domain().engineCounters(world.packaged.engine.id)).toMatchObject({
+          waitingStarts: 0,
+          waitingMessages: 0,
+        }),
+      { timeout: 15_000 },
+    );
     // One session for the card's start and one for the message's recipient, none twice.
     expect(started().map((spec) => spec.sessionId)).toHaveLength(2);
     expect(new Set(started().map((spec) => spec.sessionId)).size).toBe(2);
-    expect(domain().engineCounters(world.packaged.engine.id)).toMatchObject({
-      waitingStarts: 0,
-      waitingMessages: 0,
-    });
   });
 });
 
@@ -318,6 +323,29 @@ describe('the files of the cloud reach the engine', () => {
     expect(path, toolText(reply)).toBeDefined();
     expect(path!.startsWith(join(world.src.root, 'system-tmp', 'projectman-sessions'))).toBe(true);
     expect(readFileSync(path!).equals(bytes)).toBe(true);
+  });
+});
+
+describe('a slow team tool over the relay', () => {
+  beforeEach(async () => {
+    // The cloud gives up on a tool well before the engine's relay wait (1.5 s here, as 60 s against 45 s in use).
+    world.toolTimeoutMs = 200;
+    await world.startCloud();
+    await world.startEngine();
+    await online();
+  });
+
+  it('is answered by the cloud with the timeout text, not by the engine with a bare 504', async () => {
+    const { spec } = await startCard('Slow tool');
+    vi.spyOn(domain().teamTools, 'getTask').mockReturnValue(new Promise(() => {}));
+
+    const reply = await mcp(spec.mcpUrl, 'tools/call', {
+      name: 'get_task',
+      arguments: { task_key: world.src.taskKey },
+    });
+
+    expect(reply.status).toBe(200);
+    expect(reply.text).toContain('[timeout]');
   });
 });
 

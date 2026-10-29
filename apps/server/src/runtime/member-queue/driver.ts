@@ -213,6 +213,40 @@ export class MemberQueueWorker implements MemberQueueDriver {
       ?.find((lane) => (!lane.owns || lane.owns(item)) && lane.appliesTo?.(item, config) !== false);
   }
 
+  /** The hold code of each item, by item id: a lane's `holdAll` answers its items together, else `hold` each. */
+  private async holdsOf(
+    owed: { item: StoredMemberQueueItem; lane: MemberQueueLane }[],
+  ): Promise<Map<string, string | null>> {
+    const holds = new Map<string, string | null>();
+    const unknown = (err: unknown, items: StoredMemberQueueItem[]) => {
+      this.deps.ctx.logger.warn(
+        { err, itemIds: items.map((item) => item.id) },
+        'a member queue hold could not be decided',
+      );
+      for (const item of items) holds.set(item.id, 'hold_unknown');
+    };
+    const lanes = new Set(owed.map((entry) => entry.lane));
+    for (const lane of lanes) {
+      const items = owed.filter((entry) => entry.lane === lane).map((entry) => entry.item);
+      if (lane.holdAll) {
+        try {
+          for (const [id, code] of await lane.holdAll(items)) holds.set(id, code);
+        } catch (err) {
+          unknown(err, items);
+        }
+        continue;
+      }
+      for (const item of items) {
+        try {
+          holds.set(item.id, await lane.hold(item));
+        } catch (err) {
+          unknown(err, [item]);
+        }
+      }
+    }
+    return holds;
+  }
+
   private close(
     item: StoredMemberQueueItem,
     state: 'done' | 'handed_off' | 'cancelled',
@@ -240,6 +274,8 @@ export class MemberQueueWorker implements MemberQueueDriver {
     let changed = await this.settleProcessing(config, member, at);
 
     let entries: Entry[] = [];
+    const owed: { item: StoredMemberQueueItem; lane: MemberQueueLane; place: WorkItemRef; wakes: boolean }[] =
+      [];
     for (const item of repo.listOpenByUrgency(projectKey, member)) {
       const lane = this.laneOf(item, config);
       if (!lane || item.state !== 'queued' || this.awaitingFirstInput.has(item.id)) continue;
@@ -261,14 +297,20 @@ export class MemberQueueWorker implements MemberQueueDriver {
         place = relocated;
         changed = true;
       }
-      const held = await lane.hold(item).catch((err: unknown) => {
-        ctx.logger.warn({ err, itemId: item.id }, 'a member queue hold could not be decided');
-        return 'hold_unknown';
-      });
       const wakes = lane.wakes?.(item, config) ?? item.wake;
       if (wakes !== item.wake) repo.setWake(item.id, wakes);
-      entries.push({ item: { ...item, place, wake: wakes }, lane, place, held, wakes });
+      owed.push({ item, lane, place, wakes });
     }
+    // The holds of one lane are decided together when the lane can (PM-1106): once per run, not once per item.
+    const holds = await this.holdsOf(owed);
+    for (const { item, lane, place, wakes } of owed)
+      entries.push({
+        item: { ...item, place, wake: wakes },
+        lane,
+        place,
+        held: holds.get(item.id) ?? null,
+        wakes,
+      });
     if (memberConfig?.kind !== 'ai') {
       if (changed) this.deps.queue.publish(projectKey, member);
       return;

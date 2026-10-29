@@ -74,12 +74,13 @@ describe('documented gate timeline data', () => {
 });
 
 describe('label change reasons', () => {
-  it('covers the clear triggers, a merged pull request, an approval and an open question', () => {
+  it('covers the clear triggers, a merged pull request, an approval, an open question and the acceptance items', () => {
     expect(LabelChangeReason.options).toEqual([
       ...LabelClearTrigger.options,
       'pr_merged',
       'approval',
       'open_question',
+      'acceptance',
     ]);
     const data: TimelineEventData['task_labels_changed'] = {
       added: [],

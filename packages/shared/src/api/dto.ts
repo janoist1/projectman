@@ -51,6 +51,12 @@ import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
+import {
+  AcceptanceChange,
+  AcceptanceItem,
+  MAX_ACCEPTANCE_CHANGES,
+  MAX_ACCEPTANCE_ITEMS,
+} from '../domain/acceptance';
 import { UiLocation } from '../domain/ui-place';
 import { CapacityHolder, Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting } from '../domain/task';
 
@@ -1106,6 +1112,8 @@ export const TaskDetail = z.object({
     .optional(),
   /** Why the card stands still (PM-460), for the viewer; null for a closed card. */
   wait: TaskWait.nullable().optional(),
+  /** The card's acceptance items (PM-1135), in order; absent: none were read. */
+  acceptance: z.array(AcceptanceItem).optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 
@@ -1130,6 +1138,8 @@ export const CreateTaskRequest = z.object({
   kind: TaskKind.optional(),
   /** The theme the new card belongs to (not for a theme or a subtask). */
   themeKey: TaskKey.optional(),
+  /** The texts of the card's acceptance items (PM-1135); not for a theme. */
+  acceptance: z.array(z.string().trim().min(1).max(500)).max(MAX_ACCEPTANCE_ITEMS).optional(),
 });
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 
@@ -1168,6 +1178,11 @@ export const UpdateTaskRequest = z.object({
    * the team tool does not offer it, so a card an AI member moves waits.
    */
   despitePrerequisites: z.boolean().optional(),
+  /**
+   * Operations on the card's acceptance items (PM-1135), applied in order, all or nothing, before the labels
+   * and the move, so one call can mark the last item and move the card on.
+   */
+  acceptance: z.array(AcceptanceChange).max(MAX_ACCEPTANCE_CHANGES).optional(),
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
 

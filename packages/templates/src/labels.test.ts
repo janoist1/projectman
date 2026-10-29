@@ -7,12 +7,12 @@ import {
   validateProjectConfig,
 } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { migrateLegacyConfig, standardLabelsFor } from './labels';
+import { migrateAcceptanceGates, migrateLegacyConfig, standardLabelsFor } from './labels';
 import { getLocale } from './locales';
 import { getTemplate } from './index';
 
-function legacyConfig() {
-  const config = JSON.parse(
+function currentConfig() {
+  return JSON.parse(
     JSON.stringify(
       getTemplate('web-client-project')!.build({
         key: 'AC',
@@ -23,6 +23,10 @@ function legacyConfig() {
       }),
     ),
   );
+}
+
+function legacyConfig() {
+  const config = currentConfig();
   // Rewrite the gates as they were stored before labels.
   config.pipeline.labels = [];
   for (const stage of config.pipeline.stages) {
@@ -83,6 +87,26 @@ describe('labels', () => {
     // The merge step's approval names members: it would not pass a release gate, and sits on a step, which the rule leaves alone.
     expect(releaseGateAccepts(labelDefinition(config, 'approval-merge')!)).toBe(false);
     expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
+  });
+
+  it('adds the acceptance gates and labels to a configuration without them, once', () => {
+    const old = currentConfig();
+    for (const stage of old.pipeline.stages)
+      if (stage.gate)
+        stage.gate.conditions = stage.gate.conditions.filter(
+          (c: { label?: string }) => !c.label?.startsWith('acceptance-'),
+        );
+    old.pipeline.labels = old.pipeline.labels.filter((l: { id: string }) => !l.id.startsWith('acceptance-'));
+
+    const migrated = migrateAcceptanceGates(old);
+    const config = ProjectConfig.parse(migrated);
+    const gate = (id: string) => config.pipeline.stages.find((s) => s.id === id)!.gate?.conditions ?? [];
+    expect(gate('code_review')).toContainEqual({ type: 'lacks_label', label: 'acceptance-open' });
+    expect(gate('done')).toContainEqual({ type: 'lacks_label', label: 'acceptance-unconfirmed' });
+    expect(config.pipeline.labels.find((l) => l.id === 'acceptance-open')).toMatchObject({ setBy: 'system' });
+    expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+    // Idempotent: once the label is defined, a gate the owner removed later is not put back.
+    expect(migrateAcceptanceGates(migrated)).toBe(migrated);
   });
 
   it('names the labels in the default project language when the configuration has none', () => {

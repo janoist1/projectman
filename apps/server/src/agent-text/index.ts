@@ -4,6 +4,7 @@
  * (src/mcp: get_task and other results), which differ only in their TextStyle. Pure functions,
  * no dependencies on other server modules.
  */
+export { acceptanceLines } from './acceptance';
 export { describeAttachment, formatBytes } from './attachments';
 export { cardQuestionLines, cardWorkerLines, stateText } from './card-thread';
 export { describeLink, linkTarget } from './links';

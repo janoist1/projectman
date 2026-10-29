@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import type { ConfigChangeRow } from '../config/operator';
 import type { OperatorKnowledgeChange } from './operator-knowledge';
+import type { AcceptanceChange } from './acceptance';
 import type { ComplexityPoints } from './complexity';
+import type { ItemState } from './item-state';
 import type { FixLimitAssessment } from './fix-limit';
 import type { FullTestErrorReason } from './full-test';
 import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
@@ -76,6 +78,7 @@ export const TimelineEventType = z.enum([
   'task_senior_wait',
   'task_check_changed',
   'task_labels_changed',
+  'acceptance_item_changed',
   'task_link_added',
   'task_relation_added',
   'task_relation_removed',
@@ -318,6 +321,19 @@ export interface TimelineEventData {
     removed: string[];
     reason?: LabelChangeReason;
     resultCommit?: string;
+  };
+  /**
+   * An acceptance item of the card changed (PM-1135): `change` is the operation, `moved_in` an item that came
+   * from another card. `state` is the item's state after it; `taskKey` the card an item moved to (`move`) or
+   * came from (`moved_in`). `note` is the reason of a `reopen`.
+   */
+  acceptance_item_changed: {
+    itemId: string;
+    change: AcceptanceChange['op'] | 'moved_in';
+    text: string;
+    state: ItemState;
+    taskKey?: string;
+    note?: string;
   };
   task_link_added: { kind: string; ref: string; repo?: string };
   /**

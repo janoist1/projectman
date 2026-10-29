@@ -1,4 +1,6 @@
 import {
+  ACCEPTANCE_OPEN_LABEL,
+  ACCEPTANCE_UNCONFIRMED_LABEL,
   DEFAULT_PROJECT_LANGUAGE,
   PR_MERGED_LABEL,
   REFINE_LABEL,
@@ -81,6 +83,9 @@ const STANDARD_LABEL_RULES: Record<StandardLabelId, LabelRules> = {
     notifyAssignee: true,
   },
   [PR_MERGED_LABEL]: { color: 'purple', setBy: 'system' },
+  // Kept by the system from the card's acceptance items (PM-1135); the gates read them.
+  [ACCEPTANCE_OPEN_LABEL]: { color: 'yellow', setBy: 'system' },
+  [ACCEPTANCE_UNCONFIRMED_LABEL]: { color: 'orange', setBy: 'system' },
   'merge-approved': {
     color: 'teal',
     setBy: { duties: ['final_decision'], humansOnly: true },
@@ -121,6 +126,73 @@ export function standardLabelsFor(ids: Iterable<string>, locale: TemplateLocale)
 
 /** A gate condition templates use: the label must be on the task. */
 export const hasLabel = (label: StandardLabelId): GateCondition => ({ type: 'has_label', label });
+
+/* ---------- acceptance items (PM-1135) ---------- */
+
+interface GatedStage {
+  id: string;
+  kind: string;
+  gate?: { conditions: Array<Record<string, unknown>> };
+}
+
+/**
+ * The stages with the acceptance gates: no open acceptance item may come out of the work stage (the first
+ * stage after it), and none may be unconfirmed at the end (the done stage). A pipeline without a work stage,
+ * or with nothing after it, keeps its stages. A gate that has the condition already is left as it is.
+ */
+export function withAcceptanceGates<S extends GatedStage>(stages: readonly S[]): S[] {
+  const work = stages.findIndex((stage) => stage.kind === 'work');
+  const gateOf = new Map<string, string>();
+  if (work >= 0 && work + 1 < stages.length) gateOf.set(stages[work + 1]!.id, ACCEPTANCE_OPEN_LABEL);
+  const done = stages.findIndex((stage, index) => index > work && work >= 0 && stage.kind === 'done');
+  const extra = (id: string): string[] => [
+    ...(gateOf.get(id) ? [gateOf.get(id)!] : []),
+    ...(done >= 0 && stages[done]!.id === id ? [ACCEPTANCE_UNCONFIRMED_LABEL] : []),
+  ];
+  return stages.map((stage) => {
+    const missing = extra(stage.id).filter(
+      (label) => !stage.gate?.conditions.some((c) => c.type === 'lacks_label' && c.label === label),
+    );
+    if (missing.length === 0) return stage;
+    const conditions = [
+      ...(stage.gate?.conditions ?? []),
+      ...missing.map((label): GateCondition => ({ type: 'lacks_label', label })),
+    ];
+    return { ...stage, gate: { conditions } };
+  });
+}
+
+/**
+ * Gives an existing raw configuration the acceptance gates and the two system labels (idempotent): it
+ * does nothing once the project defines `acceptance-open`, so a gate the owner removed later stays removed.
+ */
+export function migrateAcceptanceGates<T>(raw: T): T {
+  const config = raw as LegacyConfig;
+  const stages = config?.pipeline?.stages;
+  if (!Array.isArray(stages)) return raw;
+  const labels = config.pipeline?.labels ?? [];
+  // What it cannot read is left to the schema.
+  if (!Array.isArray(labels) || labels.some((label) => typeof label?.id !== 'string')) return raw;
+  if (stages.some((stage) => typeof stage?.id !== 'string' || typeof stage.kind !== 'string')) return raw;
+  if (stages.some((stage) => stage.gate !== undefined && !Array.isArray(stage.gate?.conditions))) return raw;
+  if (labels.some((label) => label.id === ACCEPTANCE_OPEN_LABEL)) return raw;
+  const gated = withAcceptanceGates(stages);
+  if (gated.every((stage, index) => stage === stages[index])) return raw;
+  const locale = getLocale(config.project?.language ?? DEFAULT_PROJECT_LANGUAGE);
+  return {
+    ...config,
+    pipeline: {
+      ...config.pipeline,
+      stages: gated,
+      labels: [
+        ...labels,
+        ...[ACCEPTANCE_OPEN_LABEL, ACCEPTANCE_UNCONFIRMED_LABEL]
+          .filter((id): id is StandardLabelId => !labels.some((label) => label.id === id))
+          .map((id) => standardLabel(id, locale)),
+      ],
+    },
+  } as T;
+}
 
 /* ---------- configurations from before labels ---------- */
 

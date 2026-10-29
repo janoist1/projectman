@@ -3,6 +3,7 @@ export function createTaskService(deps: ConstructorParameters<typeof TaskService
 }
 
 import type {
+  AcceptanceChange,
   Actor,
   AgentProvider,
   BoardMoveRequest,
@@ -83,6 +84,7 @@ import {
   authorizeSuperMutation,
   assertOwnApproval,
 } from '../../kernel';
+import { TaskAcceptance } from './acceptance';
 import { BoardOrder } from './board-order';
 import { BoardGroupMove } from './group-move';
 import { planComplexity } from './complexity';
@@ -161,6 +163,8 @@ interface TaskUpdate {
   /** A person moves the card into the work stage despite open prerequisites (PM-204). */
   despitePrerequisites?: boolean;
   complexity?: ComplexityRequest;
+  /** Operations on the acceptance items (PM-1135): in order, before the labels and the move. */
+  acceptance?: AcceptanceChange[];
 }
 
 /**
@@ -189,6 +193,7 @@ export class TaskService implements TaskSchedulingReader {
   private readonly order: BoardOrder;
   private readonly group: BoardGroupMove;
   private readonly cardRelations: TaskRelations;
+  private readonly acceptance: TaskAcceptance;
   private readonly themes: TaskThemes;
   private readonly pullRequests: PullRequestRecords;
   private readonly handoff: ((input: HandoffTrigger) => HandoffStart | null) | undefined;
@@ -241,6 +246,7 @@ export class TaskService implements TaskSchedulingReader {
       cancel: (task, actor, duplicate, sessionId, effects) =>
         this.closeAsCancelled(task, actor, duplicate, sessionId, effects),
     });
+    this.acceptance = new TaskAcceptance(this.store, this.labels, this.cardRelations);
     this.pullRequests = new PullRequestRecords({
       ...deps,
       find: (projectKey, taskKey) => this.store.find(projectKey, taskKey),
@@ -318,6 +324,7 @@ export class TaskService implements TaskSchedulingReader {
     const task = this.get(projectKey, taskKey);
     return {
       task,
+      acceptance: this.acceptance.of(task),
       parent: task.parentKey ? this.find(projectKey, task.parentKey) : null,
       subtasks: this.ctx.repos.tasks.children(projectKey, taskKey).map((child) => this.store.view(child)),
       pullRequests: this.pullRequests.forTask(task),
@@ -438,6 +445,7 @@ export class TaskService implements TaskSchedulingReader {
       });
       opts.onCreated?.(task);
       if (complexity) this.recordComplexity(task, complexity, actor, opts.sessionId ?? null, effects);
+      if (req.acceptance?.length) this.acceptance.create(config, task, req.acceptance, actor, effects);
       const added: AddedRelation[] = [];
       if (task.parentKey) {
         this.recordParentChange(task, null, actor, opts.sessionId);
@@ -459,8 +467,8 @@ export class TaskService implements TaskSchedulingReader {
         return related;
       }
       this.announceRelations(projectKey, actor, added, effects);
-      // A subtask shows its parent's theme, which only a read tells.
-      const stored = task.parentKey ? this.store.get(projectKey, task.key) : task;
+      // A subtask shows its parent's theme, and the items put system labels on the card: only a read tells.
+      const stored = task.parentKey || req.acceptance?.length ? this.store.get(projectKey, task.key) : task;
       this.publish(stored);
       return stored;
     });
@@ -493,12 +501,16 @@ export class TaskService implements TaskSchedulingReader {
     let prepared: PreparedMove = { handover: null, mergeChecked: false };
     if (change.stageId !== undefined) {
       const current = this.get(projectKey, taskKey);
-      const wanted = change.labels
+      const labelled = change.labels
         ? unique(change.labels.map((label) => label.trim()).filter(Boolean))
         : unique([
             ...current.labels.filter((label) => !change.removeLabels?.includes(label)),
             ...(change.addLabels ?? []),
           ]);
+      // The system labels of the acceptance items are on the card too once this change is in.
+      const wanted = change.acceptance?.length
+        ? this.acceptance.labelsAfter(config, current, change.acceptance, actor, labelled)
+        : labelled;
       prepared = await this.moves.prepareMove(
         config,
         {
@@ -765,13 +777,23 @@ export class TaskService implements TaskSchedulingReader {
       complexity: patch.complexity === null ? undefined : (patch.complexity ?? task.complexity),
     };
     const labels = planLabelsOrThrow(config, prospectiveTask, labelChange, actor, note);
+    // The acceptance operations run before the gates are read: the labels they call for count (PM-1135).
+    const acceptancePlan = change.acceptance?.length
+      ? this.acceptance.plan(config, task, change.acceptance, actor)
+      : null;
+    const acceptanceLabels = acceptancePlan
+      ? TaskAcceptance.withDelta(
+          labels.labels,
+          this.acceptance.labelDelta(config, labels.labels, acceptancePlan.items),
+        )
+      : labels.labels;
     const moving = change.stageId !== undefined && change.stageId !== task.stageId;
     if (moving) {
       if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
       // Checked before anything is written, so a refused move leaves the rest of the change unrecorded (PM-433).
       const moveRefusal = actorMoveRefusal(config, actor, task.stageId, change.stageId!);
       if (moveRefusal) throw projectManagerMoveRefused();
-      const prospective = { ...prospectiveTask, labels: labels.labels };
+      const prospective = { ...prospectiveTask, labels: acceptanceLabels };
       const target = requireStage(config, change.stageId!);
       this.moves.assertProjectManagerWorkEntry(
         config,
@@ -875,6 +897,11 @@ export class TaskService implements TaskSchedulingReader {
       this.publish(next);
       // A subtask of the card shows the card's theme, so a change of theme is news to them and to both themes.
       if (shownBefore !== shownAfter) this.themes.publishAround(next, [shownBefore, shownAfter]);
+    }
+    if (acceptancePlan) {
+      this.acceptance.write(config, next, acceptancePlan, actor, sessionId, effects);
+      next = this.get(task.projectKey, task.key);
+      this.publish(next);
     }
     if (relationPlan && relationPlan.steps.length > 0)
       next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects, added);

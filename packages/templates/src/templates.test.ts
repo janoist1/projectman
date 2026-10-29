@@ -77,6 +77,10 @@ it('all templates default to worker and preserve an explicitly selected mover', 
 });
 
 /** [id, kind, owners, gate conditions, column] per stage. */
+/** The acceptance gates (PM-1135): none open after the work stage, none unconfirmed at the end. */
+const OPEN_ITEMS = { type: 'lacks_label', label: 'acceptance-open' } as const;
+const UNCONFIRMED_ITEMS = { type: 'lacks_label', label: 'acceptance-unconfirmed' } as const;
+
 function shape(stages: Stage[]) {
   return stages.map((s) => [s.id, s.kind, s.owners, s.gate?.conditions ?? [], s.columnId]);
 }
@@ -297,7 +301,7 @@ describe('web-client-project', () => {
     expect(shape(resolvedStages(config))).toEqual([
       ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['fe-1', 'be-1'], [], 'development'],
-      ['code_review', 'step', ['code-review'], [], 'review'],
+      ['code_review', 'step', ['code-review'], [OPEN_ITEMS], 'review'],
       ['integration', 'step', ['devops'], [{ type: 'has_label', label: 'code-review-ok' }], 'review'],
       ['qa', 'step', ['owner', 'qa'], [], 'review'],
       ['client_test', 'step', ['communication'], [{ type: 'has_label', label: 'qa-ok' }], 'client_test'],
@@ -318,7 +322,7 @@ describe('web-client-project', () => {
         [{ type: 'has_label', label: 'release-approved' }],
         'awaiting_release',
       ],
-      ['done', 'done', [], [], 'done'],
+      ['done', 'done', [], [UNCONFIRMED_ITEMS], 'done'],
     ]);
   });
 
@@ -399,7 +403,7 @@ describe('small-team', () => {
     expect(shape(resolvedStages(config))).toEqual([
       ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['dev-1'], [], 'development'],
-      ['code_review', 'step', ['code-review'], [], 'review'],
+      ['code_review', 'step', ['code-review'], [OPEN_ITEMS], 'review'],
       [
         'done',
         'done',
@@ -407,6 +411,7 @@ describe('small-team', () => {
         [
           { type: 'has_label', label: 'code-review-ok' },
           { type: 'has_label', label: 'merge-approved' },
+          UNCONFIRMED_ITEMS,
         ],
         'done',
       ],
@@ -434,7 +439,7 @@ describe('internal-tool', () => {
     expect(shape(resolvedStages(config))).toEqual([
       ['ready', 'queue', ['owner'], [], 'ready'],
       ['dev', 'work', ['dev-1', 'dev-2'], [], 'development'],
-      ['code_review', 'step', ['code-review'], [], 'review'],
+      ['code_review', 'step', ['code-review'], [OPEN_ITEMS], 'review'],
       ['qa', 'step', ['owner', 'qa'], [{ type: 'has_label', label: 'code-review-ok' }], 'review'],
       [
         'merge',
@@ -446,7 +451,7 @@ describe('internal-tool', () => {
         ],
         'awaiting_merge',
       ],
-      ['done', 'done', [], [], 'done'],
+      ['done', 'done', [], [UNCONFIRMED_ITEMS], 'done'],
     ]);
   });
 });
@@ -463,7 +468,7 @@ describe('daily-routine', () => {
     expect(shape(resolvedStages(config))).toEqual([
       ['ready', 'queue', ['owner'], [], 'ready'],
       ['work', 'work', ['daily'], [], 'in_progress'],
-      ['done', 'done', [], [], 'done'],
+      ['done', 'done', [], [OPEN_ITEMS, UNCONFIRMED_ITEMS], 'done'],
     ]);
     expect(config.pipeline.columns.map((c) => c.name)).toEqual([
       en.columns.ready.name,

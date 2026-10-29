@@ -25,7 +25,7 @@ export {
 export { projectManagerMember, PROJECT_MANAGER_STYLE_INSTRUCTIONS } from './project-manager';
 export { roleViews } from './role-views';
 export { DAILY_WORKER_SCHEDULE } from './templates/daily-routine';
-export { migrateLegacyConfig, standardLabel, standardLabelsFor } from './labels';
+export { migrateAcceptanceGates, migrateLegacyConfig, standardLabel, standardLabelsFor } from './labels';
 export {
   en,
   getLocale,

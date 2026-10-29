@@ -65,6 +65,13 @@ export type LabelDefinition = z.infer<typeof LabelDefinition>;
 export const PR_MERGED_LABEL = 'pr-merged';
 
 /**
+ * Ids of the two system labels that follow a card's acceptance items (`acceptanceLabels`): an item is open,
+ * and an item is open or settled without a confirmation. The system keeps them, where the project defines them.
+ */
+export const ACCEPTANCE_OPEN_LABEL = 'acceptance-open';
+export const ACCEPTANCE_UNCONFIRMED_LABEL = 'acceptance-unconfirmed';
+
+/**
  * Id of the standard blocking label for a task waiting for an answer. The system puts it on a card
  * while an AI member's question about it is open, and takes it off when the last one closes.
  */
@@ -136,5 +143,6 @@ export const LabelChangeReason = z.enum([
   'pr_merged',
   'approval',
   'open_question',
+  'acceptance',
 ]);
 export type LabelChangeReason = z.infer<typeof LabelChangeReason>;

@@ -618,6 +618,8 @@ export class OperatorTools implements OperatorToolsHandler {
     outcome: ScreeningOutcome;
     recipient?: QuestionRecipient;
     recipientRefusal?: QuestionRecipientRefusal;
+    /** The technical decider a todo no integrator can take went to, instead of the owners (PM-1139). */
+    forwardedTo?: string;
   }> {
     return this.calls.guard(async () => {
       const { config } = await this.calls.callerWithRequest(ctx, 'screen_question');
@@ -678,13 +680,21 @@ export class OperatorTools implements OperatorToolsHandler {
       const by = ctx.member;
       const settled =
         outcome === 'decision' || outcome === 'todo'
-          ? await this.inbox.releaseScreened(item.id, {
-              outcome,
-              by,
-              note,
-              ...(args.todo ? { todo: args.todo } : {}),
-              ...(args.feedbackId !== undefined ? { feedbackId: args.feedbackId } : {}),
-            })
+          ? await this.inbox.releaseScreened(
+              item.id,
+              {
+                outcome,
+                by,
+                note,
+                ...(args.todo ? { todo: args.todo } : {}),
+                ...(args.feedbackId !== undefined ? { feedbackId: args.feedbackId } : {}),
+              },
+              // A todo no integrator can take goes to the technical decider, not to the owners (PM-1139).
+              outcome === 'todo'
+                ? (resolved, to, close) =>
+                    this.messaging.forwardQuestion(resolved, { to, note, reason: 'machine_step' }, close)
+                : undefined,
+            )
           : await this.inbox.settleScreened(
               item.id,
               {
@@ -707,12 +717,13 @@ export class OperatorTools implements OperatorToolsHandler {
           `question_not_screening: ${item.id} is not waiting for the PM any more.`,
         );
       const payload = questionPayloadOf(settled);
+      const forwardedTo = outcome === 'todo' ? payload?.screening?.forwardedTo : undefined;
       return {
         inboxItemId: item.id,
         outcome,
         ...(outcome === 'todo'
           ? {
-              recipient: payload?.recipient ?? 'owner',
+              ...(forwardedTo ? { forwardedTo } : { recipient: payload?.recipient ?? 'owner' }),
               ...(payload?.screening?.recipientRefusal
                 ? { recipientRefusal: payload.screening.recipientRefusal }
                 : {}),

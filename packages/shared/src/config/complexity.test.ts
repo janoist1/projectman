@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { AiMemberConfig, ProjectConfig } from './schema';
-import { canSetComplexity, complexityLimitOf, complexitySetterMembers, isDeveloper } from './complexity';
+import {
+  assigneeFitApplies,
+  canSetComplexity,
+  complexityLimitOf,
+  complexitySetterMembers,
+  isDeveloper,
+} from './complexity';
 import { complexityText, isComplexityPoints } from '../domain/complexity';
 
 const config = ProjectConfig.parse({
@@ -85,6 +91,16 @@ describe('complexity rules', () => {
       team: { ...config.team, limits: { tempWorkers: { maxPoints } } },
     });
     expect(complexityLimitOf(limited, member)).toBe(expected);
+  });
+
+  it.each([
+    ['automatic_and_ai', 'ai', true],
+    ['automatic_and_ai', 'human', false],
+    ['automatic', 'ai', false],
+    [undefined, 'ai', false],
+  ] as const)('applies the assignee fit for setting %s and actor %s: %s', (setting, kind, expected) => {
+    const configured = { team: { ...config.team, assigneeFit: setting } };
+    expect(assigneeFitApplies(configured, { kind })).toBe(expected);
   });
 
   it('accepts only scale values', () => {

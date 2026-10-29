@@ -1692,12 +1692,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Propose shared Operator knowledge",
     },
-    "description": "During an open owner message or answer, propose an agreement replacement or a principle put or removal with the current expected_revision; a null principle id gets a server id. Writes nothing until an owner approves in the inbox. Never import principles automatically from memory or documents.",
+    "description": "During an open owner message or answer, propose an agreement replacement or a principle put or removal with the current expected_revision. Writes nothing until an owner approves in the inbox. What a setting can express (gate, label, permission, priority, limit) goes to operate instead.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
       "properties": {
         "change": {
+          "description": "A null principle id gets a server id. Propose a rule only after a repeated failure and name the cards in its reason; refer to a duty or role, not a member name. Never import principles automatically from memory or documents.",
           "oneOf": [
             {
               "additionalProperties": false,
@@ -1839,6 +1840,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                   "patch": {
                     "additionalProperties": false,
                     "properties": {
+                      "assigneeFit": {
+                        "enum": [
+                          "automatic",
+                          "automatic_and_ai",
+                        ],
+                        "type": "string",
+                      },
                       "boundary": {
                         "properties": {
                           "enabled": {
@@ -4537,12 +4545,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Start work on a task",
     },
-    "description": "Start a task, with an optional assignee, during your own open owner request or on a signal_id; also restarts a stalled card in its work stage. Gates, prerequisites and the PM stage-move rules apply. A refused start waits for nothing; the error names why (e.g. member_at_capacity, team_paused).",
+    "description": "Start a task during your own open owner request or on a signal_id; also restarts a stalled card in its work stage. Gates, prerequisites and the PM stage-move rules apply. A refused start waits for nothing; the error names why (e.g. member_at_capacity, assignee_unfit, team_paused).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
       "properties": {
         "assignee": {
+          "description": "Name one only when you must: the system's choice keeps the member's complexity limit, and with team.assigneeFit an assignee beyond the limit or specialty is refused (assignee_unfit). Score a hard card first, or ask the scorer.",
           "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
           "type": "string",
         },

@@ -465,7 +465,13 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   the project owners and by the holders of the duties in `team.complexitySetters` (PM-1097,
   `canSetComplexity`; default: requirements analysis and task breakdown). Among the free
   developers, optional `specialtyLabels` first restricts automatic assignment to cards carrying at
-  least one matching label; explicit assignees remain unrestricted (PM-1038). Among matching free
+  least one matching label; explicit assignees remain unrestricted (PM-1038) unless the project sets
+  `team.assigneeFit: automatic_and_ai` (PM-1136): then an AI actor's explicit assignee (`start_task`
+  `assignee`, `reassign_task` and every update that changes the assignee, the coordinator's super actor
+  included) must fit the card by the same predicate (`fitsCard`, via `assigneeFitRefusal` in `packages/shared`),
+  or the call fails with `assignee_unfit` (`assertAssigneeFits`, `core/tasks/assignee-fit.ts`; details: member,
+  reason, points, limit). It does not apply to people and their own Claude, to an unscored card, to a card the
+  owners released to any developer, or when no developer of the work stage reaches the points. Among matching free
   developers whose limit reaches the points the one with the smallest limit wins (then the least
   loaded, then the team order), so a small card does not take the strongest developer; an unscored
   card goes the same way among all free developers. While every developer who reaches the points is
@@ -1529,8 +1535,15 @@ Migration 125 drops the then empty table `project_focus_items`.
 
 - **Timeline.** `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }`; old events may also carry
   `{ reason: 'focus', ... }`) marks a card the system pulled into the work stage (below).
+- **Effective priority (PM-1136).** `effectivePriority` (shared) is the highest of the card's, its parent's and its
+  theme's priority (a subtask's theme is its parent's; a closed parent or theme does not count), so a theme's
+  priority ranks all its cards, later added and subtasks too, and an urgent theme's cards are pulled. `startClass`,
+  `compareStartOrder`, `planStarts` and `pullCandidates` use it when given the cards' context (`tasks`); without it
+  the card's own priority applies. `startContext` (core) reads the parents and themes of the cards (closed ones
+  too) for the start round, the pull and `Admission.retryOrder`. A theme may have a priority (set by the same
+  `prioritySetters` as a card's).
 - **Order of deferred starts (PM-436).** `Admission.retryDeferred` ranks the stored starts by `startClass` /
-  `compareStartClass` (shared): urgent (the card's priority is `urgent`), then the others; within
+  `compareStartClass` (shared): urgent (the effective priority is `urgent`), then the others; within
   a class the `senior_busy` waits first, then the store order, so without urgent cards the old order holds.
   Rounds run one after the other: a start being retried is out of
   the store, so an overlapping round would not see it; a round asked for while one runs makes the running one go once more.

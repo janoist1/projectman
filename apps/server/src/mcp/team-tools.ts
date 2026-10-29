@@ -445,6 +445,7 @@ export class TeamToolsService implements TeamToolsHandler {
     outcome: ScreeningOutcome;
     recipient?: QuestionRecipient;
     recipientRefusal?: QuestionRecipientRefusal;
+    forwardedTo?: string;
   }> {
     return this.tools.operator.screenQuestion(ctx, args);
   }

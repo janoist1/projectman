@@ -5,7 +5,7 @@ import { startBlock } from '../config/start-block';
 import { compareBoardOrder } from './board-order';
 import { openPrerequisites } from './relations';
 import { canAutomaticallyStartTask, isOpenTask } from './task';
-import type { Task } from './task';
+import type { Task, TaskPriority } from './task';
 import type { Stage } from './pipeline';
 
 /**
@@ -14,9 +14,39 @@ import type { Stage } from './pipeline';
  */
 export type StartClass = { kind: 'urgent' } | { kind: 'other' };
 
-/** `urgent` for an open card whose priority is urgent, else `other`. A start with no card (`null`) is `other`. */
-export function startClass(task: Task | null): StartClass {
-  return task && isOpenTask(task) && task.priority === 'urgent' ? { kind: 'urgent' } : { kind: 'other' };
+export const PRIORITY_RANK = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
+
+/**
+ * The highest of the card's, its parent's and its theme's priority; a closed parent or theme does not
+ * count. A subtask's theme is its parent's. `tasks` holds the parents and themes (and may hold more);
+ * one that is not in it counts for nothing. `null`: none of them has a priority.
+ */
+export function effectivePriority(
+  task: Pick<Task, 'priority' | 'parentKey' | 'themeKey'>,
+  tasks: readonly Pick<Task, 'key' | 'priority' | 'themeKey' | 'status'>[],
+): TaskPriority | null {
+  const parent = task.parentKey ? tasks.find((card) => card.key === task.parentKey) : undefined;
+  const themeKey = task.themeKey ?? parent?.themeKey;
+  const theme = themeKey ? tasks.find((card) => card.key === themeKey) : undefined;
+  let best = task.priority;
+  for (const other of [parent, theme]) {
+    if (!other?.priority || !isOpenTask(other)) continue;
+    if (!best || PRIORITY_RANK[other.priority] < PRIORITY_RANK[best]) best = other.priority;
+  }
+  return best;
+}
+
+/**
+ * `urgent` for an open card whose priority is urgent, else `other`. A start with no card (`null`) is `other`.
+ * With `tasks` the priority is the {@link effectivePriority}: an urgent parent or theme counts too.
+ */
+export function startClass(
+  task: Task | null,
+  tasks?: readonly Pick<Task, 'key' | 'priority' | 'themeKey' | 'status'>[],
+): StartClass {
+  if (!task || !isOpenTask(task)) return { kind: 'other' };
+  const priority = tasks ? effectivePriority(task, tasks) : task.priority;
+  return priority === 'urgent' ? { kind: 'urgent' } : { kind: 'other' };
 }
 
 const CLASS_RANK = { urgent: 0, other: 1 } as const;
@@ -39,7 +69,8 @@ export function pullSourceStage(config: Pick<ProjectConfig, 'pipeline'>): Stage 
 }
 
 /**
- * The cards that may be pulled into development, in board order: the urgent ones. A card is a candidate when
+ * The cards that may be pulled into development, in board order: the urgent ones (by their
+ * {@link effectivePriority}: an urgent parent or theme counts). A card is a candidate when
  * it is an active card (not a theme or a collector with subtasks) in the source stage with no assignee and
  * no open prerequisite, its start is not blocked (`startBlock`: not being refined, no holding label, no
  * approval pending) and the gates on the way ask for nothing more: no missing label and no approval to request.
@@ -51,7 +82,7 @@ export function pullCandidates(input: { config: ProjectConfig; tasks: readonly T
   if (!source || !development) return [];
   const ranked = (task: Task) => ({ key: task.key, rank: task.boardRank, updatedAt: task.updatedAt });
   return startableCards({ config, tasks, fromStageId: source.id, toStageId: development.id })
-    .filter((task) => startClass(task).kind === 'urgent')
+    .filter((task) => startClass(task, tasks).kind === 'urgent')
     .sort((a, b) => compareBoardOrder(ranked(a), ranked(b)));
 }
 

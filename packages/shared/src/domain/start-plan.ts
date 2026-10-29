@@ -2,7 +2,7 @@ import { compareBoardOrder } from './board-order';
 import type { ComplexityPoints } from './complexity';
 import { chooseDeveloper, complexityOf, reachingDevelopers } from './choose-developer';
 import type { FreeDeveloper, StageDeveloper } from './choose-developer';
-import { compareStartClass, startClass } from './start-order';
+import { PRIORITY_RANK, compareStartClass, effectivePriority, startClass } from './start-order';
 import type { Task } from './task';
 
 export { TaskReadyHold } from './ready-hold';
@@ -13,13 +13,18 @@ export type StartPlanEntry =
   | { kind: 'hold'; reason: 'no_free_member' }
   | { kind: 'hold'; reason: 'senior_busy'; seniors: string[] };
 
-const PRIORITY_ORDER = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
-
-/** Start class, then priority, then the manual board order (PM-795 R4). */
-export function compareStartOrder(a: Task, b: Task): number {
+/**
+ * Start class, then priority, then the manual board order (PM-795 R4). With `tasks` the priority is the
+ * {@link effectivePriority} (the card's, its parent's or its theme's, the highest); without, the card's own.
+ */
+export function compareStartOrder(a: Task, b: Task, tasks?: readonly Task[]): number {
+  const rank = (card: Task) => {
+    const priority = tasks ? effectivePriority(card, tasks) : card.priority;
+    return priority ? PRIORITY_RANK[priority] : 4;
+  };
   return (
-    compareStartClass(startClass(a), startClass(b)) ||
-    (a.priority ? PRIORITY_ORDER[a.priority] : 4) - (b.priority ? PRIORITY_ORDER[b.priority] : 4) ||
+    compareStartClass(startClass(a, tasks), startClass(b, tasks)) ||
+    rank(a) - rank(b) ||
     compareBoardOrder(
       { key: a.key, rank: a.boardRank, updatedAt: a.updatedAt },
       { key: b.key, rank: b.boardRank, updatedAt: b.updatedAt },
@@ -43,8 +48,10 @@ export function planStarts(input: {
    * cards, but only ever offered: the pull does not take an assigned card.
    */
   reassignableTaskKeys?: ReadonlySet<string>;
+  /** The cards with their parents and themes (`startContext`): the priority they bring ranks a card (`effectivePriority`). */
+  tasks?: readonly Task[];
 }): Map<string, StartPlanEntry> {
-  const { cards, developers, anyDecided, offered } = input;
+  const { cards, developers, anyDecided, offered, tasks } = input;
   const reassignable = input.reassignableTaskKeys ?? new Set<string>();
   const keeps = (card: Task) => !!card.assignee && !reassignable.has(card.key);
   let free = [...input.free];
@@ -54,7 +61,7 @@ export function planStarts(input: {
     (a, b) =>
       Number(keeps(b)) - Number(keeps(a)) ||
       Number(offered?.has(b.key) ?? false) - Number(offered?.has(a.key) ?? false) ||
-      compareStartOrder(a, b),
+      compareStartOrder(a, b, tasks),
   );
   for (const card of ordered) {
     // An assigned card is started by its assignee when the pm starts it with start_task (PM-879): it keeps that developer when
@@ -79,7 +86,7 @@ export function planStarts(input: {
     });
     if (pick.kind === 'member') {
       plan.set(card.key, {
-        kind: card.assignee || startClass(card).kind === 'other' ? 'offer' : 'pull',
+        kind: card.assignee || startClass(card, tasks).kind === 'other' ? 'offer' : 'pull',
         developer: pick.handle,
       });
       free = free.filter((member) => member.handle !== pick.handle);

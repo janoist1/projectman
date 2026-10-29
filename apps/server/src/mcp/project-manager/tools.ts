@@ -296,10 +296,15 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       readOnly: false,
       description:
         'During an open owner message or answer, propose an agreement replacement or a principle put or ' +
-        'removal with the current expected_revision; a null principle id gets a server id. Writes nothing ' +
-        'until an owner approves in the inbox. Never import principles automatically from memory or documents.',
+        'removal with the current expected_revision. Writes nothing until an owner approves in the inbox. ' +
+        'What a setting can express (gate, label, permission, priority, limit) goes to operate instead.',
       input: {
         ...ProposeOperatorKnowledgeRequest.shape,
+        change: ProposeOperatorKnowledgeRequest.shape.change.describe(
+          'A null principle id gets a server id. Propose a rule only after a repeated failure and name the ' +
+            'cards in its reason; refer to a duty or role, not a member name. Never import principles ' +
+            'automatically from memory or documents.',
+        ),
         operations: ProposeOperatorKnowledgeRequest.shape.operations.describe(
           'Recommended operations, only for the Operator’s agreement_replace (at most ten). Even immediate ' +
             'ones wait for this approval; protected configuration operations still need a separate approval.',
@@ -540,16 +545,22 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           issue('feedback_id', 'invalid_outcome_fields: feedback_id goes only with todo.');
       },
       async run({ ctx, args, handler }) {
+        const result = await handler.screenQuestion(ctx, {
+          itemId: args.item_id,
+          outcome: args.outcome,
+          note: args.note,
+          ...(args.answer !== undefined ? { answer: args.answer } : {}),
+          ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
+          ...(args.todo ? { todo: args.todo } : {}),
+          ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
+        });
         return JSON.stringify(
-          await handler.screenQuestion(ctx, {
-            itemId: args.item_id,
-            outcome: args.outcome,
-            note: args.note,
-            ...(args.answer !== undefined ? { answer: args.answer } : {}),
-            ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
-            ...(args.todo ? { todo: args.todo } : {}),
-            ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
-          }),
+          result.forwardedTo
+            ? {
+                ...result,
+                message: `No integrator can take it (${result.recipientRefusal}): it went to \`${result.forwardedTo}\`, who decides whether it is needed and asks the owners if they must act.`,
+              }
+            : result,
         );
       },
     }),
@@ -612,12 +623,16 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start work on a task',
       readOnly: false,
       description:
-        'Start a task, with an optional assignee, during your own open owner request or on a signal_id; also ' +
-        'restarts a stalled card in its work stage. Gates, prerequisites and the PM stage-move rules apply. A ' +
-        'refused start waits for nothing; the error names why (e.g. member_at_capacity, team_paused).',
+        'Start a task during your own open owner request or on a signal_id; also restarts a stalled card in ' +
+        'its work stage. Gates, prerequisites and the PM stage-move rules apply. A refused start waits for ' +
+        'nothing; the error names why (e.g. member_at_capacity, assignee_unfit, team_paused).',
       input: {
         task_key: TaskKey,
-        assignee: MemberHandle.optional(),
+        assignee: MemberHandle.optional().describe(
+          "Name one only when you must: the system's choice keeps the member's complexity limit, and with " +
+            'team.assigneeFit an assignee beyond the limit or specialty is refused (assignee_unfit). Score a ' +
+            'hard card first, or ask the scorer.',
+        ),
         despite_prerequisites: z
           .boolean()
           .optional()

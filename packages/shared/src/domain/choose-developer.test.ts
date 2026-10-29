@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assigneeFitRefusal,
   canReplaceUnstartedAssignee,
   chooseDeveloper,
   humanStageOwner,
@@ -126,6 +127,46 @@ describe('reachingDevelopers', () => {
     expect(reachingDevelopers(team, 5, [])).toEqual(['small', 'big']);
     expect(reachingDevelopers(team, 8, [])).toEqual(['big']);
     expect(reachingDevelopers(team, null, [])).toEqual([]);
+  });
+});
+
+describe('assigneeFitRefusal (PM-1136)', () => {
+  const developers: StageDeveloper[] = [
+    { handle: 'small', limit: 5 },
+    { handle: 'big', limit: 13 },
+    { handle: 'ui', limit: 13, specialtyLabels: ['ui'] },
+  ];
+  const refusal = (member: string, extra: Partial<Parameters<typeof assigneeFitRefusal>[0]> = {}) =>
+    assigneeFitRefusal({
+      member,
+      points: 8,
+      labels: [],
+      developers,
+      anyDecided: false,
+      ...extra,
+    });
+
+  it('refuses a developer whose limit is below the points', () => {
+    expect(refusal('small')).toEqual({ reason: 'over_complexity_limit', points: 8, limit: 5 });
+  });
+  it('refuses a developer whose specialty the card does not match', () => {
+    expect(refusal('ui')).toEqual({ reason: 'specialty_mismatch', points: 8, limit: 13 });
+  });
+  it('accepts a developer that fits', () => {
+    expect(refusal('big')).toBeNull();
+    expect(refusal('ui', { labels: ['ui'] })).toBeNull();
+  });
+  it.each<[string, string, Partial<Parameters<typeof assigneeFitRefusal>[0]>]>([
+    ['an unscored card', 'small', { points: null }],
+    ['a card released to any developer', 'small', { anyDecided: true }],
+    [
+      'a card nobody reaches',
+      'small',
+      { points: 13, developers: [developers[0]!, { handle: 'big', limit: 5 }] },
+    ],
+    ['a person', 'owner', {}],
+  ])('accepts %s', (_name, member, extra) => {
+    expect(refusal(member, extra)).toBeNull();
   });
 });
 

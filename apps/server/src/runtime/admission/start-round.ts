@@ -321,8 +321,11 @@ export class StartRound implements StartRounding {
         )
         .map((card) => card.key),
     );
+    // The cards with their parents and themes: a priority they carry ranks the card (`effectivePriority`).
+    const context = startContext(tasks, key, cards);
     const plan = planStarts({
       cards,
+      tasks: context,
       free,
       developers,
       anyDecided,
@@ -364,7 +367,7 @@ export class StartRound implements StartRounding {
           );
       }
     }
-    await this.offer({ config, state, cards, plan, toStageId: development.id });
+    await this.offer({ config, state, cards, context, plan, toStageId: development.id });
   }
 
   /** The cards without an open offer that the plan offers now: the obligation opens, then the message goes. */
@@ -372,10 +375,12 @@ export class StartRound implements StartRounding {
     config: ProjectConfig;
     state: ProjectRound;
     cards: readonly Task[];
+    /** The cards with their parents and themes, for the start order. */
+    context: readonly Task[];
     plan: ReadonlyMap<string, StartPlanEntry>;
     toStageId: string;
   }): Promise<void> {
-    const { config, state, cards, plan, toStageId } = round;
+    const { config, state, cards, context, plan, toStageId } = round;
     const { ctx, tasks, messaging } = this.deps;
     const projectKey = config.project.key;
     const recipient = cardMoverHandle(config) ?? projectManagerOf(config)?.handle;
@@ -390,7 +395,7 @@ export class StartRound implements StartRounding {
           !state.offers.has(card.key) &&
           !state.refusals.has(card.key),
       )
-      .sort(compareStartOrder);
+      .sort((a, b) => compareStartOrder(a, b, context));
     if (fresh.length === 0) return;
     // The parts of a collecting card go together, the other cards alone, in the order of their first card.
     // An assigned card is started with start_task, not moved (a move starts nobody), so it has its own message.

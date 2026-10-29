@@ -134,11 +134,31 @@ function sharedTmpRoots(env: NodeJS.ProcessEnv): string[] {
   ];
 }
 
+/** What `withSandboxRun` needs of a run; the engine candidate's `EngineRun` and the engine package's build both fit. */
+export interface SandboxRunInput {
+  context: { deps: { homeDir: string } };
+  paths: { engineHome: string };
+  options: PrepareOptions;
+  signal: AbortSignal;
+  sandbox: (run: SandboxedRun) => Promise<SandboxedEnd>;
+}
+
+/** What differs between the callers of `withSandboxRun` (PM-1121: the engine package pins its own node). */
+export interface SandboxRunExtras {
+  /** A directory put at the front of the steps' PATH (the node the native modules must be built for). */
+  pathPrefix?: string;
+  /** Directories the sandbox may read besides the checkout. */
+  extraRead?: string[];
+  /** Directories of the checkout the build step may write; default: the server bundle's. */
+  buildWrite?: string[];
+}
+
 /** One run directory for the sandboxed steps; its settings files are outside the child's write access. */
-async function withSandboxRun<T>(
-  run: EngineRun,
+export async function withSandboxRun<T>(
+  run: SandboxRunInput,
   root: string,
   body: (steps: SandboxSteps) => Promise<T>,
+  extras: SandboxRunExtras = {},
 ): Promise<T> {
   const { context, options } = run;
   let runDir: string;
@@ -153,18 +173,19 @@ async function withSandboxRun<T>(
   }
   const paths = runPaths(runDir);
   const userHome = options.userHome ?? context.deps.homeDir;
+  const closedSandbox = fullTestSandbox({
+    checkout: root,
+    userHome,
+    appHome: run.paths.engineHome,
+    closedTmpRoots: sharedTmpRoots(options.baseEnv ?? process.env),
+  });
   const spec: FullTestSpec = {
     runId: path.basename(runDir),
     cwd: root,
     command: '',
     maxWorkers: 1,
     timeoutMs: DEFAULT_TIMEOUTS.install,
-    sandbox: fullTestSandbox({
-      checkout: root,
-      userHome,
-      appHome: run.paths.engineHome,
-      closedTmpRoots: sharedTmpRoots(options.baseEnv ?? process.env),
-    }),
+    sandbox: { ...closedSandbox, allowRead: [...closedSandbox.allowRead, ...(extras.extraRead ?? [])] },
     requireHeavyLock: true,
   };
   fs.mkdirSync(runDir, { mode: 0o700 });
@@ -189,10 +210,16 @@ async function withSandboxRun<T>(
       ...offline,
       filesystem: {
         ...offline.filesystem,
-        allowWrite: [paths.sandbox, path.join(root, path.dirname(SERVER_BUNDLE))],
+        allowWrite: [
+          paths.sandbox,
+          ...(extras.buildWrite ?? [path.dirname(SERVER_BUNDLE)]).map((directory) =>
+            path.join(root, directory),
+          ),
+        ],
       },
     });
     const env = fullTestEnv(paths, 1, options.baseEnv ?? process.env);
+    if (extras.pathPrefix) env.PATH = `${extras.pathPrefix}:${env.PATH}`;
     const config = `--userconfig=${quoteShellWord(paths.npmUserConfig)} --globalconfig=${quoteShellWord(paths.npmGlobalConfig)}`;
     const execute = async (
       stage: 'install' | 'build' | 'check',
@@ -237,23 +264,33 @@ async function withSandboxRun<T>(
         ),
       build: () => execute('build', `npm run build -w @projectman/server ${config}`, buildSettings),
       check: (command) => execute('check', command, paths.settings),
+      installerCommand: (command) => execute('install', command, paths.installerSettings),
+      buildCommand: (command) => execute('build', command, buildSettings),
     });
   } finally {
     fs.rmSync(runDir, { recursive: true, force: true });
   }
 }
 
-interface SandboxSteps {
+export interface SandboxSteps {
   paths: ReturnType<typeof runPaths>;
+  /** The `--userconfig`/`--globalconfig` flags that keep npm off the user's configuration. */
   config: string;
   probe(): Promise<void>;
   install(): Promise<SandboxedEnd>;
   build(): Promise<SandboxedEnd>;
   check(command: string): Promise<SandboxedEnd>;
+  /** Any command with the install step's settings (registry reachable, package trees writable). */
+  installerCommand(command: string): Promise<SandboxedEnd>;
+  /** Any command with the build step's settings (offline, the build directories writable). */
+  buildCommand(command: string): Promise<SandboxedEnd>;
 }
 
 /** Native modules load and work, and the engine's entry points load far enough to ask for the missing configuration. */
-async function importabilityChecks(steps: SandboxSteps): Promise<void> {
+export async function importabilityChecks(
+  steps: SandboxSteps,
+  entries: readonly string[] = ['--import tsx apps/server/src/index.ts', 'apps/server/dist/index.js'],
+): Promise<void> {
   const database = path.join(steps.paths.tmp, 'engine-probe.sqlite');
   const fixtureHome = path.join(steps.paths.home, 'engine-fixture');
   await steps.check(
@@ -261,7 +298,7 @@ async function importabilityChecks(steps: SandboxSteps): Promise<void> {
   );
   // Both entry points stop on the missing engine configuration in a fixture home: all their static imports,
   // the native ones too, have loaded by then, and no machine key, home or cloud link exists to be touched.
-  for (const entry of ['--import tsx apps/server/src/index.ts', 'apps/server/dist/index.js'])
+  for (const entry of entries)
     await steps.check(
       `out="$(env PROJECTMAN_MODE=engine PROJECTMAN_HOME=${quoteShellWord(fixtureHome)} node ${entry} 2>&1)"; status=$?; case "$out" in *${quoteShellWord(NO_CONFIG)}*) [ "$status" -eq 1 ] ;; *) printf '%s\\n' "$out" | tail -n 20; exit 1 ;; esac`,
     );

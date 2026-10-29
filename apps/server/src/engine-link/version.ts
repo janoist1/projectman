@@ -1,12 +1,16 @@
 import { RELEASE_TAG_PATTERN } from '@projectman/shared';
 import { execCommand } from '../exec';
+import { readEnginePackage } from './engine-package';
 
 /**
  * The release tag on the installation's checked-out commit (PM-542): the first `vYYYY.M.D` tag that points at
  * HEAD. Null when git is missing, fails, takes over 2 seconds or the commit has no release tag. Never throws.
  * The release watcher tags after the switch, so only a found tag may be remembered by the caller.
+ * An engine package (PM-1104) has no git: its manifest names the tag, and a manifest without one means none.
  */
 export async function resolveAppTag(installDir: string): Promise<string | null> {
+  const packaged = readEnginePackage(installDir);
+  if (packaged) return packaged.tag !== null && RELEASE_TAG_PATTERN.test(packaged.tag) ? packaged.tag : null;
   try {
     const { stdout: out } = await execCommand('git', ['-C', installDir, 'tag', '--points-at', 'HEAD'], {
       env: { ...process.env },
@@ -46,6 +50,8 @@ export async function resolveAppVersion(installDir: string | null, override?: st
   const explicit = versionOverride(override);
   if (explicit) return explicit;
   if (installDir === null) return 'dev';
+  const packaged = readEnginePackage(installDir);
+  if (packaged) return packaged.version;
   try {
     const { stdout } = await execCommand('git', ['-C', installDir, 'rev-parse', '--verify', '-q', 'HEAD'], {
       env: { ...process.env },

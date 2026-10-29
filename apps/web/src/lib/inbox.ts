@@ -836,6 +836,17 @@ export function isRecentDecision(item: InboxItem): boolean {
   return true;
 }
 
+/** The open items with the closed history behind them; an item both lists hold is the open list's copy. */
+export function withHistory(
+  open: readonly InboxItem[] | undefined,
+  history: readonly InboxItem[] | undefined,
+): InboxItem[] | undefined {
+  if (!open) return undefined;
+  if (!history?.length) return open as InboxItem[];
+  const seen = new Set(open.map((item) => item.id));
+  return [...open, ...history.filter((item) => !seen.has(item.id))];
+}
+
 export function openItems(items: readonly InboxItem[] | undefined): InboxItem[] {
   return (items ?? []).filter((item) => item.state === 'open' && !isLinkedQuestion(item));
 }

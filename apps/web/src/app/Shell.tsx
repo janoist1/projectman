@@ -270,7 +270,10 @@ function SearchBox({ phone = false }: { phone?: boolean }) {
         autoFocus={phone}
         onChange={(event) => setSearch(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') setSearch('');
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            setSearch('');
+          }
         }}
       />
       {search ? (

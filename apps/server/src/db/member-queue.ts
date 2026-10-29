@@ -209,11 +209,7 @@ export function createMemberQueueRepository(db: Db) {
       `SELECT * FROM member_queue_items
        WHERE source_type = 'message' AND state IN ('queued','processing') ORDER BY queued_at, rowid`,
     ),
-    waitingOfTask: db.prepare(
-      `SELECT * FROM member_queue_items
-       WHERE project_key = ? AND state = 'queued' AND wake = 1 AND wait_code IS NOT NULL
-         AND (place_task_key = ? OR task_key = ?) ORDER BY wait_at, rowid`,
-    ),
+    // Served by the partial index `member_queue_items_waiting`: its terms are these ones.
     waiting: db.prepare(
       `SELECT * FROM member_queue_items
        WHERE state = 'queued' AND wake = 1 AND wait_code IS NOT NULL ORDER BY wait_at, rowid`,
@@ -326,10 +322,6 @@ export function createMemberQueueRepository(db: Db) {
     /** Every open message item, for every project and member. */
     listOpenMessages(): StoredMemberQueueItem[] {
       return all(statements.openMessages.all());
-    },
-    /** The queued items of a card (its place, or the card they are about) that wake a session and wait for a code. */
-    listWaitingOfTask(projectKey: string, taskKey: string): StoredMemberQueueItem[] {
-      return all(statements.waitingOfTask.all(projectKey, taskKey, taskKey));
     },
     /** Every queued item that wakes a session and waits for a code, for every project and member. */
     listWaiting(): StoredMemberQueueItem[] {

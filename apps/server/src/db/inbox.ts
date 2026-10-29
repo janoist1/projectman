@@ -31,6 +31,22 @@ interface InboxFilter {
   limit?: number;
 }
 
+export interface QuestionGroupRow {
+  primaryItemId: string;
+  projectKey: string;
+  question: string;
+  by: string;
+  note: string;
+  itemIds: string[];
+}
+
+/** A question the Operator screens or settled without a person, not combined into another (PM-558). */
+const SCREENED_QUESTION = `project_key = ? AND kind = 'question'
+  AND json_type(payload, '$.screening') = 'object'
+  AND (state = 'screening' OR json_extract(payload, '$.screening.outcome') IN ('answered','forwarded','moot'))
+  AND NOT EXISTS (SELECT 1 FROM question_group_items g
+    WHERE g.item_id = inbox_items.id AND g.primary_item_id <> inbox_items.id)`;
+
 const toItem = (r: InboxRow): InboxItem => ({
   id: r.id,
   projectKey: r.project_key,
@@ -89,6 +105,57 @@ export function createInboxRepository(db: Db) {
       `SELECT COUNT(*) AS n FROM inbox_items
        WHERE project_key = ? AND state = 'open' AND EXISTS (SELECT 1 FROM json_each(assignees) WHERE value = ?)`,
     ),
+    listOpenAssigned: db.prepare(
+      `SELECT * FROM inbox_items
+       WHERE project_key = ? AND state = 'open' AND EXISTS (SELECT 1 FROM json_each(assignees) WHERE value = ?)
+       ORDER BY seq`,
+    ),
+    screenedQuestions: db.prepare(
+      `SELECT * FROM inbox_items WHERE ${SCREENED_QUESTION}
+       ORDER BY COALESCE(json_extract(payload, '$.screening.at'), created_at) DESC, seq LIMIT ?`,
+    ),
+    screenedQuestionsSince: db.prepare(
+      `SELECT COUNT(*) AS n FROM inbox_items WHERE ${SCREENED_QUESTION} AND created_at >= ?`,
+    ),
+    groupRows: db.prepare(
+      `SELECT i.item_id, g.* FROM question_group_items i JOIN question_groups g
+         ON g.primary_item_id = i.primary_item_id WHERE i.item_id IN (SELECT value FROM json_each(?))`,
+    ),
+    groupMembers: db.prepare(
+      `SELECT primary_item_id, item_id FROM question_group_items
+       WHERE primary_item_id IN (SELECT value FROM json_each(?)) ORDER BY rowid`,
+    ),
+  };
+
+  const groupsOf = (ids: readonly string[]): Map<string, QuestionGroupRow> => {
+    const groups = new Map<string, QuestionGroupRow>();
+    if (ids.length === 0) return groups;
+    const rows = statements.groupRows.all(JSON.stringify(ids)) as {
+      item_id: string;
+      primary_item_id: string;
+      project_key: string;
+      question: string;
+      by_handle: string;
+      note: string;
+    }[];
+    if (rows.length === 0) return groups;
+    const itemIds = new Map<string, string[]>();
+    const primaries = [...new Set(rows.map((row) => row.primary_item_id))];
+    for (const member of statements.groupMembers.all(JSON.stringify(primaries)) as {
+      primary_item_id: string;
+      item_id: string;
+    }[])
+      itemIds.set(member.primary_item_id, [...(itemIds.get(member.primary_item_id) ?? []), member.item_id]);
+    for (const row of rows)
+      groups.set(row.item_id, {
+        primaryItemId: row.primary_item_id,
+        projectKey: row.project_key,
+        question: row.question,
+        by: row.by_handle,
+        note: row.note,
+        itemIds: itemIds.get(row.primary_item_id) ?? [],
+      });
+    return groups;
   };
   /** List statements per combination of filters. */
   const lists = new Map<string, Statement>();
@@ -116,33 +183,31 @@ export function createInboxRepository(db: Db) {
     onChange(listener: (item: InboxItem) => void): void {
       listeners.push(listener);
     },
-    groupOf(id: string): {
-      primaryItemId: string;
-      projectKey: string;
-      question: string;
-      by: string;
-      note: string;
-      itemIds: string[];
-    } | null {
-      const row = db
-        .prepare(
-          `SELECT g.* FROM question_groups g JOIN question_group_items i
-        ON i.primary_item_id = g.primary_item_id WHERE i.item_id = ?`,
-        )
-        .get(id) as
-        | { primary_item_id: string; project_key: string; question: string; by_handle: string; note: string }
-        | undefined;
-      if (!row) return null;
-      const members = db
-        .prepare('SELECT item_id FROM question_group_items WHERE primary_item_id = ? ORDER BY rowid')
-        .all(row.primary_item_id) as { item_id: string }[];
+    groupOf(id: string): QuestionGroupRow | null {
+      return groupsOf([id]).get(id) ?? null;
+    },
+    /** The groups of many items in two reads: item id → group, for the items that are in one. */
+    groupsOf,
+    /**
+     * The project's open items assigned to `handle`, oldest first: the rows a person's inbox count starts
+     * from (the viewer's visibility and linked questions are decided by the caller).
+     */
+    listOpenAssigned(projectKey: string, handle: string): InboxItem[] {
+      return (statements.listOpenAssigned.all(projectKey, handle) as InboxRow[]).map(toItem);
+    },
+    /**
+     * The project's questions the Operator screens now or settled without a person (answered, forwarded
+     * or moot), not counting a question combined into another: newest decision first (else asking time),
+     * at most `limit`, and how many of all of them were asked at or after `since`.
+     */
+    screenedQuestions(
+      projectKey: string,
+      since: string,
+      limit: number,
+    ): { items: InboxItem[]; today: number } {
       return {
-        primaryItemId: row.primary_item_id,
-        projectKey: row.project_key,
-        question: row.question,
-        by: row.by_handle,
-        note: row.note,
-        itemIds: members.map((m) => m.item_id),
+        items: (statements.screenedQuestions.all(projectKey, limit) as InboxRow[]).map(toItem),
+        today: (statements.screenedQuestionsSince.get(projectKey, since) as { n: number }).n,
       };
     },
     createGroup(input: {

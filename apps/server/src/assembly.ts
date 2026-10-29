@@ -903,13 +903,7 @@ export function createDomain(opts: DomainOptions) {
         ]
       : [];
   };
-  deferredStarts.useQueueWaits({
-    ofTask: (task) =>
-      ctx.repos.memberQueue
-        .listWaitingOfTask(task.projectKey, task.key)
-        .flatMap((item) => queueWaitOf(item).map((wait) => wait.waiting)),
-    all: () => ctx.repos.memberQueue.listWaiting().flatMap(queueWaitOf),
-  });
+  deferredStarts.useQueueWaits({ all: () => ctx.repos.memberQueue.listWaiting().flatMap(queueWaitOf) });
   const refinement = new RefinementSteps({
     projects,
     tasks,

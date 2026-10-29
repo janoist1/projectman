@@ -528,6 +528,17 @@ describe('task drawer comments', () => {
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(screen.getByLabelText(t('task.comments.label'))).toBeTruthy();
   });
+
+  it('keeps the card open and the draft when Escape is pressed in the comment field (PM-1109)', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const input = (await screen.findByLabelText(t('task.comments.label'))) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'Fictional draft' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect((screen.getByLabelText(t('task.comments.label')) as HTMLTextAreaElement).value).toBe(
+      'Fictional draft',
+    );
+  });
 });
 
 describe('task editing and subtasks', () => {

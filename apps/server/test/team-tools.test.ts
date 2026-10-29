@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
 import type { TaskStatus, WorkItemRef } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
@@ -579,6 +579,25 @@ describe('team tools', () => {
     }
     expect(await h.domain.teamTools.listTasks(dev, {})).toHaveLength(50);
     expect(await h.domain.teamTools.listTasks(dev, { limit: 200 })).toHaveLength(200);
+  });
+
+  it('reads the member queue once for the board and list_tasks, however many cards and closed cards there are (PM-1109)', async () => {
+    const reads = async () => {
+      const waiting = vi.spyOn(h.repos.memberQueue, 'listWaiting');
+      const open = vi.spyOn(h.repos.memberQueue, 'listOpenOfType');
+      h.domain.tasks.list('AR');
+      await h.domain.teamTools.listTasks(dev, {});
+      const counts = [waiting.mock.calls.length, open.mock.calls.length];
+      waiting.mockRestore();
+      open.mockRestore();
+      return counts;
+    };
+    const before = await reads();
+    for (let index = 0; index < 20; index += 1) {
+      const task = await h.domain.tasks.create('AR', { title: `Closed ${index}` }, OWNER_ACTOR);
+      h.repos.tasks.update(task.id, { status: 'done', closedAt: new Date().toISOString() });
+    }
+    expect(await reads()).toEqual(before);
   });
 
   it('list_tasks includes named priority only on cards where it was set', async () => {

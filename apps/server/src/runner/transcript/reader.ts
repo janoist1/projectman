@@ -1,7 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { MAX_CONFINED_TRANSCRIPT_BYTES, openConfined } from './confined';
 import type { AgentProvider, ChatItem, HandoffSummary } from '@projectman/shared';
-import { usesCodexCli } from '@projectman/shared';
+import { chatWindow, usesCodexCli } from '@projectman/shared';
 import type { TranscriptReader } from '../../contracts';
 import { CODEX_ROLLOUT_FILE, parseCodexTranscript } from '../providers/codex/transcript';
 import { parseTranscript, type TranscriptParserOptions } from '../providers/claude/transcript';
@@ -15,15 +15,24 @@ import { summarizeTranscript } from './summary';
  */
 export async function readTranscript(
   path: string,
-  opts: TranscriptParserOptions & { provider?: AgentProvider; confineTo?: string } = {},
+  opts: TranscriptParserOptions & {
+    provider?: AgentProvider;
+    confineTo?: string;
+    limit?: number;
+    before?: string;
+  } = {},
 ): Promise<ChatItem[]> {
   const text = await readTranscriptText(path, opts.confineTo);
   const provider =
     opts.provider ??
     (path.endsWith('/transcript_full.jsonl') ? 'gemini' : CODEX_ROLLOUT_FILE.test(path) ? 'codex' : 'claude');
-  if (provider === 'gemini') return parseGeminiTranscript(text, opts);
-  if (usesCodexCli(provider)) return parseCodexTranscript(text, opts);
-  return parseTranscript(text, opts);
+  const items =
+    provider === 'gemini'
+      ? parseGeminiTranscript(text, opts)
+      : usesCodexCli(provider)
+        ? parseCodexTranscript(text, opts)
+        : parseTranscript(text, opts);
+  return opts.limit === undefined ? items : chatWindow(items, { limit: opts.limit, before: opts.before }).items;
 }
 
 /**
@@ -32,7 +41,10 @@ export async function readTranscript(
  */
 export async function readTranscriptText(path: string, confineTo?: string): Promise<string> {
   try {
-    if (!confineTo) return await readFile(path, 'utf8');
+    if (!confineTo) {
+      if ((await stat(path)).size > MAX_CONFINED_TRANSCRIPT_BYTES) throw new Error('transcript too large');
+      return await readFile(path, 'utf8');
+    }
     const handle = await openConfined(path, confineTo);
     try {
       if ((await handle.stat()).size > MAX_CONFINED_TRANSCRIPT_BYTES) throw new Error('transcript too large');
@@ -92,6 +104,8 @@ export function createTranscriptReader(): TranscriptReader {
         cwd: opts?.cwd ?? null,
         firstUserOrigin: opts?.firstUserOrigin,
         confineTo: opts?.confineTo,
+        limit: opts?.limit,
+        before: opts?.before,
       }),
   };
 }

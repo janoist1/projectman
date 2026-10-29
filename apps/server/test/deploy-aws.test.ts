@@ -1,7 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { createHash } from 'node:crypto';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -10,8 +8,8 @@ import { HOST_SUBCOMMANDS } from '../../../scripts/cloud/host';
 /**
  * The files for the EC2 machine (PM-535, docs/AWS.md) cannot run in the test environment (no Ubuntu, no
  * Docker, no systemd). What is checked: the script parses, the unit and the script keep the container closed
- * (no published port, no host network, no extra privilege, no Docker socket), the build gets the full commit id,
- * and the subcommands the client calls exist in the script.
+ * (no published port, no host network, no extra privilege, no Docker socket), the image id is checked, and the
+ * subcommands the client calls exist in the script.
  */
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -74,97 +72,6 @@ public_check board.example.com ${scenario === 'legacy' ? '' : 'machine.example.c
       else expect(answer.integratorHostIsolated).toBe(scenario === 'isolated');
     },
   );
-  it.each([
-    ['closed', 0],
-    ['missing', 3],
-    ['symlink', 3],
-    ['directory', 3],
-    ['-wal', 3],
-    ['-shm', 3],
-    ['-journal', 3],
-    ['active', 3],
-    ['activating', 3],
-    ['container', 3],
-    ['restart', 3],
-    ['sidecar-during-hash', 3],
-    ['changed', 1],
-    ['replaced', 1],
-    ['read-error', 1],
-    ['stat-error', 1],
-    ['empty', 1],
-    ['argument', 1],
-  ])('seed-digest checks a %s fixture without starting or changing the board', (scenario, code) => {
-    const directory = mkdtempSync(join(tmpdir(), 'seed-digest-'));
-    try {
-      const database = join(directory, 'db.sqlite');
-      const state = join(directory, 'unit-state');
-      const tool = join(directory, 'coreutils.cjs');
-      writeFileSync(database, 'closed database');
-      writeFileSync(state, ['active', 'activating'].includes(scenario) ? scenario : 'inactive');
-      if (scenario === 'missing' || scenario === 'symlink' || scenario === 'directory') rmSync(database);
-      if (scenario === 'symlink') symlinkSync('absent', database);
-      if (scenario === 'directory') mkdirSync(database);
-      if (scenario.startsWith('-')) symlinkSync('absent', `${database}${scenario}`);
-      if (scenario === 'empty') writeFileSync(database, '');
-      // A portable coreutils stand-in: the shell logic runs unchanged on macOS as well as Linux.
-      writeFileSync(
-        tool,
-        `
-const fs = require('node:fs');
-const crypto = require('node:crypto');
-const [operation, ...args] = process.argv.slice(2);
-const file = args.at(-1);
-const scenario = process.env.SCENARIO;
-if (operation === 'stat') {
-  if (scenario === 'stat-error') process.exit(1);
-  const s = fs.statSync(file, { bigint: true });
-  console.log(args[1] === '%s' ? String(s.size) : [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':'));
-} else {
-  if (scenario === 'read-error') process.exit(1);
-  const bytes = fs.readFileSync(file);
-  const hash = crypto.createHash('sha256').update(bytes).digest('hex');
-  if (scenario === 'changed') fs.appendFileSync(file, 'changed');
-  if (scenario === 'replaced') { fs.renameSync(file, file + '.old'); fs.writeFileSync(file, bytes); }
-  if (scenario === 'restart') fs.writeFileSync(process.env.UNIT_STATE, 'activating');
-  if (scenario === 'sidecar-during-hash') fs.writeFileSync(file + '-journal', 'journal');
-  console.log(hash + '  ' + file);
-}
-`,
-      );
-      const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
-      const script = [
-        'set -euo pipefail',
-        ...['die', 'refuse', 'board_running', 'seed_database_closed', 'seed_digest'].map((name) =>
-          shellFunction(hostScript, name),
-        ),
-        'UNIT=projectman-cloud',
-        'CONTAINER=projectman-cloud',
-        `DATA_DIR=${quote(directory)}`,
-        'systemctl() { [ "$1" = is-active ] || die "unexpected systemctl mutation"; cat "$UNIT_STATE"; }',
-        `docker() { [ "$1" = inspect ] || die "unexpected docker mutation"; echo ${scenario === 'container' ? 'true' : 'false'}; }`,
-        `stat() { ${quote(process.execPath)} ${quote(tool)} stat "$@"; }`,
-        `sha256sum() { ${quote(process.execPath)} ${quote(tool)} sha256sum "$@"; }`,
-        scenario === 'argument' ? 'seed_digest unexpected' : 'seed_digest',
-      ].join('\n');
-      const result = spawnSync('bash', ['-c', script], {
-        encoding: 'utf8',
-        env: { ...process.env, SCENARIO: scenario, UNIT_STATE: state },
-      });
-      expect(result.status, result.stderr).toBe(code);
-      if (code === 0) {
-        expect(result.stdout).toBe(
-          JSON.stringify({
-            databaseSha256: createHash('sha256').update('closed database').digest('hex'),
-            databaseBytes: 15,
-          }) + '\n',
-        );
-      } else expect(result.stdout).toBe('');
-      if (['closed', 'read-error', 'stat-error', 'argument'].includes(scenario))
-        expect(readFileSync(database, 'utf8')).toBe('closed database');
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
 
   it.each(['deploy/aws/host.sh', 'deploy/cloudflare/check.sh'])('%s parses', (file) => {
     const result = spawnSync('bash', ['-n', join(root, file)], {
@@ -209,12 +116,13 @@ if (operation === 'stat') {
     expect(rehearsal).not.toMatch(/\s-p\s|\s-v\s|--network|--publish/);
   });
 
-  it('builds with the full commit id as PROJECTMAN_VERSION and tags the image with it', () => {
-    const build = shellFunction(hostScript, 'build');
-    expect(build).toContain('--build-arg PROJECTMAN_VERSION="$sha"');
-    expect(build).toContain('-t "$IMAGE_REPO:$sha"');
-    expect(build).toContain('check_sha');
+  it('takes only an arm64 image by its ID: no host build, no amd64 branch', () => {
+    const script = withoutComments(hostScript);
     expect(shellFunction(hostScript, 'check_sha')).toContain('[0-9a-f]{40}');
+    expect(shellFunction(hostScript, 'start')).toContain('requires a recorded image ID');
+    expect(script).not.toMatch(/amd64|x86_64|buildx build/);
+    for (const retired of ['build', 'seed-digest', 'receive-data'])
+      expect(HOST_SUBCOMMANDS).not.toContain(retired);
   });
 
   it('keeps no secret in the script and writes the environment file for root only', () => {
@@ -224,11 +132,7 @@ if (operation === 'stat') {
     expect(receive).toContain('-o root');
   });
 
-  it('refuses to receive data over a running board or a non-empty data directory', () => {
-    const receive = shellFunction(hostScript, 'receive_data');
-    expect(receive).toContain('board_running');
-    expect(receive).toContain('data_empty');
-    expect(receive).toContain('refuse');
+  it('refuses to send the data of a running board', () => {
     expect(shellFunction(hostScript, 'send_data')).toContain('board_running');
   });
 });

@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
+import { SESSION_CHAT_WINDOW } from '@projectman/shared';
 import type {
   CreateOwnerInviteRequest,
   CreatedOwnerInvitation,
@@ -435,16 +436,29 @@ export function useRetireMember(key: string) {
 
 /* ---------- sessions ---------- */
 
-export function useSessionDetail(key: string, sessionId: string) {
+/**
+ * A session with its chat: the last `SESSION_CHAT_WINDOW` items, or only the last `limit` when asked (a
+ * peek). The chat events keep it current (`chat_appended`), so it is never refetched on its own (PM-1116).
+ */
+export function useSessionDetail(key: string, sessionId: string, limit?: number) {
   return useQuery({
-    queryKey: queryKeys.session(key, sessionId),
-    queryFn: () => api.session(key, sessionId),
+    queryKey:
+      limit === undefined ? queryKeys.session(key, sessionId) : queryKeys.sessionTail(key, sessionId, limit),
+    queryFn: () => api.session(key, sessionId, { limit: limit ?? SESSION_CHAT_WINDOW }),
+    staleTime: Infinity,
     // An engine that is away answers the same until it returns; the page waits for its event, not for retries (PM-316).
     retry: (count, error) =>
       !(
         isApiError(error) &&
         (error.code === 'engine_offline' || (error.status >= 400 && error.status < 500))
       ) && count < 2,
+  });
+}
+
+/** The chat items before the item `before` (the "Korábbiak" button of a long chat, PM-1116). */
+export function useEarlierChat(key: string, sessionId: string) {
+  return useMutation({
+    mutationFn: (before: string) => api.session(key, sessionId, { limit: SESSION_CHAT_WINDOW, before }),
   });
 }
 
@@ -647,7 +661,7 @@ export function useUpdateSession(key: string) {
     mutationFn: ({ sessionId, body }: { sessionId: string; body: UpdateSessionRequest }) =>
       api.updateSession(key, sessionId, body),
     onSuccess: (session) =>
-      client.setQueryData<SessionDetail>(queryKeys.session(key, session.id), (detail) =>
+      client.setQueriesData<SessionDetail>({ queryKey: queryKeys.session(key, session.id) }, (detail) =>
         detail ? { ...detail, session } : detail,
       ),
   });

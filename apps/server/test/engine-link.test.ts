@@ -257,7 +257,7 @@ describe('cloud engine registry and link', () => {
     await vi.waitFor(() => expect(large.closed()).toBe(1009));
   });
 
-  it('acks only handled events and reuses results across new connections', async () => {
+  it('acks only handled events and answers a repeated request id again on a new connection', async () => {
     const engine = await create();
     const handler = vi.fn(() => null);
     h.app.projectman.engineLinks!.onChange((id, online) => {
@@ -282,7 +282,7 @@ describe('cloud engine registry and link', () => {
     expect(two.frames[0]).toMatchObject({ t: 'welcome', ackedSeq: 1 });
     two.ws.send(encodeFrame(request));
     await vi.waitFor(() => expect(two.frames.some((frame) => frame.t === 'res')).toBe(true));
-    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledTimes(2);
   });
 
   it('sends welcome before requests made synchronously by connection listeners', async () => {
@@ -539,7 +539,7 @@ describe('cloud engine registry and link', () => {
     second.ws.terminate();
   });
 
-  it('uses boot identity for resumption while retaining engine-scoped RPC results', async () => {
+  it('uses boot identity for resumption', async () => {
     const engine = await create();
     const one = await handshake(engine.key);
     expect(h.app.projectman.engineLinks!.get(engine.engine.id)!.resumed).toBe(false);

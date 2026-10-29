@@ -1,13 +1,14 @@
 # Hybrid mode in the cloud (PM-317)
 
-For the ARM EC2 target, [AWS.md](AWS.md#prebuilt-arm-and-amd64-images-pm-718) describes the
-PM-718 image bundle (only the arm64 image since PM-916; `--all-platforms` adds amd64). Build it on a separate administration/builder machine at the same
-accepted full SHA as the Mac engine. EC2 imports only its native platform archive over SSH/SSM
-and starts the verified immutable image ID; it never builds on ARM. AWS/registry credentials
-do not cross to the engine. Seed's PM-717 integrity gate still precedes import and first start.
+For the ARM EC2 target, [AWS.md](AWS.md#prebuilt-arm-images-pm-718) describes the
+PM-718 image bundle (arm64 only since PM-1116). Build it on a separate administration/builder machine at the same
+accepted full SHA as the Mac engine. EC2 imports the arm64 archive over SSH/SSM
+and starts the verified immutable image ID; it never builds on the machine. AWS/registry credentials
+do not cross to the engine. A deploy requires the bundle (`deployment.imageBundle`) and refuses one built
+from another commit than the one being deployed.
 The image revision LABEL, version ENV, archive hash and ID are recorded with each PM-675 round.
-No engine protocol or repository migration changes; older amd64 host-build installations remain
-compatible. An older image does not reverse database migrations; recovery approval still applies.
+No engine protocol or repository migration changes. An older image does not reverse database
+migrations; recovery approval still applies.
 
 The hybrid mode splits projectman in two: the **cloud** keeps the board, the database, the
 accounts and the secrets, and is reachable from anywhere; the **engine** on your Mac runs the AI
@@ -207,18 +208,13 @@ that staged deploy and check; the Mac engine's address, token and machine key st
 EC2 host operations use SSH
 through SSM with no inbound port; `cloud.env` and hybrid data travel only through encrypted SSH
 stdin/streams. The owner needs AWS CLI v2, session-manager-plugin and OpenSSH. The container,
-one-writer seed/pull guards and restore procedure are unchanged; see the EC2 live rehearsal in
+one-writer pull guard and restore procedure are unchanged; see the EC2 live rehearsal in
 [AWS.md](AWS.md#ownerintegrator-live-rehearsal). This administration link is independent of the
 Mac engine's outbound connection.
 
-Before the first cloud build/start, `seed` requires the PM-717 integrity gate: the package's
-closed, regular, non-symlink `db.sqlite` must have the same SHA-256 and positive byte count before
-and after upload and on the stopped host. No WAL/SHM/journal sidecar is allowed. Retain the
-`ok seed-integrity: database sha256=<64hex> bytes=<n> (before first start)` report on PM-675.
-The package stays closed and one administrator controls the maintenance window. A failed gate
-means **STOP** and an owner recovery decision: the uploaded data stays, with no build/start,
-automatic retry, deletion or overwrite. A new seed refuses the used target. Dry-run previews
-the gate without a host connection or remote proof; [AWS.md](AWS.md#seed-and-pull-data) details exits.
+The one-off `seed` (the first upload of the Mac's data) is retired (PM-1116): the cloud is already seeded.
+The commit before the retirement is tagged `retired-migrate-dns`. `pull-data` stays; see
+[AWS.md](AWS.md#pull-data).
 
 1. Zero Trust → Networks → Tunnels → create a tunnel, choose Docker, and copy the **token** only
    (it becomes `TUNNEL_TOKEN`).
@@ -332,11 +328,11 @@ anonymous caller meets (an Access login page is the right result then, and the f
 
 What is backed up, and by whom:
 
-| What                                                                                                                                                         | By         | How often                                          |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | -------------------------------------------------- |
-| `db.sqlite` (all boards, accounts, key hashes)                                                                                                               | Litestream | continuously (every second); a snapshot a day      |
-| `secret` (the cookie signing key), `secrets/`, `customization/` with `.git`, `attachments/`, `message-attachments/`, `feedback/`, `memory/`, `instance.json` | restic     | every 6 hours, 7 daily / 4 weekly / 6 monthly kept |
-| `logs/`, `browsers/`, provider homes, engine credentials, worktrees and transient caches/spools                                                              | nobody     | excluded from restic                               |
+| What                                                                                                                                                         | By         | How often                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | ------------------------------------------------------------------------------------------ |
+| `db.sqlite` (all boards, accounts, key hashes)                                                                                                               | Litestream | continuously (every second); a snapshot a day                                              |
+| `secret` (the cookie signing key), `secrets/`, `customization/` with `.git`, `attachments/`, `message-attachments/`, `feedback/`, `memory/`, `instance.json` | restic     | every 6 hours; `forget` on every run (7 daily / 4 weekly / 6 monthly kept), `prune` weekly |
+| `logs/`, `browsers/`, provider homes, engine credentials, worktrees and transient caches/spools                                                              | nobody     | excluded from restic                                                                       |
 
 The database and the files belong together (the database holds the attachments' names, the files
 their content). **These are separate recovery points, not an atomic shared snapshot.** Litestream's
@@ -429,8 +425,8 @@ data). Revoke the machine key in Settings → Engines first, if the cloud is sti
 
 Three scripts in `deploy/cloud/` (PM-773, part of PM-772) measure what the cloud server keeps in memory
 and what is garbage. They have no dependencies, change nothing in the server and touch no engine: they
-run on the loopback of a **disposable copy** of a home, with no network. The image carries them in
-`/app/deploy/cloud/`; an older image can get them as a read-only volume.
+run on the loopback of a **disposable copy** of a home, with no network. The image does not carry them
+(PM-1116): mount `deploy/cloud/` of the repository as a read-only volume (`-v <repo>/deploy/cloud:/tool:ro`).
 
 - `memory-probe.mjs` — a `node --import` preload. Every `PM_MEMORY_PROBE_MS` (5000) it appends one JSON
   line to `PM_MEMORY_PROBE_FILE` (never stdout): `t`, `uptimeS`, `rss`, `heapUsed`, `heapTotal`,
@@ -468,13 +464,12 @@ In the image (no network, the copy and the output mounted):
 
 ```sh
 docker run --rm --network none -v <copy>:/data -v <out>:/out [-v <login.json>:/in/login.json:ro] \
-  [-v <repo>/deploy/cloud:/tool:ro] --entrypoint node <image> /tool/memory-profile.mjs \
+  -v <repo>/deploy/cloud:/tool:ro --entrypoint node <image> /tool/memory-profile.mjs \
   --home /data --out /out [--login-file /in/login.json] [--duration-min 60] [--heap-limit-mb <n>] \
   [--env MALLOC_ARENA_MAX=2]
 ```
 
-(Without `-v …:/tool:ro` use `/app/deploy/cloud/memory-profile.mjs`. The default heap limit of a
-machine is `node -p "v8.getHeapStatistics().heap_size_limit"` on it.)
+(The default heap limit of a machine is `node -p "v8.getHeapStatistics().heap_size_limit"` on it.)
 
 Output under `--out`: `report.json` (shape: `sourceVersion`, `node`, `platform`, `arch`,
 `heapSizeLimitMb`, `nodeArgs`, `env` (names only), `startupMs`, `phases[]`, `endpoints[]` with the route
@@ -493,6 +488,27 @@ snapshot can include that; `ready` and `start` are read before any snapshot, and
 the heap during the load. Compare variants of one run (no limit, `--heap-limit-mb`, `--env MALLOC_ARENA_MAX=2`)
 with each other, not with the live container.
 
+### What the RSS is made of (PM-1116)
+
+The RSS of the cloud server is far above its live JavaScript heap (the PM-773 profile read about 65 MB of
+live heap against about 650 MB of RSS): most of it is native memory (the SQLite page cache and the
+allocator's free arenas), not JavaScript objects. Before a smaller instance is considered, measure the
+composition on the running machine, in this order:
+
+1. **`/proc/<pid>/smaps_rollup`** of the server process (`docker exec projectman-cloud sh -c 'cat
+/proc/$(pidof node)/smaps_rollup'`): `Rss` is the total, `Pss` the proportional share, `Anonymous` the
+   heap and native allocations (the part a smaller instance must hold), `Private_Dirty` what was
+   written and cannot be dropped. File-backed `Rss` minus `Anonymous` is the code and mapped files, which
+   the kernel can drop under pressure.
+2. **The memory log.** Set `PROJECTMAN_MEMORY_LOG_SECONDS=600` in `cloud.env` and read the `memory` lines
+   of `npm run cloud -- logs` (`rssMb`, `heapUsedMb`, `heapTotalMb`, `externalMb`, `arrayBuffersMb`,
+   `heapLimitMb`, `uptimeS`, every 10 minutes). `rssMb - heapTotalMb - externalMb` is the native remainder;
+   its growth over the uptime tells a leak from a plateau.
+3. **The profile above**, on a disposable copy, to compare variants (`--heap-limit-mb`,
+   `MALLOC_ARENA_MAX=2`).
+
+A smaller instance than the current one is decided only after these readings, together with the owner.
+
 ## History semantic profile
 
 `deploy/cloud/history-semantic-profile.mjs` (PM-910, the release check of PM-767) proves, before the cloud
@@ -504,7 +520,7 @@ owner.** This tool and its tests set no live environment variable.
 
 ```sh
 docker run --rm --network none --memory 2g --memory-swap 2g -v <out>:/out -v <fixture.json>:/in/fixture.json:ro \
-  --entrypoint node <image> /app/deploy/cloud/history-semantic-profile.mjs \
+  -v <repo>/deploy/cloud:/tool:ro --entrypoint node <image> /tool/history-semantic-profile.mjs \
   --server /app/apps/server/dist/history-semantic-profile.js --model-dir /app/apps/server/dist/models/history \
   --fixture /in/fixture.json --out /out/profile [--mixed-seconds 600] [--max-seconds 9000]
 ```
@@ -654,15 +670,20 @@ gets there from the single-machine mode, how it comes back, and what stays where
 **This page is not a permission to move.** The live instance is never stopped, changed or updated by
 anything here until the owner has said so for the concrete move.
 
-The tool is `npm run migrate -- …` (the source is only
-read, a package is a secret, only one copy works). The engine's own commands are `npm run engine -- …`.
+The tool is `npm run migrate -- …`. The engine's own commands are `npm run engine -- …`.
+
+**The one-off move to the hybrid mode is done and its commands are retired (PM-1116):** `inventory`,
+`hybrid plan`, `hybrid package` and the cloud `seed` and `dns plan|import|verify|switch`. What stays is
+`verify`, `instance`, `hybrid back`, the cloud's `pull-data` and `dns status`. The last commit that still
+has the retired commands is tagged `retired-migrate-dns`; check it out in a separate worktree if a
+move has to be done again. The sections below keep what the remaining commands rely on.
 
 For the data-preserving return from EC2 to Mac single,
 use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
 
 ## What goes where
 
-| On the Mac (the home keeps them)                                        | In the cloud package (`hybrid package`)                         |
+| On the Mac (the home keeps them)                                        | In the cloud's data                                             |
 | ----------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `engine.key` (the machine key), `engine.json` (the engine's config)     | `db.sqlite` (a consistent copy), `secret` (the cookie key)      |
 | `providers/` (the CLIs' logins and conversation directories)            | `secrets/`, `customization/`, `attachments/`, `memory/`         |
@@ -670,9 +691,9 @@ use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
 | repositories, `workspaces/`, `worktrees/`, `member-caches/`, `browsers` | the engine's row (only the **hash** of the key) in the database |
 | `github-publish/`, `spool/`, `logs/`, `instance.json`                   |                                                                 |
 
-The package holds exactly the entries on the right and nothing else (`db.sqlite`, `secret`, `secrets`,
+The cloud's data holds exactly the entries on the right and nothing else (`db.sqlite`, `secret`, `secrets`,
 `customization`, `attachments`, `message-attachments`, `feedback`, `memory`; an entry the home does not have
-is left out, so a package made before `message-attachments` was carried is still good). The way back
+is left out). The way back
 (`hybrid back`) moves the Mac's own `message-attachments/` into `pre-hybrid/<date>/` with the other replaced
 entries and puts the cloud's in its place, and a failed replacement puts all of them back. The list is
 `HYBRID_CLOUD_ENTRIES` in `scripts/migrate/hybrid-entries.ts`, and `verify --hybrid-cloud` refuses a
@@ -680,72 +701,26 @@ package that holds anything more (`forbidden_entry`). No CLI login, no repositor
 The machine key is made on the Mac, written to `engine.key` (mode 0600) and shown nowhere; the cloud
 learns only its SHA-256 hash.
 
-## 1. The plan sheet (read-only)
+## 1. Marking the Mac as the engine
+
+The plan sheet, the dry run on a copy and the package of the cutover are retired (see above). The step
+that remains is the role of the Mac's home:
 
 ```sh
-npm run migrate -- hybrid plan --home ~/.projectman
+npm run migrate -- instance engine --home ~/.projectman --reason "hybrid mode"
 ```
 
-Prints what goes to the cloud, what stays, the engine configuration it would write (projects, the
-repositories inside their workspaces, their full-test commands) and the findings: a missing workspace,
-a repository outside its workspace, an over-long test command (dropped with a warning) and the
-blockers of the inventory (a running server, an unreadable database). It changes nothing.
+The home's `instance.json` now says `engine`: a single-machine or cloud server refuses to start on
+it, while the engine may (its `home_in_use` check allows the stale database of an `engine` home;
+sandboxes keep every session out of it). The engine, in turn, refuses a home that holds a database
+and is not marked `engine`. Then start the engine, in the foreground first: `npm run engine -- status`,
+`npm run engine -- start`, and let launchd keep it running.
 
-## 2. Dry run on a copy
+The cloud's data never travels in a package that sits on the Mac: it holds the cookie key, the secrets
+and the whole database, and a session's sandbox only _denies_ named places (the home's own entries,
+`~/.ssh` …): any other folder under your user is readable by every AI session on the Mac.
 
-Rehearse on a **copy** of the stopped home (never on the running live instance), with the cloud
-build started on the package in a disposable place:
-
-1. Copy the stopped home to a scratch directory (`cp -R`), run `hybrid package` on the copy.
-2. `npm run migrate -- verify --home <out>/home --hybrid-cloud`.
-3. Start the cloud build on `<out>/home` (as in PM-317's deployment page) and sign in.
-4. Connect the engine from the copy's home: `PROJECTMAN_HOME=<copy> npm run engine -- start`.
-
-What a rehearsal proves: the package is whole, the cloud opens it, the engine connects and its
-sessions are listed. **What it does not prove:** that a session which was running at the cutover
-resumes. The package is made from a stopped source, so no session is running in it; the first sessions
-after the cutover are new starts or resumes from the CLIs' own conversation directories on the Mac.
-
-## 3. The cutover
-
-1. Pause the team ([DEPLOY.md](DEPLOY.md) "Pausing the team") and stop the live instance. `hybrid
-package` refuses a running server (`database_in_use`).
-2. Make the package. It writes `engine.key` and `engine.json` into the Mac's home, last, and refuses to
-   overwrite either:
-
-   ```sh
-   npm run migrate -- hybrid package --home ~/.projectman --out ~/hybrid-package \
-     --engine-name "Mac" --cloud https://<the cloud's address>
-   ```
-
-   `--out` is a new directory outside the home and outside any git repository (mode 0700). The
-   cloud address must be `https://` (`http://` only on a loopback host). A new rehearsal after a way
-   back works too: the earlier, revoked engine stays in the database as an audit record and does not
-   block the package, which gets a new engine and key (a non-revoked engine still refuses it).
-
-3. Check it: `npm run migrate -- verify --home ~/hybrid-package/home --hybrid-cloud` (one non-revoked
-   default engine, every session on a known engine, nothing from the never-carried list).
-4. Put **only** `~/hybrid-package/home/` on the cloud's data volume and start the cloud build on it.
-   Never put the package in a repository, a task attachment or a message.
-   **Then delete the package from the Mac** (`rm -rf ~/hybrid-package`), or keep it off the machine.
-   It holds the cookie key, the secrets and the whole database, and a session's sandbox only _denies_
-   named places (the home's own entries, `~/.ssh` …): any other folder under your user, this one too,
-   is readable by every AI session on the Mac.
-5. Retire the Mac's single-machine role and mark the home as the engine's:
-
-   ```sh
-   npm run migrate -- instance engine --home ~/.projectman --reason "hybrid mode"
-   ```
-
-   The home's `instance.json` now says `engine`: a single-machine or cloud server refuses to start on
-   it, while the engine may (its `home_in_use` check allows the stale database of an `engine` home;
-   sandboxes keep every session out of it). The engine, in turn, refuses a home that holds a database
-   and is not marked `engine`.
-
-6. Start the engine, in the foreground first: `npm run engine -- status`, `npm run engine -- start`.
-   Then let launchd keep it running.
-
-## 4. The engine as a service (launchd)
+## 2. The engine as a service (launchd)
 
 Run from **the checkout that should run the engine** (the plist names it), on the Mac, as the user who
 owns the CLI logins:
@@ -768,7 +743,7 @@ npm run engine -- service uninstall   # unloads it and removes the file; the log
   finds it. A `bootstrap` that fails with "5: Input/output error" while launchd is still tearing the
   old job down is retried a few times.
 
-## 5. The way back
+## 3. The way back
 
 For when the owner wants the single-machine mode again.
 

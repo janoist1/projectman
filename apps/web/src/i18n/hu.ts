@@ -4952,6 +4952,7 @@ export const hu = {
     chat: {
       brief: 'Feladatleírás',
       empty: 'Még nincs üzenet ebben a munkamenetben.',
+      loadEarlier: 'Korábbiak',
       teamMessageIn: 'csapatüzenet',
       teamMessageOut: 'Csapatüzenet',
       toolGroup: 'Eszközhívások',

@@ -332,10 +332,16 @@ export class CloudWorld {
   /** Writes the configuration (a mode 700 directory is created) and returns its path. */
   writeConfig(overrides: Record<string, unknown> = {}): string {
     mkdirSync(this.secretsDir, { recursive: true, mode: 0o700 });
-    writeFileSync(this.configFile, JSON.stringify({ ...baseConfig(), ...overrides }, null, 2), {
+    const deployment = { imageBundle: this.bundleDir };
+    writeFileSync(this.configFile, JSON.stringify({ ...baseConfig(), deployment, ...overrides }, null, 2), {
       mode: 0o600,
     });
     return this.configFile;
+  }
+
+  /** Where the image bundle of the default configuration lies (`HostWorld.writeBundle` fills it). */
+  get bundleDir(): string {
+    return path.join(this.home, 'bundle');
   }
 }
 
@@ -352,5 +358,6 @@ export function baseConfig(): Record<string, unknown> {
     },
     cloudflare: { zone: 'example.com', hostname: 'board.example.com' },
     access: { emails: ['Owner@Example.com'] },
+    deployment: { imageBundle: 'bundle' },
   };
 }

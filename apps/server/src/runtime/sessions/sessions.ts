@@ -1,6 +1,6 @@
 import { wakesFor } from '../../core/messages';
 import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
-import { LIVE_SESSION_STATES, workMetadataAfterChat } from '@projectman/shared';
+import { LIVE_SESSION_STATES, SESSION_CHAT_WINDOW, workMetadataAfterChat } from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
@@ -1347,25 +1347,40 @@ export class SessionOrchestrator {
     }
   }
 
-  /** The session with its chat, read from the transcript as its provider wrote it. */
-  async detail(projectKey: string, sessionId: string): Promise<SessionDetail> {
+  /**
+   * The session with its chat, read from the transcript as its provider wrote it: the last `limit`
+   * items (before the item `before`), with `truncated` when older ones remain (PM-1116).
+   */
+  async detail(
+    projectKey: string,
+    sessionId: string,
+    window: { limit: number; before?: string } = { limit: SESSION_CHAT_WINDOW },
+  ): Promise<SessionDetail> {
     const session = this.get(projectKey, sessionId);
     let chat: ChatItem[] = [];
+    let truncated = false;
     if (session.transcriptPath) {
       try {
+        // One item more than shown tells whether older ones remain.
         chat = await this.deps.transcripts.read(session.transcriptPath, {
           provider: session.provider ?? DEFAULT_AGENT_PROVIDER,
           self: session.member,
           cwd: session.cwd,
           firstUserOrigin: openingTurnOrigin(session.workItem),
+          limit: window.limit + 1,
+          ...(window.before === undefined ? {} : { before: window.before }),
           ...engineOption(engineIdOf(session)),
         });
+        if (chat.length > window.limit) {
+          truncated = true;
+          chat = chat.slice(-window.limit);
+        }
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId }, 'could not read the transcript');
       }
     }
     const task = session.workItem.type === 'task' ? this.ctx.repos.tasks.get(session.workItem.taskKey) : null;
-    return { session, chat, task };
+    return { session, chat, task, ...(truncated ? { truncated } : {}) };
   }
 
   /**

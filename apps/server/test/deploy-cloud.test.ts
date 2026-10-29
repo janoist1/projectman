@@ -217,6 +217,15 @@ else if (tool === 'node') {
   });
   afterEach(() => rmSync(temp, { recursive: true, force: true }));
 
+  it('forgets old snapshots on every backup and prunes at most once a week', () => {
+    expect(run('backup').status).toBe(0);
+    expect(run('backup').status).toBe(0);
+    const resticCalls = calls().filter((line) => line.startsWith('restic '));
+    expect(resticCalls.filter((line) => line.startsWith('restic forget')).length).toBe(2);
+    expect(resticCalls.some((line) => line.includes('--prune'))).toBe(false);
+    expect(resticCalls.filter((line) => line === 'restic prune').length).toBe(1);
+  });
+
   it('restores every durable file with matching SQLite references, without engine credentials or a second writer', () => {
     expect(run('backup').status).toBe(0);
     const scratch = join(temp, 'rehearsal');

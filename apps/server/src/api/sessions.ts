@@ -5,6 +5,8 @@ import {
   MemberHandle,
   ReadTeamMessagesRequest,
   routes,
+  SESSION_CHAT_WINDOW,
+  SESSION_CHAT_WINDOW_MAX,
   SendMessageRequest,
   SendTeamMessageRequest,
   TaskKey,
@@ -21,6 +23,11 @@ import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type SessionParams = { Params: { key: string; sessionId: string } };
+
+const ChatWindowQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(SESSION_CHAT_WINDOW_MAX).optional(),
+  before: z.string().min(1).optional(),
+});
 
 const MessagesQuery = z.object({
   taskKey: TaskKey.optional(),
@@ -45,7 +52,11 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key);
     assertMaySeeSession(domain, access, sessionId);
-    const detail = await domain.sessions.detail(key, sessionId);
+    const { limit, before } = parseBody(ChatWindowQuery, request.query);
+    const detail = await domain.sessions.detail(key, sessionId, {
+      limit: limit ?? SESSION_CHAT_WINDOW,
+      ...(before === undefined ? {} : { before }),
+    });
     return { ...detail, session: visibleSession(access, detail.session, (id) => domain.messages.get(id)) };
   });
 

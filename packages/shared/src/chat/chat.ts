@@ -345,3 +345,17 @@ export function userTextOrigin(
     ? 'team_message'
     : firstOrigin;
 }
+
+/**
+ * The last `limit` of `items` (oldest first), or the last `limit` before the item `before`; an unknown
+ * `before` reads from the end. `truncated` is true when older items remain (PM-1116).
+ */
+export function chatWindow<T extends { id: string }>(
+  items: readonly T[],
+  opts: { limit: number; before?: string },
+): { items: T[]; truncated: boolean } {
+  const at = opts.before === undefined ? -1 : items.findIndex((item) => item.id === opts.before);
+  const end = at < 0 ? items.length : at;
+  const start = Math.max(0, end - opts.limit);
+  return { items: items.slice(start, end), truncated: start > 0 };
+}

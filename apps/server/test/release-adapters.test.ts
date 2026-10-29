@@ -134,13 +134,10 @@ describe('the cloud machine port (PM-751)', () => {
   it('reads the current image from the deploy record, and null when it names no image', async () => {
     const port = machinePort(context(), expected);
     world.machine.preload(SHA_NEW, 'v1');
+    const { imageId, ...unrecorded } = world.machine.deploy!.current!;
+    world.machine.deploy!.current = unrecorded;
     expect(await port.current()).toBeNull();
-    const imageId = `sha256:${'1'.repeat(64)}`;
-    world.machine.deploy = {
-      current: { sha: SHA_NEW, ref: 'v1', at: '2026-10-01T10:00:00Z', imageId, platform: 'linux/arm64' },
-      previous: null,
-      lastStoppedAt: null,
-    };
+    world.machine.deploy!.current = { ...unrecorded, imageId };
     expect(await port.current()).toEqual({ commit: SHA_NEW, imageId, platform: 'linux/arm64' });
   });
 });

@@ -8,6 +8,7 @@ import type { ProjectService } from '../../core/projects';
 import { aiActor, KeyedMutex } from '../../kernel';
 
 export const RELAY_WINDOW_MS = 2 * 60 * 60 * 1000;
+const RELAY_TAIL_ITEMS = 200;
 
 /** Makes a manager's final session reply visible to the person awaiting it (PM-458). */
 export class PmReplyRelay {
@@ -32,20 +33,26 @@ export class PmReplyRelay {
     const manager = memberOf(config, session.member);
     if (!isProjectManager(manager)) return;
     const cutoff = ctx.now().getTime() - RELAY_WINDOW_MS;
-    const all = () =>
-      ctx.repos.messages.list(session.projectKey, {
-        member: session.member,
-        limit: Number.MAX_SAFE_INTEGER,
-      });
-    const unanswered = (candidate: TeamMessage, delivered: number, history: TeamMessage[]) =>
-      !history.some(
-        (reply) =>
-          reply.relayed?.inReplyTo === candidate.id ||
-          (reply.from === session.member &&
-            reply.to.includes(candidate.from) &&
-            Date.parse(reply.createdAt) > delivered),
+    // One bounded read of the window per check; the replies are indexed once, not searched per candidate.
+    const load = () => {
+      const history = ctx.repos.messages.listWindow(
+        session.projectKey,
+        session.member,
+        new Date(cutoff).toISOString(),
       );
-    const history = all();
+      const relayed = new Set<string>();
+      const lastSent = new Map<string, number>();
+      for (const reply of history) {
+        if (reply.relayed) relayed.add(reply.relayed.inReplyTo);
+        if (reply.from !== session.member) continue;
+        const sentAt = Date.parse(reply.createdAt);
+        for (const to of reply.to) if (sentAt > (lastSent.get(to) ?? -Infinity)) lastSent.set(to, sentAt);
+      }
+      const unanswered = (candidate: TeamMessage, delivered: number) =>
+        !relayed.has(candidate.id) && !((lastSent.get(candidate.from) ?? -Infinity) > delivered);
+      return { history, unanswered };
+    };
+    const { history, unanswered } = load();
     const latest = new Map<string, { message: TeamMessage; delivered: number }>();
     for (const message of history) {
       if (
@@ -57,7 +64,7 @@ export class PmReplyRelay {
       const at = message.receipts?.find((r) => r.handle === session.member)?.deliveredAt;
       if (!at) continue;
       const delivered = Date.parse(at);
-      if (!(delivered >= cutoff) || !unanswered(message, delivered, history)) continue;
+      if (!(delivered >= cutoff) || !unanswered(message, delivered)) continue;
       const previous = latest.get(message.from);
       if (!previous || delivered >= previous.delivered) latest.set(message.from, { message, delivered });
     }
@@ -67,18 +74,17 @@ export class PmReplyRelay {
     background.run(
       () =>
         this.locks.run(session.id, async () => {
-          if (![...latest.values()].some(({ message, delivered }) => unanswered(message, delivered, all())))
-            return;
-          const { chat } = await sessions.detail(session.projectKey, session.id);
+          const before = load().unanswered;
+          if (![...latest.values()].some(({ message, delivered }) => before(message, delivered))) return;
+          // The final reply is at the end of the transcript: its tail is all that is read.
+          const { chat } = await sessions.detail(session.projectKey, session.id, { limit: RELAY_TAIL_ITEMS });
+          // Replies sent while the transcript was read count; the load is the last step before recording.
+          const current = load().unanswered;
           for (const { message, delivered } of latest.values()) {
             const reply = chat.findLast(
               (item) => item.kind === 'assistant_text' && Date.parse(item.ts) > delivered,
             );
-            if (
-              reply?.kind !== 'assistant_text' ||
-              !reply.text.trim() ||
-              !unanswered(message, delivered, all())
-            )
+            if (reply?.kind !== 'assistant_text' || !reply.text.trim() || !current(message, delivered))
               continue;
             // No await between the final duplicate check and recording the stored message.
             messages.record({

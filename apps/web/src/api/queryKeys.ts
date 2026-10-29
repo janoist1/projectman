@@ -61,6 +61,9 @@ export const queryKeys = {
   /** Prefix of every task detail query of a project. */
   taskDetails: (key: string) => ['project', key, 'task'] as const,
   session: (key: string, sessionId: string) => ['project', key, 'session', sessionId] as const,
+  /** A session detail with only its last `limit` chat items (a peek); under the key of the full one. */
+  sessionTail: (key: string, sessionId: string, limit: number) =>
+    ['project', key, 'session', sessionId, 'tail', limit] as const,
   /** Prefix of every session detail query of a project. */
   sessionDetails: (key: string) => ['project', key, 'session'] as const,
   inbox: (key: string) => ['project', key, 'inbox'] as const,

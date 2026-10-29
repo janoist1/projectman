@@ -161,6 +161,12 @@ export function createMessageRepository(db: Db) {
       `SELECT id, from_handle, to_handles, receipts FROM team_messages WHERE project_key = ?
        AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
     ),
+    window: db.prepare(
+      `SELECT * FROM team_messages WHERE project_key = ?
+       AND (created_at >= ? OR EXISTS (SELECT 1 FROM json_each(receipts)
+         WHERE json_extract(value, '$.handle') = ? AND json_extract(value, '$.deliveredAt') >= ?))
+       AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
+    ),
     pendingFrom: db.prepare(
       `SELECT * FROM team_messages WHERE task_key = ? AND project_key = ? AND from_handle = ?
        AND delivered_at IS NULL AND receipts IS NOT NULL ORDER BY seq`,
@@ -312,6 +318,16 @@ export function createMessageRepository(db: Db) {
         lists.set(sql, statement);
       }
       return (statement.all(...params) as MessageRow[]).reverse().map(toMessage);
+    },
+    /**
+     * Every message the member sent or got that was created at or after `since` (ISO time), or that was
+     * delivered to the member at or after it, oldest first. The member filter runs in SQL, so only the
+     * window's rows are read (the PM reply relay, PM-1116).
+     */
+    listWindow(projectKey: string, member: string, since: string): TeamMessage[] {
+      return (statements.window.all(projectKey, since, member, since, member, member) as MessageRow[]).map(
+        toMessage,
+      );
     },
     /** Every message the member sent or got, oldest first, without its body: all a conversation list needs. */
     involving(projectKey: string, handle: string): MessageSummary[] {

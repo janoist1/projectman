@@ -143,6 +143,9 @@ npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # 
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
 npx vitest run src/i18n/i18n.test.ts --configLoader runner  # in apps/web: after changing locale keys or their usage
 npx vitest run test/architecture  # in apps/server after adding, moving or renaming files; before hand-over too (no queue)
+npx vitest run test/web-get-contracts.test.ts --configLoader runner  # in apps/server after changing web GET responses or hot-read query costs
+npx vitest related test/helpers/app-harness.ts --run --configLoader runner  # in apps/server after changing the app harness, covering every harness consumer
+npx vitest related ../../scripts/merge-test/scope.ts --run --configLoader runner  # in apps/server after changing merge-test scope, including CLI selection
 npx vitest run test/merge-test-watchdog.test.ts --configLoader runner  # in apps/server after changing merge-test execution or reporting
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
@@ -161,8 +164,7 @@ before hand-over and in fix rounds. When changing the shared `ErrorCode` union, 
 `errors.codes` in `apps/web/src/i18n/hu.ts`, run `npm run typecheck -w @projectman/web`, and
 run the web i18n test listed above. Also run `npm run dead-code` from the repository root
 before hand-over and in fix rounds; it is fast and does not queue. Fix new findings rather
-than extending the baseline. After adding a column to an existing table with `ALTER TABLE`, add it to the version-83
-rollback list in `apps/server/test/history-index.test.ts` and run that test in `apps/server`.
+than extending the baseline.
 After changing `apps/web/src/mocks`, run `npx vitest run src/mocks` in `apps/web`. After adding, moving or renaming files, also run
 `npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
 and does not queue. They never run the full suite. The merger (`team.merger`,

@@ -140,7 +140,10 @@ describe('e-mail login of invited clients (PM-670)', () => {
 
   describe('availability', () => {
     it('answers 503 before the first setup and without a mailer, and hides the flag', async () => {
-      const fresh = await createAppHarness({ app: { emailCodeMailer: mailer } });
+      const fresh = await createAppHarness({
+        app: { emailCodeMailer: mailer },
+        expectedErrors: [/^request failed$/, /^request failed$/],
+      });
       try {
         const status = await inject(fresh.app, 'GET', routes.setupStatus());
         expect(status.json()).toEqual({ needsSetup: true });
@@ -151,7 +154,7 @@ describe('e-mail login of invited clients (PM-670)', () => {
       } finally {
         await fresh.close();
       }
-      const bare = await createAppHarness();
+      const bare = await createAppHarness({ expectedErrors: [/^request failed$/] });
       try {
         await inject(bare.app, 'POST', routes.setup(), null, OWNER_LOGIN);
         const status = (await inject(bare.app, 'GET', routes.setupStatus())).json() as SetupStatus;

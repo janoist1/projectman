@@ -572,6 +572,9 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     'worktree.findMergeFix': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.removeMergeFix': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.listMergeFixes': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'worktree.listTaskWorktrees': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'workspace.listSnapshotTasks': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'workspace.removeTaskSnapshots': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.find': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.status': (params) => {
       inside(params[0], 'The worktree');

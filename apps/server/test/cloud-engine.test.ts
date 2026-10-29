@@ -126,13 +126,18 @@ describe('the cloud without an engine', () => {
     await online();
     await vi.waitFor(() => expect(started().length).toBeGreaterThanOrEqual(2), { timeout: 15_000 });
     await vi.waitFor(() => expect(domain().tasks.get('AR', created.key).startWaiting).toBeUndefined());
+    // A remote start is observed before its first-input acknowledgement closes message receipts.
+    await vi.waitFor(
+      () =>
+        expect(domain().engineCounters(world.packaged.engine.id)).toMatchObject({
+          waitingStarts: 0,
+          waitingMessages: 0,
+        }),
+      { timeout: 15_000 },
+    );
     // One session for the card's start and one for the message's recipient, none twice.
     expect(started().map((spec) => spec.sessionId)).toHaveLength(2);
     expect(new Set(started().map((spec) => spec.sessionId)).size).toBe(2);
-    expect(domain().engineCounters(world.packaged.engine.id)).toMatchObject({
-      waitingStarts: 0,
-      waitingMessages: 0,
-    });
   });
 });
 

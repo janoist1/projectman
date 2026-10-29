@@ -247,8 +247,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   and failures retry after 60 seconds, or immediately if the target lock mtime changes. Copying has
   a 90-second total budget; Codex and Claude prepare hooks wait 120 seconds (Gemini already waits
   for its permission timeout). No heavy-run queue is taken for these short APFS copies. Failures
-  only log and preserve the hook decision; the prompt tells the member to ask the owner to install
-  missing dependencies in the default checkout.
+  only log and preserve the hook decision; the prompt tells the member to run `npm ci` in its
+  worktree when node_modules is missing or older than the lockfile (a routine step, PM-1112).
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
   off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
@@ -755,7 +755,8 @@ The longest matching path wins; each declared path must exist and appear only on
 [dependencies.test.ts](../apps/server/test/architecture/dependencies.test.ts)
 enforces the layer rules against all production TypeScript source files.
 There are no dependency exceptions; new ones must not be added. Every module below
-the assembly layer is sealed: cross-module imports use its target `index.ts`.
+the assembly layer is sealed: cross-module imports use its target `index.ts` or an entry the
+module map declares (`kernel/pure.ts`, PM-1130).
 The guard test asserts both the empty exception list and complete sealing.
 
 The sealed modules are `contracts`, `db`, `config`, `logging`, `instance`, `kernel`,
@@ -1961,9 +1962,12 @@ workers follow the machine's size.
   and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s only
   while the menu or the details window is open, 60 s otherwise even if sessions run, and a poll runs
   on every menu open; 2 s while awaiting an action's target, up to 120 s). Each poll starts a node
-  process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the
-  `engine-config` import of the whole kernel barrel (`effect` included) remains the main cost
-  (PM-1110).
+  process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the CLI imports
+  the kernel only through its light entry `kernel/pure.ts` (Node built-ins only), never the barrel
+  that loads `effect` (PM-1130). The bundled CLI (`scripts/engine/cli.js`, the path an app-managed
+  engine runs) takes about 0.17 s CPU per `status --json` instead of 0.29 s; a checkout engine
+  running through tsx still pays its transform cost. `lazy-packages.test.ts` pins the eagerly
+  loaded packages of the CLI bundle to `@projectman/shared`, `execa` and `zod`.
   **Remote engine:** the app and CLI both run on the engine's Mac; nothing crosses the
   server/engine boundary. Linux and Windows are unsupported. Existing inventory entry:
   “Engine service (launchd)” (its plist is read, not changed by the menu app).
@@ -2697,8 +2701,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   lose a live link. The engine's watchdog reports `link_silent` only after two consecutive ticks
   with pending events and more than 90 s of silence. Both sides log `engine link: connected` and
   `engine link: disconnected` at info level (code and cause; never the key or URL). Protocol version
-  stays 1: an old engine with a new cloud is tolerated for 90 s (the old engine reconnects after
-  45 s when events wait), a new engine with an old cloud keeps the old 45 s drop.
+  stays 1 and the wire is unchanged: an old engine with a new cloud is tolerated for 90 s (the old
+  engine reconnects after 45 s when events wait). A new engine judges the link by silence only once
+  it has seen the cloud repeat an acknowledgement (an `ack` equal to the highest sequence of the
+  connection, the welcome's included; a cloud that never repeats one is quiet when idle, so an idle
+  link to an old cloud is left alone instead of reconnecting every few minutes).
   **Remote engine:** the socket, event buffer and method dispatch run on the engine beside its
   CLIs and files; the registry, auth, idempotency store and human websocket broadcasts stay in the
   cloud. Non-JSON/large data uses purpose-scoped uploads (PM-315), with only a hash and size in
@@ -3171,8 +3178,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the app starts no
   session for it. **The connected Claude as an actor (PM-1074, decision 66):** a super-key step is recorded as the
   key holder in person (`kind: human`, `via: integrator`, `through: {holder, credential}`), or, with
-  `queue_item_id` on `super_operate` / `execute_super_handoff`, as the member who issued that open integrator queue
-  item (`kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
+  `queue_item_id` on `super_operate` / `execute_super_handoff`, as the member who put that open integrator queue
+  item there (the screening member of a screened question, otherwise its source; `kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
   owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The old
   `operatorMode: super` events stay readable; `coordinatorSuperActorOf` serves only the selected coordinator's
   in-app session (PM-1076: `superActorOf` and the Operator member are gone). The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.
@@ -3489,14 +3496,20 @@ assumption or remote-engine RPC.
   and cleanup. Symlinked workspace paths skip the clone as unsupported. Node has no `openat`,
   so a small check-to-operation race remains; checks never deliberately traverse a replaced parent.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.refreshDependencies` (PM-313), find reference checkouts and probe the filesystem on the engine;
-  retain the existing skip/install fallback on other platforms. The server's installation
+  retain the existing skip/install fallback on other platforms. The member prompt asks for
+  `npm ci` locally when dependencies are missing or stale (PM-1112); member workspaces have
+  no automatic clone. The server's installation
   cannot be cloned across machines, and native dependencies must match the engine. Keep the
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
   **Module:** `worktree`
 - **Heavy-run queue and worker limits** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
   `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
-  `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under
+  `vitest.config.ts` files (PM-332, PM-336). Prompt descriptions of commands, unavailable exit status
+  and PTY skips are opt-in repository `heavyChecks` settings (`context/system-prompt.ts`,
+  `runtime/permissions/unattended-commands.ts`, PM-1112); engine environment variables and queue
+  execution are unchanged. These descriptions are rendered on the server for local and remote engines.
+  A per-user lock directory under
   `/tmp/projectman-<uid>/heavy` uses local atomic directory operations, PID liveness and
   heartbeats; worker limits use the executing host's CPU and memory. Same-host runs must
   use the same lock directory; different users are not automatically one queue. An unusable
@@ -4025,6 +4038,9 @@ assumption or remote-engine RPC.
   **Cloud mode (PM-315):** the engine directory answers with `host.free_disk` of the target engine.
   PM-1059 keeps the target: the member's (or the session's) engine that admission already resolved, with
   no host fallback; no new machine operation.
+  PM-1133 shares concurrent admission measurements per engine. After the one-minute freshness period,
+  a measurement younger than five minutes answers while `host.free_disk` refreshes in the background;
+  older or missing measurements wait for the engine. The disk watcher still measures afresh.
   **Module:** `runtime/watchers`
 - **Control socket, pause and deployment** — `control/socket.ts`, `runtime/sessions` (`PauseService`),
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
@@ -4182,6 +4198,18 @@ assumption or remote-engine RPC.
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
   PM-1059: `usage.plan` is asked of one named engine; the monitor and the cache key a value by
   `(engine, provider)` and a board reads the project's representative engine (see "Cloud composition").
+  PM-1133 reuses recent measurements while refreshing them: plan usage for up to five cache TTLs,
+  and a positive provider login status for up to five minutes. Cold or older reads still wait for the
+  engine; explicit login refreshes wait for its answer. Concurrent reads share the refresh. A usage
+  measurement that lifts the project's pause wakes queued members on that engine and provider,
+  including items without a wait code; threshold changes recheck the project's queued members.
+  These caches and wake decisions run on the server, with the existing `usage.plan` and
+  `provider.status` RPCs; credentials and CLI probes stay on the remote engine.
+  `Admission.warm` preloads login, usage and disk readings outside the admission lock for a known
+  member. It makes no start decision: the locked check still enforces admission, and session startup
+  remains serialized because capacity and workspace availability count running processes, not reservations.
+  Slow lock rounds report their full duration and phase timings with the holder and member; slow queue
+  sweeps report their five slowest members. No new server/engine message is introduced.
   PM-1091: the NanoGPT quota and rate hold (`ProviderQuotaHolds`, in memory on the hub) is per key: the
   cloud's key is `'host'`, an engine with its own key file is held under its engine id
   (`EngineDirectory.nanogptKeyHolder`). Only a `usage.plan` measurement on the engine that owns the key
@@ -4458,9 +4486,13 @@ assumption or remote-engine RPC.
   `core/tasks/tests/merges.test.ts` (`createCloudRemote`) and `engine-link/remote/remote.test.ts`; the engine half
   (schemas, limits, check checkout protection, a link lost during a full test) is
   `engine-link/engine-handlers.test.ts`, `engine-limit.test.ts` and `rpc.test.ts`; the real link, both real ends,
-  is `test/cloud-engine.test.ts` and `test/engine-link.test.ts`, which cover the hand-over and the session, not a
-  merge. No suite yet drives a merge (`merge.checkout_for_check`, the full test, `merge.release_check`) over the
-  real link end to end.
+  is `test/cloud-engine.test.ts` and `test/engine-link.test.ts`. `test/cloud-engine.test.ts` also drives a merge
+  check over the real link (PM-1130): the cloud's engine host (`app.projectman.engineDirectory`) calls
+  `merge.checkout_for_check`, the full test (`full_test.run`) and `merge.release_check`, the checkout and the
+  run are the engine's, and a checkout stays across a link drop until the call that releases it gets through.
+  The engine's `mergeBranch` and `fullTestCommand` come from the fixture (`mergeBranch` option); its executor
+  is a stand-in that records the spec and passes. The train, the push and the real full test command are
+  not covered over the real link.
   For a train (PM-660), the server calls the same build operation for every approved source
   and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
   full_test.run. The manifest, ordered locks and attribution stay on the server; all members

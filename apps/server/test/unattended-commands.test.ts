@@ -142,7 +142,7 @@ describe('commands that run without asking: the rules the section lists', () => 
     'git -c core.pager=x log',
     'git merge --ff-only feature',
     // A routine step allows only a first `cd` to the working directory itself.
-    'cd apps/server && npx vitest run && git add -A',
+    'cd backend && npx vitest run && git add -A',
     `cd ${worktree} && git add -A && cd apps && git commit -m "x"`,
     'git push',
     'npm install left-pad',
@@ -212,9 +212,9 @@ describe('commands that run without asking: the section', () => {
 
   it('says a routine chain may start with a cd to the working directory only', () => {
     const text = section().join('\n');
-    expect(text).toContain('`cd apps/server && npx vitest run && git add -A` waits for a human');
+    expect(text).toContain('`cd backend && npx vitest run && git add -A` waits for a human');
     expect(allowed('developer', `cd ${worktree} && npx vitest run && git add -A`)).toBe(true);
-    expect(allowed('developer', 'cd apps/server && npx vitest run && git add -A')).toBe(false);
+    expect(allowed('developer', 'cd backend && npx vitest run && git add -A')).toBe(false);
     expect(section({ worktree: false }).join('\n')).not.toContain('git add -A');
   });
 
@@ -224,8 +224,8 @@ describe('commands that run without asking: the section', () => {
       const text = section({ worktree: role === 'developer' }).join('\n');
       expect(text).toContain('join its parts with `&&`, not `;` or `||`');
       expect(text).toContain('checks later relative paths from every possible directory');
-      const first = 'cd apps/server && npx vitest run test/member-instructions.test.ts 2>&1 | tail -15';
-      const second = 'cd ../web && npx vitest run src/features/team 2>&1 | tail -15';
+      const first = 'cd backend && npx vitest run test/example.test.ts 2>&1 | tail -15';
+      const second = 'cd ../frontend && npx vitest run src/example.test.ts 2>&1 | tail -15';
       const ambiguous = `${first}; ${second}`;
       const certain = `${first} && ${second}`;
       expect(text).toContain(`\`${ambiguous}\` waits for a human`);

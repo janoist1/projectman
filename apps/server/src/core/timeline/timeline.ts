@@ -70,7 +70,17 @@ export class TimelineService {
   }
 
   /** Most recent events, oldest first. */
-  list(projectKey: string, opts: { taskKey?: string; limit?: number } = {}): TimelineEvent[] {
+  list(
+    projectKey: string,
+    opts: { taskKey?: string; limit?: number; excludeTypes?: readonly TimelineEventType[] } = {},
+  ): TimelineEvent[] {
     return this.ctx.repos.timeline.list(projectKey, opts);
+  }
+
+  count(
+    projectKey: string,
+    opts: { taskKey?: string; excludeTypes?: readonly TimelineEventType[] } = {},
+  ): number {
+    return this.ctx.repos.timeline.count(projectKey, opts);
   }
 }

@@ -39,6 +39,12 @@ const MAX_FINISHED = 20;
 /** A login check is reused this long when it said "logged in", and this long otherwise. */
 const STATUS_TTL_OK_MS = 60_000;
 const STATUS_TTL_OTHER_MS = 5_000;
+/**
+ * A "logged in" check this old still answers at once while a new one runs behind it: the check spawns the
+ * CLI, and admission asks for it under its lock (PM-1133). A lost login shows at the next start or at the
+ * session's own report.
+ */
+const STATUS_STALE_OK_MS = 5 * STATUS_TTL_OK_MS;
 
 /** A session start refused because the provider's CLI is not logged in with a subscription. */
 class ProviderNotLoggedInError extends Error {
@@ -245,9 +251,12 @@ export class SessionManager implements SessionRunner {
     if (!adapter) return Promise.reject(new Error(`unknown agent provider: ${String(provider)}`));
     const key = provider;
     const cached = this.statuses.get(key);
+    let stale = false;
     if (cached && !opts.refresh) {
       const ttl = cached.status.loggedIn === true ? STATUS_TTL_OK_MS : STATUS_TTL_OTHER_MS;
-      if (Date.now() - cached.at < ttl) return Promise.resolve(cached.status);
+      const age = Date.now() - cached.at;
+      if (age < ttl) return Promise.resolve(cached.status);
+      stale = cached.status.loggedIn === true && age < STATUS_STALE_OK_MS;
     }
     let pending = this.statusChecks.get(key);
     if (!pending) {
@@ -274,6 +283,10 @@ export class SessionManager implements SessionRunner {
         })
         .finally(() => this.statusChecks.delete(key));
       this.statusChecks.set(key, pending);
+    }
+    if (stale && cached) {
+      pending.catch((err: unknown) => this.log.warn({ err, provider }, 'the login check failed'));
+      return Promise.resolve(cached.status);
     }
     return pending;
   }

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   aiLimitReached,
   canReplaceUnstartedAssignee,
@@ -61,6 +62,9 @@ import {
 /** How long the admission lock may be held before the log says who holds it (PM-1120). */
 export const ADMISSION_LOCK_WARN_MS = 10_000;
 
+/** An engine read of the admission check slower than this is logged with its name (PM-1133). */
+const ADMISSION_STEP_WARN_MS = 1_000;
+
 /** What an `attempt` came to (PM-543): the start ran or no longer applies, or admission put it off. */
 type AttemptOutcome = { kind: 'done' } | { kind: 'deferred'; waiting: TaskStartWaiting };
 
@@ -119,6 +123,11 @@ export class Admission {
   private readonly disk?: Pick<DiskGuard, 'assertRoom'>;
   private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'projectEngine' | 'get'>;
   private readonly locks = new KeyedMutex();
+  private readonly lockContext = new AsyncLocalStorage<{
+    holder: string;
+    member?: string;
+    phases: Record<string, number>;
+  }>();
   private pull: UrgentPulling | undefined;
   private round: StartRounding | undefined;
   private retrying: Promise<void> | null = null;
@@ -170,23 +179,53 @@ export class Admission {
    * `ADMISSION_LOCK_WARN_MS` is logged once with the holder's `label` (PM-1120): every other start waits for it.
    */
   exclusive<T>(label: string, fn: () => Promise<T>): Promise<T> {
-    return this.locks.run('ai-admission', async () => {
-      const heldSince = Date.now();
-      const timer = setTimeout(
-        () =>
-          this.ctx.logger.warn(
-            { holder: label, heldMs: Date.now() - heldSince },
-            'the admission lock is held for a long time',
-          ),
-        ADMISSION_LOCK_WARN_MS,
-      );
-      timer.unref();
-      try {
-        return await fn();
-      } finally {
-        clearTimeout(timer);
-      }
-    });
+    return this.locks.run('ai-admission', () =>
+      this.lockContext.run({ holder: label, phases: {} }, async () => {
+        const heldSince = Date.now();
+        const timer = setTimeout(
+          () =>
+            this.ctx.logger.warn(
+              { holder: label, heldMs: Date.now() - heldSince },
+              'the admission lock is held for a long time',
+            ),
+          ADMISSION_LOCK_WARN_MS,
+        );
+        timer.unref();
+        try {
+          return await fn();
+        } finally {
+          clearTimeout(timer);
+          const heldMs = Date.now() - heldSince;
+          if (heldMs > ADMISSION_STEP_WARN_MS)
+            this.ctx.logger.warn(
+              { ...this.lockContext.getStore(), heldMs },
+              'an admission lock round was slow',
+            );
+        }
+      }),
+    );
+  }
+
+  /** Engine reads happen before admission's lock. Only check() decides whether work may start. */
+  async warm(projectKey: string, handle: string | undefined): Promise<void> {
+    if (!handle) return;
+    try {
+      const config = await this.projects.config(projectKey);
+      const member = memberOf(config, handle);
+      if (member?.kind !== 'ai') return;
+      const engineId = this.engines?.engineFor(projectKey, handle);
+      if (this.engines && (!engineId || !this.engines.get(engineId))) return;
+      const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+      await Promise.allSettled([
+        this.sessions.assertProviderReady(provider, handle, engineId ?? undefined),
+        ...(pausesOnPlanUsage(provider)
+          ? [this.planUsage.get(provider, engineId ?? this.usageEngine(projectKey, handle))]
+          : []),
+        ...(this.disk ? [this.disk.assertRoom(config, engineId ?? undefined)] : []),
+      ]);
+    } catch {
+      // Configuration and engine failures are rechecked by admission, in its usual refusal order.
+    }
   }
 
   /**
@@ -262,6 +301,8 @@ export class Admission {
   /** Throws the refusal when the work must wait (see the class comment for the checks). */
   async check(request: AdmissionRequest): Promise<void> {
     const { config, member, workItem } = request;
+    const context = this.lockContext.getStore();
+    if (context) context.member = member?.handle;
     const projectKey = config.project.key;
     assertAiEnabled(config);
     assertNotPaused(this.ctx.repos.pauses, projectKey);
@@ -294,16 +335,34 @@ export class Admission {
     // The hold is on the key that engine uses (PM-1091), so it is read once the engine is known.
     this.sessions.assertProviderCooldown(provider, engineId);
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
-    if (member) await this.sessions.assertProviderReady(provider, member.handle, engineId);
+    if (member)
+      await this.timed('provider-ready', () =>
+        this.sessions.assertProviderReady(provider, member.handle, engineId),
+      );
     if (pausesOnPlanUsage(provider)) {
-      const usage = await this.planUsage.get(
-        provider,
-        engineId ?? this.usageEngine(projectKey, member?.handle),
+      const usage = await this.timed('plan-usage', () =>
+        this.planUsage.get(provider, engineId ?? this.usageEngine(projectKey, member?.handle)),
       );
       this.assertUsageBelowPause(config, provider, usage);
     }
     // Last, because it measures the disk (PM-243).
-    await this.disk?.assertRoom(config, engineId);
+    if (this.disk) await this.timed('disk', () => this.disk!.assertRoom(config, engineId));
+  }
+
+  /**
+   * One engine read of the admission check, logged when it is slow (PM-1133): the check runs under the
+   * admission lock, so the log names the read that keeps every other start waiting.
+   */
+  private async timed<T>(step: string, read: () => Promise<T>): Promise<T> {
+    const startedAt = Date.now();
+    try {
+      return await read();
+    } finally {
+      const ms = Date.now() - startedAt;
+      const context = this.lockContext.getStore();
+      if (context) context.phases[step] = (context.phases[step] ?? 0) + ms;
+      if (ms > ADMISSION_STEP_WARN_MS) this.ctx.logger.warn({ step, ms }, 'an admission check step was slow');
+    }
   }
 
   /**
@@ -464,6 +523,8 @@ export class Admission {
   async start(
     request: AdmissionRequest & { member: AiMemberConfig; workItem: WorkItemRef },
   ): Promise<EnsureSessionResult> {
+    const context = this.lockContext.getStore();
+    if (context) context.member = request.member.handle;
     const requested = request.workItem;
     request = { ...request, workItem: sessionWorkItemOf(request.member, request.workItem) };
     const projectKey = request.config.project.key;
@@ -494,10 +555,12 @@ export class Admission {
     }
     try {
       await this.check(request);
-      return await this.sessions.ensureSession(projectKey, request.member.handle, requested, {
-        messages: request.messages,
-        cause: request.cause,
-      });
+      return await this.timed('session-start', () =>
+        this.sessions.ensureSession(projectKey, request.member.handle, requested, {
+          messages: request.messages,
+          cause: request.cause,
+        }),
+      );
     } catch (err) {
       const refusal = err as { code?: unknown; details?: unknown } | null;
       if (typeof refusal?.code === 'string' && OUTAGE_REFUSALS.some((code) => code === refusal.code)) {
@@ -521,6 +584,7 @@ export class Admission {
    * `done` (the start ran, or no longer applies) or `deferred` with why it waits.
    */
   async attempt(start: AutomaticStart): Promise<AttemptOutcome> {
+    await this.warm(start.projectKey, start.waitsFor());
     return this.exclusive('deferred-attempt', () =>
       this.publishingWaitingChanges(start.taskKey, async (): Promise<AttemptOutcome> => {
         // The previous deferral of this start stays stored until the attempt settles.

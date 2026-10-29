@@ -27,7 +27,7 @@ interface MemberQueueDriverDeps {
     config(projectKey: string): Promise<ProjectConfig>;
   };
   queue: Pick<MemberQueue, 'publish' | 'closeStart'>;
-  admission: Pick<Admission, 'exclusive' | 'start'>;
+  admission: Pick<Admission, 'exclusive' | 'start' | 'warm'>;
   sessions: Pick<SessionOrchestrator, 'find' | 'findRunning' | 'isRunning' | 'close'>;
   /** Types a rendered item into the idle session; false: the session did not take it. */
   type(session: Session, item: StoredMemberQueueItem, text: string): Promise<boolean>;
@@ -206,8 +206,19 @@ export class MemberQueueWorker implements MemberQueueDriver {
   /** The timer's sweep: every member with an open item, and a failed start is tried again at once. */
   async sweep(): Promise<void> {
     await this.begin();
-    for (const { projectKey, member } of this.deps.ctx.repos.memberQueue.listOpenMembers())
+    const startedAt = Date.now();
+    const timings: Array<{ projectKey: string; member: string; ms: number }> = [];
+    for (const { projectKey, member } of this.deps.ctx.repos.memberQueue.listOpenMembers()) {
+      const memberStartedAt = Date.now();
       await this.workOf(projectKey, member, true);
+      timings.push({ projectKey, member, ms: Date.now() - memberStartedAt });
+    }
+    const ms = Date.now() - startedAt;
+    if (ms > 1000)
+      this.deps.ctx.logger.warn(
+        { ms, slowest: timings.sort((a, b) => b.ms - a.ms).slice(0, 5) },
+        'a member queue sweep was slow',
+      );
   }
 
   /**
@@ -672,8 +683,9 @@ export class MemberQueueWorker implements MemberQueueDriver {
     const place = sessionWorkItemOf(member, first.place);
     // The admission lock holds the decision and the process start only: the capacity counts running processes
     // (PM-1108), and whatever a lane reads from an engine for the first input is done outside it.
-    const run = (messages: string[]) =>
-      admission.exclusive('queue-start', () =>
+    const run = async (messages: string[]) => {
+      await admission.warm(config.project.key, member.handle);
+      return admission.exclusive('queue-start', () =>
         admission.start({
           config,
           member,
@@ -683,6 +695,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
           ...memberQueueStartLimits(first.item.kind),
         }),
       );
+    };
     // The first input of the session the start made: the items count as delivered only when it was typed.
     const started: { firstInput?: Promise<boolean>; sessionId?: string } = {};
     try {

@@ -41,10 +41,114 @@ import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
 import { roleLabel } from './system-prompt';
+import { ROLE_PURPOSES } from './role-purposes';
 import { describeTeamRule, summarizeTeamRule } from './team-rules';
 import { dutyPrompt, handover } from './work-item';
 
 const builder = createContextPackBuilder();
+
+describe('repository prompt conventions (PM-1112)', () => {
+  const heavyChecks = {
+    commands: ['npm test', 'npm run typecheck', 'npm run shots', 'npm run heavy'],
+    unavailableExit: 78,
+    ptySkipped: ['*.integration.test.ts', 'golden-path-*.test.ts'],
+  };
+  const sourceFor = (handle: string, provider: 'claude' | 'codex') => {
+    const source = input({ handle });
+    source.member = { ...source.member, provider };
+    source.sessionPolicy = buildSessionPolicy({
+      config: source.project,
+      role: source.member.role,
+      task: source.task!,
+      placement:
+        handle === 'fe-1'
+          ? { kind: 'task_worktree', path: '/work/task' }
+          : { kind: 'read_only', path: '/work/task' },
+      permissionMode: 'auto',
+    });
+    source.sandbox = {
+      ...sessionSandbox(source.sessionPolicy, { userHome: '/home/example' })!,
+      env: { PROJECTMAN_SKIP_PTY_TESTS: '1', PROJECTMAN_HEAVY_LOCK_DIR: '/queue' },
+    };
+    return source;
+  };
+
+  it.each([
+    ['fe-1', 'claude'],
+    ['fe-1', 'codex'],
+    ['code-review', 'claude'],
+  ] as const)(
+    'leaves repository-specific rules out for %s on %s without configuration',
+    (handle, provider) => {
+      const pack = builder.build(sourceFor(handle, provider));
+      const text = [pack.appendSystemPrompt, pack.guide.commands, pack.guide.sandbox, pack.guide.role].join(
+        '\n',
+      );
+      for (const absent of [
+        'packages/shared',
+        'apps/server',
+        'npm run shots',
+        'npm run heavy',
+        'dead-code',
+        'exits 78',
+        'Machine queue:',
+        '*.integration.test.ts',
+      ])
+        expect(text).not.toContain(absent);
+    },
+  );
+
+  it('renders configured queue, unavailable status and PTY files for the effective repository', () => {
+    const source = sourceFor('fe-1', 'claude');
+    source.project.project.repos[0]!.heavyChecks = heavyChecks;
+    const pack = builder.build(source);
+    expect(pack.appendSystemPrompt).toContain('exits 78');
+    expect(pack.guide.sandbox).toContain('Machine queue:');
+    expect(pack.guide.sandbox).toContain('golden-path-*.test.ts');
+    expect(pack.guide.sandbox).toContain('npm run heavy');
+    source.member.provider = 'codex';
+    expect(builder.build(source).appendSystemPrompt).toContain('# Heavy commands');
+  });
+
+  it('uses the sole repository for chats and avoids guessing among multiple repositories', () => {
+    const source = sourceFor('fe-1', 'codex');
+    source.project.project.repos[0]!.heavyChecks = heavyChecks;
+    source.task = null;
+    source.workItem = { type: 'general' };
+    expect(builder.build(source).appendSystemPrompt).toContain('npm run heavy');
+    source.project.project.repos.push({ name: 'other', path: 'other', defaultBranch: 'main' });
+    expect(builder.build(source).appendSystemPrompt).not.toContain('npm run heavy');
+    source.task = makeTask({ repo: 'other' });
+    source.workItem = { type: 'task', taskKey: source.task.key };
+    expect(builder.build(source).appendSystemPrompt).not.toContain('npm run heavy');
+  });
+
+  it('starts built-in role instructions with their purpose and leaves custom roles to their instructions', () => {
+    const pack = builder.build(input({ handle: 'fe-1' }));
+    expect(section(pack.appendSystemPrompt, '# Your role instructions')).toMatch(
+      new RegExp(`^# Your role instructions\\n\\n${ROLE_PURPOSES.developer.split('.')[0]}`),
+    );
+    const project = buildProject();
+    project.team.roles.push(dataSteward);
+    addMember(project, 'steward', 'data_steward');
+    expect(
+      Object.values(ROLE_PURPOSES).some((purpose) =>
+        builder.build(input({ project, handle: 'steward' })).appendSystemPrompt.includes(purpose),
+      ),
+    ).toBe(false);
+  });
+
+  it.each(['report', 'unblock', 'drive'] as const)(
+    'names a signal step exception only at actionable level %s',
+    (level) => {
+      const project = buildProject();
+      project.team.operatorWatch = level;
+      const pack = builder.build(input({ project, handle: 'pm', task: null, workItem: { type: 'general' } }));
+      for (const text of [pack.appendSystemPrompt, pack.guide.role!])
+        expect(text.includes('Apart from the step a signal names')).toBe(level !== 'report');
+    },
+  );
+});
 
 describe('context preview sections', () => {
   it.each(AI_BUILT_IN_ROLE_IDS)('keeps the %s launch prompt within its byte budget', (role) => {
@@ -407,8 +511,11 @@ describe('operating agreement and conversation guidance (PM-690)', () => {
       .role!;
     expect(index).toContain('never another person’s conversational preferences');
     expect(index).toContain('propose_operator_knowledge');
-    expect(index).toContain('command_not_for_project_manager');
-    expect(index).toContain('set_operator_preference');
+    const prompt = builder.build(
+      input({ handle: 'pm', task: null, workItem: { type: 'general' } }),
+    ).appendSystemPrompt;
+    expect(prompt).toContain('command_not_for_project_manager');
+    expect(prompt).toContain('set_operator_preference');
     expect(index).not.toContain('# Personal conversation style');
   });
 });
@@ -570,7 +677,7 @@ describe('team rules in the system prompt', () => {
     const project = buildProject();
     const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider };
     const prompt = builder.build(input({ project, member })).appendSystemPrompt;
-    expect(prompt).toContain('# Heavy commands');
+    expect(prompt).toContain('# Long-running commands');
     expect(prompt).toContain('in the foreground');
     expect(prompt).toContain('do not end your turn while they run');
     if (provider === 'gemini') {
@@ -858,6 +965,10 @@ function input(overrides: Partial<ContextPackInput> & { handle?: string } = {}):
 }
 
 /** One section of the system prompt, from its heading to the next one. */
+function withoutPurpose(text: string): string {
+  return Object.values(ROLE_PURPOSES).reduce((value, purpose) => value.replace(`${purpose}\n\n`, ''), text);
+}
+
 function section(prompt: string, heading: string): string {
   const start = prompt.indexOf(`\n${heading}\n`);
   if (start < 0) return '';
@@ -924,8 +1035,10 @@ describe('context pack snapshots', () => {
         timeline: timeline.slice(0, 4),
       }),
     );
-    // 11,000 B before the acceptance items' two labels and gates (PM-1135).
-    expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(11_300);
+    // The 300 B are the acceptance items' two labels and gates (PM-1135).
+    expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(
+      11000 + 300 + ROLE_PURPOSES.developer.length,
+    );
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/developer-dev.system-prompt.txt',
     );
@@ -1358,7 +1471,7 @@ describe('system prompt', () => {
       expect(text).not.toContain('Claude Code');
       expect(text).toContain('Your sandbox runs commands on its own');
       expect(text).not.toContain('Every other shell command');
-      expect(text).toContain('`npm run dead-code`');
+      expect(text).not.toContain('dead-code');
     });
 
     it('is left out of work that is not a task', () => {
@@ -1537,19 +1650,18 @@ describe('system prompt', () => {
 
     it('gives the dispatcher role to the project manager alone', () => {
       const project = withPm('en');
-      const pm = builder.build(input({ project, handle: 'pm' })).guide.role!;
+      const pack = builder.build(input({ project, handle: 'pm' }));
+      const pm = pack.appendSystemPrompt;
       expect(pm).toContain("You are the project manager: the team's dispatcher.");
       expect(pm).toContain('propose_operator_knowledge');
       expect(pm).not.toContain('to the Operator as information; no writing');
-      expect(pm).toContain(
-        'in one continuous conversation, one after the other; the card key is in the message prefix',
-      );
-      expect(pm).toContain("A person's message on a card's conversation comes to you");
-      expect(pm).toContain("set a card's priority (update_task priority)");
-      expect(pm).toContain('(the system picks the member)');
-      expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
+
+      expect(pack.guide.role).toContain("A person's message on a card's conversation comes to you");
+      expect(pm).toContain('and priorities');
+
+      expect(pm).toContain('never do code, requirements, plans or reviews');
       expect(pm).toContain('waiting_owner');
-      expect(pm).toContain('never decide permission requests, never release');
+      expect(pm).toContain('decide permission requests');
       const guide = builder.build(input({ project, handle: 'pm' })).guide.role;
       expect(guide).toContain(
         "A person's message on a card's conversation comes to you when nobody else is on the card",
@@ -1779,7 +1891,7 @@ describe('system prompt', () => {
         (level) => {
           const operator = promptAt(level);
           expect(operator).toContain(
-            "On a signal you never merge, release, approve, move a card, or set a label or a setting (the one exception: the card's repository on a start_blocked repo_required signal, as the signal rules say).",
+            level === 'report' ? 'On a signal you never merge' : 'Apart from the step a signal names',
           );
           expect(operator).toContain(
             'When a stalled, silent, outage, nobody or start_blocked signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human.',
@@ -2359,7 +2471,7 @@ describe('expected steps', () => {
         const steps = doneSteps(builder.build(source).appendSystemPrompt);
         expect(steps).toContain('before hand-over and in fix rounds, run only the tests');
         expect(steps).toContain('the type check of the workspaces you touched');
-        expect(steps).toContain('`npm run dead-code`');
+        expect(steps).toContain('local hand-over checks');
         expect(steps).toContain('the integrator or merge step runs the full check once');
         expect(steps).not.toContain("run the project's full tests and type check once");
       }
@@ -2420,7 +2532,7 @@ describe('expected steps', () => {
       const source = input({ project, handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
       const steps = doneSteps(builder.build(source).appendSystemPrompt);
       expect(steps).toContain(`Do not run the whole test suite: ${mergeStep}. Run only targeted tests`);
-      expect(steps).toContain('`npm run dead-code`');
+      expect(steps).toContain('local hand-over checks');
       expect(steps).not.toContain('the integrator or merge step');
     });
 
@@ -2495,7 +2607,7 @@ describe('expected steps', () => {
       };
       const source = input({ project, handle, task: makeTask({ stageId: 'dev', assignee: handle }) });
       const steps = doneSteps(builder.build({ ...source, serverFullTest: true }).appendSystemPrompt);
-      expect(steps).toContain('Install the dependencies only if they are missing');
+      expect(steps).not.toContain('Install the dependencies');
       expect(steps).toContain(
         "run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched",
       );
@@ -2644,7 +2756,7 @@ describe('expected steps', () => {
       task: makeTask({ stageId: 'dev', assignee: 'maintainer' }),
     });
     expect(steps).toContain(
-      "1. Install the dependencies only if they are missing from your working directory: they are often in place already. Make the maintenance change the task describes in your working directory (the task's own worktree and branch), small and focused. While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
+      "1. Make the maintenance change the task describes in your working directory (the task's own worktree and branch), small and focused. While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
     );
     expect(steps).toContain('2. Commit, push, open a pull request and attach it with link_pull_request.');
   });
@@ -2674,16 +2786,12 @@ describe('expected steps', () => {
   it('has the project manager treat a start offer as an action, in order, holding what the owner holds (PM-804)', () => {
     const project = buildProject();
     addMember(project, 'pm', 'project_manager');
-    const pm = builder.build(input({ project, handle: 'pm' })).guide.role!;
-    expect(pm).toContain('A system message that names cards that can start now is an action');
-    expect(pm).toContain(
-      'in the order it gives (urgent, priority high, normal, low, none, then board order)',
-    );
-    expect(pm).toContain('the system picks the developer, and you need no owner request');
-    expect(pm).toContain('move it back to the first queue stage yourself');
+    const pack = builder.build(input({ project, handle: 'pm' }));
+    expect(pack.appendSystemPrompt).toContain('authorizes starting them in its order');
+    expect(pack.guide.role).toContain('move it back to ready yourself');
     project.team.projectManagerMoves = 'start_only';
     expect(builder.build(input({ project, handle: 'pm' })).guide.role!).toContain(
-      'open an integrator todo to move it back to the first stage',
+      'open an integrator todo to move it back to ready',
     );
     const developer = builder.build(input({ project, handle: 'fe-1' })).appendSystemPrompt;
     expect(developer).not.toContain('names cards that can start now');
@@ -2692,7 +2800,7 @@ describe('expected steps', () => {
   it('leaves the priority out of the project manager prompt when the setting excludes it (PM-1096)', () => {
     const project = buildProject();
     addMember(project, 'pm', 'project_manager');
-    expect(builder.build(input({ project, handle: 'pm' })).guide.role!).toContain('update_task priority');
+    expect(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt).toContain('and priorities');
     project.team.prioritySetters = [];
     const pack = builder.build(input({ project, handle: 'pm' }));
     expect(pack.guide.role!).not.toContain('update_task priority');
@@ -3632,7 +3740,6 @@ describe("the CLI's own sandbox (PM-167)", () => {
     for (const key of [
       'npm_config_cache',
       'PROJECTMAN_HOME',
-      'PROJECTMAN_SKIP_PTY_TESTS',
       'GIT_CONFIG_SYSTEM',
       '/src/app/.git/refs/heads/main',
       'SSH_AUTH_SOCK',
@@ -3817,6 +3924,26 @@ describe('who decides a permission question (the approver, PM-165)', () => {
 });
 
 describe('member workspaces (PM-138)', () => {
+  it.each([false, true])(
+    'gives one installation rule in a worktree with member workspace %s',
+    (workspace) => {
+      const source = input({ handle: 'fe-1' });
+      source.sessionPolicy = buildSessionPolicy({
+        config: source.project,
+        role: 'developer',
+        task: source.task!,
+        placement: {
+          kind: 'task_worktree',
+          path: '/work/task',
+          ...(workspace ? { workspace: { branch: 'AR-21', baseCommit: null } } : {}),
+        },
+      });
+      const text = section(builder.build(source).appendSystemPrompt, '# Session policy');
+      expect(text).toContain('npm ci');
+      expect(text.includes('cloned automatically')).toBe(!workspace);
+      expect(text).not.toContain('install in the default checkout');
+    },
+  );
   it('tells a developer which branch of its own workspace it works on, and that switching needs committed work', () => {
     const project = buildLocalOnlyProject('.');
     const task = makeTask({ stageId: 'dev', repo: 'app' });
@@ -4120,7 +4247,7 @@ describe('security role guide (PM-997)', () => {
     expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(14_088);
     expect(
       Buffer.byteLength(`${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`),
-    ).toBeLessThanOrEqual(200);
+    ).toBeLessThanOrEqual(200 + ROLE_PURPOSES.security_review.length + 2);
     expect(pack.guide.role).toContain(dutyPrompt(source, 'security_review'));
     expect([...pack.guide.role!.matchAll(/^## (.+)$/gm)].map((match) => match[1])).toEqual([
       'Security review',
@@ -4194,7 +4321,7 @@ describe('security role guide (PM-997)', () => {
     });
     const [a, b] = packs;
     const role = section(a!.appendSystemPrompt, '# Your role instructions');
-    expect(role).toBe(section(b!.appendSystemPrompt, '# Your role instructions'));
+    expect(role).toBe(withoutPurpose(section(b!.appendSystemPrompt, '# Your role instructions')));
     expect(a!.guide.role).toBe(b!.guide.role);
     const order = [
       'Never review your own work',
@@ -4228,7 +4355,7 @@ describe('QA role guide (PM-996)', () => {
     expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(12_679);
     expect(
       Buffer.byteLength(`${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`),
-    ).toBeLessThanOrEqual(196);
+    ).toBeLessThanOrEqual(196 + ROLE_PURPOSES.qa.length + 55);
     expect(pack.guide.role).toContain(dutyPrompt(input({ handle: 'qa' }), 'testing_acceptance'));
     expect([...pack.guide.role!.matchAll(/^## (.+)$/gm)].map((match) => match[1])).toEqual(['Testing']);
     expect(pack.appendSystemPrompt).toContain('Testing: get_guide with topic `role`');
@@ -4280,10 +4407,10 @@ describe('QA role guide (PM-996)', () => {
     });
     const [a, b] = packs;
     const role = section(a!.appendSystemPrompt, '# Your role instructions');
-    expect(role).toBe(section(b!.appendSystemPrompt, '# Your role instructions'));
+    expect(role).toBe(withoutPurpose(section(b!.appendSystemPrompt, '# Your role instructions')));
     expect(a!.guide.role).toBe(b!.guide.role);
     const order = [
-      'Test expected/risky paths',
+      'Test every acceptance point',
       DUTIES.triage.prompt,
       'Keep bundle instructions.',
       'Keep member instructions.',
@@ -4310,7 +4437,7 @@ describe('designer role guide (PM-995)', () => {
     expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(13_753);
     expect(
       Buffer.byteLength(`${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`),
-    ).toBeLessThanOrEqual(646);
+    ).toBeLessThanOrEqual(646 + ROLE_PURPOSES.designer.length + 2);
   });
 
   it.each([
@@ -4358,7 +4485,7 @@ describe('designer role guide (PM-995)', () => {
     });
     const [a, b] = packs;
     const role = section(a!.appendSystemPrompt, '# Your role instructions');
-    expect(role).toBe(section(b!.appendSystemPrompt, '# Your role instructions'));
+    expect(role).toBe(withoutPurpose(section(b!.appendSystemPrompt, '# Your role instructions')));
     expect(a!.guide.role).toBe(b!.guide.role);
     const order = [
       'Design user flows',
@@ -4393,7 +4520,7 @@ describe('analyst role guide (PM-994)', () => {
     expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(13_351);
     expect(
       Buffer.byteLength(`${section(pack.appendSystemPrompt, '# Your role instructions').trimEnd()}\n`),
-    ).toBeLessThanOrEqual(700); // 587 before the acceptance items (PM-1135)
+    ).toBeLessThanOrEqual(587 + 113 + ROLE_PURPOSES.business_analyst.length + 2); // 113: the acceptance items (PM-1135)
   });
 
   it('keeps clarification and the relation-check limit visible, serving the complete duty in the guide', () => {
@@ -4449,7 +4576,7 @@ describe('analyst role guide (PM-994)', () => {
     });
     const [a, b] = packs;
     expect(section(a!.appendSystemPrompt, '# Your role instructions')).toBe(
-      section(b!.appendSystemPrompt, '# Your role instructions'),
+      withoutPurpose(section(b!.appendSystemPrompt, '# Your role instructions')),
     );
     expect(a!.guide.role).toBe(b!.guide.role);
     const role = section(a!.appendSystemPrompt, '# Your role instructions');
@@ -4502,11 +4629,11 @@ describe('architect role guide (PM-993)', () => {
     );
     // UTF-8 bytes, including the snapshot's final newline; baseline: 12,991 B / 1,934 B / no guide.
     expect(bytes(pack.appendSystemPrompt)).toBeLessThan(12_000);
-    expect(bytes(roleOf(pack.appendSystemPrompt))).toBeLessThan(950);
+    expect(bytes(roleOf(pack.appendSystemPrompt))).toBeLessThan(950 + ROLE_PURPOSES.architect.length + 2);
     // On a development card the sub-card rule moves too; baseline: 14,310 B / 1,574 B / no guide.
     const task = builder.build(input({ project, handle: 'architect', task: makeTask({ stageId: 'dev' }) }));
     expect(bytes(task.appendSystemPrompt)).toBeLessThan(13_550);
-    expect(bytes(roleOf(task.appendSystemPrompt))).toBeLessThan(800);
+    expect(bytes(roleOf(task.appendSystemPrompt))).toBeLessThan(800 + ROLE_PURPOSES.architect.length + 2);
   });
 
   it('indexes exactly the headings of the guide', () => {
@@ -4558,7 +4685,7 @@ describe('architect role guide (PM-993)', () => {
     addMember(overridden, 'architect', 'architect');
     overridden.team.roleOverrides = { architect: { duties: ['task_breakdown'], instructions: '' } };
     const [a, b] = [generalPack(custom, 'planner-1'), generalPack(overridden, 'architect')];
-    expect(roleOf(a.appendSystemPrompt)).toBe(roleOf(b.appendSystemPrompt));
+    expect(roleOf(a.appendSystemPrompt)).toBe(withoutPurpose(roleOf(b.appendSystemPrompt)));
     expect(a.guide.role).toBe(b.guide.role);
     expect(a.guide.role).toContain(DUTIES.task_breakdown.prompt);
   });

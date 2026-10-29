@@ -11,7 +11,7 @@ interface StartLaneDeps {
   ctx: DomainContext;
   queue: StartQueue;
   deferred: DeferredStarts;
-  admission: Pick<Admission, 'attempt' | 'retryHold'>;
+  admission: Pick<Admission, 'attempt' | 'retryHold' | 'warm'>;
   projects: Pick<ProjectService, 'cachedConfig'>;
   rebuild(spec: StartSpec): AutomaticStart | null;
 }
@@ -88,6 +88,7 @@ export function startLane(deps: StartLaneDeps): MemberQueueLane {
       const start = startOf(item);
       if (!start) return { kind: 'closed' };
       try {
+        await deps.admission.warm(item.projectKey, item.member);
         const result = await deps.admission.attempt(start);
         return result.kind === 'deferred'
           ? { kind: 'deferred', code: result.waiting.reason }

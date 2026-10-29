@@ -39,6 +39,7 @@ import {
   isPendingQuestion,
   isRelayableQuestionItem,
   machineTodoIssuerAllowed,
+  machineTodoIssuerOf,
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
@@ -1581,7 +1582,8 @@ export class InboxService {
 
   /**
    * The payload, options and recipient a question has when it goes to the people (PM-558): the one rule of
-   * `releaseScreened` and of the todo the system opens itself (`openIntegratorTodo`).
+   * `releaseScreened` and of the todo the system opens itself (`openIntegratorTodo`). The machine access that
+   * counts is the one of `machineTodoIssuerOf`: the screening member, or the opener of its own todo.
    */
   private releaseFields(current: InboxItem, release: ScreeningRelease, config: ProjectConfig, at: string) {
     const { outcome, fallback } = release;
@@ -1591,7 +1593,7 @@ export class InboxService {
             current,
             release.todo!.recipient,
             this.integratorTodoAccess?.available(config) ?? false,
-            machineTodoIssuerAllowed(config, current.source),
+            machineTodoIssuerAllowed(config, machineTodoIssuerOf(current.source, release.by)),
           )
         : { recipient: 'owner' as const };
     const todo = release.todo ? { ...release.todo, recipient: selected.recipient } : undefined;

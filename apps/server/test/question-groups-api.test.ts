@@ -80,3 +80,39 @@ describe('shared owner question visibility', () => {
     ).toBe(403);
   });
 });
+
+describe('the open inbox and its history (PM-1109)', () => {
+  let h: AppHarness;
+  afterEach(async () => h?.close());
+
+  it('keeps an old open item listed and counted behind more than 500 resolved ones, and cuts only a history', async () => {
+    h = await createAppHarness();
+    const owner = await setupOwner(h.app);
+    await createProject(h, owner);
+    const { domain, repos } = h.app.projectman;
+    const old = domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'question',
+      source: 'dev-1',
+      assignees: ['owner'],
+      title: 'Old open question',
+      payload: { question: 'Old open question' },
+      options: [{ id: 'yes', label: 'Yes', style: 'primary' }],
+    });
+    for (let index = 0; index < 505; index++)
+      repos.inbox.insert({
+        ...old,
+        id: `inb_done_${index}`,
+        state: 'resolved',
+        createdAt: new Date().toISOString(),
+      });
+    const get = async (query: string) =>
+      (
+        await h.app.inject({ url: `${routes.inbox('AR')}${query}`, headers: { cookie: owner } })
+      ).json<InboxView>();
+    expect((await get('')).items.map((item) => item.id)).toEqual([old.id]);
+    expect(domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
+    expect((await get('?state=resolved')).items).toHaveLength(500);
+    expect((await get('?state=resolved&limit=7')).items).toHaveLength(7);
+  });
+});

@@ -22,10 +22,14 @@ import { relayOwnerAnswer, resolveIntegratorFixLimit } from '../services/super-o
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
 
+const HISTORY_LIMIT = 500;
+
 const InboxQuery = z.object({
   /** Default "open"; "all" returns every state. */
   state: z.union([InboxState, z.literal('all')]).optional(),
   kind: InboxKind.optional(),
+  /** The newest N items. Without it: every open item, and the newest 500 of any other state. */
+  limit: z.coerce.number().int().min(1).max(HISTORY_LIMIT).optional(),
   /** "true" limits the list to items assigned to the current user. */
   mine: z.enum(['true', 'false', '1', '0']).optional(),
 });
@@ -47,8 +51,10 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     const query = parseBody(InboxQuery, request.query);
     const state = query.state === 'all' ? undefined : (query.state ?? 'open');
     const mine = query.mine === 'true' || query.mine === '1';
+    // What is open is never cut off (every open item is a person's to do); any other state is a history: the newest N.
+    const limit = query.limit ?? (state === 'open' ? undefined : HISTORY_LIMIT);
     const items = domain.inbox
-      .list(key, { state, kind: query.kind, limit: 500 })
+      .list(key, { state, kind: query.kind, limit })
       .filter((item) => canSeeInboxItem(access, item) && (!mine || humanInboxAssignment(item, access.handle)))
       .filter((item) => state === undefined || !isLinkedQuestion(item))
       .map((item) => visibleQuestionItem(access, item, (taskKey) => !!domain.tasks.find(key, taskKey)));

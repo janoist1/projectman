@@ -31,6 +31,7 @@ import {
 import type { LaunchctlResult, ServiceOptions } from '../../../scripts/engine/service';
 import { BILLING_ENV_VARS } from '../src/runner/env';
 import { writeInstanceMarker } from '../src/instance';
+import { switchPaths } from '../../../scripts/engine/switch-state';
 
 /**
  * The engine as a LaunchAgent (PM-318): the file is rendered from the template with absolute paths and
@@ -67,6 +68,9 @@ describe('the plist template', () => {
     expect(plist).toMatch(/<key>KeepAlive<\/key>\s*<true\/>/);
     // The shutdown pause (60 s + 20 s cap) must fit before launchd's SIGKILL.
     expect(plist).toMatch(/<key>ExitTimeOut<\/key>\s*<integer>100<\/integer>/);
+    expect(plist).toMatch(
+      /<key>AssociatedBundleIdentifiers<\/key>\s*<array>\s*<string>com.projectman.engine-app<\/string>/,
+    );
     expect(plist).toContain('<string>/Users/me/.projectman/logs/engine-service.out.log</string>');
   });
 
@@ -502,4 +506,63 @@ describe('npm run engine -- service', () => {
     expect(await run('service', 'uninstall')).toBe(0);
     expect(await run('service', 'frobnicate')).toBe(2);
   });
+
+  it('installs with the explicit login shell PATH', async () => {
+    await configure();
+    expect(await run('service', 'install', '--path', '/login/bin:/usr/bin')).toBe(0);
+    expect(readFileSync(path.join(base, 'LaunchAgents', 'com.projectman.engine.plist'), 'utf8')).toContain(
+      '<string>/login/bin:/usr/bin</string>',
+    );
+  });
+
+  it('routes switch to the package-only service operation', async () => {
+    await configure();
+    expect(await run('service', 'install')).toBe(0);
+    calls.length = 0;
+    expect(await run('service', 'switch', '--to', path.join(base, 'checkout'))).toBe(1);
+    expect(err.join('\n')).toContain('REFUSED [switch_checkout_engine]');
+    expect(calls).toEqual([]);
+  });
+
+  it('routes switch --clear without requiring a configured or installed engine', async () => {
+    mkdirSync(home, { recursive: true });
+    const stateFile = switchPaths(home).state;
+    writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        phase: 'rolled_back',
+        target: { version: 'new', tag: null },
+        previous: { version: 'old', tag: null },
+        startedAt: '2026-10-29T12:00:00Z',
+        updatedAt: '2026-10-29T12:00:00Z',
+        error: null,
+      }),
+    );
+    expect(await run('service', 'switch', '--clear')).toBe(0);
+    expect(existsSync(stateFile)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it.each(['start', 'stop', 'restart', 'uninstall', 'install'])(
+    'refuses %s while switching without changing launchd',
+    async (command) => {
+      await configure();
+      writeFileSync(
+        switchPaths(home).state,
+        JSON.stringify({
+          schemaVersion: 1,
+          phase: 'switching',
+          target: { version: 'new', tag: null },
+          previous: { version: 'old', tag: null },
+          startedAt: '2026-10-29T12:00:00Z',
+          updatedAt: '2026-10-29T12:00:00Z',
+          error: null,
+        }),
+      );
+      expect(await run('service', command)).toBe(1);
+      expect(err.join('\n')).toContain('REFUSED [switch_in_progress]');
+      expect(calls).toEqual([]);
+    },
+  );
 });

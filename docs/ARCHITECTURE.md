@@ -4574,6 +4574,24 @@ assumption or remote-engine RPC.
   **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,snapshot,logs,commands,cli}.ts`,
+  `scripts/engine/{service-switch,switch-state}.ts` (PM-1124). A plist whose `WorkingDirectory`
+  contains `engine-package.json` is app-managed; otherwise it is checkout-managed.
+  Package installation uses the embedded `bin/node` and package root in the same template.
+  `AssociatedBundleIdentifiers` names `com.projectman.engine-app`; `service install --path`
+  accepts the app's login shell PATH. `service switch [--to <package-root>]` is for app-managed
+  engines only: the CLI owns `<home>/engine-switch.lock` (exclusive creation, dead-pid recovery),
+  `engine-switch.json` (`EngineSwitchState`) and `engine-switch.previous.plist` (exact bytes).
+  It stops gracefully, installs with the saved PATH and verifies the new process, target version
+  and prior connection requirement within 120 s. A failed switch restores and bootstraps the saved
+  plist, then verifies the previous version; the durable result is `rolled_back` or
+  `recovery_required`. An interrupted `switching` is recovered first on the next switch.
+  Other service mutations refuse during `switching`; `switch --clear` clears terminal results.
+  A `recovery_required` result blocks a new switch until explicitly cleared, preserving its
+  backup. Preparation writes the backup before publishing `switching`; even an unknown
+  previous version permits byte restoration but cannot yield a verified rollback.
+  Corrupt state is exposed as a reporting-only `recovery_required`/`switch_state_invalid`
+  snapshot with unknown target, while the CLI's mutation reader remains strict.
+  The additive snapshot fields are `service.manager`, `package` and `switch` (schema version 1).
   PM-1113 runs the compiled `apps/server/dist/index.js` under Node, without a TypeScript loader;
   build the engine checkout before installing or updating the service. The build and launchd
   operations run on the engine machine; no compiled source crosses engine RPC.
@@ -4600,8 +4618,8 @@ assumption or remote-engine RPC.
   off macOS: `service.supported` false) and the disk and memory of the machine; `overall` has one rule,
   `overallState`. `logs [--lines N] [--json]` prints the last lines (50, at most 200, from the last 256 KiB)
   of the two service logs.
-  **Assumptions:** macOS, `launchctl`, a logged-in user, and the checkout the command ran from being
-  the one that should run the engine (the plist names it). **Does this work on a remote engine?**
+  **Assumptions:** macOS, `launchctl`, a logged-in user, and a persistent checkout or extracted engine
+  package (including the previous package during a switch) named by the plist. **Does this work on a remote engine?**
   This is the engine's own start-up: it must run on the engine's machine, as the user who owns the
   CLIs; nothing of it crosses to the cloud. On Linux the equivalent is a systemd user unit (not built).
   **Module:** `scripts`

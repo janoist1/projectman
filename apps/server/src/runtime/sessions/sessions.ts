@@ -1657,7 +1657,9 @@ export class SessionOrchestrator {
       recordedStop ??
       (session && !failed && this.isPaused(session)
         ? ({ kind: 'pause' } as const)
-        : ({ kind: failed ? (reason ? 'login_lost' : 'failed') : 'exited' } as const));
+        : ({
+            kind: failed ? (this.limits.lostLogin(sessionId) ? 'login_lost' : 'failed') : 'exited',
+          } as const));
     // A resumed conversation whose CLI failed before it was ready cannot be resumed (PM-340): the next
     // start begins a new conversation, so it does not fail again and again with the same resume.
     const resumeFailed = failed && session?.state === 'starting' && resuming && !stop;

@@ -55,6 +55,14 @@ describe('the assignee an AI member names (team.assigneeFit)', () => {
     expect(task(key).assignee).toBe('dev-2');
   });
 
+  it('refuses the unfit assignee of a card that still waits in a queue stage', async () => {
+    await harness('automatic_and_ai');
+    const key = await create();
+    expect(task(key).stageId).not.toBe('development');
+    await expect(reassign(key, 'dev-1')).rejects.toMatchObject({ status: 409, code: 'assignee_unfit' });
+    expect(task(key).assignee).toBeNull();
+  });
+
   it('accepts a named developer that fits, and any developer for a small card', async () => {
     await harness('automatic_and_ai');
     const key = await create(3);

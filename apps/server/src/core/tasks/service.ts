@@ -49,6 +49,7 @@ import {
   repoOf,
   subtaskParentRefusal,
   timelineNoteExcerpt,
+  workStageOf,
 } from '@projectman/shared';
 import type {
   GateEvaluation,
@@ -745,9 +746,9 @@ export class TaskService implements TaskSchedulingReader {
             target.handle,
           );
         // An AI actor's choice has to fit the card's complexity limit and specialty when the project asks (PM-1136).
-        const workStage = config.pipeline.stages.find(
-          (stage) => stage.id === (change.stageId ?? task.stageId) && stage.kind === 'work',
-        );
+        // Outside the work stage (a card in the queue) the work stage is the one the card will start in, so the
+        // assignee kept by `start_task` cannot get round the limit.
+        const workStage = workStageOf(config, { stageId: change.stageId ?? task.stageId });
         if (change.assignee !== null && workStage)
           assertAssigneeFits({
             config,

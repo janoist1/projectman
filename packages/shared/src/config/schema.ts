@@ -371,7 +371,16 @@ export const ReviewTestConfig = z.object({
 });
 export type ReviewTestConfig = z.infer<typeof ReviewTestConfig>;
 
+/** Repository-specific heavy-check conventions shown in member prompts (PM-1112). */
+export const HeavyChecks = z.object({
+  commands: z.array(z.string().trim().min(1).max(100)).min(1).max(10),
+  unavailableExit: z.number().int().min(1).max(255).optional(),
+  ptySkipped: z.array(z.string().trim().min(1).max(200)).max(10).optional(),
+});
+export type HeavyChecks = z.infer<typeof HeavyChecks>;
+
 export const RepoConfig = z.object({
+  heavyChecks: HeavyChecks.optional(),
   /** Short name used in task.repo, e.g. "locked". */
   name: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
   /** Path relative to the workspace root ("." for the root itself). */

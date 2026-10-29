@@ -247,8 +247,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   and failures retry after 60 seconds, or immediately if the target lock mtime changes. Copying has
   a 90-second total budget; Codex and Claude prepare hooks wait 120 seconds (Gemini already waits
   for its permission timeout). No heavy-run queue is taken for these short APFS copies. Failures
-  only log and preserve the hook decision; the prompt tells the member to ask the owner to install
-  missing dependencies in the default checkout.
+  only log and preserve the hook decision; the prompt tells the member to run `npm ci` in its
+  worktree when node_modules is missing or older than the lockfile (a routine step, PM-1112).
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
   off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
@@ -3489,14 +3489,20 @@ assumption or remote-engine RPC.
   and cleanup. Symlinked workspace paths skip the clone as unsupported. Node has no `openat`,
   so a small check-to-operation race remains; checks never deliberately traverse a replaced parent.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.refreshDependencies` (PM-313), find reference checkouts and probe the filesystem on the engine;
-  retain the existing skip/install fallback on other platforms. The server's installation
+  retain the existing skip/install fallback on other platforms. The member prompt asks for
+  `npm ci` locally when dependencies are missing or stale (PM-1112); member workspaces have
+  no automatic clone. The server's installation
   cannot be cloned across machines, and native dependencies must match the engine. Keep the
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
   **Module:** `worktree`
 - **Heavy-run queue and worker limits** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
   `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
-  `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under
+  `vitest.config.ts` files (PM-332, PM-336). Prompt descriptions of commands, unavailable exit status
+  and PTY skips are opt-in repository `heavyChecks` settings (`context/system-prompt.ts`,
+  `runtime/permissions/unattended-commands.ts`, PM-1112); engine environment variables and queue
+  execution are unchanged. These descriptions are rendered on the server for local and remote engines.
+  A per-user lock directory under
   `/tmp/projectman-<uid>/heavy` uses local atomic directory operations, PID liveness and
   heartbeats; worker limits use the executing host's CPU and memory. Same-host runs must
   use the same lock directory; different users are not automatically one queue. An unusable

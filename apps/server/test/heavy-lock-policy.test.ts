@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { HeavyChecks } from '@projectman/shared';
 import type { AgentSandbox, SessionPolicy } from '../src/contracts';
 import { sensitivePaths, sessionSandbox } from '../src/runtime/sessions';
 import { describeSandbox } from '../src/runtime/permissions';
@@ -101,17 +102,20 @@ describe('describeSandbox: the machine queue', () => {
     allowedDomains: ['registry.npmjs.org'],
     allowLocalBinding: true,
   };
+  const heavyChecks: HeavyChecks = { commands: ['custom-test', 'custom-typecheck'] };
   const text = (sandbox: AgentSandbox) =>
-    describeSandbox({ sandbox, cwd: '/fictional/work', localOnly: false, details: true }).join('\n');
+    describeSandbox({ sandbox, heavyChecks, cwd: '/fictional/work', localOnly: false, details: true }).join(
+      '\n',
+    );
 
   it('tells the member the heavy runs wait their turn, one at a time, and are best started in the background', () => {
     const out = text({
       ...base,
       env: { PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir, npm_config_prefer_offline: 'true' },
     });
-    expect(out).toContain(
-      "- Machine queue: the full test (`npm test` at the root), the full type check (`npm run typecheck`) and `npm run shots` wait their turn in the machine's heavy-run queue, one at a time across members and the server's full test, so start them in the background; targeted runs inside one workspace do not queue.",
-    );
+    const line = out.split('\n').find((value) => value.startsWith('- Machine queue:'))!;
+    for (const command of heavyChecks.commands) expect(line).toContain(command);
+    expect(line).toContain('background');
   });
 
   it('keeps the two variables out of the line about the own npm cache', () => {
@@ -131,5 +135,15 @@ describe('describeSandbox: the machine queue', () => {
 
   it('says nothing about the queue without the folder', () => {
     expect(text({ ...base, env: {} })).not.toContain('Machine queue');
+  });
+
+  it('says nothing about the queue without repository conventions', () => {
+    const out = describeSandbox({
+      sandbox: { ...base, env: { PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir } },
+      cwd: '/fictional/work',
+      localOnly: false,
+      details: true,
+    }).join('\n');
+    expect(out).not.toContain('Machine queue');
   });
 });

@@ -2682,6 +2682,62 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         "maxItems": 20,
                         "type": "array",
                       },
+                      "repoHeavyChecks": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "heavyChecks": {
+                              "anyOf": [
+                                {
+                                  "properties": {
+                                    "commands": {
+                                      "items": {
+                                        "maxLength": 100,
+                                        "minLength": 1,
+                                        "type": "string",
+                                      },
+                                      "maxItems": 10,
+                                      "minItems": 1,
+                                      "type": "array",
+                                    },
+                                    "ptySkipped": {
+                                      "items": {
+                                        "maxLength": 200,
+                                        "minLength": 1,
+                                        "type": "string",
+                                      },
+                                      "maxItems": 10,
+                                      "type": "array",
+                                    },
+                                    "unavailableExit": {
+                                      "maximum": 255,
+                                      "minimum": 1,
+                                      "type": "integer",
+                                    },
+                                  },
+                                  "required": [
+                                    "commands",
+                                  ],
+                                  "type": "object",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
+                            "repo": {
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "repo",
+                            "heavyChecks",
+                          ],
+                          "type": "object",
+                        },
+                        "maxItems": 20,
+                        "type": "array",
+                      },
                       "repoMerge": {
                         "items": {
                           "properties": {

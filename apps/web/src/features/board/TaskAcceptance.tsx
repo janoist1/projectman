@@ -536,7 +536,7 @@ export function TaskAcceptance({
                     onCancel={() => closeForm(item.id)}
                   />
                 ) : rowError ? (
-                  <p role="alert" className={styles.error}>
+                  <p role="alert" className={`${styles.error} ${styles.errorBelow}`}>
                     {rowError}
                   </p>
                 ) : null}

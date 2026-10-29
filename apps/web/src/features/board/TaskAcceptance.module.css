@@ -183,6 +183,11 @@
   color: var(--c-blocked-text);
 }
 
+/* Under a row, like the refusal note: lined up with the item text. */
+.errorBelow {
+  margin-left: 30px;
+}
+
 .skeletons {
   display: grid;
   gap: 6px;

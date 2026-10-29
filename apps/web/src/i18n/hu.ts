@@ -2998,7 +2998,7 @@ export const hu = {
     rules: {
       eyebrow: 'Szabály',
       /** What the rows and panels share: the reason, its editor and the link to the setting (PM-1137). */
-      always: 'mindig érvényes',
+      always: 'Mindig érvényes',
       alwaysNote: 'A rendszer része, nem kapcsolható ki.',
       editLink: 'Szabály szerkesztése a Beállításokban',
       why: {

@@ -467,7 +467,8 @@ export function createEmailChannelService(deps: {
       try {
         return repo.log(projectKey, before);
       } catch (err) {
-        // The only thing that can throw is a cursor the repository cannot read: the caller's mistake, not a failure.
+        // A cursor the repository cannot read (a `RangeError`) is the caller's mistake; any other failure stays one.
+        if (!(err instanceof RangeError)) throw err;
         throw invalid('invalid_request', 'the log cursor is not valid', { cause: String(err) });
       }
     },

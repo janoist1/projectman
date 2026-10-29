@@ -2698,6 +2698,8 @@ export function createDomain(opts: DomainOptions) {
       // No sweep ticks from here on; running rounds end with the background work (PM-613).
       const sweepsStopped = sweeps?.stop();
       sweeps = undefined;
+      // No debounced retry fires from here on; a round that runs is waited for below.
+      const retriesStopped = admission.dispose();
       ctx.journal.stop();
       unsubscribeJournalWake();
       unsubscribeOutageKeys?.();
@@ -2719,10 +2721,9 @@ export function createDomain(opts: DomainOptions) {
       await historyDocumentsStopped;
       await history.stop();
       await opts.historySemantic?.stop();
-      await Promise.all([sweepsStopped, background.stop()]);
+      await Promise.all([sweepsStopped, retriesStopped, background.stop()]);
       await delivery.close();
       pauses.dispose();
-      admission.dispose();
       sessions.dispose();
       // The folders still being removed finish before the temporary root is released.
       await sessions.settleFolderRemovals();

@@ -657,10 +657,11 @@ export class Admission {
     this.requestedRetry = undefined;
   }
 
-  /** No retry is asked for any more (the server stops). */
-  dispose(): void {
+  /** No retry is asked for any more (the server stops); resolves when the round that is running has ended. */
+  async dispose(): Promise<void> {
     this.disposed = true;
     this.cancelRequestedRetry();
+    await this.retrying?.catch(() => {});
   }
 
   private async retryRound(): Promise<void> {

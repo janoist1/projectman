@@ -225,7 +225,6 @@ export function createMessageRepository(db: Db) {
         message.id,
       );
     },
-    /** Whether `from` already sent `to` a message whose text holds `marker` (a once-only note's own key). */
     /** Whether the card already has this note (`origin: note`) of the event, from `from`, to `to`, with this text. */
     hasEventNote(
       projectKey: string,
@@ -234,6 +233,7 @@ export function createMessageRepository(db: Db) {
     ): boolean {
       return !!statements.hasEventNote.get(projectKey, taskKey, note.from, note.body, note.to, note.eventId);
     },
+    /** Whether `from` already sent `to` a message whose text holds `marker` (a once-only note's own key). */
     hasNote(projectKey: string, from: string, to: string, marker: string): boolean {
       return !!statements.hasNote.get(projectKey, from, to, marker);
     },

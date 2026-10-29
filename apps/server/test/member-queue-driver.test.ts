@@ -484,6 +484,22 @@ describe('the member queue driver', () => {
         await new Promise((resolve) => setTimeout(resolve, 80));
         expect(retry).toHaveBeenCalledTimes(1);
       });
+
+      it('asks for no retry after the stop and waits for the round that runs', async () => {
+        const retry = vi.spyOn(h.domain.admission, 'retryDeferred');
+        h.domain.admission.requestRetry();
+        const running = h.domain.admission.retryDeferred();
+        let ended = false;
+        void running.then(() => (ended = true));
+        retry.mockClear();
+
+        await h.domain.admission.dispose();
+        expect(ended).toBe(true);
+
+        h.domain.admission.requestRetry();
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        expect(retry).not.toHaveBeenCalled();
+      });
     });
 
     describe('after a restart', () => {

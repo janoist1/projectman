@@ -22,7 +22,9 @@ export function summarizeTeamRule(rule: TeamRule, _project: ProjectConfig): stri
     case 'start_order':
       return 'Start order: urgent first, then by priority (a theme or parent priority counts), then board order.';
     case 'priority_setters':
-      return `Priority: people and ${rule.members.length ? codeList(rule.members) : 'nobody else'} set it.`;
+      return rule.members.length
+        ? `Priority: people and ${codeList(rule.members)} set it.`
+        : 'Priority: only people set it.';
     case 'complexity_setters':
       return `Complexity points: ${codeList(rule.members)} set them.`;
     case 'assignee_fit':

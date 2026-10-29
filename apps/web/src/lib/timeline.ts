@@ -149,6 +149,18 @@ export function checkLine(check: string, state: string): string {
   return t('timeline.events.task_check_changed', { check: name, state: label });
 }
 
+const ACCEPTANCE_CHANGES = [
+  'add',
+  'edit',
+  'remove',
+  'done',
+  'not_needed',
+  'move',
+  'moved_in',
+  'reopen',
+  'confirm',
+] as const;
+
 function labelsChanged(d: Record<string, unknown>, ctx: TimelineContext): string {
   const names = (key: string) =>
     ((d[key] as string[] | undefined) ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', ');
@@ -678,6 +690,16 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           ref: str(d.ref),
         }),
       );
+    case 'acceptance_item_changed': {
+      // An event of a change this web app does not know reads neutrally.
+      const change = (ACCEPTANCE_CHANGES as readonly string[]).includes(str(d.change))
+        ? (str(d.change) as (typeof ACCEPTANCE_CHANGES)[number])
+        : 'changed';
+      return normal(
+        t(`timeline.acceptanceItem.${change}`, { text: str(d.text), taskKey: str(d.taskKey) }) +
+          (str(d.note).trim() ? t('timeline.acceptanceItem.note', { note: str(d.note).trim() }) : ''),
+      );
+    }
     case 'task_theme_changed': {
       const themeKey = d.themeKey ? str(d.themeKey) : '';
       const previous = d.previous ? str(d.previous) : '';

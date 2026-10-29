@@ -38,9 +38,34 @@ final class CoreTests: XCTestCase {
         let m = model(try snapshot("not-initialised"))
         XCTAssertEqual(m.icon, .unconfigured); XCTAssertEqual(m.rows.compactMap(\.command), [.quit])
     }
-    func testStoppedWithoutServiceOffersInstall() throws {
+    func testStoppedWithoutServiceOffersNoControls() throws {
         let m = model(try snapshot("stopped") { $0["service"] = ["installed": false] })
-        XCTAssertTrue(m.rows.contains { $0.command == .copyInstall }); XCTAssertFalse(m.rows.contains { $0.command == .start })
+        XCTAssertFalse(m.rows.contains { $0.command == .start || $0.command == .install })
+    }
+    func testServiceManagerIsOptional() throws {
+        XCTAssertEqual(try snapshot().service.manager, "checkout")
+        XCTAssertNil(try snapshot { $0["service"] = ["installed": true] }.service.manager)
+        XCTAssertEqual(try snapshot { $0["service"] = ["installed": true, "manager": "app", "package": ["version": "1"]] }.service.manager, "app")
+    }
+    func testNotInstalledOffersInstallAndQuit() {
+        let m = MenuModel.make(fetch: .notInstalled, action: nil, now: Date())
+        XCTAssertEqual(m.header.key, .notInstalled); XCTAssertEqual(m.subtitle?.key, .notInstalledReason)
+        XCTAssertEqual(m.rows.compactMap(\.command), [.install, .quit])
+    }
+    func testInstallingOverlayOffersShowInstallAndQuit() {
+        let m = MenuModel.make(fetch: .notInstalled, action: nil, now: Date(), overlay: .installing)
+        XCTAssertEqual(m.header.key, .installing); XCTAssertEqual(m.icon, .busy)
+        XCTAssertEqual(m.rows.compactMap(\.command), [.showInstall, .quit])
+    }
+    func testApprovalOverlayOffersSystemSettings() throws {
+        let m = MenuModel.make(fetch: .ready(try snapshot()), action: nil, now: Date(), overlay: .needsApproval)
+        XCTAssertEqual(m.header.key, .needsApproval); XCTAssertEqual(m.icon, .warning)
+        XCTAssertEqual(m.rows.compactMap(\.command), [.openLoginItems, .quit])
+    }
+    func testUninstallingOverlayDisablesControlsAndMentionsPausedWork() throws {
+        let m = MenuModel.make(fetch: .ready(try snapshot()), action: nil, now: Date(), overlay: .uninstalling)
+        XCTAssertEqual(m.header.key, .removing); XCTAssertEqual(m.subtitle?.key, .pausing)
+        XCTAssertEqual(m.rows.filter { ($0.command == .stop || $0.command == .restart) && !$0.enabled }.count, 2)
     }
     func testTerminalEngineCannotBeStopped() throws {
         let m = model(try snapshot { $0["service"] = ["installed": false] })
@@ -90,9 +115,9 @@ final class CoreTests: XCTestCase {
         let m = MenuModel.make(fetch: .unavailable("error"), action: nil, now: Date())
         XCTAssertEqual(m.header.key, .unavailable); XCTAssertEqual(m.rows.compactMap(\.command), [.retry, .details, .quit])
     }
-    func testUpdateOffersInstallCommand() {
+    func testUpdateNeededOnlyOffersQuit() {
         let m = MenuModel.make(fetch: .updateNeeded, action: nil, now: Date())
-        XCTAssertTrue(m.rows.contains { $0.command == .copyUpdate })
+        XCTAssertEqual(m.rows.compactMap(\.command), [.quit])
     }
     func testRestartWaitsForNewPid() throws {
         XCTAssertFalse(EngineAction.restart.reached(try snapshot(), previousPid: 123))

@@ -9,7 +9,10 @@ public enum EngineAction: String { case start, stop, restart
     }
 }
 public enum IconKind { case running, noCloud, stopped, unconfigured, warning, busy }
-public enum MenuCommand: String { case start, stop, restart, cloud, details, quit, retry, copyInstall, copyUpdate }
+public enum MenuCommand: String { case start, stop, restart, cloud, details, quit, retry, install, showInstall, openLoginItems }
+/// What the app itself is doing, on top of the engine's state: installing (h2), waiting for the user's approval (i)
+/// or removing the engine (s1).
+public enum MenuOverlay: Equatable { case installing, needsApproval, uninstalling }
 public struct MenuRow {
     public let title: Localized?
     public let literal: String?
@@ -30,17 +33,31 @@ public struct MenuModel {
     public var rows: [MenuRow] = []
     public var awake: Localized?
     public var active = false
-    public static func make(fetch: Fetch, action: EngineAction?, now: Date) -> MenuModel {
+    public static func make(fetch: Fetch, action: EngineAction?, now: Date, overlay: MenuOverlay? = nil) -> MenuModel {
         var model = MenuModel()
         let separator = MenuRow()
         func item(_ key: L10n, _ command: MenuCommand, enabled: Bool = true) -> MenuRow {
             MenuRow(Localized(key), command: command, enabled: enabled)
         }
+        switch overlay {
+        case .installing?:
+            model.icon = .busy; model.header = Localized(.installing); model.subtitle = Localized(.installingReason)
+            model.rows = [separator, item(.showInstall, .showInstall), separator, item(.quit, .quit)]
+            return model
+        case .needsApproval?:
+            model.icon = .warning; model.header = Localized(.needsApproval); model.subtitle = Localized(.needsApprovalReason)
+            model.rows = [separator, item(.openLoginItems, .openLoginItems), separator, item(.quit, .quit)]
+            return model
+        default: break
+        }
         switch fetch {
         case .loading: model.rows = [item(.quitRunning, .quit)]
+        case .notInstalled:
+            model.icon = .unconfigured; model.header = Localized(.notInstalled); model.subtitle = Localized(.notInstalledReason)
+            model.rows = [separator, item(.install, .install), separator, item(.quit, .quit)]
         case .updateNeeded:
             model.icon = .warning; model.header = Localized(.update); model.subtitle = Localized(.updateReason)
-            model.rows = [item(.copyUpdate, .copyUpdate), separator, item(.quit, .quit)]
+            model.rows = [separator, item(.quit, .quit)]
         case .unavailable:
             model.icon = .warning; model.header = Localized(.unavailable); model.subtitle = Localized(.unavailableReason)
             model.rows = [item(.retry, .retry), item(.details, .details), separator, item(.quit, .quit)]
@@ -79,15 +96,19 @@ public struct MenuModel {
             } else if s.overall == "stopped" {
                 model.icon = .stopped; model.header = Localized(.stopped)
                 model.subtitle = Localized(s.service.installed ? .idle : .notInstalled)
-                model.rows = [separator, s.service.installed ? item(.start, .start) : item(.copyInstall, .copyInstall), separator, item(.cloud, .cloud), item(.details, .details), separator, item(.quit, .quit)]
+                var rows: [MenuRow] = [separator]
+                if s.service.installed { rows.append(item(.start, .start)) }
+                rows += [separator, item(.cloud, .cloud), item(.details, .details), separator, item(.quit, .quit)]
+                model.rows = rows
             } else {
                 model.icon = .unconfigured; model.header = Localized(.notInitialised); model.subtitle = Localized(.setup)
                 model.rows = [separator, item(.quit, .quit)]
             }
         }
-        if let action {
-            model.icon = .busy; model.count = 0; model.header = Localized(action.progress)
-            model.subtitle = action == .stop && (fetch.snapshot?.work.total ?? 0) > 0 ? Localized(.pausing) : nil
+        if action != nil || overlay == .uninstalling {
+            let removing = overlay == .uninstalling
+            model.icon = .busy; model.count = 0; model.header = Localized(removing ? .removing : (action ?? .stop).progress)
+            model.subtitle = (removing || action == .stop) && (fetch.snapshot?.work.total ?? 0) > 0 ? Localized(.pausing) : nil
             model.rows = model.rows.map { row in
                 guard row.command == .start || row.command == .stop || row.command == .restart else { return row }
                 return MenuRow(row.title, literal: row.literal, secondary: row.secondary, command: row.command, enabled: false, section: row.section)

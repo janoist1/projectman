@@ -11,6 +11,7 @@ import {
 } from '@projectman/shared';
 import type { Attachment, Task } from '@projectman/shared';
 import {
+  acceptanceLines,
   describeAttachment,
   describeLink,
   describeTheme,
@@ -141,6 +142,10 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
 
   const relations = relationLines(input.relations ?? [], style);
   sections.push(['## Relations', ...(relations.length > 0 ? relations : ['None.'])].join('\n'));
+
+  // The acceptance conditions (PM-1135); left out when the card has none, so the brief does not grow.
+  const acceptance = acceptanceLines(input.acceptance ?? [], style);
+  if (acceptance.length > 0) sections.push(['## Acceptance items', ...acceptance.slice(1)].join('\n'));
 
   // The theme the card belongs to (PM-192), its own or its parent's; left out when it has none, so the
   // brief of a card without a theme does not grow (PM-181).

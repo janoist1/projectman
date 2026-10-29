@@ -969,7 +969,7 @@ const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> =
   requirements_analysis: {
     title: 'Requirements and relation checks',
     short:
-      'Clarify goals, edge cases and acceptance criteria with ask_human; record them in the description with update_task. On a new-relation analyst check, assess its impact; do not move or stop the card.',
+      'Clarify goals, edge cases and acceptance criteria with ask_human; record the goal in the description and each criterion as an acceptance item (update_task acceptance add). On a new-relation analyst check, assess its impact; do not move or stop the card.',
   },
   technical_direction: {
     title: 'Technical plan and contract detail',
@@ -979,7 +979,7 @@ const GUIDED_DUTIES: Partial<Record<DutyId, { title: string; short: string }>> =
   task_breakdown: {
     title: 'Task breakdown',
     short:
-      'Split work into independently testable tasks with create_task and record dependencies. A sub-card must stand on its own; set complexity (1, 2, 3, 5, 8, 13) on a card if useful.',
+      'Split work into independently testable tasks with create_task and record dependencies. A sub-card must stand on its own, with its own acceptance items (create_task acceptance); set complexity (1, 2, 3, 5, 8, 13) on a card if useful.',
   },
 };
 

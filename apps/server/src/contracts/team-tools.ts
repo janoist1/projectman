@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type {
+  AcceptanceChange,
   AddRelationRef,
   BuiltInRoleId,
   ChecklistCondition,
@@ -455,6 +456,8 @@ export interface TaskToolsHandler {
       complexity?: ComplexityRequest;
       /** Honored only as `mayOverridePrerequisites` allows (PM-1099); otherwise dropped. */
       despitePrerequisites?: boolean;
+      /** Changes of the card's acceptance items (PM-1135), applied in order before the stage move. */
+      acceptance?: AcceptanceChange[];
     },
   ): Promise<{ task: Task }>;
   /**
@@ -475,6 +478,8 @@ export interface TaskToolsHandler {
       /** The theme the new card belongs to. */
       themeKey?: string;
       complexity?: ComplexityRequest;
+      /** The texts of the acceptance items the new card starts with (PM-1135). */
+      acceptance?: string[];
     },
   ): Promise<{ task: Task }>;
 }

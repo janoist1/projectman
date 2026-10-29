@@ -1,5 +1,6 @@
 import { ProjectConfig, storedTeamDefaults } from '@projectman/shared';
 import type { ProjectConfigInput } from '@projectman/shared';
+import { migrateAcceptanceGates } from '@projectman/templates';
 import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates';
 
 /**
@@ -8,7 +9,15 @@ import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates'
  *   -> merge (gate: labels code-review-ok + merge-ok, an owner approval)
  *   -> release (gate: labels pr-merged + release-ok, a release approval the owner may give) -> done
  */
+/**
+ * The test project as a current configuration: with the acceptance gates and labels the config migration
+ * adds (PM-1135), so that a saved and loaded configuration equals it.
+ */
 function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
+  return migrateAcceptanceGates(plainConfigInput(input));
+}
+
+function plainConfigInput(input: BuildTemplateInput): ProjectConfigInput {
   return {
     schemaVersion: 1,
     project: {

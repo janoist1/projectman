@@ -1,15 +1,11 @@
-import {
-  effectiveRepo,
-  isTheme,
-  needsRepoChoice,
-  TaskStatus as TaskStatusSchema,
-} from '@projectman/shared';
+import { effectiveRepo, isTheme, needsRepoChoice, TaskStatus as TaskStatusSchema } from '@projectman/shared';
 import type {
   OperatorAction,
   ProjectConfig,
   Task,
   TaskKind,
   TaskPriority,
+  AcceptanceChange,
   AddRelationRef,
   ComplexityRequest,
   RelationsChange,
@@ -145,6 +141,7 @@ export class TaskTools implements TaskToolsHandler {
       priority?: TaskPriority | null;
       complexity?: ComplexityRequest;
       despitePrerequisites?: boolean;
+      acceptance?: AcceptanceChange[];
     },
   ): Promise<{ task: Task }> {
     return this.calls.guard(async () => {
@@ -179,6 +176,7 @@ export class TaskTools implements TaskToolsHandler {
       kind?: TaskKind;
       themeKey?: string;
       complexity?: ComplexityRequest;
+      acceptance?: string[];
     },
   ): Promise<{ task: Task }> {
     return this.calls.guard(async () => {
@@ -203,6 +201,7 @@ export class TaskTools implements TaskToolsHandler {
               ...(args.kind ? { kind: args.kind } : {}),
               ...(args.themeKey ? { themeKey: args.themeKey } : {}),
               ...(args.complexity ? { complexity: args.complexity } : {}),
+              ...(args.acceptance?.length ? { acceptance: args.acceptance } : {}),
             },
             aiActor(ctx.member),
             { sessionId: ctx.sessionId },
@@ -331,6 +330,7 @@ export class TaskTools implements TaskToolsHandler {
           ...(args.priority !== undefined ? { priority: args.priority } : {}),
           ...(args.complexity ? { complexity: args.complexity } : {}),
           ...(args.despitePrerequisites ? { despitePrerequisites: true } : {}),
+          ...(args.acceptance?.length ? { acceptance: args.acceptance } : {}),
           addLabels: args.addLabels,
           removeLabels: args.removeLabels,
           note: args.note,

@@ -21,7 +21,12 @@ import {
   RETIRED_OPERATOR_ROLE,
   storedTeamDefaults,
 } from '@projectman/shared';
-import { DAILY_WORKER_SCHEDULE, migrateLegacyConfig, projectManagerMember } from '@projectman/templates';
+import {
+  DAILY_WORKER_SCHEDULE,
+  migrateAcceptanceGates,
+  migrateLegacyConfig,
+  projectManagerMember,
+} from '@projectman/templates';
 
 interface MigrationContext {
   projectKey: string;
@@ -391,6 +396,8 @@ function addTempMaxPoints(raw: unknown): unknown {
  *   - a Codex member in `bypassPermissions` becomes `acceptEdits` (above);
  *   - gate conditions from before labels (check_passed, pr_merged, human_approval) become label
  *     conditions with the labels they need (`migrateLegacyConfig`, @projectman/templates);
+ *   - a pipeline with a work stage gets the acceptance gates and the two system labels they read, once
+ *     (`migrateAcceptanceGates`, @projectman/templates, PM-1135), after the conversion of legacy gates;
  *   - a label a release gate requires that more than the release approval duty's holders may set
  *     is narrowed to that duty (above), after the conversion of legacy gates;
  *   - the removed separate mailbox name (`email.mailbox`, PM-1039) is dropped from every AI member (above);
@@ -414,19 +421,21 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
           addTeamDefaults(
             addProjectManager(
               migrateReleaseApproval(
-                migrateLegacyConfig(
-                  migrateCodexBypass(
-                    migrateScheduledRole(
-                      dropMessageBurst(
-                        migrateSeniorLimit(
-                          dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                migrateAcceptanceGates(
+                  migrateLegacyConfig(
+                    migrateCodexBypass(
+                      migrateScheduledRole(
+                        dropMessageBurst(
+                          migrateSeniorLimit(
+                            dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                            context,
+                          ),
                           context,
                         ),
                         context,
                       ),
                       context,
                     ),
-                    context,
                   ),
                 ),
                 context,

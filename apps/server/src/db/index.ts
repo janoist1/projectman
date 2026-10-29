@@ -77,6 +77,7 @@ import { createSeniorWaitRepository } from './senior-waits';
 import { createSessionRepository } from './sessions';
 import { createSessionCleanupRepository } from './session-cleanups';
 export type { SessionCleanupFailure } from './session-cleanups';
+import { createTaskAcceptanceRepository } from './task-acceptance';
 import { createTaskCoverRepository } from './task-covers';
 import { createTaskFixLimitRepository } from './fix-limits';
 import { createTaskHandoffRepository } from './task-handoffs';
@@ -144,6 +145,7 @@ export function createRepositories(db: Db) {
     releasePublications: createReleasePublicationRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),
+    taskAcceptance: createTaskAcceptanceRepository(db),
     taskLoops: createTaskLoopRepository(db),
     taskFixLimits: createTaskFixLimitRepository(db),
     taskHandoffs: createTaskHandoffRepository(db),

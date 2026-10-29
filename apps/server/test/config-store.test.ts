@@ -830,13 +830,19 @@ describe('ConfigStore: configurations that predate a rule', () => {
     expect(release).toMatchObject({
       kind: 'release',
       duty: 'deployment',
-      gate: { conditions: [{ type: 'has_label', label: 'release-approved' }] },
+      // The acceptance gate (PM-1135) comes with the migration; it is no approval.
+      gate: {
+        conditions: [
+          { type: 'has_label', label: 'release-approved' },
+          { type: 'lacks_label', label: 'acceptance-unconfirmed' },
+        ],
+      },
     });
     const approval = labelDefinition(config, 'release-approved')!;
     expect(approval.setBy).toEqual(releaseApproval);
     expect(isReleaseApprovalLabel(approval)).toBe(true);
     expect(labelHolders(config, approval)).toEqual(['owner']);
-    for (const condition of release.gate!.conditions)
+    for (const condition of release.gate!.conditions.filter((c) => c.type === 'has_label'))
       expect(releaseGateAccepts(labelDefinition(config, condition.label)!)).toBe(true);
     expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
     // Nothing had to be narrowed or tolerated, and the file is as it was.

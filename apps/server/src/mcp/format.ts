@@ -18,6 +18,7 @@ import type {
   StaleReason,
 } from '@projectman/shared';
 import {
+  acceptanceLines,
   cardQuestionLines,
   stateText,
   describeAttachment,
@@ -432,6 +433,7 @@ export function formatTaskDetail(
     (r) => !(r.kind === 'part_of' && detail.parent) && !(r.kind === 'has_part' && detail.subtasks?.length),
   );
   if (relations.length > 0) lines.push('', 'Relations:', ...relationLines(relations));
+  if (detail.acceptance?.length) lines.push('', ...acceptanceLines(detail.acceptance));
   if (detail.attachments) lines.push('', ...attachmentLines(task.key, detail.attachments));
   // Who works on the card now and who else has a session on it (PM-249).
   const working = new Set(detail.workingSessionIds ?? []);

@@ -18,6 +18,11 @@ const PROJECT_TASKS = 'SELECT id FROM tasks WHERE project_key = @project';
 export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'tasks', columns: ['assignee', 'created_by'] },
   { table: 'task_links', columns: ['author'], scope: `task_id IN (${PROJECT_TASKS})` },
+  {
+    table: 'task_acceptance_items',
+    columns: ['marked_by', 'confirmed_by', 'created_by'],
+    scope: `task_id IN (${PROJECT_TASKS})`,
+  },
   { table: 'sessions', columns: ['member'] },
   { table: 'member_state', columns: ['handle'] },
   { table: 'schedule_runs', columns: ['member'] },

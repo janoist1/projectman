@@ -7,7 +7,7 @@ import {
   TaskRelationKind,
   TaskStatus,
 } from '@projectman/shared';
-import type { ComplexityRequest, MemberView, Task } from '@projectman/shared';
+import type { AcceptanceChange, ComplexityRequest, MemberView, Task } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import type { ListTasksInput, TaskSummary, TaskToolDetail, TaskToolsHandler } from '../../contracts';
@@ -66,6 +66,59 @@ const addedRelationInput = z.object({
   task_key: taskKeyInput.describe('The other card, in this project.'),
 });
 
+const acceptanceTextInput = z.string().trim().min(1).max(500);
+
+const acceptanceChangeInput = z.object({
+  op: z.enum(['add', 'edit', 'remove', 'done', 'not_needed', 'move', 'reopen', 'confirm']),
+  item_id: z.string().trim().min(1).max(40).optional().describe('The acc_… id from get_task; not for add.'),
+  text: acceptanceTextInput.optional().describe('add, edit: the condition.'),
+  evidence: z
+    .string()
+    .trim()
+    .min(1)
+    .max(2000)
+    .optional()
+    .describe('done: how it is met (the commit, the test, the file, the observed behavior).'),
+  reason: z.string().trim().min(1).max(1000).optional().describe('not_needed: why it does not apply.'),
+  task_key: taskKeyInput.optional().describe('move: the open card that takes the item over.'),
+  note: z.string().trim().min(1).max(1000).optional().describe('reopen: what does not hold.'),
+});
+
+const ACCEPTANCE_HELP =
+  'Changes of the acceptance items (the conditions of "done") in order, all or nothing with the rest of ' +
+  'the call. add (text); edit (item_id, text; an open item); remove (item_id); done (item_id, evidence) and ' +
+  'not_needed (item_id, reason) and move (item_id, task_key: the item goes to that card as an open one): ' +
+  'the assignee or a person marks them; reopen (item_id, note): the assignee or the owner of the current ' +
+  'step sets an item open again; confirm (item_id): the owner of the current step, never the one who ' +
+  'marked it nor the assignee. Item ids are in get_task.';
+
+/** The MCP shape of one acceptance change as the shared one; a missing field is an invalid call. */
+function acceptanceChanges(items: z.infer<typeof acceptanceChangeInput>[] | undefined): AcceptanceChange[] {
+  const field = <T>(item: z.infer<typeof acceptanceChangeInput>, value: T | undefined, name: string): T => {
+    if (value === undefined) throw new TeamToolError('invalid', `acceptance ${item.op} needs ${name}.`);
+    return value;
+  };
+  return (items ?? []).map((item): AcceptanceChange => {
+    if (item.op === 'add') return { op: 'add', text: field(item, item.text, 'text') };
+    const itemId = field(item, item.item_id, 'item_id');
+    switch (item.op) {
+      case 'edit':
+        return { op: 'edit', itemId, text: field(item, item.text, 'text') };
+      case 'done':
+        return { op: 'done', itemId, evidence: field(item, item.evidence, 'evidence') };
+      case 'not_needed':
+        return { op: 'not_needed', itemId, reason: field(item, item.reason, 'reason') };
+      case 'move':
+        return { op: 'move', itemId, taskKey: field(item, item.task_key, 'task_key') };
+      case 'reopen':
+        return { op: 'reopen', itemId, ...(item.note ? { note: item.note } : {}) };
+      case 'remove':
+      case 'confirm':
+        return { op: item.op, itemId };
+    }
+  });
+}
+
 /**
  * The runs below serve the member tools and the bearer endpoint alike (PM-760): they depend on the handler
  * methods they call, typed over the caller's context, so neither caller needs the other's context type.
@@ -115,6 +168,7 @@ interface UpdateTaskArgs {
   theme_key?: string | null | undefined;
   priority?: TaskPriority | null | undefined;
   despite_prerequisites?: boolean | undefined;
+  acceptance?: z.infer<typeof acceptanceChangeInput>[] | undefined;
 }
 
 async function runUpdateTask<C>({
@@ -157,14 +211,16 @@ async function runUpdateTask<C>({
     !description &&
     repo === undefined &&
     !addRelations?.length &&
-    !removeRelations?.length
+    !removeRelations?.length &&
+    !args.acceptance?.length
   ) {
     throw new TeamToolError(
       'invalid',
       'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-        'add_relations, remove_relations, theme_key, priority and/or complexity.',
+        'add_relations, remove_relations, theme_key, priority, complexity and/or acceptance.',
     );
   }
+  const acceptance = acceptanceChanges(args.acceptance);
   const relations = {
     add: (addRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
     remove: (removeRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
@@ -183,6 +239,7 @@ async function runUpdateTask<C>({
     ...(priority !== undefined ? { priority } : {}),
     ...(complexity ? { complexity } : {}),
     ...(despitePrerequisites ? { despitePrerequisites } : {}),
+    ...(acceptance.length ? { acceptance } : {}),
   });
   const moverName =
     task.handOn && stageId
@@ -213,6 +270,7 @@ interface CreateTaskArgs {
   description?: string | undefined;
   labels?: string[] | undefined;
   relations?: { kind: AddableRelationKind; task_key: string }[] | undefined;
+  acceptance?: string[] | undefined;
 }
 
 async function runCreateTask<C>({
@@ -236,6 +294,7 @@ async function runCreateTask<C>({
     ...(args.theme_key ? { themeKey: args.theme_key } : {}),
     ...(args.description ? { description: args.description } : {}),
     ...(args.labels ? { labels: unique(args.labels) } : {}),
+    ...(args.acceptance?.length ? { acceptance: args.acceptance } : {}),
   });
   return formatTaskCreated(task, complexity !== undefined);
 }
@@ -292,8 +351,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       readOnly: false,
       description:
         'Record progress on a task: labels, a note, title, description, repository, relations, theme, ' +
-        'priority, complexity and/or a stage move. All or nothing: a refused label or a blocked gate records ' +
-        'nothing. A move that needs a human approval records the rest and waits for it.',
+        'priority, complexity, acceptance items and/or a stage move. All or nothing: a refused label or a ' +
+        'blocked gate records nothing. A move that needs a human approval records the rest and waits for it.',
       refused: DEVELOPER_LEVEL_REFUSED,
       input: {
         task_key: taskKeyInput,
@@ -380,6 +439,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
               'project manager when the project settings allow it (team.prerequisiteOverride); otherwise the ' +
               "card's work start waits for its prerequisites.",
           ),
+        acceptance: z.array(acceptanceChangeInput).max(20).optional().describe(ACCEPTANCE_HELP),
       },
       external: { access: 'write', run: runUpdateTask },
       run: runUpdateTask,
@@ -433,6 +493,14 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .describe(
             'Relations of the new card to other cards, as add_relations of update_task. One refused ' +
               'relation refuses the creation.',
+          ),
+        acceptance: z
+          .array(acceptanceTextInput)
+          .max(40)
+          .optional()
+          .describe(
+            'The acceptance conditions of the card, one per item: each checkable on its own, so the assignee ' +
+              'can mark it done with evidence and the reviewer confirm it.',
           ),
         complexity: complexityInput,
         complexity_reason: complexityReasonInput,

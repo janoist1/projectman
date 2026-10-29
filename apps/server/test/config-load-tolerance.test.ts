@@ -102,7 +102,12 @@ describe('projects whose stored configuration predates a rule', () => {
     const release = (await domain.projects.config('LG')).pipeline.stages.find(
       (stage) => stage.id === 'release',
     );
-    expect(release?.gate).toEqual({ conditions: [{ type: 'has_label', label: 'release-approved' }] });
+    expect(release?.gate).toEqual({
+      conditions: [
+        { type: 'has_label', label: 'release-approved' },
+        { type: 'lacks_label', label: 'acceptance-unconfirmed' },
+      ],
+    });
     expect(await domain.projectsFor('owner@example.test')).toEqual([
       expect.objectContaining({ key: 'LG', access: 'owner' }),
     ]);

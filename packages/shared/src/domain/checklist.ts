@@ -2,10 +2,12 @@ import { z } from 'zod';
 import type { ProjectConfig } from '../config/schema';
 import { dutyMembers, isCodeReviewStage } from '../config/duties';
 import { unresolvedMerger } from '../config/merger';
+import { itemProgress } from './item-state';
+import type { ItemState } from './item-state';
 import { MemberHandle } from './member';
 
 export const MAX_CHECKLIST_ITEMS = 40;
-export const CHECKLIST_ITEM_STATES = ['open', 'done', 'not_needed'] as const;
+export const CHECKLIST_ITEM_STATES = ['open', 'done', 'not_needed'] as const satisfies readonly ItemState[];
 export const CHECKLIST_CONDITIONS = [
   'reviewer_member',
   'review_stage',
@@ -53,8 +55,7 @@ export function checklistConditionHolds(
 }
 
 export function checklistProgress(items: readonly { state: (typeof CHECKLIST_ITEM_STATES)[number] }[]) {
-  const settled = items.filter((item) => item.state !== 'open').length;
-  return { settled, total: items.length, complete: settled === items.length };
+  return itemProgress(items);
 }
 
 export const ChecklistItem = z

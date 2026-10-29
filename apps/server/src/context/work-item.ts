@@ -246,6 +246,25 @@ function reviewBeforeHandover(c: StepContext, target: Stage | null): string[] {
 }
 
 /**
+ * The builder's part of the acceptance items (PM-1135): mark each open one with its evidence before the
+ * hand-over (the gate of the next stage holds back a card with an open item). Nothing for a card without.
+ */
+function markAcceptance(input: ContextPackInput): string[] {
+  if (!(input.acceptance ?? []).some((item) => item.state === 'open')) return [];
+  return [
+    'Before you hand over, mark every open acceptance item of the card with update_task acceptance (item ids are in the brief and in get_task): `done` with evidence (the commit, the test, the observed behavior), `not_needed` with the reason, or `move` to another open card. Never leave one open, and never confirm your own marks: the owner of the next step confirms them.',
+  ];
+}
+
+/** The reviewer's part of the acceptance items (PM-1135): confirm each one that holds, reopen the rest. */
+function confirmAcceptance(input: ContextPackInput): string[] {
+  if (!(input.acceptance ?? []).some((item) => item.state === 'open' || item.confirmedBy === null)) return [];
+  return [
+    'Confirm the acceptance items one by one with update_task acceptance `confirm` (item ids are in the brief and in get_task), each against its evidence and the handed-over commit; set the ones that do not hold open again with `reopen` and a note saying what is missing. The gate in front of the end of the pipeline holds back a card with an unconfirmed item. You cannot confirm what you marked yourself.',
+  ];
+}
+
+/**
  * Duties that change files: in the queue or the work stage the member builds the change and opens
  * a pull request (`work` says what building means for the duty); later the assignee fixes what
  * teammates report. In a local-only repository there is no pull request: the member commits on the
@@ -273,6 +292,7 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
             ? `Commit the work on the task's own branch. ${cardBranchMergeRule(mergeRepo.defaultBranch)}`
             : 'Commit, push, open a pull request and attach it with link_pull_request.',
         ...reviewBeforeHandover(c, target),
+        ...markAcceptance(input),
         handover(input, target, localOnly ? LOCAL_ONLY_FACTS : undefined),
       ];
     }
@@ -410,6 +430,7 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
       : localOnly
         ? reviewBranch(localOnly, task.key)
         : 'Review the pull requests linked to the task; do not edit, commit or push.',
+    ...confirmAcceptance(input),
     recordResult(input, duty, 'a one-line summary of the findings'),
     `Send "Blocking" / "Not blocking" findings with file:line to ${author} with send_message; review again when they report a fix.`,
     // After a review a local-only branch is merged by the owner and nobody else.
@@ -440,7 +461,8 @@ function preparing(askedStep: string, steps: string[] | ((c: StepContext) => str
 function requirementsWork(): string[] {
   return [
     'Read the request with get_task; ask with ask_human about anything unclear before work starts.',
-    'Rewrite the description with update_task: the goal, the expected behaviour and numbered acceptance criteria; keep the original request quoted at the end.',
+    'Rewrite the description with update_task: the goal and the expected behaviour; keep the original request quoted at the end.',
+    'Write the acceptance criteria as acceptance items, each checkable on its own: update_task with acceptance `add` (create_task takes an acceptance list). The assignee marks them with evidence and the reviewer confirms them.',
     'If the request holds several independent pieces of work, create one task per piece with create_task and note the split on this task.',
   ];
 }
@@ -463,7 +485,7 @@ function technicalWork(c: StepContext): string[] {
 function partSteps({ input, task, localOnly }: StepContext): string[] {
   const unit = localOnly ? 'branch' : 'pull request';
   const config = input.project;
-  const split = `If the work is bigger than one ${unit}, split it into parts with create_task, each with ${code('parent_key')} set to this task, and give their order as ${code('prerequisite')} relations (add_relations), not as text.`;
+  const split = `If the work is bigger than one ${unit}, split it into parts with create_task, each with ${code('parent_key')} set to this task, and give their order as ${code('prerequisite')} relations (add_relations), not as text. Give each part its own acceptance conditions as items (create_task ${code('acceptance')}).`;
   const target = partReadyStage(config);
   const refine = labelDefinition(config, REFINE_LABEL);
   const first = config.pipeline.stages[0];

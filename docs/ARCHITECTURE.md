@@ -3199,6 +3199,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   starts the server with `--report-on-fatalerror` and `--heapsnapshot-near-heap-limit=1`, both writing into
   `<home>/diagnostics` (created at the start, mode 700, excluded from the restic backup because a heap
   snapshot holds board data and secrets); only the newest earlier heap snapshot is kept at each start.
+  `heap-summary.mjs` reads such a snapshot on a laptop and names its biggest retainers (retained size from
+  the dominator tree, with the shortest path from the GC roots); it prints no string values.
   `start.ts` defaults `PROJECTMAN_HISTORY_SEMANTIC` to `off` in cloud mode. **Machine assumption:** the persistent volume has room for two
   snapshots of about the heap limit each, and the machine has memory for writing one near the limit.
   **Remote engine:** none; it concerns only the cloud server process.

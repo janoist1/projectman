@@ -4,7 +4,7 @@
 //   npm run engine-app -- build --package <dir> --out <dir> [--ad-hoc]
 //   npm run engine-app -- publish --tag <tag> --config <absolute-file>
 //
-// The package lands in <dir>/<sha>; see package.ts for its layout. Exit status: 0 done, 1 failed, 2 refused
+// The package lands in <dir>/<sha> (printed as the last line: the input of `build --package`); see package.ts for its layout. Exit status: 0 done, 1 failed, 2 refused
 // (also an existing, non-empty target), 64 wrong usage. Signing options: docs/DEPLOY.md "Engine app build".
 import { acquireHeavyLock, defaultHeavyLockDir, runSandboxed } from '../../apps/server/src/full-test';
 import { realDeps } from '../cloud/deps';

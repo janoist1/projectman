@@ -126,7 +126,26 @@ export class ReleaseService {
     } catch {
       // A missing tag must not hide the running version.
     }
-    return { version, commit, tag };
+    const latestRelease = this.latestPublishedRelease();
+    return { version, commit, tag, ...(latestRelease ? { latestRelease } : {}) };
+  }
+
+  /** The newest GitHub release of the instance's own target that the cloud knows of; null without a target or release. */
+  private latestPublishedRelease(): { tag: string; url: string } | null {
+    const target = this.deps.target;
+    if (!target) return null;
+    try {
+      const { releasePublications, releases } = this.deps.ctx.repos;
+      const publication = releasePublications.latestPublished(target.projectKey, target.repo);
+      if (publication?.url) return { tag: publication.tag, url: publication.url };
+      const legacy = releases
+        .list(target.projectKey)
+        .find((release) => release.state === 'published' && release.tag && release.url);
+      return legacy?.tag && legacy.url ? { tag: legacy.tag, url: legacy.url } : null;
+    } catch {
+      // The download link is a convenience; it must not hide the running version.
+      return null;
+    }
   }
 
   /** The releases of the project, newest first. */

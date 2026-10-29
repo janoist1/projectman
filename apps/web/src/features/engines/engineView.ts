@@ -68,9 +68,42 @@ export function machineParts(
   return parts;
 }
 
+/**
+ * How the engine is installed on the machine: `app` is the downloaded motor app (no checkout; its CLI shim does
+ * the commands), `checkout` is a projectman checkout (the developers' machines and Linux).
+ */
+export type EngineMode = 'app' | 'checkout';
+
+/** The CLI shim the motor app installs; quoted because the folder name holds a space. */
+const ENGINE_APP_SHIM = '"$HOME/Library/Application Support/projectman/engine/bin/projectman-engine"';
+
+/** What the engine's commands start with in this mode. */
+function enginePrefix(mode: EngineMode): string {
+  return mode === 'app' ? ENGINE_APP_SHIM : 'npm run engine --';
+}
+
+/** The shim's path, for the assistant to check that the app has installed it. */
+export const ENGINE_APP_SHIM_PATH = '~/Library/Application Support/projectman/engine/bin/projectman-engine';
+
+/** Where the install steps are described, for the case that no release has a download yet. */
+export const DEPLOY_DOCS_URL = 'https://github.com/janoist1/projectman/blob/main/docs/DEPLOY.md';
+
+/** The asset every release carries, under `releases/latest/download/`. */
+const ENGINE_APP_DMG = 'projectman-motor.dmg';
+
+/** The motor app's download link, built from the URL of the latest published release; null when it has none. */
+export function engineAppDownloadUrl(releaseUrl: string | null | undefined): string | null {
+  const match = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/releases(\/|$)/.exec(
+    releaseUrl ?? '',
+  );
+  return match
+    ? `https://github.com/${match[1]}/${match[2]}/releases/latest/download/${ENGINE_APP_DMG}`
+    : null;
+}
+
 /** The command that sets the engine up on its machine; the key is asked for there, never put in the command. */
-export function engineCommand(id: string): string {
-  return `npm run engine -- init --cloud ${window.location.origin} --id ${id}`;
+export function engineCommand(id: string, mode: EngineMode): string {
+  return `${enginePrefix(mode)} init --cloud ${window.location.origin} --id ${id}`;
 }
 
 /** Quotes a value for a POSIX shell command line: the name and the folder are typed by the user. */
@@ -86,12 +119,16 @@ export const LINK_HEADERS_FILE = '~/.config/projectman/access-token.json';
 export const LINK_HEADERS_SAMPLE = '{"CF-Access-Client-Id": "…", "CF-Access-Client-Secret": "…"}';
 
 /** Keeps the engine running on the machine, and reads how it runs. */
-export const ENGINE_SERVICE_INSTALL = 'npm run engine -- service install';
-export const ENGINE_SERVICE_STATUS = 'npm run engine -- service status';
+export function engineServiceInstall(mode: EngineMode): string {
+  return `${enginePrefix(mode)} service install`;
+}
+export function engineServiceStatus(mode: EngineMode): string {
+  return `${enginePrefix(mode)} service status`;
+}
 
 /** The one-line set-up of a machine; the key comes from the clipboard (`pbpaste`), never from the command. */
-export function engineInitCommand(engine: { id: string; name: string }): string {
-  return `pbpaste | npm run engine -- init --cloud ${shellQuote(window.location.origin)} --id ${engine.id} --name ${shellQuote(engine.name)} --link-headers-file ${LINK_HEADERS_FILE}`;
+export function engineInitCommand(engine: { id: string; name: string }, mode: EngineMode): string {
+  return `pbpaste | ${enginePrefix(mode)} init --cloud ${shellQuote(window.location.origin)} --id ${engine.id} --name ${shellQuote(engine.name)} --link-headers-file ${LINK_HEADERS_FILE}`;
 }
 
 /** Fetches the version the hub runs, so the engine's version matches (`ref` is a tag or a commit). */
@@ -105,8 +142,11 @@ export function engineInstallCommand(ref: string | null): string {
 }
 
 /** Makes the machine hold the project's folder and restarts the engine, which reports it only in its hello. */
-export function projectSetCommand(projectKey: string, folder: string): string {
-  return `npm run engine -- project set ${projectKey} ${shellQuote(folder)} && npm run engine -- service install`;
+export function projectSetCommand(projectKey: string, folder: string, mode: EngineMode): string {
+  const prefix = enginePrefix(mode);
+  // The app manages the service's plist, so it is restarted, not written again with `service install`.
+  const restart = mode === 'app' ? `${prefix} service restart` : engineServiceInstall(mode);
+  return `${prefix} project set ${projectKey} ${shellQuote(folder)} && ${restart}`;
 }
 
 /** One repository of the project; its `path` is relative to the project's folder. */
@@ -114,9 +154,10 @@ export function repoAddCommand(
   projectKey: string,
   repo: { name: string; path: string },
   folder: string,
+  mode: EngineMode,
 ): string {
   const relative = repo.path.replace(/^\.?\/+/, '');
   const base = folder.replace(/\/+$/, '');
   const path = relative === '' || relative === '.' ? base : `${base}/${relative}`;
-  return `npm run engine -- repo add ${projectKey} ${shellQuote(repo.name)} ${shellQuote(path)}`;
+  return `${enginePrefix(mode)} repo add ${projectKey} ${shellQuote(repo.name)} ${shellQuote(path)}`;
 }

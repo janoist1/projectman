@@ -38,8 +38,18 @@ describe('server version API', () => {
     await h?.close();
   });
 
-  async function start(version = COMMIT, appTag?: () => Promise<string | null>) {
-    h = await createAppHarness({ app: { appVersion: version, ...(appTag ? { appTag } : {}) } });
+  async function start(
+    version = COMMIT,
+    appTag?: () => Promise<string | null>,
+    releaseTarget?: { projectKey: string; repo: string },
+  ) {
+    h = await createAppHarness({
+      app: {
+        appVersion: version,
+        ...(appTag ? { appTag } : {}),
+        ...(releaseTarget ? { releaseTarget } : {}),
+      },
+    });
     const cookie = await setupOwner(h.app);
     return {
       ...h.app.projectman,
@@ -73,6 +83,37 @@ describe('server version API', () => {
       version: COMMIT,
       commit: COMMIT,
       tag: 'v2026.10.23',
+    });
+  });
+
+  it('names the latest published release of the release target, whatever commit runs', async () => {
+    const { repos, read } = await start(COMMIT, undefined, { projectKey: 'AR', repo: 'web' });
+    const publication = {
+      id: 'rpub_old',
+      projectKey: 'AR',
+      repo: 'web',
+      commit: 'b'.repeat(40),
+      baseCommit: null,
+      tag: 'v2026.10.22',
+      tasks: [],
+      summary: 'Release',
+      publishedBy: 'owner',
+      taggedAt: '2026-10-22T08:00:00Z',
+      url: 'https://github.com/acme/web/releases/tag/v2026.10.22',
+      publishedAt: '2026-10-22T08:00:00Z',
+    };
+    repos.releasePublications.insert(publication);
+    repos.releasePublications.insert({
+      ...publication,
+      id: 'rpub_new',
+      commit: 'c'.repeat(40),
+      tag: 'v2026.10.23',
+      url: 'https://github.com/acme/web/releases/tag/v2026.10.23',
+      publishedAt: '2026-10-23T08:00:00Z',
+    });
+    expect(ServerVersionView.parse((await read()).json()).latestRelease).toEqual({
+      tag: 'v2026.10.23',
+      url: 'https://github.com/acme/web/releases/tag/v2026.10.23',
     });
   });
 

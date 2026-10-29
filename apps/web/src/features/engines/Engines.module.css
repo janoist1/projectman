@@ -2,6 +2,18 @@
   display: inline-flex;
   flex-shrink: 0;
 }
+/* The install-mode row: the label sits beside the pills, and above them on a narrow screen. */
+.modeSwitch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.modeLabel {
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
 .indicator {
   display: flex;
   align-items: center;

@@ -61,6 +61,8 @@ export const ServerVersionView = z.object({
   commit: z.string().nullable(),
   /** The release tag of that commit; null when it was not released. */
   tag: z.string().nullable(),
+  /** The latest release published on GitHub that the cloud knows of; null when there is none. The motor app's download link comes from it. */
+  latestRelease: z.object({ tag: z.string(), url: z.string() }).nullable().optional(),
 });
 export type ServerVersionView = z.infer<typeof ServerVersionView>;
 

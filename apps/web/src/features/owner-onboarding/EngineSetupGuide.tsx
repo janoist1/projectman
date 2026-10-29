@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CreateEngineResponse, EngineView } from '@projectman/shared';
 import { useCreateEngine, useRevokeEngine, useServerVersion } from '../../api/queries';
-import { Button } from '../../components/Button';
+import { Button, ButtonLink } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { Fold } from '../../components/Fold';
@@ -9,34 +9,96 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { t } from '../../i18n/t';
 import { errorCode, errorMessage } from '../../lib/errors';
 import { CopyRow } from '../engines/CopyRow';
+import { EngineModeSwitch } from '../engines/EngineModeSwitch';
 import {
-  ENGINE_SERVICE_INSTALL,
-  ENGINE_SERVICE_STATUS,
+  DEPLOY_DOCS_URL,
+  ENGINE_APP_SHIM_PATH,
   LINK_HEADERS_FILE,
   LINK_HEADERS_SAMPLE,
   engineInitCommand,
   engineInstallCommand,
+  engineServiceInstall,
+  engineServiceStatus,
   machineParts,
 } from '../engines/engineView';
+import type { EngineMode } from '../engines/engineView';
+import { useEngineAppDownload, useEngineMode } from '../engines/useEngineMode';
+import type { EngineAppDownload } from '../engines/useEngineMode';
 import styles from './OwnerOnboarding.module.css';
 
 const DOCS_URL = 'https://github.com/janoist1/projectman/blob/main/docs/HYBRID.md';
 /** The "Nem jelentkezik?" help opens by itself when the machine has not reported for this long. */
 const STUCK_MS = 3 * 60_000;
 
-type Mode = 'assistant' | 'manual';
+type Tab = 'assistant' | 'manual';
 
 /** The text for the owner's own assistant. It names no key and no access value: the assistant asks for them. */
-export function assistantInstruction(engine: Pick<EngineView, 'id' | 'name'>, ref: string | null): string {
-  return t('ownerOnboarding.guide.assistantInstruction', {
+export function assistantInstruction(
+  engine: Pick<EngineView, 'id' | 'name'>,
+  ref: string | null,
+  mode: EngineMode,
+  download: EngineAppDownload,
+): string {
+  const common = {
     origin: window.location.origin,
-    install: engineInstallCommand(ref),
     file: LINK_HEADERS_FILE,
     sample: LINK_HEADERS_SAMPLE,
-    init: engineInitCommand(engine),
-    service: ENGINE_SERVICE_INSTALL,
-    status: ENGINE_SERVICE_STATUS,
+    init: engineInitCommand(engine, mode),
+    status: engineServiceStatus(mode),
+  };
+  if (mode === 'app') {
+    return t('ownerOnboarding.guide.assistantInstructionApp', {
+      ...common,
+      shim: ENGINE_APP_SHIM_PATH,
+      download:
+        download.state === 'ready'
+          ? download.url
+          : t('ownerOnboarding.guide.assistantDownloadDocs', { url: DEPLOY_DOCS_URL }),
+    });
+  }
+  return t('ownerOnboarding.guide.assistantInstruction', {
+    ...common,
+    install: engineInstallCommand(ref),
+    service: engineServiceInstall(mode),
   });
+}
+
+/** Step 1 of the app's manual install: the download button, or why there is none. */
+function AppDownloadStep({ download }: { download: EngineAppDownload }) {
+  const none = download.state === 'none';
+  return (
+    <>
+      <p className={styles.sub}>
+        {t(none ? 'ownerOnboarding.guide.appNoRelease' : 'ownerOnboarding.guide.appDownload')}
+      </p>
+      {download.state === 'ready' ? (
+        <ButtonLink
+          to={download.url}
+          download
+          variant="secondary"
+          size="md"
+          icon="download"
+          aria-label={t('ownerOnboarding.guide.appDownloadAria')}
+        >
+          {t('ownerOnboarding.guide.appDownloadButton')}
+        </ButtonLink>
+      ) : download.state === 'loading' ? (
+        <Button variant="secondary" size="md" icon="download" aria-disabled="true">
+          {t('ownerOnboarding.guide.appDownloadButton')}
+        </Button>
+      ) : null}
+      {none ? (
+        <p className={styles.hint}>
+          {t('ownerOnboarding.guide.appNoReleaseBody')}{' '}
+          <a href={DEPLOY_DOCS_URL} target="_blank" rel="noreferrer">
+            {t('ownerOnboarding.guide.appNoReleaseLink')}
+          </a>
+        </p>
+      ) : (
+        <p className={styles.hint}>{t('ownerOnboarding.guide.appDownloadHint')}</p>
+      )}
+    </>
+  );
 }
 
 /**
@@ -55,7 +117,9 @@ export function EngineSetupGuide({
   /** The list of machines could not be read; the live state says so instead of waiting silently. */
   pollFailed?: boolean;
 }) {
-  const [mode, setMode] = useState<Mode>('assistant');
+  const [tab, setTab] = useState<Tab>('assistant');
+  const [mode] = useEngineMode();
+  const download = useEngineAppDownload();
   const [renewing, setRenewing] = useState(false);
   const [stuckOpen, setStuckOpen] = useState(false);
   const version = useServerVersion(true);
@@ -66,11 +130,12 @@ export function EngineSetupGuide({
   }, [engine.id]);
   return (
     <div className={styles.stepBody}>
+      <EngineModeSwitch />
       <SegmentedControl
         className={styles.tabs}
         label={t('ownerOnboarding.guide.tabsLabel')}
-        value={mode}
-        onChange={setMode}
+        value={tab}
+        onChange={setTab}
         options={[
           { value: 'assistant', label: t('ownerOnboarding.guide.tabAssistant') },
           { value: 'manual', label: t('ownerOnboarding.guide.tabManual') },
@@ -87,32 +152,53 @@ export function EngineSetupGuide({
       ) : (
         <p className={styles.hint}>{t('ownerOnboarding.guide.keyGone')}</p>
       )}
-      {mode === 'assistant' ? (
+      {tab === 'assistant' ? (
         <>
           <p className={styles.sub}>{t('ownerOnboarding.guide.assistantStep')}</p>
           <CopyRow
             scroll
-            text={assistantInstruction(engine, ref)}
+            text={assistantInstruction(engine, ref, mode, download)}
             label={t('ownerOnboarding.guide.assistantAria')}
           />
           <p className={styles.hint}>{t('ownerOnboarding.guide.assistantHelp')}</p>
         </>
       ) : (
         <div className={styles.commands}>
-          <p className={styles.sub}>{t('ownerOnboarding.guide.manualInstall')}</p>
-          <CopyRow text={engineInstallCommand(ref)} label={t('ownerOnboarding.guide.manualInstallAria')} />
+          {mode === 'app' ? (
+            <AppDownloadStep download={download} />
+          ) : (
+            <>
+              <p className={styles.sub}>{t('ownerOnboarding.guide.manualInstall')}</p>
+              <CopyRow
+                text={engineInstallCommand(ref)}
+                label={t('ownerOnboarding.guide.manualInstallAria')}
+              />
+            </>
+          )}
           <p className={styles.sub}>{t('ownerOnboarding.guide.manualToken')}</p>
           <CopyRow text={LINK_HEADERS_FILE} label={t('ownerOnboarding.guide.manualTokenAria')} />
           <p className={styles.hint}>
             {t('ownerOnboarding.guide.manualTokenHint', { sample: LINK_HEADERS_SAMPLE })}
           </p>
           <p className={styles.sub}>{t('ownerOnboarding.guide.manualInit')}</p>
-          <CopyRow text={engineInitCommand(engine)} label={t('ownerOnboarding.guide.manualInitAria')} />
-          <p className={styles.sub}>{t('ownerOnboarding.guide.manualService')}</p>
-          <CopyRow text={ENGINE_SERVICE_INSTALL} label={t('ownerOnboarding.guide.manualServiceAria')} />
-          <p className={styles.hint}>
-            {t('ownerOnboarding.guide.manualLinux', { command: 'npm run engine -- start' })}
-          </p>
+          <CopyRow text={engineInitCommand(engine, mode)} label={t('ownerOnboarding.guide.manualInitAria')} />
+          {mode === 'app' ? (
+            <>
+              <p className={styles.sub}>{t('ownerOnboarding.guide.appService')}</p>
+              <p className={styles.hint}>{t('ownerOnboarding.guide.appServiceHint')}</p>
+            </>
+          ) : (
+            <>
+              <p className={styles.sub}>{t('ownerOnboarding.guide.manualService')}</p>
+              <CopyRow
+                text={engineServiceInstall(mode)}
+                label={t('ownerOnboarding.guide.manualServiceAria')}
+              />
+              <p className={styles.hint}>
+                {t('ownerOnboarding.guide.manualLinux', { command: 'npm run engine -- start' })}
+              </p>
+            </>
+          )}
         </div>
       )}
       <p className={styles.hint}>
@@ -129,7 +215,7 @@ export function EngineSetupGuide({
         <ul className={styles.stuck}>
           <li>{t('ownerOnboarding.guide.stuckKey')}</li>
           <li>{t('ownerOnboarding.guide.stuckToken')}</li>
-          <li>{t('ownerOnboarding.guide.stuckService', { command: ENGINE_SERVICE_STATUS })}</li>
+          <li>{t('ownerOnboarding.guide.stuckService', { command: engineServiceStatus(mode) })}</li>
         </ul>
       </Fold>
       {renewing ? (

@@ -60,6 +60,9 @@ describe('shared owner question visibility', () => {
     expect(linked.state).toBe('open');
     expect(questionPayloadOf(linked)?.group).toMatchObject({ itemIds: [], combinedQuestion: '' });
     expect(questionPayloadOf(linked)?.group?.sources).toBeUndefined();
+    // The live read (state=active) keeps the combined question the card's group pointer reads, shown as open.
+    const active = (await get(owner, '?state=active')).json<InboxView>();
+    expect(active.items.find((item) => item.id === group.linkedItemIds[0])?.state).toBe('open');
     expect(domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
     expect(
       (await h.app.inject({ url: '/api/projects/AR/tasks/AR-2', headers: { cookie: client } })).statusCode,

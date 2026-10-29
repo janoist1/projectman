@@ -365,12 +365,12 @@ describe('synchronous structural evaluations (PM-783)', () => {
     expect(evidence).toHaveBeenCalledTimes(2);
     expect(states).toHaveBeenCalledTimes(1);
     expect(h.domain.operatorSignals.holdsBack('AR', ids[0]!)).toBe(false);
-    expect(evidence).toHaveBeenCalledTimes(4);
+    expect(evidence).toHaveBeenCalledTimes(3); // Only the asked signal's case is read, not every open one.
     // Changing a card invalidates its milestone and the patterns that need both cards.
     h.repos.tasks.update(subtasks[1]!.id, { parentKey: null });
     h.repos.db.prepare('DELETE FROM timeline_events WHERE task_key = ?').run(subtasks[1]!.key);
     expect(h.domain.operatorSignals.holdsBack('AR', ids[0]!)).toBe(true);
-    expect(evidence).toHaveBeenCalledTimes(5); // No historical pattern read without a current subject.
+    expect(evidence).toHaveBeenCalledTimes(4); // No historical pattern read without a current subject.
     // The hold only reads; the next delivery (the 60 s sweep) resolves the signals whose case is gone.
     expect(h.repos.operatorSignals.list('AR').some((signal) => signal.resolvedAt)).toBe(false);
     await h.domain.operatorSignals.deliver('AR');
@@ -394,8 +394,9 @@ describe('synchronous structural evaluations (PM-783)', () => {
 
     /** What one run of the queue's hold reads and writes for this many waiting signals. */
     async function holdCost(count: number) {
-      const { refs } = await mixed(count - 1);
-      const ids = raiseAll(refs);
+      // The same kind of waiting signal at any count: one pattern per failing test file.
+      const { refs } = await mixed(count);
+      const ids = raiseAll(refs.slice(1));
       holdTheDriver();
       const reads = {
         evidence: vi.spyOn(h.repos.timeline, 'structuralEvidence'),
@@ -412,12 +413,12 @@ describe('synchronous structural evaluations (PM-783)', () => {
     }
 
     it('costs the same reads for one waiting signal as for fifty', async () => {
-      const two = await holdCost(2);
+      const one = await holdCost(1);
       await h.cleanup();
       vi.restoreAllMocks();
       const fifty = await holdCost(50);
-      expect(two[0]).toBeGreaterThan(0);
-      expect(fifty).toEqual(two);
+      expect(one[0]).toBeGreaterThan(0);
+      expect(fifty).toEqual(one);
     });
 
     it('holds a signal whose wake line is not due without reading its case', async () => {
@@ -426,8 +427,19 @@ describe('synchronous structural evaluations (PM-783)', () => {
       h.repos.operatorSignals.delivered([ids[0]!], NOW.toISOString(), 'pm');
       holdTheDriver();
       const evidence = vi.spyOn(h.repos.timeline, 'structuralEvidence');
-      expect(h.domain.operatorSignals.heldBack('AR', ids.slice(1))).toEqual(new Set(ids.slice(1)));
+      const held = h.domain.operatorSignals.heldBack('AR', ids.slice(1));
+      expect([...held.keys()]).toEqual(ids.slice(1));
+      expect([...held.values()].every((why) => why === 'interval')).toBe(true);
       expect(evidence).not.toHaveBeenCalled();
+    });
+
+    it('names a gone case apart from the interval', async () => {
+      const { refs, subtasks } = await mixed(3);
+      const ids = raiseAll(refs);
+      holdTheDriver();
+      h.repos.tasks.update(subtasks[1]!.id, { parentKey: null });
+      h.repos.db.prepare('DELETE FROM timeline_events WHERE task_key = ?').run(subtasks[1]!.key);
+      expect(h.domain.operatorSignals.heldBack('AR', ids.slice(0, 1)).get(ids[0]!)).toBe('unready');
     });
   });
 

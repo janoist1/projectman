@@ -312,7 +312,7 @@ export function duplicateMarkRefusal(input: {
   /** The kind of the card's stage; undefined when the stage is not in the pipeline. */
   stageKind: StageKind | undefined;
   hasLiveSession: boolean;
-  /** The actor is a human of admin or owner access: who may cancel a card (`TaskService.cancel`). */
+  /** The actor may cancel the card: `lifecycleAllowed(config, actor, 'cancel')` (`TaskService.cancel`). */
   mayCancel: boolean;
 }): 'duplicate_not_allowed' | null {
   if (!isOpenTask(input.task)) return null;

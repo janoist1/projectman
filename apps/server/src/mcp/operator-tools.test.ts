@@ -604,6 +604,18 @@ describe('reassign_task and cancel_task (PM-1040)', () => {
     expect(h.domain.tasks.get('AR', card.key)).toMatchObject({ assignee: null, status: 'active' });
   });
 
+  it('checks the PM internal conversation for reopen_task, as for the other card tools (PM-1098)', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Card' }, OWNER_ACTOR);
+    await h.domain.tasks.cancel('AR', card.key, {}, OWNER_ACTOR);
+    await expect(
+      h.domain.teamTools.reopenTask(
+        { ...pm, sessionId: 'ses_not_the_pm_conversation' },
+        { taskKey: card.key, reason: 'Mine' },
+      ),
+    ).rejects.toMatchObject({ message: expect.stringContaining('project_manager_only') });
+    expect(h.domain.tasks.get('AR', card.key).status).toBe('cancelled');
+  });
+
   it('keeps the service refusing another AI member, the PM through an integrator, and keeps the admin path', async () => {
     const card = await h.domain.tasks.create('AR', { title: 'Card' }, OWNER_ACTOR);
     const dev: Actor = { kind: 'ai', handle: 'dev-1' };

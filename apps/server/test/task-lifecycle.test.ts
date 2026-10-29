@@ -4,7 +4,7 @@ import type { Actor, ServerEvent, TaskStatus } from '@projectman/shared';
 import { aiActor, humanActor } from '../src/kernel';
 import { LIVE_SESSION_STATES } from '../src/runtime/sessions';
 import type { StageChange } from '../src/core/tasks';
-import { TEAM_TOOLS, TEAM_TOOL_NAMES } from '../src/mcp/tools';
+import { TEAM_TOOLS } from '../src/mcp/tools';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -289,9 +289,8 @@ describe('task lifecycle', () => {
     });
   });
 
-  it('gives cancel and reassign only to the project manager and rejects lifecycle fields in update_task', () => {
-    expect(TEAM_TOOL_NAMES).not.toContain('reopen_task');
-    for (const name of ['cancel_task', 'reassign_task'])
+  it('gives cancel, reassign and reopen only to the project manager and rejects lifecycle fields in update_task', () => {
+    for (const name of ['cancel_task', 'reassign_task', 'reopen_task'])
       expect(TEAM_TOOLS.find((t) => t.name === name)?.audience).toEqual({ roles: ['project_manager'] });
     const tool = TEAM_TOOLS.find((t) => t.name === 'update_task')!;
     for (const extra of [{ assignee: 'dev-2' }, { assignee: null }, { status: 'cancelled' }]) {

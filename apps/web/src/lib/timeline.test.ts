@@ -374,6 +374,16 @@ describe('card relations on the timeline (PM-192)', () => {
     expect(relation('task_relation_added', 'blocks', 'AC-5')).toBe('Kapcsolat hozzáadva: blocks · AC-5');
   });
 
+  it('says why a card was reopened, and keeps the reasonless events as they were (PM-1098)', () => {
+    const reopened = (data: Record<string, unknown>) =>
+      describeEvent({ ...creation, type: 'task_updated', data: { action: 'reopened', ...data } }, context)
+        .text;
+    expect(reopened({ reason: 'Needed again' })).toBe(
+      t('timeline.events.task_reopened_reason', { reason: 'Needed again' }),
+    );
+    expect(reopened({})).toBe(t('timeline.events.task_reopened'));
+  });
+
   it('says that a card was closed as a duplicate, and keeps the old events as they were', () => {
     const cancelled = (data: Record<string, unknown>) =>
       describeEvent({ ...creation, type: 'task_updated', data: { action: 'cancelled', ...data } }, context)

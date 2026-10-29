@@ -493,7 +493,12 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
               ? t('timeline.events.task_cancelled_reason', { reason: str(d.reason) })
               : t('timeline.events.task_cancelled'),
         );
-      if (d.action === 'reopened') return normal(t('timeline.events.task_reopened'));
+      if (d.action === 'reopened')
+        return normal(
+          d.reason
+            ? t('timeline.events.task_reopened_reason', { reason: str(d.reason) })
+            : t('timeline.events.task_reopened'),
+        );
       if (d.action === 'closed') return normal(t('timeline.events.theme_closed'));
       // Gate outcomes are recorded as task updates by the server.
       const request = record(d.gateRequest);

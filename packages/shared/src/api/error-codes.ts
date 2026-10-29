@@ -110,6 +110,8 @@ export const ERROR_CODES = [
   // 409: a start while the member is being renamed
   'member_renaming',
   'project_manager_move_refused',
+  // 403: the PM took a lifecycle action the project settings do not list (PM-1098)
+  'project_manager_lifecycle_refused',
   'builtin_role',
   'role_id_mismatch',
   'already_member',

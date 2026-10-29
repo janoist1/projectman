@@ -1,6 +1,7 @@
 import {
   DEFAULT_PRIORITY_SETTERS,
   DEFAULT_PREREQUISITE_OVERRIDE,
+  DEFAULT_PROJECT_MANAGER_LIFECYCLE,
   DEFAULT_PROJECT_MANAGER_MOVES,
   DEFAULT_TASK_CREATE_ACCESS,
   DEFAULT_VIEWER_RECIPIENTS,
@@ -29,6 +30,7 @@ function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
     team: {
       cardMover: input.cardMover ?? { kind: 'worker' },
       projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
+      projectManagerLifecycle: [...DEFAULT_PROJECT_MANAGER_LIFECYCLE],
       prerequisiteOverride: DEFAULT_PREREQUISITE_OVERRIDE,
       prioritySetters: [...DEFAULT_PRIORITY_SETTERS],
       viewerRecipients: DEFAULT_VIEWER_RECIPIENTS,

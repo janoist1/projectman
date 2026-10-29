@@ -719,6 +719,7 @@ function approvalWaivable(
         limits: true,
         cardMover: { kind: true, handle: true },
         projectManagerMoves: true,
+        projectManagerLifecycle: true,
         prioritySetters: true,
         complexitySetters: true,
       },

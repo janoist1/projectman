@@ -145,6 +145,7 @@ npx vitest run src/i18n/i18n.test.ts --configLoader runner  # in apps/web: after
 npx vitest run test/architecture  # in apps/server after adding, moving or renaming files; before hand-over too (no queue)
 npx vitest run test/web-get-contracts.test.ts --configLoader runner  # in apps/server after changing web GET responses or hot-read query costs
 npx vitest related test/helpers/app-harness.ts --run --configLoader runner  # in apps/server after changing the app harness, covering every harness consumer
+npx vitest related ../../scripts/merge-test/scope.ts --run --configLoader runner  # in apps/server after changing merge-test scope, including CLI selection
 npx vitest run test/merge-test-watchdog.test.ts --configLoader runner  # in apps/server after changing merge-test execution or reporting
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```

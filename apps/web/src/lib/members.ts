@@ -135,6 +135,14 @@ export function indexMembers(members: readonly MemberView[] | undefined): Member
   return index;
 }
 
+/**
+ * Each member once. The index holds a renamed member under every handle it has had, so its plain
+ * `values()` lists them more than once: anything that lists or counts members goes through this.
+ */
+export function distinctMembers(index: MemberIndex): MemberView[] {
+  return [...new Set(index.values())];
+}
+
 /** The current handle of the member a handle stands for, when that is another one (a renamed member); else null. */
 export function renamedTo(handle: string, index: MemberIndex): string | null {
   const member = index.get(handle);

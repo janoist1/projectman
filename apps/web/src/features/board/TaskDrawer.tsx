@@ -46,7 +46,7 @@ import { closureTexts, sessionClosure, sessionStatus } from '../../lib/sessions'
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
 import { isPageEscape, useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
-import { nameOf } from '../../lib/members';
+import { distinctMembers, nameOf } from '../../lib/members';
 import { canStartRefinement } from '../../lib/refinement';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
@@ -135,7 +135,7 @@ function StartPanel({
       },
     );
   const openKeys = openPrerequisiteKeys(task, tasks);
-  const developers = [...members.values()].filter((member) => {
+  const developers = distinctMembers(members).filter((member) => {
     const original = config?.team.members.find((entry) => entry.handle === member.handle);
     return (
       member.kind === 'ai' &&

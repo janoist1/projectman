@@ -67,6 +67,31 @@ test('server packages used only on demand have no static value imports', () => {
   expect(violations, violations.join('\n')).toEqual([]);
 });
 
+// The engine CLI is one short-lived node process per menu bar poll (PM-1130): a package loaded eagerly on any
+// path (the kernel barrel pulls in `effect`) costs every poll. esbuild hoists external packages behind a lazy
+// `import()` to the top of the bundle too, so the list below also guards the lazy paths of the CLI.
+test('the engine CLI bundle loads only its light packages eagerly', () => {
+  const result = buildSync({
+    entryPoints: [fileURLToPath(new URL('../../../../scripts/engine/cli.ts', import.meta.url))],
+    bundle: true,
+    packages: 'external',
+    platform: 'node',
+    format: 'esm',
+    write: false,
+    metafile: true,
+    logLevel: 'silent',
+  });
+  const eager = new Set(
+    Object.values(result.metafile!.outputs)
+      .flatMap((output) => output.imports)
+      .filter(
+        (entry) => entry.kind === 'import-statement' && entry.external && !entry.path.startsWith('node:'),
+      )
+      .map((entry) => entry.path),
+  );
+  expect([...eager].sort()).toEqual(['@projectman/shared', 'execa', 'zod']);
+});
+
 describe.each(LAZY_PACKAGES)('%s import guard', (pkg) => {
   test.each([
     'import value from PKG;',

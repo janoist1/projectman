@@ -755,7 +755,8 @@ The longest matching path wins; each declared path must exist and appear only on
 [dependencies.test.ts](../apps/server/test/architecture/dependencies.test.ts)
 enforces the layer rules against all production TypeScript source files.
 There are no dependency exceptions; new ones must not be added. Every module below
-the assembly layer is sealed: cross-module imports use its target `index.ts`.
+the assembly layer is sealed: cross-module imports use its target `index.ts` or an entry the
+module map declares (`kernel/pure.ts`, PM-1130).
 The guard test asserts both the empty exception list and complete sealing.
 
 The sealed modules are `contracts`, `db`, `config`, `logging`, `instance`, `kernel`,
@@ -1961,9 +1962,12 @@ workers follow the machine's size.
   and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s only
   while the menu or the details window is open, 60 s otherwise even if sessions run, and a poll runs
   on every menu open; 2 s while awaiting an action's target, up to 120 s). Each poll starts a node
-  process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the
-  `engine-config` import of the whole kernel barrel (`effect` included) remains the main cost
-  (PM-1110).
+  process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the CLI imports
+  the kernel only through its light entry `kernel/pure.ts` (Node built-ins only), never the barrel
+  that loads `effect` (PM-1130). The bundled CLI (`scripts/engine/cli.js`, the path an app-managed
+  engine runs) takes about 0.17 s CPU per `status --json` instead of 0.29 s; a checkout engine
+  running through tsx still pays its transform cost. `lazy-packages.test.ts` pins the eagerly
+  loaded packages of the CLI bundle to `@projectman/shared`, `execa` and `zod`.
   **Remote engine:** the app and CLI both run on the engine's Mac; nothing crosses the
   server/engine boundary. Linux and Windows are unsupported. Existing inventory entry:
   “Engine service (launchd)” (its plist is read, not changed by the menu app).
@@ -2697,8 +2701,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   lose a live link. The engine's watchdog reports `link_silent` only after two consecutive ticks
   with pending events and more than 90 s of silence. Both sides log `engine link: connected` and
   `engine link: disconnected` at info level (code and cause; never the key or URL). Protocol version
-  stays 1: an old engine with a new cloud is tolerated for 90 s (the old engine reconnects after
-  45 s when events wait), a new engine with an old cloud keeps the old 45 s drop.
+  stays 1 and the wire is unchanged: an old engine with a new cloud is tolerated for 90 s (the old
+  engine reconnects after 45 s when events wait). A new engine judges the link by silence only once
+  it has seen the cloud repeat an acknowledgement (an `ack` equal to the highest sequence of the
+  connection, the welcome's included; a cloud that never repeats one is quiet when idle, so an idle
+  link to an old cloud is left alone instead of reconnecting every few minutes).
   **Remote engine:** the socket, event buffer and method dispatch run on the engine beside its
   CLIs and files; the registry, auth, idempotency store and human websocket broadcasts stay in the
   cloud. Non-JSON/large data uses purpose-scoped uploads (PM-315), with only a hash and size in
@@ -4479,9 +4486,13 @@ assumption or remote-engine RPC.
   `core/tasks/tests/merges.test.ts` (`createCloudRemote`) and `engine-link/remote/remote.test.ts`; the engine half
   (schemas, limits, check checkout protection, a link lost during a full test) is
   `engine-link/engine-handlers.test.ts`, `engine-limit.test.ts` and `rpc.test.ts`; the real link, both real ends,
-  is `test/cloud-engine.test.ts` and `test/engine-link.test.ts`, which cover the hand-over and the session, not a
-  merge. No suite yet drives a merge (`merge.checkout_for_check`, the full test, `merge.release_check`) over the
-  real link end to end.
+  is `test/cloud-engine.test.ts` and `test/engine-link.test.ts`. `test/cloud-engine.test.ts` also drives a merge
+  check over the real link (PM-1130): the cloud's engine host (`app.projectman.engineDirectory`) calls
+  `merge.checkout_for_check`, the full test (`full_test.run`) and `merge.release_check`, the checkout and the
+  run are the engine's, and a checkout stays across a link drop until the call that releases it gets through.
+  The engine's `mergeBranch` and `fullTestCommand` come from the fixture (`mergeBranch` option); its executor
+  is a stand-in that records the spec and passes. The train, the push and the real full test command are
+  not covered over the real link.
   For a train (PM-660), the server calls the same build operation for every approved source
   and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
   full_test.run. The manifest, ordered locks and attribution stay on the server; all members

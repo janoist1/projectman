@@ -2234,6 +2234,16 @@ describe('member initiated merge', () => {
     expect(h!.repos.taskHandovers.get('AR', 'AR-1')?.commit).toBe('new-approved');
   });
 
+  it('refuses a repin with engine_offline when the card engine is not connected', async () => {
+    await setup();
+    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    vi.spyOn(engines, 'get').mockReturnValue(null);
+    await expect(h!.domain.tasks.repinReview('AR', 'AR-1', 'dev-1')).rejects.toMatchObject({
+      code: 'engine_offline',
+    });
+  });
+
   it('reads the head at start and refuses uncommitted work without a handover', async () => {
     await setup();
     h!.repos.db.prepare('DELETE FROM task_handovers').run();

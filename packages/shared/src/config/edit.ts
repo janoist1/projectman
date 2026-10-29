@@ -8,6 +8,7 @@ import { RepoDocs } from './project-docs';
 import { OperatorWatch } from './operator-watch';
 import {
   AutoCompactWindowTokens,
+  HeavyChecks,
   ContactHandles,
   MaxConcurrentAi,
   ProjectConfig,
@@ -79,6 +80,8 @@ export const PatchConfigRequest = z
     prioritySetters: ProjectConfig.shape.team.shape.prioritySetters,
     /** The duties whose holders may set complexity points (PM-1097): the whole list replaces the saved one, [] leaves the owners. */
     complexitySetters: ProjectConfig.shape.team.shape.complexitySetters,
+    /** Whether an AI member's named assignee has to fit the card (PM-1136). */
+    assigneeFit: ProjectConfig.shape.team.shape.assigneeFit,
     merger: ProjectConfig.shape.team.shape.merger,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
@@ -92,6 +95,11 @@ export const PatchConfigRequest = z
     /** Per repository: where the project documents live (PM-494); null removes the setting. */
     repoDocs: z
       .array(z.object({ repo: z.string(), docs: RepoDocs.nullable() }).strict())
+      .max(20)
+      .optional(),
+    /** Repository-specific prompt conventions; null removes the setting (PM-1112). */
+    repoHeavyChecks: z
+      .array(z.object({ repo: z.string(), heavyChecks: HeavyChecks.nullable() }).strict())
       .max(20)
       .optional(),
     /** Per repository: the full test the server runs (`reviewTest`, PM-538); null removes it. Owner-only (`review_test`). */
@@ -190,7 +198,7 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
 }
 
 /**
- * The first repository of `repoMerge`, `repoDocs`, `repoReviewTest` or `repoFullTestAtMerge` (in this order)
+ * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoReviewTest` or `repoFullTestAtMerge` (in this order)
  * that the configuration does not know (the edit answers `unknown_repo`); null: none.
  */
 export function unknownPatchRepo(
@@ -201,6 +209,7 @@ export function unknownPatchRepo(
   return (
     patch.repoMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoDocs?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoHeavyChecks?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoReviewTest?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoFullTestAtMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     null
@@ -227,6 +236,8 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   // The last entry for a repository wins.
   const repoMerge = patch.repoMerge && new Map(patch.repoMerge.map((e) => [e.repo, e.requireMerge] as const));
   const repoDocs = patch.repoDocs && new Map(patch.repoDocs.map((e) => [e.repo, e.docs] as const));
+  const repoHeavyChecks =
+    patch.repoHeavyChecks && new Map(patch.repoHeavyChecks.map((e) => [e.repo, e.heavyChecks] as const));
   const repoReviewTest =
     patch.repoReviewTest && new Map(patch.repoReviewTest.map((e) => [e.repo, e.reviewTest] as const));
   const repoFullTestAtMerge =
@@ -249,7 +260,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.email ? { email: patch.email } : {}),
       ...(feedback ? { feedback } : {}),
       repos:
-        repoMerge || repoDocs || repoReviewTest || repoFullTestAtMerge
+        repoMerge || repoDocs || repoHeavyChecks || repoReviewTest || repoFullTestAtMerge
           ? config.project.repos.map((repo) => {
               let changed = repo;
               const merge = repoMerge?.get(repo.name);
@@ -258,6 +269,11 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
                 changed = merge === null ? rest : { ...rest, requireMerge: merge };
               }
               const docs = repoDocs?.get(repo.name);
+              const heavyChecks = repoHeavyChecks?.get(repo.name);
+              if (heavyChecks !== undefined) {
+                const { heavyChecks: _previous, ...rest } = changed;
+                changed = heavyChecks === null ? rest : { ...rest, heavyChecks };
+              }
               if (docs !== undefined) {
                 const { docs: _previous, ...rest } = changed;
                 changed = docs === null ? rest : { ...rest, docs };
@@ -289,6 +305,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
         : {}),
       ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
       ...(patch.complexitySetters !== undefined ? { complexitySetters: patch.complexitySetters } : {}),
+      ...(patch.assigneeFit !== undefined ? { assigneeFit: patch.assigneeFit } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),

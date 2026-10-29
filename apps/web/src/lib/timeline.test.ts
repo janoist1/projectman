@@ -973,6 +973,13 @@ describe('the rows of a question the Operator screens (PM-556)', () => {
     );
   });
 
+  it('names the technical decider when a machine step went to them instead of the owners', () => {
+    const base = { inboxItemId: 'inb_1', asker, note: 'No integrator.', outcome: 'todo' };
+    expect(row('question_screened', { ...base, forwardedTo: 'dev-2' })).toBe(
+      t('timeline.events.question_screened_todo_decider', { to: 'dev-2', note: base.note }),
+    );
+  });
+
   it('says a todo was recorded as a missing feature only when it was', () => {
     const base = { inboxItemId: 'inb_1', asker, note: 'Needs a key.', outcome: 'todo' };
     expect(row('question_screened', { ...base, feedbackId: 'fb_1' })).toBe(

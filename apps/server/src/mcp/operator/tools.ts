@@ -264,7 +264,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Propose shared Operator knowledge',
       readOnly: false,
       description:
-        'The Operator, or the selected project manager in its internal general session, during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only the Operator’s agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.',
+        'The Operator, or the selected project manager in its internal general session, during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only the Operator’s agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents. What a setting can express (gate, label, permission, priority, complexity limit) is proposed as a setting with operate, not as a principle. Propose a rule only after a repeated failure and name the cards in its reason; refer to a duty or role in rules, not to a member name.',
       input: ProposeOperatorKnowledgeRequest.shape,
       check(args, issue) {
         if (args.change.kind !== 'agreement_replace' && args.operations.length)
@@ -468,16 +468,22 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           issue('feedback_id', 'invalid_outcome_fields: feedback_id goes only with todo.');
       },
       async run({ ctx, args, handler }) {
+        const result = await handler.screenQuestion(ctx, {
+          itemId: args.item_id,
+          outcome: args.outcome,
+          note: args.note,
+          ...(args.answer !== undefined ? { answer: args.answer } : {}),
+          ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
+          ...(args.todo ? { todo: args.todo } : {}),
+          ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
+        });
         return JSON.stringify(
-          await handler.screenQuestion(ctx, {
-            itemId: args.item_id,
-            outcome: args.outcome,
-            note: args.note,
-            ...(args.answer !== undefined ? { answer: args.answer } : {}),
-            ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
-            ...(args.todo ? { todo: args.todo } : {}),
-            ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
-          }),
+          result.forwardedTo
+            ? {
+                ...result,
+                message: `No integrator can take it (${result.recipientRefusal}): it went to \`${result.forwardedTo}\`, who decides whether it is needed and asks the owners if they must act.`,
+              }
+            : result,
         );
       },
     }),
@@ -533,7 +539,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start work on a task',
       readOnly: false,
       description:
-        "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply; despite_prerequisites is honored only when the project settings let the PM override prerequisites (team.prerequisiteOverride). A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
+        "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Name an assignee only when you must: the system's choice keeps the member's complexity limit, and with team.assigneeFit an assignee beyond the limit or specialty is refused (assignee_unfit). Score a hard card first, or ask the scorer. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply; despite_prerequisites is honored only when the project settings let the PM override prerequisites (team.prerequisiteOverride). A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
       input: {
         task_key: TaskKey,
         assignee: MemberHandle.optional(),

@@ -47,7 +47,12 @@ import { conflict, DomainError, forbidden, invalid, notFound, themeRefused } fro
 import type { MemberService } from '../../core/members';
 import type { Author, ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
-import { approvalRequestedError, gateBlockedError, prerequisiteCards } from '../../core/tasks';
+import {
+  approvalRequestedError,
+  assertAssigneeFits,
+  gateBlockedError,
+  prerequisiteCards,
+} from '../../core/tasks';
 import type { StageChange, TaskService, WorkEntryCheck } from '../../core/tasks';
 import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../kernel';
 import type { Admission } from './admission';
@@ -217,6 +222,10 @@ export class TaskStarts implements WorkEntryCheck {
   }
 
   async start(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
+    await this.admission.warm(
+      projectKey,
+      opts.assignee ?? this.tasks.find(projectKey, taskKey)?.assignee ?? undefined,
+    );
     const result = await this.admission.exclusive('task-start', () =>
       this.startLocked(projectKey, taskKey, opts),
     );
@@ -310,6 +319,7 @@ export class TaskStarts implements WorkEntryCheck {
         opts.assignee,
         opts.excludeMembers ?? [],
         heldProviders,
+        opts.actor,
       );
       if (pick.kind === 'senior_busy')
         return this.waitForSenior(config, task, workStage, opts, needsMove, pick.seniors);
@@ -641,6 +651,7 @@ export class TaskStarts implements WorkEntryCheck {
     assignee: string | undefined,
     exclude: string[],
     heldProviders: ReadonlySet<AgentProvider> = new Set(),
+    actor?: Actor,
   ): ChosenMember | { kind: 'senior_busy'; seniors: string[] } {
     const projectKey = config.project.key;
     const eligible = stageOwners(config, stage).filter(
@@ -653,6 +664,16 @@ export class TaskStarts implements WorkEntryCheck {
       if (!member) throw notFound('member', assignee);
       if (!eligible.includes(member.handle))
         throw invalid('not_stage_owner', 'assignee must own the work stage');
+      // An AI member's explicit assignee has to fit the card when the project asks for it (PM-1136).
+      if (actor)
+        assertAssigneeFits({
+          config,
+          actor,
+          task,
+          workStage: stage,
+          member: member.handle,
+          anyDecided: this.seniorWaits.decisionFor(projectKey, task.key)?.decision === 'any',
+        });
       return given(member);
     }
     // The current assignee keeps the card, unless its provider is on hold and the work has not begun (PM-1051).

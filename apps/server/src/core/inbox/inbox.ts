@@ -19,6 +19,7 @@ import {
   planIntegratorInboxEscalation,
   selectFixLimitRecipient,
   selectTodoRecipient,
+  technicalDeciderOf,
   FixLimitOptionId,
   ResolveIntegratorFixLimitRequest as IntegratorFixLimitRequestSchema,
   ResolveIntegratorTodoRequest as IntegratorTodoRequestSchema,
@@ -39,6 +40,7 @@ import {
   isPendingQuestion,
   isRelayableQuestionItem,
   machineTodoIssuerAllowed,
+  machineTodoIssuerOf,
   memberOf,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
@@ -82,6 +84,7 @@ import type {
   ScreenedQuestionsResponse,
   BoundActor,
   TimelineEventData,
+  TodoRoute,
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
@@ -164,6 +167,13 @@ interface ScreeningRelease {
   feedbackId?: string;
   fallback?: 'timeout' | 'unavailable';
 }
+
+/** What the `question_screened` timeline entry says about the Operator's outcome. */
+type ScreenedEntry = Pick<ScreeningSettlement, 'by' | 'note' | 'answer' | 'forwardedTo'> & {
+  outcome: TimelineEventData['question_screened']['outcome'];
+  todo?: QuestionTodo;
+  feedbackId?: string;
+};
 
 /** `payload` with the screening record changed by `patch`; the record starts at `at` when it had none. */
 function withScreening(
@@ -1581,20 +1591,32 @@ export class InboxService {
 
   /**
    * The payload, options and recipient a question has when it goes to the people (PM-558): the one rule of
-   * `releaseScreened` and of the todo the system opens itself (`openIntegratorTodo`).
+   * `releaseScreened` and of the todo the system opens itself (`openIntegratorTodo`). The machine access that
+   * counts is the one of `machineTodoIssuerOf`: the screening member, or the opener of its own todo.
+   * With a `decider` (PM-1139), a todo no integrator can take is not opened: the result has `forwardTo` and a
+   * payload that records the forward (the item stays the owners' by assignment and `recipient`).
    */
-  private releaseFields(current: InboxItem, release: ScreeningRelease, config: ProjectConfig, at: string) {
+  private releaseFields(
+    current: InboxItem,
+    release: ScreeningRelease,
+    config: ProjectConfig,
+    at: string,
+    decider: string | null,
+  ) {
     const { outcome, fallback } = release;
-    const selected =
+    const route: TodoRoute =
       outcome === 'todo'
-        ? selectTodoRecipient(
-            current,
-            release.todo!.recipient,
-            this.integratorTodoAccess?.available(config) ?? false,
-            machineTodoIssuerAllowed(config, current.source),
-          )
-        : { recipient: 'owner' as const };
-    const todo = release.todo ? { ...release.todo, recipient: selected.recipient } : undefined;
+        ? selectTodoRecipient(current, release.todo!.recipient, {
+            integratorAvailable: this.integratorTodoAccess?.available(config) ?? false,
+            issuerAllowed: machineTodoIssuerAllowed(config, machineTodoIssuerOf(current.source, release.by)),
+            decider,
+          })
+        : { recipient: 'owner' };
+    const forwardTo = route.recipient === 'decider' ? route.decider : null;
+    const selected = route.recipient === 'decider' ? { recipient: 'owner' as const } : route;
+    const todo = release.todo
+      ? { ...release.todo, recipient: forwardTo ? release.todo.recipient : selected.recipient }
+      : undefined;
     const payload = withScreening(
       {
         ...current.payload,
@@ -1607,14 +1629,15 @@ export class InboxService {
         ...(release.by ? { by: release.by } : {}),
         ...(release.note ? { note: release.note } : {}),
         ...(todo ? { todo } : {}),
+        ...(forwardTo ? { forwardedTo: forwardTo } : {}),
         ...(release.feedbackId !== undefined ? { feedbackId: release.feedbackId } : {}),
-        ...('recipientRefusal' in selected ? { recipientRefusal: selected.recipientRefusal } : {}),
+        ...('recipientRefusal' in route ? { recipientRefusal: route.recipientRefusal } : {}),
         ...(fallback ? { fallback } : {}),
       },
       at,
     );
     const options = outcome === 'todo' ? [TODO_DONE_OPTION, TODO_CANNOT_OPTION] : current.options;
-    return { selected, todo, payload, options };
+    return { selected, forwardTo, todo, payload, options };
   }
 
   /**
@@ -1666,6 +1689,8 @@ export class InboxService {
       { outcome: 'todo', by: 'system', todo: { ...input.todo, recipient: 'integrator' } },
       config,
       at,
+      // Nobody asked: the owners keep a todo the system opened itself (PM-1139).
+      null,
     );
     const item = this.create({
       id: draft.id,
@@ -1712,9 +1737,16 @@ export class InboxService {
    * outcome (`decision`: a person decides; `todo`: a person does something, the options become Done and
    * Cannot do it) or, with no outcome, because the system gave up waiting (`fallback`). Null when the item
    * is not in screening any more (closed or released meanwhile). The timeline records `question_screened`,
-   * or `question_screening_skipped` for a fallback.
+   * or `question_screening_skipped` for a fallback. A todo no integrator can take goes to the project's
+   * technical decider when `forward` is given (PM-1139): the item does not open, it closes as forwarded in the
+   * transaction of the message `forward` sends (`inbox_resolved` follows, as for `settleScreened`). Without
+   * `forward`, or without a decider, it opens for the owners with the `recipientRefusal`.
    */
-  releaseScreened(id: string, release: ScreeningRelease): Promise<InboxItem | null> {
+  releaseScreened(
+    id: string,
+    release: ScreeningRelease,
+    forward?: (item: InboxItem, to: string, close: () => InboxItem) => Promise<InboxItem | null>,
+  ): Promise<InboxItem | null> {
     if (release.outcome === 'todo' && !ScreeningTodoSchema.safeParse(release.todo).success)
       throw invalid('invalid_outcome_fields', 'todo needs valid what, where, expected and recipient fields');
     const primaryId = this.ctx.repos.inbox.groupOf(id)?.primaryItemId ?? id;
@@ -1729,7 +1761,37 @@ export class InboxService {
       const { outcome, fallback } = release;
       const config = await this.projects.config(current.projectKey);
       const at = isoNow(this.ctx);
-      const { selected, todo, payload, options } = this.releaseFields(current, release, config, at);
+      const { selected, forwardTo, todo, payload, options } = this.releaseFields(
+        current,
+        release,
+        config,
+        at,
+        forward && release.by ? technicalDeciderOf(config, current.source) : null,
+      );
+      if (forward && forwardTo && release.by) {
+        const resolution = {
+          optionId: 'forward',
+          by: release.by,
+          at,
+          note: release.note ?? '',
+          rule: 'operator_forwarded' as const,
+        };
+        const close = (): InboxItem =>
+          this.recordScreenedClose(current, resolution, payload, {
+            outcome: 'todo',
+            by: release.by!,
+            note: release.note ?? '',
+            forwardedTo: forwardTo,
+            ...(todo ? { todo } : {}),
+            ...(release.feedbackId !== undefined ? { feedbackId: release.feedbackId } : {}),
+          });
+        return this.finishScreenedClose(
+          id,
+          // The item carries the screening record, so the message can name the todo.
+          await forward({ ...current, payload, state: 'resolved', resolution }, forwardTo, close),
+          close,
+        );
+      }
       const released = this.ctx.unitOfWork(() => {
         if (!this.ctx.repos.inbox.release(id, { payload, options, at })) return null;
         if (selected.recipient === 'integrator')
@@ -1801,46 +1863,64 @@ export class InboxService {
         note: answered ? (settlement.answer ?? '') : settlement.note,
         rule: answered ? ('operator_answered' as const) : ('operator_forwarded' as const),
       };
-      const close = (): InboxItem => {
-        const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
-        if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer waiting`);
-        const withRecord =
-          this.ctx.repos.inbox.updatePayload(
-            id,
-            withScreening(
-              item.payload,
-              {
-                outcome: settlement.outcome,
-                by: settlement.by,
-                at,
-                note: settlement.note,
-                ...(settlement.forwardedTo ? { forwardedTo: settlement.forwardedTo } : {}),
-              },
+      const close = (): InboxItem =>
+        this.recordScreenedClose(
+          item,
+          resolution,
+          withScreening(
+            item.payload,
+            {
+              outcome: settlement.outcome,
+              by: settlement.by,
               at,
-            ),
+              note: settlement.note,
+              ...(settlement.forwardedTo ? { forwardedTo: settlement.forwardedTo } : {}),
+            },
             at,
-          ) ?? resolved;
-        this.publish(withRecord);
-        this.appendScreened(withRecord, settlement);
-        return withRecord;
-      };
-      const delivered = deliver ? await deliver({ ...item, state: 'resolved', resolution }, close) : null;
-      const resolved = delivered ?? this.ctx.unitOfWork(close);
-      this.waiters.get(id)?.(resolved);
-      await this.ctx.events.emit('inbox_resolved', resolved);
-      return resolved;
+          ),
+          settlement,
+        );
+      return this.finishScreenedClose(
+        id,
+        deliver ? await deliver({ ...item, state: 'resolved', resolution }, close) : null,
+        close,
+      );
     });
   }
 
-  /** The timeline entry of what the Operator decided about a question (PM-558). */
-  private appendScreened(
+  /**
+   * Closes a screened question as resolved with the screening record in its payload, publishes it and
+   * appends the `question_screened` entry (the part of `settleScreened` and of a forwarded todo, PM-1139).
+   * Runs in a transaction.
+   */
+  private recordScreenedClose(
     item: InboxItem,
-    outcome: Pick<ScreeningSettlement, 'by' | 'note' | 'answer' | 'forwardedTo'> & {
-      outcome: TimelineEventData['question_screened']['outcome'];
-      todo?: QuestionTodo;
-      feedbackId?: string;
-    },
-  ): void {
+    resolution: NonNullable<InboxItem['resolution']>,
+    payload: Record<string, unknown>,
+    entry: ScreenedEntry,
+  ): InboxItem {
+    const resolved = this.ctx.repos.inbox.close(item.id, 'resolved', resolution, resolution.at);
+    if (!resolved) throw conflict('inbox_item_closed', `inbox item ${item.id} is no longer waiting`);
+    const withRecord = this.ctx.repos.inbox.updatePayload(item.id, payload, resolution.at) ?? resolved;
+    this.publish(withRecord);
+    this.appendScreened(withRecord, entry);
+    return withRecord;
+  }
+
+  /** The item closed by `close` (inside the delivery's transaction, or on its own), then `inbox_resolved`. */
+  private async finishScreenedClose(
+    id: string,
+    delivered: InboxItem | null,
+    close: () => InboxItem,
+  ): Promise<InboxItem> {
+    const resolved = delivered ?? this.ctx.unitOfWork(close);
+    this.waiters.get(id)?.(resolved);
+    await this.ctx.events.emit('inbox_resolved', resolved);
+    return resolved;
+  }
+
+  /** The timeline entry of what the Operator decided about a question (PM-558). */
+  private appendScreened(item: InboxItem, outcome: ScreenedEntry): void {
     this.timeline.append({
       projectKey: item.projectKey,
       taskKey: item.taskKey,
@@ -1858,7 +1938,8 @@ export class InboxService {
         ...(outcome.feedbackId !== undefined ? { feedbackId: outcome.feedbackId } : {}),
         ...(outcome.outcome === 'todo'
           ? {
-              recipient: questionPayloadOf(item)?.recipient ?? 'owner',
+              // A todo forwarded to the decider has no recipient: it is nobody's inbox item (PM-1139).
+              ...(outcome.forwardedTo ? {} : { recipient: questionPayloadOf(item)?.recipient ?? 'owner' }),
               ...(questionPayloadOf(item)?.screening?.recipientRefusal
                 ? { recipientRefusal: questionPayloadOf(item)!.screening!.recipientRefusal }
                 : {}),

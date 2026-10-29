@@ -122,7 +122,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "recipient": {
-          "description": "Suggested todo recipient (default owner); screening decides. integrator reaches the machine queue only from a member with machine access.",
+          "description": "Suggested todo recipient (default owner); screening decides. The integrator gets it when the screening member has machine access and an integrator is connected.",
           "enum": [
             "owner",
             "integrator",
@@ -1685,7 +1685,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Propose shared Operator knowledge",
     },
-    "description": "The Operator, or the selected project manager in its internal general session, during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only the Operator’s agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents.",
+    "description": "The Operator, or the selected project manager in its internal general session, during an open owner message or answer. Propose an agreement replacement, principle put or removal with the current expected_revision. A null principle id gets a server id. Writes nothing until an owner approves in the inbox. Only the Operator’s agreement_replace accepts recommended operations (at most ten); even immediate operations must wait for this approval and protected configuration operations still require a separate approval. Never import principles automatically from memory or documents. What a setting can express (gate, label, permission, priority, complexity limit) is proposed as a setting with operate, not as a principle. Propose a rule only after a repeated failure and name the cards in its reason; refer to a duty or role in rules, not to a member name.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -1831,6 +1831,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                   "patch": {
                     "additionalProperties": false,
                     "properties": {
+                      "assigneeFit": {
+                        "enum": [
+                          "automatic",
+                          "automatic_and_ai",
+                        ],
+                        "type": "string",
+                      },
                       "boundary": {
                         "properties": {
                           "enabled": {
@@ -2676,6 +2683,62 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           "required": [
                             "repo",
                             "fullTestAtMerge",
+                          ],
+                          "type": "object",
+                        },
+                        "maxItems": 20,
+                        "type": "array",
+                      },
+                      "repoHeavyChecks": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "heavyChecks": {
+                              "anyOf": [
+                                {
+                                  "properties": {
+                                    "commands": {
+                                      "items": {
+                                        "maxLength": 100,
+                                        "minLength": 1,
+                                        "type": "string",
+                                      },
+                                      "maxItems": 10,
+                                      "minItems": 1,
+                                      "type": "array",
+                                    },
+                                    "ptySkipped": {
+                                      "items": {
+                                        "maxLength": 200,
+                                        "minLength": 1,
+                                        "type": "string",
+                                      },
+                                      "maxItems": 10,
+                                      "type": "array",
+                                    },
+                                    "unavailableExit": {
+                                      "maximum": 255,
+                                      "minimum": 1,
+                                      "type": "integer",
+                                    },
+                                  },
+                                  "required": [
+                                    "commands",
+                                  ],
+                                  "type": "object",
+                                },
+                                {
+                                  "type": "null",
+                                },
+                              ],
+                            },
+                            "repo": {
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "repo",
+                            "heavyChecks",
                           ],
                           "type": "object",
                         },
@@ -4466,7 +4529,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Start work on a task",
     },
-    "description": "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply; despite_prerequisites is honored only when the project settings let the PM override prerequisites (team.prerequisiteOverride). A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
+    "description": "Only the selected PM in its internal general conversation, during its own open owner request. Start a task with an optional assignee; the PM stage-move rules apply. Name an assignee only when you must: the system's choice keeps the member's complexity limit, and with team.assigneeFit an assignee beyond the limit or specialty is refused (assignee_unfit). Score a hard card first, or ask the scorer. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply; despite_prerequisites is honored only when the project settings let the PM override prerequisites (team.prerequisiteOverride). A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the coordinator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

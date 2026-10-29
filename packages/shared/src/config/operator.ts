@@ -722,6 +722,7 @@ function approvalWaivable(
         projectManagerLifecycle: true,
         prioritySetters: true,
         complexitySetters: true,
+        assigneeFit: true,
       },
     ) &&
     fieldsWaivable(previous.team.limits, next.team.limits, WAIVER_LIMITS) &&

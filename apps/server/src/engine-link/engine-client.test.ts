@@ -486,8 +486,15 @@ describe('engine link handshake recovery', () => {
   });
 
   describe('silent link watchdog', () => {
+    /** A connection to a current cloud: its first heartbeat repeats the welcome's acknowledged sequence. */
+    const connectBeating = async () => {
+      const made = await connectFirst();
+      made.sockets[0]!.message({ t: 'ack', seq: 0 });
+      return made;
+    };
+
     it('reports link_silent only on the second silent tick in a row, with nothing pending', async () => {
-      const { sockets, status } = await connectFirst();
+      const { sockets, status } = await connectBeating();
       await vi.advanceTimersByTimeAsync(100_000);
       expect(sockets[0]!.socket.close).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(20_000);
@@ -495,8 +502,29 @@ describe('engine link handshake recovery', () => {
       expect(status.get().lastError?.code).toBe('link_silent');
     });
 
+    it('leaves an idle link of a cloud that never repeats its acknowledgement alone', async () => {
+      const made = await connectFirst();
+      // An older cloud acknowledges each event once, so every sequence it sends is a new one.
+      made.buffer.emit(pendingInput('ses_a'));
+      made.sockets[0]!.message({ t: 'ack', seq: 1 });
+      await vi.advanceTimersByTimeAsync(400_000);
+      expect(made.sockets[0]!.socket.close).not.toHaveBeenCalled();
+      expect(made.createSocket).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not carry the heartbeat of one connection over to the next', async () => {
+      const made = await connectBeating();
+      made.sockets[0]!.close(1006);
+      await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MIN_MS);
+      made.sockets[1]!.open();
+      await vi.advanceTimersByTimeAsync(0);
+      made.sockets[1]!.welcome();
+      await vi.advanceTimersByTimeAsync(400_000);
+      expect(made.sockets[1]!.socket.close).not.toHaveBeenCalled();
+    });
+
     it('does not drop the link when frames arrive after one late tick', async () => {
-      const { sockets, buffer } = await connectFirst();
+      const { sockets, buffer } = await connectBeating();
       buffer.emit(pendingInput('ses_a'));
       await vi.advanceTimersByTimeAsync(100_000);
       sockets[0]!.message({ t: 'ack', seq: 0 });
@@ -505,7 +533,7 @@ describe('engine link handshake recovery', () => {
     });
 
     it('counts consecutive ticks only', async () => {
-      const { sockets } = await connectFirst();
+      const { sockets } = await connectBeating();
       // The first silent tick, then the cloud's heartbeat ack arrives: the count starts over.
       await vi.advanceTimersByTimeAsync(100_000);
       sockets[0]!.message({ t: 'ack', seq: 0 });

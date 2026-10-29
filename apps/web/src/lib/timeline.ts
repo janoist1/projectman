@@ -1019,6 +1019,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         case 'decision':
           return normal(t('timeline.events.question_screened_decision', { note }));
         case 'todo':
+          // A machine step no integrator could take went to the technical decider, not to the owners (PM-1139).
+          if (str(d.forwardedTo))
+            return normal(
+              t('timeline.events.question_screened_todo_decider', {
+                to: nameOf(str(d.forwardedTo), ctx.members, ctx.myHandle),
+                note,
+              }),
+            );
           if (d.recipient === 'integrator')
             return normal(t('timeline.events.question_screened_integrator', { note }));
           // Only a todo that was recorded as a missing feature (PM-472) says so.

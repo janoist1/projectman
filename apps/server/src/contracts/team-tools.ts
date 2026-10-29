@@ -1081,6 +1081,7 @@ export interface OperatorToolsHandler {
     outcome: ScreeningOutcome;
     recipient?: QuestionRecipient;
     recipientRefusal?: QuestionRecipientRefusal;
+    forwardedTo?: string;
   }>;
   combineQuestions(
     ctx: ToolContext,

@@ -44,7 +44,10 @@ const B = 'eng_bbbbbbbbbbbb' as EngineId;
 describe('PlanUsageCache per engine', () => {
   function cache(ttlMs = 100) {
     const source = {
-      get: vi.fn(async (engineId?: EngineId) => ({ ...usage, weeklyPercent: engineId === A ? 10 : 90 })),
+      get: vi.fn(async (engineId?: EngineId): Promise<PlanUsage> => ({
+        ...usage,
+        weeklyPercent: engineId === A ? 10 : 90,
+      })),
     };
     return {
       source,
@@ -83,6 +86,33 @@ describe('PlanUsageCache per engine', () => {
     await c.get('claude', A);
     await c.get('claude', B);
     expect(source.get.mock.calls.map(([id]) => id)).toEqual([A, B, A]);
+  });
+
+  it('serves a recent stale measurement while sharing one refresh and publishes the new value', async () => {
+    const { cache: c, source } = cache();
+    await c.get('claude', A);
+    let finish!: (value: PlanUsage) => void;
+    source.get.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect((await c.get('claude', A))?.weeklyPercent).toBe(10);
+    expect((await c.get('claude', A))?.weeklyPercent).toBe(10);
+    expect(source.get).toHaveBeenCalledTimes(2);
+    finish({ ...usage, weeklyPercent: 90 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(c.peek('claude', A)?.weeklyPercent).toBe(90);
+  });
+
+  it('waits for a measurement once the stale window expires', async () => {
+    const { cache: c, source } = cache();
+    await c.get('claude', A);
+    await vi.advanceTimersByTimeAsync(500);
+    source.get.mockResolvedValueOnce({ ...usage, weeklyPercent: 90 });
+    expect((await c.get('claude', A))?.weeklyPercent).toBe(90);
   });
 });
 

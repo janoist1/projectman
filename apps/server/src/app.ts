@@ -35,6 +35,7 @@ import type {
   ScreenshotExecutor,
   GithubActionsClient,
   GithubService,
+  EngineDirectory,
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
@@ -327,6 +328,8 @@ export interface BuildAppOptions {
 interface AppContext {
   engineRegistry?: EngineRegistry;
   engineLinks?: EngineLinks;
+  /** The cloud's view of its engines (cloud mode): what the domain reaches an engine's merger, executors and files by. */
+  engineDirectory?: EngineDirectory;
   home: string;
   /** Pauses the team before the server closes (`shutdownPauseMs`); nothing when that is 0 or this is a standby copy. */
   pauseForShutdown: () => Promise<void>;
@@ -718,6 +721,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     app.decorate('projectman', {
       engineRegistry,
       engineLinks,
+      ...(remote ? { engineDirectory: remote.directory } : {}),
       home,
       pauseForShutdown: async () => {
         if (shutdownPauseMs <= 0 || standby) return;

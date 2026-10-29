@@ -2,9 +2,10 @@ import path from 'node:path';
 import { CloudError, badUsage } from '../cloud/errors';
 import type { EnginePackageRequest } from './package';
 import type { EngineAppBuildRequest } from './build';
+import { RELEASE_TAG_PATTERN } from '@projectman/shared';
 
 const USAGE =
-  'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>] | build --package <dir> --out <dir> [--ad-hoc | --identity <name> --team-id <id> --notary-profile <name>]';
+  'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>] | build --package <dir> --out <dir> [--ad-hoc | --identity <name> --team-id <id> --notary-profile <name>] | publish --tag <tag> --config <absolute-file>';
 
 export interface EngineAppCliDeps {
   /** The remote the commit is fetched from when `--repo` is absent: `origin` of the source checkout. */
@@ -13,6 +14,7 @@ export interface EngineAppCliDeps {
   cwd: string;
   build(request: EnginePackageRequest): Promise<{ root: string }>;
   buildApp?(request: EngineAppBuildRequest): Promise<{ root: string }>;
+  publish?(request: { tag: string; config?: string; repositoryUrl: string }): Promise<void>;
   out(text: string): void;
   err(text: string): void;
 }
@@ -26,6 +28,29 @@ function option(args: string[], name: string): string | undefined {
 export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): Promise<number> {
   try {
     const [command, ...args] = argv;
+    if (command === 'publish') {
+      const seen = new Set<string>();
+      for (let index = 0; index < args.length; index += 2) {
+        const key = args[index]!;
+        if (
+          !['--tag', '--config'].includes(key) ||
+          seen.has(key) ||
+          !args[index + 1] ||
+          args[index + 1]!.startsWith('--')
+        )
+          throw badUsage('usage: npm run engine-app -- publish --tag <tag> --config <absolute-file>');
+        seen.add(key);
+      }
+      const tag = option(args, '--tag');
+      const config = option(args, '--config');
+      if (!tag || !RELEASE_TAG_PATTERN.test(tag) || (config && !path.isAbsolute(config)) || !deps.publish)
+        throw badUsage('publish requires --tag <release-tag> and an absolute --config path');
+      const repositoryUrl = await deps.originUrl();
+      if (!repositoryUrl) throw badUsage('the source checkout has no origin remote');
+      await deps.publish({ tag, config, repositoryUrl });
+      deps.out(`published engine app for ${tag}`);
+      return 0;
+    }
     if (command === 'build') {
       const allowed = new Set(['--package', '--out', '--identity', '--team-id', '--notary-profile']);
       const seen = new Set<string>();

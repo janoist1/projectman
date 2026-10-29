@@ -66,21 +66,45 @@ describe('durable integrator todo rules', () => {
     }
   });
   it('allows screening to override the proposal in either direction', () => {
-    expect(selectTodoRecipient(todo(), 'owner', true, true)).toEqual({ recipient: 'owner' });
-    expect(selectTodoRecipient(todo(), 'integrator', true, true)).toEqual({ recipient: 'integrator' });
-    expect(selectTodoRecipient(todo(), 'integrator', false, true)).toEqual({
+    const facts = { integratorAvailable: true, issuerAllowed: true, decider: null };
+    expect(selectTodoRecipient(todo(), 'owner', facts)).toEqual({ recipient: 'owner' });
+    expect(selectTodoRecipient(todo(), 'integrator', facts)).toEqual({ recipient: 'integrator' });
+    expect(selectTodoRecipient(todo(), 'integrator', { ...facts, integratorAvailable: false })).toEqual({
       recipient: 'owner',
       recipientRefusal: 'integrator_unavailable',
     });
   });
   it('keeps an asker without machine access out of the integrator queue', () => {
-    expect(selectTodoRecipient(todo(), 'integrator', true, false)).toEqual({
+    const facts = { integratorAvailable: true, issuerAllowed: false, decider: null };
+    expect(selectTodoRecipient(todo(), 'integrator', facts)).toEqual({
       recipient: 'owner',
       recipientRefusal: 'no_machine_access',
     });
-    expect(selectTodoRecipient(todo(), 'integrator', false, false).recipientRefusal).toBe(
-      'no_machine_access',
-    );
+    expect(
+      selectTodoRecipient(todo(), 'integrator', { ...facts, integratorAvailable: false }).recipientRefusal,
+    ).toBe('no_machine_access');
+  });
+  it.each([
+    { integratorAvailable: true, issuerAllowed: false, refusal: 'no_machine_access' },
+    { integratorAvailable: false, issuerAllowed: true, refusal: 'integrator_unavailable' },
+    { integratorAvailable: false, issuerAllowed: false, refusal: 'no_machine_access' },
+  ])(
+    'routes an integrator todo no integrator can take to the decider ($refusal)',
+    ({ integratorAvailable, issuerAllowed, refusal }) => {
+      expect(
+        selectTodoRecipient(todo(), 'integrator', { integratorAvailable, issuerAllowed, decider: 'lead' }),
+      ).toEqual({ recipient: 'decider', decider: 'lead', recipientRefusal: refusal });
+    },
+  );
+  it('keeps the owner proposal and a protected question away from the decider', () => {
+    const facts = { integratorAvailable: false, issuerAllowed: false, decider: 'lead' };
+    expect(selectTodoRecipient(todo(), 'owner', facts)).toEqual({ recipient: 'owner' });
+    const group = todo();
+    group.payload.group = null;
+    expect(selectTodoRecipient(group, 'integrator', facts)).toEqual({
+      recipient: 'owner',
+      recipientRefusal: 'protected_question',
+    });
   });
   it.each([
     'approvalLabel',
@@ -95,7 +119,13 @@ describe('durable integrator todo rules', () => {
   ])('fails closed on the raw protected %s field, even when null', (key) => {
     const item = todo();
     item.payload[key] = null;
-    expect(selectTodoRecipient(item, 'integrator', true, true)).toEqual({
+    expect(
+      selectTodoRecipient(item, 'integrator', {
+        integratorAvailable: true,
+        issuerAllowed: true,
+        decider: null,
+      }),
+    ).toEqual({
       recipient: 'owner',
       recipientRefusal: 'protected_question',
     });

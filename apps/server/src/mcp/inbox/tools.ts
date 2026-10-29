@@ -146,7 +146,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
               "The question closes by itself when the signal's case ends; task_key defaults to the signal's card.",
           ),
         recipient: QuestionRecipient.optional().describe(
-          'Suggested todo recipient (default owner); screening decides. integrator reaches the machine queue only from a member with machine access.',
+          'Suggested todo recipient (default owner); screening decides. The integrator gets it when the screening member has machine access and an integrator is connected.',
         ),
         response_purpose: QuestionResponsePurpose.optional().describe(
           'information: a plain factual question, no decision; the integrator may relay the answer; needs no options. ' +

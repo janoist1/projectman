@@ -1080,21 +1080,38 @@ function hasIntegratorTodoOrigin(payload: InboxItem['payload']): boolean {
 }
 
 /**
- * Where a todo goes. The machine queue (`integrator`) takes it only from an asker with machine access
- * (`issuerAllowed`, decision 66); the refusals are checked in the order protected, no access, unavailable.
+ * Where a todo goes. The machine queue (`integrator`) takes it only from a member with machine access
+ * (`issuerAllowed`, decision 66): the one who classified the step as an integrator todo (the screening member
+ * for a screened question, the opener for its own todo). The refusals are checked in the order protected,
+ * no access, unavailable. When no integrator can take it for one of the last two reasons and the project has
+ * a technical decider (`decider`, PM-1139), the route is `decider`: the item is not opened for the owners,
+ * the question goes to that member. `decider` is never a `QuestionRecipient` and never lands in a payload.
  */
+export type TodoRoute =
+  | { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal }
+  | {
+      recipient: 'decider';
+      decider: string;
+      recipientRefusal: 'no_machine_access' | 'integrator_unavailable';
+    };
+
 export function selectTodoRecipient(
   item: InboxItem,
   requested: QuestionRecipient,
-  integratorAvailable: boolean,
-  issuerAllowed: boolean,
-): { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal } {
+  facts: { integratorAvailable: boolean; issuerAllowed: boolean; decider: string | null },
+): TodoRoute {
   if (requested === 'owner') return { recipient: 'owner' };
   if (hasProtectedQuestionPayload(item) || !questionPayloadOf(item) || 'group' in item.payload)
     return { recipient: 'owner', recipientRefusal: 'protected_question' };
-  if (!issuerAllowed) return { recipient: 'owner', recipientRefusal: 'no_machine_access' };
-  if (!integratorAvailable) return { recipient: 'owner', recipientRefusal: 'integrator_unavailable' };
-  return { recipient: 'integrator' };
+  const refused = !facts.issuerAllowed
+    ? 'no_machine_access'
+    : !facts.integratorAvailable
+      ? 'integrator_unavailable'
+      : null;
+  if (!refused) return { recipient: 'integrator' };
+  return facts.decider
+    ? { recipient: 'decider', decider: facts.decider, recipientRefusal: refused }
+    : { recipient: 'owner', recipientRefusal: refused };
 }
 
 /** State and authentication are checked by the operation, independently of durable addressing. */

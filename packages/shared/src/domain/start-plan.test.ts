@@ -60,6 +60,24 @@ describe('start plan', () => {
     ]);
   });
 
+  it('ranks a card by its theme priority when given the context (PM-1136)', () => {
+    const theme = card(100, { kind: 'theme', priority: 'urgent' });
+    const cards = [card(1), card(2, { themeKey: 'AC-100' }), card(3, { priority: 'high' })];
+    const keys = (tasks?: Task[]) =>
+      [...cards].sort((a, b) => compareStartOrder(a, b, tasks)).map((c) => c.key);
+    expect(keys()).toEqual(['AC-3', 'AC-1', 'AC-2']);
+    expect(keys([...cards, theme])).toEqual(['AC-2', 'AC-3', 'AC-1']);
+  });
+
+  it('plans the card of an urgent theme as a pull, first', () => {
+    const theme = card(100, { kind: 'theme', priority: 'urgent' });
+    const cards = [card(1), card(2, { themeKey: 'AC-100' })];
+    expect([...planStarts({ ...base, cards, tasks: [...cards, theme] }).entries()]).toEqual([
+      ['AC-2', { kind: 'pull', developer: 'dev' }],
+      ['AC-1', { kind: 'hold', reason: 'no_free_member' }],
+    ]);
+  });
+
   it('reserves each developer once and holds the others for a free member', () => {
     const cards = [card(1), card(2)];
     expect([...planStarts({ ...base, cards }).values()]).toEqual([

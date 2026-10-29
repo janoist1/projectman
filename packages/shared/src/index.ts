@@ -100,6 +100,7 @@ export * from './config/repos';
 export * from './config/owner-only';
 export * from './config/integrator';
 export * from './config/permission-level';
+export * from './config/technical-decider';
 export * from './config/project-docs';
 export * from './config/regenerated-paths';
 export * from './config/edit';

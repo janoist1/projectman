@@ -1,8 +1,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
-import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, visibleTeamTools } from './server';
+import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, SERVER_INFO, visibleTeamTools } from './server';
 import { createFakeTeamToolsHandler, devContext, fullAudience } from './testing';
 import type { MemberAudience } from '../contracts';
 import { toolVisible, type ToolAudience } from './kit';
@@ -80,6 +82,41 @@ describe('tool audience', () => {
       expect(result.tools.map(({ name, title, description }) => ({ name, title, description }))).toEqual(
         visibleTeamTools(audience),
       );
+    },
+  );
+  // The memoized listing replaces the SDK's own; the SDK registration of the same tools is what it must equal.
+  it.each([fullAudience, developerAudience])(
+    'lists the tools exactly as the SDK would, also from the memo (%#)',
+    async (audience) => {
+      const reference = new McpServer(SERVER_INFO);
+      const visible = new Set(visibleTeamTools(audience).map((tool) => tool.name));
+      for (const tool of TEAM_TOOLS.filter((candidate) => visible.has(candidate.name)))
+        reference.registerTool(
+          tool.name,
+          {
+            title: tool.title,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            annotations: tool.annotations,
+          },
+          () => ({ content: [] }),
+        );
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: 'reference-test', version: '1.0.0' });
+      await reference.connect(serverTransport);
+      await client.connect(clientTransport);
+      const fields = ({ name, title, description, inputSchema, annotations }: Tool) => ({
+        name,
+        title,
+        description,
+        inputSchema,
+        annotations,
+      });
+      const expected = (await client.listTools()).tools.map(fields);
+      await client.close();
+      await reference.close();
+      expect((await listToolsFor(audience)).tools.map(fields)).toEqual(expected);
+      expect((await listToolsFor(audience)).tools.map(fields)).toEqual(expected);
     },
   );
   it.each<{ audience: ToolAudience | undefined; member: MemberAudience; visible: boolean }>([

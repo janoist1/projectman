@@ -57,6 +57,8 @@ export interface ContextPackInput {
   stage: Stage | null;
   /** Recent timeline of the task (oldest first). */
   timeline: TimelineEvent[];
+  /** All non-quiet events of the task, for the brief's omitted count (PM-1112). */
+  timelineTotal?: number;
   /** Roster of the team (humans and AI). */
   team: MemberView[];
   /** The member's own durable memory (markdown). */

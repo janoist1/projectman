@@ -25,6 +25,7 @@ import type { RemoteHub } from './hub';
  */
 
 const PROVIDER_STATUS_TTL_MS = 60_000;
+const PROVIDER_STATUS_STALE_MS = 5 * PROVIDER_STATUS_TTL_MS;
 /** A start can take its time: the CLI's own checks, the workspace trust, the first screen. */
 const START_TIMEOUT_MS = 120_000;
 const PAUSE_TIMEOUT_MS = 10 * 60_000;
@@ -106,6 +107,8 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
   /** Sessions whose `session.start` is on its way: the connect of their engine must not end them. */
   const startingSessions = new Set<string>();
   const statuses = new Map<string, { at: number; status: ProviderStatus }>();
+  /** The status questions under way, by the same key: concurrent callers share one call to the engine. */
+  const statusAsks = new Map<string, Promise<ProviderStatus>>();
   let closing = false;
 
   const emit = (event: RunnerEvent) => {
@@ -409,15 +412,31 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
         provider === 'nanogpt' && !hub.ownNanogptKey(engineId)
           ? withNanogptKeyFact(status, hub.ownedByHost(engineId) && (await keySet()))
           : status;
-      if (cached && !opts?.refresh && now() - cached.at < PROVIDER_STATUS_TTL_MS)
+      const age = cached ? now() - cached.at : Infinity;
+      if (cached && !opts?.refresh && age < PROVIDER_STATUS_TTL_MS) return answer(cached.status);
+      let asking = statusAsks.get(key);
+      if (!asking) {
+        asking = hub
+          .call(engineId, 'provider.status', {
+            provider,
+            ...(opts?.refresh ? { refresh: true } : {}),
+            ...(opts?.member ? { member: opts.member } : {}),
+          })
+          .then((status) => {
+            statuses.set(key, { at: now(), status });
+            return status;
+          })
+          .finally(() => statusAsks.delete(key));
+        statusAsks.set(key, asking);
+      }
+      // Admission asks under its lock (PM-1133): a "logged in" answer a few TTLs old serves while the engine is asked again.
+      if (cached && !opts?.refresh && cached.status.loggedIn === true && age < PROVIDER_STATUS_STALE_MS) {
+        asking.catch((err: unknown) =>
+          logger.warn({ err, engineId, provider }, 'the provider status failed'),
+        );
         return answer(cached.status);
-      const status = await hub.call(engineId, 'provider.status', {
-        provider,
-        ...(opts?.refresh ? { refresh: true } : {}),
-        ...(opts?.member ? { member: opts.member } : {}),
-      });
-      statuses.set(key, { at: now(), status });
-      return answer(status);
+      }
+      return answer(await asking);
     },
     async refreshProviderStatus(provider) {
       for (const id of hub.ids()) {

@@ -90,6 +90,37 @@ describe('member context preview', () => {
     });
   });
 
+  it.each([3, 20])(
+    'keeps %s meaningful events visible or accurately counted after quiet traffic',
+    async (total) => {
+      const task = await h.domain.tasks.create('AR', { title: 'History' }, OWNER_ACTOR);
+      for (let i = 1; i < total; i++)
+        h.domain.timeline.append({
+          projectKey: 'AR',
+          taskKey: task.key,
+          actor: OWNER_ACTOR,
+          type: 'task_note',
+          data: { text: `Note ${i}` },
+        });
+      for (let i = 0; i < 33; i++)
+        h.domain.timeline.append({
+          projectKey: 'AR',
+          taskKey: task.key,
+          actor: OWNER_ACTOR,
+          type: 'session_started',
+          data: { member: 'dev-1', resumed: false },
+        });
+      await h.domain.sessions.previewContext('AR', 'dev-1', { viewer: 'owner', taskKey: task.key });
+      const source = h.contextBuilder.inputs.at(-1)!;
+      expect(source.timeline).toHaveLength(Math.min(15, total));
+      expect(source.timelineTotal).toBe(total);
+      const brief = createContextPackBuilder().build(source).initialMessage!;
+      expect(brief).toContain(`Note ${total - 1}`);
+      expect(brief).not.toContain('Nothing yet.');
+      if (total === 3) expect(brief).not.toContain('earlier events omitted');
+      else expect(brief).toContain('(5 earlier events omitted)');
+    },
+  );
   it("keeps only the requesting owner's preference", async () => {
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
       for (const member of config.team.members)

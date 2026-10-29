@@ -85,6 +85,9 @@ import type { TaskSchedulingReader } from '../../contracts';
 import { conflict, invalid } from '../../kernel';
 import { newId } from '../../kernel';
 
+/** Why a queued signal is held back: its own wake line is not due, or it is not owed now (`heldBack`). */
+type SignalHold = 'interval' | 'unready';
+
 type RefinementStallInput = {
   projectKey: string;
   taskKey: string;
@@ -862,18 +865,23 @@ export class OperatorSignals {
   }
 
   /**
-   * Which of the signals the wake interval (or the structural window) holds back: one question for a whole
-   * queue run, so its cost does not grow with the signals waiting. A signal whose own wake line is not due is
-   * held without reading its case; the cases are read once, for the signals that pass. Reads only.
+   * Which of the signals the wake interval (or the structural window) holds back, and why: `interval` (its own
+   * wake line is not due) or `unready` (the line is due but the signal is not owed now: its case is gone, or its
+   * own delay lasts). One question for a whole queue run, so its cost does not grow with the signals waiting;
+   * only the signals asked about are read, the cases once. A reading, it never writes: the 60 s sweep (`deliver`)
+   * resolves a gone case, and the coordinator's text is built from the case read at that moment.
    */
-  heldBack(projectKey: string, signalIds: string[]): Set<string> {
-    const held = new Set(signalIds);
-    const open = this.deps.ctx.repos.operatorSignals.listOpen(projectKey);
+  heldBack(projectKey: string, signalIds: string[]): Map<string, SignalHold> {
+    const held = new Map<string, SignalHold>(signalIds.map((id) => [id, 'interval']));
     const wakes = this.wakeLine(projectKey);
-    const candidates = new Set(open.filter((s) => held.has(s.id) && wakes(s)).map((signal) => signal.id));
-    if (!candidates.size) return held;
-    for (const signal of this.pending(projectKey, undefined, { open, resolve: false }))
-      if (candidates.has(signal.id)) held.delete(signal.id);
+    // Only the asked signals whose own line is due are read further; the other open signals cost nothing.
+    const candidates = this.deps.ctx.repos.operatorSignals
+      .listOpen(projectKey)
+      .filter((s) => held.has(s.id) && wakes(s));
+    if (!candidates.length) return held;
+    for (const signal of candidates) held.set(signal.id, 'unready');
+    for (const signal of this.pending(projectKey, undefined, { open: candidates, resolve: false }))
+      held.delete(signal.id);
     return held;
   }
 
@@ -978,6 +986,7 @@ export class OperatorSignals {
     const { ctx, projects } = this.deps;
     const now = ctx.now().getTime();
     let board: Map<string, SignalInput> | undefined;
+    let stalledSince: number | null | undefined;
     return open.filter((s) => {
       if (s.resolvedAt) return false;
       // A signal the coordinator took a step on is shown again once its follow-up time has come (PM-545).
@@ -1020,7 +1029,7 @@ export class OperatorSignals {
       )
         return false;
       if (s.kind !== 'ready_waiting' || again) return true;
-      const stalledSince = this.stallStart(projectKey);
+      if (stalledSince === undefined) stalledSince = this.stallStart(projectKey);
       return stalledSince !== null && now - stalledSince >= OPERATOR_READY_WAITING_MINUTES * 60_000;
     });
   }

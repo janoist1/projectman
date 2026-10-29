@@ -16,6 +16,8 @@
     "../../scripts/live",
     "../../scripts/cloud",
     "../../scripts/release",
+    "../../scripts/engine-app",
+    "../../scripts/engine/start-command.ts",
     "../../scripts/projectman"
   ]
 }

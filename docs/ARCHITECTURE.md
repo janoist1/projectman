@@ -1990,6 +1990,25 @@ workers follow the machine's size.
   Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
 
+- **Engine app package (PM-1104, PM-1121)** — `scripts/engine-app/` (`npm run engine-app -- package
+  --commit <sha> --out <dir>`), `deploy/mac/app/node.json` (the pinned Node), the manifest contract
+  `apps/server/src/contracts/engine-package.ts`, its reader `engine-link/engine-package.ts`. One command builds a
+  self-contained engine from one commit into `<dir>/<sha>/`: a clean checkout (`scripts/release/checkout.ts`), the
+  pinned Node downloaded from nodejs.org and checked by its sha256, then `npm ci`, the server build, the engine
+  CLI bundle (`scripts/engine/cli.js`) and `npm prune --omit=dev`, all in the Sandbox Runtime with the pinned Node
+  first on the PATH (only registry.npmjs.org and nodejs.org reachable, like the PM-750 candidate in
+  `scripts/release/engine.ts`), so the native modules (better-sqlite3, node-pty, sqlite-vec) fit the bundled
+  Node's ABI. Layout (the contract the packaged service and the app build on): `engine-package.json`, `bin/node`,
+  `package.json`, `package-lock.json`, `node_modules/`, `packages/`, `apps/server/{package.json,dist/}`,
+  `scripts/engine/cli.js`, `deploy/mac/com.projectman.engine*.plist`. A package has no git: `resolveAppVersion` and
+  `resolveAppTag` read `engine-package.json` first, and `engine start` (`scripts/engine/start-command.ts`) runs
+  `bin/node apps/server/dist/index.js` when the file exists (checkout mode is unchanged). **Machine assumptions:**
+  macOS arm64 only, the Sandbox Runtime, the machine's heavy-run queue, `tar`, network to nodejs.org and the npm
+  registry, Xcode Command Line Tools when a native module has no prebuilt binary. **Remote engine:** the package
+  runs on the engine's Mac; nothing crosses the server/engine boundary (`installDir` already travels in the
+  hello). Not in the package: the menu bar app's Swift sources and the plist template of the packaged service
+  (PM-1124). **Module:** `scripts`, `deploy`, `contracts`, `engine-link`.
+
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
   sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
   event carries the previous state: only `starting`, `working` and `waiting_permission` turns continue;

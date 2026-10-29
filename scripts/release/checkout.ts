@@ -1,12 +1,18 @@
 import fs from 'node:fs';
-import type { CloudContext } from '../cloud/context';
 import { CloudError, refused } from '../cloud/errors';
+import type { CloudDeps } from '../cloud/deps';
+
+/** What the checkout needs of a cloud context: git through the injected runner, and the remote's URL (PM-1121: the engine package build has no cloud configuration). */
+export interface CheckoutContext {
+  deps: Pick<CloudDeps, 'run'>;
+  config: { repository: { url: string } };
+}
 
 /** Git never asks anything on a terminal while a release is prepared: a missing credential is a failure. */
 const GIT_ENV = { GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
 
 async function git(
-  context: CloudContext,
+  context: Pick<CheckoutContext, 'deps'>,
   directory: string,
   args: string[],
   signal: AbortSignal,
@@ -19,7 +25,7 @@ async function git(
 
 /** HEAD is the commit and the checkout holds nothing else (ignored build output aside). */
 export async function assertCleanAt(
-  context: CloudContext,
+  context: Pick<CheckoutContext, 'deps'>,
   directory: string,
   commit: string,
   signal: AbortSignal,
@@ -37,7 +43,7 @@ export async function assertCleanAt(
  * branch nor a short or ambiguous name can pick another commit.
  */
 export async function checkoutExactCommit(
-  context: CloudContext,
+  context: CheckoutContext,
   directory: string,
   commit: string,
   signal: AbortSignal,

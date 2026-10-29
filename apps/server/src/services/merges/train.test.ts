@@ -1171,6 +1171,20 @@ describe('merge train execution', () => {
     expect(executor.run).toHaveBeenCalledTimes(1);
   });
 
+  it('starts a queued merge when its last open prerequisite closes, with no other merge activity', async () => {
+    await setup(2);
+    await h.domain.tasks.create('AR', { title: 'Prerequisite' }, OWNER_ACTOR);
+    h.domain.tasks.addLink('AR', 'AR-2', { kind: 'prerequisite', ref: 'AR-3' }, OWNER_ACTOR);
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined());
+    await settled();
+    expect(row('AR-2')).toMatchObject({ state: 'queued', step: 'queued' });
+    h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-3').id, { labels: ['code-review-ok'] });
+    await h.domain.tasks.moveToStage('AR', 'AR-3', 'done', OWNER_ACTOR);
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+    await settled();
+  });
+
   it.each([false, true])('rechecks prerequisites before publication (singleton=%s)', async (singleton) => {
     await setup(3);
     if (singleton) {

@@ -27,7 +27,7 @@ import { actorHandle, newId, SYSTEM_ACTOR } from '../../kernel';
 import { runFork, runPromise } from '../../kernel';
 import { MergeCardLock } from '../../kernel';
 import { assertIntegratorAccess, withoutIntegratorExecution } from '../../kernel';
-import type { MergeDeps } from './deps';
+import type { MergeDeps, MergeRun } from './deps';
 import type { MergeSlotPeer } from './ports';
 import { makeMergeQueue } from './queue';
 import type { MergeQueueEffects } from './queue';
@@ -37,6 +37,10 @@ import { isEngineLinkLost } from '../../contracts';
 
 /** The states of a card's open merge record (`task_merges.open`). */
 const OPEN_MERGE_STATES = ['requested', 'queued', 'running', 'failed', 'blocked', 'fixing'] as const;
+
+/** Whether the run in a repository's slot is the row's own merge, alone or as a member of its train. */
+const runs = (run: MergeRun, row: MergeRecord): boolean =>
+  run.row.id === row.id || (run.train?.members.some((m) => m.mergeId === row.id) ?? false);
 
 /** Durable FIFO per project/repository; all git and sandbox work stays on the card's engine. */
 export class Merges {
@@ -270,8 +274,9 @@ export class Merges {
         throw conflict('merge_not_ready', 'the card is not ready to merge', { reason: readiness.reason });
       if (row?.state === 'queued') return task;
       if (row?.state === 'running') {
-        // A running merge always holds its repository's slot; without one the row is stuck.
-        if (this.busy(projectKey, row.repo)) return task;
+        // A running merge always holds its repository's slot, alone or as a train member; without one the row is stuck.
+        const holder = this.queue.slot(projectKey, row.repo);
+        if (holder && runs(holder, row)) return task;
         throw conflict('merge_queue_conflict', 'the merge is marked running but no run holds it');
       }
       if (!row) throw conflict('merge_not_ready', 'the card has no work to merge', { reason: 'no_merge' });
@@ -653,11 +658,7 @@ export class Merges {
       return;
     }
     // The interruption is not awaited, as the abort was not: the merge ends at its next checkpoint.
-    if (
-      running &&
-      (running.row.id === row.id || running.train?.members.some((m) => m.mergeId === row.id)) &&
-      !running.pushing
-    )
+    if (running && runs(running, row) && !running.pushing)
       afterCommit(async () => {
         runFork(this.queue.interrupt(running));
       });

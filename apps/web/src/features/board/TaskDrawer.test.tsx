@@ -539,6 +539,16 @@ describe('task drawer comments', () => {
       'Fictional draft',
     );
   });
+
+  it('keeps the card open and the draft when Escape is pressed in the thread composer (PM-1109)', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const label = t('task.thread.composerLabel', { key: 'AC-20' });
+    const input = (await screen.findByLabelText(label)) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'Fictional thread draft' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect((screen.getByLabelText(label) as HTMLTextAreaElement).value).toBe('Fictional thread draft');
+  });
 });
 
 describe('task editing and subtasks', () => {

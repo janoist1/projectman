@@ -73,6 +73,10 @@ export function createAttachmentRepository(db: Db) {
     listReady: db.prepare(
       `SELECT * FROM attachments WHERE project_key = ? AND task_key = ? AND state = 'ready' ORDER BY seq`,
     ),
+    readyImagesOf: db.prepare(
+      `SELECT id, task_key FROM attachments
+       WHERE state = 'ready' AND preview = 'image' AND task_key IN (SELECT value FROM json_each(?)) ORDER BY seq`,
+    ),
     inState: db.prepare('SELECT * FROM attachments WHERE state = ? ORDER BY seq'),
     all: db.prepare('SELECT id FROM attachments'),
   };
@@ -112,6 +116,17 @@ export function createAttachmentRepository(db: Db) {
     /** The readable attachments of a task, oldest first. */
     listReady(projectKey: string, taskKey: string): AttachmentRecord[] {
       return (statements.listReady.all(projectKey, taskKey) as AttachmentRow[]).map(toRecord);
+    },
+    /** The ready images of many tasks in one read: task key → image ids, oldest first (a card's cover is one). */
+    readyImagesOf(taskKeys: readonly string[]): Map<string, string[]> {
+      const images = new Map<string, string[]>();
+      if (taskKeys.length === 0) return images;
+      for (const row of statements.readyImagesOf.all(JSON.stringify(taskKeys)) as {
+        id: string;
+        task_key: string;
+      }[])
+        images.set(row.task_key, [...(images.get(row.task_key) ?? []), row.id]);
+      return images;
     },
     inState(state: AttachmentState): AttachmentRecord[] {
       return (statements.inState.all(state) as AttachmentRow[]).map(toRecord);

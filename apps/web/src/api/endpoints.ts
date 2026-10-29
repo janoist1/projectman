@@ -317,11 +317,11 @@ export const api = {
   boardMoveTask: (key: string, taskKey: string, body: BoardMoveRequest) =>
     apiRequest(routes.boardMoveTask(key, taskKey), { method: 'POST', body, schema: BoardMoveResult }),
   cancelTask: (key: string, taskKey: string, body: CancelTaskRequest) =>
-    apiRequest<unknown>(routes.cancelTask(key, taskKey), { method: 'POST', body }),
+    apiRequest(routes.cancelTask(key, taskKey), { method: 'POST', body, schema: UpdateTaskResponse }),
   closeTheme: (key: string, taskKey: string) =>
-    apiRequest<unknown>(routes.closeTheme(key, taskKey), { method: 'POST', body: {} }),
+    apiRequest(routes.closeTheme(key, taskKey), { method: 'POST', body: {}, schema: UpdateTaskResponse }),
   reopenTask: (key: string, taskKey: string) =>
-    apiRequest<unknown>(routes.reopenTask(key, taskKey), { method: 'POST', body: {} }),
+    apiRequest(routes.reopenTask(key, taskKey), { method: 'POST', body: {}, schema: UpdateTaskResponse }),
 
   members: (key: string) => apiRequest(routes.members(key), { schema: MemberView.array() }),
   hireMember: (key: string, body: HireMemberRequest) =>

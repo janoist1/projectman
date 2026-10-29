@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
 import type { TaskStatus, WorkItemRef } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
+import { statementCount } from '../src/db';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
 import { formatTaskDetail } from '../src/mcp/format';
 import type { ToolContext } from '../src/contracts';
@@ -581,23 +582,37 @@ describe('team tools', () => {
     expect(await h.domain.teamTools.listTasks(dev, { limit: 200 })).toHaveLength(200);
   });
 
-  it('reads the member queue once for the board and list_tasks, however many cards and closed cards there are (PM-1109)', async () => {
-    const reads = async () => {
-      const waiting = vi.spyOn(h.repos.memberQueue, 'listWaiting');
-      const open = vi.spyOn(h.repos.memberQueue, 'listOpenOfType');
+  it('runs as many statements for the board and list_tasks with closed cards and closed queue rows as without (PM-1109)', async () => {
+    const statements = async () => {
+      const from = statementCount();
       h.domain.tasks.list('AR');
       await h.domain.teamTools.listTasks(dev, {});
-      const counts = [waiting.mock.calls.length, open.mock.calls.length];
-      waiting.mockRestore();
-      open.mockRestore();
-      return counts;
+      return statementCount() - from;
     };
-    const before = await reads();
+    const before = await statements();
     for (let index = 0; index < 20; index += 1) {
       const task = await h.domain.tasks.create('AR', { title: `Closed ${index}` }, OWNER_ACTOR);
       h.repos.tasks.update(task.id, { status: 'done', closedAt: new Date().toISOString() });
+      h.repos.memberQueue.insert({
+        id: `queue-${index}`,
+        projectKey: 'AR',
+        member: 'dev-1',
+        kind: 'todo',
+        source: { type: 'inbox', id: `queue-${index}` },
+        place: { type: 'task', taskKey: task.key },
+        taskKey: task.key,
+        wake: false,
+        title: 'Fictional todo',
+        from: null,
+        queuedAt: new Date().toISOString(),
+      });
+      h.repos.memberQueue.closeBySource(
+        'AR',
+        { type: 'inbox', id: `queue-${index}` },
+        { state: 'done', reason: 'finished', at: new Date().toISOString() },
+      );
     }
-    expect(await reads()).toEqual(before);
+    expect(await statements()).toBe(before);
   });
 
   it('list_tasks includes named priority only on cards where it was set', async () => {

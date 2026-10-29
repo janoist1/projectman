@@ -22,10 +22,9 @@ export { ENGINE_OFFLINE_AFTER_MS } from '../contracts';
 export const ENGINE_RELAY_WAIT_MS = 60_000;
 export const ENGINE_UPLOAD_MAX_BYTES = {
   file: MAX_ATTACHMENT_BYTES,
-  transcript: 64 * 1024 * 1024,
-  bundle: 512 * 1024 * 1024,
+  transcript: 8 * 1024 * 1024,
 } as const;
-export const EngineUploadPurpose = z.enum(['file', 'transcript', 'bundle']);
+export const EngineUploadPurpose = z.enum(['file', 'transcript']);
 export type EngineUploadPurpose = z.infer<typeof EngineUploadPurpose>;
 export const EngineUploaded = z.strictObject({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),

@@ -142,6 +142,26 @@ describe('project manager reply relay', () => {
     await finish(session);
     expect(relays()).toHaveLength(0);
   });
+  it('reads only the window rows of a long message history', async () => {
+    const { session } = await setup();
+    for (let i = 0; i < 5000; i++) {
+      h.repos.messages.insert({
+        id: `old-${i}`,
+        projectKey: 'AR',
+        from: i % 2 ? 'owner' : 'pm',
+        to: [i % 2 ? 'pm' : 'owner'],
+        taskKey: null,
+        body: 'Old message',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        deliveredAt: '2026-01-01T00:00:00.000Z',
+      });
+    }
+    const window = vi.spyOn(h.repos.messages, 'listWindow');
+    await finish(session);
+    expect(relays()).toHaveLength(1);
+    expect(window).toHaveBeenCalled();
+    for (const result of window.mock.results) expect((result.value as unknown[]).length).toBeLessThan(5);
+  });
   it('ignores undelivered messages', async () => {
     const { session, message } = await setup();
     h.repos.messages.updateReceipts(

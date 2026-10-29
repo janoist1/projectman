@@ -37,10 +37,11 @@ describe('the defaults', () => {
         region: 'eu-west-1',
         availabilityZone: 'eu-west-1a',
         instanceName: 'projectman-cloud',
-        ec2: { ...EC2_CONFIG, architecture: 'x86_64' },
+        ec2: { ...EC2_CONFIG, architecture: 'arm64' },
         databaseBucket: 'acme-projectman-db',
         backupBucket: 'acme-projectman-backup',
       },
+      deployment: { imageBundle: expect.stringMatching(/\/bundle$/) },
       repository: { url: 'https://github.com/janoist1/projectman.git' },
       cloudflare: {
         tokenFile: '/home/owner/.config/projectman/cloud/cloudflare-token',
@@ -135,14 +136,9 @@ describe('the validation', () => {
       ),
     ).toContain('cloudflare.integratorHostname');
   });
-  it('requires a bundle for ARM without requiring built files during config parsing', () => {
+  it('requires a bundle for the machine without requiring built files during config parsing', () => {
     const raw = config((value) => {
-      value.aws = {
-        ...value.aws,
-        compute: 'ec2',
-        profile: 'aroom',
-        ec2: { ...EC2_CONFIG, architecture: 'arm64' },
-      };
+      delete value.deployment;
     });
     expect(refusal(raw)).toContain('deployment.imageBundle');
     const withBundle = { ...(raw as object), deployment: { imageBundle: './not-built-yet' } };
@@ -176,7 +172,7 @@ describe('the validation', () => {
       }),
       HOME,
     );
-    expect(parsed.aws.ec2).toEqual({ ...EC2_CONFIG, architecture: 'x86_64' });
+    expect(parsed.aws.ec2).toEqual({ ...EC2_CONFIG, architecture: 'arm64' });
     expect(parsed.route53.profile).toBe('i');
     expect(
       parseConfig(

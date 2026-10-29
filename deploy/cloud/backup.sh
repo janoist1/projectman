@@ -2,7 +2,7 @@
 # The restic side of the cloud backup (PM-317, docs/HYBRID.md): everything in PROJECTMAN_HOME except
 # the database. The database is replicated by Litestream, which restic cannot copy consistently.
 #
-#   backup.sh backup            back up (creates the repository the first time), then forget old snapshots
+#   backup.sh backup            back up (creates the repository the first time), then forget old snapshots (and prune weekly)
 #   backup.sh restore <dir>     restore the latest snapshot into <dir>; exit 0 and no files if the repository
 #                               does not exist or has no snapshot yet (a brand new installation), non-zero
 #                               on any other error
@@ -22,6 +22,9 @@ export AWS_ACCESS_KEY_ID="$RESTIC_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$RESTIC_SECRET_ACCESS_KEY"
 if [ -n "${RESTIC_REGION:-}" ]; then export AWS_DEFAULT_REGION="$RESTIC_REGION"; fi
 unset RESTIC_ACCESS_KEY_ID RESTIC_SECRET_ACCESS_KEY RESTIC_REGION
+
+# The time of the last `restic prune`; a lost marker only makes the next backup prune once more.
+PRUNE_MARKER="$PROJECTMAN_HOME/.restic-last-prune"
 
 # The database and its write-ahead files are Litestream's; the rest is rebuilt or not worth keeping.
 EXCLUDES=(
@@ -43,6 +46,7 @@ EXCLUDES=(
   --exclude "$PROJECTMAN_HOME/github-publish"
   --exclude "$PROJECTMAN_HOME/spool"
   --exclude "$PROJECTMAN_HOME/attachments-cache"
+  --exclude "$PRUNE_MARKER"
 )
 
 repository_exists() {
@@ -63,8 +67,13 @@ case "$command_name" in
   backup)
     repository_exists || restic init
     restic backup "$PROJECTMAN_HOME" "${EXCLUDES[@]}" --tag projectman-cloud --host projectman-cloud
-    # Daily for a week, weekly for a month, monthly for half a year.
-    restic forget --tag projectman-cloud --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
+    # Daily for a week, weekly for a month, monthly for half a year. `forget` only marks snapshots and is cheap, so
+    # it runs every time; `prune` rewrites packs and reads a lot of the bucket, so it runs once a week (PM-1116).
+    restic forget --tag projectman-cloud --keep-daily 7 --keep-weekly 4 --keep-monthly 6
+    if [ -z "$(find "$PRUNE_MARKER" -mtime -7 2>/dev/null)" ]; then
+      restic prune
+      touch "$PRUNE_MARKER"
+    fi
     ;;
   restore)
     target="${2:?usage: backup.sh restore <dir>}"

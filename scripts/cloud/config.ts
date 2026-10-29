@@ -55,7 +55,7 @@ const awsSchema = z
     backupBucket: bucketName,
     ec2: z
       .strictObject({
-        architecture: z.enum(['x86_64', 'arm64']).default('x86_64'),
+        architecture: z.literal('arm64').default('arm64'),
         instanceType: z
           .string()
           .max(64)
@@ -188,8 +188,7 @@ const configSchema = z
       context.addIssue({ code: 'custom', path: pathParts, message });
     const { aws, cloudflare, access } = config;
     if (config.hybrid && !config.releaseTarget) issue(['hybrid'], 'needs releaseTarget');
-    if (aws.ec2?.architecture === 'arm64' && !config.deployment)
-      issue(['deployment', 'imageBundle'], 'required for arm64');
+    if (aws.ec2 && !config.deployment) issue(['deployment', 'imageBundle'], 'required for the arm64 machine');
     if (config.ses) {
       if (config.ses.from.split('@')[1] !== config.ses.domain)
         issue(['ses', 'from'], 'must be an address of exactly ses.domain');

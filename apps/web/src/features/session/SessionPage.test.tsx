@@ -254,6 +254,25 @@ describe('a message that did not go out', () => {
   });
 });
 
+describe('a long chat (PM-1116)', () => {
+  it('shows the last items and loads the older ones on request', async () => {
+    const project = mockProject();
+    project.backend.chats['ses_ac21_fe1'] = Array.from({ length: 205 }, (_, index) => ({
+      id: `long-${index}`,
+      ts: '2026-10-01T10:00:00.000Z',
+      kind: 'assistant_text' as const,
+      text: `Fictional line ${index}`,
+    }));
+    project.render(sessionRoute, '/sessions/ses_ac21_fe1');
+    expect(await screen.findByText('Fictional line 204')).toBeTruthy();
+    expect(screen.queryByText('Fictional line 4')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: t('session.chat.loadEarlier') }));
+    expect(await screen.findByText('Fictional line 4')).toBeTruthy();
+    expect(project.requests.some((request) => request.path.includes('before=long-5'))).toBe(true);
+    expect(screen.queryByRole('button', { name: t('session.chat.loadEarlier') })).toBeNull();
+  });
+});
+
 describe('token usage of the session (PM-178)', () => {
   it('shows each model in the details, the subagent apart', async () => {
     const project = mockProject();

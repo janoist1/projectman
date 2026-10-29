@@ -247,11 +247,7 @@ export function createEngineLinks(options: {
               const previousState = states.get(id);
               const sameBoot = previousBoot === frame.bootId;
               const resumed = sameBoot && !!previousState && frame.nextSeq <= previousState.ackedSeq + 1;
-              // Result idempotency is engine-scoped; only the event stream changes with the boot.
-              const state =
-                sameBoot && previousState
-                  ? previousState
-                  : { ...createRpcState(), results: previousState?.results ?? new Map() };
+              const state = sameBoot && previousState ? previousState : createRpcState();
               boots.set(id, frame.bootId);
               states.set(id, state);
               const hello = frame;
@@ -259,7 +255,6 @@ export function createEngineLinks(options: {
                 side: 'cloud',
                 state,
                 send: (data) => socket.send(data),
-                now,
                 onFailed: (failure) => options.logger?.warn(failure, 'engine link: a request failed'),
               });
               link = {

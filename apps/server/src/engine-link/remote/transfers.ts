@@ -15,7 +15,7 @@ import { EngineRpcError } from '../rpc';
 /**
  * The HTTP side of the files that do not go through the link (PM-315, the counterpart of the engine's
  * `engine-transfer.ts`): `POST /engine/files/uploads/:token` receives what the engine sends (a
- * transcript, a file of its working directory, a branch bundle), `GET /engine/files/downloads/:token`
+ * transcript, a file of its working directory), `GET /engine/files/downloads/:token`
  * gives an attachment to the engine. A token is made for one request to one engine, valid for five
  * minutes, usable once. The machine key of the engine is the credential, as for the link; every other
  * case (no key, another engine's token, an expired, used or unknown token, the wrong direction) is a 404.
@@ -146,7 +146,7 @@ export function createFileTransfers(options: {
         scope.removeAllContentTypeParsers();
         scope.addContentTypeParser('*', (_request, payload, done) => done(null, payload));
         // The token is part of the URL: keep the request out of the info log.
-        const route = { logLevel: 'warn', bodyLimit: ENGINE_UPLOAD_MAX_BYTES.bundle } as const;
+        const route = { logLevel: 'warn', bodyLimit: Math.max(...Object.values(ENGINE_UPLOAD_MAX_BYTES)) } as const;
         scope.route({
           ...route,
           method: 'POST',

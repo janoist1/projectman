@@ -183,7 +183,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'session_upserted': {
       const { projectKey: key, session } = event;
-      client.setQueryData<SessionDetail>(queryKeys.session(key, session.id), (detail) =>
+      client.setQueriesData<SessionDetail>({ queryKey: queryKeys.session(key, session.id) }, (detail) =>
         detail ? { ...detail, session } : detail,
       );
       client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
@@ -328,7 +328,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'chat_appended': {
       const { projectKey: key, sessionId, items } = event;
-      client.setQueryData<SessionDetail>(queryKeys.session(key, sessionId), (detail) =>
+      client.setQueriesData<SessionDetail>({ queryKey: queryKeys.session(key, sessionId) }, (detail) =>
         detail ? { ...detail, chat: appendUnique<ChatItem>(detail.chat, items) } : detail,
       );
       return;

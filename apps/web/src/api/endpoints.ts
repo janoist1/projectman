@@ -331,8 +331,14 @@ export const api = {
   renameMember: (key: string, handle: string, body: RenameMemberRequest) =>
     apiRequest(routes.memberRename(key, handle), { method: 'POST', body, schema: MemberView }),
 
-  session: (key: string, sessionId: string) =>
-    apiRequest(routes.session(key, sessionId), { schema: SessionDetail }),
+  /** The session with the last `limit` items of its chat (before the item `before`, PM-1116). */
+  session: (key: string, sessionId: string, window: { limit?: number; before?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (window.limit !== undefined) query.set('limit', String(window.limit));
+    if (window.before !== undefined) query.set('before', window.before);
+    const suffix = query.size ? `?${query}` : '';
+    return apiRequest(`${routes.session(key, sessionId)}${suffix}`, { schema: SessionDetail });
+  },
   sendSessionMessage: (key: string, sessionId: string, body: SendMessageRequest) =>
     apiRequest<unknown>(routes.sessionMessages(key, sessionId), { method: 'POST', body }),
   stopSession: (key: string, sessionId: string, body?: import('@projectman/shared').StopSessionRequest) =>

@@ -1,7 +1,9 @@
 import type { MemberContextPreview, ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
 import {
+  chatWindow,
   checklistConditionHolds,
   checklistProgress,
+  SESSION_CHAT_WINDOW,
   SetChecklistItemStateRequest,
   type ProjectChecklist,
   applyMemberEmailChange,
@@ -2921,10 +2923,15 @@ export class MockBackend {
       const sessionError = this.sessionErrors.get(session.id);
       if (sessionError) return error(409, sessionError, 'The engine is not connected');
       const task = session.workItem.type === 'task' ? this.findTask(session.workItem.taskKey) : undefined;
+      const window = chatWindow(this.chats[session.id] ?? [], {
+        limit: Number(query.get('limit') ?? SESSION_CHAT_WINDOW),
+        before: query.get('before') ?? undefined,
+      });
       return ok({
         session: clone(session),
-        chat: clone(this.chats[session.id] ?? []),
+        chat: clone(window.items),
         task: task ? clone(task) : null,
+        ...(window.truncated ? { truncated: true } : {}),
       });
     }
     if ((m = /^\/sessions\/([\w-]+)\/messages$/.exec(rest)) && method === 'POST')

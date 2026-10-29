@@ -173,7 +173,7 @@ export async function awsPreflight(context: CloudContext): Promise<void> {
         await ec2Preflight(context, cli, account);
         return {
           status: 'ok',
-          detail: `Ubuntu 24.04 ${config.aws.ec2?.architecture === 'arm64' ? 'arm64' : 'amd64'}, public subnet, outbound only`,
+          detail: `Ubuntu 24.04 arm64, public subnet, outbound only`,
         };
       });
     } else {

@@ -2330,18 +2330,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
   PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
   Mac single activation. Credentials stay on the administration machine, outside member sessions.
-  PM-717 adds a mandatory first-start seed integrity gate in `scripts/cloud/machine.ts`: the
-  administration machine hashes the closed package DB before/after upload and compares hash/bytes
-  with the stopped host through the existing SSH boundary; no engine RPC or credentials are added.
-  A tool the owner runs on their Mac
+  PM-1116 retired the one-off move commands (`seed` with its PM-717 integrity gate, `dns plan|import|verify|switch`);
+  the last commit that has them is tagged `retired-migrate-dns`. A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2: `preflight` and `aws` (PM-534: the machine,
   the security group, the two S3 buckets, the two IAM users and their access keys), the machine part
-  (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
-  `scripts/cloud/dns.ts`: Route 53 read/import, authoritative verification using `CloudDeps.resolve`
-  with name-server IPs resolved locally first, public delegation/DS through Cloudflare and Google DoH,
-  Route 53 Domains registration status and explicit `dns switch [--back]` in `us-east-1`, and `up`
-  orchestration). Forward switching requires successful verification in the same run and no DNSSEC
-  keys or public DS; rollback targets the retained AWS delegation set. It calls the `aws` CLI v2 with argv (profile and
+  (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and DNS (PM-537,
+  `scripts/cloud/dns.ts`: `dns status` only, public delegation/DS through Cloudflare and Google DoH,
+  Route 53 Domains registration status in `us-east-1`, and `up` orchestration; the delegation switch and
+  its rollback are retired, there is no tool-driven delegation rollback). It calls the `aws` CLI v2 with argv (profile and
   region from the configuration, no SDK) through the injected `CloudDeps`, never a shell. Machine
   assumptions: the `aws` CLI v2 with explicit profiles on the owner's Mac (PM-664: central resources
   in `aroom`, registrar/retained Route 53 source reads in `i` through `route53.profile`; absent:
@@ -2375,9 +2371,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   remains on the owner's machine for the central server, never on an engine; the Mac engine gets
   no AWS credentials, and no new server/engine RPC or payload crosses the boundary. SSH over SSM
   host operation is provided by PM-677 (next entry); EC2 is the only compute (PM-1036).
-  PM-718 adds explicit `aws.ec2.architecture` (`x86_64` by default, or `arm64`): the Canonical
-  AMI name/Architecture, type capabilities and existing instance must agree. Native apt/snap
-  bootstrap works on both; ARM requires an external image bundle. The approved PM-675 target is
+  PM-718 adds explicit `aws.ec2.architecture`, arm64 only since PM-1116: the Canonical
+  AMI name/Architecture, type capabilities and existing instance must agree, and the machine needs an
+  external image bundle (`deployment.imageBundle` is required). The approved PM-675 target is
   Frankfurt/t4g.micro/Ubuntu 24.04 arm64/20 GiB gp3; creation still requires concrete owner approval.
 
 - **EC2 host administration through SSM (PM-677, part of PM-664)** —
@@ -2427,17 +2423,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Host administration no longer needs Python3 or provides trial archival/deletion operations.
   **Remote engine:** the remaining host operations still run on EC2 through SSH/SSM from the
   administration machine; no engine RPC or new machine assumption is added.
-  PM-717 carries `seed-digest` over this same SSH/SSM session, with no arguments or stdin payload:
-  only the database SHA-256 and byte count return. On Ubuntu 24.04 the host uses coreutils to read
-  the fixed `/var/lib/projectman/data/db.sqlite`, refuses live/starting units, non-regular/symlink
-  DBs and sidecars, and checks for detectable writes and stopped state after hashing. A failed
-  integrity gate preserves uploaded data and prevents build/start; recovery needs an owner decision.
-  PM-718 adds `receive-image` on the same encrypted stdin stream: only the selected native-platform
+  PM-718 adds `receive-image` on the same encrypted stdin stream: only the arm64
   Docker tar crosses to EC2. Root-only temporary storage, bounded size, SHA-256, free disk, sole tag,
   config digest/platform/revision/version checks precede import; image inspect verifies the result.
   Only strict imageId/platform/revision JSON returns. Docker load output stays on stderr. No registry
   or credentials cross this boundary, and no container or DB starts during import.
-  Ubuntu util-linux `flock` serializes import/build/start through the root-only
+  Ubuntu util-linux `flock` serializes import/start through the root-only
   `/var/lib/projectman/.image.lock`; current/previous immutable IDs are never dangling-image pruned.
   PM-725 also serializes bootstrap under this lock. On the Ubuntu host, `host.sh` installs `jq`
   before Docker dependencies, then atomically sets `/etc/docker/daemon.json`
@@ -2456,18 +2447,17 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 - **The cloud machine and its operation (PM-535, PM-718, PM-725; EC2 is the only compute since PM-1036)** —
   `scripts/cloud/{host,machine,images}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
-  `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle`: without it, the
-  existing amd64 host build remains; with it, import
-  precedes env/start without build fallback. History adds optional imageId/platform; status adds
+  `apps/server/test/helpers/fake-host.ts`. PM-718's `deployment.imageBundle` (required since PM-1116; the
+  host build is gone): import precedes env/start. History carries imageId/platform; status adds
   actual container imageId. Prebuilt start uses an immutable ID; health and rollback check/carry it
-  and the source SHA. ARM refuses builds and digestless starts/rollback. Operations stay on the
+  and the source SHA. Digestless starts/rollback are refused, as is a non-arm64 record. Operations stay on the
   admin machine/target host, independent of remote engines.
   PM-725 applies the same explicit `/etc/docker/daemon.json` classic-store setting, stopped-board
   and empty-history restart guard, actual-daemon checks and required bundle reimport described
   in the EC2 host channel entry above. This is an Ubuntu-host assumption; Docker Desktop and
   remote engine configuration are unchanged.
   The commands `deploy`, `rollback`, `status`, `logs`, `ssh`,
-  `stop`, `start`, `rehearse`, `seed` and `pull-data` of `npm run cloud`. **What runs where:** on the
+  `stop`, `start`, `rehearse` and `pull-data` of `npm run cloud`. **What runs where:** on the
   Mac `ssh` (and `git ls-remote`, `tar`, the `aws` CLI); on the Ubuntu machine, as root through
   `sudo bash -c '<host.sh>' host.sh <subcommand>` (the script travels as the `-c` argument, so the
   standard input carries the payload: the unit file, `cloud.env`, a tar stream), Docker, git, `jq`
@@ -2476,18 +2466,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   mounted; it publishes no port (the Cloudflare tunnel connects outwards), uses no host network, no
   extra privilege and no Docker socket (`deploy-aws.test.ts` checks it). State on the machine:
   `/etc/projectman/{cloud.env,image.env}`, `/var/lib/projectman/{data,deploy.json}` (`current`,
-  `previous`, `lastStoppedAt`), the checkout `/opt/projectman/src`. **Machine assumptions:** the
+  `previous`, `lastStoppedAt`). **Machine assumptions:** the
   machine is Ubuntu 24.04 with `apt`, `systemd` and Docker from the distribution; the owner's Mac has
   `ssh` and reaches the machine through SSM with an ephemeral key (the EC2 host channel entry above;
-  no inbound rule, no public-address lookup). The build happens on the 2 GB machine (swap file, 3 GiB free-disk check). The released
+  no inbound rule, no public-address lookup). The machine builds nothing; it imports the bundle's image. The released
   image is tagged with the full commit id, which is also `PROJECTMAN_VERSION`. **Does this work on a
   remote engine?** Nothing in it runs on an engine: it is the owner's own tool for the server side, and
   the engine neither calls nor depends on it. The entries "Cloud provisioning" and "Cloud deployment
   and backup" are the other parts of the same chain.
-  PM-717 applies the mandatory `seed-digest` gate here too: the owner tool
-  compares source before/after SHA-256 and bytes with the stopped Ubuntu host before any build/start.
-  It assumes coreutils `stat`/`sha256sum`, a closed package and a single administrator during cutover;
-  no new port, persistent state, engine operation or server/engine payload is introduced.
 
 - **The Cloudflare side of the cloud board (PM-536)** — `scripts/cloud/cloudflare{,-api,-publish,-check}.ts`,
   the `guard-check` subcommand of `deploy/aws/host.sh`, `deploy/cloudflare/check.sh`,
@@ -2856,9 +2842,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   or ref, `engine-limit.ts` binds the repository and requires a full object id. Protocol version stays
   1; an older engine answers `unknown_method` and the call fails with an update message, so update the
   engines before the hybrid hand-over is used.
-  Events are acknowledged after handling, and engine-scoped request
-  results survive reconnects for five minutes in memory. `secret.nanogpt_key` is never cached or
-  logged; the starting-session condition is enforced by the PM-315 handler, unavailable by default.
+  Events are acknowledged after handling; request results are not kept after they are sent (PM-1116).
+  `secret.nanogpt_key` is never logged; the starting-session condition is enforced by the PM-315 handler, unavailable by default.
   `bootId` identifies a process start; `instanceTag` still identifies the engine home. Disconnects
   immediately remove the live link, but status stays online for 120 seconds. Registry and key
   management run only in cloud engine mode; single mode exposes an empty status list.
@@ -3101,7 +3086,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   remains available through the existing facade. `test/architecture/lazy-packages.test.ts` guards
   against static value imports. The engine and single mode load each package where its work runs;
   the existing RPC boundary and host requirements do not change.
-  The idempotency store of a link keeps 10,000 results; the `usage` events replayed after a cloud restart
+  The link keeps no request results (PM-1116): a request id is random, so no caller repeats one, and a
+  kept `mcp.relay` body only held the 256 MB heap. The `usage` events replayed after a cloud restart
   can be counted twice, because the cloud's memory of handled events does not survive its restart.
   **Engine per project (PM-1059).** The business code no longer asks the hub for "the" default engine;
   it asks `EngineDirectory.projectEngine(projectKey)` (the project's base engine) or `hostEngine()` (the
@@ -3169,10 +3155,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
   `.github/workflows/history-semantic-profile.yml` (the release measurement on a GitHub-hosted `ubuntu-24.04-arm` runner, PM-913),
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  PM-1116: `backup.sh` runs `restic forget` on every backup and `restic prune` once a week (the marker file
+  `.restic-last-prune` in the home; a lost marker only repeats one prune); the RSS composition
+  (`smaps_rollup`, the `memory` log line) is described in HYBRID.md "What the RSS is made of".
   PM-718 adds `scripts/cloud/images.ts`: an admin builder with existing Docker/Buildx docker-container
-  driver and native builders/emulation exports separate single-platform Docker archives (PM-916:
-  by default only the target machine's platform, `targetPlatform(config)`; `--all-platforms` both;
-  the manifest holds one or two images, old two-image bundles stay valid)
+  driver and native builders/emulation exports the single-platform linux/arm64 Docker archive (PM-1116:
+  arm64 only; the manifest holds one image and a bundle with another platform is refused)
   at one clean HEAD SHA, using a tracked-source-only context and the existing .dockerignore. The
   revision LABEL and PROJECTMAN_VERSION retain that full SHA. A strict, atomically published bundle
   manifest pins archive hashes/sizes and config digests after import/inspect verification. Output
@@ -3254,7 +3242,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   proves coverage/error paths, while real S3/Docker acceptance belongs to PM-675. Storage secrets
   and backup execution stay on the cloud, never in engine payloads.
   PM-773 adds the memory tools `deploy/cloud/{memory-probe,memory-profile,heap-summary}.mjs` (the
-  Dockerfile copies them beside the other scripts; `docs/HYBRID.md`, "Memory profile"). They are run
+  Dockerfile does not copy them since PM-1116: they come from the repository as a read-only volume;
+  `docs/HYBRID.md`, "Memory profile"). They are run
   by hand, on a disposable copy of a home (marker `<home>/.memory-profile-copy`), on the loopback
   with no network: the profile starts the server as a child process in a cleared environment, sends
   it SIGUSR2 for heap snapshots, reads `/proc/<pid>/status` (Linux; `ps` on macOS), and loads it with
@@ -4717,13 +4706,14 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
-  PM-674's [rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
+  PM-674's [rollback sheet](CLOUD-CUTOVER.md) uses protected return
   directories outside the source and repositories and brings final stopped-cloud data back
-  before activation. Package/home is the seed input;
-  seed dry-run checks buckets, while the live host check precedes upload. No second writer or
+  before activation. No second writer or
   automatic clearing of used targets is allowed; data transport is the owner's administration path.
-  `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
-  hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
+  PM-1116 retired the one-off CLI commands `inventory`, `hybrid plan` and `hybrid package` (and the cloud
+  `seed`; the last commit that has them is tagged `retired-migrate-dns`); `hybrid back`, `instance` and
+  `verify` stay. Their library functions (`buildHybridPlan`, `createHybridPackage`, `buildInventory`) remain only because the
+  test fixtures build a cloud's data with them. The cloud package was made on the Mac from a stopped source and held a closed list
   (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the
   database and `core/attachments` reference), `feedback`, `memory`, `HYBRID_CLOUD_ENTRIES`; a package made before
   PM-666 has no `message-attachments`, which is accepted, and `REPLACED_ENTRIES` of the way back lists it too);

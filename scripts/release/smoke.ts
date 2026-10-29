@@ -70,7 +70,7 @@ const resultSchema = z.strictObject({
   revision: z.string(),
 });
 
-const NODE_ARCH = { 'linux/arm64': 'arm64', 'linux/amd64': 'x64' } as const;
+const NODE_ARCH = { 'linux/arm64': 'arm64' } as const;
 
 /** The whole `docker run` of one smoke: no mount, no port, no network, no host variable, no pull. */
 function smokeRunArgs(name: string, image: Pick<BundleImage, 'platform' | 'imageId'>): string[] {

@@ -12,7 +12,7 @@ import {
 } from './receipt';
 
 /** The only platform the hybrid machine runs; a preparation builds and smokes just this one (PM-916). */
-export const HYBRID_PLATFORM = 'linux/arm64' satisfies Platform;
+const HYBRID_PLATFORM ='linux/arm64' satisfies Platform;
 
 /** What the coordinator carries to the targets once a preparation was checked again. */
 export interface VerifiedPrepared {

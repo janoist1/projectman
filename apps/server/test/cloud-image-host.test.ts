@@ -125,7 +125,7 @@ if (operation === 'sha256sum') {
     `UNIT_FILE=${quote(file('unit.service'))}`,
     `DOCKER_DIR=${quote(file('docker'))}`,
     `DOCKER_CONFIG=${quote(file('docker/daemon.json'))}`,
-    `uname() { echo ${['host', 'legacy-amd64'].includes(scenario) ? 'x86_64' : 'aarch64'}; }`,
+    `uname() { echo ${scenario === 'host' ? 'x86_64' : 'aarch64'}; }`,
     `flock() { echo "flock $*" >>${quote(log)}; }`,
     `stat() { ${quote(process.execPath)} ${quote(tool)} stat "$@"; }`,
     `sha256sum() { ${quote(process.execPath)} ${quote(tool)} sha256sum "$@"; }`,
@@ -321,20 +321,6 @@ describe('the real host image protocol with fake Docker and portable coreutils',
       expect(deploy.current).toMatchObject({ sha, imageId: f.id, platform: 'linux/arm64' });
       expect(deploy.previous).toMatchObject({ sha: old, imageId: `sha256:${'2'.repeat(64)}` });
       expect(f.calls).toContain('systemctl start projectman-cloud');
-    } finally {
-      f.cleanup();
-    }
-  });
-  it('keeps legacy amd64 history and tag-based start compatible', () => {
-    const f = fixture('legacy-amd64', 'legacy');
-    try {
-      expect(f.result.status, f.result.stderr).toBe(0);
-      expect(fs.readFileSync(f.file('image.env'), 'utf8')).toBe(`IMAGE=projectman-cloud:${sha}\n`);
-      expect(JSON.parse(fs.readFileSync(f.file('deploy.json'), 'utf8')).current).toEqual({
-        sha,
-        ref: sha,
-        at: expect.any(String),
-      });
     } finally {
       f.cleanup();
     }

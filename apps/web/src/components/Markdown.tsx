@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { memo } from 'react';
 import type { ReactNode } from 'react';
 import styles from './Markdown.module.css';
 
@@ -145,7 +146,8 @@ export function InlineMarkdown({ text }: { text: string }) {
   return <>{withBreaks(text, 'i')}</>;
 }
 
-export function Markdown({
+/** Memoized: a long chat re-renders on every live event, and its unchanged texts need no new parse (PM-1116). */
+export const Markdown = memo(function Markdown({
   text,
   className,
   cardKey,
@@ -197,4 +199,4 @@ export function Markdown({
       })}
     </div>
   );
-}
+});

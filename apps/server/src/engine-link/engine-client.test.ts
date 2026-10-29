@@ -319,7 +319,8 @@ describe('engine link handshake recovery', () => {
       },
       message: (frame: object) =>
         events.dispatchEvent(Object.assign(new Event('message'), { data: JSON.stringify(frame) })),
-      welcome: () =>
+      /** `heartbeat: false` is the welcome of an older cloud, which promises no heartbeat. */
+      welcome: (opts: { heartbeat?: boolean } = {}) =>
         events.dispatchEvent(
           Object.assign(new Event('message'), {
             data: JSON.stringify({
@@ -327,6 +328,7 @@ describe('engine link handshake recovery', () => {
               engineId: 'eng_aaaaaaaaaaaa',
               ackedSeq: 0,
               serverTime: new Date().toISOString(),
+              ...(opts.heartbeat === false ? {} : { heartbeat: true }),
             }),
           }),
         ),
@@ -493,6 +495,16 @@ describe('engine link handshake recovery', () => {
       await vi.advanceTimersByTimeAsync(20_000);
       expect(sockets[0]!.socket.close).toHaveBeenCalledExactlyOnceWith(4000, 'silent');
       expect(status.get().lastError?.code).toBe('link_silent');
+    });
+
+    it('leaves an idle link of a cloud that promised no heartbeat alone', async () => {
+      const made = make();
+      made.sockets[0]!.open();
+      await vi.advanceTimersByTimeAsync(0);
+      made.sockets[0]!.welcome({ heartbeat: false });
+      await vi.advanceTimersByTimeAsync(400_000);
+      expect(made.sockets[0]!.socket.close).not.toHaveBeenCalled();
+      expect(made.createSocket).toHaveBeenCalledTimes(1);
     });
 
     it('does not drop the link when frames arrive after one late tick', async () => {

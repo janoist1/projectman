@@ -298,7 +298,7 @@ describe('cloud engine registry and link', () => {
     });
     const connection = await handshake(engine.key);
     await vi.waitFor(() => expect(connection.frames).toHaveLength(2));
-    expect(connection.frames[0]).toMatchObject({ t: 'welcome' });
+    expect(connection.frames[0]).toMatchObject({ t: 'welcome', heartbeat: true });
     const frame = connection.frames[1];
     expect(frame).toMatchObject({ t: 'req', method: 'host.free_disk' });
     if (frame?.t !== 'req') throw new Error('Expected request after welcome');

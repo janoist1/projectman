@@ -107,6 +107,8 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
 
   let socket: LinkSocket | null = null;
   let rpc: EngineRpc | null = null;
+  /** Whether the cloud of this connection promised its heartbeat in the welcome (an older one sends none). */
+  let cloudHeartbeats = false;
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
   let failures = 0;
@@ -171,7 +173,10 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       ended = true;
       clearTimeout(handshake);
       if (socket === ws) socket = null;
-      if (rpc === connection) rpc = null;
+      if (rpc === connection) {
+        rpc = null;
+        cloudHeartbeats = false;
+      }
       connection?.close();
       buffer.disconnect();
       if (welcomed) {
@@ -273,6 +278,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         welcomed = true;
         clearTimeout(handshake);
         rpc = connection;
+        cloudHeartbeats = frame.heartbeat === true;
         failures = 0;
         connectedAt = now();
         logger.info(
@@ -324,9 +330,10 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       // `ENGINE_HEARTBEAT_MS` as an app-level heartbeat (idle links included): if no frame came for
       // `ENGINE_DEAD_AFTER_MS`, reconnect. It takes two ticks in a row: after a stalled event loop Node runs
       // the timer before it reads the frames queued meanwhile, so one late tick alone does not prove the
-      // cloud went silent.
+      // cloud went silent. Only a cloud whose welcome promised the heartbeat is judged by it: an older one
+      // is quiet when idle, and reconnecting would only repeat that every few minutes.
       watchdog = setInterval(() => {
-        const silent = !!socket && !!rpc && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS;
+        const silent = !!socket && !!rpc && cloudHeartbeats && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS;
         silentTicks = silent ? silentTicks + 1 : 0;
         if (silent && silentTicks >= 2 && socket) {
           silentTicks = 0;

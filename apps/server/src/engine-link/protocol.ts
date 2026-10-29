@@ -238,6 +238,11 @@ export const EngineFrame = z.discriminatedUnion('t', [
     engineId: EngineId,
     ackedSeq: int.max(Number.MAX_SAFE_INTEGER),
     serverTime: text,
+    /**
+     * The cloud repeats its acknowledgement every `ENGINE_HEARTBEAT_MS` on this link, so silence means it is dead.
+     * Absent: an older cloud sends none, and the engine must not take its quiet for a dead link.
+     */
+    heartbeat: z.literal(true).optional(),
   }),
   z.strictObject({
     t: z.literal('refuse'),

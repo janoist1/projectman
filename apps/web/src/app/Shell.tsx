@@ -376,7 +376,7 @@ export function TopBar({
       <ChecklistIndicator />
       <OperatorButton variant="bar" />
       <InboxPill count={inboxCount} />
-      {can.createTasks ? (
+      {can.newCards ? (
         <Button
           variant="primary"
           icon="plus"
@@ -446,7 +446,7 @@ export function MobileHeader({
       <MachineIndicator phone />
       <ChecklistIndicator />
       <OperatorButton variant="phone" />
-      {can.createTasks ? (
+      {can.newCards ? (
         <Button
           variant="primary"
           size="md"

@@ -10,6 +10,7 @@ export * from './domain/developer-level';
 export * from './domain/complexity';
 export * from './domain/choose-developer';
 export * from './config/complexity';
+export * from './config/task-create';
 export * from './config/lifecycle';
 export * from './domain/board-order';
 export * from './domain/relations';

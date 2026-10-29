@@ -2982,6 +2982,15 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                         "type": "array",
                       },
+                      "taskCreateAccess": {
+                        "enum": [
+                          "owner",
+                          "admin",
+                          "developer",
+                          "client",
+                        ],
+                        "type": "string",
+                      },
                       "viewerRecipients": {
                         "enum": [
                           "project_manager",

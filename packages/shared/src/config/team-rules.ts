@@ -1,12 +1,12 @@
 import { fixLimitDeciders, fixLimitLead, maxFixRoundsOf } from '../domain/fix-limit';
 import { CODE_REVIEW_CHANGES_LABEL, DESIGN_REVIEW_CHANGES_LABEL } from '../domain/card-measure';
 import { isHumanOnlyLabel, REFINE_LABEL, WAITING_ANSWER_LABEL } from '../domain/label';
-import { TASK_CREATE_MIN_ACCESS } from '../domain/member';
 import type { HumanAccess } from '../domain/member';
 import { labelDefinition, labelExcludesAuthors } from './labels';
 import { ownerHandles } from './lookup';
 import { developmentStage, isRefinementStage, projectRefines } from './refinement';
 import type { ProjectConfig } from './schema';
+import { taskCreateAccessOf } from './task-create';
 
 export const TEAM_RULE_IDS = [
   'new_card',
@@ -31,7 +31,7 @@ export type TeamRule =
 export function teamRules(config: Pick<ProjectConfig, 'team' | 'pipeline'>): TeamRule[] {
   const { labels, stages } = config.pipeline;
   const rules: TeamRule[] = [
-    { id: 'new_card', firstStageId: stages[0]!.id, minimumAccess: TASK_CREATE_MIN_ACCESS },
+    { id: 'new_card', firstStageId: stages[0]!.id, minimumAccess: taskCreateAccessOf(config) },
     {
       id: 'gates_in_order',
       clearedOnMoveBack: labels

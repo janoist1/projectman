@@ -284,6 +284,26 @@
   overflow-wrap: anywhere;
 }
 
+/* One choice among several as a single list (no gap between the rows, a finger tall each); the radio sits by the first text line. */
+.choiceList {
+  display: flex;
+  flex-direction: column;
+}
+
+.choiceRow {
+  align-items: flex-start;
+  padding: 13px 0;
+  box-sizing: border-box;
+}
+
+.choiceRow input {
+  margin-top: 1px;
+}
+
+.choiceRow .dutyText {
+  padding: 0;
+}
+
 /* The folded part's opener: a finger tall, with a chevron that turns when it opens (as on the roles page). */
 .foldSummary {
   display: flex;

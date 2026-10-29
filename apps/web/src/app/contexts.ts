@@ -24,7 +24,10 @@ export interface ProjectContextValue {
   isOwner: boolean;
   /** Allowed actions by access level (the server enforces them too). */
   can: {
+    /** Developer-level work on cards: moving, editing and starting them. Opening a new one is `newCards`. */
     createTasks: boolean;
+    /** Whether the viewer may open a new card (`canCreateTasks`, PM-1100). */
+    newCards: boolean;
     manageTeam: boolean;
     workInSessions: boolean;
     pauseTeam: boolean;

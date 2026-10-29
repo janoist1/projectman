@@ -6582,6 +6582,20 @@ export const hu = {
           with: 'A tulajdonos, valamint ezek a feladatkörök: {duties}',
         },
       },
+      /** Who may open a new card (PM-1100). */
+      taskCreate: {
+        title: 'Új kártya nyitása',
+        help: 'Az AI-tagok mindig nyithatnak kártyát, a betekintő soha.',
+        question: 'Ki nyithat új kártyát?',
+        options: {
+          owner: 'Csak a tulajdonos',
+          admin: 'Tulajdonos és admin',
+          developer: 'Tulajdonos, admin és fejlesztő',
+          client: 'Tulajdonos, admin, fejlesztő és megrendelő',
+        },
+        clientNote: 'A megrendelő kártyája mindig az első sorban indul: {stage}.',
+        ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+      },
       projectManagerMoves: {
         title: 'A Projektmenedzser mozgatási joga',
         label: 'Mit mozgathat önállóan?',

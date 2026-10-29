@@ -5,6 +5,7 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../api/client';
 import { t } from '../i18n/t';
+import { MockBackend } from '../mocks/backend';
 import { mockProject } from '../test/mockProject';
 import { MeContext, useProject } from './contexts';
 import { ProjectLayout } from './ProjectLayout';
@@ -39,6 +40,7 @@ describe('project access from Me', () => {
     expect(JSON.parse((await screen.findByTestId('access')).textContent!)).toEqual({
       can: {
         createTasks: false,
+        newCards: false,
         manageTeam: false,
         workInSessions: false,
         pauseTeam: false,
@@ -48,6 +50,32 @@ describe('project access from Me', () => {
       isOwner: false,
     });
     await screen.findByText('Acme webshop');
+  });
+
+  it('lets a client open new cards once the project allows it, and still not work on them (PM-1100)', async () => {
+    const backend = new MockBackend();
+    backend.config.team.taskCreateAccess = 'client';
+    const project = mockProject(backend);
+    const me = {
+      ...project.context.me,
+      projects: [{ key: 'AC', name: 'Fictional project', access: 'client' as const, roles: [] }],
+    };
+    project.render(
+      <MeContext.Provider value={me}>
+        <Routes>
+          <Route path="/p/:projectKey" element={<ProjectLayout />}>
+            <Route index element={<AccessProbe />} />
+          </Route>
+        </Routes>
+      </MeContext.Provider>,
+      '/p/AC',
+    );
+    await waitFor(() =>
+      expect(JSON.parse(screen.getByTestId('access').textContent!).can).toMatchObject({
+        newCards: true,
+        createTasks: false,
+      }),
+    );
   });
 });
 

@@ -25,6 +25,8 @@ import {
   projectManagerMovesOf,
   projectManagerOf,
   projectManagersOf,
+  TaskCreateAccess,
+  taskCreateAccessOf,
   viewerRecipientsOf,
   writableRecipientHandles,
 } from '@projectman/shared';
@@ -370,6 +372,50 @@ function PriorityControls({ config, helpId }: { config: ProjectConfig; helpId: s
   );
 }
 
+/** The first stage's name: where a client's new card starts (PM-1100). */
+function firstStageName(config: ProjectConfig): string {
+  return config.pipeline.stages[0]?.name ?? '';
+}
+
+/** Who may open a new card: four radios, each listing the roles it lets in, saved at once (PM-1100). */
+function TaskCreateControls({ config }: { config: ProjectConfig }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const chosen = taskCreateAccessOf(shown);
+  const noteId = useId();
+  return (
+    <fieldset className={shared.controls} disabled={locked || saving} aria-busy={saving}>
+      <legend className={shared.setterLegend}>{t('settings.team.taskCreate.question')}</legend>
+      <div className={shared.choiceList}>
+        {TaskCreateAccess.options.map((access) => (
+          <label key={access} className={`${shared.contactRow} ${shared.choiceRow}`}>
+            <input
+              type="radio"
+              name="task-create-access"
+              value={access}
+              checked={chosen === access}
+              aria-describedby={access === 'client' ? noteId : undefined}
+              onChange={() =>
+                commit((draft) => {
+                  draft.team.taskCreateAccess = access;
+                })
+              }
+            />
+            <span className={shared.dutyText}>
+              <span>{t(`settings.team.taskCreate.options.${access}`)}</span>
+              {access === 'client' ? (
+                <span id={noteId} className={shared.dutyHolders}>
+                  {t('settings.team.taskCreate.clientNote', { stage: firstStageName(shown) })}
+                </span>
+              ) : null}
+            </span>
+          </label>
+        ))}
+      </div>
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
 /** The card mover as a sentence, for those who may not change it. */
 function moverValue(config: ProjectConfig): string {
   const mover = cardMoverOf(config);
@@ -696,7 +742,7 @@ function ContactControls({ config }: { config: ProjectConfig }) {
  * merges the approved work into the main branch (PM-453).
  */
 export function TeamSection({ config }: { config: ProjectConfig }) {
-  const { key, can } = useProject();
+  const { key, can, isOwner } = useProject();
   const roles = useRoles(key);
   const priorityHelpId = useId();
   const lifecycleHelpId = useId();
@@ -725,6 +771,34 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
       <p className={shared.muted}>
         <Link to={`/p/${key}/team`}>{t('settings.team.manage')}</Link>
       </p>
+      <section aria-labelledby="settings-task-create-title">
+        <h3 id="settings-task-create-title" className={shared.groupTitle}>
+          {t('settings.team.taskCreate.title')}
+        </h3>
+        <div className={shared.controls}>
+          <p className={shared.help}>{t('settings.team.taskCreate.help')}</p>
+          {isOwner ? (
+            <TaskCreateControls config={config} />
+          ) : (
+            <>
+              <dl className={shared.facts}>
+                <div>
+                  <dt>{t('settings.team.taskCreate.question')}</dt>
+                  <dd>{t(`settings.team.taskCreate.options.${taskCreateAccessOf(config)}`)}</dd>
+                </div>
+              </dl>
+              {taskCreateAccessOf(config) === 'client' ? (
+                <p className={shared.help}>
+                  {t('settings.team.taskCreate.clientNote', { stage: firstStageName(config) })}
+                </p>
+              ) : null}
+              {can.manageTeam ? (
+                <p className={shared.help}>{t('settings.team.taskCreate.ownerOnly')}</p>
+              ) : null}
+            </>
+          )}
+        </div>
+      </section>
       <section aria-labelledby="settings-mover-title">
         <h3 id="settings-mover-title" className={shared.groupTitle}>
           {t('settings.team.mover.label')}

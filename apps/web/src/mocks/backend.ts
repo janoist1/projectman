@@ -242,6 +242,9 @@ import {
   ProjectFocusAddRequest,
   ProjectFocusMoveRequest,
   projectFocusRefusal,
+  canCreateTasks,
+  createsInFirstStageOnly,
+  taskCreateAccessOf,
   taskWait,
   waitHolders,
   waitWorkers,
@@ -2742,12 +2745,21 @@ export class MockBackend {
     if (!viewer) return error(403, 'not_a_member', 'Not a member');
     if (restricted && (viewer.kind !== 'human' || !['owner', 'admin'].includes(viewer.role)))
       return error(403, 'insufficient_access', 'Owner or admin required');
-    if (
-      (rest === '/tasks' && method === 'POST') ||
-      /\/tasks\/[^/]+\/(close-theme|reopen|board-move)$/.test(rest)
-    ) {
+    if (/\/tasks\/[^/]+\/(close-theme|reopen|board-move)$/.test(rest)) {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
         return error(403, 'insufficient_access', 'Developer access required');
+    }
+    if (rest === '/tasks' && method === 'POST') {
+      const access = this.viewerAccess();
+      if (!canCreateTasks(this.config, access))
+        return error(403, 'insufficient_access', `Requires ${taskCreateAccessOf(this.config)} access`);
+      const stageId = (body as { stageId?: unknown } | undefined)?.stageId;
+      if (
+        createsInFirstStageOnly(access) &&
+        stageId !== undefined &&
+        stageId !== this.config.pipeline.stages[0]?.id
+      )
+        return error(403, 'insufficient_access', 'A client opens cards in the first stage only');
     }
     if (rest.startsWith('/invites')) return this.handleInvitations(method, rest, body);
     if (rest === '/email' || rest.startsWith('/email/'))

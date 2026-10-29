@@ -6,6 +6,8 @@ import {
   isHandleOnLeave,
   isOpenTask,
   memberOf,
+  machineAccessOf,
+  projectManagerMovesOf,
   planStarts,
   projectManagerOf,
   pullSourceStage,
@@ -448,6 +450,12 @@ export class StartRound implements StartRounding {
                 : [],
               toStageId,
               backStageId,
+              holdBack:
+                projectManagerMovesOf(config) === 'queues_and_start'
+                  ? 'move'
+                  : machineAccessOf(memberOf(config, recipient)!)
+                    ? 'integrator'
+                    : 'ask',
               ...(group[0]!.assignee ? { assigned: true } : {}),
             }),
           },

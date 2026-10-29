@@ -163,6 +163,14 @@ describe('checkDependencies', () => {
       check(`import '../service/internal'; import '../service/internal.ts';`, [exception], [core, sealed]),
     ).toMatchObject([{ kind: 'sealed' }]);
   });
+  test('accepts a declared second entry of a sealed module and still refuses other internal files', () => {
+    const sealed = { ...service, sealed: true, entries: ['index.ts', 'internal.ts'] };
+    expect(check(`import '../service/internal';`, [exception], [core, sealed])).toEqual([]);
+    const input = [...files(`import '../service/other';`), { path: 'service/other.ts', source: '' }];
+    expect(checkDependencies(input, [core, sealed], LAYER_RULES, [exception])).toMatchObject([
+      { kind: 'sealed' },
+    ]);
+  });
   test('allows internal imports inside a sealed module', () => {
     const input = files('');
     input[1] = { path: 'service/index.ts', source: `import './internal';` };

@@ -139,6 +139,24 @@ describe('the start offer to the project manager', () => {
     expect(wait?.hold).toBeUndefined();
   });
 
+  it.each([
+    ['queues_and_start', false, 'yourself'],
+    ['start_only', true, 'integrator todo'],
+    ['start_only', false, 'ask_human'],
+  ] as const)('routes owner holds with moves %s and machine access %s', async (moves, access, expected) => {
+    await harness((config) => {
+      config.team.projectManagerMoves = moves;
+      const pm = config.team.members.find((member) => member.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.machineAccess = access;
+    });
+    await create('Owner hold route');
+    await settle();
+    expect(offers()).toHaveLength(1);
+    const hold = offers()[0]!.body.split("If the owner's comment")[1]!;
+    expect(hold).toContain(expected);
+    expect(hold).toContain('backlog');
+  });
+
   describe('a collector', () => {
     it.each(['done', 'cancelled'] as const)('never offers a collector with only %s parts', async (status) => {
       await harness();
@@ -279,7 +297,7 @@ describe('the start offer to the project manager', () => {
   });
 
   describe('an assigned card in the work stage that nobody started (PM-879)', () => {
-    /** A card the owner moved forward with its assignee: going forward starts nothing (PM-119). */
+    /** A card the owner moved forward with its existing assignee; its hand-over keeps that assignment. */
     const waitingInWork = async (title: string, assignee = 'dev-1') => {
       const key = await idea(title);
       h.domain.tasks.assign('AR', key, assignee, OWNER_ACTOR);
@@ -308,7 +326,7 @@ describe('the start offer to the project manager', () => {
       expect(stateOf(row)).toBe('fulfilled');
     });
 
-    it('is not offered while its assignee is busy, and keeps its assignee from other cards', async () => {
+    it('starts the deferred hand-over when its assignee becomes free without offering another card', async () => {
       await harness();
       const busy = await busyDevelopers();
       const key = await waitingInWork('Moved forward');
@@ -318,7 +336,12 @@ describe('the start offer to the project manager', () => {
       const own = busy.find((card) => task(card).assignee === 'dev-1')!;
       await h.domain.tasks.cancel('AR', own, { reason: 'Fictional.' }, OWNER_ACTOR);
       await settle();
-      expect(startText(key)).toHaveLength(1);
+      const sessions = h.domain.sessions
+        .listLive('AR', 'dev-1')
+        .filter((session) => session.workItem.type === 'task' && session.workItem.taskKey === key);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.startCause).toMatchObject({ kind: 'hand_over' });
+      expect(startText(key)).toEqual([]);
       expect(startText(other)).toEqual([]);
     });
   });

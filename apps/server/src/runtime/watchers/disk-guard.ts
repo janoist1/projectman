@@ -12,6 +12,9 @@ const GB = 1024 ** 3;
 /** How long a measurement of the free disk space serves the admission checks (the `disk` watcher measures afresh). */
 const FREE_DISK_CACHE_MS = 60_000;
 
+/** A measurement this old still answers `assertRoom` at once while the next one is taken in the background. */
+const FREE_DISK_STALE_MS = 5 * FREE_DISK_CACHE_MS;
+
 /**
  * Free disk space (PM-243). A full disk froze the owner's machine, so below the project's
  * `minFreeDiskGb` the owners get one `alert` (kept open while the space is short, and withdrawn once
@@ -29,6 +32,8 @@ export class DiskGuard {
   private readonly told = new Set<string>();
   /** The last successful measurement per engine ('' for the unspecified one), for `assertRoom`. */
   private readonly measured = new Map<string, { at: number; free: number }>();
+  /** The measurements under way per engine key: concurrent starts share one. */
+  private readonly measuring = new Map<string, Promise<number | null>>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -71,12 +76,22 @@ export class DiskGuard {
   private async freeCached(engineId?: EngineId): Promise<number | null> {
     const key = engineId ?? '';
     const known = this.measured.get(key);
-    if (known && Date.now() - known.at < FREE_DISK_CACHE_MS) return known.free;
-    const free = await this.free(engineId);
-    // A failed measurement is asked again at the next start, not remembered.
-    if (free === null) this.measured.delete(key);
-    else this.measured.set(key, { at: Date.now(), free });
-    return free;
+    const age = known ? Date.now() - known.at : Infinity;
+    if (known && age < FREE_DISK_CACHE_MS) return known.free;
+    let measuring = this.measuring.get(key);
+    if (!measuring) {
+      measuring = this.free(engineId)
+        .then((free) => {
+          // A failed measurement is asked again at the next start, not remembered.
+          if (free === null) this.measured.delete(key);
+          else this.measured.set(key, { at: Date.now(), free });
+          return free;
+        })
+        .finally(() => this.measuring.delete(key));
+      this.measuring.set(key, measuring);
+    }
+    // Admission asks under its lock (PM-1133): an older measurement answers while a fresh one is taken behind it.
+    return known && age < FREE_DISK_STALE_MS ? known.free : measuring;
   }
 
   /**

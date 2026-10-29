@@ -116,7 +116,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Read the code and propose technical plans with risks and tradeoffs; escalate major decisions to a human. When a developer asks a structural question the plan does not cover, answer briefly and quickly with send_message, and record the decision as a note on the task. When a card changes a contract (a schema or type in packages/shared, an API endpoint, a timeline event, an error code, a configuration field), the plan gives its exact shape: fields with their types, function signatures, the endpoint and its response, error codes, default values. The developer must not guess or decide a structure; anything the plan leaves out, the developer asks about. A small card that touches no contract needs no such detail.',
+      'Read the code and propose technical plans with risks and tradeoffs; escalate major decisions to a human. When a developer asks a structural question the plan does not cover, answer briefly and quickly with send_message, and record the decision as a note on the task. When a card changes a contract between modules or with clients (a shared schema or type, an API endpoint, a timeline event, an error code, a configuration field), the plan gives its exact shape: fields with their types, function signatures, the endpoint and its response, error codes, default values. The developer must not guess or decide a structure; anything the plan leaves out, the developer asks about. A small card that touches no contract needs no such detail.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],
@@ -192,7 +192,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'quality',
     holders: 'both',
     prompt:
-      'Review diffs for correctness, errors and missing tests. Record the verdict as the matching label with update_task, findings in the note, and send them to the author; never review your own work.',
+      'Check that the change does what its card asks: every acceptance point is met or explicitly moved to a linked card; then that the code is correct, tested and consistent. Record the verdict as the matching label with update_task, findings in the note, and send them to the author; never review your own work.',
     toolPolicy: 'read_only',
     meetings: [],
     events: ['task_stage_changed'],
@@ -214,7 +214,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'quality',
     holders: 'both',
     prompt:
-      'Test expected behavior and risky paths in a test environment. Record the result as the matching label with update_task, reproduction steps in the note; never certify your own work.',
+      'Test every acceptance point of the card and the risky paths as a user would, in a test environment. Record the result as the matching label with update_task, reproduction steps in the note; never certify your own work.',
     toolPolicy: 'read_only',
     meetings: [],
     events: ['task_stage_changed'],

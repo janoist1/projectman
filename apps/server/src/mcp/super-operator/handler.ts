@@ -6,8 +6,10 @@ import {
   isOpenTask,
   isTheme,
   machineTodoIssuerAllowed,
+  machineTodoIssuerOf,
   memberOf,
   needsRepoChoice,
+  questionPayloadOf,
   roleBundle,
   TaskKey,
   TaskStatus as TaskStatusSchema,
@@ -148,7 +150,8 @@ export class ExternalTools implements ExternalToolsHandler {
 
   /**
    * The member a step on an open queue item is made as (decision 66): the issuer of an integrator queue item
-   * that is open for the key's holder and was issued by a member with machine access. An item the system
+   * that is open for the key's holder and was put in the queue by a member with machine access (the screening
+   * member of a screened question, otherwise the item's source: `machineTodoIssuerOf`). An item the system
    * issued has no member behind it: null, and the holder acts in person.
    */
   async queueIssuer(
@@ -171,12 +174,13 @@ export class ExternalTools implements ExternalToolsHandler {
     )
       throw forbidden('queue_item_not_yours', 'the queue item is not open for the key’s holder');
     const config = await this.deps.projects.config(input.projectKey);
-    if (!machineTodoIssuerAllowed(config, item.source))
+    const issuer = machineTodoIssuerOf(item.source, questionPayloadOf(item)?.screening?.by);
+    if (!machineTodoIssuerAllowed(config, issuer))
       throw conflict(
         'issuer_without_machine_access',
         'the member who issued the queue item has no machine access',
       );
-    return memberOf(config, item.source) ? item.source : null;
+    return memberOf(config, issuer) ? issuer : null;
   }
 
   async bind(

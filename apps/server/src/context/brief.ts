@@ -16,6 +16,8 @@ import {
   describeTheme,
   recentTimeline,
   relationLines,
+  BRIEF_TIMELINE_LIMIT,
+  QUIET_TIMELINE_EVENTS,
 } from '../agent-text';
 import type { TextStyle } from '../agent-text';
 import type { ContextPackInput, RelatedSession } from '../contracts';
@@ -34,24 +36,12 @@ import {
 } from './format';
 import type { Situation } from './work-item';
 
-/** Timeline entries shown in the brief (the most recent ones). */
-const TIMELINE_LIMIT = 15;
 /** Attachments listed in the brief; the rest are named by count, to be listed with list_attachments. */
 const ATTACHMENT_LIMIT = 10;
 /** Longer descriptions are cut; the agent reads the rest with get_task. */
 const DESCRIPTION_LIMIT = 12_000;
 /** Maximum length of free text (notes, messages, questions) in a timeline line. */
 const TEXT_LIMIT = 280;
-/** Events that say little about the task itself. */
-const QUIET_EVENTS = new Set<string>([
-  'session_started',
-  'session_ended',
-  'session_permission_changed',
-  'permission_requested',
-  'permission_resolved',
-  'permission_refused',
-  'permission_escalated',
-]);
 
 /**
  * The kick-off brief typed as the first message of a new task session: the task, its
@@ -167,12 +157,12 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   );
 
   const { lines, total } = recentTimeline(input.timeline, {
-    limit: TIMELINE_LIMIT,
+    limit: BRIEF_TIMELINE_LIMIT,
     textLimit: TEXT_LIMIT,
     style,
-    skip: QUIET_EVENTS,
+    skip: new Set(QUIET_TIMELINE_EVENTS),
   });
-  const omitted = total - lines.length;
+  const omitted = (input.timelineTotal ?? total) - lines.length;
   sections.push(
     [
       '## Recent timeline',

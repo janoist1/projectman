@@ -212,7 +212,8 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   the handler refuses the rest with `machine_access_required`, a guest conversation with `operator_owner_only`.
   The owners get it when the integrator is not available (the result says so). A project manager's card with
   an open or handed-over obligation is refused with `obligation_tracked`. `ask_human` with
-  `recipient: integrator` from a member without machine access goes to the owners (`no_machine_access`).
+  `recipient: integrator` reaches the integrator when the screening member has machine access (the asker's
+  does not matter); a screening member without it sends the todo to the owners (`no_machine_access`).
   Returns text. Handler: `openIntegratorTodo`.
 - `reassign_task { task_key, assignee | null, reason }` and `cancel_task { task_key, reason }` (PM-1040) let only
   the selected PM's internal general session change a card's assignee or close it, with no owner request and

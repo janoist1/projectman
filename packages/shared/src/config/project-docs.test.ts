@@ -26,6 +26,32 @@ function config(repos: object[]): ProjectConfig {
   });
 }
 
+describe('repoHeavyChecks patch', () => {
+  it('sets and removes repository prompt conventions while preserving other repositories', () => {
+    const original = config([
+      { name: 'web', path: '.' },
+      { name: 'other', path: 'other' },
+    ]);
+    const checks = { commands: ['custom-check'], unavailableExit: 79, ptySkipped: ['pty.test.ts'] };
+    const patch = PatchConfigRequest.parse({
+      baseVersion: 'v1',
+      repoHeavyChecks: [{ repo: 'web', heavyChecks: checks }],
+    });
+    const next = applyConfigPatch(original, patch);
+    expect(next.project.repos[0]!.heavyChecks).toEqual(checks);
+    expect(next.project.repos[1]).toEqual(original.project.repos[1]);
+    expect(unknownPatchRepo(original, patch)).toBeNull();
+    expect(
+      unknownPatchRepo(original, { ...patch, repoHeavyChecks: [{ repo: 'ghost', heavyChecks: null }] }),
+    ).toBe('ghost');
+    const cleared = applyConfigPatch(next, {
+      baseVersion: 'v2',
+      repoHeavyChecks: [{ repo: 'web', heavyChecks: null }],
+    });
+    expect(cleared).toEqual(original);
+  });
+});
+
 describe('isRepoFilePath', () => {
   it('accepts relative POSIX paths inside the repository', () => {
     for (const ok of [

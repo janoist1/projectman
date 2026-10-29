@@ -101,6 +101,7 @@ import {
   Admission,
   DeferredStarts,
   StartQueue,
+  UsageWake,
   UrgentPull,
   StartRound,
   MessageStarts,
@@ -796,7 +797,10 @@ export function createDomain(opts: DomainOptions) {
     now,
     background,
     ttlMs: opts.planUsageTtlMs,
-    onFetched: (provider, engineId, value) => sessions.observeProviderUsage(provider, engineId, value),
+    onFetched: (provider, engineId, value) => {
+      sessions.observeProviderUsage(provider, engineId, value);
+      usageWake.observe(provider, engineId, value);
+    },
   });
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, engines });
@@ -1711,6 +1715,15 @@ export function createDomain(opts: DomainOptions) {
   // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
   if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.retryWaiting());
   const retryDeferredStarts = () => admission.requestRetry();
+  const usageWake = new UsageWake({
+    projects,
+    ctx,
+    engines,
+    background,
+    driver: memberQueueDriver,
+    retry: retryDeferredStarts,
+    standby: opts.standby,
+  });
   const outages = new WorkOutages({
     ctx,
     projects,
@@ -1805,6 +1818,14 @@ export function createDomain(opts: DomainOptions) {
     if (change.previous?.team.limits.aiEnabled === false && change.next.team.limits.aiEnabled)
       retryDeferredStarts();
   });
+  // The pause threshold rose (or was lifted): what the plan usage held back is measured against it again.
+  events.on('config_changed', (change) =>
+    usageWake.configChanged(
+      change.projectKey,
+      change.previous?.team.limits.pauseAbovePlanUsagePercent,
+      change.next.team.limits.pauseAbovePlanUsagePercent,
+    ),
+  );
   // A member called back from leave: the starts and messages that waited for it continue.
   events.on('config_changed', (change) => {
     const { previous, next } = change;

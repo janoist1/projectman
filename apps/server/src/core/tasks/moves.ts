@@ -407,7 +407,8 @@ export class TaskMoves {
     const task = this.store.get(projectKey, taskKey);
     const pin = this.store.ctx.repos.reviewPins.get(task.key);
     if (!pin || pin.stageId !== task.stageId || !isOpenTask(task)) return;
-    const head = await this.sourceHead(config, task);
+    // Strict: an engine that is not connected is `engine_offline`, not a head that did not move.
+    const head = await this.sourceHead(config, task, { strict: true });
     if (!head || head.commit === pin.commit) return;
     this.store.ctx.unitOfWork(() => {
       const current = this.store.get(projectKey, taskKey);

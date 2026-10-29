@@ -249,8 +249,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   and failures retry after 60 seconds, or immediately if the target lock mtime changes. Copying has
   a 90-second total budget; Codex and Claude prepare hooks wait 120 seconds (Gemini already waits
   for its permission timeout). No heavy-run queue is taken for these short APFS copies. Failures
-  only log and preserve the hook decision; the prompt tells the member to ask the owner to install
-  missing dependencies in the default checkout.
+  only log and preserve the hook decision; the prompt tells the member to run `npm ci` in its
+  worktree when node_modules is missing or older than the lockfile (a routine step, PM-1112).
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
   off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
@@ -778,7 +778,8 @@ The longest matching path wins; each declared path must exist and appear only on
 [dependencies.test.ts](../apps/server/test/architecture/dependencies.test.ts)
 enforces the layer rules against all production TypeScript source files.
 There are no dependency exceptions; new ones must not be added. Every module below
-the assembly layer is sealed: cross-module imports use its target `index.ts`.
+the assembly layer is sealed: cross-module imports use its target `index.ts` or an entry the
+module map declares (`kernel/pure.ts`, PM-1130).
 The guard test asserts both the empty exception list and complete sealing.
 
 The sealed modules are `contracts`, `db`, `config`, `logging`, `instance`, `kernel`,

@@ -1085,8 +1085,10 @@ function hasIntegratorTodoOrigin(payload: InboxItem['payload']): boolean {
 }
 
 /**
- * Where a todo goes. The machine queue (`integrator`) takes it only from an asker with machine access
- * (`issuerAllowed`, decision 66); the refusals are checked in the order protected, no access, unavailable.
+ * Where a todo goes. The machine queue (`integrator`) takes it only from a member with machine access
+ * (`issuerAllowed`, decision 66): the one who classified the step as an integrator todo (the screening member
+ * for a screened question, the opener for its own todo). The refusals are checked in the order protected,
+ * no access, unavailable.
  */
 export function selectTodoRecipient(
   item: InboxItem,

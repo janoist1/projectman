@@ -20,7 +20,7 @@ interface SeniorWaitDeps {
   ctx: DomainContext;
   inbox: Pick<InboxService, 'create' | 'resolveByRule'>;
   timeline: Pick<TimelineService, 'append' | 'latest'>;
-  tasks: Pick<TaskService, 'find' | 'publish' | 'startAttempting'>;
+  tasks: Pick<TaskService, 'find' | 'publish'>;
 }
 
 const WAITING = 'senior_busy';
@@ -53,8 +53,10 @@ export function seniorWaitSource(deps: SeniorWaitDeps): ObligationSource {
         if (!isOpenTask(task)) continue;
         const row = rows.get(task.key);
         const waiting = task.startWaiting?.reason === WAITING ? task.startWaiting : null;
-        // While a deferred start is under a new attempt the card shows no wait: an open step stays open.
-        if (!waiting && !(row && deps.tasks.startAttempting(task))) continue;
+        // An open step ends only by the end reasons: the card may show another wait or a hold for a while
+        // (`startWaiting` is one at a time) and shows this one again; the step, its question and its
+        // answer must not be lost meanwhile.
+        if (!waiting && !row) continue;
         if (seniorWaitEndReasonOf(task, project.config) !== null) continue;
         const since = row?.openedAt ?? waiting!.since;
         found.push({

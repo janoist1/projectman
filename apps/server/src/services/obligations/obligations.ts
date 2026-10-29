@@ -58,7 +58,7 @@ interface OpenObligation {
 interface ObligationsDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'summaries' | 'config' | 'cachedConfig'>;
-  tasks: Pick<TaskService, 'find' | 'readSchedulingTasks' | 'publish' | 'startAttempting'>;
+  tasks: Pick<TaskService, 'find' | 'readSchedulingTasks' | 'publish'>;
   taskWaits: Pick<TaskWaits, 'of'>;
   inbox: Pick<InboxService, 'openIntegratorTodo' | 'closeObligationTodo' | 'create' | 'resolveByRule'>;
   messaging: Pick<Messaging, 'send'>;

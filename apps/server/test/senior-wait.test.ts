@@ -339,6 +339,28 @@ describe('the heavy card: assignment, wait and the question', () => {
       expect(questions()).toHaveLength(1);
     });
 
+    it('keeps the step and its question while another hold hides the wait from the card', async () => {
+      await harness((c) => {
+        roomy(c);
+        c.pipeline.labels.push({ id: 'waiting-answer', name: 'Waiting', blocks: true, setBy: 'anyone' });
+      });
+      const { item, key } = await askedCard();
+      const row = waitRow(key);
+      h.domain.tasks.changeLabels('AR', key, { add: ['waiting-answer'] }, OWNER_ACTOR);
+      await flush();
+      expect(waiting(key)?.reason).not.toBe('senior_busy');
+      await sweep();
+      expect(waitRow(key)).toMatchObject({ id: row!.id, state: 'handed_over', inboxItemId: item.id });
+      expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+
+      h.domain.tasks.changeLabels('AR', key, { remove: ['waiting-answer'] }, OWNER_ACTOR);
+      await flush();
+      await sweep();
+      expect(waitRow(key)?.id).toBe(row!.id);
+      expect(questions()).toHaveLength(1);
+      expect(phases(key)).toEqual(['asked']);
+    });
+
     it('gives the card to a free developer after "any developer"', async () => {
       await harness();
       const { item, key } = await askedCard();

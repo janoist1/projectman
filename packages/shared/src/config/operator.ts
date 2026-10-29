@@ -723,6 +723,7 @@ function approvalWaivable(
         prioritySetters: true,
         complexitySetters: true,
         assigneeFit: true,
+        ruleReasons: true,
       },
     ) &&
     fieldsWaivable(previous.team.limits, next.team.limits, WAIVER_LIMITS) &&

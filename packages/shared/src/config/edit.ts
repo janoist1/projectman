@@ -6,6 +6,8 @@ import { Pipeline } from '../domain/pipeline';
 import { BuiltInRoleId, RoleBundle } from '../domain/role';
 import { RepoDocs } from './project-docs';
 import { OperatorWatch } from './operator-watch';
+import { RULE_REASON_MAX, TEAM_RULE_IDS } from './team-rule-ids';
+import type { RuleReasons } from './schema';
 import {
   AutoCompactWindowTokens,
   HeavyChecks,
@@ -82,6 +84,10 @@ export const PatchConfigRequest = z
     complexitySetters: ProjectConfig.shape.team.shape.complexitySetters,
     /** Whether an AI member's named assignee has to fit the card (PM-1136). */
     assigneeFit: ProjectConfig.shape.team.shape.assigneeFit,
+    /** The reasons of rules (PM-1137), merged into the saved ones per rule; null removes a rule's reason. */
+    ruleReasons: z
+      .partialRecord(z.enum(TEAM_RULE_IDS), z.string().trim().min(1).max(RULE_REASON_MAX).nullable())
+      .optional(),
     merger: ProjectConfig.shape.team.shape.merger,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
@@ -216,6 +222,19 @@ export function unknownPatchRepo(
   );
 }
 
+/** The saved reasons with the patch's applied per rule (null removes one); undefined when none is left. */
+function ruleReasonsAfter(
+  saved: RuleReasons | undefined,
+  changes: PatchConfigRequest['ruleReasons'],
+): RuleReasons | undefined {
+  const merged: RuleReasons = { ...saved };
+  for (const [id, reason] of Object.entries(changes ?? {}) as [keyof RuleReasons, string | null][]) {
+    if (reason === null) delete merged[id];
+    else merged[id] = reason;
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
   const team = { ...config.team };
   if (patch.operatorWatch === null) delete team.operatorWatch;
@@ -233,6 +252,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   else if (warnAboveSessionTokens !== undefined) limits.warnAboveSessionTokens = warnAboveSessionTokens;
   if (autoCompactWindowTokens === null) delete limits.autoCompactWindowTokens;
   else if (autoCompactWindowTokens !== undefined) limits.autoCompactWindowTokens = autoCompactWindowTokens;
+  const ruleReasons = ruleReasonsAfter(config.team.ruleReasons, patch.ruleReasons);
   // The last entry for a repository wins.
   const repoMerge = patch.repoMerge && new Map(patch.repoMerge.map((e) => [e.repo, e.requireMerge] as const));
   const repoDocs = patch.repoDocs && new Map(patch.repoDocs.map((e) => [e.repo, e.docs] as const));
@@ -306,6 +326,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
       ...(patch.complexitySetters !== undefined ? { complexitySetters: patch.complexitySetters } : {}),
       ...(patch.assigneeFit !== undefined ? { assigneeFit: patch.assigneeFit } : {}),
+      ...(patch.ruleReasons !== undefined ? { ruleReasons } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),

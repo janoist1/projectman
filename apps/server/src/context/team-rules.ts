@@ -19,6 +19,20 @@ export function summarizeTeamRule(rule: TeamRule, _project: ProjectConfig): stri
       return `Refinement: ${codeList([...(rule.label ? [rule.label] : []), ...rule.stageIds])} → ${codeList(rule.steps)}, sequentially before ${code(rule.workStageId)}.`;
     case 'waiting_answer':
       return `Questions: ${code(rule.label)} blocks forward moves until the last open question is answered.`;
+    case 'start_order':
+      return 'Start order: urgent first, then by priority (a theme or parent priority counts), then board order.';
+    case 'priority_setters':
+      return `Priority: people and ${rule.members.length ? codeList(rule.members) : 'nobody else'} set it.`;
+    case 'complexity_setters':
+      return `Complexity points: ${codeList(rule.members)} set them.`;
+    case 'assignee_fit':
+      return `Assignee fit: an AI member names only a developer whose limit reaches the card's points and whose specialty fits (temp workers up to ${rule.tempMaxPoints}).`;
+    case 'acceptance':
+      return `Acceptance items: ${rule.reviewStageId ? `none open to enter ${code(rule.reviewStageId)}` : ''}${rule.reviewStageId && rule.doneStageId ? ', ' : ''}${rule.doneStageId ? `none unconfirmed to enter ${code(rule.doneStageId)}` : ''}.`;
+    case 'project_manager_rights':
+      return `Project manager: moves ${code(rule.moves)}, lifecycle ${rule.lifecycle.length ? codeList(rule.lifecycle) : 'none'}, ${rule.prerequisiteOverride ? 'may' : 'may not'} override a prerequisite.`;
+    case 'viewer_recipients':
+      return `Viewers write only to ${rule.mode === 'contacts' ? 'the contacts' : 'the project manager'}.`;
   }
 }
 
@@ -53,6 +67,25 @@ export function describeTeamRule(rule: TeamRule, project: ProjectConfig): string
     }
     case 'waiting_answer':
       return `Questions: while an AI member's question about a task is open, the task carries ${labelRef(rule.label, project.pipeline.labels)} and does not move forward; the label comes off when the last open question is answered.`;
+    case 'start_order':
+      return `Start order: an urgent card starts first, then the higher priority (the priority of the card's theme or parent counts too), then the board order.${rule.urgentPull ? ' A free developer takes an urgent card from the queue before the development stage by itself.' : ''}`;
+    case 'priority_setters':
+      return `Priority: people set a card's priority${rule.members.length ? `, and so do ${codeList(rule.members)}` : ''}.`;
+    case 'complexity_setters':
+      return `Complexity points: only ${codeList(rule.members)} set a card's points.`;
+    case 'assignee_fit':
+      return `Assignee fit: when an AI member names an assignee, the member's complexity limit has to reach the card's points and the specialty has to fit (a temp worker takes cards up to ${rule.tempMaxPoints} points); a misfit is refused with assignee_unfit. People name anyone.`;
+    case 'acceptance':
+      return `Acceptance items: ${[
+        rule.reviewStageId ? `a card with an open item does not enter ${stage(rule.reviewStageId)}` : null,
+        rule.doneStageId ? `a card with an unconfirmed item does not enter ${stage(rule.doneStageId)}` : null,
+      ]
+        .filter(Boolean)
+        .join('; ')}.`;
+    case 'project_manager_rights':
+      return `Project manager: ${rule.moves === 'start_only' ? 'starts cards only' : 'moves cards between queues and starts them'}; lifecycle actions on its own: ${rule.lifecycle.length ? codeList(rule.lifecycle) : 'none'}; ${rule.prerequisiteOverride ? 'may' : 'may not'} override an open prerequisite.`;
+    case 'viewer_recipients':
+      return `Viewers (read-only people) may write only to ${rule.mode === 'contacts' ? "the project's contacts" : 'the project manager'}.`;
     default: {
       const exhaustive: never = rule;
       return exhaustive;

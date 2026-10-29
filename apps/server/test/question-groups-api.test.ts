@@ -112,7 +112,7 @@ describe('the open inbox and its history (PM-1109)', () => {
       ).json<InboxView>();
     expect((await get('')).items.map((item) => item.id)).toEqual([old.id]);
     expect(domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
-    expect((await get('?state=resolved')).items).toHaveLength(500);
-    expect((await get('?state=resolved&limit=7')).items).toHaveLength(7);
+    expect((await get('?state=closed')).items).toHaveLength(500);
+    expect((await get('?state=closed&limit=7')).items).toHaveLength(7);
   });
 });

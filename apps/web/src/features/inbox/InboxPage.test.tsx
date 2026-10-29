@@ -66,6 +66,17 @@ describe('inbox history', () => {
     expect(history.textContent).not.toContain('- First');
   });
 
+  it('reads the open items without a cut-off and the closed ones as a separate, limited history (PM-1109)', async () => {
+    const project = mockProject();
+    project.backend.inbox.push(automaticDecision('inb_closed', 'npm test', { note: null }, 1));
+    project.render(<InboxPage />, '/p/AC/inbox');
+    expect(await screen.findByText('npm test', { selector: 'code' })).toBeTruthy();
+    const reads = project.requests.filter((request) => request.path.includes('/inbox?')).map((r) => r.path);
+    expect(reads).toContain('/api/projects/AC/inbox?state=open');
+    expect(reads.some((path) => /state=closed&limit=\d+$/.test(path))).toBe(true);
+    expect(reads.some((path) => path.includes('state=all'))).toBe(false);
+  });
+
   it('names the rule of an automatic decision and shows an older decision note as a note', async () => {
     const project = mockProject();
     project.backend.inbox.push(

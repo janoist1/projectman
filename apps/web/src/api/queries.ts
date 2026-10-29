@@ -806,8 +806,20 @@ export function useLogoutFeedbackMarker(key: string) {
 
 /* ---------- inbox ---------- */
 
+/** The open items: every one of them, however old (they are what waits for someone). */
 export function useInbox(key: string) {
   return useQuery({ queryKey: queryKeys.inbox(key), queryFn: () => api.inbox(key) });
+}
+
+/** How many closed items the history lists read. */
+const INBOX_HISTORY_LIMIT = 200;
+
+/** The newest closed items: "recently decided" on the inbox page, "you answered" in a conversation. */
+export function useInboxHistory(key: string) {
+  return useQuery({
+    queryKey: queryKeys.inboxHistory(key),
+    queryFn: () => api.inboxHistory(key, INBOX_HISTORY_LIMIT),
+  });
 }
 
 /**
@@ -861,6 +873,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
     },
     onSettled: async (_data, _error, { item }) => {
       await client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
+      await client.invalidateQueries({ queryKey: queryKeys.inboxHistory(key) });
       await client.invalidateQueries({ queryKey: queryKeys.board(key) });
       if (item.payload.operatorKnowledge) {
         await client.invalidateQueries({ queryKey: queryKeys.operatorKnowledge(key) });

@@ -63,7 +63,10 @@ export const queryKeys = {
   session: (key: string, sessionId: string) => ['project', key, 'session', sessionId] as const,
   /** Prefix of every session detail query of a project. */
   sessionDetails: (key: string) => ['project', key, 'session'] as const,
+  /** The open items of the inbox. */
   inbox: (key: string) => ['project', key, 'inbox'] as const,
+  /** The newest closed items of the inbox. */
+  inboxHistory: (key: string) => ['project', key, 'inbox-history'] as const,
   /** The Operator's screened questions of a day (PM-561); `since` is the start of the viewer's day. */
   screenedQuestions: (key: string, since: string) => ['project', key, 'inbox-screened', since] as const,
   screenedQuestionsAll: (key: string) => ['project', key, 'inbox-screened'] as const,

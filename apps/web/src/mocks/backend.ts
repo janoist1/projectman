@@ -3179,16 +3179,26 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.sweepIntegratorTodos(nowIso());
+      // Like the server: open items by default and never cut off; any other state is a history, the newest N.
+      const wanted = query.get('state') ?? 'open';
+      const limit = Number(query.get('limit')) || (wanted === 'open' ? Infinity : 500);
+      const inState = (item: InboxItem) =>
+        wanted === 'all' ||
+        (wanted === 'closed'
+          ? ['resolved', 'expired', 'cancelled'].includes(item.state)
+          : item.state === wanted);
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
         items: clone(
           this.inbox
             .filter(
               (item) =>
+                inState(item) &&
                 canSeeInboxItem(this.taskViewer(), item) &&
                 (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)) &&
                 (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
             )
+            .slice(-limit)
             .map((item) => visibleQuestionItem(this.taskViewer(), item, (key) => !!this.findTask(key))),
         ),
       });

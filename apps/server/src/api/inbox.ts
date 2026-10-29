@@ -23,10 +23,11 @@ type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
 
 const HISTORY_LIMIT = 500;
+const CLOSED_STATES: readonly InboxState[] = ['resolved', 'expired', 'cancelled'];
 
 const InboxQuery = z.object({
-  /** Default "open"; "all" returns every state. */
-  state: z.union([InboxState, z.literal('all')]).optional(),
+  /** Default "open"; "closed" is resolved, expired and cancelled together; "all" returns every state. */
+  state: z.union([InboxState, z.enum(['all', 'closed'])]).optional(),
   kind: InboxKind.optional(),
   /** The newest N items. Without it: every open item, and the newest 500 of any other state. */
   limit: z.coerce.number().int().min(1).max(HISTORY_LIMIT).optional(),
@@ -49,14 +50,15 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
     const query = parseBody(InboxQuery, request.query);
-    const state = query.state === 'all' ? undefined : (query.state ?? 'open');
+    const requested = query.state ?? 'open';
+    const state = requested === 'all' ? undefined : requested === 'closed' ? CLOSED_STATES : requested;
     const mine = query.mine === 'true' || query.mine === '1';
     // What is open is never cut off (every open item is a person's to do); any other state is a history: the newest N.
-    const limit = query.limit ?? (state === 'open' ? undefined : HISTORY_LIMIT);
+    const limit = query.limit ?? (requested === 'open' ? undefined : HISTORY_LIMIT);
     const items = domain.inbox
       .list(key, { state, kind: query.kind, limit })
       .filter((item) => canSeeInboxItem(access, item) && (!mine || humanInboxAssignment(item, access.handle)))
-      .filter((item) => state === undefined || !isLinkedQuestion(item))
+      .filter((item) => requested === 'all' || requested === 'closed' || !isLinkedQuestion(item))
       .map((item) => visibleQuestionItem(access, item, (taskKey) => !!domain.tasks.find(key, taskKey)));
     return { items: await domain.inbox.withAskerStart(key, items) };
   });

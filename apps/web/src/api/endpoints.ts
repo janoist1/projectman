@@ -424,8 +424,11 @@ export const api = {
       { schema: TeamMessagesView },
     ),
 
-  /** Every state (the server defaults to open items): resolved ones feed the history lists. */
-  inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=all`, { schema: InboxView }),
+  /** Every open item, never cut off: what waits for someone. */
+  inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=open`, { schema: InboxView }),
+  /** The newest closed items (resolved, expired, cancelled): the "recently decided" lists. */
+  inboxHistory: (key: string, limit: number) =>
+    apiRequest(`${routes.inbox(key)}?state=closed&limit=${limit}`, { schema: InboxView }),
   /** The questions the Operator screened since `since` (an ISO time with an offset); owners and admins only (PM-558). */
   screenedQuestions: (key: string, since: string) =>
     apiRequest(`${routes.screenedQuestions(key)}?since=${encodeURIComponent(since)}`, {

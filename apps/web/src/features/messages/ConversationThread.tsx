@@ -2,7 +2,14 @@ import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isUnreadBy, PROJECT_MANAGER_ROLE } from '@projectman/shared';
 import type { InboxItem, ResolveInboxRequest, RoleView, TeamMessage } from '@projectman/shared';
-import { useBoard, useConversation, useInbox, useReadTeamMessages, useResolveInbox } from '../../api/queries';
+import {
+  useBoard,
+  useConversation,
+  useInbox,
+  useInboxHistory,
+  useReadTeamMessages,
+  useResolveInbox,
+} from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { ActorName } from '../../components/ActorName';
@@ -78,6 +85,7 @@ export function ConversationThread({
   const { members } = useProjectIndexes(key);
   const board = useBoard(key);
   const inbox = useInbox(key);
+  const history = useInboxHistory(key);
   const conversation = useConversation(key, peer);
   const resolve = useResolveInbox(key, myHandle);
   const readMessages = useReadTeamMessages(key);
@@ -113,8 +121,8 @@ export function ConversationThread({
     [inbox.data, peer, myHandle],
   );
   const answered = useMemo(
-    () => answeredQuestionsFrom(inbox.data?.items, peer, myHandle),
-    [inbox.data, peer, myHandle],
+    () => answeredQuestionsFrom(history.data?.items, peer, myHandle),
+    [history.data, peer, myHandle],
   );
 
   // The "new messages" line stays where the visit started, though the messages become read at once.

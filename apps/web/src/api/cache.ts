@@ -278,6 +278,17 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
         view ? { items: upsertBy(view.items, item, (entry) => entry.id) } : view,
       );
       patchOpenInboxCount(client, key, inbox);
+      // A closed item joins the history that is on screen; an open one is not part of it.
+      client.setQueryData<InboxView>(queryKeys.inboxHistory(key), (view) =>
+        view
+          ? {
+              items:
+                item.state === 'open' || item.state === 'screening'
+                  ? view.items.filter((entry) => entry.id !== item.id)
+                  : upsertBy(view.items, item, (entry) => entry.id),
+            }
+          : view,
+      );
       // The Operator's trail follows a question that moves through screening (PM-561).
       if (item.kind === 'question')
         void client.invalidateQueries({ queryKey: queryKeys.screenedQuestionsAll(key) });

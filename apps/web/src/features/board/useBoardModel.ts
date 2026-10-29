@@ -4,7 +4,6 @@ import type { RankedCard, Task } from '@projectman/shared';
 import { useBoard, useConfig, useEngineStatus, useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import type { MemberIndex } from '../../lib/members';
-import type { PipelineIndex } from '../../lib/pipeline';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import type { TaskState, TaskStateContext } from '../../lib/taskState';
 import { engineNameMap } from '../engines/engineView';
@@ -36,21 +35,6 @@ const byRank = (a: BoardEntry, b: BoardEntry) => compareBoardOrder(rankedOf(a), 
  */
 export function sortColumnEntries(entries: BoardEntry[], chronological: boolean): BoardEntry[] {
   return [...entries].sort(chronological ? byClosing : byRank);
-}
-
-/**
- * The phone list's group: the finished ones by closing time; the others with the later column first
- * (the card nearest to done), each column in its stored order. There is no manual ordering on a phone.
- */
-export function sortGroupEntries(entries: BoardEntry[], pipeline: PipelineIndex): BoardEntry[] {
-  const columnOf = (entry: BoardEntry) => {
-    const column = pipeline.columnOfStage.get(entry.task.stageId);
-    return column ? pipeline.columns.indexOf(column) : -1;
-  };
-  return [...entries].sort((a, b) => {
-    if (a.state.phase === 'done' && b.state.phase === 'done') return byClosing(a, b);
-    return columnOf(b) - columnOf(a) || byRank(a, b);
-  });
 }
 
 /**

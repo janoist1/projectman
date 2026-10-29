@@ -50,7 +50,7 @@ export async function checkoutExactCommit(
 ): Promise<void> {
   const url = context.config.repository.url;
   if (!URL.canParse(url) || new URL(url).protocol !== 'https:')
-    throw refused('the configured repository is not an https remote');
+    throw refused('the configured repository is not an https remote (pass --repo <https-url>)');
   try {
     fs.mkdirSync(directory, { mode: 0o700 });
   } catch {

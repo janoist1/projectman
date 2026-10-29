@@ -10,8 +10,15 @@ Build on the release Mac with full Xcode, using the self-contained package produ
 the package's `engine-package.json` supplies the commit and release tag. `origin` must
 identify the public GitHub release repository (HTTPS or SSH).
 
+`package` builds into `<out>/<commit>` and prints that exact path as its last line; pass it
+as `--package` to `build`. It fetches the commit from `origin` and refuses a remote that is
+not HTTPS (a checkout with an SSH `origin` needs `--repo https://github.com/<owner>/<repo>.git`).
+Workspace links of packages the engine does not ship (`apps/web`, the feedback widget) are
+removed from the package, so the app signature has no dangling symlink to trip on.
+
 ```sh
-npm run engine-app -- build --package /path/to/package --out /path/to/new-output --ad-hoc
+npm run engine-app -- package --commit <40-character-sha> --out /path/to/packages --repo https://github.com/<owner>/<repo>.git
+npm run engine-app -- build --package /path/to/packages/<40-character-sha> --out /path/to/new-output --ad-hoc
 npm run engine-app -- build --package /path/to/package --out /path/to/new-output --identity "Developer ID Application: Example (ABCDE12345)" --team-id ABCDE12345 --notary-profile projectman-release
 ```
 

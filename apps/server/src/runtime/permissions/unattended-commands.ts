@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { AgentProvider } from '@projectman/shared';
+import type { AgentProvider, HeavyChecks } from '@projectman/shared';
 import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from '../../contracts';
 import type { AgentSandbox } from '../../contracts';
 import { isWithin } from '../../kernel';
@@ -115,6 +115,7 @@ export function describeSessionTmpDir(tmpDir: string): string {
  * a human, and what it refuses stays refused. The lines of the section, without its heading.
  */
 export function describeSandbox(input: {
+  heavyChecks?: HeavyChecks;
   sandbox: AgentSandbox;
   /** The session's working directory. */
   cwd: string;
@@ -137,7 +138,7 @@ export function describeSandbox(input: {
         : []),
       'Keep cache, development-data and test environment variables set; credentials and live data stay closed.',
       ...(localOnly ? ['Local-only repository: no `git push`, `gh pr create` or `gh pr merge`.'] : []),
-      'Read get_guide with topic `sandbox` for roots, network, gh exceptions, here-documents, browsers and heavy queue; ask_human for other required actions.',
+      `Read get_guide with topic \`sandbox\` for roots, network, gh exceptions, here-documents, browsers${sandbox.env?.[HEAVY_LOCK_DIR_VARIABLE] && input.heavyChecks ? ' and heavy queue' : ''}; ask_human for other required actions.`,
     ];
   }
   // A reader's working directory is `denyWrite`; a developer's `denyWrite` holds only files of the
@@ -199,15 +200,15 @@ export function describeSandbox(input: {
         ]
       : []),
     // PM-194: the sandbox cannot open a pseudo-terminal, so the PTY tests are left out of this run.
-    ...(skipsPtyTests
+    ...(skipsPtyTests && input.heavyChecks?.ptySkipped?.length
       ? [
-          `- Tests: ${code('npm test')} leaves out the server's tests that need a pseudo-terminal (${code('*.integration.test.ts')}, ${code('golden-path-*.test.ts')}), because ${code(`${PTY_SKIP_VARIABLE}=1`)} is set here and the sandbox cannot open one; report the skipped files to the reviewer, and do not unset the variable.`,
+          `- Tests leave out files that need a pseudo-terminal (${input.heavyChecks.ptySkipped.map(code).join(', ')}), because ${code(`${PTY_SKIP_VARIABLE}=1`)} is set here and the sandbox cannot open one; report the skipped files to the reviewer, and do not unset the variable.`,
         ]
       : []),
     // PM-332: one heavy run at a time on the machine.
-    ...(heavyQueue
+    ...(heavyQueue && input.heavyChecks
       ? [
-          `- Machine queue: the full test (${code('npm test')} at the root), the full type check (${code('npm run typecheck')}) and ${code('npm run shots')} wait their turn in the machine's heavy-run queue, one at a time across members and the server's full test, so start them in the background; targeted runs inside one workspace do not queue.`,
+          `- Machine queue: ${input.heavyChecks.commands.map(code).join(', ')} wait their turn in the machine's heavy-run queue, one at a time across members and the server's full test, so start them in the background; targeted runs inside one workspace do not queue.`,
         ]
       : []),
     ...(sandbox.deniedEnvVars?.length
@@ -274,13 +275,13 @@ export function describeUnattendedCommands(input: UnattendedCommandsInput): stri
       defaultBranch ? ' (or a commit id)' : ''
     } (${flagList(MERGE_FLAGS)})`;
     lines.push(
-      `- Routine steps in your worktree: ${code('npm ci')} or ${code('npm install')} (only ${flagList(INSTALL_FLAGS)}), ${code('git add')} (${flagList(ADD_FLAGS)} or worktree paths), ${code('git commit -m "message"')} (${flagList(COMMIT_FLAGS)}; multiline/repeated ${code('-m')} allowed; no ${code('--amend')}, ${code('--no-verify')} or ${code('-F')}), ${code('git checkout -- <path>')} or ${code('git checkout HEAD -- <path>')} (${flagList(CHECKOUT_FLAGS)}), ${code('git restore <path>')} (${flagList(RESTORE_FLAGS)} and ${code('--source=HEAD')}), ${merge}. Checkout/restore: named worktree paths only; no root (${code('.')}), patterns or ${code(':')} pathspecs. Other sources, ${code('git checkout <branch>')} and ${code('git switch')} need a decision. Pipes allow readers only (${code('tee')} waits); ${code('2>&1')} is allowed. Chains allow readers and only an initial ${code('cd')} to the working directory: ${code('cd apps/server && npx vitest run && git add -A')} waits for a human.`,
+      `- Routine steps in your worktree: ${code('npm ci')} or ${code('npm install')} (only ${flagList(INSTALL_FLAGS)}), ${code('git add')} (${flagList(ADD_FLAGS)} or worktree paths), ${code('git commit -m "message"')} (${flagList(COMMIT_FLAGS)}; multiline/repeated ${code('-m')} allowed; no ${code('--amend')}, ${code('--no-verify')} or ${code('-F')}), ${code('git checkout -- <path>')} or ${code('git checkout HEAD -- <path>')} (${flagList(CHECKOUT_FLAGS)}), ${code('git restore <path>')} (${flagList(RESTORE_FLAGS)} and ${code('--source=HEAD')}), ${merge}. Checkout/restore: named worktree paths only; no root (${code('.')}), patterns or ${code(':')} pathspecs. Other sources, ${code('git checkout <branch>')} and ${code('git switch')} need a decision. Pipes allow readers only (${code('tee')} waits); ${code('2>&1')} is allowed. Chains allow readers and only an initial ${code('cd')} to the working directory: ${code('cd backend && npx vitest run && git add -A')} waits for a human.`,
     );
   }
   lines.push(
     `- Chaining: ${code('&&')}, ${code('||')} and ${code(';')} between commands, ${code('|')} between the stages of a pipeline, all on one line (a newline between commands is refused). Redirections: only ${SHELL_REDIRECTIONS.map(code).join(', ')}.`,
     `- Quotes: put a pattern or a message in single quotes, which are literal: ${code("grep -n 'task\\.(edit|save)' src")}. Double quotes work too, but a ${code('$')} or a backtick inside them refuses the command, and a backslash there escapes only ${code('$')}, a backtick, ${code('"')} and ${code('\\')}. A text with an apostrophe goes in double quotes.`,
-    `- Paths: relative or absolute, but inside the directories above; no ${code('~')}, no ${code('..')} behind a directory name. ${code('cd')} only into such a directory; ${code('git -C <dir>')} only when the directory is the one you are in. When a chain changes directory, join its parts with ${code('&&')}, not ${code(';')} or ${code('||')}: otherwise the server checks later relative paths from every possible directory, since an earlier ${code('cd')} may have failed or been skipped. For example, ${code('cd apps/server && npx vitest run test/member-instructions.test.ts 2>&1 | tail -15; cd ../web && npx vitest run src/features/team 2>&1 | tail -15')} waits for a human; ${code('cd apps/server && npx vitest run test/member-instructions.test.ts 2>&1 | tail -15 && cd ../web && npx vitest run src/features/team 2>&1 | tail -15')} runs without asking.`,
+    `- Paths: relative or absolute, but inside the directories above; no ${code('~')}, no ${code('..')} behind a directory name. ${code('cd')} only into such a directory; ${code('git -C <dir>')} only when the directory is the one you are in. When a chain changes directory, join its parts with ${code('&&')}, not ${code(';')} or ${code('||')}: otherwise the server checks later relative paths from every possible directory, since an earlier ${code('cd')} may have failed or been skipped. For example, ${code('cd backend && npx vitest run test/example.test.ts 2>&1 | tail -15; cd ../frontend && npx vitest run src/example.test.ts 2>&1 | tail -15')} waits for a human; ${code('cd backend && npx vitest run test/example.test.ts 2>&1 | tail -15 && cd ../frontend && npx vitest run src/example.test.ts 2>&1 | tail -15')} runs without asking.`,
     `- ${codex ? 'Never without asking, as an escalation' : 'Never without asking'}: interpreters/shells${input.brief ? '' : ` (${['python', 'node', 'perl', 'sed', 'bash -c'].map(code).join(', ')})`}, variables/substitution${input.brief ? '' : ` (${code('$VAR')}, ${code('$(...)')}, backticks)`}, ${['{a,b}', '~', '!', '&'].map(code).join(', ')}, here-documents, file redirection; use file tools.`,
   );
   lines.push(

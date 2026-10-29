@@ -65,6 +65,22 @@ describe('roundEvents', () => {
   });
 });
 
+describe('filtered timeline reads', () => {
+  it('keeps list and count in the same project and optional task scope', () => {
+    const one = put('PM-1', 'task_note', { text: 'One' }, T(1));
+    const two = put('PM-2', 'task_note', { text: 'Two' }, T(2));
+    put('PM-1', 'session_started', {}, T(3));
+    put('PM-1', 'task_note', {}, T(4), 'OT');
+    const excludeTypes = ['session_started'] as const;
+    expect(repos.timeline.count('PM', { taskKey: 'PM-1', excludeTypes })).toBe(1);
+    expect(ids(repos.timeline.list('PM', { taskKey: 'PM-1', excludeTypes }))).toEqual([one.id]);
+    expect(repos.timeline.count('PM', { excludeTypes })).toBe(2);
+    expect(ids(repos.timeline.list('PM', { excludeTypes, limit: 1 }))).toEqual([two.id]);
+    expect(repos.timeline.count('PM', { excludeTypes: [] })).toBe(3);
+    expect(repos.timeline.count('PM', { taskKey: 'missing', excludeTypes })).toBe(0);
+  });
+});
+
 describe('latestTaskStatesBefore', () => {
   const reader = (): TaskStateHistoryReader => repos.timeline;
 

@@ -1,9 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { collectorNotReadyText, startOfferText } from '.';
 
-const base = { collector: false, waiting: [], toStageId: 'development', backStageId: 'incoming' };
+const base = {
+  collector: false,
+  waiting: [],
+  toStageId: 'development',
+  backStageId: 'incoming',
+  holdBack: 'integrator' as const,
+};
 
 describe('startOfferText (PM-804)', () => {
+  it.each([
+    ['move', 'yourself', 'integrator todo'],
+    ['integrator', 'integrator todo', 'ask_human'],
+    ['ask', 'ask_human', 'integrator todo'],
+  ] as const)('uses the configured owner-hold path: %s', (holdBack, present, absent) => {
+    const text = startOfferText({
+      ...base,
+      holdBack,
+      subjectKey: 'AR-1',
+      cards: [{ key: 'AR-1', title: 'Work' }],
+    });
+    expect(text).toContain(present);
+    expect(text).not.toContain(absent);
+    expect(text).toContain('incoming');
+  });
   it('names a self-contained card and what to do with it', () => {
     const text = startOfferText({
       ...base,

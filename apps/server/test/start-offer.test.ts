@@ -139,6 +139,24 @@ describe('the start offer to the project manager', () => {
     expect(wait?.hold).toBeUndefined();
   });
 
+  it.each([
+    ['queues_and_start', false, 'yourself'],
+    ['start_only', true, 'integrator todo'],
+    ['start_only', false, 'ask_human'],
+  ] as const)('routes owner holds with moves %s and machine access %s', async (moves, access, expected) => {
+    await harness((config) => {
+      config.team.projectManagerMoves = moves;
+      const pm = config.team.members.find((member) => member.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.machineAccess = access;
+    });
+    await create('Owner hold route');
+    await settle();
+    expect(offers()).toHaveLength(1);
+    const hold = offers()[0]!.body.split("If the owner's comment")[1]!;
+    expect(hold).toContain(expected);
+    expect(hold).toContain('backlog');
+  });
+
   describe('a collector', () => {
     it.each(['done', 'cancelled'] as const)('never offers a collector with only %s parts', async (status) => {
       await harness();

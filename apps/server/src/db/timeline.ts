@@ -66,6 +66,18 @@ export const TIMELINE_SQL = {
 export function createTimelineRepository(db: Db) {
   // `listOfTypes` statements by how many types they take.
   const ofTypes = new Map<number, Statement>();
+  const filtered = new Map<string, Statement>();
+  function filteredStatement(count: boolean, task: boolean, types: readonly TimelineEvent['type'][]) {
+    const key = `${count}:${task}:${types.length}`;
+    let statement = filtered.get(key);
+    if (!statement) {
+      statement = db.prepare(
+        `SELECT ${count ? 'COUNT(*) AS total' : '*'} FROM timeline_events WHERE project_key = ?${task ? ' AND task_key = ?' : ''}${types.length ? ` AND type NOT IN (${types.map(() => '?').join(', ')})` : ''}${count ? '' : ' ORDER BY seq DESC LIMIT ?'}`,
+      );
+      filtered.set(key, statement);
+    }
+    return statement;
+  }
   const statements = {
     insert: db.prepare(
       `INSERT INTO timeline_events (id, project_key, task_key, session_id, actor_kind, actor_handle, type, data, created_at, actor_via, actor_meta)
@@ -76,9 +88,6 @@ export function createTimelineRepository(db: Db) {
         (actor_handle = ? OR json_extract(data, '$.handle') = ? OR json_extract(data, '$.member') = ?
         OR json_extract(data, '$.assignee') = ? OR EXISTS (SELECT 1 FROM json_each(data, '$.to') WHERE value = ?))
         ORDER BY seq DESC LIMIT ?`,
-    ),
-    ofTask: db.prepare(
-      'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? ORDER BY seq DESC LIMIT ?',
     ),
     // What the card's rounds are counted from (PM-222), all of it: the card's whole history.
     roundEvents: db.prepare(
@@ -109,7 +118,6 @@ export function createTimelineRepository(db: Db) {
     ),
     stateBefore: db.prepare(TIMELINE_SQL.stateBefore),
     structuralEvidence: db.prepare(TIMELINE_SQL.structuralEvidence),
-    ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
     ofProjectType: db.prepare(
       'SELECT * FROM timeline_events WHERE project_key = ? AND type = ? ORDER BY seq DESC LIMIT ?',
     ),
@@ -282,14 +290,31 @@ export function createTimelineRepository(db: Db) {
       return rows.reverse().map(toEvent);
     },
     /** The most recent `limit` events, oldest first. */
-    list(projectKey: string, opts: { taskKey?: string; limit?: number } = {}): TimelineEvent[] {
+    list(
+      projectKey: string,
+      opts: { taskKey?: string; limit?: number; excludeTypes?: readonly TimelineEvent['type'][] } = {},
+    ): TimelineEvent[] {
       const limit = opts.limit ?? 200;
-      const rows = (
-        opts.taskKey
-          ? statements.ofTask.all(projectKey, opts.taskKey, limit)
-          : statements.ofProject.all(projectKey, limit)
+      const types = opts.excludeTypes ?? [];
+      const rows = filteredStatement(false, opts.taskKey !== undefined, types).all(
+        projectKey,
+        ...(opts.taskKey !== undefined ? [opts.taskKey] : []),
+        ...types,
+        limit,
       ) as TimelineRow[];
       return rows.reverse().map(toEvent);
+    },
+    count(
+      projectKey: string,
+      opts: { taskKey?: string; excludeTypes?: readonly TimelineEvent['type'][] } = {},
+    ): number {
+      const types = opts.excludeTypes ?? [];
+      const row = filteredStatement(true, opts.taskKey !== undefined, types).get(
+        projectKey,
+        ...(opts.taskKey !== undefined ? [opts.taskKey] : []),
+        ...types,
+      ) as { total: number };
+      return row.total;
     },
   };
 }

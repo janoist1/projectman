@@ -28,6 +28,7 @@ import type { DomainContext } from '../../core/base';
 import { QUESTION_LIMIT } from '../../core/inbox';
 import type { TaskHandoffRow } from '../../db';
 import { aiActor } from '../../kernel';
+import { BRIEF_TIMELINE_LIMIT, QUIET_TIMELINE_EVENTS } from '../../agent-text';
 import { attachmentToolRules } from './session-policy';
 import type { SessionOrchestratorDeps } from './sessions';
 
@@ -172,7 +173,16 @@ export class SessionContextInput {
       workItem,
       task,
       stage,
-      timeline: task ? this.deps.timeline.list(projectKey, { taskKey: task.key, limit: 30 }) : [],
+      timeline: task
+        ? this.deps.timeline.list(projectKey, {
+            taskKey: task.key,
+            limit: BRIEF_TIMELINE_LIMIT,
+            excludeTypes: QUIET_TIMELINE_EVENTS,
+          })
+        : [],
+      timelineTotal: task
+        ? this.deps.timeline.count(projectKey, { taskKey: task.key, excludeTypes: QUIET_TIMELINE_EVENTS })
+        : 0,
       team: this.deps.members.rosterFor(config),
       memory,
       ...(operatorPreference ? { operatorPreference } : {}),

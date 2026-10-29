@@ -5,12 +5,8 @@ import { BoardPlacement } from './board-order';
 import { ComplexityPoints } from './complexity';
 import { Actor } from './event';
 import { ExternalToolOrigin } from './external-tool-origin';
-import {
-  FixLimitAssessment,
-  FixLimitOptionId,
-  FixRoundHistoryEntry,
-  MAX_FIX_EXTRA_ROUNDS,
-} from './fix-limit';
+import { MAX_FIX_EXTRA_ROUNDS } from './fix-extra-rounds';
+import { FixLimitAssessment, FixLimitOptionId, FixRoundHistoryEntry } from './fix-limit';
 import { LabelId } from './label';
 import { OperatorHandoffReason } from './member-queue';
 import { MergeBlockReason, MergeFailure } from './merge';
@@ -271,6 +267,19 @@ export function canSeeInboxItem(
     return !viewer.via && canSeeAllTeamMessages(viewer);
   if (item.state === 'screening') return canSeeAllTeamMessages(viewer);
   return true;
+}
+
+/**
+ * Whether a human may resolve the item: its assignees may, and the owner may resolve any other item except a
+ * decision and a release approval, which only their assignees answer. The one rule for the server and the
+ * web's fake (PM-1114).
+ */
+export function canResolveInboxItem(
+  viewer: TaskViewer,
+  item: Pick<InboxItem, 'kind' | 'assignees'>,
+): boolean {
+  if (item.assignees.includes(viewer.handle)) return true;
+  return item.kind !== 'decision' && item.kind !== 'release' && viewer.access === 'owner';
 }
 
 /**

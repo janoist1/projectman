@@ -1,10 +1,11 @@
 import type { AdministrationCommand } from '../api/administration';
 import type { SuperCommand } from '../api/super-handoff';
+import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
 import type { AgentProvider, HumanAccess } from '../domain/member';
 import { coordinationMemberOf } from './project-manager';
 import { applyConfigPatch, prepareOperatorConfigPatch } from './edit';
 import type { ProjectConfig } from './schema';
-import { ownerReservedEffect, superConfigMutations } from './super-mutation';
+import { isKnownProvider, isPaidProvider, ownerReservedEffect, superConfigMutations } from './super-mutation';
 import type { OwnerReservedEffect, SuperMutationCommand } from './super-mutation';
 
 /**
@@ -29,11 +30,9 @@ export interface SuperCommandContext {
   configAt?: (version: string) => ProjectConfig | null;
 }
 
-const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'gemini', 'nanogpt'];
-
 function runtime(provider: AgentProvider | undefined): SuperMutationCommand {
-  const effective = provider ?? 'claude';
-  if (!PROVIDERS.includes(effective)) throw new SuperCommandUnclassifiable('unknown runtime provider');
+  const effective = provider ?? DEFAULT_AGENT_PROVIDER;
+  if (!isKnownProvider(effective)) throw new SuperCommandUnclassifiable('unknown runtime provider');
   return { kind: 'runtime_start', providers: [effective] };
 }
 
@@ -66,7 +65,7 @@ function memberUpdate(
   const keys = Object.keys(changes).filter((key) => changes[key] !== undefined);
   // Only sending a paid member on leave costs nothing; every other change to it may.
   const onlyLeave = keys.length === 1 && changes.onLeave === true;
-  if (effective === 'nanogpt' && !onlyLeave) mutations.push(runtime('nanogpt'));
+  if (effective && isPaidProvider(effective) && !onlyLeave) mutations.push(runtime(effective));
   return mutations.length ? mutations : [{ kind: 'routine', operation: 'member_update' }];
 }
 

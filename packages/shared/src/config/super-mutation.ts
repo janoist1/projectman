@@ -1,4 +1,5 @@
 import type { Actor } from '../domain/event';
+import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
 import type { AgentProvider, HumanAccess } from '../domain/member';
 import type { SuperCommand } from '../api/super-handoff';
 import type { AiMemberConfig, ProjectConfig } from './schema';
@@ -196,6 +197,27 @@ const routines = new Set<SuperRoutineMutation>([
 const DELETION_RESOURCES = new Set<string>(['member', 'repo', 'project', 'credential']);
 
 /**
+ * Whether a provider's sessions cost money beyond the subscriptions: NanoGPT bills per call (decision 34).
+ * A record over every provider, so a new provider does not classify until someone states its cost.
+ */
+const PAID_PROVIDERS: Readonly<Record<AgentProvider, boolean>> = {
+  claude: false,
+  codex: false,
+  gemini: false,
+  nanogpt: true,
+};
+
+/** A provider this classification knows (an unknown one is refused, never guessed free). */
+export function isKnownProvider(provider: string): provider is AgentProvider {
+  return Object.hasOwn(PAID_PROVIDERS, provider);
+}
+
+/** Starting this provider's sessions is a cost the owner reserved (`PAID_PROVIDERS`). */
+export function isPaidProvider(provider: AgentProvider): boolean {
+  return PAID_PROVIDERS[provider];
+}
+
+/**
  * The owner's own login and security settings changed: a human's access level, login e-mail or a human turned
  * into another kind of member, a new owner, the Operator waiver, the AI members' permission settings and the
  * boundary delegation (the owner kept the last two on 2026-10-20, PM-862 inventory row 33).
@@ -274,9 +296,8 @@ export function ownerReservedEffect(
     case 'owner_command':
       return 'security';
     case 'runtime_start':
-      if (command.providers.some((provider) => !['claude', 'codex', 'gemini', 'nanogpt'].includes(provider)))
-        throw new Error('unknown runtime provider');
-      return command.providers.includes('nanogpt') ? 'cost' : null;
+      if (!command.providers.every(isKnownProvider)) throw new Error('unknown runtime provider');
+      return command.providers.some(isPaidProvider) ? 'cost' : null;
     case 'routine':
       if (!routines.has(command.operation)) throw new Error('unknown super mutation');
       return null;
@@ -297,7 +318,7 @@ export function ownerReservedEffect(
         return 'deletion';
       if (securityChanged(previous, next)) return 'security';
       const paid = next.team.members.filter(
-        (m): m is AiMemberConfig => m.kind === 'ai' && m.provider === 'nanogpt',
+        (m): m is AiMemberConfig => m.kind === 'ai' && isPaidProvider(m.provider ?? DEFAULT_AGENT_PROVIDER),
       );
       const cap = (config: ProjectConfig) => config.team.limits.maxConcurrentAi ?? Infinity;
       if (
@@ -311,7 +332,7 @@ export function ownerReservedEffect(
           return (
             !before ||
             before.kind !== 'ai' ||
-            before.provider !== 'nanogpt' ||
+            (before.provider ?? DEFAULT_AGENT_PROVIDER) !== (member.provider ?? DEFAULT_AGENT_PROVIDER) ||
             before.model !== member.model ||
             before.capacity !== member.capacity ||
             canonical(before.schedule) !== canonical(member.schedule) ||

@@ -2,6 +2,7 @@ import { BUILT_IN_ROLE_DUTIES, customRoleDuties, isBuiltInRole } from '../domain
 import { DUTIES } from '../domain/duty';
 import type { DutyId } from '../domain/duty';
 import type { Stage } from '../domain/pipeline';
+import { isLiveSession } from '../domain/live-session';
 import type { Session, SessionState } from '../domain/session';
 import { isOpenTask } from '../domain/task';
 import type { Task } from '../domain/task';
@@ -186,14 +187,6 @@ export function isWorkingInStage(
   if (stage.kind === 'work') return task.assignee ? task.assignee === handle : stage.owners.includes(handle);
   return stage.kind !== 'queue' && stage.kind !== 'done' && stage.owners.includes(handle);
 }
-/** Session states of a live session: a process that runs (or starts) for its work item. */
-export const LIVE_SESSION_STATES: SessionState[] = [
-  'starting',
-  'idle',
-  'working',
-  'waiting_permission',
-  'waiting_input',
-];
 /**
  * The sessions that work on a card now (PM-249): live sessions whose work item is the card and whose
  * member works on it (`isWorkingInStage`). One per member. Order: the owners of a step stage, then the
@@ -212,7 +205,7 @@ export function cardWorkerSessions(
       (s) =>
         s.workItem.type === 'task' &&
         s.workItem.taskKey === task.key &&
-        LIVE_SESSION_STATES.includes(s.state) &&
+        isLiveSession(s) &&
         isWorkingInStage(stage, task, s.member, s.state),
     )
     .sort((a, b) => rank(a) - rank(b) || since(a).localeCompare(since(b)));

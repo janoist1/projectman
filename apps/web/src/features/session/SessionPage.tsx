@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { Suspense, lazy, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import { isWorkPaused } from '@projectman/shared';
+import { isLiveSession, isWorkPaused } from '@projectman/shared';
 import type { ChatItem, SessionDetail } from '@projectman/shared';
 import {
   useBoard,
@@ -28,7 +28,7 @@ import { errorCode, errorMessage } from '../../lib/errors';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { openItemIds, openItemsFor, withHistory } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
-import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
+import { closureTexts, sessionClosure } from '../../lib/sessions';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import { nextStepLine } from '../board/NextStep';
 import { engineNameMap } from '../engines/engineView';

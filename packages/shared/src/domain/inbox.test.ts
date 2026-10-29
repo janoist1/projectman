@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canResolveInboxItem,
   canSeeInboxItem,
   AnswerDelivery,
   gateRequestOf,
@@ -137,6 +138,18 @@ describe('knowledge approval visibility', () => {
                 },
               ),
             ).toBe(via === undefined && ['owner', 'admin'].includes(access));
+  });
+});
+
+describe('canResolveInboxItem', () => {
+  it.each([
+    ['an assignee resolves a decision', 'decision', 'ann', 'developer', true],
+    ['the owner resolves an item of someone else', 'question', 'owner', 'owner', true],
+    ['the owner leaves a decision to its assignees', 'decision', 'owner', 'owner', false],
+    ['the owner leaves a release approval to its assignees', 'release', 'owner', 'owner', false],
+    ['another member may not', 'question', 'bob', 'admin', false],
+  ] as const)('%s', (_name, kind, handle, access, allowed) => {
+    expect(canResolveInboxItem({ handle, access }, { kind, assignees: ['ann'] })).toBe(allowed);
   });
 });
 

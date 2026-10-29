@@ -24,6 +24,7 @@ import {
   ResolveIntegratorTodoRequest as IntegratorTodoRequestSchema,
   ScreeningTodo as ScreeningTodoSchema,
   approvalRefusal,
+  canResolveInboxItem,
   canSeeInboxItem,
   DELEGATED_INPUT_LIMIT,
   PERMISSION_LEAD_CAP_MS,
@@ -1075,10 +1076,8 @@ export class InboxService {
       const refusal = approvalRefusal(config, gate.label, by.handle, task);
       if (refusal) throw forbidden(refusal, APPROVAL_REFUSALS[refusal]);
     }
-    const isAssignee = item.assignees.includes(by.handle);
-    if (!isAssignee && !(item.kind !== 'decision' && item.kind !== 'release' && by.access === 'owner')) {
+    if (!canResolveInboxItem(by, item))
       throw forbidden('not_an_assignee', 'only the assignees may resolve this item');
-    }
     const note = req.note?.trim() ? req.note.trim() : null;
     if (
       item.kind === 'question' &&

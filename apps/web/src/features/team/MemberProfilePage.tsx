@@ -8,6 +8,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   effortForProvider,
   hasPlanUsage,
+  isLiveSession,
   mergeTokenUsage,
   PROJECT_MANAGER_ROLE,
   roleBundle,
@@ -49,7 +50,7 @@ import { errorMessage } from '../../lib/errors';
 import { capacityFrom } from '../../lib/capacity';
 import { inboxHeading } from '../../lib/inbox';
 import { canRenameMember, memberStatusView, renamedTo } from '../../lib/members';
-import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
+import { closureTexts, sessionClosure } from '../../lib/sessions';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
 import { describeCron } from '../../lib/schedules';

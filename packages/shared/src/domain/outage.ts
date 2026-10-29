@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ErrorCode } from '../api/error-codes';
 import { EngineId } from './engine';
 import { AgentProvider } from './member';
 
@@ -33,7 +34,7 @@ export const OUTAGE_REFUSALS = [
   'nanogpt_setup_incomplete',
   'codex_setup_incomplete',
   'engine_offline',
-] as const;
+] as const satisfies readonly ErrorCode[];
 
 export function outageIdOf(
   target:

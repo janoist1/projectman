@@ -102,6 +102,7 @@ import {
   attachmentPreviewOf,
   withQuestionAttachmentGone,
   canDeleteAttachment,
+  canResolveInboxItem,
   canSeeInboxItem,
   visibleQuestionItem,
   isPendingQuestion,
@@ -127,6 +128,7 @@ import {
   handOnRequestOf,
   holdersAllow,
   isBuiltInRole,
+  isLiveSession,
   isOnLeave,
   isRequiredProjectManager,
   isOpenTask,
@@ -569,14 +571,13 @@ export class MockBackend {
       role: this.findMember(this.viewerHandle)?.role ?? '',
     }),
     isHostOwner: () => this.isHostOwner(),
-    isLive: (session) => this.isLive(session),
     isAiMember: (handle) => this.findMember(handle)?.kind === 'ai',
     emit: (event) => this.emit(event),
     addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
     updateSession: (id, patch) => this.updateSession(id, patch),
     updateTask: (key, patch) => this.updateTask(key, patch),
     flushHeldMessages: () => {
-      for (const session of this.sessions) if (this.isLive(session)) this.flushTeamMessages(session);
+      for (const session of this.sessions) if (isLiveSession(session)) this.flushTeamMessages(session);
     },
   });
   inbox: InboxItem[] = clone(fixtures.inbox);
@@ -888,11 +889,6 @@ export class MockBackend {
     });
   }
 
-  /** A session that has not exited or failed. */
-  isLive(session: Session): boolean {
-    return session.state !== 'exited' && session.state !== 'failed';
-  }
-
   updateTask(key: string, patch: Partial<Task>, actor = this.viewerHandle): Task | undefined {
     const task = this.findTask(key);
     if (!task) return undefined;
@@ -1150,7 +1146,11 @@ export class MockBackend {
     if (!task?.loop) return;
     if (optionId === 'stop_work') {
       for (const session of this.sessions)
-        if (session.workItem.type === 'task' && session.workItem.taskKey === task.key && this.isLive(session))
+        if (
+          session.workItem.type === 'task' &&
+          session.workItem.taskKey === task.key &&
+          isLiveSession(session)
+        )
           this.updateSession(session.id, { state: 'exited', activity: null });
       this.endLoop(task.key, 'stopped', by);
       return;
@@ -1194,7 +1194,7 @@ export class MockBackend {
       testsFailed: rounds.testsFailed,
       extraRounds: this.fixState(taskKey).extraRounds,
       remainingExtraRounds: remainingFixExtraRounds(this.fixState(taskKey).extraRounds),
-      extraRoundLimit: MAX_FIX_EXTRA_ROUNDS as 3,
+      extraRoundLimit: MAX_FIX_EXTRA_ROUNDS,
     };
   }
 
@@ -1460,17 +1460,17 @@ export class MockBackend {
   updateSession(id: string, patch: Partial<Session>): Session | undefined {
     const session = this.findSession(id);
     if (!session) return undefined;
-    const wasEnded = !this.isLive(session);
+    const wasEnded = !isLiveSession(session);
     const stateChanged = patch.state !== undefined && patch.state !== session.state;
     Object.assign(session, patch, {
       lastActivityAt: nowIso(),
       ...(stateChanged ? { stateSince: nowIso() } : {}),
     });
     // A session that runs again no longer rests: the reason of its last stop goes (PM-288).
-    if (wasEnded && this.isLive(session)) delete session.lastStop;
+    if (wasEnded && isLiveSession(session)) delete session.lastStop;
     if (wasEnded || session.state === 'idle' || session.state === 'waiting_input')
       this.flushTeamMessages(session);
-    if (session.workItem.type === 'schedule' && !this.isLive(session)) {
+    if (session.workItem.type === 'schedule' && !isLiveSession(session)) {
       const run = this.scheduleRuns.find((r) => r.sessionId === session.id);
       if (run) {
         run.status = session.state === 'failed' ? 'failed' : 'done';
@@ -1556,7 +1556,7 @@ export class MockBackend {
     if (sessionId)
       this.appendChat(sessionId, [this.chatItem('team_message', { direction: 'out', from, to, text: body })]);
     for (const handle of to) {
-      const live = this.sessions.filter((s) => s.member === handle && this.isLive(s));
+      const live = this.sessions.filter((s) => s.member === handle && isLiveSession(s));
       const target =
         live.find((s) => s.workItem.type === 'task' && s.workItem.taskKey === taskKey) ?? live[0];
       if (target) this.flushTeamMessages(target);
@@ -2592,12 +2592,7 @@ export class MockBackend {
         return error(403, 'insufficient_access', 'Only the engine owner or the project owner may unbind it');
       const bound = bindings.find((b) => b.engineId === engineId);
       if (!bound) return error(404, 'engine_not_found', 'The engine is not bound');
-      if (
-        this.sessions.some(
-          (session) =>
-            session.engineId === engineId && session.state !== 'exited' && session.state !== 'failed',
-        )
-      )
+      if (this.sessions.some((session) => session.engineId === engineId && isLiveSession(session)))
         return error(409, 'engine_in_use', 'The project has a session on this engine');
       if (bound.isDefault && bindings.length > 1)
         return error(409, 'engine_is_default', 'Make another engine the default first');
@@ -2612,7 +2607,7 @@ export class MockBackend {
   }
 
   private machineView(): MachineView {
-    const live = this.sessions.filter((session) => this.isLive(session));
+    const live = this.sessions.filter((session) => isLiveSession(session));
     return {
       sampledAt: nowIso(),
       intervalMs: 15000,
@@ -2651,7 +2646,7 @@ export class MockBackend {
         { kind: 'server', name: 'projectman', cpuPercent: 2, memoryBytes: 120 * 1024 ** 2, processCount: 1 },
       ],
       rest: { cpuPercent: 10, memoryBytes: 1024 ** 3 },
-      closedSessions: this.sessions.filter((session) => !this.isLive(session)).length,
+      closedSessions: this.sessions.filter((session) => !isLiveSession(session)).length,
     };
   }
 
@@ -3822,7 +3817,7 @@ export class MockBackend {
         if (input.onLeave) {
           config.onLeave = member.onLeave = true;
           // Like the server: the running sessions of a member sent on leave stop.
-          for (const session of this.sessions.filter((s) => s.member === handle && this.isLive(s)))
+          for (const session of this.sessions.filter((s) => s.member === handle && isLiveSession(s)))
             this.updateSession(session.id, { state: 'exited', activity: null, endedAt: nowIso() });
           this.setMemberState(handle, 'idle', null);
         } else {
@@ -3917,7 +3912,8 @@ export class MockBackend {
       fields: ['status', 'closedAt'],
       ...why,
     });
-    for (const session of this.taskSessions(taskKey)) if (this.isLive(session)) this.stopSession(session.id);
+    for (const session of this.taskSessions(taskKey))
+      if (isLiveSession(session)) this.stopSession(session.id);
     for (const item of this.inbox.filter((entry) => entry.taskKey === taskKey && entry.state === 'open'))
       this.upsertInbox({ ...item, state: 'cancelled' });
     for (const member of this.members)
@@ -5239,7 +5235,7 @@ export class MockBackend {
         duplicateMarkRefusal({
           task,
           stageKind: stageOf(this.config, task.stageId)?.kind,
-          hasLiveSession: this.taskSessions(task.key).some((session) => this.isLive(session)),
+          hasLiveSession: this.taskSessions(task.key).some((session) => isLiveSession(session)),
           mayCancel: lifecycleAllowed(this.config, { kind: 'human', handle: this.viewerHandle }, 'cancel'),
         }),
     });
@@ -5493,7 +5489,7 @@ export class MockBackend {
         s.member === assignee &&
         s.workItem.type === 'task' &&
         s.workItem.taskKey === task.key &&
-        this.isLive(s),
+        isLiveSession(s),
     );
     if (this.findMember(assignee)?.kind === 'ai' && !running && !this.config.team.limits.aiEnabled)
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
@@ -5705,7 +5701,7 @@ export class MockBackend {
         s.member === handle &&
         s.workItem.type === 'task' &&
         s.workItem.taskKey === task.key &&
-        this.isLive(s),
+        isLiveSession(s),
     );
     if (live) return;
     const session: Session = {
@@ -5855,7 +5851,7 @@ export class MockBackend {
       emailMailboxTaken([this.config, ...this.email.otherProjects], this.config.project.key, handle, to)
     )
       return error(409, 'email_mailbox_taken', 'The mailbox name is taken', { mailbox: to });
-    if (this.sessions.some((s) => s.member === handle && s.state !== 'exited' && s.state !== 'failed'))
+    if (this.sessions.some((s) => s.member === handle && isLiveSession(s)))
       return error(409, 'member_session_live', `${handle} is working`, { reason: 'session', member: handle });
 
     const next = renameMemberInConfig(this.config, handle, to);
@@ -5934,10 +5930,10 @@ export class MockBackend {
     const text = input.text.trim();
     if (!text) return error(400, 'invalid_request', 'The message text is empty', { field: 'text' });
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
-    if (!this.isLive(session) && !this.config.team.limits.aiEnabled)
+    if (!isLiveSession(session) && !this.config.team.limits.aiEnabled)
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
     // A stopped session is not started while the team is paused; a live one takes the message and holds it.
-    if (!this.isLive(session) && this.pauses.isPaused())
+    if (!isLiveSession(session) && this.pauses.isPaused())
       return error(409, 'team_paused', 'The team is paused');
     if (taskKey && this.findTask(taskKey) && !isOpenTask(this.findTask(taskKey)!))
       return error(409, 'task_closed', 'Task is closed');
@@ -6020,7 +6016,7 @@ export class MockBackend {
     const holders: CapacityHolder[] = [];
     const ofTask = new Map<string, CapacityHolder>();
     for (const s of this.sessions) {
-      if (s.member !== handle || !this.isLive(s)) continue;
+      if (s.member !== handle || !isLiveSession(s)) continue;
       const working = isSessionAtWork(s, {
         awaitsFirstTurn: false,
         pendingInput: false,
@@ -6081,7 +6077,7 @@ export class MockBackend {
    */
   private admissionRefusal(member: AiMemberConfig, opts: { scheduleRun?: boolean } = {}): ErrorCode | null {
     const limits = this.config.team.limits;
-    const live = this.sessions.filter((s) => this.isLive(s));
+    const live = this.sessions.filter((s) => isLiveSession(s));
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
     const plan = this.planUsageFor(provider);
     if (!limits.aiEnabled) return 'ai_disabled';
@@ -6390,7 +6386,7 @@ export class MockBackend {
     if (!member) return error(404, 'not_found', 'Unknown member');
     if (member.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI conversations');
     const existing = this.sessions.find((s) => s.member === handle && s.workItem.type === 'general');
-    if (existing && this.isLive(existing)) return { status: 202, body: clone(existing) };
+    if (existing && isLiveSession(existing)) return { status: 202, body: clone(existing) };
     const refusal = this.admissionRefusal(member);
     if (refusal) return error(409, refusal, 'The conversation cannot start now');
     const at = nowIso();
@@ -6538,7 +6534,7 @@ export class MockBackend {
     }
     const to = effectiveSessionPermissions(member, next);
     const restart =
-      this.isLive(session) && session.state !== 'idle' && from.permissionMode !== to.permissionMode;
+      isLiveSession(session) && session.state !== 'idle' && from.permissionMode !== to.permissionMode;
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
     const record = (field: 'mode' | 'approver', values: [unknown, unknown], sources: [string, string]) => {
       if (values[0] === values[1] && sources[0] === sources[1]) return;
@@ -6769,7 +6765,7 @@ export class MockBackend {
       return ok(clone(resolved));
     }
     if (operatorApproval) {
-      if (!item.assignees.includes(viewer.handle) && viewer.access !== 'owner')
+      if (!canResolveInboxItem(viewer, item))
         return error(403, 'not_an_assignee', 'Only assignees may decide');
       return this.resolveOperatorApproval(item, operatorApproval, input.optionId, viewer.handle);
     }
@@ -6780,8 +6776,7 @@ export class MockBackend {
       const refusal = approvalRefusal(this.config, gate.label, viewer.handle, task);
       if (refusal) return error(403, refusal, 'The approval is not allowed');
     }
-    if (!item.assignees.includes(viewer.handle) && !(item.kind !== 'decision' && viewer.access === 'owner'))
-      return error(403, 'not_an_assignee', 'Only assignees may decide');
+    if (!canResolveInboxItem(viewer, item)) return error(403, 'not_an_assignee', 'Only assignees may decide');
     const note = input.note?.trim() || null;
     const attached = (input.attachmentIds ?? []).map((id) =>
       this.messageAttachments.find((file) => file.id === id),
@@ -6908,7 +6903,7 @@ export class MockBackend {
         sessionId,
       );
       const session = sessionId ? this.findSession(sessionId) : undefined;
-      if (session && this.isLive(session))
+      if (session && isLiveSession(session))
         this.updateSession(session.id, { state: allowed ? 'working' : 'idle', activity: null });
       return;
     }

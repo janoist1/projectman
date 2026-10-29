@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_MAX_FIX_ROUNDS, ProjectConfig, TeamLimits } from '../config/schema';
+import { MAX_FIX_EXTRA_ROUNDS } from './fix-extra-rounds';
 import {
-  MAX_FIX_EXTRA_ROUNDS,
   FixLimitAssessment,
   remainingFixExtraRounds,
   countFixRounds,

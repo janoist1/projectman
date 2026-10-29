@@ -1,5 +1,5 @@
 import { collectingAutoClose, labelDefinition } from '@projectman/shared';
-import type { ProjectConfig, Task } from '@projectman/shared';
+import type { ErrorCode, ProjectConfig, Task } from '@projectman/shared';
 import type { DomainContext } from '../base';
 import type { ProjectService } from '../projects';
 import type { TaskService } from './service';
@@ -11,7 +11,7 @@ const REFUSALS: ReadonlySet<string> = new Set([
   'task_not_merged',
   'task_closed',
   'approval_requested',
-]);
+] satisfies ErrorCode[]);
 
 /**
  * A collecting card closes with its parts (PM-647): when the last subtask closes (enters the done stage or

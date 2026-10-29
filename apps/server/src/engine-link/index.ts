@@ -11,6 +11,7 @@ import {
   ENGINE_DEAD_AFTER_MS,
   ENGINE_DEAD_AFTER_PINGS,
   ENGINE_HEARTBEAT_MS,
+  ENGINE_HELLO_TIMEOUT_MS,
   ENGINE_OFFLINE_AFTER_MS,
   ENGINE_PROTOCOL_VERSION,
 } from './protocol';
@@ -21,7 +22,7 @@ export * from './methods';
 export * from './rpc';
 export { createEngineEventBuffer } from './event-buffer';
 export { createCloudRemote } from './remote';
-export { createAppTagReader,resolveAppTag, resolveAppVersion } from './version';
+export { createAppTagReader, resolveAppTag, resolveAppVersion } from './version';
 export { createEngineAudit } from './engine-audit';
 export { createEngineClient } from './engine-client';
 export type { LinkSocketFactory } from './engine-client';
@@ -138,6 +139,7 @@ export function createEngineLinks(options: {
           const ip = clientAddress(request, options.clientIpHeader);
           let link: EngineLink | undefined;
           let rpc: EngineRpc | undefined;
+          let linkState: RpcState | undefined;
           let ended = false;
           // Any decoded frame or pong shows the engine lives; `unanswered` counts the pings sent since.
           let lastHeard = now();
@@ -188,7 +190,7 @@ export function createEngineLinks(options: {
           const pending = pendingSockets.get(id) ?? new Set<() => void>();
           pending.add(pendingRevoke);
           pendingSockets.set(id, pending);
-          const helloTimer = setTimeout(() => stop(4400, 'hello_timeout'), 10_000);
+          const helloTimer = setTimeout(() => stop(4400, 'hello_timeout'), ENGINE_HELLO_TIMEOUT_MS);
           helloTimer.unref();
           // The only place that judges a link dead. A stalled event loop sends no pings, so it cannot
           // pile up unanswered ones: the cloud does not drop a live engine because it was itself paused.
@@ -201,6 +203,9 @@ export function createEngineLinks(options: {
             if (socket.readyState === 1) {
               socket.ping();
               unanswered += 1;
+              // The engine's WebSocket shows no protocol ping, so an idle link would look the same alive or
+              // dead to it: the acknowledgement it already understands is repeated as the app-level heartbeat.
+              if (linkState) socket.send(encodeFrame({ t: 'ack', seq: linkState.ackedSeq }));
             }
           };
           // Register listeners synchronously: frames can arrive as soon as the upgrade succeeds.
@@ -254,6 +259,7 @@ export function createEngineLinks(options: {
                   : { ...createRpcState(), results: previousState?.results ?? new Map() };
               boots.set(id, frame.bootId);
               states.set(id, state);
+              linkState = state;
               const hello = frame;
               rpc = createEngineRpc({
                 side: 'cloud',
@@ -298,7 +304,13 @@ export function createEngineLinks(options: {
               notify(id, true);
               return;
             }
-            void rpc.receive(frame).catch(() => stop(4400, 'invalid_frame'));
+            void rpc.receive(frame).catch((error: unknown) => {
+              options.logger?.warn(
+                { engineId: id, code: error instanceof Error ? error.name : 'error' },
+                'engine link: a frame was rejected',
+              );
+              stop(4400, 'invalid_frame');
+            });
           });
           socket.on('pong', () => {
             if (!ended && link && active.get(id) === link) {

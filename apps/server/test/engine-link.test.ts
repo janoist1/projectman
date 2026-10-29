@@ -6,7 +6,12 @@ import type { AppHarness } from './helpers/app-harness';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { Socket as NetSocket } from 'node:net';
 import { machineKeyHash } from '../src/runtime/sessions';
-import { decodeFrame, encodeFrame, ENGINE_MAX_FRAME_BYTES } from '../src/engine-link';
+import {
+  decodeFrame,
+  encodeFrame,
+  ENGINE_HELLO_TIMEOUT_MS,
+  ENGINE_MAX_FRAME_BYTES,
+} from '../src/engine-link';
 import type { EngineFrame, Hello } from '../src/engine-link';
 
 interface Socket {
@@ -371,11 +376,11 @@ describe('cloud engine registry and link', () => {
     expect(logs.join('')).not.toContain(engine.key);
   });
 
-  it('requires hello within ten seconds and closes sockets revoked before hello', async () => {
+  it('requires hello within its timeout and closes sockets revoked before hello', async () => {
     const engine = await create();
     const timeouts = vi.spyOn(globalThis, 'setTimeout');
     const silent = await connect(engine.key);
-    const deadline = timeouts.mock.calls.find((args) => args[1] === 10_000)?.[0];
+    const deadline = timeouts.mock.calls.find((args) => args[1] === ENGINE_HELLO_TIMEOUT_MS)?.[0];
     expect(typeof deadline).toBe('function');
     if (typeof deadline === 'function') deadline();
     await vi.waitFor(() => expect(silent.closed()).toBe(4400));
@@ -419,6 +424,7 @@ describe('cloud engine registry and link', () => {
       emit(event: 'pong'): void;
       emit(event: 'message', data: Buffer, binary: boolean): void;
       ping: () => void;
+      send: (data: string) => void;
     };
     /** A connected engine, a faked clock and the cloud's heartbeat pulse; time is `at + offset`. */
     const arrange = async () => {
@@ -448,6 +454,15 @@ describe('cloud engine registry and link', () => {
         },
       };
     };
+
+    it('repeats its acknowledgement with every ping, so an idle engine can tell the link lives', async () => {
+      const link = await arrange();
+      const send = vi.spyOn(link.server, 'send');
+      link.pulse(20_000);
+      link.pulse(40_000);
+      expect(link.ping).toHaveBeenCalledTimes(2);
+      expect(send.mock.calls.map(([data]) => JSON.parse(String(data)).t)).toEqual(['ack', 'ack']);
+    });
 
     it('keeps a link that sends frames but no pongs beyond 90 seconds', async () => {
       const link = await arrange();

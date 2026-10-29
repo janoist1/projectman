@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { templates } from '@projectman/templates';
 import { LabelDefinition } from '../domain/label';
+import type { ProjectConfig } from './schema';
 import { teamRules, TEAM_RULE_IDS } from './team-rules';
 
 function sampleConfig() {
@@ -53,11 +54,81 @@ describe('teamRules', () => {
       if (member.kind === 'human') member.roles = [];
     });
     config.team.limits.maxFixRounds = 5;
-    expect(teamRules(config)).toEqual([
-      { id: 'new_card', firstStageId: config.pipeline.stages[0]!.id, minimumAccess: 'developer' },
-      { id: 'gates_in_order', clearedOnMoveBack: [] },
-      { id: 'fix_limit', limit: 5, labels: [], lead: null, deciders: ['owner'] },
+    expect(teamRules(config).map((rule) => rule.id)).toEqual([
+      'new_card',
+      'gates_in_order',
+      'start_order',
+      'priority_setters',
+      'complexity_setters',
+      'acceptance',
+      'fix_limit',
+      'viewer_recipients',
     ]);
+    expect(teamRules(config).find((rule) => rule.id === 'fix_limit')).toEqual({
+      id: 'fix_limit',
+      limit: 5,
+      labels: [],
+      lead: null,
+      deciders: ['owner'],
+    });
+  });
+
+  it.each([
+    {
+      id: 'assignee_fit',
+      off: (config: ProjectConfig) => {
+        config.team.assigneeFit = 'automatic';
+      },
+      on: (config: ProjectConfig) => {
+        config.team.assigneeFit = 'automatic_and_ai';
+      },
+    },
+    {
+      id: 'acceptance',
+      off: (config: ProjectConfig) => {
+        for (const stage of config.pipeline.stages)
+          if (stage.gate)
+            stage.gate.conditions = stage.gate.conditions.filter(
+              (condition) => !('label' in condition && condition.label.startsWith('acceptance-')),
+            );
+      },
+      on: () => undefined,
+    },
+    {
+      id: 'project_manager_rights',
+      off: (config: ProjectConfig) => {
+        config.team.members = config.team.members.filter(
+          (member) => !(member.kind === 'ai' && member.role === 'project_manager'),
+        );
+      },
+      on: () => undefined,
+    },
+  ])('lists $id only while the project lives by it', ({ id, off, on }) => {
+    const config = sampleConfig();
+    on(config);
+    expect(teamRules(config).some((rule) => rule.id === id)).toBe(true);
+    off(config);
+    expect(teamRules(config).some((rule) => rule.id === id)).toBe(false);
+  });
+
+  it('resolves the members and values of the settings-based rules', () => {
+    const config = sampleConfig();
+    config.team.prioritySetters = [];
+    config.team.viewerRecipients = 'contacts';
+    config.team.assigneeFit = 'automatic_and_ai';
+    const rules = teamRules(config);
+    expect(rules.find((rule) => rule.id === 'priority_setters')).toEqual({
+      id: 'priority_setters',
+      members: [],
+    });
+    expect(rules.find((rule) => rule.id === 'viewer_recipients')).toEqual({
+      id: 'viewer_recipients',
+      mode: 'contacts',
+    });
+    expect(rules.find((rule) => rule.id === 'start_order')).toMatchObject({ urgentPull: expect.any(Boolean) });
+    expect(rules.find((rule) => rule.id === 'assignee_fit')).toMatchObject({
+      tempMaxPoints: expect.any(Number),
+    });
   });
 
   it('collects refinement requirements in gate order, once, excluding system labels', () => {

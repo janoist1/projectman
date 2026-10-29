@@ -19,6 +19,7 @@ import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 import { RepoDocs } from './project-docs';
 import { isRegeneratedPathPattern } from './regenerated-paths';
 import { OperatorWatch } from './operator-watch';
+import { RULE_REASON_MAX, TEAM_RULE_IDS } from './team-rule-ids';
 
 /**
  * Project configuration ("customizations"). Lives as YAML files in a separate git
@@ -60,6 +61,13 @@ const PrioritySetters = z
   .array(PrioritySetter)
   .refine((ids) => new Set(ids).size === ids.length, 'duplicate priority setters');
 type PrioritySetters = z.infer<typeof PrioritySetters>;
+
+/** The team's own reason for a rule, one sentence per rule; a rule without one shows the general reason (PM-1137). */
+export const RuleReasons = z.partialRecord(
+  z.enum(TEAM_RULE_IDS),
+  z.string().trim().min(1).max(RULE_REASON_MAX),
+);
+export type RuleReasons = z.infer<typeof RuleReasons>;
 
 /** Whom a read-only viewer may write to (PM-1102): the project manager only, or the project's contacts. */
 export const ViewerRecipients = z.enum(['project_manager', 'contacts']);
@@ -460,6 +468,8 @@ export const ProjectConfig = z.object({
      * `TEAM_SETTING_POLICY` default.
      */
     assigneeFit: z.enum(['automatic', 'automatic_and_ai']).optional(),
+    /** Why each rule on the "How we work" page lives (PM-1137); absent: the general reasons show. */
+    ruleReasons: RuleReasons.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),

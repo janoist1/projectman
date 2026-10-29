@@ -704,6 +704,7 @@ describe('team rules in the system prompt', () => {
   it('describes every applicable rule immediately after labels without duplicate guardrails', () => {
     const project = buildProject();
     project.pipeline.labels.push(LabelDefinition.parse({ id: 'refine', name: 'Refine' }));
+    project.team.assigneeFit = 'automatic_and_ai';
     const pack = builder.build(input({ project }));
     const prompt = pack.appendSystemPrompt;
     const rules = teamRules(project);
@@ -1035,9 +1036,9 @@ describe('context pack snapshots', () => {
         timeline: timeline.slice(0, 4),
       }),
     );
-    // The 300 B are the acceptance items' two labels and gates (PM-1135).
+    // The 300 B are the acceptance items' two labels and gates (PM-1135), the 300 B the rule lines (PM-1137).
     expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(
-      11000 + 300 + ROLE_PURPOSES.developer.length,
+      11000 + 300 + 300 + ROLE_PURPOSES.developer.length,
     );
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/developer-dev.system-prompt.txt',

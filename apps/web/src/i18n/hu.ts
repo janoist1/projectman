@@ -1363,6 +1363,18 @@ export const hu = {
     handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
     /** `member_session_live` with what holds the member named (PM-1026). */
     memberSessionLive: 'Most nem nevezhető át, mert {reason}. Próbáld újra, ha végzett.',
+    /** Why an acceptance change is refused (`acceptance_item_refused.details.reason`, PM-1137). */
+    acceptanceRefusal: {
+      card_closed: 'A lezárt kártya tételei már nem változtathatók.',
+      too_many: 'Legfeljebb 40 tétel lehet.',
+      not_open: 'Csak nyitott tétel szerkeszthető.',
+      remove_after_start: 'Indulás után nem törölhető: jelöld „Nem kell”-nek vagy helyezd át.',
+      not_marker: 'Ezt a tételt a kártya felelőse jelölheti.',
+      not_settled: 'Megerősíteni csak a kész vagy „nem kell” tételt lehet.',
+      not_confirmer: 'A megerősítést a kártya jelenlegi lépésének gazdája végzi.',
+      own_work: 'Saját jelölést nem erősíthetsz meg.',
+      move_target: 'Ide nem helyezhető át: válassz másik, nyitott kártyát (téma nem lehet).',
+    },
     memberSessionLiveReason: {
       session: 'éppen dolgozik egy munkamenetben',
       workspace: 'a munkaterülete még foglalt egy kártyához',
@@ -1929,6 +1941,8 @@ export const hu = {
     none: 'Nincs megadva',
     markLabel: 'Prioritás: {level}',
     saveFailed: 'Nem sikerült menteni a prioritást. Próbáld újra.',
+    /** Under a theme's priority (PM-1137). */
+    themeHelp: 'A téma kártyái legalább ezzel a prioritással sorolódnak.',
   },
   board: {
     title: 'Folyamat',
@@ -2458,6 +2472,59 @@ export const hu = {
     placeholder: 'szöveg',
   },
   task: {
+    /** The acceptance items on the card (PM-1137). */
+    acceptance: {
+      title: 'Elfogadási feltételek',
+      progress: '{done}/{total} lezárva · {confirmed} megerősítve',
+      listLabel: 'Elfogadási tételek',
+      loading: 'Az elfogadási tételek betöltése…',
+      empty:
+        'Még nincs tétel. Írd be tételenként, mitől lesz kész a kártya: a kapu megvárja, hogy mind teljesüljön.',
+      state: { open: 'Nyitott', done: 'Kész', not_needed: 'Nem kell', moved: 'Áthelyezve' },
+      evidence: 'Bizonyíték: {text}',
+      notNeeded: 'Nem kell: {text}',
+      movedTo: 'Áthelyezve ide:',
+      origin: 'Átvéve innen:',
+      marked: '{name} jelölte · {when}',
+      confirmed: '{name} megerősítette · {when}',
+      unconfirmed: 'Megerősítésre vár',
+      more: 'Tétel műveletei',
+      actions: {
+        done: 'Kész…',
+        confirm: 'Megerősítem',
+        notNeeded: 'Nem kell…',
+        move: 'Áthelyezés másik kártyára…',
+        edit: 'Szerkesztés',
+        reopen: 'Újranyitás…',
+        remove: 'Törlés',
+      },
+      add: {
+        open: '＋ Tétel hozzáadása',
+        label: 'Új tétel',
+        placeholder: 'Mitől lesz kész a kártya?',
+        submit: 'Hozzáadás',
+        close: 'Bezár',
+      },
+      form: {
+        cancel: 'Mégse',
+        doneLabel: 'Bizonyíték',
+        donePlaceholder: 'commit, teszt, képernyőkép vagy fájl:sor',
+        doneHint: 'Egy jelölés törli a korábbi megerősítést.',
+        doneSubmit: 'Kész',
+        notNeededLabel: 'Miért nem kell?',
+        notNeededSubmit: 'Nem kell',
+        moveLabel: 'Melyik kártyára kerüljön?',
+        movePlaceholder: 'Válassz kártyát',
+        moveHint: 'Ott nyitott tételként jelenik meg, a két kártya összekapcsolódik.',
+        moveSubmit: 'Áthelyezés',
+        editLabel: 'A tétel szövege',
+        editSubmit: 'Mentés',
+        reopenLabel: 'Mi hiányzik? (nem kötelező)',
+        reopenSubmit: 'Újranyitás',
+        removeQuestion: 'Törlöd a tételt? Az idővonalon nyoma marad.',
+        removeSubmit: 'Törlés',
+      },
+    },
     /** "Miért áll?" in the drawer (PM-461): who acts next and what the card waits for. */
     whyBox: {
       title: 'Miért áll?',
@@ -2953,9 +3020,24 @@ export const hu = {
     /** One line per rule on the page, and the panel it opens (the rule's id is the key). */
     rules: {
       eyebrow: 'Szabály',
+      /** What the rows and panels share: the reason, its editor and the link to the setting (PM-1137). */
+      always: 'Mindig érvényes',
+      alwaysNote: 'A rendszer része, nem kapcsolható ki.',
+      editLink: 'Szabály szerkesztése a Beállításokban',
+      why: {
+        title: 'Miért?',
+        generalNote: 'Ez az általános indok; a csapat még nem írt sajátot.',
+        edit: 'Indok szerkesztése',
+        field: 'Miért él ez a szabály?',
+        hint: 'Egy mondat, legfeljebb 300 karakter. Ha üresen mented, az általános indok látszik.',
+        cancel: 'Mégse',
+        save: 'Mentés',
+        saved: 'Az indok mentve.',
+      },
       new_card: {
         title: 'Új kártya',
-        line: '**Kártyát felvehet** minden AI-tag és minden ember, akinek legalább „{access}” hozzáférése van. Az új kártya felelős nélkül az első lépésbe kerül: {stage}.',
+        why: 'Hogy ne vesszen el ötlet, és a kártya mindig ugyanonnan induljon.',
+        line: '**Kártyát felvehet** minden AI-tag és minden ember, akinek legalább „{access}” hozzáférése van.',
         lead: 'Kártyát felvehet minden AI-tag és minden ember, akinek legalább „{access}” hozzáférése van.',
         firstStage: 'Az új kártya felelős nélkül az első lépésbe kerül: {stage}.',
         refineLabel: 'Ha ki kell dolgozni, a {label} címke kerül rá, és {steps}.',
@@ -2965,29 +3047,30 @@ export const hu = {
       },
       gates_in_order: {
         title: 'Kapuk sorban',
-        line: '**Kaput nem lehet átugrani:** előre lépéskor a kártya minden közbenső lépés kapuján átmegy. Visszaléptetéskor csak abba a lépésbe kerül, ahová visszaküldik.',
-        lineCleared:
-          '**Kaput nem lehet átugrani:** előre lépéskor a kártya minden közbenső lépés kapuján átmegy. Visszaléptetéskor csak abba a lépésbe kerül, ahová visszaküldik, és lekerülnek róla: {labels}.',
+        why: 'Hogy egy lépés se maradjon ki, és a feltételek ne kerülhessenek meg.',
+        line: '**Kaput nem lehet átugrani:** előre lépéskor a kártya minden közbenső lépés kapuján átmegy.',
         lead: 'Előre lépéskor a kártya minden lépésbe belép, amelyet útközben érint, ezért mindegyik kapujának teljesülnie kell, a célét is beleértve. Visszaléptetéskor csak annak a lépésnek a kapuja számít, ahová visszaküldik.',
         cleared: 'Visszaléptetéskor lekerülnek róla:',
         moveBackBlocked: 'Visszaléptetni akkor is lehet, ha rajta van:',
       },
       approvals: {
         title: 'Jóváhagyások',
-        line: '**Jóváhagyó címkét csak ember tehet fel** ({labels}). A rendszer a Rád vár-ban kéri.',
+        why: 'Mert a döntés az emberé: az AI nem hagyhatja jóvá magát.',
+        line: '**Jóváhagyó címkét csak ember tehet fel** ({labels}).',
         lead: 'Ezeket a címkéket csak ember teheti fel. Ha egy kártya ezekre vár, a rendszer a Rád vár-ban kéri a döntést.',
       },
       self_review: {
         title: 'Saját munka',
+        why: 'Mert a saját hibánkat nehéz észrevenni: az átnézéshez másik szem kell.',
         line: '**Saját munkát senki nem hagy jóvá:** az átnézés eredményét nem teheti fel, aki a kártyán dolgozik.',
         lead: 'Az átnézések és tesztek eredményét nem teheti fel az, aki a kártyán dolgozik, vagy a pull requestjét írta.',
       },
       fix_limit: {
         title: 'Javítási körök',
+        why: 'Hogy egy kártya ne körözzön végtelenül javítás és átnézés között.',
         lineLead:
-          '**A javítási körök határa: {limit}.** Ha egy AI-tag kártyája eléri, a munka nem megy vissza magától a fejlesztőhöz: {lead} dönt (még egy kör, pontosabb terv vagy más fejlesztő), vagy továbbadja egy embernek (Rád vár).',
-        lineNoLead:
-          '**A javítási körök határa: {limit}.** Ha egy AI-tag kártyája eléri, a munka nem megy vissza magától a fejlesztőhöz: egy ember dönt (Rád vár).',
+          '**A javítási körök határa: {limit}:** ha egy AI-tag kártyája eléri, {lead} dönt, vagy továbbadja egy embernek.',
+        lineNoLead: '**A javítási körök határa: {limit}:** ha egy AI-tag kártyája eléri, egy ember dönt.',
         lead: 'A javítási körök határa: {limit}. Ezek számítanak egy körnek:',
         labelRow: '{label} felkerül: a munka visszamegy a fejlesztőhöz.',
         movedBack: 'A kártya egy későbbi lépésből visszalép a munkalépésbe ({stages}).',
@@ -2997,14 +3080,14 @@ export const hu = {
           'Ha egy AI-tag kártyája eléri, a munka nem megy vissza magától: egy ember dönt ({deciders}), a Rád vár-ban.',
         limitNotBan:
           'Ez határ, nem tiltás: döntés után jöhet még egy kör. Ha ember viszi a kártyát, a határ nem állítja meg.',
-        editLimits: 'Keretek a Beállításokban',
       },
       refinement: {
         title: 'Kidolgozás',
+        why: 'Hogy a fejlesztés ne kidolgozatlan kártyával induljon.',
         lineLabel:
           '**Kidolgozás:** a „{label}” kártyán a belépési feltételeket sorban teszik fel, egyszerre egy tag.',
         lineStages:
-          '**Kidolgozás itt: {stages}.** A belépési feltételeket sorban teszik fel, egyszerre egy tag.',
+          '**Kidolgozás itt: {stages}:** a belépési feltételeket sorban teszik fel, egyszerre egy tag.',
         leadLabel:
           'A „{label}” kártyát a fejlesztés előtt kidolgozzák. A lépések egymás után jönnek, egyszerre egy tag dolgozik rajta. Ha minden megvan, a rendszer leveszi a címkét, és a kártya indulhat.',
         leadStages:
@@ -3013,8 +3096,77 @@ export const hu = {
       },
       waiting_answer: {
         title: 'Kérdésnél megáll',
+        why: 'Hogy ne induljon tovább olyan munka, amelynek még nyitott kérdése van.',
         line: '**Kérdésnél megáll:** amíg egy kérdésre nincs válasz, a kártyán „{label}” áll, és nem lép tovább.',
         lead: 'Ha egy AI-tag kérdez egy embertől, a kérdés a Rád vár-ba kerül, a kártyára pedig {label} kerül. Amíg rajta van, a kártya nem lép tovább; a válasz után magától lekerül.',
+      },
+      start_order: {
+        title: 'Indulási sorrend',
+        why: 'Hogy a legfontosabb munka induljon először.',
+        line: '**Indulási sorrend:** előbb a sürgős, aztán a nagyobb prioritású (a téma prioritása is számít), végül a tábla sorrendje.',
+        lead: 'Amikor a rendszer kiválasztja, melyik kártya induljon, előbb a sürgőset veszi, aztán a nagyobb prioritásút, végül a táblán előrébb állót. A téma vagy a szülőkártya prioritása is számít.',
+        urgentPull:
+          'A szabad fejlesztő a sürgős kártyát az indulás előtti sorból magától kiveszi, nem várja meg a sorát.',
+      },
+      priority_setters: {
+        title: 'Prioritás állítása',
+        why: 'Hogy a sorrendet az döntse el, akinek rálátása van az egészre.',
+        line: '**Prioritást** az emberek és {names} állíthatnak.',
+        lineHumansOnly: '**Prioritást csak ember állít.**',
+        lead: 'A kártya prioritását az emberek mindig állíthatják, az AI-tagok közül pedig csak azok, akiket a beállítás megnevez.',
+        leadHumansOnly: 'A kártya prioritását csak ember állíthatja, AI-tag nem.',
+      },
+      complexity_setters: {
+        title: 'Komplexitás állítása',
+        why: 'Mert a pont dönti el, ki kapja a kártyát, ezért kevesen állíthatják.',
+        line: '**Komplexitás-pontot** csak {names} állíthat.',
+        lead: 'A pont dönti el, melyik fejlesztő kapja a kártyát, ezért csak ők állíthatják:',
+      },
+      assignee_fit: {
+        title: 'Kiosztás a keret szerint',
+        why: 'Hogy a kártya olyan fejlesztőhöz kerüljön, aki meg tudja csinálni.',
+        line: '**Az AI-tagok kiosztása illeszkedik a kerethez:** pontozott kártyát csak olyan fejlesztőnek adhatnak, akinek a kerete eléri a pontot, és a szakterülete is stimmel.',
+        lead: 'Ha egy AI-tag fejlesztőt jelöl ki, a fejlesztő komplexitás-keretének el kell érnie a kártya pontját, a szakterületének pedig illeszkednie kell. Ember továbbra is bárkinek kiadhatja.',
+        temp: 'Az ideiglenes munkaerő legfeljebb {points} pontos kártyát kaphat.',
+      },
+      acceptance: {
+        title: 'Elfogadási feltételek',
+        why: 'Hogy a kártya csak akkor haladjon, ha tényleg kész, amit kértek.',
+        lineBoth:
+          '**Elfogadási feltételek:** nyitott tétellel a kártya nem lép be ide: {review}; megerősítetlen tétellel nem zárható le: {done}.',
+        lineReview: '**Elfogadási feltételek:** nyitott tétellel a kártya nem lép be ide: {review}.',
+        lineDone: '**Elfogadási feltételek:** megerősítetlen tétellel a kártya nem zárható le: {done}.',
+        lead: 'A kártyán tételesen áll, mitől kész. Aki a tételt készre jelöli, bizonyítékot ad; a jelölést más erősíti meg.',
+        review: 'Nyitott tétellel nem léphet be ide: {stage}.',
+        done: 'Megerősítetlen tétellel nem léphet be ide: {stage}.',
+      },
+      project_manager_rights: {
+        title: 'A projektmenedzser jogai',
+        why: 'Hogy a projektmenedzser segíteni tudjon, de a tulajdonos döntései ne kerülhessenek meg.',
+        lineStartOnly:
+          '**A projektmenedzser a kártyákat csak elindíthatja,** a sorok között nem mozgathatja.',
+        lineQueues:
+          '**A projektmenedzser a sorok között is mozgathatja a kártyákat,** és el is indíthatja őket.',
+        lead: 'Amit a projektmenedzser a tulajdonos kérése nélkül, magától megtehet:',
+        movesStartOnly: 'A kártyákat csak elindíthatja.',
+        movesQueues: 'A kártyákat a sorok között is mozgathatja, és elindíthatja.',
+        lifecycle: 'Önállóan: {actions}.',
+        lifecycleNone: 'Kiosztást, megszakítást és újranyitást önállóan nem végezhet.',
+        override: 'Nyitott előfeltétel esetén is elindíthatja a kártyát.',
+        noOverride: 'Nyitott előfeltétel esetén nem indíthatja el a kártyát.',
+        actions: {
+          assign: 'felelőst jelölhet ki vagy cserélhet',
+          cancel: 'megszakíthat kártyát',
+          reopen: 'újranyithat megszakított kártyát',
+        },
+      },
+      viewer_recipients: {
+        title: 'Kinek írhat a betekintő',
+        why: 'Hogy a betekintő üzenete olyanhoz jusson, aki válaszolni tud rá.',
+        lineContacts: '**A betekintő** csak a projekt kapcsolattartóinak írhat.',
+        lineManager: '**A betekintő** csak a projektmenedzsernek írhat.',
+        leadContacts: 'A betekintő a projektet csak nézi, de üzenni tud: a kapcsolattartóknak.',
+        leadManager: 'A betekintő a projektet csak nézi, de üzenni tud: a projektmenedzsernek.',
       },
     },
     stage: {
@@ -6458,6 +6610,18 @@ export const hu = {
         value: {
           ownerOnly: 'Csak a tulajdonos',
           with: 'A tulajdonos, valamint ezek a feladatkörök: {duties}',
+        },
+      },
+      /** Whether the AI members' explicit assignments also have to fit the complexity limit (PM-1137). */
+      assigneeFit: {
+        label: 'Kiosztás a keret szerint',
+        help: 'A rendszer magától mindig olyan fejlesztőt választ, akinek a kerete eléri a kártya pontját. Ez a kapcsoló azt dönti el, hogy az AI-tagok kifejezett kiosztására is ez érvényes-e.',
+        question: 'Az AI-tagok kiosztása is illeszkedjen a kerethez',
+        note: 'A projektmenedzser és a többi AI-tag sem adhat pontozott kártyát olyan fejlesztőnek, akinek a kerete kisebb, vagy más a szakterülete. Ember továbbra is bárkinek kiadhatja.',
+        readOnlyLabel: 'Az AI-tagok kiosztása',
+        value: {
+          automaticAndAi: 'Az AI-tagok kiosztása is illeszkedik',
+          automatic: 'Csak a rendszer választása illeszkedik',
         },
       },
       /** Who may open a new card (PM-1100). */

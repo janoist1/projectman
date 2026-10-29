@@ -10,7 +10,7 @@ import drawer from './drawer.module.css';
 import styles from './TaskLifecycle.module.css';
 
 /** Shared by the drawer and expanded view; saves immediately and follows live card updates. */
-export function TaskPrioritySelect({ task }: { task: Task }) {
+export function TaskPrioritySelect({ task, help }: { task: Task; help?: string }) {
   const { key, can } = useProject();
   const update = useUpdateTask(key);
   const id = useId();
@@ -50,6 +50,7 @@ export function TaskPrioritySelect({ task }: { task: Task }) {
           <span>{t(`priority.levels.${priority}`)}</span>
         ) : null}
       </span>
+      {help && priority ? <p className={`${drawer.propWide} ${styles.priorityHelp}`}>{help}</p> : null}
       {update.isError ? (
         <p role="alert" className={`${drawer.propWide} ${drawer.error}`}>
           {errorMessage(update.error) === t('errors.generic')

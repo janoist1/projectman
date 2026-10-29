@@ -5,11 +5,11 @@ import { joinNodes, rich } from './rich';
 describe('rich', () => {
   it('puts the parts where the placeholders are, also inside bold text', () => {
     const { container } = render(
-      <p>{rich('howWeWork.rules.new_card.line', { access: <i>fejlesztő</i>, stage: <u>Indulhat</u> })}</p>,
+      <p>{rich('howWeWork.rules.fix_limit.lineLead', { limit: <i>3</i>, lead: <u>Vezető</u> })}</p>,
     );
-    expect(container.querySelector('b')?.textContent).toBe('Kártyát felvehet');
-    expect(container.querySelector('i')?.textContent).toBe('fejlesztő');
-    expect(container.querySelector('u')?.textContent).toBe('Indulhat');
+    expect(container.querySelector('b')?.textContent).toContain('3');
+    expect(container.querySelector('i')?.textContent).toBe('3');
+    expect(container.querySelector('u')?.textContent).toBe('Vezető');
     expect(container.textContent).not.toContain('{');
     expect(container.textContent).not.toContain('**');
   });

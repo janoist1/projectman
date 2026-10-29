@@ -1,5 +1,15 @@
-import type { MemberContextPreview, ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
+import type {
+  AcceptanceChange,
+  AcceptanceItem,
+  MemberContextPreview,
+  ProviderLoginStatus,
+  ServerVersionView,
+} from '@projectman/shared';
 import {
+  ACCEPTANCE_OPEN_LABEL,
+  ACCEPTANCE_UNCONFIRMED_LABEL,
+  acceptanceLabels,
+  acceptanceRefusal,
   chatWindow,
   checklistConditionHolds,
   checklistProgress,
@@ -498,6 +508,8 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
+  /** The cards' acceptance items by card key (PM-1137); a card with no entry has none. */
+  private acceptance = new Map<string, AcceptanceItem[]>();
   integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
   integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
   superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
@@ -918,6 +930,174 @@ export class MockBackend {
     });
     this.settleSeniorWaits();
     return ok(this.taskDetail(task));
+  }
+
+  /** The card's acceptance items in order (PM-1137); a copy. */
+  acceptanceOf(taskKey: string): AcceptanceItem[] {
+    return clone(this.acceptance.get(taskKey) ?? []);
+  }
+
+  /** Sets a card's acceptance items as they stand (a fixture), the system labels following them. */
+  putAcceptance(taskKey: string, items: AcceptanceItem[]): void {
+    this.acceptance.set(taskKey, clone(items));
+    this.syncAcceptanceLabels(taskKey);
+  }
+
+  /**
+   * An update's acceptance changes as the viewer, all or nothing, by the shared rules (`acceptanceRefusal`);
+   * the system labels follow the items. Returns the server's answer to a refusal, null when it all went through.
+   */
+  changeAcceptance(taskKey: string, changes: AcceptanceChange[]): MockResponse | null {
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    if (isTheme(task)) return error(400, 'task_is_theme', 'A theme has no acceptance items');
+    const member = this.findMember(this.viewerHandle);
+    const actor = { kind: member?.kind ?? 'human', handle: this.viewerHandle } as const;
+    const items = this.acceptanceOf(taskKey);
+    const moves: { from: AcceptanceItem; target: Task }[] = [];
+    const events: Record<string, unknown>[] = [];
+    const now = nowIso();
+    for (const change of changes) {
+      const item = change.op === 'add' ? undefined : items.find((entry) => entry.id === change.itemId);
+      if (change.op !== 'add' && !item)
+        return error(404, 'acceptance_item_not_found', 'Unknown acceptance item', { itemId: change.itemId });
+      const target = change.op === 'move' ? this.findTask(change.taskKey) : null;
+      const reason = acceptanceRefusal({
+        config: this.config,
+        task,
+        item,
+        count: items.length,
+        change,
+        actor,
+        target,
+      });
+      if (reason)
+        return error(409, 'acceptance_item_refused', 'The acceptance item cannot be changed', {
+          reason,
+          itemId: item?.id ?? null,
+        });
+      const marked = { markedBy: this.viewerHandle, markedAt: now, confirmedBy: null, confirmedAt: null };
+      const cleared = { evidence: null, reason: null, movedTo: null };
+      let next: AcceptanceItem;
+      if (change.op === 'add') {
+        next = {
+          id: `acc_${mockId('item').slice(5).padStart(10, '0')}`,
+          position: Math.max(-1, ...items.map((entry) => entry.position)) + 1,
+          text: change.text,
+          state: 'open',
+          ...cleared,
+          origin: null,
+          markedBy: null,
+          markedAt: null,
+          confirmedBy: null,
+          confirmedAt: null,
+          createdBy: this.viewerHandle,
+          createdAt: now,
+          updatedAt: now,
+        };
+        items.push(next);
+      } else {
+        const current = item!;
+        if (change.op === 'remove') {
+          items.splice(items.indexOf(current), 1);
+          events.push({ itemId: current.id, change: change.op, text: current.text, state: current.state });
+          continue;
+        }
+        if (change.op === 'edit') next = { ...current, text: change.text, updatedAt: now };
+        else if (change.op === 'done')
+          next = {
+            ...current,
+            ...cleared,
+            ...marked,
+            state: 'done',
+            evidence: change.evidence,
+            updatedAt: now,
+          };
+        else if (change.op === 'not_needed')
+          next = {
+            ...current,
+            ...cleared,
+            ...marked,
+            state: 'not_needed',
+            reason: change.reason,
+            updatedAt: now,
+          };
+        else if (change.op === 'move') {
+          next = {
+            ...current,
+            ...cleared,
+            ...marked,
+            state: 'moved',
+            movedTo: change.taskKey,
+            updatedAt: now,
+          };
+          moves.push({ from: next, target: target! });
+        } else if (change.op === 'reopen')
+          next = {
+            ...current,
+            ...cleared,
+            state: 'open',
+            markedBy: null,
+            markedAt: null,
+            confirmedBy: null,
+            confirmedAt: null,
+            updatedAt: now,
+          };
+        else next = { ...current, confirmedBy: this.viewerHandle, confirmedAt: now, updatedAt: now };
+        items[items.indexOf(current)] = next;
+      }
+      events.push({
+        itemId: next.id,
+        change: change.op,
+        text: next.text,
+        state: next.state,
+        ...(change.op === 'move' ? { taskKey: change.taskKey } : {}),
+        ...(change.op === 'reopen' && change.note ? { note: change.note } : {}),
+      });
+    }
+    this.acceptance.set(taskKey, items);
+    for (const { from, target } of moves) {
+      const there = this.acceptanceOf(target.key);
+      if (there.some((entry) => entry.origin?.taskKey === taskKey && entry.origin.itemId === from.id))
+        continue;
+      there.push({
+        ...from,
+        id: `acc_${mockId('item').slice(5).padStart(10, '0')}`,
+        position: Math.max(-1, ...there.map((entry) => entry.position)) + 1,
+        state: 'open',
+        evidence: null,
+        reason: null,
+        movedTo: null,
+        origin: { taskKey, itemId: from.id },
+        markedBy: null,
+        markedAt: null,
+        confirmedBy: null,
+        confirmedAt: null,
+        createdBy: this.viewerHandle,
+        createdAt: now,
+        updatedAt: now,
+      });
+      this.acceptance.set(target.key, there);
+      this.syncAcceptanceLabels(target.key);
+    }
+    for (const data of events) this.addTimeline(taskKey, this.viewerHandle, 'acceptance_item_changed', data);
+    this.syncAcceptanceLabels(taskKey);
+    return null;
+  }
+
+  /** Puts the system labels the card's items call for on the card and takes the others off. */
+  private syncAcceptanceLabels(taskKey: string): void {
+    const task = this.findTask(taskKey);
+    if (!task) return;
+    const wanted = acceptanceLabels(this.acceptanceOf(taskKey));
+    const labels = task.labels.filter(
+      (id) => id !== ACCEPTANCE_OPEN_LABEL && id !== ACCEPTANCE_UNCONFIRMED_LABEL,
+    );
+    if (wanted.open && labelDefinition(this.config, ACCEPTANCE_OPEN_LABEL))
+      labels.push(ACCEPTANCE_OPEN_LABEL);
+    if (wanted.unconfirmed && labelDefinition(this.config, ACCEPTANCE_UNCONFIRMED_LABEL))
+      labels.push(ACCEPTANCE_UNCONFIRMED_LABEL);
+    if (JSON.stringify(labels) !== JSON.stringify(task.labels)) this.updateTask(taskKey, { labels });
   }
 
   addTimeline(
@@ -3961,6 +4141,7 @@ export class MockBackend {
       sessions: clone(this.taskSessions(task.key)),
       rounds: this.cardRounds(task.key),
       fixRounds: { rounds: this.fixRoundsOf(task.key).rounds, limit: this.fixLimitOf(task.key) },
+      ...(isTheme(task) ? {} : { acceptance: this.acceptanceOf(task.key) }),
     };
   }
 

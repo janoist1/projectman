@@ -54,6 +54,7 @@ function HowWeWork() {
       projectKey: key,
       map,
       config: data.config,
+      version: data.version,
       labels: map.labels.map((entry) => ({ ...entry.label, holders: entry.holders })),
       canEdit: can.manageTeam,
       roleName: (id) => roleNames.get(id) ?? id,

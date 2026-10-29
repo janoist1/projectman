@@ -58,6 +58,8 @@ export const TEAM_SETTING_POLICY = {
   },
   // PM-1136: only the system's own choice keeps the complexity limit and specialty.
   assigneeFit: { waiver: true, ownerOnly: null, default: 'automatic' },
+  // PM-1137: absent reasons show the general ones.
+  ruleReasons: { waiver: true, ownerOnly: null },
   // `mergerOf` derives an absent merger from the pipeline; the migration stores it (`addMerger`).
   merger: { waiver: false, ownerOnly: null },
   members: { waiver: 'entries', ownerOnly: null },

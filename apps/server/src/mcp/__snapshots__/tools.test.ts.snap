@@ -3063,6 +3063,40 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                         "type": "array",
                       },
+                      "ruleReasons": {
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "maxLength": 300,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            {
+                              "type": "null",
+                            },
+                          ],
+                        },
+                        "propertyNames": {
+                          "enum": [
+                            "new_card",
+                            "gates_in_order",
+                            "approvals",
+                            "self_review",
+                            "start_order",
+                            "priority_setters",
+                            "complexity_setters",
+                            "assignee_fit",
+                            "acceptance",
+                            "project_manager_rights",
+                            "fix_limit",
+                            "refinement",
+                            "waiting_answer",
+                            "viewer_recipients",
+                          ],
+                          "type": "string",
+                        },
+                        "type": "object",
+                      },
                       "taskCreateAccess": {
                         "enum": [
                           "owner",

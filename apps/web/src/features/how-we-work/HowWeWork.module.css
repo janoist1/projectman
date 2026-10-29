@@ -478,6 +478,57 @@
   display: inline-flex;
 }
 
+/* The pill after a rule's sentence: the system's own rules cannot be switched off. */
+.always {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--c-muted);
+  color: var(--c-ink-3);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 18px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+/* The second line of a rule's row: why the rule lives. */
+.why {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--c-ink-4);
+}
+
+/* The "why" box in a rule's panel. */
+.whyText {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  color: var(--c-ink-2);
+  line-height: 1.5;
+}
+
+.whyNote {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--c-ink-4);
+  line-height: 1.45;
+}
+
+.whyForm {
+  margin-top: 8px;
+  display: grid;
+  gap: 10px;
+}
+
+.whyActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* ---------- team ---------- */
 .memberGroup {
   margin-bottom: 14px;

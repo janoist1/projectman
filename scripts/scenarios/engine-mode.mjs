@@ -10,6 +10,7 @@
  *   b. the same without a published release          c. the same in checkout mode
  *   d. "AI-asszisztenssel" tab, motor app mode       e. the "Beállító parancs" dialog of a machine, motor app mode
  *   f. the project's Motorok card, motor app mode, a machine with a command
+ *   h. the lower end of the manual tab (step 4 and the open "Nem jelentkezik?" list)
  *   g. 1512 only: the switch with keyboard focus (Tab to the pill, then right arrow), and the download button focused
  *
  *   npm run shots -- scripts/scenarios/engine-mode.mjs --widths 1512,390
@@ -201,6 +202,26 @@ export default async ({ open, shoot, step }) => {
     await page.getByRole('radio', { name: mode.app }).first().waitFor();
     await page.getByRole('radio', { name: mode.app }).first().click();
     await shoot(page, 'f-project-engines-app', { widths: WIDTHS });
+  });
+
+  await step('h. the lower part of the manual tab: step 4 and the open "Nem jelentkezik?" list', async () => {
+    state.latestReleaseTag = 'v2026.10.29';
+    const page = await openGuide('app', 'tabManual');
+    await page.getByRole('link', { name: guide.appDownloadAria }).waitFor();
+    await page.getByText(guide.stuckSummary, { exact: true }).click();
+    // The page scrolls inside the viewport: show its lower end, one picture per width (the viewport sizes of `shoot`).
+    for (const [width, height] of [
+      [1512, 982],
+      [390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      await page
+        .getByText(guide.stuckService.split('{')[0].trim(), { exact: false })
+        .first()
+        .scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await shoot(page, `h-guide-lower-${width}`, { widths: [width], fullPage: false });
+    }
   });
 
   await step('g. the switch and the download button with keyboard focus', async () => {

@@ -78,12 +78,19 @@ function AppDownloadStep({ download }: { download: EngineAppDownload }) {
           variant="secondary"
           size="md"
           icon="download"
+          className={styles.download}
           aria-label={t('ownerOnboarding.guide.appDownloadAria')}
         >
           {t('ownerOnboarding.guide.appDownloadButton')}
         </ButtonLink>
       ) : download.state === 'loading' ? (
-        <Button variant="secondary" size="md" icon="download" aria-disabled="true">
+        <Button
+          variant="secondary"
+          size="md"
+          icon="download"
+          className={styles.download}
+          aria-disabled="true"
+        >
           {t('ownerOnboarding.guide.appDownloadButton')}
         </Button>
       ) : null}

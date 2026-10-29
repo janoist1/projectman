@@ -328,7 +328,7 @@ export function enginePort(world: HybridWorld, options: EngineOptions): EngineCo
       const pathEnv = plistString(text, 'PATH');
       if (!node || !pathEnv) throw refused('the installed engine service names no node or PATH');
       try {
-        installService({
+        await installService({
           home: options.engineHome,
           root,
           nodePath: node,

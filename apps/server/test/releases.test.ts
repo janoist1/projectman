@@ -1,12 +1,18 @@
 import net from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemberConfig, releaseApprovalOf, coordinatorSuperActorOf } from '@projectman/shared';
+import {
+  LOCAL_ENGINE_ID,
+  MemberConfig,
+  releaseApprovalOf,
+  coordinatorSuperActorOf,
+} from '@projectman/shared';
 import type { InboxItem, ProjectConfig, ReleaseReport } from '@projectman/shared';
 import { sendControlRequest } from '../../../scripts/control/client';
 import { serveControlConnection } from '../src/control';
 import type { ControlRelease } from '../src/control';
 import type { BranchMerger, IntegratorExecutionScope, MergeBaseState } from '../src/contracts';
 import { conflict, forbidden, runIntegratorExecution } from '../src/kernel';
+import { LocalEngineDirectory } from '../src/runtime/sessions';
 import type { Resolver } from '../src/core/inbox';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER as OWNER_AUTHOR, OWNER_ACTOR } from './helpers/domain-harness';
@@ -180,6 +186,43 @@ describe('the release flow', () => {
       const candidate = await h.domain.releases.candidate('AR');
       expect(candidate.baseCommit).toBe(sha(1));
       expect(candidate.tasks.map((task) => task.key)).toEqual(['AR-2', 'AR-3']);
+    });
+
+    it('asks git nothing when the base is a recorded merge', async () => {
+      await setup({ appVersion: sha(1) });
+      await h.domain.releases.candidate('AR');
+      expect(merger.isAncestor).not.toHaveBeenCalled();
+    });
+
+    it('asks git once per unreleased merge and once more when the base is not a recorded merge', async () => {
+      // The running version sits between two merges; the newest are asked first, up to the first the base holds.
+      await setup({
+        appVersion: sha(2),
+        head: sha(7),
+        merged: [
+          { key: 'AR-1', commit: sha(1) },
+          { key: 'AR-2', commit: sha(3) },
+          { key: 'AR-3', commit: sha(5) },
+          { key: 'AR-4', commit: sha(7) },
+        ],
+      });
+      const candidate = await h.domain.releases.candidate('AR');
+      expect(candidate.tasks.map((task) => task.key)).toEqual(['AR-2', 'AR-3', 'AR-4']);
+      expect(merger.isAncestor).toHaveBeenCalledTimes(3 + 1);
+    });
+
+    it('works when the project engine is a registered engine and not the local one', async () => {
+      await setup();
+      const cloud = 'eng_aaaaaaaaaaaa';
+      const get = LocalEngineDirectory.prototype.get;
+      vi.spyOn(LocalEngineDirectory.prototype, 'projectEngine').mockReturnValue(cloud);
+      vi.spyOn(LocalEngineDirectory.prototype, 'get').mockImplementation(function (
+        this: LocalEngineDirectory,
+        id: string,
+      ) {
+        return id === cloud ? get.call(this, LOCAL_ENGINE_ID) : null;
+      });
+      expect((await h.domain.releases.candidate('AR')).tasks).toHaveLength(3);
     });
 
     it('stops at a chosen merge commit, and refuses a commit no merge produced', async () => {

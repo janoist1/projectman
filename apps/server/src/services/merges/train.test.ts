@@ -807,6 +807,15 @@ describe('merge train execution', () => {
         .filter((e) => e.type === 'task_merge_failed');
       expect(events).toHaveLength(1);
       expect(events[0]!.data).toMatchObject({ runId: failed.failure!.runId, files, mergeId: failed.id });
+      // The blamed card leaves the train, so its merger gets the individual instruction, not the group one.
+      expect(failed.trainId).toBeUndefined();
+      const instructions = h.repos.messages
+        .list('AR')
+        .filter(
+          (m) => m.taskKey === 'AR-2' && m.to.includes(failed.merger) && m.body.includes('update_task'),
+        );
+      expect(instructions).toHaveLength(1);
+      expect(instructions[0]!.body).not.toContain('individual cause');
       expect(queuedKeys()).toEqual(['AR-1', 'AR-3']);
       for (const key of ['AR-1', 'AR-3']) {
         const requeued = row(key)!;
@@ -1136,6 +1145,15 @@ describe('merge train execution', () => {
       }
     },
   );
+
+  it('refuses to start a merge that is marked running but holds no slot', async () => {
+    await setup(1);
+    h.repos.taskMerges.save({ ...row('AR-1')!, state: 'running', step: 'checking' });
+    await expect(h.domain.merges.start('AR', 'AR-1', aiActor('dev-1'))).rejects.toMatchObject({
+      code: 'merge_queue_conflict',
+    });
+    expect(row('AR-1')?.state).toBe('running');
+  });
 
   it('waits behind a failed prerequisite while unrelated cards merge', async () => {
     await setup(3);

@@ -174,7 +174,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         if (!io.launchd || !io.menubar)
           throw new EngineConfigError('app_unsupported', 'The menu bar app requires macOS.');
         const options = { ...io.launchd, ...io.menubar, home, pathEnv: io.env.PATH ?? '', out: io.out };
-        if (sub === 'install') installMenubar(options);
+        if (sub === 'install') await installMenubar(options);
         else uninstallMenubar(options);
         return 0;
       }
@@ -411,7 +411,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           if (!existsSync(resolved.keyFile))
             throw new EngineConfigError('key_missing', `The engine key ${resolved.keyFile} does not exist.`);
           assertHomeMayStart(home, 'engine');
-          installService(options);
+          await installService(options);
           return 0;
         }
         if (sub === 'uninstall') {
@@ -419,15 +419,15 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           return 0;
         }
         if (sub === 'start') {
-          startService(options);
+          await startService(options);
           return 0;
         }
         if (sub === 'stop') {
-          stopService(options);
+          await stopService(options);
           return 0;
         }
         if (sub === 'restart') {
-          restartService(options);
+          await restartService(options);
           return 0;
         }
         return reportService(options) ? 0 : 1;

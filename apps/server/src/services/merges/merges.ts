@@ -88,6 +88,7 @@ export class Merges {
               else if (!run.signal?.aborted) await this.steps.run(run);
             },
             release: (row, merger) => this.steps.release(row, merger),
+            abandon: (run, cause) => this.steps.abandon(run, cause),
             engine: (task) => this.steps.engine(task),
           },
           peer: () => this.peer,
@@ -267,7 +268,12 @@ export class Merges {
       const readiness = mergeReadiness(config, task);
       if (!readiness.ready)
         throw conflict('merge_not_ready', 'the card is not ready to merge', { reason: readiness.reason });
-      if (row?.state === 'queued' || row?.state === 'running') return task;
+      if (row?.state === 'queued') return task;
+      if (row?.state === 'running') {
+        // A running merge always holds its repository's slot; without one the row is stuck.
+        if (this.busy(projectKey, row.repo)) return task;
+        throw conflict('merge_queue_conflict', 'the merge is marked running but no run holds it');
+      }
       if (!row) throw conflict('merge_not_ready', 'the card has no work to merge', { reason: 'no_merge' });
       const approvedSource = await this.source(config, task);
       const source =

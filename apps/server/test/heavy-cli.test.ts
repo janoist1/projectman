@@ -247,6 +247,41 @@ describe('an interrupted heavy run (PM-863)', () => {
   });
 });
 
+describe('the child guard', () => {
+  const CHILD_GUARD = path.join(ROOT, 'scripts/lib/child-guard.mjs');
+
+  /** A preload that makes signalling a process group fail like macOS does for a zombie-only group. */
+  const groupKillRefused = (code: string): string =>
+    `data:text/javascript,${encodeURIComponent(
+      `const kill = process.kill; process.kill = (pid, signal) => { if (pid < 0) { throw Object.assign(new Error('kill ${code}'), { code: '${code}' }); } return kill.call(process, pid, signal); };`,
+    )}`;
+
+  function runGuard(preload: string): Promise<Ran> {
+    return new Promise((resolve) => {
+      const child = spawn(
+        process.execPath,
+        ['--import', preload, CHILD_GUARD, process.execPath, '-e', 'process.exit(3)'],
+        { stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => (stdout += String(chunk)));
+      child.stderr.on('data', (chunk) => (stderr += String(chunk)));
+      child.on('close', (code) => resolve({ code, stdout, stderr }));
+    });
+  }
+
+  it.each(['EPERM', 'ESRCH'])(
+    'exits with the exit code of its child when signalling its group fails with %s',
+    async (code) => {
+      const ran = await runGuard(groupKillRefused(code));
+      expect(ran.code).toBe(3);
+      expect(ran.stderr).not.toContain(code);
+    },
+    WORKER_WAIT_MS,
+  );
+});
+
 describe('a worker of a run that did not go through the heavy CLI (PM-869)', () => {
   it('leaves when its parent is killed with SIGKILL, even if it ignores SIGTERM', async () => {
     const pidFile = path.join(root, 'worker.pid');

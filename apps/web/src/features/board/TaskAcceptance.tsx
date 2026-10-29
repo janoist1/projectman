@@ -521,7 +521,7 @@ export function TaskAcceptance({
                   ) : null}
                 </div>
                 {primary?.avail.show && primary.avail.reason ? (
-                  <p id={`acceptance-why-${item.id}`} className={styles.why}>
+                  <p id={`acceptance-why-${item.id}`} className={styles.whyBelow}>
                     {primary.avail.reason}
                   </p>
                 ) : null}

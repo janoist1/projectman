@@ -1186,14 +1186,10 @@ export class TaskService implements TaskSchedulingReader {
       handoff?: HandoffReason;
     } = {},
   ): Task {
-    let previous: string | null = null;
-    let changed = false;
-    const assigned = this.ctx.unitOfWork(() => {
+    return this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
       if (task.assignee === assignee) return task;
       if (isTheme(task)) throw themeRefused(taskKey, 'have an assignee');
-      previous = task.assignee;
-      changed = true;
       const next = this.store.write(task, { assignee, updatedAt: isoNow(this.ctx) });
       this.timeline.append({
         projectKey,
@@ -1204,11 +1200,13 @@ export class TaskService implements TaskSchedulingReader {
       });
       if (handoff) this.handoff?.({ task: next, previous: task.assignee, actor, reason: handoff });
       this.publish(next);
+      // Told once the change is durable: inside a larger unit of work, after its commit. Only the listeners
+      // that run before the first asynchronous one are done when the outermost unit returns.
+      this.ctx.afterCommit(
+        () => void this.ctx.events.emit('task_assigned', { task: next, previous: task.assignee, actor }),
+      );
       return next;
     });
-    // Only the listeners that run before the first asynchronous one are done when this returns.
-    if (changed) void this.ctx.events.emit('task_assigned', { task: assigned, previous, actor });
-    return assigned;
   }
 
   addLink(

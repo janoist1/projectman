@@ -371,8 +371,20 @@ export class SessionOrchestrator {
       assertProviderReady: (provider, member, engineId) =>
         this.assertProviderReady(provider, member, engineId),
       removeSessionFolderOf: (sessionId) => this.removeSessionFolderOf(sessionId),
+      // A stop reason keeps a resumed conversation: it is no proof the conversation cannot be resumed (PM-340).
+      markStartFailed: (sessionId) => void this.markEnded(sessionId, 1, null, { kind: 'failed' }),
       folderRemoval: (sessionId) => this.folderRemovals.get(sessionId),
     });
+  }
+
+  /** Stops the session's process for a restart and ends its row with the reason; the caller starts the next process. */
+  private async stopForRestart(
+    sessionId: string,
+    restartFor: NonNullable<SessionStop['restartFor']>,
+  ): Promise<void> {
+    this.live.stopReasons.set(sessionId, { kind: 'restart', restartFor });
+    await this.deps.runner.stop(sessionId);
+    this.markEnded(sessionId, null);
   }
 
   /** The member workspaces of the engine (PM-138); null: the engine has none, or is not connected. */
@@ -860,9 +872,7 @@ export class SessionOrchestrator {
         // Its review round is over: no live process while the workspace moves to the new commit.
         // Not while paused: the start would be refused after the stop.
         assertNotPaused(this.ctx.repos.pauses, projectKey);
-        this.live.stopReasons.set(existing.id, { kind: 'restart', restartFor: 'new_round' });
-        await this.deps.runner.stop(existing.id);
-        this.markEnded(existing.id, null);
+        await this.stopForRestart(existing.id, 'new_round');
         announce = false;
       }
       return this.launcher.start(
@@ -905,9 +915,7 @@ export class SessionOrchestrator {
       if (!this.mayWorkNow(config, member)) return false;
       const task =
         session.workItem.type === 'task' ? this.deps.tasks.get(projectKey, session.workItem.taskKey) : null;
-      this.live.stopReasons.set(session.id, { kind: 'restart', restartFor: 'description' });
-      await this.deps.runner.stop(session.id);
-      this.markEnded(session.id, null);
+      await this.stopForRestart(session.id, 'description');
       await this.launcher.start(
         config,
         member,
@@ -1062,9 +1070,7 @@ export class SessionOrchestrator {
       sessionId,
       'session_permission_changed',
     );
-    this.live.stopReasons.set(session.id, { kind: 'restart', restartFor: 'permission' });
-    await this.deps.runner.stop(session.id);
-    this.markEnded(session.id, null);
+    await this.stopForRestart(session.id, 'permission');
     await this.launcher.start(
       config,
       member,
@@ -1587,7 +1593,10 @@ export class SessionOrchestrator {
       }
     }
     const removals: Promise<void>[] = [];
-    for (const engineId of this.deps.engines.ids()) {
+    // The folder is on the engine the session ran on: asking the others would make a slow or offline engine
+    // hold up the session's next folder. A row that names no engine (an old one, a start that never made it) asks all.
+    const ranOn = this.ctx.repos.sessions.get(sessionId)?.engineId;
+    for (const engineId of ranOn ? [ranOn] : this.deps.engines.ids()) {
       const folders = this.deps.engines.get(engineId)?.sessionFolders;
       if (!folders) continue;
       const failed = (err: unknown) =>
@@ -1987,9 +1996,7 @@ export class SessionOrchestrator {
       const config = await this.deps.projects.config(current.projectKey);
       const member = memberOf(config, current.member);
       if (!this.mayWorkNow(config, member)) return;
-      this.live.stopReasons.set(current.id, { kind: 'restart', restartFor: 'description' });
-      await this.deps.runner.stop(current.id);
-      this.markEnded(current.id, null);
+      await this.stopForRestart(current.id, 'merge_fix');
       await this.launcher.start(
         config,
         member,

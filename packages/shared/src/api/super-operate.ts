@@ -12,8 +12,8 @@ import { TaskKey } from '../domain/task';
  * own records by name. Nothing here takes SQL, a path, a program or a free-text filter.
  */
 
-export const SUPER_LIST_LIMIT_DEFAULT = 50;
-export const SUPER_LIST_LIMIT_MAX = 200;
+const SUPER_LIST_LIMIT_DEFAULT = 50;
+const SUPER_LIST_LIMIT_MAX = 200;
 
 const Limit = z.coerce.number().int().min(1).max(SUPER_LIST_LIMIT_MAX);
 
@@ -77,7 +77,7 @@ export const SuperOperationDetail = z.strictObject({
 export type SuperOperationDetail = z.infer<typeof SuperOperationDetail>;
 
 /** `target=hub` or an engine id. */
-export const AdministrationTargetParam = z
+const AdministrationTargetParam = z
   .union([z.literal('hub'), EngineId])
   .transform((value): AdministrationTarget =>
     value === 'hub' ? { kind: 'hub' } : { kind: 'engine', id: value },
@@ -93,7 +93,7 @@ export type AdministrationStatusQuery = z.infer<typeof AdministrationStatusQuery
  */
 export const ADMINISTRATION_LOG_SOURCES = ['supervisor', 'service'] as const;
 export const ADMINISTRATION_LOG_LEVELS = ['info', 'warn', 'error'] as const;
-export const ADMINISTRATION_LOG_CONTAINS_MAX = 100;
+const ADMINISTRATION_LOG_CONTAINS_MAX = 100;
 const LogSince = z
   .string()
   .max(40)
@@ -162,7 +162,7 @@ export function superOperationName(command: SuperCommand): string {
  */
 const ProjectKeyArg = z.string().regex(/^[A-Z][A-Z0-9]{0,9}$/);
 /** The id of the queue item a connected Claude's step works on. */
-export const QueueItemIdArg = z.string().min(1).max(100);
+const QueueItemIdArg = z.string().min(1).max(100);
 
 export const GetAdministrationStatusArgs = z.strictObject({
   project_key: ProjectKeyArg,

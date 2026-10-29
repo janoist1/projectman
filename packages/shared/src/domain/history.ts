@@ -101,9 +101,9 @@ export const HistoryReference = z.discriminatedUnion('tool', [
 export type HistoryReference = z.infer<typeof HistoryReference>;
 
 /** How a hit got on the list (PM-767): by its words, by its meaning, or by both. */
-export const HISTORY_MATCH_TYPES = ['text', 'semantic', 'both'] as const;
-export const HistoryMatchType = z.enum(HISTORY_MATCH_TYPES);
-export type HistoryMatchType = z.infer<typeof HistoryMatchType>;
+const HISTORY_MATCH_TYPES = ['text', 'semantic', 'both'] as const;
+const HistoryMatchType = z.enum(HISTORY_MATCH_TYPES);
+type HistoryMatchType = z.infer<typeof HistoryMatchType>;
 
 /**
  * How the semantic part of one search ended (PM-767), as the private search log keeps it. Never in a tool
@@ -141,7 +141,7 @@ export const HistoryHit = z.object({
 });
 export type HistoryHit = z.infer<typeof HistoryHit>;
 
-export const HISTORY_DOCUMENT_STATUSES = ['pending', 'ready', 'stale', 'unavailable', 'missing'] as const;
+const HISTORY_DOCUMENT_STATUSES = ['pending', 'ready', 'stale', 'unavailable', 'missing'] as const;
 export const HistoryDocumentStatus = z.enum(HISTORY_DOCUMENT_STATUSES);
 export type HistoryDocumentStatus = z.infer<typeof HistoryDocumentStatus>;
 
@@ -200,11 +200,11 @@ export type HistoryViewer = TaskViewer & { via?: 'integrator' };
 export const HISTORY_SEARCH_RETENTION_DAYS = 90;
 export const HISTORY_STATS_DEFAULT_DAYS = 30;
 export const HISTORY_STATS_DEFAULT_LIMIT = 50;
-export const HISTORY_STATS_MAX_LIMIT = 200;
+const HISTORY_STATS_MAX_LIMIT = 200;
 
 /** Where the list of searches without a result continues: the key of its last entry, `(at, id)` descending. */
-export const HistoryStatsCursor = z.strictObject({ at: IsoWithZone, id: z.string().min(1).max(200) });
-export type HistoryStatsCursor = z.infer<typeof HistoryStatsCursor>;
+const HistoryStatsCursor = z.strictObject({ at: IsoWithZone, id: z.string().min(1).max(200) });
+type HistoryStatsCursor = z.infer<typeof HistoryStatsCursor>;
 
 /** What the statistics ask for; the project is a separate argument. */
 export const HistoryStatsInput = z

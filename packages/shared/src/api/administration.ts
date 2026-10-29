@@ -12,12 +12,12 @@ import { TaskKey } from '../domain/task';
 export const IMAGE_PLATFORMS = ['linux/amd64', 'linux/arm64'] as const;
 export type ImagePlatform = (typeof IMAGE_PLATFORMS)[number];
 
-export const FULL_TEST_PROFILES = ['merge-test', 'full-test'] as const;
-export type FullTestProfile = (typeof FULL_TEST_PROFILES)[number];
+const FULL_TEST_PROFILES = ['merge-test', 'full-test'] as const;
+type FullTestProfile = (typeof FULL_TEST_PROFILES)[number];
 
 /** The named sets of processes a `process_cleanup` may stop; the supervisor owns what each one means (PM-886). */
-export const PROCESS_CLEANUP_SELECTORS = ['orphan_test_workers'] as const;
-export type ProcessCleanupSelector = (typeof PROCESS_CLEANUP_SELECTORS)[number];
+const PROCESS_CLEANUP_SELECTORS = ['orphan_test_workers'] as const;
+type ProcessCleanupSelector = (typeof PROCESS_CLEANUP_SELECTORS)[number];
 
 /** The full 40-hex commit of a card's work; an abbreviation or a ref is never accepted. */
 export type AdministrationCommit = string;

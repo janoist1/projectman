@@ -40,14 +40,6 @@ export function accessOfHandle(
   return member.kind === 'ai' ? 'ai' : member.access;
 }
 
-/** Whether the configured member with this handle may write only to the contacts. */
-export function isContactRestrictedMember(
-  config: Pick<ProjectConfig, 'team'>,
-  handle: string | null | undefined,
-): boolean {
-  return isContactRestricted(accessOfHandle(config, handle));
-}
-
 export type TeamMessageRecipientRefusal = {
   code: 'recipient_not_contact' | 'insufficient_access';
   /** The distinct recipients the sender may not write to. */

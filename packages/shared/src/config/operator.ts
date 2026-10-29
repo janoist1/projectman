@@ -39,7 +39,7 @@ export const OperatorLevel = z.enum(['now', 'approval', 'never']);
 export type OperatorLevel = z.infer<typeof OperatorLevel>;
 
 /** The part of the configuration a changed field belongs to. */
-export const ConfigChangeArea = z.enum([
+const ConfigChangeArea = z.enum([
   'project',
   'member',
   'role',
@@ -51,7 +51,7 @@ export const ConfigChangeArea = z.enum([
   'boundary',
   'release',
 ]);
-export type ConfigChangeArea = z.infer<typeof ConfigChangeArea>;
+type ConfigChangeArea = z.infer<typeof ConfigChangeArea>;
 
 /**
  * One changed field. `target` names what changed inside the area: a member's handle, a role, stage,

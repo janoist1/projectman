@@ -22,7 +22,7 @@ import {
  * (`SuperHandoff`) are no longer made; their rows and timeline events stay readable.
  */
 
-export const SUPER_REASON_MAX = 2000;
+const SUPER_REASON_MAX = 2000;
 
 /** The closed, versioned set of commands an operation (and an old handoff) can carry. */
 export const SuperCommand = z.discriminatedUnion('kind', [
@@ -52,7 +52,7 @@ export const SuperCommand = z.discriminatedUnion('kind', [
 ]);
 export type SuperCommand = z.infer<typeof SuperCommand>;
 
-export const SUPER_STATES = [
+const SUPER_STATES = [
   'pending',
   'waiting_owner',
   'running',
@@ -98,7 +98,7 @@ export const SuperOperation = z.strictObject({
 export type SuperOperation = z.infer<typeof SuperOperation>;
 
 /** Answers an open, simple information question for the owner (PM-762); it is not an owner decision. */
-export const RELAY_ANSWER_MAX = 20_000;
+const RELAY_ANSWER_MAX = 20_000;
 export const RelayOwnerAnswerRequest = z.strictObject({
   answer: z.string().trim().min(1).max(RELAY_ANSWER_MAX),
 });

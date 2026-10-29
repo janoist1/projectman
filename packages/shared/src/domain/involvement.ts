@@ -63,7 +63,7 @@ export const MessageOrigin = z.discriminatedUnion('kind', [
 ]);
 export type MessageOrigin = z.infer<typeof MessageOrigin>;
 
-export const QUOTE_MAX = 60;
+const QUOTE_MAX = 60;
 /** The first sentence of the first nonempty line, truncated at a word boundary. */
 export function quoteOf(text: string, max = QUOTE_MAX): string {
   const line = (text.split(/\r?\n/).find((part) => part.trim()) ?? '')

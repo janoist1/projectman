@@ -11,7 +11,7 @@ import { labelHolders } from './labels';
 import { coordinationMemberOf } from './project-manager';
 
 /** App project managers may execute only these command kinds; new kinds are refused by default. */
-export const PROJECT_MANAGER_SUPER_COMMANDS = [
+const PROJECT_MANAGER_SUPER_COMMANDS = [
   'task_create',
   'task_update',
   'task_labels',
@@ -106,8 +106,7 @@ export const OPERATOR_MACHINE_OPERATIONS = [
   'process_cleanup',
   'owner_command',
 ] as const;
-export type OperatorMachineOperation = (typeof OPERATOR_MACHINE_OPERATIONS)[number];
-export type SuperRoutineMutation =
+type SuperRoutineMutation =
   | 'task_write'
   | 'task_create'
   | 'task_start'
@@ -138,7 +137,7 @@ export const SUPER_ADMINISTRATION_COMMANDS = [
   'deploy',
   'process_cleanup',
 ] as const;
-export type SuperAdministrationCommand = (typeof SUPER_ADMINISTRATION_COMMANDS)[number];
+type SuperAdministrationCommand = (typeof SUPER_ADMINISTRATION_COMMANDS)[number];
 export type SuperMutationCommand =
   | { kind: 'config_change'; next: ProjectConfig }
   | {

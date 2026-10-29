@@ -17,12 +17,11 @@ import type {
  */
 
 // The command, its target and its closed value lists are shared with the super-mode handoff (PM-762).
-export { FULL_TEST_PROFILES, IMAGE_PLATFORMS } from '@projectman/shared';
+export { IMAGE_PLATFORMS } from '@projectman/shared';
 export type {
   AdministrationCommand,
   AdministrationCommit,
   AdministrationTarget,
-  FullTestProfile,
   ImagePlatform,
 } from '@projectman/shared';
 

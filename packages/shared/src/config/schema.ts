@@ -44,10 +44,10 @@ export type ProjectManagerMoves = z.infer<typeof ProjectManagerMoves>;
 /** A card lifecycle action the selected project manager may take on its own (PM-1098); people of admin access always may. 'cancel' also covers marking a started card as a duplicate. */
 export const ProjectManagerLifecycleAction = z.enum(['assign', 'cancel', 'reopen']);
 export type ProjectManagerLifecycleAction = z.infer<typeof ProjectManagerLifecycleAction>;
-export const ProjectManagerLifecycle = z
+const ProjectManagerLifecycle = z
   .array(ProjectManagerLifecycleAction)
   .refine((ids) => new Set(ids).size === ids.length, 'duplicate lifecycle actions');
-export type ProjectManagerLifecycle = z.infer<typeof ProjectManagerLifecycle>;
+type ProjectManagerLifecycle = z.infer<typeof ProjectManagerLifecycle>;
 
 /** Who may move or start a card despite an open prerequisite (PM-1099); people always may. */
 export const PrerequisiteOverride = z.enum(['people', 'people_and_project_manager']);
@@ -56,20 +56,20 @@ export type PrerequisiteOverride = z.infer<typeof PrerequisiteOverride>;
 /** Who besides people may set or clear a card's priority (PM-1096). Absent: the project managers (PM-433). */
 export const PrioritySetter = z.enum(['project_manager', 'prioritization_duty']);
 export type PrioritySetter = z.infer<typeof PrioritySetter>;
-export const PrioritySetters = z
+const PrioritySetters = z
   .array(PrioritySetter)
   .refine((ids) => new Set(ids).size === ids.length, 'duplicate priority setters');
-export type PrioritySetters = z.infer<typeof PrioritySetters>;
+type PrioritySetters = z.infer<typeof PrioritySetters>;
 
 /** Whom a read-only viewer may write to (PM-1102): the project manager only, or the project's contacts. */
 export const ViewerRecipients = z.enum(['project_manager', 'contacts']);
 export type ViewerRecipients = z.infer<typeof ViewerRecipients>;
 
 /** The duties whose holders may set a card's complexity points (PM-1097); the project owners always may. */
-export const ComplexitySetters = z
+const ComplexitySetters = z
   .array(DutyId)
   .refine((ids) => new Set(ids).size === ids.length, 'duplicate complexity setter duties');
-export type ComplexitySetters = z.infer<typeof ComplexitySetters>;
+type ComplexitySetters = z.infer<typeof ComplexitySetters>;
 
 /** Who merges a card's approved work into the repository's default branch (PM-448, decision 48). */
 export const Merger = z.discriminatedUnion('kind', [
@@ -115,19 +115,19 @@ export type MemberSchedule = z.infer<typeof MemberSchedule>;
  */
 export const AutoCompactWindowTokens = z.number().int().min(100_000).max(1_000_000);
 
-export const ProjectEmailConfig = z.object({ enabled: z.boolean() });
-export type ProjectEmailConfig = z.infer<typeof ProjectEmailConfig>;
+const ProjectEmailConfig = z.object({ enabled: z.boolean() });
+type ProjectEmailConfig = z.infer<typeof ProjectEmailConfig>;
 /**
  * The local part of an AI member's own e-mail address: its handle (PM-1039); the `r-` prefix belongs
  * to the reply addresses.
  */
 export const EmailMailbox = z.string().regex(/^(?!r-)[a-z0-9][a-z0-9-]{0,31}$/);
 export type EmailMailbox = z.infer<typeof EmailMailbox>;
-export const AiMemberEmail = z.object({
+const AiMemberEmail = z.object({
   enabled: z.boolean(),
   sendWithoutApproval: z.boolean().optional(),
 });
-export type AiMemberEmail = z.infer<typeof AiMemberEmail>;
+type AiMemberEmail = z.infer<typeof AiMemberEmail>;
 
 export const AiMemberConfig = z.object({
   kind: z.literal('ai'),
@@ -236,7 +236,7 @@ export function autoCompactWindowOf(
 }
 
 /** The free disk space (GB) below which no new AI session starts and the owners are warned (PM-243); 0 is off. */
-export const MinFreeDiskGb = z.number().int().min(0).max(10_000);
+const MinFreeDiskGb = z.number().int().min(0).max(10_000);
 export const DEFAULT_MIN_FREE_DISK_GB = 10;
 
 /** A session's warning limit in tokens, as `limitTokens` counts them (PM-187). */

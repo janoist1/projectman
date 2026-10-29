@@ -1,7 +1,6 @@
 [
   "[\"exports\",\"apps/server/src/administration/diagnostics.ts\",\"DIAGNOSTIC_CODES\"]",
   "[\"exports\",\"apps/server/src/app.ts\",\"LOOPBACK_HOSTS\"]",
-  "[\"exports\",\"apps/server/src/contracts/administration.ts\",\"FULL_TEST_PROFILES\"]",
   "[\"exports\",\"apps/server/src/full-test/github-verdict.ts\",\"MERGE_TEST_SHARD_JOBS\"]",
   "[\"exports\",\"apps/server/src/services/email-channel/config.ts\",\"EMAIL_CHANNEL_ENV_NAMES\"]",
   "[\"exports\",\"apps/server/src/services/email-channel/config.ts\",\"EMAIL_CHANNEL_NOT_CONFIGURED\"]",
@@ -84,7 +83,6 @@
   "[\"types\",\"apps/server/src/contracts/administration.ts\",\"AdministrationJobState\"]",
   "[\"types\",\"apps/server/src/contracts/administration.ts\",\"AdministrationLogSource\"]",
   "[\"types\",\"apps/server/src/contracts/administration.ts\",\"AdministrationSocketMethod\"]",
-  "[\"types\",\"apps/server/src/contracts/administration.ts\",\"FullTestProfile\"]",
   "[\"types\",\"apps/server/src/contracts/administration.ts\",\"ImagePlatform\"]",
   "[\"types\",\"apps/server/src/contracts/full-test.ts\",\"FullTestRunOptions\"]",
   "[\"types\",\"apps/server/src/contracts/full-test.ts\",\"NpmCiPreparation\"]",

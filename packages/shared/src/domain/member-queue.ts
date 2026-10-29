@@ -25,11 +25,11 @@ export const MEMBER_QUEUE_ITEM_KINDS = [
 export const MemberQueueItemKind = z.enum(MEMBER_QUEUE_ITEM_KINDS);
 export type MemberQueueItemKind = z.infer<typeof MemberQueueItemKind>;
 
-export const MEMBER_QUEUE_STATES = ['queued', 'processing', 'done', 'handed_off', 'cancelled'] as const;
+const MEMBER_QUEUE_STATES = ['queued', 'processing', 'done', 'handed_off', 'cancelled'] as const;
 export const MemberQueueState = z.enum(MEMBER_QUEUE_STATES);
 export type MemberQueueState = z.infer<typeof MemberQueueState>;
 
-export const MEMBER_QUEUE_CLOSE_REASONS = [
+const MEMBER_QUEUE_CLOSE_REASONS = [
   'delivered',
   'resolved',
   'finished',
@@ -104,7 +104,7 @@ export function memberQueueSourceOf(type: MemberQueueSource['type'], id: string)
 }
 
 /** Why the Operator handed an item off: owner_reserved goes to the owner, every other reason to the super side. */
-export const OPERATOR_HANDOFF_REASONS = [
+const OPERATOR_HANDOFF_REASONS = [
   'owner_reserved',
   'no_typed_operation',
   'no_grant',
@@ -113,8 +113,8 @@ export const OPERATOR_HANDOFF_REASONS = [
 export const OperatorHandoffReason = z.enum(OPERATOR_HANDOFF_REASONS);
 export type OperatorHandoffReason = z.infer<typeof OperatorHandoffReason>;
 
-export const MemberQueueWait = z.object({ code: z.string().max(64), at: z.string() });
-export type MemberQueueWait = z.infer<typeof MemberQueueWait>;
+const MemberQueueWait = z.object({ code: z.string().max(64), at: z.string() });
+type MemberQueueWait = z.infer<typeof MemberQueueWait>;
 
 export const MEMBER_QUEUE_MAX_ATTEMPTS = 3;
 export const MEMBER_QUEUE_STUCK_MS = 45 * 60_000;

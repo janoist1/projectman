@@ -10,10 +10,10 @@ import { TaskKey } from './task';
  * their requests; the pure rules are in `feedback-rules`.
  */
 
-export const FEEDBACK_MARK_KINDS = ['point', 'area', 'element', 'page'] as const;
-export const FEEDBACK_STATUSES = ['new', 'waiting_owner', 'handled', 'closed'] as const;
-export const FEEDBACK_OUTCOMES = ['card_created', 'card_linked', 'answered'] as const;
-export const FEEDBACK_EVENT_TYPES = [
+const FEEDBACK_MARK_KINDS = ['point', 'area', 'element', 'page'] as const;
+const FEEDBACK_STATUSES = ['new', 'waiting_owner', 'handled', 'closed'] as const;
+const FEEDBACK_OUTCOMES = ['card_created', 'card_linked', 'answered'] as const;
+const FEEDBACK_EVENT_TYPES = [
   'comment',
   'card_created',
   'card_linked',
@@ -21,8 +21,6 @@ export const FEEDBACK_EVENT_TYPES = [
   'closed',
   'reopened',
 ] as const;
-/** How many marker colours a project hands out (a person keeps theirs). */
-export const FEEDBACK_COLOR_COUNT = 8;
 
 export const FeedbackMarkKind = z.enum(FEEDBACK_MARK_KINDS);
 export type FeedbackMarkKind = z.infer<typeof FeedbackMarkKind>;
@@ -35,8 +33,8 @@ export type FeedbackEventType = z.infer<typeof FeedbackEventType>;
 
 export const FeedbackMarkId = z.string().regex(/^fbm_[a-z0-9]{10,32}$/);
 export type FeedbackMarkId = z.infer<typeof FeedbackMarkId>;
-export const FeedbackSurfaceId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/);
-export type FeedbackSurfaceId = z.infer<typeof FeedbackSurfaceId>;
+const FeedbackSurfaceId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/);
+type FeedbackSurfaceId = z.infer<typeof FeedbackSurfaceId>;
 
 const frac = z.number().min(0).max(1);
 const coord = z.number().min(0).max(1_000_000);
@@ -127,7 +125,7 @@ export type FeedbackEnvironment = z.infer<typeof FeedbackEnvironment>;
 
 /** The decoded screenshot is at most this many bytes (else 413 `feedback_screenshot_too_large`). */
 export const MAX_FEEDBACK_SCREENSHOT_BYTES = 2_000_000;
-export const FEEDBACK_SCREENSHOT_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+const FEEDBACK_SCREENSHOT_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const FeedbackScreenshotUpload = z.strictObject({
   mediaType: z.enum(FEEDBACK_SCREENSHOT_MEDIA_TYPES),
   /** Base64 of at most `MAX_FEEDBACK_SCREENSHOT_BYTES` bytes. */
@@ -255,9 +253,6 @@ export type LinkFeedbackRequest = z.infer<typeof LinkFeedbackRequest>;
 
 export const CloseFeedbackRequest = z.strictObject({ reply: text(4000).optional() });
 export type CloseFeedbackRequest = z.infer<typeof CloseFeedbackRequest>;
-
-export const ForwardFeedbackRequest = z.strictObject({ reason: text(1000), reply: text(4000) });
-export type ForwardFeedbackRequest = z.infer<typeof ForwardFeedbackRequest>;
 
 export const FeedbackLaunchRequest = z.strictObject({
   surfaceId: FeedbackSurfaceId,

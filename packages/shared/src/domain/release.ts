@@ -20,9 +20,6 @@ export const ReleaseState = z.enum([
 ]);
 export type ReleaseState = z.infer<typeof ReleaseState>;
 
-/** The states that hold the project's one release slot: no second release is proposed while one is in them. */
-export const OPEN_RELEASE_STATES: readonly ReleaseState[] = ['proposed', 'approved', 'deploying'];
-
 /** The step of the deploy (or of the publishing) a release failed in. */
 export const ReleaseStep = z.enum([
   'fetch',
@@ -150,7 +147,7 @@ export const HybridPhase = z.enum([
 export type HybridPhase = z.infer<typeof HybridPhase>;
 
 /** The phases that hold the instance's one deployment slot (with the maintenance bit, see `isDeploymentActive`). */
-export const ACTIVE_HYBRID_PHASES: readonly HybridPhase[] = [
+const ACTIVE_HYBRID_PHASES: readonly HybridPhase[] = [
   'preparing',
   'prepared',
   'quiescing',
@@ -179,11 +176,11 @@ export const HYBRID_RECOVERY_CODES = [
 export const HybridRecoveryCode = z.enum(HYBRID_RECOVERY_CODES);
 export type HybridRecoveryCode = z.infer<typeof HybridRecoveryCode>;
 
-export const HybridRecovery = z.strictObject({
+const HybridRecovery = z.strictObject({
   code: HybridRecoveryCode,
   message: z.string().max(2000),
 });
-export type HybridRecovery = z.infer<typeof HybridRecovery>;
+type HybridRecovery = z.infer<typeof HybridRecovery>;
 
 /** The durable deployment of one release attempt (`release_deployments`). */
 export const HybridDeployment = z.strictObject({

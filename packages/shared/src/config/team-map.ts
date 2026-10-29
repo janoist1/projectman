@@ -45,14 +45,14 @@ export interface TeamMapMember {
   sets: string[];
   approves: string[];
 }
-export interface TeamMapFixRounds {
+interface TeamMapFixRounds {
   limit: number;
   labels: string[];
   lead: string | null;
   deciders: string[];
   loops: { fromStageId: string; toStageId: string; label: string | null }[];
 }
-export interface TeamMapRefinement {
+interface TeamMapRefinement {
   label: string | null;
   stageIds: string[];
   workStageId: string;

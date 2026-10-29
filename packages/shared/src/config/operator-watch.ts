@@ -5,9 +5,9 @@ import type { ProjectConfig } from './schema';
 export const OPERATOR_WATCH_LEVELS = ['report', 'unblock', 'drive'] as const;
 export const OperatorWatch = z.enum(OPERATOR_WATCH_LEVELS);
 export type OperatorWatch = z.infer<typeof OperatorWatch>;
-export const DEFAULT_OPERATOR_WATCH: OperatorWatch = 'report';
+const DEFAULT_OPERATOR_WATCH: OperatorWatch = 'report';
 
-export const COORDINATOR_ONLY_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
+const COORDINATOR_ONLY_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
   'structural_pattern',
   'milestone_closed',
 ];

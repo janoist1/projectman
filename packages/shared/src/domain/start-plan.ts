@@ -5,7 +5,7 @@ import type { FreeDeveloper, StageDeveloper } from './choose-developer';
 import { compareStartClass, startClass } from './start-order';
 import type { Task } from './task';
 
-export { ReadyHoldReason, TaskReadyHold } from './ready-hold';
+export { TaskReadyHold } from './ready-hold';
 
 export type StartPlanEntry =
   | { kind: 'offer'; developer: string }

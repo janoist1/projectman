@@ -41,8 +41,8 @@ export const FixLimitAssessment = z.object({
 export type FixLimitAssessment = z.infer<typeof FixLimitAssessment>;
 
 /** The duty of the lead developer who decides first, and the duty the lead also has to hold. */
-export const FIX_LIMIT_DECISION_DUTY: DutyId = 'technical_direction';
-export const FIX_LIMIT_LEAD_DUTY: DutyId = 'code_review';
+const FIX_LIMIT_DECISION_DUTY: DutyId = 'technical_direction';
+const FIX_LIMIT_LEAD_DUTY: DutyId = 'code_review';
 
 /** The rounds counted on a card. */
 export interface FixRounds {

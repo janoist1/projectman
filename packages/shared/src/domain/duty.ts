@@ -35,7 +35,7 @@ export const DutyId = z.enum(DUTY_IDS);
 export type DutyId = z.infer<typeof DutyId>;
 /** Duty groups in display order (the duties matrix shows one section per group). */
 export const DUTY_GROUPS = ['direction', 'delivery', 'quality', 'release', 'communication', 'team'] as const;
-export type DutyGroup = (typeof DUTY_GROUPS)[number];
+type DutyGroup = (typeof DUTY_GROUPS)[number];
 export interface DutyDefinition {
   id: DutyId;
   group: DutyGroup;

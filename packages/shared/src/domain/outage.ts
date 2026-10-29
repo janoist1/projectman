@@ -13,7 +13,7 @@ export const ProviderOutageProblem = z.enum([
   'setup_incomplete',
 ]);
 export type ProviderOutageProblem = z.infer<typeof ProviderOutageProblem>;
-export const OutageEngine = z.object({ id: EngineId, name: z.string() });
+const OutageEngine = z.object({ id: EngineId, name: z.string() });
 export const WorkOutage = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('provider'),

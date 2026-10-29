@@ -37,7 +37,7 @@
     "apps/feedback-widget": {
       "entry": ["src/main.ts", "vite.dev.config.ts", "shots/*.mjs"]
     },
-    "packages/shared": {},
+    "packages/shared": { "includeEntryExports": true },
     "packages/templates": {}
   }
 }

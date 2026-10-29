@@ -68,6 +68,9 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
       const context = { principal: request.principal, email: request.user!.email, requestId: request.id };
       const params = request.params as { key?: string; taskKey?: string };
       const run = async () => handler.call(this, request, reply);
+      // A read (GET, HEAD) is not audited: it changes nothing, and the audit rows would wake the long poll of
+      // the change journal that a key's `events follow` waits on. The key's access and the project's stay checked.
+      const reads = request.method === 'GET' || request.method === 'HEAD';
       if (params.key)
         return domain.superOperator.execute(
           context,
@@ -75,6 +78,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
             projectKey: params.key,
             taskKey: params.taskKey,
             operation: `rest_${request.method.toLowerCase()}_${targetName}`.slice(0, 64),
+            audited: !reads,
           },
           run,
         );
@@ -82,6 +86,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
         context,
         `rest_${request.method.toLowerCase()}_${targetName}`.slice(0, 64),
         run,
+        { audited: !reads },
       );
     };
   });

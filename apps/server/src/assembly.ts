@@ -428,6 +428,8 @@ export interface DomainOptions {
   handoffSweepMs?: number;
   /** How often the member queues are worked through for what an event missed (default 30 s, PM-925). */
   memberQueueSweepMs?: number;
+  /** How long an event's request for a deferred-start retry waits for the others of its burst (default 750 ms). */
+  retryDebounceMs?: number;
   /**
    * Makes what the machine display measures with (PM-320); default: the operating system's
    * (`createMachineProbe`). It gets the pids of the running sessions' CLIs, for the fixed-data probe
@@ -864,6 +866,7 @@ export function createDomain(opts: DomainOptions) {
     deferred: deferredStarts,
     disk,
     engines,
+    retryDebounceMs: opts.retryDebounceMs,
   });
   // The Operator's request ends with its turn. Registered before the delivery's idle listener below, so
   // the owner's next message opens a new request after this one closed, not before.
@@ -1810,13 +1813,8 @@ export function createDomain(opts: DomainOptions) {
   });
 
   // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
-  if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.sweep({ respectPause: true }));
-  const retryDeferredStarts = () => {
-    background.run(
-      () => admission.retryDeferred(),
-      (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
-    );
-  };
+  if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.retryWaiting());
+  const retryDeferredStarts = () => admission.requestRetry();
   const outages = new WorkOutages({
     ctx,
     projects,
@@ -2724,6 +2722,7 @@ export function createDomain(opts: DomainOptions) {
       await Promise.all([sweepsStopped, background.stop()]);
       await delivery.close();
       pauses.dispose();
+      admission.dispose();
       sessions.dispose();
       // The folders still being removed finish before the temporary root is released.
       await sessions.settleFolderRemovals();

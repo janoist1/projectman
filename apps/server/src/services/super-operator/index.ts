@@ -224,7 +224,7 @@ export function createSuperOperator(deps: {
     },
     async execute<T>(
       context: IntegratorExecutionContext,
-      target: { projectKey: string; taskKey?: string; operation: string },
+      target: { projectKey: string; taskKey?: string; operation: string; audited?: boolean },
       run: () => Promise<T>,
     ): Promise<T> {
       await deps.projects.config(target.projectKey);
@@ -232,9 +232,10 @@ export function createSuperOperator(deps: {
         const config = await deps.projects.config(target.projectKey);
         assertIntegratorAccess(config, 'read');
         // A read key's call is audited too (PM-784): the entry carries the project's Operator and the key's
-        // id and prefix, while the principal's mode stays `read`.
+        // id and prefix, while the principal's mode stays `read`. A plain read of the REST API (`audited: false`)
+        // leaves no entry: it changes nothing, and its own rows would wake the long poll of the change journal.
         const actor = principalActor(config, context.principal, context.email, context.issuer);
-        if (!actor) return run();
+        if (!actor || target.audited === false) return run();
         return deps.audit.runExternal(
           { projectKey: target.projectKey, actor, requestId: context.requestId },
           target.operation,
@@ -252,6 +253,7 @@ export function createSuperOperator(deps: {
       context: IntegratorExecutionContext,
       operation: string,
       run: () => Promise<T>,
+      options: { audited?: boolean } = {},
     ): Promise<T> {
       const configs = await Promise.all(deps.projects.summaries().map((p) => deps.projects.config(p.key)));
       return runIntegratorExecution(scopeFor({ ...context, projectKey: null }), async () => {
@@ -264,7 +266,7 @@ export function createSuperOperator(deps: {
         for (const config of projects) {
           assertIntegratorAccess(config, 'read');
           const actor = principalActor(config, context.principal, context.email);
-          if (context.principal.mode !== 'super' || !actor) continue;
+          if (context.principal.mode !== 'super' || !actor || options.audited === false) continue;
           const next = work;
           work = () =>
             deps.audit.runExternal(

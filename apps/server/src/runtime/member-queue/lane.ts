@@ -81,7 +81,9 @@ export interface MemberQueueDriver {
   /** Works the member's queue through; idempotent, one run at a time per member. */
   ensure(projectKey: string, member: string, options?: { deliver?: boolean; net?: boolean }): Promise<void>;
   /** `ensure` for every member that has an open item: the net under every event that could be lost. */
-  sweep(options?: { respectPause?: boolean }): Promise<void>;
+  sweep(): Promise<void>;
+  /** `ensure` for the members that have a queued item waiting for a place, a limit or a hold: what an event retries. */
+  retryWaiting(): Promise<void>;
   register(lane: MemberQueueLane): void;
   /** The member was renamed (PM-1025): forgets what the driver remembers under the old handle. */
   memberRenamed(projectKey: string, from: string): void;

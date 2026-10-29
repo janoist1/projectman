@@ -1,5 +1,5 @@
 import { tmpdir } from 'node:os';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
 import { alertPayloadOf } from '@projectman/shared';
 import { freeBytesOf } from '../src/engine-host';
@@ -371,6 +371,28 @@ describe('free disk space', () => {
 
     await setLimit(0);
     await expect(h.domain.disk.assertRoom(await h.domain.projects.config('AR'))).resolves.toBeUndefined();
+  });
+
+  it('measures the free space once for a round of starts, and afresh after the disk watcher', async () => {
+    await setup(50 * GB);
+    let measured = 0;
+    const config = await h.domain.projects.config('AR');
+    const bytes = vi.spyOn(h.domain.disk, 'free').mockImplementation(async () => {
+      measured += 1;
+      return free;
+    });
+
+    await h.domain.disk.assertRoom(config);
+    await h.domain.disk.assertRoom(config);
+    expect(measured).toBe(1);
+
+    free = 3 * GB;
+    await expect(h.domain.disk.assertRoom(config)).resolves.toBeUndefined();
+    await h.domain.disk.check();
+    expect(measured).toBe(2);
+    await expect(h.domain.disk.assertRoom(config)).rejects.toMatchObject({ code: 'disk_low' });
+    expect(measured).toBe(3);
+    bytes.mockRestore();
   });
 
   it('lets a running session finish its step', async () => {

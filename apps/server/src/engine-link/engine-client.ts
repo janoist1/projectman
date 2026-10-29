@@ -107,8 +107,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
 
   let socket: LinkSocket | null = null;
   let rpc: EngineRpc | null = null;
-  /** Whether the cloud of this connection promised its heartbeat in the welcome (an older one sends none). */
+  /**
+   * Whether the cloud of this connection repeats its acknowledgement as a heartbeat (an older one sends none).
+   * The wire carries no flag: an ack equal to the highest one of this connection (the welcome's included) can
+   * only be a repeat, because a cloud acknowledges an event once and never an old sequence again.
+   */
   let cloudHeartbeats = false;
+  let highestAck = 0;
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
   let failures = 0;
@@ -278,7 +283,8 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         welcomed = true;
         clearTimeout(handshake);
         rpc = connection;
-        cloudHeartbeats = frame.heartbeat === true;
+        cloudHeartbeats = false;
+        highestAck = frame.ackedSeq;
         failures = 0;
         connectedAt = now();
         logger.info(
@@ -295,6 +301,8 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         return;
       }
       if (frame.t === 'ack') {
+        if (frame.seq === highestAck) cloudHeartbeats = true;
+        highestAck = Math.max(highestAck, frame.seq);
         try {
           buffer.acknowledge(frame.seq);
         } catch {
@@ -330,7 +338,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       // `ENGINE_HEARTBEAT_MS` as an app-level heartbeat (idle links included): if no frame came for
       // `ENGINE_DEAD_AFTER_MS`, reconnect. It takes two ticks in a row: after a stalled event loop Node runs
       // the timer before it reads the frames queued meanwhile, so one late tick alone does not prove the
-      // cloud went silent. Only a cloud whose welcome promised the heartbeat is judged by it: an older one
+      // cloud went silent. Only a cloud seen repeating its acknowledgement is judged by it: an older one
       // is quiet when idle, and reconnecting would only repeat that every few minutes.
       watchdog = setInterval(() => {
         const silent = !!socket && !!rpc && cloudHeartbeats && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS;

@@ -2701,8 +2701,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   lose a live link. The engine's watchdog reports `link_silent` only after two consecutive ticks
   with pending events and more than 90 s of silence. Both sides log `engine link: connected` and
   `engine link: disconnected` at info level (code and cause; never the key or URL). Protocol version
-  stays 1: an old engine with a new cloud is tolerated for 90 s (the old engine reconnects after
-  45 s when events wait), a new engine with an old cloud keeps the old 45 s drop.
+  stays 1 and the wire is unchanged: an old engine with a new cloud is tolerated for 90 s (the old
+  engine reconnects after 45 s when events wait). A new engine judges the link by silence only once
+  it has seen the cloud repeat an acknowledgement (an `ack` equal to the highest sequence of the
+  connection, the welcome's included; a cloud that never repeats one is quiet when idle, so an idle
+  link to an old cloud is left alone instead of reconnecting every few minutes).
   **Remote engine:** the socket, event buffer and method dispatch run on the engine beside its
   CLIs and files; the registry, auth, idempotency store and human websocket broadcasts stay in the
   cloud. Non-JSON/large data uses purpose-scoped uploads (PM-315), with only a hash and size in

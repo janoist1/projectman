@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TaskKey } from '@projectman/shared';
 import {
   AgentProvider,
   FullTestErrorReason,
@@ -404,6 +405,10 @@ const worktrees = {
     z.tuple([z.strictObject({ project: ProjectConfig, repoName: text })]),
     z.array(z.strictObject({ taskKey: text, path: text })),
   ),
+  listTaskWorktrees: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text })]),
+    z.array(z.strictObject({ taskKey: TaskKey, path: text })),
+  ),
   refreshDependencies: method(
     z.tuple([text]),
     z.discriminatedUnion('status', [
@@ -443,6 +448,18 @@ const worktrees = {
   remove: method(z.tuple([z.strictObject({ path: text, force: z.boolean().optional() })]), done),
 } satisfies ManagerMethods<WorktreeManager>;
 const workspaces = {
+  listSnapshotTasks: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text })]),
+    z.array(TaskKey),
+  ),
+  removeTaskSnapshots: method(
+    z.tuple([
+      z
+        .strictObject({ project: ProjectConfig, repoName: text, taskKeys: z.array(TaskKey).max(100) })
+        .refine((args) => args.taskKeys.every((key) => key.startsWith(`${args.project.project.key}-`))),
+    ]),
+    done,
+  ),
   location: method(z.tuple([key]), workspaceInfo),
   home: method(z.tuple([z.strictObject({ projectKey: text, member: text })]), text),
   ensure: method(z.tuple([key]), workspaceInfo.extend({ created: z.boolean() })),
@@ -538,6 +555,7 @@ export const methods = {
   'worktree.findMergeFix': worktrees.findMergeFix,
   'worktree.removeMergeFix': worktrees.removeMergeFix,
   'worktree.listMergeFixes': worktrees.listMergeFixes,
+  'worktree.listTaskWorktrees': worktrees.listTaskWorktrees,
   'worktree.find': worktrees.find,
   'worktree.status': worktrees.status,
   'worktree.remove': worktrees.remove,
@@ -553,6 +571,8 @@ export const methods = {
   'workspace.checkoutTaskBranch': workspaces.checkoutTaskBranch,
   'workspace.checkoutReview': workspaces.checkoutReview,
   'workspace.publishTaskBranch': workspaces.publishTaskBranch,
+  'workspace.listSnapshotTasks': workspaces.listSnapshotTasks,
+  'workspace.removeTaskSnapshots': workspaces.removeTaskSnapshots,
   'github.is_available': method(empty, z.boolean()),
   'github.get_pull_request': method(z.strictObject({ repo: text, number: int.min(1) }), PullRequest),
   'github.find_pull_requests_for_branch': method(

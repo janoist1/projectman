@@ -334,6 +334,11 @@ export type DependencyRefreshResult =
   | { status: 'skipped'; reason: DependencySkip };
 
 export interface WorktreeManager {
+  /** Existing task worktrees in this repository, excluding main, merge-fix and prunable entries. */
+  listTaskWorktrees(args: {
+    project: ProjectConfig;
+    repoName: string;
+  }): Promise<Array<{ taskKey: string; path: string }>>;
   ensureMergeFix(args: {
     project: ProjectConfig;
     repoName: string;
@@ -475,6 +480,10 @@ export interface WorkspaceDependencyInstaller {
 }
 
 export interface MemberWorkspaceManager {
+  /** Tasks with snapshot or leftover incoming refs in the project repository. */
+  listSnapshotTasks(args: { project: ProjectConfig; repoName: string }): Promise<string[]>;
+  /** Deletes only these tasks' snapshot and incoming refs, preserving all branches. At most 100 keys. */
+  removeTaskSnapshots(args: { project: ProjectConfig; repoName: string; taskKeys: string[] }): Promise<void>;
   /** Where the workspace is (or would be), without creating anything. */
   location(key: MemberWorkspaceKey): Promise<MemberWorkspaceInfo>;
   /**

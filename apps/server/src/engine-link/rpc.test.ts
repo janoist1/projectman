@@ -6,6 +6,18 @@ import { methods } from './methods';
 import { testConfig } from '../../test/helpers/test-template';
 
 describe('engine RPC', () => {
+  it.each([
+    { name: 'foreign project', taskKeys: ['BR-1'] },
+    { name: 'malformed key', taskKeys: ['--all'] },
+    { name: 'oversized batch', taskKeys: Array.from({ length: 101 }, (_, n) => `AR-${n + 1}`) },
+  ])('refuses snapshot removal with $name before dispatch', ({ taskKeys }) => {
+    const project = testConfig();
+    expect(
+      methods['workspace.removeTaskSnapshots'].params.safeParse([
+        { project, repoName: project.project.repos[0]!.name, taskKeys },
+      ]).success,
+    ).toBe(false);
+  });
   it('does not keep a result after sending it', async () => {
     const state = createRpcState();
     const sent: Frame[] = [];

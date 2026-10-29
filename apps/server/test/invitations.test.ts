@@ -17,9 +17,11 @@ describe('colleague invitation API', () => {
   let h: AppHarness;
   let owner: string;
   let now: Date;
+  let expectedErrors: RegExp[];
   beforeEach(async () => {
     now = new Date('2026-09-30T10:00:00.000Z');
-    h = await createAppHarness({ now: () => now });
+    expectedErrors = [];
+    h = await createAppHarness({ now: () => now, expectedErrors });
     const setup = await h.app.inject({ method: 'POST', url: '/api/setup', payload: ownerLogin });
     owner = cookieOf(setup);
     await createProject(h, owner);
@@ -513,6 +515,7 @@ describe('colleague invitation API', () => {
   });
 
   it('leaves the invite reusable and creates no account when the config commit fails', async () => {
+    expectedErrors.push(/^request failed$/);
     const created = await invite();
     vi.spyOn(h.app.projectman.configStore, 'save').mockRejectedValueOnce(new Error('fictional disk failure'));
     const failed = await inject(h.app, 'POST', `${publicPath(created)}/accept`, undefined, newAccount);

@@ -13,9 +13,10 @@ import type {
   WorkspaceDependenciesResult,
 } from '../contracts';
 import { isTaskBranch } from '@projectman/shared';
+import type { ProjectConfig } from '@projectman/shared';
 import { git, GitCommandError, isoOrNull } from './git';
 import { isStrictlyWithin } from '../kernel';
-import { canonical, createKeyedLock } from './paths';
+import { canonical, createKeyedLock, withRepoLock } from './paths';
 import { localWorkspaceAccess, SAFE_GIT_SETTINGS } from './workspace-access';
 import type { WorkspaceAccess } from './workspace-access';
 
@@ -150,12 +151,25 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     }
   }
 
+  async function repositoryOf({ project, repoName }: { project: ProjectConfig; repoName: string }) {
+    const projectKey = project.project.key;
+    const repo = project.project.repos.find((r) => r.name === repoName);
+    if (!repo || !PROJECT_KEY.test(projectKey) || !REPO_NAME.test(repoName))
+      throw new MemberWorkspaceError('workspace_invalid', 'invalid repository location');
+    const repoPath = path.resolve(project.project.workspacePath, repo.path);
+    const workspaceRoot = await canonical(project.project.workspacePath);
+    const resolvedRepo = await canonical(repoPath);
+    if (resolvedRepo !== workspaceRoot && !isStrictlyWithin(workspaceRoot, resolvedRepo))
+      throw new MemberWorkspaceError('workspace_invalid', 'the repository must be inside its workspace');
+    return { repoPath: resolvedRepo, defaultBranch: repo.defaultBranch };
+  }
+
   /** The workspace's directories and the project repository it is cloned from, validated. */
   async function locate(key: MemberWorkspaceKey) {
     const { project, repoName, member } = key;
     const projectKey = project.project.key;
-    const repo = project.project.repos.find((r) => r.name === repoName);
-    if (!repo || !PROJECT_KEY.test(projectKey) || !REPO_NAME.test(repoName) || !HANDLE.test(member))
+    const repository = await repositoryOf(key);
+    if (!HANDLE.test(member))
       throw new MemberWorkspaceError('workspace_invalid', 'invalid workspace location', {
         projectKey,
         repo: repoName,
@@ -169,18 +183,13 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
       if (entry && (entry.isSymbolicLink() || !entry.isDirectory()))
         throw new MemberWorkspaceError('workspace_invalid', `${dir} is not a plain directory`);
     }
-    const repoPath = path.resolve(project.project.workspacePath, repo.path);
-    const workspaceRoot = await canonical(project.project.workspacePath);
-    const resolvedRepo = await canonical(repoPath);
-    if (resolvedRepo !== workspaceRoot && !isStrictlyWithin(workspaceRoot, resolvedRepo))
-      throw new MemberWorkspaceError('workspace_invalid', 'the repository must be inside its workspace');
     const info: MemberWorkspaceInfo = {
       path: path.join(dir, 'repo'),
       gitDir: path.join(dir, 'repo', '.git'),
       cacheDir: path.join(dir, 'cache'),
       tempDir: path.join(dir, 'tmp'),
     };
-    return { dir, info, repoPath: resolvedRepo, defaultBranch: repo.defaultBranch };
+    return { dir, info, ...repository };
   }
 
   async function location(key: MemberWorkspaceKey): Promise<MemberWorkspaceInfo> {
@@ -394,22 +403,24 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     return withLock(dir, async () => {
       await assertWorkspace(info);
       await assertBranchName(defaultBranch);
-      // The project repository is the owner's: its own git configuration (credentials) applies.
-      const remotes = (await git(['-C', repoPath, 'remote'])).split('\n');
-      if (remotes.includes('origin')) {
-        try {
-          await git(['-C', repoPath, 'fetch', '--quiet', '--', 'origin', defaultBranch], {
-            timeoutMs: FETCH_TIMEOUT_MS,
-          });
-        } catch (err) {
-          throw new MemberWorkspaceError(
-            'workspace_fetch_failed',
-            `could not fetch ${defaultBranch} from origin: ${(err as Error).message}`,
-            { branch: defaultBranch },
-          );
+      const ref = await withRepoLock(repoPath, async () => {
+        // The project repository is the owner's: its own git configuration (credentials) applies.
+        const remotes = (await git(['-C', repoPath, 'remote'])).split('\n');
+        if (remotes.includes('origin')) {
+          try {
+            await git(['-C', repoPath, 'fetch', '--quiet', '--', 'origin', defaultBranch], {
+              timeoutMs: FETCH_TIMEOUT_MS,
+            });
+          } catch (err) {
+            throw new MemberWorkspaceError(
+              'workspace_fetch_failed',
+              `could not fetch ${defaultBranch} from origin: ${(err as Error).message}`,
+              { branch: defaultBranch },
+            );
+          }
         }
-      }
-      const ref = await baseRef(repoPath, defaultBranch);
+        return baseRef(repoPath, defaultBranch);
+      });
       const tracking = `refs/remotes/upstream/${defaultBranch}`;
       try {
         await fetchInto(info.path, { path: repoPath, refs: [ref] }, [`+${ref}:${tracking}`]);
@@ -512,6 +523,61 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     return found.sort((a, b) => (a.ref < b.ref ? -1 : 1));
   }
 
+  /** Enumerates only server-owned task ref namespaces; malformed or unrelated refs are never touched. */
+  async function snapshotRefs(repoPath: string, projectKey: string) {
+    const output = await gitIn(repoPath, [
+      'for-each-ref',
+      '--format=%(objectname) %(refname)',
+      SNAPSHOT_PREFIX,
+      INCOMING_PREFIX,
+    ]);
+    const refs: Array<{ taskKey: string; ref: string; oid: string }> = [];
+    for (const line of output.split('\n')) {
+      const [oid, ref] = line.split(' ');
+      const parts = ref?.split('/') ?? [];
+      if (
+        !oid ||
+        !OID.test(oid) ||
+        !ref ||
+        parts.length !== 6 ||
+        !HANDLE.test(parts[3]!) ||
+        !TASK_KEY.test(parts[4]!) ||
+        !parts[4]!.startsWith(`${projectKey}-`)
+      )
+        continue;
+      if (ref.startsWith(SNAPSHOT_PREFIX) ? !OID.test(parts[5]!) : !/^[a-f0-9]+$/.test(parts[5]!)) continue;
+      refs.push({ taskKey: parts[4]!, ref, oid });
+    }
+    return refs;
+  }
+
+  async function listSnapshotTasks(args: { project: ProjectConfig; repoName: string }) {
+    const { repoPath } = await repositoryOf(args);
+    return [
+      ...new Set((await snapshotRefs(repoPath, args.project.project.key)).map((entry) => entry.taskKey)),
+    ].sort();
+  }
+
+  async function removeTaskSnapshots(args: { project: ProjectConfig; repoName: string; taskKeys: string[] }) {
+    const { repoPath } = await repositoryOf(args);
+    if (
+      args.taskKeys.length > 100 ||
+      args.taskKeys.some((key) => !TASK_KEY.test(key) || !key.startsWith(`${args.project.project.key}-`))
+    )
+      throw new MemberWorkspaceError('workspace_invalid', 'invalid snapshot cleanup tasks');
+    if (!args.taskKeys.length) return;
+    await withRepoLock(repoPath, async () => {
+      const keys = new Set(args.taskKeys);
+      const refs = (await snapshotRefs(repoPath, args.project.project.key)).filter((entry) =>
+        keys.has(entry.taskKey),
+      );
+      if (!refs.length) return;
+      await access.git(access.ownerOf(repoPath), ['-C', repoPath, 'update-ref', '--no-deref', '--stdin'], {
+        input: `start\n${refs.map(({ ref, oid }) => `delete ${ref} ${oid}\n`).join('')}prepare\ncommit\n`,
+      });
+    });
+  }
+
   async function findTaskBranch(key: MemberWorkspaceKey, taskKey: string, preferred?: string) {
     const { dir, info, repoPath } = await locate(key);
     return withLock(dir, async () => {
@@ -564,85 +630,85 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     if (!(await plainGitSucceeds(['check-ref-format', snapshot])))
       throw new MemberWorkspaceError('workspace_invalid', 'invalid hand-over ref');
     const source: WorkspaceSource = { path: repoPath, ref: snapshot };
-    const unchanged = await existingSnapshot(repoPath, snapshot, commit);
-    if (unchanged) return source;
-    return withLock(dir, async () => {
-      // Another hand-over of the same commit may have finished while this one waited.
-      if (await existingSnapshot(repoPath, snapshot, commit)) return source;
-      await assertWorkspace(info);
-      const branchRef = `refs/heads/${branch}`;
-      const onBranch =
-        (await gitInSucceeds(info.path, ['rev-parse', '--verify', '--quiet', `${commit}^{commit}`])) &&
-        (await gitInSucceeds(info.path, ['merge-base', '--is-ancestor', commit, branchRef]));
-      if (!onBranch)
-        throw new MemberWorkspaceError(
-          'workspace_source_missing',
-          `the commit ${commit} is not on ${branch} in the developer's workspace`,
-          { commit, branch },
-        );
-      // A receiving ref of our own naming that nothing else can use; the snapshot is made only
-      // once the fetched history is proven to hold the commit.
-      const incoming = `${INCOMING_PREFIX}${key.member}/${taskKey}/${randomBytes(8).toString('hex')}`;
-      try {
-        try {
-          const handed = await access.transfer(access.ownerOf(repoPath), {
-            path: info.path,
-            refs: [branchRef],
-            owner: access.ownerOf(info.path),
-          });
-          try {
-            await gitIn(
-              repoPath,
-              [
-                // The objects come from an AI-written store: a malformed one must not reach the project repository.
-                '-c',
-                'fetch.fsckObjects=true',
-                'fetch',
-                '--quiet',
-                '--no-tags',
-                '--no-write-fetch-head',
-                '--',
-                handed.from,
-                `${branchRef}:${incoming}`,
-              ],
-              FETCH_TIMEOUT_MS,
-            );
-          } finally {
-            await handed
-              .done()
-              .catch((err: unknown) =>
-                log.warn({ err, workspace: info.path }, 'could not remove a hand-over'),
-              );
-          }
-        } catch (err) {
-          throw new MemberWorkspaceError(
-            'workspace_fetch_failed',
-            `could not hand over ${branch}: ${(err as Error).message}`,
-            { branch },
-          );
-        }
-        if (!(await gitInSucceeds(repoPath, ['merge-base', '--is-ancestor', commit, incoming])))
+    return withLock(dir, async () =>
+      withRepoLock(repoPath, async () => {
+        // Another hand-over of the same commit may have finished while this one waited.
+        if (await existingSnapshot(repoPath, snapshot, commit)) return source;
+        await assertWorkspace(info);
+        const branchRef = `refs/heads/${branch}`;
+        const onBranch =
+          (await gitInSucceeds(info.path, ['rev-parse', '--verify', '--quiet', `${commit}^{commit}`])) &&
+          (await gitInSucceeds(info.path, ['merge-base', '--is-ancestor', commit, branchRef]));
+        if (!onBranch)
           throw new MemberWorkspaceError(
             'workspace_source_missing',
-            `the commit ${commit} did not arrive with ${branch}`,
+            `the commit ${commit} is not on ${branch} in the developer's workspace`,
             { commit, branch },
           );
+        // A receiving ref of our own naming that nothing else can use; the snapshot is made only
+        // once the fetched history is proven to hold the commit.
+        const incoming = `${INCOMING_PREFIX}${key.member}/${taskKey}/${randomBytes(8).toString('hex')}`;
         try {
-          // Only when missing: `update-ref` refuses to move a ref whose old value is the null id.
-          await gitIn(repoPath, ['update-ref', '--no-deref', snapshot, commit, '0'.repeat(commit.length)]);
-        } catch (err) {
-          // Lost a race to the same hand-over (the ref is there at the commit now) or to another one.
-          if (!(err instanceof GitCommandError) || !(await existingSnapshot(repoPath, snapshot, commit)))
-            throw err;
+          try {
+            const handed = await access.transfer(access.ownerOf(repoPath), {
+              path: info.path,
+              refs: [branchRef],
+              owner: access.ownerOf(info.path),
+            });
+            try {
+              await gitIn(
+                repoPath,
+                [
+                  // The objects come from an AI-written store: a malformed one must not reach the project repository.
+                  '-c',
+                  'fetch.fsckObjects=true',
+                  'fetch',
+                  '--quiet',
+                  '--no-tags',
+                  '--no-write-fetch-head',
+                  '--',
+                  handed.from,
+                  `${branchRef}:${incoming}`,
+                ],
+                FETCH_TIMEOUT_MS,
+              );
+            } finally {
+              await handed
+                .done()
+                .catch((err: unknown) =>
+                  log.warn({ err, workspace: info.path }, 'could not remove a hand-over'),
+                );
+            }
+          } catch (err) {
+            throw new MemberWorkspaceError(
+              'workspace_fetch_failed',
+              `could not hand over ${branch}: ${(err as Error).message}`,
+              { branch },
+            );
+          }
+          if (!(await gitInSucceeds(repoPath, ['merge-base', '--is-ancestor', commit, incoming])))
+            throw new MemberWorkspaceError(
+              'workspace_source_missing',
+              `the commit ${commit} did not arrive with ${branch}`,
+              { commit, branch },
+            );
+          try {
+            // Only when missing: `update-ref` refuses to move a ref whose old value is the null id.
+            await gitIn(repoPath, ['update-ref', '--no-deref', snapshot, commit, '0'.repeat(commit.length)]);
+          } catch (err) {
+            // Lost a race to the same hand-over (the ref is there at the commit now) or to another one.
+            if (!(err instanceof GitCommandError) || !(await existingSnapshot(repoPath, snapshot, commit)))
+              throw err;
+          }
+        } finally {
+          await gitIn(repoPath, ['update-ref', '-d', incoming]).catch((err: unknown) =>
+            log.warn({ err, ref: incoming }, 'could not remove a receiving ref'),
+          );
         }
-      } finally {
-        await gitIn(repoPath, ['update-ref', '-d', incoming]).catch((err: unknown) =>
-          log.warn({ err, ref: incoming }, 'could not remove a receiving ref'),
-        );
-      }
-      log.info({ member: key.member, taskKey, commit, ref: snapshot }, 'handed over a task commit');
-      return source;
-    });
+        log.info({ member: key.member, taskKey, commit, ref: snapshot }, 'handed over a task commit');
+        return source;
+      }),
+    );
   }
 
   /** Whether the snapshot is there at `commit`; another commit under that name is refused. */
@@ -768,6 +834,8 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
   }
 
   return {
+    listSnapshotTasks,
+    removeTaskSnapshots,
     location,
     home,
     ensure,

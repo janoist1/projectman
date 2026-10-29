@@ -623,6 +623,23 @@ describe('admission checks', () => {
     expect(sessionFake.ensureSession).not.toHaveBeenCalled();
   });
 
+  it('names the slow engine check inside an admission attempt', async () => {
+    vi.useFakeTimers();
+    try {
+      const { admission, config, member, sessionFake, log } = admissionFor();
+      vi.spyOn(sessionFake, 'assertProviderReady').mockImplementationOnce(
+        () => new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+      );
+      const check = admission.check({ config, member: member('dev-1'), workItem: general });
+      await vi.advanceTimersByTimeAsync(1500);
+      await check;
+      expect(log.warnings).toHaveLength(1);
+      expect(log.warnings[0]).toContainEqual({ step: 'provider-ready', ms: 1500 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('warns once, with the holder, when the exclusive lock is held longer than the limit (PM-1120)', async () => {
     vi.useFakeTimers();
     try {

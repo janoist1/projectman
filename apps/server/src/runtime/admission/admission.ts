@@ -513,10 +513,12 @@ export class Admission {
     }
     try {
       await this.check(request);
-      return await this.sessions.ensureSession(projectKey, request.member.handle, requested, {
-        messages: request.messages,
-        cause: request.cause,
-      });
+      return await this.timed('session-start', () =>
+        this.sessions.ensureSession(projectKey, request.member.handle, requested, {
+          messages: request.messages,
+          cause: request.cause,
+        }),
+      );
     } catch (err) {
       const refusal = err as { code?: unknown; details?: unknown } | null;
       if (typeof refusal?.code === 'string' && OUTAGE_REFUSALS.some((code) => code === refusal.code)) {

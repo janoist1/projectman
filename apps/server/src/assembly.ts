@@ -1798,18 +1798,15 @@ export function createDomain(opts: DomainOptions) {
   // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
   if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.retryWaiting());
   const retryDeferredStarts = () => admission.requestRetry();
-  // The plan usage fell below a project's pause threshold, or the threshold rose above it: what waited for
-  // it starts without another event. The queue gets a full pass, as an item the pause held back may carry no
-  // wait code (PM-1133).
-  const wakeAfterUsage = () => {
-    retryDeferredStarts();
-    if (opts.standby) return;
-    background.run(
-      () => memberQueueDriver.sweep(),
-      (err) => opts.logger.warn({ err }, 'could not wake the member queues after the plan usage changed'),
-    );
-  };
-  const usageWake = new UsageWake({ projects, wake: wakeAfterUsage });
+  const usageWake = new UsageWake({
+    projects,
+    ctx,
+    engines,
+    background,
+    driver: memberQueueDriver,
+    retry: retryDeferredStarts,
+    standby: opts.standby,
+  });
   const outages = new WorkOutages({
     ctx,
     projects,
@@ -1905,11 +1902,13 @@ export function createDomain(opts: DomainOptions) {
       retryDeferredStarts();
   });
   // The pause threshold rose (or was lifted): what the plan usage held back is measured against it again.
-  events.on('config_changed', (change) => {
-    const before = change.previous?.team.limits.pauseAbovePlanUsagePercent;
-    if (before !== undefined && before !== change.next.team.limits.pauseAbovePlanUsagePercent)
-      wakeAfterUsage();
-  });
+  events.on('config_changed', (change) =>
+    usageWake.configChanged(
+      change.projectKey,
+      change.previous?.team.limits.pauseAbovePlanUsagePercent,
+      change.next.team.limits.pauseAbovePlanUsagePercent,
+    ),
+  );
   // A member called back from leave: the starts and messages that waited for it continue.
   events.on('config_changed', (change) => {
     const { previous, next } = change;

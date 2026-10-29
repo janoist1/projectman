@@ -372,7 +372,8 @@ describe('deferred starts across a restart', () => {
     it('starts a queued message once the usage falls below the threshold, without another event', async () => {
       h = await createDomainHarness({ persistent: true, planUsagePercent: 95 });
       await h.domain.messaging.send('AR', 'owner', { to: ['cr'], text: 'Please check Acme.' });
-      await settle();
+      const item = await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr').find((item) => item.wait));
+      h.repos.memberQueue.clearWait(item.id);
       expect(h.runner.started).toHaveLength(0);
       h.runnerModule.planUsage.value = planUsage(10);
       await h.domain.planUsage.get('claude', LOCAL_ENGINE_ID);
@@ -387,6 +388,29 @@ describe('deferred starts across a restart', () => {
         return 'Raise the pause threshold';
       });
       await waitFor(() => h.runner.started.length === 1);
+    });
+
+    it('starts a message with no wait code once the pause threshold is raised', async () => {
+      h = await createDomainHarness({ persistent: true, planUsagePercent: 95 });
+      await h.domain.messaging.send('AR', 'owner', { to: ['cr'], text: 'Please check Acme.' });
+      const item = await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr').find((item) => item.wait));
+      h.repos.memberQueue.clearWait(item.id);
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        config.team.limits.pauseAbovePlanUsagePercent = 100;
+        return 'Raise the pause threshold';
+      });
+      await waitFor(() => h.runner.started.length === 1);
+    });
+
+    it('starts a queued message with no wait code after a restart without another event', async () => {
+      h = await createDomainHarness({ persistent: true, planUsagePercent: 95 });
+      await h.domain.messaging.send('AR', 'owner', { to: ['cr'], text: 'Please check Acme.' });
+      const item = await waitFor(() => h.repos.memberQueue.listOpen('AR', 'cr').find((item) => item.wait));
+      h.repos.memberQueue.clearWait(item.id);
+      expect(stored(h)).toEqual([]);
+      h = await restartDomainHarness(h, { planUsagePercent: 10 });
+      await waitFor(() => h.runner.started.length === 1);
+      expect(h.runner.lastStarted()).toMatchObject({ member: 'cr' });
     });
 
     it('does not start anything while the usage stays above the threshold', async () => {

@@ -4222,6 +4222,9 @@ assumption or remote-engine RPC.
   **Cloud mode (PM-315):** the engine directory answers with `host.free_disk` of the target engine.
   PM-1059 keeps the target: the member's (or the session's) engine that admission already resolved, with
   no host fallback; no new machine operation.
+  PM-1133 shares concurrent admission measurements per engine. After the one-minute freshness period,
+  a measurement younger than five minutes answers while `host.free_disk` refreshes in the background;
+  older or missing measurements wait for the engine. The disk watcher still measures afresh.
   **Module:** `runtime/watchers`
 - **Control socket, pause and deployment** — `control/socket.ts`, `runtime/sessions` (`PauseService`),
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
@@ -4402,6 +4405,13 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
   PM-1059: `usage.plan` is asked of one named engine; the monitor and the cache key a value by
   `(engine, provider)` and a board reads the project's representative engine (see "Cloud composition").
+  PM-1133 reuses recent measurements while refreshing them: plan usage for up to five cache TTLs,
+  and a positive provider login status for up to five minutes. Cold or older reads still wait for the
+  engine; explicit login refreshes wait for its answer. Concurrent reads share the refresh. A usage
+  measurement that lifts the project's pause wakes queued members on that engine and provider,
+  including items without a wait code; threshold changes recheck the project's queued members.
+  These caches and wake decisions run on the server, with the existing `usage.plan` and
+  `provider.status` RPCs; credentials and CLI probes stay on the remote engine.
   PM-1091: the NanoGPT quota and rate hold (`ProviderQuotaHolds`, in memory on the hub) is per key: the
   cloud's key is `'host'`, an engine with its own key file is held under its engine id
   (`EngineDirectory.nanogptKeyHolder`). Only a `usage.plan` measurement on the engine that owns the key

@@ -54,6 +54,7 @@ export interface AppHarnessOptions {
     BuildAppOptions,
     | 'webPush'
     | 'webPushTransport'
+    | 'wsHeartbeatMs'
     | 'doneCleanupDelayMs'
     | 'screenQuestions'
     | 'doneTurnLimitMs'

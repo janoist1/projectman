@@ -486,9 +486,8 @@ describe('engine link handshake recovery', () => {
   });
 
   describe('silent link watchdog', () => {
-    it('reports link_silent only on the second silent tick in a row', async () => {
-      const { sockets, buffer, status } = await connectFirst();
-      buffer.emit(pendingInput('ses_a'));
+    it('reports link_silent only on the second silent tick in a row, with nothing pending', async () => {
+      const { sockets, status } = await connectFirst();
       await vi.advanceTimersByTimeAsync(100_000);
       expect(sockets[0]!.socket.close).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(20_000);
@@ -506,14 +505,10 @@ describe('engine link handshake recovery', () => {
     });
 
     it('counts consecutive ticks only', async () => {
-      const { sockets, buffer } = await connectFirst();
+      const { sockets } = await connectFirst();
+      // The first silent tick, then the cloud's heartbeat ack arrives: the count starts over.
       await vi.advanceTimersByTimeAsync(100_000);
-      buffer.emit(pendingInput('ses_a'));
-      // The first silent tick, then nothing pending again: the count starts over.
-      await vi.advanceTimersByTimeAsync(20_000);
-      buffer.acknowledge(1);
-      await vi.advanceTimersByTimeAsync(20_000);
-      buffer.emit(pendingInput('ses_b'));
+      sockets[0]!.message({ t: 'ack', seq: 0 });
       await vi.advanceTimersByTimeAsync(20_000);
       expect(sockets[0]!.socket.close).not.toHaveBeenCalled();
     });

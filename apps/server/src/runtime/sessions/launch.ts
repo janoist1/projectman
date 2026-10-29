@@ -154,6 +154,8 @@ interface LaunchHost {
     engineId?: EngineId,
   ) => Promise<void>;
   readonly removeSessionFolderOf: (sessionId: string) => void;
+  /** Ends a session whose process never ran as failed, the way the orchestrator ends any session. */
+  readonly markStartFailed: (sessionId: string) => void;
   /** The removal of the session's earlier folder that is still running, if any. */
   readonly folderRemoval: (sessionId: string) => Promise<void> | undefined;
 }
@@ -743,17 +745,9 @@ export class SessionLauncher {
         this.ctx.repos.sessions.update(session.id, { state: info.state, stateSince: isoNow(this.ctx) });
       }
     } catch (err) {
-      this.live.startFailed(session.id);
-      const failed = this.ctx.repos.sessions.update(session.id, {
-        state: 'failed',
-        stateSince: isoNow(this.ctx),
-        endedAt: isoNow(this.ctx),
-      });
-      if (failed) {
-        this.host.publishSession(failed);
-        void this.ctx.events.emit('session_ended', failed);
-      }
-      this.host.recomputeMemberState(projectKey, member.handle);
+      // The start is over before a process ran: the session ends the way any does (what is held for it goes, its
+      // folder is removed, the timeline and the listeners are told).
+      this.host.markStartFailed(session.id);
       if (errorCode(err) === PROVIDER_NOT_LOGGED_IN) {
         const status = (err as { status?: { problem?: string; cliVersion?: string; minCliVersion?: string } })
           .status;

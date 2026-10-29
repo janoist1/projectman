@@ -78,7 +78,7 @@ export class ChecklistService {
     return {
       config,
       agreementApproved: knowledge.agreement !== null,
-      taskCount: this.deps.tasks.list(key).filter((task) => task.status !== 'cancelled').length,
+      taskCount: this.deps.tasks.countNotCancelled(key),
       engineConnected: this.deps.engineHolds(key),
     };
   }

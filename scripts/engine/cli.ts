@@ -14,12 +14,14 @@
 //   (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)
 //
 // `start` runs the server in engine mode (PROJECTMAN_MODE=engine) in the foreground; stop it with Ctrl-C
-// or SIGTERM, which pauses the running sessions first. Exit status: 0 done, 1 refused or not healthy, 2 wrong usage.
+// or SIGTERM, which pauses the running sessions first. In an engine package (PM-1104) it runs the built server
+// under the package's own node (`start-command.ts`). Exit status: 0 done, 1 refused or not healthy, 2 wrong usage.
 import { spawn, spawnSync } from 'node:child_process';
 import { homedir, release } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runEngineCli } from './commands';
+import { engineStartCommand } from './start-command';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -71,15 +73,8 @@ runEngineCli(process.argv.slice(2), {
   },
   startEngine: (_home, env) =>
     new Promise<number>((resolve) => {
-      const child = spawn(
-        process.execPath,
-        ['--import', 'tsx', path.join(root, 'apps/server/src/index.ts')],
-        {
-          cwd: root,
-          env,
-          stdio: 'inherit',
-        },
-      );
+      const { command, args } = engineStartCommand(root, process.execPath);
+      const child = spawn(command, args, { cwd: root, env, stdio: 'inherit' });
       // The engine pauses its sessions on SIGINT/SIGTERM; the signal is passed on, not handled here.
       for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => child.kill(signal));
       child.on('exit', (code) => resolve(code ?? 1));

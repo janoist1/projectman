@@ -8,7 +8,7 @@ import type {
   SessionDetail,
   TaskDetail,
 } from '@projectman/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   chats,
   inbox,
@@ -219,6 +219,54 @@ describe('applyServerEvent', () => {
       queryKeys.unreadMessages(KEY),
     ])
       expect(client.getQueryState(key)!.isInvalidated).toBe(true);
+  });
+
+  it('leaves the project manager corner alone for the ticks and messages of other members (PM-1109)', () => {
+    const client = seed();
+    const corner = queryKeys.projectManager(KEY);
+    client.setQueryData(corner, {});
+    const session = sessions.find((entry) => entry.id === 'ses_ac21_fe1')!;
+    for (let tick = 0; tick < 50; tick++) {
+      applyServerEvent(client, {
+        type: 'member_state',
+        projectKey: KEY,
+        handle: 'fe-1',
+        status: 'working',
+        activity: `Tick ${tick}`,
+      });
+      applyServerEvent(client, { type: 'session_upserted', projectKey: KEY, session });
+    }
+    applyServerEvent(client, { type: 'plan_usage', projectKey: KEY, provider: 'claude', usage: planUsage });
+    const message = { ...new MockBackend().messages[0]!, from: 'fe-1', to: ['qa'] };
+    applyServerEvent(client, { type: 'team_message', projectKey: KEY, message });
+    expect(client.getQueryState(corner)!.isInvalidated).toBe(false);
+  });
+
+  it('reads the project manager corner again for the manager own session and messages', () => {
+    const message = { ...new MockBackend().messages[0]!, from: 'fe-1', to: ['pm'] };
+    const session = { ...sessions.find((entry) => entry.id === 'ses_ac21_fe1')!, member: 'pm' };
+    for (const event of [
+      { type: 'team_message', projectKey: KEY, message },
+      { type: 'session_upserted', projectKey: KEY, session },
+    ] as const) {
+      const client = seed();
+      client.setQueryData(queryKeys.projectManager(KEY), {});
+      applyServerEvent(client, event);
+      expect(client.getQueryState(queryKeys.projectManager(KEY))!.isInvalidated).toBe(true);
+    }
+  });
+
+  it('reads a key once for the events of one burst (PM-1109)', () => {
+    const client = seed();
+    client.setQueryData(queryKeys.screenedQuestionsAll(KEY), {});
+    const read = vi.spyOn(client, 'invalidateQueries');
+    const question = inbox.find((item) => item.kind === 'question')!;
+    applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item: question });
+    applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item: question });
+    const screened = read.mock.calls.filter(([filters]) =>
+      JSON.stringify(filters?.queryKey).includes('inbox-screened'),
+    );
+    expect(screened).toHaveLength(1);
   });
 
   it('writes a task detail returned by a mutation to the board, the detail and its sessions', () => {

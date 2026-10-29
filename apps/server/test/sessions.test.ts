@@ -147,13 +147,32 @@ describe('session orchestrator', () => {
     expect(h.runnerModule.transcriptReads).toEqual([
       {
         path: '/tmp/fictional.jsonl',
-        opts: { provider: 'claude', self: 'cr', cwd: session.cwd, firstUserOrigin: 'brief' },
+        opts: { provider: 'claude', self: 'cr', cwd: session.cwd, firstUserOrigin: 'brief', limit: 201 },
       },
       {
         path: '/tmp/general.jsonl',
-        opts: { provider: 'claude', self: 'cr', cwd: general.cwd, firstUserOrigin: 'human' },
+        opts: { provider: 'claude', self: 'cr', cwd: general.cwd, firstUserOrigin: 'human', limit: 201 },
       },
     ]);
+  });
+
+  it('shows the last items of a long chat and says that older ones remain', async () => {
+    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/tmp/long.jsonl' });
+    const items = ['a', 'b', 'c', 'd', 'e'].map((id) => ({
+      id,
+      kind: 'assistant_text' as const,
+      ts: '2026-10-01T10:00:00.000Z',
+      text: id,
+    }));
+    h.runnerModule.transcripts.set('/tmp/long.jsonl', items);
+    const tail = await h.domain.sessions.detail('AR', session.id, { limit: 3, before: 'e' });
+    expect(tail.chat.map((item) => item.id)).toEqual(['c', 'd', 'e']);
+    expect(tail.truncated).toBe(true);
+    expect(h.runnerModule.transcriptReads.at(-1)?.opts).toMatchObject({ limit: 4, before: 'e' });
+    const all = await h.domain.sessions.detail('AR', session.id, { limit: 5 });
+    expect(all.chat).toHaveLength(5);
+    expect(all.truncated).toBeUndefined();
   });
 
   it('starts over with the brief when the first start never produced a conversation', async () => {

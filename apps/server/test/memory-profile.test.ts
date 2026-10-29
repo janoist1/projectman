@@ -54,12 +54,12 @@ function copyHome(withMarker = true): string {
 }
 
 describe('image and guide', () => {
-  it('the Dockerfile copies the three tools, and the guide and the inventory name them', () => {
+  it('the image does not carry the three tools, and the guide and the inventory name them', () => {
     const dockerfile = readFileSync(join(cloudDir, 'Dockerfile'), 'utf8');
     const guide = readFileSync(join(root, 'docs/HYBRID.md'), 'utf8');
     const architecture = readFileSync(join(root, 'docs/ARCHITECTURE.md'), 'utf8');
+    expect(dockerfile).not.toMatch(/^COPY .*\.mjs/m);
     for (const name of ['memory-probe.mjs', 'memory-profile.mjs', 'heap-summary.mjs']) {
-      expect(dockerfile).toContain(`deploy/cloud/${name}`);
       expect(guide).toContain(name);
       expect(architecture).toContain(name);
     }

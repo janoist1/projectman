@@ -123,8 +123,13 @@ export function mergedState(row: MergeRecord): TaskMerged | undefined {
 const QUEUE_ORDER =
   'queue_rank IS NULL, queue_rank, prioritized_at IS NULL, prioritized_at DESC, created_at, rowid';
 export function createTaskMergeRepository(db: Db) {
-  const read = (sql: string, ...args: string[]) =>
-    (db.prepare(sql).all(...args) as Record<string, unknown>[]).map(record);
+  // A card view reads the card's open and latest merge: each statement is prepared once, not per call.
+  const prepared = new Map<string, { all(...args: string[]): unknown[] }>();
+  const read = (sql: string, ...args: string[]) => {
+    let statement = prepared.get(sql);
+    if (!statement) prepared.set(sql, (statement = db.prepare(sql)));
+    return (statement.all(...args) as Record<string, unknown>[]).map(record);
+  };
   const bump = (projectKey: string, repo: string) =>
     db
       .prepare(

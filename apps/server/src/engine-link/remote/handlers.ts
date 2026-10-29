@@ -61,12 +61,12 @@ export function registerCloudHandlers(options: CloudHandlerOptions): void {
     }
   };
 
-  // A decision nobody can use any more is cut: the session ended, or the engine came back without the
-  // state of its old link (it restarted, so the call that waited is gone). A link that resumed keeps its
-  // calls: the engine sends the waiting one again and gets the same answer.
+  // A decision nobody can use any more is cut: the session ended, or the engine's link was lost. The engine
+  // fails its waiting `permission.decide` the moment the link closes (the agent is told no and nothing sends
+  // the call again), also when the link resumes, so the item it left is expired at every reconnect.
   runner.onSessionEnded((sessionId) => abortWhere((entry) => entry.sessionId === sessionId));
-  hub.onConnect(({ id, resumed }) => {
-    if (!resumed) abortWhere((entry) => entry.engineId === id);
+  hub.onConnect(({ id }) => {
+    abortWhere((entry) => entry.engineId === id);
   });
 
   hub.handle('permission.decide', async (engineId, { request }, context) => {

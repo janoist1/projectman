@@ -11,19 +11,15 @@
 #   receive-env               replace /etc/projectman/cloud.env with the standard input (root only, 600)
 #   receive-image <sha40> <platform> <bytes> <sha256> <image-id>
 #                             verify/import one native Docker archive on stdin; strict metadata JSON only
-#   build <sha40> <repo-url>  fetch that commit and build projectman-cloud:<sha40> from it
-#   start <sha40> [ref] [expectedImageId]
-#                             verify/run the pinned image (required on ARM), record it in deploy.json
+#   start <sha40> [ref] <imageId>
+#                             verify/run the pinned arm64 image, record it in deploy.json
 #   stop                      stop and disable the unit, record when it stopped
 #   status                    one JSON object on the standard output
 #   logs <n>                  the last n journal lines of the unit
 #   rehearse                  restore the replica and the snapshot into a scratch container (entrypoint.sh
 #                             rehearse); the running board and the replica are not touched
 #   seed-check                {"container":"running|stopped","dataEmpty":true|false}
-#   seed-digest               {"databaseSha256":"<64 lowercase hex>","databaseBytes":<positive integer>}
-#                             closed DB only, before the first start; no arguments or stdin payload
-#   receive-data              unpack a tar stream into the empty data directory (the container must stand)
-#   send-data                 write the data directory as a tar stream (the container must stand)
+#   send-data                write the data directory as a tar stream (the container must stand)
 #   guard-check <hostname>    {"plain":"404","port":"404"}: the status codes the running board gives that hostname
 #                             (the feedback guard, PM-510); refused while the board is not running
 #   public-check <hostname> [integratorHostname]  readiness and optional machine-host isolation probes:
@@ -45,7 +41,6 @@ IMAGE_ENV="$ETC_DIR/image.env"
 STATE_DIR=/var/lib/projectman
 DATA_DIR="$STATE_DIR/data"
 DEPLOY_JSON="$STATE_DIR/deploy.json"
-SRC_DIR=/opt/projectman/src
 UNIT=projectman-cloud
 UNIT_FILE="/etc/systemd/system/$UNIT.service"
 DOCKER_DIR=/etc/docker
@@ -266,64 +261,10 @@ receive_env() {
   echo "cloud.env received"
 }
 
-build() {
-  [ "$(host_platform)" = linux/amd64 ] || refuse "ARM hosts cannot build images"
-  local sha=${1:-} url=${2:-}
-  check_sha "$sha"
-  umask 077
-  exec 9>"$STATE_DIR/.image.lock"
-  flock -x 9
-  if read_deploy | jq -e --arg sha "$sha" '[.current, .previous] | any(.sha == $sha and .imageId != null)' >/dev/null; then
-    refuse "cannot rebuild a recorded immutable image; use its approved bundle"
-  fi
-  [[ "$url" =~ ^https://[A-Za-z0-9._~:/@%+-]+$ ]] || die "not an https repository URL: $url"
-  local free
-  free=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
-  [ "$free" -ge "$MIN_FREE_BYTES" ] || refuse "less than 3 GiB free on the disk; free some (docker system prune)"
-
-  export GIT_TERMINAL_PROMPT=0
-  mkdir -p "$(dirname "$SRC_DIR")"
-  [ -d "$SRC_DIR/.git" ] || git init -q "$SRC_DIR"
-  cd "$SRC_DIR"
-  if git remote get-url origin >/dev/null 2>&1; then
-    git remote set-url origin "$url"
-  else
-    git remote add origin "$url"
-  fi
-  git fetch --quiet --tags --force origin
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet origin "$sha" || true
-  git cat-file -e "$sha^{commit}" 2>/dev/null || die "the commit $sha is not in $url"
-  git checkout --quiet --detach --force "$sha"
-  git clean -ffdxq
-  [ "$(git rev-parse HEAD)" = "$sha" ] || die "the checkout is not at $sha"
-
-  docker build --progress=plain -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION="$sha" -t "$IMAGE_REPO:$sha" .
-  prune_images "$sha"
-  echo "built $IMAGE_REPO:$sha"
-}
-
-# Keeps the new image and the current and previous ones of deploy.json (a rollback needs them); the other
-# images and the build cache beyond 2 GB go.
-prune_images() {
-  local keep=" $1 " deploy tag field sha
-  deploy=$(read_deploy)
-  for field in current previous; do
-    sha=$(jq -r ".$field.sha // empty" <<<"$deploy")
-    [ -z "$sha" ] || keep="$keep$sha "
-  done
-  while read -r tag; do
-    case "$keep" in *" $tag "*) continue ;; esac
-    docker image rm "$IMAGE_REPO:$tag" >/dev/null 2>&1 || true
-  done < <(docker image ls "$IMAGE_REPO" --format '{{.Tag}}')
-  # Do not prune dangling images: a recorded immutable ID can still be needed for rollback.
-  docker builder prune --force --keep-storage 2GB >/dev/null
-}
-
 host_platform() {
   case "$(uname -m)" in
-    x86_64) echo linux/amd64 ;;
     aarch64|arm64) echo linux/arm64 ;;
-    *) refuse "unsupported host architecture" ;;
+    *) refuse "unsupported host architecture (the cloud machine is arm64 only)" ;;
   esac
 }
 
@@ -346,7 +287,7 @@ receive_image() (
   [ "$#" -eq 5 ] || die "receive-image needs five arguments"
   local sha=$1 platform=$2 bytes=$3 hash=$4 image_id=$5 free existing tmp config config_hash
   check_sha "$sha"
-  [[ "$platform" = linux/amd64 || "$platform" = linux/arm64 ]] || die "invalid platform"
+  [ "$platform" = linux/arm64 ] || die "invalid platform"
   [[ "$bytes" =~ ^[1-9][0-9]{0,15}$ ]] && [ "$bytes" -le 9007199254740991 ] || die "invalid archive size"
   [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || die "invalid archive hash"
   check_image_id "$image_id"
@@ -357,8 +298,8 @@ receive_image() (
   [ "$(host_platform)" = "$platform" ] || refuse "image platform differs from host"
   [ "$(docker info --format '{{.OSType}}/{{.Architecture}}')" = "$platform" ] || {
     # Docker reports Go or kernel architecture names depending on its version.
-    case "$(docker info --format '{{.OSType}}/{{.Architecture}}'):$platform" in
-      linux/x86_64:linux/amd64|linux/aarch64:linux/arm64) ;;
+    case "$(docker info --format '{{.OSType}}/{{.Architecture}}')" in
+      linux/aarch64) ;;
       *) refuse "Docker daemon platform differs from host" ;;
     esac
   }
@@ -401,14 +342,10 @@ start() {
   [[ "$ref" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || die "not a usable ref name: $ref"
   platform=$(host_platform)
   image="$IMAGE_REPO:$sha"
-  if [ -n "$image_id" ]; then
-    check_image_id "$image_id"
-    verify_image "$sha" "$platform" "$image_id"
-    image=$image_id
-  else
-    [ "$platform" = linux/amd64 ] || refuse "ARM start requires a recorded image ID"
-    docker image inspect "$image" >/dev/null 2>&1 || die "the image $image is not built"
-  fi
+  [ -n "$image_id" ] || refuse "start requires a recorded image ID"
+  check_image_id "$image_id"
+  verify_image "$sha" "$platform" "$image_id"
+  image=$image_id
   [ -s "$ENV_FILE" ] || die "$ENV_FILE is missing (receive-env first)"
 
   # The old container's stop time is what a Litestream point-in-time restore needs after a failed migration.
@@ -491,33 +428,6 @@ seed_check() {
   if board_running; then running=running; fi
   data_empty || empty=false
   printf '{"container":"%s","dataEmpty":%s}\n' "$running" "$empty"
-}
-
-seed_database_closed() {
-  board_running && refuse "the board is running or starting; seed-digest requires it stopped"
-  local database="$DATA_DIR/db.sqlite" suffix
-  [ -f "$database" ] && [ ! -L "$database" ] || refuse "db.sqlite must be a regular file, not a symlink"
-  for suffix in -wal -shm -journal; do
-    [ ! -e "$database$suffix" ] && [ ! -L "$database$suffix" ] || refuse "db.sqlite$suffix is present"
-  done
-}
-
-# Ubuntu 24.04 coreutils; metadata includes nanosecond modification/change times and inode identity.
-# No SQLite connection, migration, container start or persistent state is involved.
-seed_digest() {
-  [ "$#" -eq 0 ] || die "seed-digest takes no arguments"
-  seed_database_closed
-  local database="$DATA_DIR/db.sqlite" before after bytes digest
-  before=$(stat -c '%d:%i:%s:%y:%z' -- "$database")
-  bytes=$(stat -c '%s' -- "$database")
-  [[ "$bytes" =~ ^[0-9]+$ ]] && [ "$bytes" -gt 0 ] && [ "$bytes" -le 9007199254740991 ] || die "invalid database size"
-  digest=$(sha256sum -- "$database")
-  digest=${digest%% *}
-  [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || die "invalid database digest"
-  after=$(stat -c '%d:%i:%s:%y:%z' -- "$database")
-  [ "$before" = "$after" ] || die "database changed during hashing"
-  seed_database_closed
-  printf '{"databaseSha256":"%s","databaseBytes":%s}\n' "$digest" "$bytes"
 }
 
 # What the running board answers an unknown hostname (the feedback hostname's guard, PM-510): the status
@@ -639,21 +549,6 @@ except Exception:
   if [[ "$value" =~ ^[0-9]{1,9}$ ]]; then echo "$value"; else echo null; fi
 }
 
-receive_data() {
-  [ ! -t 0 ] || die "receive-data needs a tar stream on the standard input"
-  board_running && refuse "the board is running; a seed goes in before the first start"
-  data_empty || refuse "$DATA_DIR is not empty"
-  mkdir -p "$DATA_DIR"
-  if ! tar -x -f - -C "$DATA_DIR" --no-same-owner; then
-    # It was empty when we began, so emptying it again loses nothing.
-    find "$DATA_DIR" -mindepth 1 -delete
-    die "the tar stream could not be unpacked; the data directory is empty again"
-  fi
-  chown -R "$DATA_UID:$DATA_GID" "$DATA_DIR"
-  chmod 700 "$DATA_DIR"
-  echo "data received"
-}
-
 send_data() {
   board_running && refuse "the board is running; stop it first (a copy of a live database is no copy)"
   [ -d "$DATA_DIR" ] || die "$DATA_DIR does not exist"
@@ -668,21 +563,18 @@ main() {
     bootstrap) bootstrap ;;
     receive-env) receive_env ;;
     receive-image) receive_image "$@" ;;
-    build) build "$@" ;;
     start) start "$@" ;;
     stop) stop ;;
     status) status ;;
     logs) logs "$@" ;;
     rehearse) rehearse ;;
     seed-check) seed_check ;;
-    seed-digest) seed_digest "$@" ;;
-    receive-data) receive_data ;;
     send-data) send_data ;;
     guard-check) guard_check "$@" ;;
     public-check) public_check "$@" ;;
     release-control) release_control "$@" ;;
     release-probe) release_probe "$@" ;;
-    *) die "usage: host.sh bootstrap|receive-env|receive-image|build|start|stop|status|logs|rehearse|seed-check|seed-digest|receive-data|send-data|guard-check|public-check|release-control|release-probe" ;;
+    *) die "usage: host.sh bootstrap|receive-env|receive-image|start|stop|status|logs|rehearse|seed-check|send-data|guard-check|public-check|release-control|release-probe" ;;
   esac
 }
 

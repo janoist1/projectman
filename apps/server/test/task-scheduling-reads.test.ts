@@ -129,6 +129,23 @@ describe('open', () => {
   });
 });
 
+describe('listed', () => {
+  const listed = (query: Partial<Extract<Parameters<typeof read>[0], { kind: 'listed' }>> = {}) =>
+    keys(read({ kind: 'listed', status: 'open', limit: 10, ...query }));
+
+  it('filters by status, stage and assignee in SQL and takes the newest change first up to the limit', () => {
+    add(1, { updatedAt: '2026-10-10T10:00:01.000Z', assignee: 'dev' });
+    add(2, { updatedAt: '2026-10-10T10:00:03.000Z', stageId: 'dev' });
+    add(3, { updatedAt: '2026-10-10T10:00:02.000Z', kind: 'theme' });
+    add(4, { status: 'done', closedAt: at, updatedAt: '2026-10-10T10:00:04.000Z' });
+    expect(listed()).toEqual(['PM-2', 'PM-3', 'PM-1']);
+    expect(listed({ limit: 2 })).toEqual(['PM-2', 'PM-3']);
+    expect(listed({ status: 'done' })).toEqual(['PM-4']);
+    expect(listed({ stageId: 'ready' })).toEqual(['PM-1']);
+    expect(listed({ assignee: 'dev' })).toEqual(['PM-1']);
+  });
+});
+
 describe('closed-worktrees', () => {
   const before = '2026-10-10T10:00:00.000Z';
   const closed = (seq: number, closedAt: string | null, patch: Partial<Task> = {}) =>
@@ -205,6 +222,22 @@ describe('query plans', () => {
     expect(plan(SCHEDULING_SQL.pullUrgent, 'PM', 'ready')).toContain('tasks_scheduling_pull');
     expect(plan(SCHEDULING_SQL.open, 'PM')).toContain('tasks_scheduling_open');
     expect(plan(SCHEDULING_SQL.closed, 'PM', 0, at, 10)).toContain('tasks_scheduling_closed');
+  });
+
+  it('reads the open and the waiting member queue items from their partial indexes', () => {
+    expect(
+      plan(
+        `SELECT * FROM member_queue_items WHERE source_type = ? AND state IN ('queued','processing')
+         ORDER BY queued_at, rowid`,
+        'start',
+      ),
+    ).toContain('member_queue_items_open_source');
+    expect(
+      plan(
+        `SELECT * FROM member_queue_items
+         WHERE state = 'queued' AND wake = 1 AND wait_code IS NOT NULL ORDER BY wait_at, rowid`,
+      ),
+    ).toContain('member_queue_items_waiting');
   });
 
   it('drives the key and parent reads by the bound set, not by a walk of the project', () => {

@@ -49,7 +49,11 @@ export interface OperatorSessions {
   findRunning(projectKey: string, member: string, workItem: WorkItemRef): Session | null;
   isPaused(session: Pick<Session, 'id' | 'projectKey'>): boolean;
   stop(projectKey: string, sessionId: string, stop?: SessionStop): Promise<Session>;
-  detail(projectKey: string, sessionId: string): Promise<SessionDetail>;
+  detail(
+    projectKey: string,
+    sessionId: string,
+    window?: { limit: number; before?: string },
+  ): Promise<SessionDetail>;
 }
 /** Admission (runtime/admission). */
 export interface OperatorAdmission {

@@ -1302,8 +1302,14 @@ export const SessionDetail = z.object({
   session: Session,
   chat: z.array(ChatItem),
   task: Task.nullable(),
+  /** Older items exist than the `chat` window holds (PM-1116): load them with `before` the first item's id. */
+  truncated: z.boolean().optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetail>;
+
+/** The window of a session's chat the page asks for (`?limit=&before=`, PM-1116). */
+export const SESSION_CHAT_WINDOW = 200;
+export const SESSION_CHAT_WINDOW_MAX = 1000;
 
 /**
  * An owner sets a session's own permission settings (PM-170, `PATCH` of the session): the CLI mode

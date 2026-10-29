@@ -1,7 +1,7 @@
 # The release measurement of the history search's local embedding on Linux ARM64 (PM-913, PM-910, PM-767).
 # Docs: docs/HYBRID.md "History semantic profile". It builds the cloud release image with the pinned model, checks
-# the model asset and the native libraries inside it, then runs deploy/cloud/history-semantic-profile.mjs in the
-# image under `--network none --memory 2g --memory-swap 2g` (cgroup v2, no swap) over a synthetic history of the
+# the model asset and the native libraries inside it, then runs deploy/cloud/history-semantic-profile.mjs (mounted
+# read-only from the checkout, it is not in the image) in the image under `--network none --memory 2g --memory-swap 2g` (cgroup v2, no swap) over a synthetic history of the
 # live size. Start it by hand: `gh workflow run history-semantic-profile.yml [-f mixed_seconds=600]`.
 #
 # The job fails when the report's outcome is not `pass`. Only report.json and report.md (numbers, versions and
@@ -74,7 +74,8 @@ jobs:
           docker run --rm --network none --memory 2g --memory-swap 2g --user 10001:10001 \
             -e PROJECTMAN_IMAGE_DIGEST \
             -v "$RUNNER_TEMP/out:/out" -v "$RUNNER_TEMP/in/fixture.json:/in/fixture.json:ro" \
-            --entrypoint node "$IMAGE" /app/deploy/cloud/history-semantic-profile.mjs \
+            -v "$PWD/deploy/cloud:/tool:ro" \
+            --entrypoint node "$IMAGE" /tool/history-semantic-profile.mjs \
             --server /app/apps/server/dist/history-semantic-profile.js \
             --model-dir /app/apps/server/dist/models/history \
             --fixture /in/fixture.json --out /out/profile --mixed-seconds "$MIXED_SECONDS" --max-seconds 9000

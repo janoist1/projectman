@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -101,6 +101,24 @@ describe('the arguments of the heavy CLI', () => {
 });
 
 describe('the heavy CLI', () => {
+  it('preserves the child exit status when process-group cleanup is denied', () => {
+    const guard = pathToFileURL(path.join(ROOT, 'scripts/lib/child-guard.mjs')).href;
+    const run = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `process.kill = () => { throw Object.assign(new Error('denied'), { code: 'EPERM' }); };
+         process.argv = [process.execPath, 'guard', process.execPath, '-e', 'process.exit(7)'];
+         await import(${JSON.stringify(guard)});`,
+      ],
+      { encoding: 'utf8', timeout: 5_000 },
+    );
+    expect(run.error).toBeUndefined();
+    expect(run.status).toBe(7);
+    expect(run.stderr).toBe('');
+  });
+
   it("exits with the command's status", async () => {
     expect((await heavy(node('process.exit(0)'))).code).toBe(0);
     expect((await heavy(node('process.exit(3)'))).code).toBe(3);
@@ -245,41 +263,6 @@ describe('an interrupted heavy run (PM-863)', () => {
     await run.closed;
     await waitFor(() => !alive(run.worker), { what: 'the worker to stop', timeoutMs: WORKER_WAIT_MS });
   });
-});
-
-describe('the child guard', () => {
-  const CHILD_GUARD = path.join(ROOT, 'scripts/lib/child-guard.mjs');
-
-  /** A preload that makes signalling a process group fail like macOS does for a zombie-only group. */
-  const groupKillRefused = (code: string): string =>
-    `data:text/javascript,${encodeURIComponent(
-      `const kill = process.kill; process.kill = (pid, signal) => { if (pid < 0) { throw Object.assign(new Error('kill ${code}'), { code: '${code}' }); } return kill.call(process, pid, signal); };`,
-    )}`;
-
-  function runGuard(preload: string): Promise<Ran> {
-    return new Promise((resolve) => {
-      const child = spawn(
-        process.execPath,
-        ['--import', preload, CHILD_GUARD, process.execPath, '-e', 'process.exit(3)'],
-        { stdio: ['pipe', 'pipe', 'pipe'] },
-      );
-      let stdout = '';
-      let stderr = '';
-      child.stdout.on('data', (chunk) => (stdout += String(chunk)));
-      child.stderr.on('data', (chunk) => (stderr += String(chunk)));
-      child.on('close', (code) => resolve({ code, stdout, stderr }));
-    });
-  }
-
-  it.each(['EPERM', 'ESRCH'])(
-    'exits with the exit code of its child when signalling its group fails with %s',
-    async (code) => {
-      const ran = await runGuard(groupKillRefused(code));
-      expect(ran.code).toBe(3);
-      expect(ran.stderr).not.toContain(code);
-    },
-    WORKER_WAIT_MS,
-  );
 });
 
 describe('a worker of a run that did not go through the heavy CLI (PM-869)', () => {

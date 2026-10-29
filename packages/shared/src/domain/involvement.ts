@@ -125,8 +125,8 @@ export const SessionStop = z.object({
   by: Actor.optional(),
   /** PM-274: manual and assignee_change. */
   note: z.string().trim().min(1).max(200).optional(),
-  /** PM-274: restart. */
-  restartFor: z.enum(['permission', 'description', 'new_round']).optional(),
+  /** PM-274: restart; `merge_fix`: the process moves to the dedicated merge-fix worktree. */
+  restartFor: z.enum(['permission', 'description', 'new_round', 'merge_fix']).optional(),
   /** step_done, sent_back, card_done, task_cancelled, merge_running, awaiting_fix. */
   taskKey: TaskKey.optional(),
   /** step_done: the stage the card moved to (none for a refinement step); sent_back: where it went back to. */

@@ -331,8 +331,14 @@ export const api = {
   renameMember: (key: string, handle: string, body: RenameMemberRequest) =>
     apiRequest(routes.memberRename(key, handle), { method: 'POST', body, schema: MemberView }),
 
-  session: (key: string, sessionId: string) =>
-    apiRequest(routes.session(key, sessionId), { schema: SessionDetail }),
+  /** The session with the last `limit` items of its chat (before the item `before`, PM-1116). */
+  session: (key: string, sessionId: string, window: { limit?: number; before?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (window.limit !== undefined) query.set('limit', String(window.limit));
+    if (window.before !== undefined) query.set('before', window.before);
+    const suffix = query.size ? `?${query}` : '';
+    return apiRequest(`${routes.session(key, sessionId)}${suffix}`, { schema: SessionDetail });
+  },
   sendSessionMessage: (key: string, sessionId: string, body: SendMessageRequest) =>
     apiRequest<unknown>(routes.sessionMessages(key, sessionId), { method: 'POST', body }),
   stopSession: (key: string, sessionId: string, body?: import('@projectman/shared').StopSessionRequest) =>
@@ -424,8 +430,11 @@ export const api = {
       { schema: TeamMessagesView },
     ),
 
-  /** Every state (the server defaults to open items): resolved ones feed the history lists. */
-  inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=all`, { schema: InboxView }),
+  /** Every item that has not ended (open or screening, combined questions too), never cut off: what waits for someone. */
+  inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=active`, { schema: InboxView }),
+  /** The newest closed items (resolved, expired, cancelled): the "recently decided" lists. */
+  inboxHistory: (key: string, limit: number) =>
+    apiRequest(`${routes.inbox(key)}?state=closed&limit=${limit}`, { schema: InboxView }),
   /** The questions the Operator screened since `since` (an ISO time with an offset); owners and admins only (PM-558). */
   screenedQuestions: (key: string, since: string) =>
     apiRequest(`${routes.screenedQuestions(key)}?since=${encodeURIComponent(since)}`, {

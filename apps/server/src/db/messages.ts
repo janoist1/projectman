@@ -127,6 +127,12 @@ export function createMessageRepository(db: Db) {
        AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
        AND instr(body, ?) > 0 LIMIT 1`,
     ),
+    hasEventNote: db.prepare(
+      `SELECT 1 FROM team_messages WHERE project_key = ? AND task_key = ? AND from_handle = ? AND body = ?
+       AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
+       AND CASE WHEN json_valid(origin) THEN json_extract(origin, '$.kind') ELSE NULL END = 'note'
+       AND CASE WHEN json_valid(origin) THEN json_extract(origin, '$.eventId') ELSE NULL END = ? LIMIT 1`,
+    ),
     insert: db.prepare(
       `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments, actor_meta, email, location, places)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -159,6 +165,12 @@ export function createMessageRepository(db: Db) {
     ),
     involving: db.prepare(
       `SELECT id, from_handle, to_handles, receipts FROM team_messages WHERE project_key = ?
+       AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
+    ),
+    window: db.prepare(
+      `SELECT * FROM team_messages WHERE project_key = ?
+       AND (created_at >= ? OR EXISTS (SELECT 1 FROM json_each(receipts)
+         WHERE json_extract(value, '$.handle') = ? AND json_extract(value, '$.deliveredAt') >= ?))
        AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
     ),
     pendingFrom: db.prepare(
@@ -218,6 +230,14 @@ export function createMessageRepository(db: Db) {
         recipient,
         message.id,
       );
+    },
+    /** Whether the card already has this note (`origin: note`) of the event, from `from`, to `to`, with this text. */
+    hasEventNote(
+      projectKey: string,
+      taskKey: string,
+      note: { from: string; to: string; body: string; eventId: string },
+    ): boolean {
+      return !!statements.hasEventNote.get(projectKey, taskKey, note.from, note.body, note.to, note.eventId);
     },
     /** Whether `from` already sent `to` a message whose text holds `marker` (a once-only note's own key). */
     hasNote(projectKey: string, from: string, to: string, marker: string): boolean {
@@ -312,6 +332,16 @@ export function createMessageRepository(db: Db) {
         lists.set(sql, statement);
       }
       return (statement.all(...params) as MessageRow[]).reverse().map(toMessage);
+    },
+    /**
+     * Every message the member sent or got that was created at or after `since` (ISO time), or that was
+     * delivered to the member at or after it, oldest first. The member filter runs in SQL, so only the
+     * window's rows are read (the PM reply relay, PM-1116).
+     */
+    listWindow(projectKey: string, member: string, since: string): TeamMessage[] {
+      return (statements.window.all(projectKey, since, member, since, member, member) as MessageRow[]).map(
+        toMessage,
+      );
     },
     /** Every message the member sent or got, oldest first, without its body: all a conversation list needs. */
     involving(projectKey: string, handle: string): MessageSummary[] {

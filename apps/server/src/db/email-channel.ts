@@ -223,16 +223,24 @@ export function createEmailChannelRepository(db: Db) {
           .get(projectKey, since) as { count: number }
       ).count;
     },
-    /** Cursor is the last (timestamp,id) pair, so equal timestamps never skip a row. */
+    /**
+     * Cursor is the last (timestamp,id) pair, so equal timestamps never skip a row. A cursor that cannot be
+     * read is a `RangeError`, the only one this method throws.
+     */
     log(projectKey: string, before: string | null = null, limit = EMAIL_LOG_PAGE): EmailLogResponse {
-      const cursor = before
-        ? (JSON.parse(Buffer.from(before, 'base64url').toString('utf8')) as unknown)
-        : null;
+      let cursor: unknown = null;
+      if (before) {
+        try {
+          cursor = JSON.parse(Buffer.from(before, 'base64url').toString('utf8'));
+        } catch {
+          throw new RangeError('Invalid email log cursor');
+        }
+      }
       if (
         cursor !== null &&
         (!Array.isArray(cursor) || cursor.length !== 2 || cursor.some((part) => typeof part !== 'string'))
       )
-        throw new Error('Invalid email log cursor');
+        throw new RangeError('Invalid email log cursor');
       const [at, id] = (cursor ?? [null, null]) as [string | null, string | null];
       const pageSize = Math.max(1, Math.min(100, Math.floor(limit)));
       const rows = db

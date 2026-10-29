@@ -1,6 +1,5 @@
 import {
   effectiveRepo,
-  isOpenTask,
   isTheme,
   needsRepoChoice,
   TaskStatus as TaskStatusSchema,
@@ -47,7 +46,7 @@ export class TaskTools implements TaskToolsHandler {
   private readonly ctx: DomainContext;
   private readonly tasks: Pick<
     TaskService,
-    'list' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
+    'listQuery' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
   >;
   private readonly timeline: Pick<TimelineService, 'get'>;
   private readonly attachments: Pick<AttachmentOperations, 'list'>;
@@ -60,7 +59,7 @@ export class TaskTools implements TaskToolsHandler {
     ctx: DomainContext;
     tasks: Pick<
       TaskService,
-      'list' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
+      'listQuery' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
     >;
     timeline: Pick<TimelineService, 'get'>;
     attachments: Pick<AttachmentOperations, 'list'>;
@@ -91,17 +90,14 @@ export class TaskTools implements TaskToolsHandler {
         throw new TeamToolError('invalid', 'limit must be an integer between 1 and 200.');
       }
       const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
-      const cards = this.tasks
-        .list(ctx.projectKey)
-        .filter(
-          (task) =>
-            (status === 'open' ? isOpenTask(task) : task.status === status) &&
-            // A theme is in no stage (it carries the first one's id because the field is required).
-            (args.stage === undefined || (!isTheme(task) && task.stageId === args.stage)) &&
-            (assignee === undefined || task.assignee === assignee),
-        )
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key))
-        .slice(0, limit);
+      // The status, stage (a theme is in no stage), assignee and limit are applied in SQL.
+      const cards = this.tasks.listQuery(ctx.projectKey, {
+        kind: 'listed',
+        status,
+        ...(args.stage !== undefined ? { stageId: args.stage } : {}),
+        ...(assignee !== undefined ? { assignee } : {}),
+        limit,
+      });
       const waits = this.taskWaits.of(config, cards);
       return cards.map(
         ({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority, complexity }) => {

@@ -485,6 +485,8 @@ const transcriptOptions = z.strictObject({
   firstUserOrigin: z.enum(['brief', 'human']).optional(),
   cwd: text.nullable().optional(),
   confineTo: text.optional(),
+  limit: int.min(1).optional(),
+  before: text.optional(),
 });
 
 /** The only method gateway. Receivers validate both parameters and results. */

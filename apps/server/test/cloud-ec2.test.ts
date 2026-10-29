@@ -21,14 +21,7 @@ afterEach(() => world.cleanup());
 const run = (...args: string[]) => runCloud(['aws', ...args], world.deps());
 
 describe('EC2 provisioning and the account boundary', () => {
-  it('provisions and revalidates ARM with the same ownership and network guards', async () => {
-    world.writeConfig({
-      aws: { ...config(), ec2: { ...EC2_CONFIG, architecture: 'arm64' } },
-      deployment: { imageBundle: '/new/bundle' },
-    });
-    world.aws.ec2.architecture = 'arm64';
-    world.aws.ec2.image.Architecture = 'arm64';
-    world.aws.ec2.image.Name = world.aws.ec2.image.Name.replace('amd64', 'arm64');
+  it('provisions and revalidates the arm64 machine with the same ownership and network guards', async () => {
     expect(await run()).toBe(0);
     expect(await run()).toBe(0);
     expect(world.aws.ec2.instances).toHaveLength(1);
@@ -38,14 +31,7 @@ describe('EC2 provisioning and the account boundary', () => {
     expect(await run()).toBe(2);
   });
 
-  it.each(['name', 'image', 'type'])('refuses a crossed ARM %s before launch', async (field) => {
-    world.writeConfig({
-      aws: { ...config(), ec2: { ...EC2_CONFIG, architecture: 'arm64' } },
-      deployment: { imageBundle: '/new/bundle' },
-    });
-    world.aws.ec2.architecture = 'arm64';
-    world.aws.ec2.image.Architecture = 'arm64';
-    world.aws.ec2.image.Name = world.aws.ec2.image.Name.replace('amd64', 'arm64');
+  it.each(['name', 'image', 'type'])('refuses a crossed x86 %s before launch', async (field) => {
     if (field === 'name') world.aws.ec2.image.Name = world.aws.ec2.image.Name.replace('arm64', 'amd64');
     if (field === 'image') world.aws.ec2.image.Architecture = 'x86_64';
     if (field === 'type') world.aws.ec2.architecture = 'x86_64';
@@ -64,7 +50,7 @@ describe('EC2 provisioning and the account boundary', () => {
     expect(request).toMatchObject({
       MinCount: 1,
       MaxCount: 1,
-      InstanceType: 't3.small',
+      InstanceType: 't4g.small',
       ImageId: EC2_CONFIG.amiId,
       DisableApiTermination: true,
       InstanceInitiatedShutdownBehavior: 'stop',
@@ -115,7 +101,7 @@ describe('EC2 provisioning and the account boundary', () => {
         }),
       ),
     ).toBe(0);
-    expect(previewAtLaunch).toContain('cost instance: t3.small');
+    expect(previewAtLaunch).toContain('cost instance: t4g.small');
     expect(previewAtLaunch).toContain('cost EBS: encrypted gp3 40 GiB');
     expect(previewAtLaunch).toContain('cost IPv4: one');
     const data = world.aws.ec2.request!.UserData as string;
@@ -335,9 +321,9 @@ describe('EC2 provisioning and the account boundary', () => {
       },
     ],
     [
-      'ARM AMI',
+      'x86 AMI',
       (fake: typeof world.aws.ec2) => {
-        fake.image.Architecture = 'arm64';
+        fake.image.Architecture = 'x86_64';
       },
     ],
     [
@@ -383,9 +369,9 @@ describe('EC2 provisioning and the account boundary', () => {
       },
     ],
     [
-      'ARM type',
+      'x86 type',
       (fake: typeof world.aws.ec2) => {
-        fake.architecture = 'arm64';
+        fake.architecture = 'x86_64';
       },
     ],
     [

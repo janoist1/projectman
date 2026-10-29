@@ -61,9 +61,17 @@ export const queryKeys = {
   /** Prefix of every task detail query of a project. */
   taskDetails: (key: string) => ['project', key, 'task'] as const,
   session: (key: string, sessionId: string) => ['project', key, 'session', sessionId] as const,
+  /** A session detail with only its last `limit` chat items (a peek); under the key of the full one. */
+  sessionTail: (key: string, sessionId: string, limit: number) =>
+    ['project', key, 'session', sessionId, 'tail', limit] as const,
   /** Prefix of every session detail query of a project. */
   sessionDetails: (key: string) => ['project', key, 'session'] as const,
+  /** The open items of the inbox. */
   inbox: (key: string) => ['project', key, 'inbox'] as const,
+  /** The sessions people were involved in: the prefix of the recent list and of each filtered, paged list. */
+  involvements: (key: string) => ['project', key, 'involvements'] as const,
+  /** The newest closed items of the inbox. */
+  inboxHistory: (key: string) => ['project', key, 'inbox-history'] as const,
   /** The Operator's screened questions of a day (PM-561); `since` is the start of the viewer's day. */
   screenedQuestions: (key: string, since: string) => ['project', key, 'inbox-screened', since] as const,
   screenedQuestionsAll: (key: string) => ['project', key, 'inbox-screened'] as const,

@@ -1404,7 +1404,10 @@ A task that enters a step or release stage a reviewing or testing duty belongs t
 working directory with uncommitted work refuses the move for everybody (`handover_uncommitted`); otherwise the
 commit is pinned (`task_review_pins`, one row per task, shown as `Task.reviewPin` while the task is in that stage,
 named in the reviewer's brief and "Review round"). A task without a repository or a branch is neither checked nor
-pinned. A move completed by a human approval (`decide`) is handed over the same way: uncommitted work leaves the
+pinned. The hand-over read is strict (PM-1110): a card whose source the hub knows but whose engine is not
+connected is refused with `engine_offline` instead of being handed over with no pin, and the head read carries the
+stage and assignee the card had; `move` refuses (`board_stale`) a card that changed since. A message's version takes
+its commit from the recorded pin, and reads the branch only for a card with none. A move completed by a human approval (`decide`) is handed over the same way: uncommitted work leaves the
 task where it is (`gateBlocked.reason` `handover_uncommitted` on the timeline).
 
 `ReviewWatch` (every 30 s, `DomainOptions.reviewWatchMs`; a pull request's new commits check the task at once)
@@ -1982,13 +1985,36 @@ workers follow the machine's size.
   The app re-reads the engine service's plist before every CLI call to follow release checkout
   changes; only when that plist is absent does it use `menubar.json`. It calls the local
   `scripts/engine/cli.ts`, takes `overall` from `status --json` without deriving engine state,
-  and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s while
-  running or visible, 60 s otherwise; 2 s while awaiting an action's target, up to 120 s).
+  and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s only
+  while the menu or the details window is open, 60 s otherwise even if sessions run, and a poll runs
+  on every menu open; 2 s while awaiting an action's target, up to 120 s). Each poll starts a node
+  process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the
+  `engine-config` import of the whole kernel barrel (`effect` included) remains the main cost
+  (PM-1110).
   **Remote engine:** the app and CLI both run on the engine's Mac; nothing crosses the
   server/engine boundary. Linux and Windows are unsupported. Existing inventory entry:
   “Engine service (launchd)” (its plist is read, not changed by the menu app).
   Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
+
+- **Engine app package (PM-1104, PM-1121)** — `scripts/engine-app/` (`npm run engine-app -- package
+--commit <sha> --out <dir>`), `deploy/mac/app/node.json` (the pinned Node), the manifest contract
+  `apps/server/src/contracts/engine-package.ts`, its reader `engine-link/engine-package.ts`. One command builds a
+  self-contained engine from one commit into `<dir>/<sha>/`: a clean checkout (`scripts/release/checkout.ts`), the
+  pinned Node downloaded from nodejs.org and checked by its sha256, then `npm ci`, the server build, the engine
+  CLI bundle (`scripts/engine/cli.js`) and `npm prune --omit=dev`, all in the Sandbox Runtime with the pinned Node
+  first on the PATH (only registry.npmjs.org and nodejs.org reachable, like the PM-750 candidate in
+  `scripts/release/engine.ts`), so the native modules (better-sqlite3, node-pty, sqlite-vec) fit the bundled
+  Node's ABI. Layout (the contract the packaged service and the app build on): `engine-package.json`, `bin/node`,
+  `package.json`, `package-lock.json`, `node_modules/`, `packages/`, `apps/server/{package.json,dist/}`,
+  `scripts/engine/cli.js`, `deploy/mac/com.projectman.engine*.plist`. A package has no git: `resolveAppVersion` and
+  `resolveAppTag` read `engine-package.json` first, and `engine start` (`scripts/engine/start-command.ts`) runs
+  `bin/node apps/server/dist/index.js` when the file exists (checkout mode is unchanged). **Machine assumptions:**
+  macOS arm64 only, the Sandbox Runtime, the machine's heavy-run queue, `tar`, network to nodejs.org and the npm
+  registry, Xcode Command Line Tools when a native module has no prebuilt binary. **Remote engine:** the package
+  runs on the engine's Mac; nothing crosses the server/engine boundary (`installDir` already travels in the
+  hello). Not in the package: the menu bar app's Swift sources and the plist template of the packaged service
+  (PM-1124). **Module:** `scripts`, `deploy`, `contracts`, `engine-link`.
 
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
   sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
@@ -2311,18 +2337,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
   PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
   Mac single activation. Credentials stay on the administration machine, outside member sessions.
-  PM-717 adds a mandatory first-start seed integrity gate in `scripts/cloud/machine.ts`: the
-  administration machine hashes the closed package DB before/after upload and compares hash/bytes
-  with the stopped host through the existing SSH boundary; no engine RPC or credentials are added.
-  A tool the owner runs on their Mac
+  PM-1116 retired the one-off move commands (`seed` with its PM-717 integrity gate, `dns plan|import|verify|switch`);
+  the last commit that has them is tagged `retired-migrate-dns`. A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2: `preflight` and `aws` (PM-534: the machine,
   the security group, the two S3 buckets, the two IAM users and their access keys), the machine part
-  (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
-  `scripts/cloud/dns.ts`: Route 53 read/import, authoritative verification using `CloudDeps.resolve`
-  with name-server IPs resolved locally first, public delegation/DS through Cloudflare and Google DoH,
-  Route 53 Domains registration status and explicit `dns switch [--back]` in `us-east-1`, and `up`
-  orchestration). Forward switching requires successful verification in the same run and no DNSSEC
-  keys or public DS; rollback targets the retained AWS delegation set. It calls the `aws` CLI v2 with argv (profile and
+  (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and DNS (PM-537,
+  `scripts/cloud/dns.ts`: `dns status` only, public delegation/DS through Cloudflare and Google DoH,
+  Route 53 Domains registration status in `us-east-1`, and `up` orchestration; the delegation switch and
+  its rollback are retired, there is no tool-driven delegation rollback). It calls the `aws` CLI v2 with argv (profile and
   region from the configuration, no SDK) through the injected `CloudDeps`, never a shell. Machine
   assumptions: the `aws` CLI v2 with explicit profiles on the owner's Mac (PM-664: central resources
   in `aroom`, registrar/retained Route 53 source reads in `i` through `route53.profile`; absent:
@@ -2356,9 +2378,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   remains on the owner's machine for the central server, never on an engine; the Mac engine gets
   no AWS credentials, and no new server/engine RPC or payload crosses the boundary. SSH over SSM
   host operation is provided by PM-677 (next entry); EC2 is the only compute (PM-1036).
-  PM-718 adds explicit `aws.ec2.architecture` (`x86_64` by default, or `arm64`): the Canonical
-  AMI name/Architecture, type capabilities and existing instance must agree. Native apt/snap
-  bootstrap works on both; ARM requires an external image bundle. The approved PM-675 target is
+  PM-718 adds explicit `aws.ec2.architecture`, arm64 only since PM-1116: the Canonical
+  AMI name/Architecture, type capabilities and existing instance must agree, and the machine needs an
+  external image bundle (`deployment.imageBundle` is required). The approved PM-675 target is
   Frankfurt/t4g.micro/Ubuntu 24.04 arm64/20 GiB gp3; creation still requires concrete owner approval.
 
 - **EC2 host administration through SSM (PM-677, part of PM-664)** —
@@ -2408,17 +2430,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Host administration no longer needs Python3 or provides trial archival/deletion operations.
   **Remote engine:** the remaining host operations still run on EC2 through SSH/SSM from the
   administration machine; no engine RPC or new machine assumption is added.
-  PM-717 carries `seed-digest` over this same SSH/SSM session, with no arguments or stdin payload:
-  only the database SHA-256 and byte count return. On Ubuntu 24.04 the host uses coreutils to read
-  the fixed `/var/lib/projectman/data/db.sqlite`, refuses live/starting units, non-regular/symlink
-  DBs and sidecars, and checks for detectable writes and stopped state after hashing. A failed
-  integrity gate preserves uploaded data and prevents build/start; recovery needs an owner decision.
-  PM-718 adds `receive-image` on the same encrypted stdin stream: only the selected native-platform
+  PM-718 adds `receive-image` on the same encrypted stdin stream: only the arm64
   Docker tar crosses to EC2. Root-only temporary storage, bounded size, SHA-256, free disk, sole tag,
   config digest/platform/revision/version checks precede import; image inspect verifies the result.
   Only strict imageId/platform/revision JSON returns. Docker load output stays on stderr. No registry
   or credentials cross this boundary, and no container or DB starts during import.
-  Ubuntu util-linux `flock` serializes import/build/start through the root-only
+  Ubuntu util-linux `flock` serializes import/start through the root-only
   `/var/lib/projectman/.image.lock`; current/previous immutable IDs are never dangling-image pruned.
   PM-725 also serializes bootstrap under this lock. On the Ubuntu host, `host.sh` installs `jq`
   before Docker dependencies, then atomically sets `/etc/docker/daemon.json`
@@ -2437,18 +2454,17 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 - **The cloud machine and its operation (PM-535, PM-718, PM-725; EC2 is the only compute since PM-1036)** —
   `scripts/cloud/{host,machine,images}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,
-  `apps/server/test/helpers/fake-host.ts`. PM-718's optional `deployment.imageBundle`: without it, the
-  existing amd64 host build remains; with it, import
-  precedes env/start without build fallback. History adds optional imageId/platform; status adds
+  `apps/server/test/helpers/fake-host.ts`. PM-718's `deployment.imageBundle` (required since PM-1116; the
+  host build is gone): import precedes env/start. History carries imageId/platform; status adds
   actual container imageId. Prebuilt start uses an immutable ID; health and rollback check/carry it
-  and the source SHA. ARM refuses builds and digestless starts/rollback. Operations stay on the
+  and the source SHA. Digestless starts/rollback are refused, as is a non-arm64 record. Operations stay on the
   admin machine/target host, independent of remote engines.
   PM-725 applies the same explicit `/etc/docker/daemon.json` classic-store setting, stopped-board
   and empty-history restart guard, actual-daemon checks and required bundle reimport described
   in the EC2 host channel entry above. This is an Ubuntu-host assumption; Docker Desktop and
   remote engine configuration are unchanged.
   The commands `deploy`, `rollback`, `status`, `logs`, `ssh`,
-  `stop`, `start`, `rehearse`, `seed` and `pull-data` of `npm run cloud`. **What runs where:** on the
+  `stop`, `start`, `rehearse` and `pull-data` of `npm run cloud`. **What runs where:** on the
   Mac `ssh` (and `git ls-remote`, `tar`, the `aws` CLI); on the Ubuntu machine, as root through
   `sudo bash -c '<host.sh>' host.sh <subcommand>` (the script travels as the `-c` argument, so the
   standard input carries the payload: the unit file, `cloud.env`, a tar stream), Docker, git, `jq`
@@ -2457,18 +2473,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   mounted; it publishes no port (the Cloudflare tunnel connects outwards), uses no host network, no
   extra privilege and no Docker socket (`deploy-aws.test.ts` checks it). State on the machine:
   `/etc/projectman/{cloud.env,image.env}`, `/var/lib/projectman/{data,deploy.json}` (`current`,
-  `previous`, `lastStoppedAt`), the checkout `/opt/projectman/src`. **Machine assumptions:** the
+  `previous`, `lastStoppedAt`). **Machine assumptions:** the
   machine is Ubuntu 24.04 with `apt`, `systemd` and Docker from the distribution; the owner's Mac has
   `ssh` and reaches the machine through SSM with an ephemeral key (the EC2 host channel entry above;
-  no inbound rule, no public-address lookup). The build happens on the 2 GB machine (swap file, 3 GiB free-disk check). The released
+  no inbound rule, no public-address lookup). The machine builds nothing; it imports the bundle's image. The released
   image is tagged with the full commit id, which is also `PROJECTMAN_VERSION`. **Does this work on a
   remote engine?** Nothing in it runs on an engine: it is the owner's own tool for the server side, and
   the engine neither calls nor depends on it. The entries "Cloud provisioning" and "Cloud deployment
   and backup" are the other parts of the same chain.
-  PM-717 applies the mandatory `seed-digest` gate here too: the owner tool
-  compares source before/after SHA-256 and bytes with the stopped Ubuntu host before any build/start.
-  It assumes coreutils `stat`/`sha256sum`, a closed package and a single administrator during cutover;
-  no new port, persistent state, engine operation or server/engine payload is introduced.
 
 - **The Cloudflare side of the cloud board (PM-536)** — `scripts/cloud/cloudflare{,-api,-publish,-check}.ts`,
   the `guard-check` subcommand of `deploy/aws/host.sh`, `deploy/cloudflare/check.sh`,
@@ -2837,9 +2849,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   or ref, `engine-limit.ts` binds the repository and requires a full object id. Protocol version stays
   1; an older engine answers `unknown_method` and the call fails with an update message, so update the
   engines before the hybrid hand-over is used.
-  Events are acknowledged after handling, and engine-scoped request
-  results survive reconnects for five minutes in memory. `secret.nanogpt_key` is never cached or
-  logged; the starting-session condition is enforced by the PM-315 handler, unavailable by default.
+  Events are acknowledged after handling; request results are not kept after they are sent (PM-1116).
+  `secret.nanogpt_key` is never logged; the starting-session condition is enforced by the PM-315 handler, unavailable by default.
   `bootId` identifies a process start; `instanceTag` still identifies the engine home. Disconnects
   immediately remove the live link, but status stays online for 120 seconds. Registry and key
   management run only in cloud engine mode; single mode exposes an empty status list.
@@ -3082,7 +3093,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   remains available through the existing facade. `test/architecture/lazy-packages.test.ts` guards
   against static value imports. The engine and single mode load each package where its work runs;
   the existing RPC boundary and host requirements do not change.
-  The idempotency store of a link keeps 10,000 results; the `usage` events replayed after a cloud restart
+  The link keeps no request results (PM-1116): a request id is random, so no caller repeats one, and a
+  kept `mcp.relay` body only held the 256 MB heap. The `usage` events replayed after a cloud restart
   can be counted twice, because the cloud's memory of handled events does not survive its restart.
   **Engine per project (PM-1059).** The business code no longer asks the hub for "the" default engine;
   it asks `EngineDirectory.projectEngine(projectKey)` (the project's base engine) or `hostEngine()` (the
@@ -3150,10 +3162,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,smoke.sh,memory-probe.mjs,memory-profile.mjs,heap-summary.mjs,history-semantic-profile.mjs,history-semantic-fixture.mjs,history-semantic-image-check.mjs}`,
   `.github/workflows/history-semantic-profile.yml` (the release measurement on a GitHub-hosted `ubuntu-24.04-arm` runner, PM-913),
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  PM-1116: `backup.sh` runs `restic forget` on every backup and `restic prune` once a week (the marker file
+  `.restic-last-prune` in the home; a lost marker only repeats one prune); the RSS composition
+  (`smaps_rollup`, the `memory` log line) is described in HYBRID.md "What the RSS is made of".
   PM-718 adds `scripts/cloud/images.ts`: an admin builder with existing Docker/Buildx docker-container
-  driver and native builders/emulation exports separate single-platform Docker archives (PM-916:
-  by default only the target machine's platform, `targetPlatform(config)`; `--all-platforms` both;
-  the manifest holds one or two images, old two-image bundles stay valid)
+  driver and native builders/emulation exports the single-platform linux/arm64 Docker archive (PM-1116:
+  arm64 only; the manifest holds one image and a bundle with another platform is refused)
   at one clean HEAD SHA, using a tracked-source-only context and the existing .dockerignore. The
   revision LABEL and PROJECTMAN_VERSION retain that full SHA. A strict, atomically published bundle
   manifest pins archive hashes/sizes and config digests after import/inspect verification. Output
@@ -3235,7 +3249,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   proves coverage/error paths, while real S3/Docker acceptance belongs to PM-675. Storage secrets
   and backup execution stay on the cloud, never in engine payloads.
   PM-773 adds the memory tools `deploy/cloud/{memory-probe,memory-profile,heap-summary}.mjs` (the
-  Dockerfile copies them beside the other scripts; `docs/HYBRID.md`, "Memory profile"). They are run
+  Dockerfile does not copy them since PM-1116: they come from the repository as a read-only volume;
+  `docs/HYBRID.md`, "Memory profile"). They are run
   by hand, on a disposable copy of a home (marker `<home>/.memory-profile-copy`), on the loopback
   with no network: the profile starts the server as a child process in a cleared environment, sends
   it SIGUSR2 for heap snapshots, reads `/proc/<pid>/status` (Linux; `ps` on macOS), and loads it with
@@ -3718,7 +3733,9 @@ assumption or remote-engine RPC.
   A read-only Codex or NanoGPT sandbox names the folder in `PROJECTMAN_SESSION_DIR`, reads it and
   opens its images with `view_image`, but does not write it. **Remote engine:** `folders.make` and
   `files.materialize_into_session` do not depend on the provider; an older engine's Codex adapter
-  lacks the read-only `view_image` and the Gemini environment. A Codex session also gets its
+  lacks the read-only `view_image` and the Gemini environment. The server removes the folder on the
+  engine the session ran on (`Session.engineId`), not on every engine; a row without an engine asks
+  all of them (PM-1128). A Codex session also gets its
   own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<12 random hex>`
   (`defaultSessionTmpRoot`, `SessionFolders.allocateTmp`/`make`), its `TMPDIR` and a writable root,
   removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700
@@ -4092,7 +4109,8 @@ assumption or remote-engine RPC.
   remote task worktrees), read by the bounded `SessionRepository.latestSourceOfTask` query.
   If the card has no assignee, no work binding and no source session, and LOCAL is not registered, there is no engine source to read:
   `sourceHead` returns null without RPC. Single-machine assembly always registers LOCAL; a registered
-  but disconnected engine and a recorded developer workspace retain strict read failures. Remote git
+  but disconnected engine and a recorded developer workspace retain strict read failures (a stage
+  hand-over for review reads strictly since PM-1110: `engine_offline` refuses the move). Remote git
   still runs on the selected engine; no engine path is read by the hub and no RPC contract changes.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
@@ -4450,6 +4468,12 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   clean up descendants when the supervisor dies. **Remote engine:** the supervisor and guard
   run where the tests execute (GitHub Actions or the engine); only existing output and verdict
   data cross the boundary. No new server/engine contract.
+- **Child-guard cleanup permissions (PM-1132)** — `scripts/lib/child-guard.mjs` ignores
+  `ESRCH` and `EPERM` when signaling the child process group, preserving the child's exit
+  status when macOS denies cleanup after the group leader exits. Other signal errors still
+  fail the guard. **Machine assumption:** POSIX process groups; permission denial can leave
+  members beyond the guard's control. **Remote engine:** the guard runs beside its child on
+  the executing engine or CI runner; no new data crosses the server/engine boundary.
 - **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
   `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
   The executor stores passed command keys in the engine-local
@@ -4610,6 +4634,13 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `packages/shared/src/domain/merge-input.ts` (PM-659), also used by the server's train storage;
   `engine-host/merge-input.ts` still runs `git check-ref-format --branch` after the shared branch
   syntax check. No git or process crosses into server-side DB validation.
+  Which suites cover the remote path (PM-1110): the cloud half of the merge over a fake peer is
+  `core/tasks/tests/merges.test.ts` (`createCloudRemote`) and `engine-link/remote/remote.test.ts`; the engine half
+  (schemas, limits, check checkout protection, a link lost during a full test) is
+  `engine-link/engine-handlers.test.ts`, `engine-limit.test.ts` and `rpc.test.ts`; the real link, both real ends,
+  is `test/cloud-engine.test.ts` and `test/engine-link.test.ts`, which cover the hand-over and the session, not a
+  merge. No suite yet drives a merge (`merge.checkout_for_check`, the full test, `merge.release_check`) over the
+  real link end to end.
   For a train (PM-660), the server calls the same build operation for every approved source
   and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
   full_test.run. The manifest, ordered locks and attribution stay on the server; all members
@@ -4698,13 +4729,14 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
-  PM-674's [rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
+  PM-674's [rollback sheet](CLOUD-CUTOVER.md) uses protected return
   directories outside the source and repositories and brings final stopped-cloud data back
-  before activation. Package/home is the seed input;
-  seed dry-run checks buckets, while the live host check precedes upload. No second writer or
+  before activation. No second writer or
   automatic clearing of used targets is allowed; data transport is the owner's administration path.
-  `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
-  hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
+  PM-1116 retired the one-off CLI commands `inventory`, `hybrid plan` and `hybrid package` (and the cloud
+  `seed`; the last commit that has them is tagged `retired-migrate-dns`); `hybrid back`, `instance` and
+  `verify` stay. Their library functions (`buildHybridPlan`, `createHybridPackage`, `buildInventory`) remain only because the
+  test fixtures build a cloud's data with them. The cloud package was made on the Mac from a stopped source and held a closed list
   (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the
   database and `core/attachments` reference), `feedback`, `memory`, `HYBRID_CLOUD_ENTRIES`; a package made before
   PM-666 has no `message-attachments`, which is accepted, and `REPLACED_ENTRIES` of the way back lists it too);

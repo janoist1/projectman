@@ -1,7 +1,9 @@
 import type { MemberContextPreview, ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
 import {
+  chatWindow,
   checklistConditionHolds,
   checklistProgress,
+  SESSION_CHAT_WINDOW,
   SetChecklistItemStateRequest,
   type ProjectChecklist,
   applyMemberEmailChange,
@@ -2921,10 +2923,15 @@ export class MockBackend {
       const sessionError = this.sessionErrors.get(session.id);
       if (sessionError) return error(409, sessionError, 'The engine is not connected');
       const task = session.workItem.type === 'task' ? this.findTask(session.workItem.taskKey) : undefined;
+      const window = chatWindow(this.chats[session.id] ?? [], {
+        limit: Number(query.get('limit') ?? SESSION_CHAT_WINDOW),
+        before: query.get('before') ?? undefined,
+      });
       return ok({
         session: clone(session),
-        chat: clone(this.chats[session.id] ?? []),
+        chat: clone(window.items),
         task: task ? clone(task) : null,
+        ...(window.truncated ? { truncated: true } : {}),
       });
     }
     if ((m = /^\/sessions\/([\w-]+)\/messages$/.exec(rest)) && method === 'POST')
@@ -3179,16 +3186,28 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.sweepIntegratorTodos(nowIso());
+      // Like the server: open items by default and never cut off; any other state is a history, the newest N.
+      const wanted = query.get('state') ?? 'open';
+      const limit = Number(query.get('limit')) || (wanted === 'open' || wanted === 'active' ? Infinity : 500);
+      const inState = (item: InboxItem) =>
+        wanted === 'all' ||
+        (wanted === 'closed'
+          ? ['resolved', 'expired', 'cancelled'].includes(item.state)
+          : wanted === 'active'
+            ? ['open', 'screening'].includes(item.state)
+            : item.state === wanted);
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
         items: clone(
           this.inbox
             .filter(
               (item) =>
+                inState(item) &&
                 canSeeInboxItem(this.taskViewer(), item) &&
                 (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)) &&
                 (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
             )
+            .slice(-limit)
             .map((item) => visibleQuestionItem(this.taskViewer(), item, (key) => !!this.findTask(key))),
         ),
       });

@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
+import { SESSION_CHAT_WINDOW } from '@projectman/shared';
 import type {
   CreateOwnerInviteRequest,
   CreatedOwnerInvitation,
@@ -435,16 +436,29 @@ export function useRetireMember(key: string) {
 
 /* ---------- sessions ---------- */
 
-export function useSessionDetail(key: string, sessionId: string) {
+/**
+ * A session with its chat: the last `SESSION_CHAT_WINDOW` items, or only the last `limit` when asked (a
+ * peek). The chat events keep it current (`chat_appended`), so it is never refetched on its own (PM-1116).
+ */
+export function useSessionDetail(key: string, sessionId: string, limit?: number) {
   return useQuery({
-    queryKey: queryKeys.session(key, sessionId),
-    queryFn: () => api.session(key, sessionId),
+    queryKey:
+      limit === undefined ? queryKeys.session(key, sessionId) : queryKeys.sessionTail(key, sessionId, limit),
+    queryFn: () => api.session(key, sessionId, { limit: limit ?? SESSION_CHAT_WINDOW }),
+    staleTime: Infinity,
     // An engine that is away answers the same until it returns; the page waits for its event, not for retries (PM-316).
     retry: (count, error) =>
       !(
         isApiError(error) &&
         (error.code === 'engine_offline' || (error.status >= 400 && error.status < 500))
       ) && count < 2,
+  });
+}
+
+/** The chat items before the item `before` (the "Korábbiak" button of a long chat, PM-1116). */
+export function useEarlierChat(key: string, sessionId: string) {
+  return useMutation({
+    mutationFn: (before: string) => api.session(key, sessionId, { limit: SESSION_CHAT_WINDOW, before }),
   });
 }
 
@@ -647,7 +661,7 @@ export function useUpdateSession(key: string) {
     mutationFn: ({ sessionId, body }: { sessionId: string; body: UpdateSessionRequest }) =>
       api.updateSession(key, sessionId, body),
     onSuccess: (session) =>
-      client.setQueryData<SessionDetail>(queryKeys.session(key, session.id), (detail) =>
+      client.setQueriesData<SessionDetail>({ queryKey: queryKeys.session(key, session.id) }, (detail) =>
         detail ? { ...detail, session } : detail,
       ),
   });
@@ -806,8 +820,20 @@ export function useLogoutFeedbackMarker(key: string) {
 
 /* ---------- inbox ---------- */
 
+/** The items that have not ended (open, screening): every one of them, however old (they are what waits for someone). */
 export function useInbox(key: string) {
   return useQuery({ queryKey: queryKeys.inbox(key), queryFn: () => api.inbox(key) });
+}
+
+/** How many closed items the history lists read. */
+const INBOX_HISTORY_LIMIT = 200;
+
+/** The newest closed items: "recently decided" on the inbox page, "you answered" in a conversation. */
+export function useInboxHistory(key: string) {
+  return useQuery({
+    queryKey: queryKeys.inboxHistory(key),
+    queryFn: () => api.inboxHistory(key, INBOX_HISTORY_LIMIT),
+  });
 }
 
 /**
@@ -861,6 +887,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
     },
     onSettled: async (_data, _error, { item }) => {
       await client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
+      await client.invalidateQueries({ queryKey: queryKeys.inboxHistory(key) });
       await client.invalidateQueries({ queryKey: queryKeys.board(key) });
       if (item.payload.operatorKnowledge) {
         await client.invalidateQueries({ queryKey: queryKeys.operatorKnowledge(key) });
@@ -970,10 +997,20 @@ export function useSaveRole(key: string) {
 export function useDeleteRole(key: string) {
   return useProjectMutation(key, (id: string) => api.deleteRole(key, id));
 }
+/**
+ * The server answers with the changed task: write it to the board and the card, and read the card's detail again
+ * (its timeline and rounds changed). The rest of the project follows by the socket events, not by a refetch.
+ */
 export function useUpdateTask(key: string) {
-  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
-    api.updateTask(key, taskKey, body),
-  );
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
+      api.updateTask(key, taskKey, body),
+    onSuccess: async (task) => {
+      writeTask(client, key, task);
+      await client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
+    },
+  });
 }
 /** The server answers with the task's detail: write it instead of refetching the project. */
 export function useCreateTaskComment(key: string) {

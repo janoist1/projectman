@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useContext } from 'react';
 import { ProjectContext } from '../../app/contexts';
 import { ActorName } from '../../components/ActorName';
@@ -350,7 +350,7 @@ export function ChatView(props: ChatViewProps) {
     resolvingId = null,
     pending = [],
   } = props;
-  const blocks = groupChatItems(items, sessionMember);
+  const blocks = useMemo(() => groupChatItems(items, sessionMember), [items, sessionMember]);
   const lastPending = props.awaitingPermission
     ? [...blocks]
         .reverse()

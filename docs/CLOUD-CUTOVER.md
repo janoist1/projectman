@@ -56,8 +56,15 @@ Az owner előre elfogadott rollback-útja és konkrét határideje szerint; ezen
    útját előbb izolált másolaton igazold, és nevezd meg az elvesző DB/fájl időszakot,
    kártyákat/üzeneteket/uploads-ot az owner jóváhagyásában.
 
-5. A visszaállás ellenőrzése után package és downloaded copy eltávolítása vagy offline titkosított archiválása az owner
-   külön döntése szerint. Új AI session előtt ne maradjon titkos csomag szabadon olvasható könyvtárban.
+5. A visszaállás ellenőrzése után a downloaded copy (`<RETURN_DATA>`) eltávolítása vagy offline titkosított
+   archiválása az owner külön döntése szerint. Új AI session előtt ne maradjon titkos másolat szabadon
+   olvasható könyvtárban.
    A régi `pre-hybrid` archívumot csak ellenőrzött single működés után takarítsa az owner.
    EC2/EBS/IPv4/bucket/IAM erőforrások nem törlődnek a rollbacktől; költségük és későbbi
-   megszüntetésük külön jóváhagyott művelet. DNS-delegáció visszaváltás nincs.
+   megszüntetésük külön jóváhagyott művelet.
+
+**DNS-delegáció visszaváltás nincs az eszközökben** (PM-1116). A `dns switch --back` kivezetésre került
+(az utolsó commit, amelyben megvolt: `retired-migrate-dns` tag), ezért az [AWS.md](AWS.md#dns-pm-537-one-off-move-retired-in-pm-1116)
+sem ír elő ilyen lépést. A régi Route 53 hosted zone az owner döntéséig megmarad; ha a delegációt mégis
+vissza kell állítani, az az owner kézi lépése a Route 53 Domains felületén, utána levél- és
+kézbesítés-ellenőrzéssel.

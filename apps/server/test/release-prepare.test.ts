@@ -504,13 +504,8 @@ describe('prepareHybridRelease', () => {
     expect(world.removed.sort()).toEqual(names.sort());
   });
 
-  it('still accepts a legacy two-platform receipt but refuses a repeated platform', async () => {
+  it('refuses a repeated platform in the receipt', async () => {
     const receipt = await world.prepare();
-    const legacy = {
-      ...receipt,
-      smoke: [{ ...receipt.smoke[0]!, platform: 'linux/amd64' }, ...receipt.smoke],
-    };
-    expect(preparedHybridReleaseSchema.parse(legacy).smoke).toHaveLength(2);
     const repeated = { ...receipt, smoke: [receipt.smoke[0]!, receipt.smoke[0]!] };
     expect(() => preparedHybridReleaseSchema.parse(repeated)).toThrow(/different platforms/);
   });

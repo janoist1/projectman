@@ -20,7 +20,6 @@ import {
 } from './receipt';
 import type { PreparedHybridRelease, SmokeEvidence } from './receipt';
 import { assertImageLoaded, smokeImage } from './smoke';
-import { HYBRID_PLATFORM } from './verify';
 
 export type { PrepareOptions } from './config';
 export type { PreparedHybridRelease } from './receipt';
@@ -133,11 +132,11 @@ async function prepare(
   context.report.step('ok', 'release-checkout', buildSource);
   const lockfileAtBuild = hashRegularFile(path.join(buildSource, 'package-lock.json'));
 
-  // 2. The hybrid machine's platform only (no emulated amd64 build), tracked source only, on the admin builder
+  // 2. The arm64 image only (the one platform of the cloud machine), tracked source only, on the admin builder
   // (no registry, no EC2, no builder provisioning).
   running(signal);
   const builderContext: CloudContext = { ...context, deps: { ...context.deps, repoRoot: buildSource } };
-  await runImageBuild(builderContext, commit, imagesDir, false, [HYBRID_PLATFORM]);
+  await runImageBuild(builderContext, commit, imagesDir, false);
   const bundle = readBundle(imagesDir, commit);
   context.report.step('ok', 'release-images', `manifest sha256=${bundle.manifestSha256}`);
 

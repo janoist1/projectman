@@ -24,14 +24,11 @@ const child = spawn(command, args, { stdio: ['ignore', 'inherit', 'inherit'], de
 let exited = false;
 let killTimer;
 
-/**
- * ESRCH: the group is already gone. EPERM: macOS refuses to signal a group whose leader has
- * exited and whose remaining members are zombies; nothing is left to stop there either.
- */
 function killGroup(signal) {
   try {
     process.kill(-child.pid, signal);
   } catch (err) {
+    // macOS may deny signaling a group after its leader exits (for example, zombie members).
     if (err.code !== 'ESRCH' && err.code !== 'EPERM') throw err;
   }
 }

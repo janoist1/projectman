@@ -16,11 +16,11 @@ export const imageIdSchema = z
   .string()
   .length(71)
   .regex(/^sha256:[0-9a-f]{64}$/);
-export const platformSchema = z.enum(['linux/amd64', 'linux/arm64']);
+export const platformSchema = z.enum(['linux/arm64']);
 const imageSchema = z
   .strictObject({
     platform: platformSchema,
-    archive: z.enum(['linux-amd64.tar', 'linux-arm64.tar']),
+    archive: z.enum(['linux-arm64.tar']),
     archiveSha256: z
       .string()
       .length(64)
@@ -29,19 +29,17 @@ const imageSchema = z
     imageId: imageIdSchema,
   })
   .refine((image) => image.archive === `${image.platform.replace('/', '-')}.tar`);
-export const bundleSchema = z
-  .strictObject({
-    version: z.literal(1),
-    sourceSha: sourceShaSchema,
-    images: z.array(imageSchema).min(1).max(2),
-  })
-  .refine((bundle) => new Set(bundle.images.map((image) => image.platform)).size === bundle.images.length);
+export const bundleSchema = z.strictObject({
+  version: z.literal(1),
+  sourceSha: sourceShaSchema,
+  images: z.array(imageSchema).length(1),
+});
 export type BundleImage = z.output<typeof imageSchema>;
 export type Platform = z.output<typeof platformSchema>;
 
-/** The platform of the target machine, by the same rule the deploy uses to pick its image (PM-916). */
-export function targetPlatform(config: CloudConfig): Platform {
-  return config.aws.ec2?.architecture === 'arm64' ? 'linux/arm64' : 'linux/amd64';
+/** The cloud machine is arm64 only (PM-1116). */
+function targetPlatform(): Platform {
+  return 'linux/arm64';
 }
 export interface SelectedImage extends BundleImage {
   file: string;
@@ -89,12 +87,9 @@ export function archiveDigest(file: string): { archiveSha256: string; archiveByt
   }
 }
 
-export function selectedImage(context: CloudContext, sha?: string): SelectedImage | undefined {
+export function selectedImage(context: CloudContext, sha?: string): SelectedImage {
   const directory = context.config.deployment?.imageBundle;
-  if (!directory) {
-    if (context.config.aws.ec2?.architecture === 'arm64') throw refused('arm64 requires an image bundle');
-    return undefined;
-  }
+  if (!directory) throw refused('the deployment needs an image bundle');
   try {
     noSymlinks(directory);
     const manifestFile = path.join(directory, 'manifest.json');
@@ -103,7 +98,7 @@ export function selectedImage(context: CloudContext, sha?: string): SelectedImag
     const bundle = bundleSchema.parse(JSON.parse(fs.readFileSync(manifestFile, 'utf8')));
     if (sha !== undefined && bundle.sourceSha !== sha)
       throw refused('bundle source SHA differs from the deployment target');
-    const platform = targetPlatform(context.config);
+    const platform = targetPlatform();
     const image = bundle.images.find((entry) => entry.platform === platform);
     if (!image) throw refused(`image bundle has no ${platform} image`);
     const file = path.join(directory, image.archive);
@@ -344,12 +339,8 @@ export async function runImageBuild(
   ref: string,
   output: string,
   dryRun: boolean,
-  requested: readonly Platform[],
 ): Promise<void> {
-  if (!requested.length || new Set(requested).size !== requested.length)
-    throw badUsage('image-build needs one or two different platforms');
-  // The manifest order is fixed, whatever order the caller asked in.
-  const platforms = platformSchema.options.filter((platform) => requested.includes(platform));
+  const platforms = platformSchema.options;
   if (!sourceShaSchema.safeParse(ref).success)
     throw badUsage('image-build --ref needs 40 lowercase hexadecimal characters');
   if (/[\0\r\n,]/.test(output)) throw badUsage('image-build --out contains an invalid character');

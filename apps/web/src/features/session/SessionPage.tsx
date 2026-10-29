@@ -3,11 +3,13 @@ import { Suspense, lazy, useLayoutEffect, useMemo, useRef, useState } from 'reac
 import type { KeyboardEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { isWorkPaused } from '@projectman/shared';
-import type { SessionDetail } from '@projectman/shared';
+import type { ChatItem, SessionDetail } from '@projectman/shared';
 import {
   useBoard,
+  useEarlierChat,
   useEngineStatus,
   useInbox,
+  useInboxHistory,
   useLabels,
   useResolveInbox,
   useSchedules,
@@ -16,6 +18,7 @@ import {
   useTaskDetail,
 } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
+import { Button } from '../../components/Button';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
@@ -23,7 +26,7 @@ import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
 import { errorCode, errorMessage } from '../../lib/errors';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
-import { openItemIds, openItemsFor } from '../../lib/inbox';
+import { openItemIds, openItemsFor, withHistory } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
 import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
@@ -74,6 +77,18 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const send = useSendSessionMessage(key, session.id);
   const toast = useToast();
   const echoes = usePendingEchoes(chat);
+  // Older items than the window the page asked for are fetched on request and kept above it.
+  const [earlier, setEarlier] = useState<{ items: ChatItem[]; truncated: boolean } | null>(null);
+  const loadEarlier = useEarlierChat(key, session.id);
+  const shownChat = useMemo(() => (earlier ? [...earlier.items, ...chat] : chat), [earlier, chat]);
+  const hasEarlier = earlier ? earlier.truncated : detail.truncated === true;
+  const heightBefore = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (element && heightBefore.current !== null)
+      element.scrollTop += element.scrollHeight - heightBefore.current;
+    heightBefore.current = null;
+  }, [earlier]);
   const [tab, setTab] = useState<Tab>('chat');
   const scrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -93,9 +108,11 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   useDocumentTitle(title);
 
   const items = inbox.data?.items;
+  // The decided permissions stay in the chat: they are in the closed history, not in the live list.
+  const history = useInboxHistory(key).data?.items;
   const sessionItems = useMemo(
-    () => (items ?? []).filter((item) => item.sessionId === session.id),
-    [items, session.id],
+    () => (withHistory(items, history) ?? []).filter((item) => item.sessionId === session.id),
+    [items, history, session.id],
   );
   const openItems = openItemsFor(sessionItems, myHandle);
   const resolvedPermissions = sessionItems.filter(
@@ -208,8 +225,35 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
         }}
       >
+        {hasEarlier ? (
+          <div className={styles.earlier}>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={loadEarlier.isPending}
+              onClick={() => {
+                const first = shownChat[0];
+                if (!first) return;
+                const scroll = scrollRef.current;
+                loadEarlier.mutate(first.id, {
+                  onSuccess: (page) => {
+                    // Keep what was on screen where it was while the older items grow above it.
+                    heightBefore.current = scroll?.scrollHeight ?? null;
+                    setEarlier({
+                      items: [...page.chat, ...(earlier?.items ?? [])],
+                      truncated: page.truncated === true,
+                    });
+                  },
+                  onError: (error) => toast.show(errorMessage(error), 'error'),
+                });
+              }}
+            >
+              {t('session.chat.loadEarlier')}
+            </Button>
+          </div>
+        ) : null}
         <ChatView
-          items={chat}
+          items={shownChat}
           sessionMember={session.member}
           members={members}
           myHandle={myHandle}

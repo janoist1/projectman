@@ -84,4 +84,14 @@ describe('email channel API', () => {
     expect(changed.statusCode).toBe(200);
     expect(changed.json()).toMatchObject({ handle: 'owner', wants: true, source: 'settings' });
   });
+
+  it('answers a log cursor that cannot be read with 400, not a server error (PM-1108)', async () => {
+    const response = await inject(
+      harness.app,
+      'GET',
+      `${routes.emailLog('AR')}?before=not-a-cursor`,
+      ownerCookie,
+    );
+    expect(response.statusCode).toBe(400);
+  });
 });

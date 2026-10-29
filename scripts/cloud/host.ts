@@ -6,7 +6,7 @@ import type { PipeEnd, RunResult } from './deps';
 import { CloudError, refused } from './errors';
 import type { CloudTransportError } from './errors';
 import { withEc2Host } from './ec2-host';
-import { imageIdSchema, platformSchema } from './images';
+import { imageIdSchema } from './images';
 
 /**
  * The ssh side of the machine commands (PM-535). The session itself (how ssh reaches the EC2 machine, through
@@ -20,15 +20,12 @@ export const HOST_SUBCOMMANDS = [
   'bootstrap',
   'receive-env',
   'receive-image',
-  'build',
   'start',
   'stop',
   'status',
   'logs',
   'rehearse',
   'seed-check',
-  'seed-digest',
-  'receive-data',
   'send-data',
   'guard-check',
   'public-check',
@@ -47,7 +44,6 @@ export const READ_ONLY_SUBCOMMANDS: ReadonlySet<HostSubcommand> = new Set([
   'status',
   'logs',
   'seed-check',
-  'seed-digest',
   'send-data',
   'guard-check',
   'public-check',
@@ -77,7 +73,8 @@ const deployEntrySchema = z.looseObject({
   ref: z.string(),
   at: z.string(),
   imageId: imageIdSchema.optional(),
-  platform: platformSchema.optional(),
+  // The history on the machine may still hold the retired amd64 platform; `recordedStart` refuses to start it.
+  platform: z.string().optional(),
 });
 export const hostStatusSchema = z.looseObject({
   unit: z.string(),

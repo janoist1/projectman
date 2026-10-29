@@ -6,8 +6,6 @@ import { setFetchImplementation } from '../../api/client';
 import { MockBackend } from '../../mocks/backend';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { ToastContext } from '../../components/toastContext';
-import { formatDuration, formatMemory } from '../../i18n/format';
-import { t } from '../../i18n/t';
 import { MachineIndicator } from './MachineIndicator';
 
 afterEach(() => {
@@ -488,68 +486,4 @@ describe('machine display', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Bezárás' }));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
-});
-
-describe('the Operator super grant on the machine (PM-1042)', () => {
-  it('shows the granted state with its end, a link to manage it and the dot on the button', async () => {
-    const project = setup();
-    project.backend.operatorGrant = { ...project.backend.operatorGrant, active: true, grantId: 'g1' };
-    project.render(<MachineIndicator />);
-    const button = await screen.findByRole('button', { name: new RegExp(t('machine.grant.dot')) });
-    expect(within(button).getByTestId('machine-super-dot')).toBeTruthy();
-    fireEvent.click(button);
-    const dialog = await screen.findByRole('dialog', { name: 'Gép és munkamenetek' });
-    expect(
-      await within(dialog).findByText(t('machine.grant.on', { expiry: t('machine.grant.untilRevoked') })),
-    ).toBeTruthy();
-    expect(
-      within(dialog)
-        .getByRole('link', { name: t('machine.grant.manage') })
-        .getAttribute('href'),
-    ).toBe('/p/AC/settings/integrator');
-  });
-
-  it('says there is no grant, offers it to give, and shows no dot', async () => {
-    const project = setup();
-    project.render(<MachineIndicator />);
-    const dialog = await open();
-    expect(await within(dialog).findByText(t('machine.grant.off'))).toBeTruthy();
-    expect(within(dialog).getByRole('link', { name: t('machine.grant.give') })).toBeTruthy();
-    expect(screen.queryByTestId('machine-super-dot')).toBeNull();
-  });
-
-  it('hides the link from who cannot manage the grant', async () => {
-    const project = setup();
-    project.backend.operatorGrant = { ...project.backend.operatorGrant, canManage: false };
-    project.render(<MachineIndicator />);
-    const dialog = await open();
-    await within(dialog).findByText(t('machine.grant.off'));
-    expect(within(dialog).queryByRole('link', { name: t('machine.grant.give') })).toBeNull();
-  });
-
-  it('says the state is unknown when the grant cannot be read, and keeps the panel', async () => {
-    const project = setup();
-    const fetch = createMockFetch(project.backend, project.requests);
-    setFetchImplementation((path, init) =>
-      path.includes('/auth/operator-grant')
-        ? Promise.resolve(
-            new Response(JSON.stringify({ error: { code: 'internal', message: 'Failed' } }), { status: 500 }),
-          )
-        : fetch(path, init),
-    );
-    project.render(<MachineIndicator />);
-    const dialog = await open();
-    expect(await within(dialog).findByText(t('machine.grant.unknown'))).toBeTruthy();
-  });
-});
-
-it('formats binary memory and compact duration', () => {
-  expect(formatMemory(16 * 1024 ** 3)).toBe('16 GB');
-  expect(formatMemory(1.4 * 1024 ** 3)).toBe('1,4 GB');
-  expect(formatMemory(640 * 1024 ** 2)).toBe('640 MB');
-  expect(formatDuration(12 * 60000)).toBe('12 p');
-  expect(formatDuration(192 * 60000)).toBe('3 ó 12 p');
-  expect(formatDuration(4 * 3600000)).toBe('4 ó');
-  expect(formatDuration(45000)).toBe('<1 p');
-  expect(formatDuration(48 * 3600000)).toBe('2 nap');
 });

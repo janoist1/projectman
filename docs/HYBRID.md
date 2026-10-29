@@ -411,7 +411,10 @@ was lost: `UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key
 
 Build the new image and deploy it (`npm run cloud -- deploy` on EC2). The platform sends SIGTERM; the entrypoint stops
 the tunnel, the server (its own shutdown pause) and then Litestream, so the last writes are
-shipped, and the new container comes up on the same volume. The engine reconnects by itself.
+shipped, and the new container comes up on the same volume. The engine reconnects by itself. Update its checkout to the same approved commit, run
+`npm ci`, `npm run build -w @projectman/server`, then `npm run engine -- service install`.
+Publish the GitHub release on request with `publish_release` after its preview; see
+[DEPLOY.md](DEPLOY.md#release-pm-1113).
 A database migration of a newer build is refused by an older one: do not roll back across a
 migration, restore instead.
 
@@ -638,7 +641,7 @@ frame is a question for the architect and the owner.
 **What the image must have, and what this does not check by itself.** The model is a release asset: the
 Dockerfile runs `npm run prepare:history-model` before `npm run build`, which copies it to
 `dist/models/history` and the native ONNX Runtime and `sharp` binaries come from the image's own `npm ci` on the
-ARM64 build. The single-machine path and the live-watcher's build do not prepare the model, so a build made there
+ARM64 build. The single-machine recovery build does not prepare the model, so a build made there
 searches by text only. Before the run, confirm that the ARM64 image has `dist/models/history/manifest.json`, that
 `node -e "require('onnxruntime-node')"` and the `sqlite-vec` extension load on it, and write the image digest in
 `PROJECTMAN_IMAGE_DIGEST`. A model folder without a manifest is `model_unavailable`, not a pass.
@@ -743,7 +746,8 @@ The home's `instance.json` now says `engine`: a single-machine or cloud server r
 it, while the engine may (its `home_in_use` check allows the stale database of an `engine` home;
 sandboxes keep every session out of it). The engine, in turn, refuses a home that holds a database
 and is not marked `engine`. Then start the engine, in the foreground first: `npm run engine -- status`,
-`npm run engine -- start`, and let launchd keep it running.
+build with `npm run build -w @projectman/server`, run `npm run engine -- start`,
+and let launchd keep it running. Both foreground and service starts run the compiled server.
 
 The cloud's data never travels in a package that sits on the Mac: it holds the cookie key, the secrets
 and the whole database, and a session's sandbox only _denies_ named places (the home's own entries,
@@ -766,7 +770,9 @@ npm run engine -- service uninstall   # unloads it and removes the file; the log
 - `install` checks what `start` checks (configuration, key file, home role) and refuses another
   home's installed agent. The engine restarts after an exit, 30 s apart. Logs:
   `<home>/logs/engine-service.{out,err}.log`.
-- After a `git pull` in that checkout, restart it: `npm run engine -- service install` again.
+- The service runs `apps/server/dist/index.js` under Node. Build the checkout with
+  `npm run build -w @projectman/server` before installing it. After updating the checkout,
+  rebuild it and run `npm run engine -- service install` again.
 - `PATH` in the file is the installing shell's, without the `node_modules/.bin` folders that `npm run`
   puts in front of it. If a CLI of the sessions lives elsewhere, start `install` from a shell that
   finds it. A `bootstrap` that fails with "5: Input/output error" while launchd is still tearing the

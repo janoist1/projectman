@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SuperCommand } from '../api/super-handoff';
-import { SuperCommand as SuperCommandSchema } from '../api/super-handoff';
+import { NewSuperCommand as SuperCommandSchema } from '../api/super-handoff';
 import { AiMemberConfig, ProjectConfig } from './schema';
 import { SuperCommandUnclassifiable, superCommandEffects, superCommandMutations } from './super-command';
 import type { SuperCommandContext } from './super-command';
@@ -11,7 +11,6 @@ import {
   memberRequestCommandRefusal,
   ownerReservedEffect,
   OWNER_REQUEST_SUPER_COMMANDS,
-  SUPER_ADMINISTRATION_COMMANDS,
   projectManagerCommandRefusal,
   superConfigMutations,
 } from './super-mutation';
@@ -149,24 +148,6 @@ const effects = (command: SuperCommand) => superCommandEffects(command, context(
 const operate = (operation: unknown) => ({ kind: 'operate', operation }) as SuperCommand;
 
 describe('super command classification (PM-762)', () => {
-  it('always reserves an owner command for a fresh security approval', () => {
-    const command: SuperCommand = {
-      kind: 'administration',
-      request: {
-        kind: 'owner_command',
-        target: { kind: 'hub' },
-        command: 'pwd',
-        timeoutSeconds: 120,
-        reason: 'Inspect fixture',
-      },
-    };
-    expect(ownerReservedEffect(null, { kind: 'owner_command' })).toBe('security');
-    expect(superCommandMutations(command, context())).toEqual([{ kind: 'owner_command' }]);
-    const ctx = context();
-    ctx.config.team.operatorApprovalWaiver = true;
-    expect(superCommandEffects(command, ctx)).toEqual(['security']);
-    expect(SUPER_ADMINISTRATION_COMMANDS).not.toContain('owner_command');
-  });
   it('has no owner-reserved effect for the routine commands', () => {
     expect(effects(operate({ op: 'project_pause' }))).toEqual([]);
     expect(effects(operate({ op: 'project_resume' }))).toEqual([]);
@@ -175,31 +156,18 @@ describe('super command classification (PM-762)', () => {
     expect(
       effects({ kind: 'member_update', handle: 'dev-1', request: { displayName: 'Fictional name' } }),
     ).toEqual([]);
-    expect(
-      effects({
-        kind: 'administration',
-        request: { kind: 'full_test', taskKey: 'AC-1', commit: 'a'.repeat(40), profile: 'merge-test' },
-      }),
-    ).toEqual([]);
-    expect(
-      effects({
-        kind: 'administration',
-        request: { kind: 'process_cleanup', target: { kind: 'hub' }, selector: 'orphan_test_workers' },
-      }),
-    ).toEqual([]);
   });
 
   it('names deletion for a member retired', () => {
     expect(effects(operate({ op: 'member_retire', handle: 'dev-1' }))).toEqual(['deletion']);
   });
 
-  it('names cost for a paid runtime and nothing for a deploy', () => {
+  it('names cost for a paid runtime', () => {
     expect(effects({ kind: 'member_update', handle: 'dev-2', request: { effort: 'high' } })).toEqual([
       'cost',
     ]);
     // Only sending the paid member on leave costs nothing.
     expect(effects({ kind: 'member_update', handle: 'dev-2', request: { onLeave: true } })).toEqual([]);
-    expect(effects({ kind: 'administration', request: { kind: 'deploy', releaseId: 'rel_1' } })).toEqual([]);
   });
 
   it('names security for an access change or an owner invitation, and nothing for a role change', () => {
@@ -252,12 +220,6 @@ describe('super command classification (PM-762)', () => {
     expect(
       superCommandMutations({ kind: 'merge_order', taskKeys: ['AC-1'] } as SuperCommand, context()),
     ).toEqual([{ kind: 'routine', operation: 'merge_order' }]);
-    expect(
-      superCommandMutations(
-        { kind: 'administration', request: { kind: 'deploy', releaseId: 'rel_1' } },
-        context(),
-      ),
-    ).toEqual([{ kind: 'administration', command: 'deploy' }]);
   });
 
   it('keeps the command schema closed: an unknown kind or field is not a command', () => {

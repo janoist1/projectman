@@ -8,10 +8,10 @@ import type { SandboxedEnd, SandboxedRun } from '../../apps/server/src/full-test
 import { RELEASE_TAG_PATTERN } from '@projectman/shared';
 import type { CloudDeps } from '../cloud/deps';
 import { CloudError, badUsage, refused } from '../cloud/errors';
-import { checkoutExactCommit } from '../release/checkout';
-import type { HeldLock, PrepareOptions } from '../release/config';
-import { importabilityChecks, withSandboxRun } from '../release/engine';
-import type { SandboxRunInput, SandboxSteps } from '../release/engine';
+import { checkoutExactCommit } from './checkout';
+import type { BuildOptions, HeldLock } from './build-options';
+import { importabilityChecks, withSandboxRun } from './sandbox';
+import type { SandboxRunInput, SandboxSteps } from './sandbox';
 import { assertSatisfiesEngines, readNodePin } from './node-pin';
 import type { NodePin } from './node-pin';
 
@@ -23,7 +23,7 @@ import type { NodePin } from './node-pin';
  *   apps/server/package.json  apps/server/dist/  scripts/engine/cli.js  deploy/mac/com.projectman.engine*.plist
  *
  * Everything that executes code of the commit (`npm ci` with its lifecycle scripts, the builds, the checks) runs in
- * the Anthropic Sandbox Runtime like the engine candidate of a release (`scripts/release/engine.ts`), with the
+ * the Anthropic Sandbox Runtime through `scripts/engine-app/sandbox.ts`, with the
  * pinned Node first on the PATH so the native modules are built for the ABI the package ships. The Node itself is
  * downloaded here, outside the sandbox, and trusted only by its pinned sha256.
  */
@@ -66,11 +66,6 @@ export interface EnginePackageRequest {
   /** The checkout the command runs from: its tags name the release tag of the commit. */
   sourceRepo: string;
 }
-
-type BuildOptions = Pick<
-  PrepareOptions,
-  'signal' | 'engineHome' | 'userHome' | 'tmpDir' | 'baseEnv' | 'timeouts'
->;
 
 const sha256 = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 

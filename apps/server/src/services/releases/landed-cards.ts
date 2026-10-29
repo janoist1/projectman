@@ -10,7 +10,7 @@ export interface LandedMerge {
 }
 
 /** The commit a merge left on the default branch: the merge commit, or the commit that was found merged. */
-export function landedCommit(row: MergeRecord): string | null {
+function landedCommit(row: MergeRecord): string | null {
   return (row.startedBy ? row.mergeCommit : row.commit) ?? null;
 }
 
@@ -54,7 +54,7 @@ export async function resolveLandedCommit(input: {
  * of the default branch, which is linear as merges run one after the other per repository. It needs no git
  * when the base is one of the recorded merges; null: it is not, and only git can tell where it stands.
  */
-export function landedBetween<T extends { commit: string }>(
+function landedBetween<T extends { commit: string }>(
   landed: readonly T[],
   baseCommit: string | null,
   commit?: string,

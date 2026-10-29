@@ -155,7 +155,7 @@ describe('tool audience', () => {
       ...developerAudience,
       duties: new Set(holdsDuty ? ['deployment'] : []),
     });
-    for (const name of ['propose_release', 'publish_release']) {
+    for (const name of ['publish_release']) {
       expect(result.tools.some((tool) => tool.name === name)).toBe(holdsDuty);
     }
   });
@@ -282,8 +282,6 @@ describe('team tool registration', () => {
         'operate',
         'execute_operation',
         'get_operation',
-        'get_machine_status',
-        'get_machine_logs',
         'combine_questions',
         'screen_question',
         'dismiss_signal',
@@ -309,7 +307,7 @@ describe('team tool registration', () => {
       'runtime/watchers': ['decide_fix_limit'],
       'runtime/sessions': ['get_guide', 'set_current_work'],
       'core/members': ['list_members', 'save_memory'],
-      'services/releases': ['propose_release', 'publish_release', 'check_release'],
+      'services/releases': ['publish_release'],
       'core/tasks': ['list_tasks', 'get_task', 'update_task', 'create_task'],
       'core/attachments': [
         'list_attachments',

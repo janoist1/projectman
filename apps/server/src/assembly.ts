@@ -29,20 +29,17 @@ import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
 import {
   SUPER_OWNER_YES,
-  createAdministrationExecutor,
   createOperateExecutor,
   createCommandExecutor,
-  createAdministrationSettler,
   createOperatorAppCredentials,
   createOperatorAppOperations,
   createOperatorAppSessions,
-  createSuperAdministration,
+  createSuperOperations,
   createSuperDiagnostics,
   createSuperHandoffService,
   createSuperOperator,
-  createSuperRights,
 } from './services/super-operator';
-import type { OperatorAppOperations, SuperAdministration } from './services/super-operator';
+import type { OperatorAppOperations, SuperOperations } from './services/super-operator';
 import { createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -67,21 +64,11 @@ import {
   TaskMerged,
 } from '@projectman/shared';
 import path from 'node:path';
-import type {
-  Actor,
-  EngineId,
-  HybridReleaseTarget,
-  Me,
-  ProjectConfig,
-  ReleaseEngineStatus,
-  Session,
-  Task,
-} from '@projectman/shared';
+import type { Actor, EngineId, Me, ProjectConfig, Session, Task } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { InvitationAccounts } from './core/members';
 import type { EngineCounters } from './runtime/sessions';
 import type {
-  AdministrationPort,
   AttachmentStorage,
   ConfigStore,
   ContextPackBuilder,
@@ -147,7 +134,6 @@ import { createDomainContext, defaultTemplateRegistry, isoNow } from './core/bas
 import type { DomainContext, TemplateRegistry } from './core/base';
 import { createEventBus } from './core/base';
 import { GithubSync } from './services/github';
-import { InboxService } from './core/inbox';
 import { OperatorActions, OperatorApprovals } from './services/operator';
 import { FixLimitWatch } from './runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from './services/full-tests';
@@ -156,20 +142,14 @@ import { DecisionCandidates, DocWrites } from './services/project-docs';
 import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
 import { createPermissionBroker, engineIdOf, fullTestSandbox, StartHolds } from './runtime/sessions';
-import {
-  ReleaseDeployments,
-  ReleasePublishService,
-  ReleaseService,
-  ReleaseWorkGate,
-} from './services/releases';
-import type { ReleaseTarget } from './services/releases';
+import { ReleasePublishService } from './services/releases';
 import { LoopWatch } from './runtime/watchers';
 import { HumanQuestions, OpenQuestionLabel } from './core/inbox';
 import { ApprovalQuestions } from './core/inbox';
 import { QuestionClosing } from './core/inbox';
 import { InvitationService, OwnerInvitationService } from './core/members';
-import { MemberProfiles, MemberService } from './core/members';
-import { MessageService, Messaging, RelationNotices } from './core/messages';
+import { MemberProfiles } from './core/members';
+import { MessageService, RelationNotices } from './core/messages';
 import { MemberQueue } from './core/member-queue';
 import { MessageDelivery, MessageRouter, SessionMessages } from './runtime/delivery';
 import {
@@ -196,14 +176,11 @@ import { createMachineProbe } from './machine';
 import { checklistEngineHolds, createNewProjectEngines, LocalEngineDirectory } from './runtime/sessions';
 import type { EngineRegistry } from './runtime/sessions';
 import { createCheckBranchGit, createLocalEngine } from './engine-host';
-import { createAdministrationService } from './administration';
-import type { EngineAdministration } from './administration';
 import { conflict, forbidden, notFound } from './kernel';
 import { SessionCloser } from './runtime/sessions';
 import { SessionOrchestrator } from './runtime/sessions';
 import { AutoAdvance, LeftParts, wireCardAdvance } from './runtime/watchers';
-import { CollectingCloser, PrerequisiteClosures, TaskService, TaskWaits } from './core/tasks';
-import { TimelineService } from './core/timeline';
+import { CollectingCloser, PrerequisiteClosures, TaskWaits } from './core/tasks';
 import { InvolvementService } from './core/tasks';
 import {
   FeedbackNotices,
@@ -220,7 +197,7 @@ import { DiskGuard } from './runtime/watchers';
 import { WorkOutages } from './runtime/watchers';
 import { WorktreeSweep } from './runtime/watchers';
 import { CardMeasure } from './core/tasks';
-import { attributedActor, humanActor, SYSTEM_ACTOR } from './kernel';
+import { attributedActor, humanActor } from './kernel';
 import { SYSTEM_SENDER, isSessionAtWork, questionPayloadOf } from '@projectman/shared';
 import { DomainError } from './kernel';
 import { ObligationsService } from './services/obligations';
@@ -245,20 +222,8 @@ export interface DomainOptions {
   webPushTransport?: PushTransport;
   integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
   revokeIntegratorAccessKey?: (userId: string, keyId: string) => unknown;
-  /** The owner's grant every machine operation passes (PM-881); absent: no machine operation runs. */
-  operatorGrants?: import('./contracts').OperatorGrantGate;
   integratorTodoAccess?: IntegratorTodoAccess;
   nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
-  /**
-   * The project and repository that are this instance itself (PM-491): its releases are proposed,
-   * approved and deployed. Absent: releases are off (`release_not_configured`).
-   */
-  releaseTarget?: ReleaseTarget;
-  /**
-   * The hybrid release (PM-752): the remote engine and the target the instance releases to, and the cloud
-   * registry's view of the engines. Absent: the single-target release only.
-   */
-  releaseHybrid?: { binding: HybridReleaseTarget; engines: () => ReleaseEngineStatus[] };
   /** The commit the server was started from (`resolveAppVersion`); a release goes live when it equals its commit. */
   appVersion?: string;
   /** The release tag on the running build's commit (PM-542); absent: none. */
@@ -448,17 +413,6 @@ export interface DomainOptions {
    * only a process that carries it can be an orphan of this instance. Absent: none is recognised.
    */
   instanceTag?: string;
-  /**
-   * The protected administration adapter (PM-763): the hub's own supervisor over its Unix socket (null: the
-   * hub has none), the engines' supervisors over their links, and which engine runs a full test or builds an
-   * image. Absent: the domain has no administration (`domain.administration` is null).
-   */
-  administration?: {
-    hub: AdministrationPort | null;
-    engines: EngineAdministration;
-    isEngineOnline(id: EngineId): boolean;
-    builderEngine(): EngineId | null;
-  };
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -1178,10 +1132,8 @@ export function createDomain(opts: DomainOptions) {
   });
   const reviewWatch = new ReviewWatch({ ctx, projects, tasks, sessions, messaging });
   // The maintenance fence of a hybrid release (PM-752): merges, document writes and test runs start through it.
-  const releaseWork = new ReleaseWorkGate(() => ctx.repos.releaseDeployments.maintenanceHeld());
   // The server's full test of the pinned commit (PM-217) holds the reviewers back until its result is in.
   const fullTests = new FullTestRuns({
-    work: releaseWork,
     runSandbox: fullTestSandbox,
     ctx,
     projects,
@@ -1214,7 +1166,6 @@ export function createDomain(opts: DomainOptions) {
   });
   messageRouter.registerCardHold('full_test', fullTests);
   const merges = new Merges({
-    work: releaseWork,
     cards: mergeCards,
     ctx,
     projects,
@@ -1235,7 +1186,6 @@ export function createDomain(opts: DomainOptions) {
     engines,
     messaging,
     merges,
-    work: releaseWork,
     onPublished: (event) => historyDocuments.mainMoved(event),
     ...(opts.integratorCredentials?.reactivate
       ? {
@@ -1278,52 +1228,17 @@ export function createDomain(opts: DomainOptions) {
   inbox.registerDecider('merge_request', async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, attributedActor(by));
   });
-  const releases = new ReleaseService({
-    ctx,
-    projects,
-    tasks,
-    inbox,
-    timeline,
-    engines,
-    target: opts.releaseTarget ?? null,
-    appVersion: () => opts.appVersion ?? 'dev',
-    appTag: opts.appTag ?? (async () => null),
-    // The repository is on the project's engine (a cloud server has none of its own: `eng_…`).
-    engineId: (projectKey) => engines.projectEngine(projectKey) ?? LOCAL_ENGINE_ID,
-  });
   const releasePublications = new ReleasePublishService({
     ctx,
+    appVersion: () => opts.appVersion ?? 'dev',
+    appTag: opts.appTag ?? (async () => null),
     projects,
     engines,
     github: opts.github,
     // The repository is where the publishing member works.
     engineId: (projectKey, member) => engines.engineFor(projectKey, member) ?? LOCAL_ENGINE_ID,
   });
-  inbox.registerDecider('release', (item, by, optionId, note) => releases.decide(item, by, optionId, note));
-  const releaseDeployments = new ReleaseDeployments({
-    ctx,
-    releases,
-    pause: pauses,
-    work: releaseWork,
-    binding: opts.releaseHybrid?.binding ?? null,
-    engines: opts.releaseHybrid?.engines ?? (() => []),
-    // The fence is down: what the gate held back starts now.
-    onResumed: () => {
-      merges.pump();
-      docWrites.pump();
-      fullTests.pump();
-    },
-  });
-  // The release deployment fence (PM-752) keeps a restart out of a deployment that holds the instance.
-  const administration = opts.administration
-    ? createAdministrationService({
-        ...opts.administration,
-        fence: () => {
-          const held = ctx.repos.releaseDeployments.active();
-          return held ? { releaseId: held.releaseId } : null;
-        },
-      })
-    : null;
+
   // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
   const feedbackNotices = new FeedbackNotices({ ctx, projects, messaging });
   events.on('feedback_needs_processor', (event) => feedbackNotices.needsProcessor(event));
@@ -1372,7 +1287,6 @@ export function createDomain(opts: DomainOptions) {
   const screenshotRuns =
     opts.engines || engines.ids().some((id) => engines.get(id)?.screenshotExecutor)
       ? new ScreenshotRuns({
-          work: releaseWork,
           outputTail,
           executorFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.screenshotExecutor,
           platformFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.platform,
@@ -1454,7 +1368,6 @@ export function createDomain(opts: DomainOptions) {
     wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
     taskWaits,
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
-    releases,
     inbox,
     startWaitingOf: (task) => tasks.startWaitingOf(task),
     startAttempting: (task) => tasks.startAttempting(task),
@@ -1571,7 +1484,6 @@ export function createDomain(opts: DomainOptions) {
     deferred: deferredStarts,
     taskWaits,
     operatorSignals,
-    releases,
     requests: operatorRequests,
     diagnostics: {
       checks(projectKey, taskKey) {
@@ -1665,7 +1577,7 @@ export function createDomain(opts: DomainOptions) {
     openQuestionLabel,
   });
   // The in-app Operator's super-operation path (PM-888) is composed below, after the tools that use it.
-  let superPath: { operations: OperatorAppOperations; administration: SuperAdministration } | null = null;
+  let superPath: { operations: OperatorAppOperations; direct: SuperOperations } | null = null;
   const hostRequests = createHostRequestsService({
     ctx,
     host: () => opts.accounts.hostOwner(),
@@ -1713,7 +1625,7 @@ export function createDomain(opts: DomainOptions) {
         },
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
-      releases: new ReleaseTools({ calls: toolCaller, releases, publications: releasePublications }),
+      releases: new ReleaseTools({ calls: toolCaller, publications: releasePublications }),
       tasks: new TaskTools({
         calls: toolCaller,
         ctx,
@@ -1958,16 +1870,6 @@ export function createDomain(opts: DomainOptions) {
     credentials: appCredentials.authority,
   });
   superOperator.useMutationAuthorizer(superHandoffs.authorizer);
-  // The super mode's administration (PM-764): reads, direct operations and the filtered diagnostics, all bound to
-  // the project and to an engine linked to it. The executor re-checks the integrator's rights right before it
-  // starts anything, and the settler only reads what the supervisor recorded.
-  const engineLinked = (projectKey: string, engineId: EngineId): boolean => {
-    if (engines.get(engineId)?.workspacePath(projectKey)) return true;
-    const config = projects.cachedConfig(projectKey);
-    return !!config?.team.members.some(
-      (member) => member.kind === 'ai' && engines.engineFor(projectKey, member.handle) === engineId,
-    );
-  };
   const commandDeps = {
     inbox,
     tasks,
@@ -2001,48 +1903,16 @@ export function createDomain(opts: DomainOptions) {
     'operate',
     createOperateExecutor({ ...commandDeps, messaging, pauses, sessions }),
   );
-  // Without a gate no machine operation runs: the fallback refuses like a missing grant.
-  const operatorGrants: import('./contracts').OperatorGrantGate = opts.operatorGrants ?? {
-    active: () => null,
-    assertActive: () => {
-      throw forbidden('operator_grant_inactive', 'the Operator has no active grant for machine operations');
-    },
-  };
-  const superRights = createSuperRights({
-    credentials: appCredentials.authority,
-    config: (key) => projects.config(key),
-  });
-  if (administration) {
-    const administrationDeps = {
-      ctx,
-      grants: operatorGrants,
-      administration,
-      rights: superRights,
-      projects,
-      timeline,
-      engineLinked,
-      builderEngine: () => opts.administration?.builderEngine() ?? null,
-      release: (releaseId: string) => releases.getForControl(releaseId),
-    };
-    superHandoffs.registerExecutor('administration', createAdministrationExecutor(administrationDeps));
-    superHandoffs.registerSettler('administration', createAdministrationSettler(administrationDeps));
-  }
-  const superAdministration = createSuperAdministration({
-    handoffs: superHandoffs,
-    administration,
-    grants: operatorGrants,
-    rights: superRights,
-    diagnostics: createSuperDiagnostics({ ctx }),
-    engineLinked,
-  });
+  const superDiagnostics = createSuperDiagnostics({ ctx });
+  const superOperations = createSuperOperations({ handoffs: superHandoffs, diagnostics: superDiagnostics });
   const appOperations = createOperatorAppOperations({
     ctx,
     credentials: appCredentials,
     superOperator,
-    superAdministration,
+    superOperations,
     projects,
   });
-  superPath = { operations: appOperations, administration: superAdministration };
+  superPath = { operations: appOperations, direct: superOperations };
   superHandoffs.registerAppResume(appOperations.resume);
   inbox.registerSuperOperationAnswer(superHandoffs.ownerAnswer);
   // The owner's yes on an in-app Operator's operation: the Operator's turn may be over, so the server goes on
@@ -2346,7 +2216,7 @@ export function createDomain(opts: DomainOptions) {
     hostRequests,
     superOperator,
     superHandoffs,
-    superAdministration,
+    superOperations,
     operatorKnowledge: opts.operatorKnowledge,
     operatorPreferences,
     sharedOperatorKnowledge,
@@ -2414,10 +2284,7 @@ export function createDomain(opts: DomainOptions) {
     merges,
     docWrites,
     decisionCandidates,
-    releases,
     releasePublications,
-    releaseDeployments,
-    administration,
     loopWatch,
     questionScreening,
     seniorWaits,
@@ -2461,7 +2328,7 @@ export function createDomain(opts: DomainOptions) {
       inbox.expireOpenPermissions();
       // What was running for the integrator when the server stopped may have had its effect: marked unknown, never re-run.
       superHandoffs.reconcile();
-      // A detached administration job (a test, a build) goes on in its supervisor: its recorded result settles it.
+      // Settle any operation kind with a registered asynchronous result reader.
       await superHandoffs.settleOpen().catch((error: unknown) => {
         opts.logger.warn({ err: error }, 'settling the detached super operations failed');
       });
@@ -2734,12 +2601,11 @@ export function createDomain(opts: DomainOptions) {
         messaging,
         members,
         projectState,
-        releases,
         docWrites,
         humanQuestions,
         structuralReviews,
         superHandoffs,
-        superAdministration,
+        superOperations,
         inbox,
         history,
         operatorKnowledge: opts.operatorKnowledge,

@@ -1,14 +1,13 @@
 import { Clock, Effect, Exit, Fiber, Scope } from 'effect';
 import { TestClock } from 'effect/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ReleaseWorkAdmission } from '../../contracts';
 import type { DocWriteRecord } from '../../db';
 import { runFork, runPromise } from '../../kernel';
 import { makeDocWriteQueue, type DocWriteQueueDeps } from './write-queue';
 
 const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function setup(work?: ReleaseWorkAdmission) {
+function setup() {
   const rows: DocWriteRecord[] = [];
   const started: string[] = [];
   const events: string[] = [];
@@ -32,7 +31,6 @@ function setup(work?: ReleaseWorkAdmission) {
       },
     },
     stopped: () => state.stopped,
-    ...(work ? { work } : {}),
   };
   const scope = Scope.makeUnsafe();
   const queue = Effect.runSync(Scope.provide(makeDocWriteQueue(deps), scope));
@@ -62,35 +60,6 @@ describe('document write queue', () => {
     await t.finish('2');
     await t.finish('3');
     expect(t.queue.slot('PM', 'web')).toBeUndefined();
-    await t.close();
-  });
-
-  it('starts no write under the release fence and holds a permit for each write that runs', async () => {
-    const fence = { up: true, held: 0 };
-    const work: ReleaseWorkAdmission = {
-      isHeld: () => fence.up,
-      tryAcquire: (kind, runId) => {
-        if (fence.up) return null;
-        fence.held++;
-        return { id: runId, kind, release: () => void fence.held-- };
-      },
-      counts: () => ({ merges: 0, documentWrites: fence.held, fullTests: 0, screenshots: 0 }),
-    };
-    const t = setup(work);
-    t.rows.push(t.row('1'), t.row('2', 'api'));
-    t.pump();
-    expect(t.started).toEqual([]);
-    expect(work.counts().documentWrites).toBe(0);
-
-    fence.up = false;
-    t.pump();
-    expect(t.started).toEqual(['1', '2']);
-    expect(work.counts().documentWrites).toBe(2);
-    fence.up = true;
-    await t.finish('1');
-    expect(work.counts().documentWrites).toBe(1);
-    await t.finish('2');
-    expect(work.counts().documentWrites).toBe(0);
     await t.close();
   });
 

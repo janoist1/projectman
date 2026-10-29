@@ -17,9 +17,7 @@
     <key>ProgramArguments</key>
     <array>
       <string>{{NODE}}</string>
-      <string>--import</string>
-      <string>tsx</string>
-      <string>{{ROOT}}/apps/server/src/index.ts</string>
+      <string>{{ROOT}}/apps/server/dist/index.js</string>
     </array>
     <key>WorkingDirectory</key>
     <string>{{ROOT}}</string>

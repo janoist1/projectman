@@ -13,7 +13,6 @@ import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TeamToolError } from '../../contracts';
 import type {
-  ReleaseWorkAdmission,
   ScreenshotExecutor,
   ScreenshotRunEnded,
   ScreenshotRunSpec,
@@ -98,7 +97,6 @@ function runs(
     platform?: NodeJS.Platform;
     now?: () => number;
     diskFor?: typeof localDisk;
-    work?: ReleaseWorkAdmission;
   } = {},
 ) {
   const fake = fakeExecutor();
@@ -113,7 +111,6 @@ function runs(
     platform: options.platform ?? 'darwin',
     pollMs: options.pollMs ?? 5_000,
     ...(options.now ? { now: options.now } : {}),
-    ...(options.work ? { work: options.work } : {}),
   });
   services.push(service);
   return { service, ...fake };
@@ -145,34 +142,6 @@ const image = (name: string, atMs?: number) => {
 };
 
 describe('take_screenshots', () => {
-  it('starts no run under the release fence, and holds a permit until the run ends', async () => {
-    const fence = { up: true, held: 0 };
-    const work: ReleaseWorkAdmission = {
-      isHeld: () => fence.up,
-      tryAcquire: (kind, runId) => {
-        if (fence.up) return null;
-        fence.held++;
-        return { id: runId, kind, release: () => void fence.held-- };
-      },
-      counts: () => ({ merges: 0, documentWrites: 0, fullTests: 0, screenshots: fence.held }),
-    };
-    const { service, calls, waitForCall } = runs({ work });
-    const refused = await refusal(service.take(ctx, input));
-    expect(refused.code).toBe('forbidden');
-    expect(calls).toHaveLength(0);
-    expect(work.counts().screenshots).toBe(0);
-
-    // The refused call does not leave a run behind that blocks the session.
-    fence.up = false;
-    const taking = take(service);
-    await waitForCall();
-    expect(work.counts().screenshots).toBe(1);
-    calls[0]!.started();
-    calls[0]!.end();
-    await taking;
-    expect(work.counts().screenshots).toBe(0);
-  });
-
   it('waits for scenario validation before calling the executor', async () => {
     let release!: () => void;
     const validation = new Promise<void>((resolve) => {

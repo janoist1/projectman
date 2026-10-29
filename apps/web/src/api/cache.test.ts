@@ -25,14 +25,6 @@ import { appendUnique, applyServerEvent, upsertBy, writeTaskDetail } from './cac
 import { queryKeys } from './queryKeys';
 
 const KEY = 'AC';
-it('refreshes grant state and audit after an owner changes machine access', () => {
-  const client = new QueryClient();
-  client.setQueryData(queryKeys.operatorGrant, {});
-  client.setQueryData(queryKeys.operatorGrantAudit, {});
-  applyServerEvent(client, { type: 'operator_grant_changed' });
-  expect(client.getQueryState(queryKeys.operatorGrant)?.isInvalidated).toBe(true);
-  expect(client.getQueryState(queryKeys.operatorGrantAudit)?.isInvalidated).toBe(true);
-});
 it('refreshes super DTOs when their timeline changes without executing an operation', () => {
   const client = new QueryClient();
   const keys = [
@@ -336,16 +328,14 @@ describe('applyServerEvent', () => {
 });
 
 describe('the Operator queue events', () => {
-  it('reads the queue, the corner and the grant again when the queue or the grant changes', () => {
+  it('reads the queue and the corner when the queue changes', () => {
     const client = new QueryClient();
     const keys = [
       queryKeys.projectManager(KEY),
       queryKeys.operatorQueue(KEY, 'pm', '2026-10-22T00:00:00.000Z'),
-      queryKeys.operatorGrant,
     ];
     keys.forEach((key) => client.setQueryData(key, {}));
     applyServerEvent(client, { type: 'member_queue_changed', projectKey: KEY, member: 'operator' });
-    applyServerEvent(client, { type: 'operator_grant_changed' });
     keys.forEach((key) => expect(client.getQueryState(key)!.isInvalidated).toBe(true));
   });
 });

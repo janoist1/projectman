@@ -1,7 +1,7 @@
 # Deployment and operation
 
 The supported installation uses a cloud hub and a Mac engine; see [HYBRID.md](HYBRID.md)
-and [AWS.md](AWS.md). This page covers local operation, release watchers and integrator access.
+and [AWS.md](AWS.md). This page covers local operation, releases and integrator access.
 
 ## Engine app build (PM-1104, PM-1122)
 
@@ -76,198 +76,46 @@ admins, the instance's owners).
 A pause made by hand survives a restart and is not lifted by the start: the team waits until someone resumes
 it. Only the pause of the stop itself ends with the start.
 
-## The live instance on a Mac: LaunchAgents and the release watcher (PM-387, PM-493)
+## Release (PM-1113)
 
-The owner's live instance (`~/projectman-live`, data in `~/.projectman`, port 4800) runs under two
-LaunchAgents in `~/Library/LaunchAgents`, written by `npm run live`:
+The supported release path is an owner-requested cloud deployment followed by publication.
+There is no release watcher or administration supervisor, and no in-app proposal or approval
+that waits for one. Pipeline release gates remain the project's human approval gates.
 
-- `com.projectman.live` runs `node apps/server/dist/index.js` through a launcher (see "What macOS shows"; not `npm start`, so launchd's SIGTERM
-  reaches the server and the stop pauses the team first). `KeepAlive`, `ThrottleInterval 10`, and an
-  `ExitTimeOut` of the shutdown pause plus 30 s (90 s by default; it follows `PROJECTMAN_SHUTDOWN_PAUSE_MS`
-  of the installing shell). Logs: `~/.projectman/logs/live-server.log`.
-- `com.projectman.live-watcher` runs one watcher round every 60 s (`StartInterval`, no `KeepAlive`, so
-  never two at once). Logs: `~/.projectman/logs/live-watcher.log`.
+1. On the administration Mac, the owner or the integrator acting on the owner's request runs
+   `npm run cloud -- deploy --ref <commit>`. Credentials stay under
+   `~/.config/projectman/cloud/`; see [AWS.md](AWS.md) for image verification and rollback.
+2. Update the Mac engine's own checkout to the same commit, run `npm ci`, then
+   `npm run build -w @projectman/server` and `npm run engine -- service install`.
+   The engine runs `apps/server/dist/index.js`; installation refuses a missing bundle.
+   These steps run on the engine machine, including when it is remote from the hub.
+3. On request, a deployment duty holder calls `publish_release`, first with
+   `preview: true`, then with the English release summary. This creates the annotated tag
+   and public GitHub release; it does not deploy anything.
 
-**What macOS shows (PM-514).** System Settings → General → Login Items & Extensions → "Allow in the
-Background" names a LaunchAgent after the first element of its `ProgramArguments`. The files therefore do
-not start `node` but a launcher of the checkout, which runs the command it is given:
-`~/projectman-live/scripts/live/bin/projectman-live` (the server) and
-`~/projectman-live/scripts/live/bin/projectman-release-watcher` (the watcher; each is `exec "$@"` and
-nothing else). The list shows two items, "projectman-live" and "projectman-release-watcher", next to any other
-node-based item. The items carry no developer signature, so macOS may still label them "Item from unidentified
-developer": that is the label of an unsigned file, not a sign of another program. To check which item is which,
-press the (i) button of an item: it shows the plist in Finder (`~/Library/LaunchAgents/com.projectman.live.plist`
-or `…live-watcher.plist`); its `ProgramArguments` starts with the launcher and then names node. The launchers
-are files of the checkout, so a release brings them along; `npm run live -- status` lists the launcher and
-node of each file and exits 1 when one does not exist.
+The owner's decision is the request to deploy and publish. No unused approval item is created.
+Historical releases and timeline events remain readable; migration 129 cancels open approvals
+of the retired watcher. Old cloud configuration keys `releaseTarget` and `hybrid` are ignored
+with a warning, and no `PROJECTMAN_RELEASE_*` settings are sent to the cloud.
 
-**The node path.** The install writes the stable path of `node`, not `process.execPath`: under Homebrew
-that is `/opt/homebrew/Cellar/node/<version>/bin/node`, which a `brew upgrade node` removes, after which the
-server would not start (`KeepAlive` does not help). The install takes the first `node` on the installing
-shell's `PATH` that is the running binary and has no `Cellar` directory in its name (`/opt/homebrew/bin/node`),
-and prints it (`node: …`, with a warning when only a versioned path exists). A file from before this change
-starts node itself (it appears as "node" in macOS), and `status` says so: run `npm run live -- install` once
-more. After an upgrade that moves node, `status` shows `node: … (MISSING …)` and exits 1; install again.
+## Single-mode recovery service
 
-launchd gives a job no shell environment. The server file therefore carries an allowlist taken from the
-shell that runs the install (`PATH`, `HOME`, `PORT`, `PROJECTMAN_HOME`, `PROJECTMAN_RELEASE_TARGET` and, when
-set there, the names in `PASSED_VARIABLES` of `scripts/live/plist.ts`). Billing variables, the integrator key
-and `PROJECTMAN_VERSION` (which would falsify the commit the watcher compares) are never written. The
-install prints the variable names, never the values. Only `PROJECTMAN_MODE=single` is served: a hybrid
-installation is refused.
+The [cloud cutover rollback](CLOUD-CUTOVER.md) can return to a single-mode server on a Mac.
+Its service installer is retained for this recovery path; it installs only `com.projectman.live`,
+which runs the compiled server through `scripts/live/bin/projectman-live`.
+It pauses a running server, stops it, verifies the installed build and resumes.
+The installer refuses a missing build or a hybrid-mode environment.
 
 ```sh
-npm run live -- install [--root ~/projectman-live] [--home ~/.projectman] [--port 4800] [--remote <github url>]
-npm run live -- status      # agents, running commit, pause, journal, latest backup, remote, gh login; exit 1 if an agent is not loaded
-npm run live -- uninstall   # stops both agents, removes both files; the server stays stopped
+npm run live -- install --root <checkout> --home <single-home> --port 4800
+npm run live -- status --home <single-home>
+npm run live -- uninstall --home <single-home>
 ```
 
-Run `install` in the checkout's shell session where `git ls-remote <remote>` and `gh auth status` work: the
-watcher needs both (it fetches the release commit, pushes the tag and creates the GitHub release). The
-remote is `--remote`, or the origin of the live checkout (a local-path origin is followed to its own
-origin); it must be a GitHub URL. The install pauses the team, stops a server that runs now (a loaded
-agent, or a process on the port that was started by hand), loads both agents, checks that the new server
-answers with the checkout's commit and resumes. If it does not come up, the agents are removed and the
-pause stays open: start the server by hand and run `npm run control -- resume`. The install and the
-uninstall refuse while a release is in progress (a journal exists).
-
-### What a round does
-
-The owner approves a release in the app (PM-491, PM-492). Each round asks `release_next` on the control
-socket; with nothing approved, or a pause the owners opened, it does nothing. For an approved release it:
-
-1. claims it (`release_claim`, with the live commit as the previous one) and writes the journal;
-2. **fetch** — clones the remote into `~/projectman-live-next`, checks that the commit is on `origin/main`,
-   checks it out; **build** — `npm ci`, `npm run build`; **test** — `npm run release-test` through the
-   heavy-run queue (`npm run heavy`, up to an hour of waiting): the test files that name
-   `process.env.PROJECTMAN_FULL_TEST_SANDBOX === '1'`, which the merge sandbox leaves out, run here with
-   the sandbox variables unset; **config_check** — every project in `~/.projectman/customization` loads with
-   the new build's loaders. A failure here reports the release failed; the live server was not touched;
-3. **pause** (`release <id>`), **stop** (`bootout`), **backup** (`sqlite3 .backup` into
-   `~/.projectman/release/backups/db-<time>-<previous commit>.sqlite`, mode 0600, `integrity_check`, the
-   newest ten are kept), **switch** (`~/projectman-live` becomes `~/projectman-live-prev-<commit>`, the
-   next build takes its place, `bootstrap`), **verify** (up to 2 minutes: the port listens,
-   `/api/setup` answers 200, the control socket reports the new commit);
-4. on success: resume, `release_report live`, then the **tag** (`vYYYY.M.D`, `.N` for the second release of
-   a day, annotated, pushed) and `gh release create --verify-tag`, then `release_report published`. Only the
-   two newest `-prev-` and `-failed-` directories are kept (the one just replaced always stays);
-5. on a failure from the pause on: the **rollback** puts back the previous build (the new one is kept as
-   `~/projectman-live-failed-<commit>`), restores the database from the backup, starts the old server,
-   checks its commit, resumes, and reports the release failed with `rolledBack: true`.
-
-Publishing a live release that failed (no network, GitHub refused) is reported as `publish_failed` and
-retried at most once an hour; the release stays live meanwhile.
-
-The journal (`~/.projectman/release/journal.json`, mode 0600) records the step before it starts. A round
-that was stopped (a reboot, a kill) is continued from it by the next one, and every part of the rollback can be
-repeated. Everything the watcher keeps is in `~/.projectman/release/` (journal, lock, backups): the
-sessions' sandboxes deny it, as the backups hold all data.
-
-### By hand
-
-- **Back to the previous build** (the new build is live but wrong, and the watcher is not in the middle of a
-  release): `launchctl bootout gui/$(id -u)/com.projectman.live`; move `~/projectman-live` aside and
-  `~/projectman-live-prev-<commit>` to `~/projectman-live`; if the new build migrated the database, restore the
-  newest backup (stop first; remove `db.sqlite-wal` and `-shm`; `cp` the backup to `db.sqlite.tmp`, `chmod 600`,
-  `mv` over `db.sqlite`; the older build refuses a database a newer build migrated); `launchctl bootstrap
-gui/$(id -u) ~/Library/LaunchAgents/com.projectman.live.plist`; `npm run control -- resume`.
-- **An unreadable or unfitting journal**: the watcher logs it every minute and touches nothing. Look at the
-  release in the app and at `npm run live -- status`; if the live server runs the old commit and the release is
-  `deploying`, delete the journal and the `-next` directory, and the watcher reports the release failed
-  ("lost its journal"); if the new commit is live, resume the pause (`npm run control -- resume`), delete the
-  journal and the watcher reports it live and publishes it. Deleting the journal is the only thing the
-  watcher cannot do for itself.
-- **A pause that was left open** (`release <id>` is the watcher's, anything else a person's):
-  `npm run control -- resume`.
-
-`switch-live.sh` and `config-dry-run.ts` of the integrator's folder are retired by this: the watcher does
-the switch, the backup, the rollback and the configuration check.
-
-## The hybrid release watcher (PM-751, part of PM-735)
-
-In hybrid mode (the board on the EC2 machine, the engine on the Mac) the release is not the watcher above but
-`npm run release`, the **hybrid release coordinator**. One release that the owner approved in the app is built and
-checked once, then moved to the cloud and to the Mac engine so that both run the same commit, or it ends in a
-program rollback that is verified, or in a recovery state that waits for a person. There is no command chain to
-run by hand. The owner's approval covers the whole chain and the program rollback; **restoring data is a separate
-decision** and the coordinator never does it. It runs only on the administration Mac, from a stable checkout
-that is not a member workspace; the cloud and AWS credentials stay in `~/.config/projectman/cloud/`, which no
-member session can read.
-
-```
-npm run release -- plan      --config <abs-file>   # read-only: what the next round would do
-npm run release -- watch     --config <abs-file>   # one round in the foreground
-npm run release -- install   --config <abs-file>   # the LaunchAgent: one round a minute
-npm run release -- status    --config <abs-file>   # one JSON line, no secrets
-npm run release -- uninstall --config <abs-file>   # removes the job, keeps the state
-```
-
-The configuration (version 1, mode 0600, under the protected cloud folder) names the controller id (a UUID that
-the cloud keeps as the owner of the deployment), the cloud configuration file, the state directory, the expected
-AWS account and EC2 instance, the board's https origin, the engine's id (a remote one, never `local`), the engine
-home and the folder of the prepared engine releases. A configuration that does not load arms nothing (exit 2).
-The AWS account and the instance are checked before every round, and the cloud's own `hybrid` target (PM-752)
-must carry the hash of this configuration's target.
-
-### What a round does
-
-1. **claim and prepare.** The next approved release is claimed through the cloud's deployment protocol
-   (`release_deploy_begin`, the one place that holds the attempt). The commit is built into one verified image
-   and engine package (the preparation check of PM-750); nothing is changed yet, and a failure here ends the
-   attempt with the live system untouched.
-2. **quiesce and drain.** The cloud pauses the work and the maintenance fence closes; the coordinator takes the
-   heavy-run queue lock and waits (up to the drain limit) until the cloud reports no running work. A timeout goes
-   back to the previous version.
-3. **import and cloud start.** The image reaches the machine over the verified SSH session and the cloud starts
-   it; `deploy` stops on the machine's own checks.
-4. **verify the cloud.** The cloud must report the new commit and its database schema must be one the engine can
-   use; an incompatible schema is `database_incompatible` and a recovery state, never an automatic restore.
-5. **the engine.** The engine's service is stopped (`bootout`, then proof that the process is gone: it is
-   **never killed**), its plist is saved first, the engine service is installed for the prepared checkout and
-   started, and the cloud must see the engine online with the new version. A job that is out of launchd proves
-   nothing about its process: after an interrupted stop, the recorded pid and the pid of the status file must be
-   gone too (waited for up to 2 minutes), or the attempt stops in `recovery_required` rather than start a second
-   engine on the same home. The same holds before the previous engine is loaded again.
-6. **live.** The coordinator reports the deployment live, resumes the work, and publishes the tag and the GitHub
-   release (`vYYYY.M.D[.N]`, annotated, pushed, `--verify-tag`). A publish that fails is retried by the next
-   rounds; the release stays live meanwhile.
-7. **rollback.** From the pause on, a refusal, a failed verification or a timeout puts the engine back (the saved
-   plist, byte for byte, with its hash checked) and then the cloud (its previous image), verifies both, resumes
-   and reports the release failed. If a step cannot be proved, the state is `recovery_required`.
-
-Every step is written in the journal (`<stateDir>/journal.json`, 0600) before it starts, and a round that was
-stopped (a reboot, a kill) continues from it; every part of the rollback can be repeated. Only one round runs at
-a time (`watch.lock`); a second one exits 2 and changes nothing. A corrupt or unreadable journal counts as an
-unfinished release: `install` and `uninstall` refuse, and the watcher touches nothing.
-
-### Exit codes and status
-
-`0` success, or no work (also a live release whose publish is still pending); `1` an operational failure or a
-verified rollback; `2` a safety, precondition or recovery refusal (also a bad configuration or another watcher);
-`64` a wrong command line. `status` prints `{installed, loaded, running, releaseId, phase, lastError}`;
-`lastError` is `{code, message}` with a fixed text from the coordinator's vocabulary, never a raw error, a path or
-an answer of the cloud. The same file (`last-error.json`) is cleared by the next successful round.
-
-### The LaunchAgent
-
-`install` writes `~/Library/LaunchAgents/com.projectman.hybrid-release-watcher.plist` for the stable checkout it
-runs from (it refuses a member workspace), with this node and `tsx`, the configuration argument and
-`StartInterval` 60. The job's environment is `HOME`, `PATH`, `LANG` and `TZ` only: no provider key and no AWS
-variable (the AWS profile comes from the cloud configuration). A job that is loaded and the same is `unchanged`; a
-different one is booted out first, and nothing is replaced while a round or a journal is active. It is **not** run
-by any card: the owner installs it, after the first hybrid release has been rehearsed.
-
-### When it stops
-
-- **`recovery_required`**: the coordinator proved nothing more it may do. Read `npm run release -- status`, the
-  release in the app (its deployment shows the phase) and the cloud with `npm run cloud -- release-control`
-  (`release_deploy_get`). Decide, as a person, whether the data must be restored (a separate decision with its
-  own approval). The coordinator never leaves `recovery_required` by itself and never deletes the journal: while
-  it stays, new releases are refused (`release_recovery_required`).
-- **A pause that was left open** after an interrupted round belongs to the deployment (`release <id>`); the
-  coordinator resumes it when it finishes the attempt. Do not resume it by hand while the journal is active.
-- **An engine that does not stop**: the coordinator waits 60 seconds and stops with a fixed code. It does not kill
-  the process; find out why it does not exit.
+The LaunchAgent has KeepAlive and allows the shutdown pause to finish. It records the
+installing shell's allowed environment names, never billing credentials or an integrator key.
+Logs stay in `<single-home>/logs/live-server.log`. This is a recovery service, not a second
+release path; there is no watcher, remote, journal or automatic tag publication.
 
 ## Keeping the Mac awake while the engine works (PM-1086)
 
@@ -393,9 +241,8 @@ nothing new crosses the server and engine boundary.
 ## Cloud deployment of the hybrid mode (PM-317)
 
 The data-preserving rollback from EC2 to the owner's Mac is in
-[CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). The live watcher above continues to support
-single mode only; a hybrid installation is updated by the hybrid release watcher (PM-751, the
-section above).
+[CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). The single-mode service is retained for that
+recovery path. Use the release procedure above to update the cloud and the Mac engine.
 
 The cloud side of a hybrid installation (`PROJECTMAN_MODE=cloud`, no AI session of its own, the
 engine on your Mac does the work) is a container: `deploy/cloud/Dockerfile`, with the Cloudflare
@@ -474,7 +321,7 @@ An MCP client (an AI tool working for the owner) can use the same keys over MCP 
 - Every project tool takes a required `project_key` (and a card key where it works on a card), and
   works only in projects where the key's holder is an owner right now. `list_projects` lists them.
 - `tools/list` follows the key's mode. A `super` key gets the shared project tools and the super tools
-  (hand-offs, `super_operate`, diagnostics, administration status and logs, `relay_owner_answer`); a
+  (hand-offs, `super_operate`, diagnostics, `relay_owner_answer`); a
   `read` key gets the read tools only. Legacy keys fail authentication with 401. A
   tool called directly that the mode does not allow is refused (`integrator_not_allowed`,
   `integrator_read_only`), and the member's session, decision and file tools are never offered.

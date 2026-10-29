@@ -160,7 +160,10 @@ in the context pack. Gemini's native `command_status` follows a running command;
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
-before hand-over and in fix rounds. When changing the shared `ErrorCode` union, update
+before hand-over and in fix rounds. When removing a capability, also search tests for its
+retired tool names, inbox kinds and route or file paths, then run the matching boundary tests:
+HTTP calls and string fixtures are not covered by import-based related selection.
+When changing the shared `ErrorCode` union, update
 `errors.codes` in `apps/web/src/i18n/hu.ts`, run `npm run typecheck -w @projectman/web`, and
 run the web i18n test listed above. Also run `npm run dead-code` from the repository root
 before hand-over and in fix rounds; it is fast and does not queue. Fix new findings rather
@@ -182,14 +185,12 @@ run: note on your card what did not run and why, and hand over; the merge test r
 Never run it another way, and do not ask anyone to run it outside your sandbox (PM-346, PM-656).
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
-owner's live instance is a separate checkout (`~/projectman-live`, port 4800, data in
-`~/.projectman`), updated only with the owner's approval. It runs under the `com.projectman.live`
-LaunchAgent (`npm run live -- install|status|uninstall`, `docs/DEPLOY.md`); after the owner approves
-a release in the app, the `com.projectman.live-watcher` agent builds, tests and switches it, with
-a rollback, then tags and publishes it. Never run a development
-build against `~/.projectman`: a database migrated by a newer build is refused by older ones.
-Open development instances at `http://127.0.0.1:5173`; the live instance's login cookie is on
-`localhost`.
+owner's live instance uses a cloud hub and a Mac engine, updated only on the owner's request:
+`npm run cloud -- deploy --ref <commit>`, then rebuild and reinstall the engine at the same commit
+(`docs/DEPLOY.md`). `publish_release` publishes on request after a preview; there is no release watcher.
+`npm run live -- install|status|uninstall` is retained only for single-mode disaster recovery.
+Never run a development build against `~/.projectman`: a database migrated by a newer build is
+refused by older ones. Open development instances at `http://127.0.0.1:5173`.
 
 ## Git
 

@@ -24,7 +24,7 @@ async function git(
 }
 
 /** HEAD is the commit and the checkout holds nothing else (ignored build output aside). */
-export async function assertCleanAt(
+async function assertCleanAt(
   context: Pick<CheckoutContext, 'deps'>,
   directory: string,
   commit: string,

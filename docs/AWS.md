@@ -364,29 +364,29 @@ name, so a second run changes nothing.
 The file is validated strictly (`version: 1`, no unknown field). A wrong field exits with status 2
 and names the field's path. `deploy/aws/config.example.json` has every field you usually set.
 
-| Field                                    | Default                                      | Meaning                                                                                                |
-| ---------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `aws.compute`                            | `ec2`                                        | only `ec2` exists; any other value is refused with a message that names the fix                        |
-| `aws.profile`                            | required                                     | the AWS CLI profile of compute, S3 and IAM; not `i` (the registrar profile)                            |
-| `aws.ec2`                                | required                                     | explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)                             |
-| `aws.region`                             | required                                     | for example `eu-west-1`                                                                                |
-| `aws.availabilityZone`                   | none                                         |                                                                                                        |
-| `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                       |
-| `aws.databaseBucket`, `aws.backupBucket` | required, different                          | S3 names, lowercase, no dots                                                                           |
-| `repository.url`                         | `https://github.com/janoist1/projectman.git` | what the machine builds                                                                                |
-| `cloudflare.zone`, `.hostname`           | required                                     | the zone (`example.com`) and the board's name in it (`board.example.com`, one label under the zone)    |
-| `cloudflare.feedbackHostname`            | none                                         | the feedback widget's own name (HYBRID.md); one label under the zone, not the board's                  |
-| `cloudflare.accountId`                   | the only account the token sees              | needed when the token sees more than one account                                                       |
-| `cloudflare.tunnelName`                  | `aws.instanceName`                           | the tunnel's name, and the prefix of the Access applications, policies and service tokens (`<N>`)      |
-| `cloudflare.tokenFile`                   | `<secrets store>/cloudflare-token`           | an absolute path or `~/…`                                                                              |
-| `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                     |
-| `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                      |
-| `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                            |
-| `releaseTarget`                          | none                                         | `{projectKey, repo}` the board releases; `deploy` sends it as `PROJECTMAN_RELEASE_TARGET`              |
-| `hybrid`                                 | none                                         | `{engineId, targetHash}` of a hybrid release (needs `releaseTarget`); `deploy` sends the two env lines |
-| `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                       |
-| `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                            |
-| `ses.profile`                            | `aws.profile`                                | the account of the SES identity and sender IAM user (PM-729 uses `i`); not the compute account         |
+| Field                                    | Default                                      | Meaning                                                                                             |
+| ---------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `aws.compute`                            | `ec2`                                        | only `ec2` exists; any other value is refused with a message that names the fix                     |
+| `aws.profile`                            | required                                     | the AWS CLI profile of compute, S3 and IAM; not `i` (the registrar profile)                         |
+| `aws.ec2`                                | required                                     | explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)                          |
+| `aws.region`                             | required                                     | for example `eu-west-1`                                                                             |
+| `aws.availabilityZone`                   | none                                         |                                                                                                     |
+| `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                    |
+| `aws.databaseBucket`, `aws.backupBucket` | required, different                          | S3 names, lowercase, no dots                                                                        |
+| `repository.url`                         | `https://github.com/janoist1/projectman.git` | what the machine builds                                                                             |
+| `cloudflare.zone`, `.hostname`           | required                                     | the zone (`example.com`) and the board's name in it (`board.example.com`, one label under the zone) |
+| `cloudflare.feedbackHostname`            | none                                         | the feedback widget's own name (HYBRID.md); one label under the zone, not the board's               |
+| `cloudflare.accountId`                   | the only account the token sees              | needed when the token sees more than one account                                                    |
+| `cloudflare.tunnelName`                  | `aws.instanceName`                           | the tunnel's name, and the prefix of the Access applications, policies and service tokens (`<N>`)   |
+| `cloudflare.tokenFile`                   | `<secrets store>/cloudflare-token`           | an absolute path or `~/…`                                                                           |
+| `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                  |
+| `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                   |
+| `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                         |
+| `releaseTarget`                          | none                                         | Retired; accepted for compatibility and ignored with a warning                                      |
+| `hybrid`                                 | none                                         | Retired; accepted for compatibility and ignored with a warning                                      |
+| `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                    |
+| `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                         |
+| `ses.profile`                            | `aws.profile`                                | the account of the SES identity and sender IAM user (PM-729 uses `i`); not the compute account      |
 
 `cloud.env` is a docker env-file: `NAME=value`, one per line, no quotes. `npm run cloud` sets only
 the names it owns and keeps every other line and comment: `aws` writes the S3 names and keys,
@@ -538,61 +538,12 @@ mode 700. The board must be stopped first (`npm run cloud -- stop`): a copy of a
 copy. A failed download removes the folder. The command prints what in the copy the way back would
 refuse.
 
-### Release control (PM-749, part of PM-735)
+### Retired release configuration (PM-1113)
 
-`npm run cloud -- release-control [--config <file>]` is how the release watcher on your Mac reaches the cloud
-board's local control socket (`/data/control.sock` in the container) over the same verified SSH session (EC2/SSM)
-that `deploy` uses. No port is published and no live home is mounted: the machine runs one fixed
-command, `docker exec -i -u 10001:10001 projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin
-LANG=C.UTF-8 /usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock`, and nothing from the
-request becomes a command, a path, a container or a user. `env -i` runs before Node and clears the environment
-`docker exec` would inherit from the container (PM-754): the relay sees only `PATH` and `LANG`, never the
-board's `NODE_OPTIONS`, `NODE_PATH`, AWS, backup or provider settings, and there is no fallback to the inherited
-environment. It relies on `/usr/bin/env` and `/usr/local/bin/node` of the official Node-based image; if either is
-missing the call fails as a transport error. What the channel does and does not protect is in
-[SECURITY.md](SECURITY.md) "The control socket and the admin channel".
-
-- **Input.** Exactly one `ControlRequest` JSON line on the standard input: UTF-8, at most 16 KiB, ending in a
-  newline, then end of input. Anything else (two lines, text after the newline, broken JSON, an unknown or
-  malformed operation) is refused locally before any connection, with status 2. There is no approval,
-  proposal or rejection operation: those stay with the person in the board.
-- **Output.** The standard output is the one `ControlResponse` line (at most 64 KiB), re-serialised from the
-  parsed value. Diagnostics and the session report go to the standard error and hold no secret. A
-  domain refusal such as `{"ok":false,"error":{"code":"release_state_conflict",…}}` is an answer: it is passed
-  on unchanged and the exit status is 0.
-- **Exit status.** `0` the machine answered (the answer may say `ok:false`); `1` the transport failed (SSH/SSM,
-  the relay, no or half an answer, a timeout); `2` refused before or by the machine (invalid input, no
-  `releaseTarget` for a `release_*` operation, the board is not running); `64` a wrong flag or argument.
-- **No retry.** A request is sent once. When the answer of a `release_claim` or `release_report` is lost (status
-  1), do not send it again blindly: read the release with `{"op":"release_get","releaseId":"…"}` (it returns
-  every state, terminal ones too) and decide from the state. A claim is only approved → deploying, and a report
-  cannot skip a state, so a repeated request is refused rather than applied twice.
-- **Operations.** `release_next`, `release_get`, `release_claim`, `release_report` and `status` as on the local
-  socket; `engine_status` answers `{"ok":true,"pause":…,"engines":[{id,online,version,lastSeenAt}]}` from the
-  cloud engine registry (`[]` in single mode), which is how the watcher sees which engine runs which version.
-- **Release target.** The optional `releaseTarget: {"projectKey": "PM", "repo": "projectman"}` of `config.json`
-  becomes `PROJECTMAN_RELEASE_TARGET=PM/projectman` in the `cloud.env` that `deploy` sends (your local file is
-  not changed). `release_get`, `release_claim` and `release_report` all refuse a release whose project or
-  repository is not exactly that target (`release_not_configured`). Without the field nothing changes: the board
-  does not release, and `release-control` refuses release operations locally.
-- **Hybrid release (PM-752).** The optional `hybrid: {"engineId": "eng_…", "targetHash": "<64 hex>"}` (a remote
-  engine, never `local`; refused without `releaseTarget`) becomes `PROJECTMAN_RELEASE_ENGINE_ID` and
-  `PROJECTMAN_RELEASE_TARGET_HASH` in the sent `cloud.env`, replacing any such line; your local file is not
-  changed. The server then keeps the deployment attempt and the maintenance fence, takes the
-  `release_deploy_get`, `release_deploy_begin` and `release_deploy_change` operations on this channel (the
-  request must stay within 16 KiB and the answer within 64 KiB), and refuses the single-target `release_claim` and
-  `release_report` (`release_protocol_unavailable`). The first hybrid release cannot be driven by a build without
-  this protocol.
-
-The hybrid release coordinator (PM-751, `npm run release`, [DEPLOY.md](DEPLOY.md) "The hybrid release watcher")
-is the caller of this channel: it uses `release_next`, `release_get`, `engine_status` and the PM-752
-`release_deploy_*` operations through this relay, never the single-target `release_claim` and `release_report`.
-Its configuration names the same `hybrid` target (`engineId`, `targetHash`) that `deploy` sends.
-
-Does this work on a remote engine? The control socket and the release records are the cloud server's; the
-engines are not involved. What crosses the Mac/machine boundary is one request line and one response line over
-the existing host session, nothing more. An engine's version reaches the server through the engine registry, and
-`engine_status` only reports it.
+The old `releaseTarget` and `hybrid` keys are accepted for existing configuration files,
+but ignored with a warning. Deployment strips stale `PROJECTMAN_RELEASE_*` lines from the
+environment sent to the host. There is no `release-control` or `release-probe` command.
+Use `npm run cloud -- deploy --ref <commit>` and the publication procedure in [DEPLOY.md](DEPLOY.md).
 
 ### What was not tried
 
@@ -1182,6 +1133,6 @@ provisioning CLI; the engine gets no key, no queue and no protocol change.
 
 - A live trial: nothing here was run against a real AWS account by the team. The first real run is
   yours; start with `preflight` and `aws --dry-run`.
-- The release watcher (`com.projectman.live-watcher`) still updates the Mac, not the cloud machine.
+- Update the cloud with the owner-requested `cloud deploy` and rebuild/reinstall the Mac engine at the same commit (PM-1113; [DEPLOY.md](DEPLOY.md)).
 - Several machines: one machine means one database writer.
 - AWS Organizations, SSO session renewal, billing alarms: set them up in your AWS account.

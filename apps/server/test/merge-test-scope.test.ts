@@ -108,7 +108,7 @@ describe('merge test scope', () => {
       'deploy/cloudflare/a.yml',
       'deploy/mac/a.plist',
       'deploy/other/a.yml',
-      'deploy/projectman-administration.service',
+      'deploy/projectman-other.service',
       'apps/server/test/helpers/cloud-fixture.ts',
       'apps/server/test/fixtures/cloud-fake.mjs',
       'apps/server/test/cloud-sub/a.test.ts',
@@ -150,11 +150,10 @@ describe('merge test scope', () => {
         'apps/server/test/architecture',
         'apps/server/test/merge-test-',
         // The real Unix socket boundary (PM-754): the exact files, so a cloud merge cannot skip them.
-        'apps/server/test/control-relay.integration.test.ts',
         'apps/server/test/control-socket.integration.test.ts',
       ]);
       expect(scopeLine(cloud)).toBe(
-        'merge-test scope: cloud; workspaces: apps/server; test filters: apps/server/test/cloud-, apps/server/test/deploy-, apps/server/test/release-, apps/server/test/architecture/, apps/server/test/merge-test-, apps/server/test/control-relay.integration.test.ts, apps/server/test/control-socket.integration.test.ts; fallback: none',
+        'merge-test scope: cloud; workspaces: apps/server; test filters: apps/server/test/cloud-, apps/server/test/deploy-, apps/server/test/release-, apps/server/test/architecture/, apps/server/test/merge-test-, apps/server/test/control-socket.integration.test.ts; fallback: none',
       );
     });
   });

@@ -332,14 +332,17 @@ describe('websocket', () => {
   it('closes a client that does not read its output, instead of queueing for it without limit', async () => {
     const { ws, events } = await connect();
     await waitFor(events, ofType('hello'));
+    ws.send(JSON.stringify({ type: 'subscribe_project', projectKey: 'AR' }));
+    ws.send('not json');
+    await waitFor(events, ofType('error'));
     const closed = new Promise<number>((resolve) =>
       (ws as unknown as { on(event: 'close', l: (code: number) => void): void }).on('close', resolve),
     );
     const [server] = [...h.app.websocketServer.clients];
     Object.defineProperty(server, 'bufferedAmount', { value: 64 * 1024 * 1024 });
-    h.app.projectman.domain.bus.publish({ type: 'operator_grant_changed' });
+    h.app.projectman.domain.bus.publish({ type: 'config_changed', projectKey: 'AR', version: 'v1' });
     expect(await closed).toBe(1013);
-    expect(events.some((e) => e.type === 'operator_grant_changed')).toBe(false);
+    expect(events.some((e) => e.type === 'config_changed')).toBe(false);
   });
 
   it('streams fetched provider usage and changed members to project subscribers', async () => {

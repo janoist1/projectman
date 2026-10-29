@@ -2,13 +2,12 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import type { CloudConfig } from './config';
 import type { CloudContext } from './context';
 import type { CloudDeps } from './deps';
 import { badUsage, CloudError, refused } from './errors';
 import type { HostSession } from './host';
 
-export const sourceShaSchema = z
+const sourceShaSchema = z
   .string()
   .length(40)
   .regex(/^[0-9a-f]{40}$/);
@@ -16,7 +15,7 @@ export const imageIdSchema = z
   .string()
   .length(71)
   .regex(/^sha256:[0-9a-f]{64}$/);
-export const platformSchema = z.enum(['linux/arm64']);
+const platformSchema = z.enum(['linux/arm64']);
 const imageSchema = z
   .strictObject({
     platform: platformSchema,
@@ -34,8 +33,8 @@ export const bundleSchema = z.strictObject({
   sourceSha: sourceShaSchema,
   images: z.array(imageSchema).length(1),
 });
-export type BundleImage = z.output<typeof imageSchema>;
-export type Platform = z.output<typeof platformSchema>;
+type BundleImage = z.output<typeof imageSchema>;
+type Platform = z.output<typeof platformSchema>;
 
 /** The cloud machine is arm64 only (PM-1116). */
 function targetPlatform(): Platform {
@@ -242,40 +241,6 @@ async function buildArchive(
   const digest = archiveDigest(input.file);
   await verifyArchive(context, input.file, imageId, input.platform, input.ref);
   return { imageId, ...digest };
-}
-
-/**
- * The administration adapter's image build (PM-764): one platform of the tracked sources of `ref` in the
- * repository at `repo`, built into a throwaway directory under `workDir`. The archive is verified against
- * the Buildx metadata and hashed; it is neither loaded into Docker nor pushed anywhere, and the sources and
- * the archive are removed again — only the digests leave. No working tree is read: `git archive` exports the
- * commit, so an untracked file of the builder's tree cannot reach the build context.
- */
-export async function buildPinnedImage(
-  context: ImageBuildTools,
-  input: { repo: string; ref: string; platform: string; workDir: string; signal?: AbortSignal },
-): Promise<{ platform: string; imageId: string; archiveSha256: string; archiveBytes: number }> {
-  if (!sourceShaSchema.safeParse(input.ref).success)
-    throw badUsage('an image build needs a 40 lowercase hexadecimal commit');
-  const platform = platformSchema.parse(input.platform);
-  fs.mkdirSync(input.workDir, { recursive: true, mode: 0o700 });
-  const out = fs.mkdtempSync(path.join(input.workDir, 'build-'));
-  try {
-    const source = path.join(out, 'source');
-    fs.mkdirSync(source, { mode: 0o700 });
-    await exportTrackedSource(context, input.repo, input.ref, source);
-    const built = await buildArchive(context, {
-      source,
-      ref: input.ref,
-      platform,
-      file: path.join(out, 'image.tar'),
-      metadata: path.join(out, 'metadata.json'),
-      ...(input.signal ? { signal: input.signal } : {}),
-    });
-    return { platform, ...built };
-  } finally {
-    fs.rmSync(out, { recursive: true, force: true });
-  }
 }
 
 /** Validate loaded image content, never trust a tag or Buildx's platform declaration alone. */

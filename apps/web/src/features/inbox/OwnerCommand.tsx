@@ -1,9 +1,9 @@
 import type { ExtractedOwnerCommand } from './commandPresentation';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { SuperOperationQuestionPayload } from '@projectman/shared';
-import { Button, ButtonLink } from '../../components/Button';
+import { Button } from '../../components/Button';
 import { ErrorBanner } from '../../components/ErrorBanner';
-import { useOperatorGrant, useEngines } from '../../api/queries';
+import { useEngines } from '../../api/queries';
 import { t } from '../../i18n/t';
 import { visibleCommandText } from './commandPresentation';
 import styles from './OwnerCommand.module.css';
@@ -11,19 +11,16 @@ import styles from './OwnerCommand.module.css';
 export function OwnerCommandBody({
   command,
   payload,
-  projectKey,
   loading,
   failed,
   retry,
 }: {
   command: ExtractedOwnerCommand | null;
   payload: SuperOperationQuestionPayload;
-  projectKey: string;
   loading: boolean;
   failed: boolean;
   retry: () => void;
 }) {
-  const grant = useOperatorGrant();
   const engines = useEngines(command?.target.kind === 'engine');
   const commandElement = useRef<HTMLPreElement>(null);
   const [scrollable, setScrollable] = useState(false);
@@ -92,16 +89,6 @@ export function OwnerCommandBody({
           </p>
           <p>{t('ownerCommand.outputPrivacy')}</p>
         </>
-      ) : null}
-      {grant.data?.active === false ? (
-        <div className={styles.warning}>
-          <span>{t('ownerCommand.noGrant')}</span>
-          {grant.data.canManage ? (
-            <ButtonLink variant="secondary" to={`/p/${projectKey}/settings/integrator#operator-grant`}>
-              {t('operatorGrant.grant')}
-            </ButtonLink>
-          ) : null}
-        </div>
       ) : null}
     </div>
   );

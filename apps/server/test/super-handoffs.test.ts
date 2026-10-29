@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { connectedActorOf, TODO_CANNOT_OPTION, TODO_DONE_OPTION } from '@projectman/shared';
-import type { ConnectedActor, InboxOption, SuperCommand, SuperOperation } from '@projectman/shared';
+import type { ConnectedActor, InboxOption, NewSuperCommand, SuperOperation } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -19,8 +19,8 @@ const HOUR = 60 * 60 * 1000;
 const SUPER_ACTOR: ConnectedActor = connectedActorOf('owner', { id: KEY.id, prefix: KEY.prefix });
 
 // The Operator asks (no token); the integrator executes (with the owner's token). Fictional commands only.
-const PAUSE: SuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
-const RETIRE: SuperCommand = { kind: 'operate', operation: { op: 'member_retire', handle: 'dev-1' } };
+const PAUSE: NewSuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
+const RETIRE: NewSuperCommand = { kind: 'operate', operation: { op: 'member_retire', handle: 'dev-1' } };
 
 describe('durable super-mode handoff (PM-762)', () => {
   let h: DomainHarness;
@@ -107,7 +107,7 @@ describe('durable super-mode handoff (PM-762)', () => {
   };
 
   const request = (
-    command: SuperCommand,
+    command: NewSuperCommand,
     extra: Partial<{
       requestId: string;
       reason: string;
@@ -253,18 +253,18 @@ describe('durable super-mode handoff (PM-762)', () => {
       expect(stored(handoff.id).state).toBe('pending');
     });
 
-    it('answers 503 when this installation has no executor for the kind, and leaves the handoff pending', async () => {
+    it('reads a legacy administration handoff and refuses to execute it', async () => {
       await boot();
-      // `operate` has its real executor since PM-831; the administration adapter is not wired in this harness.
-      const handoff = await request({
-        kind: 'administration',
-        request: { kind: 'deploy', releaseId: 'rel_1' },
-      });
+      const handoff = await request({ kind: 'task_create', request: { title: 'Legacy fixture' } });
+      const command = { kind: 'administration', request: { retiredShape: true } };
+      h.repos.db
+        .prepare('UPDATE super_handoffs SET command = ? WHERE id = ?')
+        .run(JSON.stringify(command), handoff.id);
+      expect(h.domain.superHandoffs.handoff('AR', handoff.id).command).toEqual(command);
       await expect(execute(handoff.id, randomUUID())).rejects.toMatchObject({
-        code: 'super_executor_unavailable',
-        status: 503,
+        code: 'administration_unavailable',
       });
-      expect(stored(handoff.id)).toMatchObject({ state: 'pending', operationId: null });
+      expect(stored(handoff.id).state).toBe('pending');
     });
 
     it('refuses what it cannot classify, and runs nothing (fail closed)', async () => {
@@ -374,7 +374,7 @@ describe('durable super-mode handoff (PM-762)', () => {
 
     describe('a change of who holds an approval (PM-1010)', () => {
       // The test template's `code-review-ok` is set by the code review duty.
-      const GIVE_DEVELOPERS_REVIEW: SuperCommand = {
+      const GIVE_DEVELOPERS_REVIEW: NewSuperCommand = {
         kind: 'operate',
         operation: {
           op: 'config_patch',

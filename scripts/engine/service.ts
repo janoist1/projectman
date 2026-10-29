@@ -170,6 +170,12 @@ export async function installService(options: ServiceOptions): Promise<void> {
   const templateFile = path.join(options.root, PLIST_TEMPLATE);
   if (!existsSync(templateFile))
     throw new EngineConfigError('service_template', `The plist template ${templateFile} does not exist.`);
+  const bundle = path.join(options.root, 'apps/server/dist/index.js');
+  if (!existsSync(bundle))
+    throw new EngineConfigError(
+      'service_build_missing',
+      'The engine has no built server: run npm run build -w @projectman/server before installing the service.',
+    );
   const paths = servicePaths(options);
   if (existsSync(paths.plist)) {
     const other = installedHome(readFileSync(paths.plist, 'utf8'));

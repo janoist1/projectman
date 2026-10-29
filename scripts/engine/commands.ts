@@ -15,7 +15,6 @@ import {
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import type { EngineStatus } from '../../apps/server/src/engine-link/engine-status';
 import { assertHomeMayStart } from '../../apps/server/src/instance';
-import { defaultExec, moveWorkRoot } from './move-work-root';
 import type { Exec } from './move-work-root';
 import { LOG_LINES_DEFAULT, LOG_LINES_MAX, tailLines } from './logs';
 import {
@@ -437,6 +436,8 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         if (sub === undefined || rest.length > 0) throw new UsageError('move-work-root <absolute path>');
         const config = loadEngineConfig(home);
         const launchd = io.launchd;
+        // Loaded here only: the menu bar polls `status` and `logs`, which must not pay for its git and work-root modules.
+        const { defaultExec, moveWorkRoot } = await import('./move-work-root');
         return await moveWorkRoot({
           home,
           config,

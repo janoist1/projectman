@@ -1985,8 +1985,12 @@ workers follow the machine's size.
   The app re-reads the engine service's plist before every CLI call to follow release checkout
   changes; only when that plist is absent does it use `menubar.json`. It calls the local
   `scripts/engine/cli.ts`, takes `overall` from `status --json` without deriving engine state,
-  and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s while
-  running or visible, 60 s otherwise; 2 s while awaiting an action's target, up to 120 s).
+  and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s only
+  while the menu or the details window is open, 60 s otherwise even if sessions run, and a poll runs
+  on every menu open; 2 s while awaiting an action's target, up to 120 s). Each poll starts a node
+  process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the
+  `engine-config` import of the whole kernel barrel (`effect` included) remains the main cost
+  (PM-1110).
   **Remote engine:** the app and CLI both run on the engine's Mac; nothing crosses the
   server/engine boundary. Linux and Windows are unsupported. Existing inventory entry:
   “Engine service (launchd)” (its plist is read, not changed by the menu app).
@@ -4633,6 +4637,13 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `packages/shared/src/domain/merge-input.ts` (PM-659), also used by the server's train storage;
   `engine-host/merge-input.ts` still runs `git check-ref-format --branch` after the shared branch
   syntax check. No git or process crosses into server-side DB validation.
+  Which suites cover the remote path (PM-1110): the cloud half of the merge over a fake peer is
+  `core/tasks/tests/merges.test.ts` (`createCloudRemote`) and `engine-link/remote/remote.test.ts`; the engine half
+  (schemas, limits, check checkout protection, a link lost during a full test) is
+  `engine-link/engine-handlers.test.ts`, `engine-limit.test.ts` and `rpc.test.ts`; the real link, both real ends,
+  is `test/cloud-engine.test.ts` and `test/engine-link.test.ts`, which cover the hand-over and the session, not a
+  merge. No suite yet drives a merge (`merge.checkout_for_check`, the full test, `merge.release_check`) over the
+  real link end to end.
   For a train (PM-660), the server calls the same build operation for every approved source
   and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
   full_test.run. The manifest, ordered locks and attribution stay on the server; all members

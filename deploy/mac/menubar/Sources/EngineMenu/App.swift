@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func scheduleRefresh() {
         timer?.invalidate()
         guard !commandRunning, !fetching else { return }
-        let interval: TimeInterval = state.action != nil ? 2 : (state.model.active || menuOpen || window != nil ? 15 : 60)
+        let interval: TimeInterval = state.action != nil ? 2 : (menuOpen || window != nil ? 15 : 60)
         let remaining = max(0.1, interval - Date().timeIntervalSince(lastFetch))
         timer = Timer(timeInterval: remaining, repeats: false) { [weak self] _ in self?.refresh() }
         RunLoop.main.add(timer!, forMode: .common)

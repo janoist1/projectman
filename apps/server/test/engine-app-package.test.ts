@@ -125,7 +125,13 @@ class World {
       fs.mkdirSync(path.dirname(path.join(run.cwd, file)), { recursive: true });
       fs.writeFileSync(path.join(run.cwd, file), 'built');
     };
-    if (run.command.includes('npm ci')) write('node_modules/.package-lock.json');
+    if (run.command.includes('npm ci')) {
+      write('node_modules/.package-lock.json');
+      // npm links every workspace; the engine ships only some of them.
+      fs.mkdirSync(path.join(run.cwd, 'node_modules/@projectman'), { recursive: true });
+      fs.symlinkSync('../../packages/shared', path.join(run.cwd, 'node_modules/@projectman/shared'));
+      fs.symlinkSync('../../apps/web', path.join(run.cwd, 'node_modules/@projectman/web'));
+    }
     if (run.command.includes('npm run build')) write('apps/server/dist/index.js');
     if (run.command.includes('bundle-cli.mjs')) write('scripts/engine/cli.js');
     return done(0, run.command.includes('node --version') ? `v${NODE_VERSION}\n` : '');
@@ -215,6 +221,23 @@ describe('engine package build', () => {
     for (const run of world.sandboxRuns) expect(run.env.PATH).toMatch(/\/pm-engine-app-[^/]+\/node\/bin:/);
     expect(fs.readdirSync(world.out)).toEqual([COMMIT]);
     expect(fs.readdirSync(world.sandboxTmp)).toEqual([]);
+  });
+
+  it('keeps no dangling symlink in the package, only links to what it ships', async () => {
+    const { root } = await world.build();
+    const links = (directory: string): string[] =>
+      fs
+        .readdirSync(directory, { withFileTypes: true })
+        .flatMap((entry) =>
+          entry.isSymbolicLink()
+            ? [path.join(directory, entry.name)]
+            : entry.isDirectory()
+              ? links(path.join(directory, entry.name))
+              : [],
+        );
+    const found = links(root);
+    expect(found.filter((link) => !fs.existsSync(link))).toEqual([]);
+    expect(found).toEqual([path.join(root, 'node_modules/@projectman/shared')]);
   });
 
   it('records no tag for a commit without a release tag', async () => {

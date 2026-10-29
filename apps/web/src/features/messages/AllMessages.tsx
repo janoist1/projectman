@@ -13,7 +13,7 @@ import { Markdown } from '../../components/Markdown';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
-import { actorLabel, isOwnActor, recordActor, nameOf, namesOf } from '../../lib/members';
+import { actorLabel, distinctMembers, isOwnActor, recordActor, nameOf, namesOf } from '../../lib/members';
 import { attachmentPreview, plainText } from './conversations';
 import { Icon } from '../../components/Icon';
 import { MessageAttachments } from './MessageAttachments';
@@ -78,7 +78,7 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
     if (opening && isUnreadBy(message, myHandle)) readMessages.mutate([message.id]);
   };
 
-  const memberOptions = [...members.values()].filter(
+  const memberOptions = distinctMembers(members).filter(
     (member) => member.status !== 'retired' || member.handle === filter.member,
   );
   const taskOptions = board.data?.tasks ?? [];

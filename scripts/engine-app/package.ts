@@ -175,6 +175,27 @@ function copyTree(from: string, to: string): void {
   fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true });
 }
 
+/**
+ * Removes the symlinks under `directory` whose target is not in the package, and returns them (relative to
+ * `directory`). The workspace links of the packages the engine does not ship (`apps/web`, the feedback widget)
+ * would fail `codesign --verify --deep --strict`. Links are never followed while walking.
+ */
+function removeDanglingLinks(directory: string): string[] {
+  const removed: string[] = [];
+  const walk = (current: string) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const file = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) {
+        if (fs.existsSync(file)) continue;
+        fs.unlinkSync(file);
+        removed.push(path.relative(directory, file));
+      } else if (entry.isDirectory()) walk(file);
+    }
+  };
+  walk(directory);
+  return removed;
+}
+
 /** The package's files from the built checkout, the bundled node and the manifest. */
 function assemble(checkout: string, nodeDir: string, stage: string, manifest: EnginePackageManifest): void {
   for (const relative of REQUIRED_PATHS)
@@ -254,6 +275,7 @@ export async function buildEnginePackage(
     fs.mkdirSync(outDir, { recursive: true });
     staging = fs.mkdtempSync(path.join(outDir, `.${commit}.${randomBytes(4).toString('hex')}-`));
     assemble(checkout, nodeDir, staging, manifest);
+    for (const link of removeDanglingLinks(staging)) deps.out(`removed dangling link ${link}`);
     fs.chmodSync(staging, 0o755);
     assertTargetFree(target);
     if (fs.existsSync(target)) fs.rmdirSync(target);

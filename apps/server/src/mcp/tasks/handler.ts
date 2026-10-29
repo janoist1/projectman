@@ -30,7 +30,6 @@ import type { CardQuestions } from '../../core/inbox';
 import { DomainError } from '../../kernel';
 import { visibleTaskDetail, visibleTimelineEvent } from '../../core/projects';
 import type { Viewer } from '../../core/projects';
-import type { ProjectFocusService } from '../../core/tasks';
 import type { SessionCloser } from '../../runtime/sessions';
 import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { TaskService, TaskWaits } from '../../core/tasks';
@@ -54,7 +53,6 @@ export class TaskTools implements TaskToolsHandler {
   private readonly attachments: Pick<AttachmentOperations, 'list'>;
   private readonly sessions: Pick<SessionOrchestrator, 'cardWorkers' | 'cardWorkersFor'>;
   private readonly cardQuestions: Pick<CardQuestions, 'list'>;
-  private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
   private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly closer: Pick<SessionCloser, 'workReturned'>;
   constructor(deps: {
@@ -68,7 +66,6 @@ export class TaskTools implements TaskToolsHandler {
     attachments: Pick<AttachmentOperations, 'list'>;
     sessions: Pick<SessionOrchestrator, 'cardWorkers' | 'cardWorkersFor'>;
     cardQuestions: Pick<CardQuestions, 'list'>;
-    projectFocus: Pick<ProjectFocusService, 'places'>;
     taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
     closer: Pick<SessionCloser, 'workReturned'>;
   }) {
@@ -79,7 +76,6 @@ export class TaskTools implements TaskToolsHandler {
     this.attachments = deps.attachments;
     this.sessions = deps.sessions;
     this.cardQuestions = deps.cardQuestions;
-    this.projectFocus = deps.projectFocus;
     this.taskWaits = deps.taskWaits;
     this.closer = deps.closer;
   }
@@ -95,7 +91,6 @@ export class TaskTools implements TaskToolsHandler {
         throw new TeamToolError('invalid', 'limit must be an integer between 1 and 200.');
       }
       const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
-      const places = this.projectFocus.places(ctx.projectKey);
       const cards = this.tasks
         .list(ctx.projectKey)
         .filter(
@@ -122,7 +117,6 @@ export class TaskTools implements TaskToolsHandler {
             ...(kind === 'theme' ? { kind } : {}),
             ...(complexity ? { complexity: complexity.points } : {}),
             ...(priority !== null ? { priority } : {}),
-            ...(places.has(key) ? { focus: places.get(key) } : {}),
             ...(wait ? { waitsFor: taskWaitShort(wait) } : {}),
           };
         },
@@ -258,7 +252,6 @@ export class TaskTools implements TaskToolsHandler {
     const themeCard = detail.task.themeKey ? this.tasks.find(ctx.projectKey, detail.task.themeKey) : null;
     const theme = isTheme(detail.task) ? this.tasks.themeOf(ctx.projectKey, taskKey) : null;
     const cardWorkers = this.sessions.cardWorkersFor(config, detail.task, ctx.member);
-    const focus = this.projectFocus.places(ctx.projectKey).get(taskKey);
     const wait = this.taskWaits.ofCard(config, detail.task);
     const mergeChecks = this.ctx.repos.mergeCheckRuns.list({
       projectKey: ctx.projectKey,
@@ -270,7 +263,6 @@ export class TaskTools implements TaskToolsHandler {
       ...(mergeChecks.length > 0 ? { mergeChecks } : {}),
       ...(wait ? { wait } : {}),
       effectiveRepo: effectiveRepo(config, detail.task),
-      ...(focus ? { focus } : {}),
       repoChoiceNeeded: needsRepoChoice(config, detail.task),
       relations: this.tasks.relationsOf(ctx.projectKey, taskKey),
       ...(themeCard

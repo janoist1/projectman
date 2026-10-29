@@ -238,10 +238,6 @@ import {
   DEFAULT_CLOSED_CARDS_DAYS,
   isClosedSince,
   measureClosedCard,
-  PROJECT_FOCUS_MAX_ITEMS,
-  ProjectFocusAddRequest,
-  ProjectFocusMoveRequest,
-  projectFocusRefusal,
   taskWait,
   waitHolders,
   waitWorkers,
@@ -305,7 +301,6 @@ import type {
   TaskMergeState,
   TaskMerged,
   PlanUsage,
-  ProjectFocusItem,
   ReleaseStep,
   ScheduleRun,
   ServerEvent,
@@ -504,12 +499,6 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
-  /** The project's focus (PM-427), in order; a test or a screenshot scenario fills it. */
-  focusItems: ProjectFocusItem[] = [];
-  /** While set, the focus cannot be read (the strip's load error). */
-  focusLoadFails = false;
-  /** While set, every focus write is refused with this error (the panel's save error). */
-  focusSaveError: { status: number; code: ErrorCode } | null = null;
   integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
   integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
   superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
@@ -2853,7 +2842,6 @@ export class MockBackend {
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
     if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
-    if (/^\/focus(\/|$)/.test(rest)) return this.projectFocus(method, rest, body, query);
     if (rest === '/measure/closed-cards' && method === 'GET')
       return ok(this.closedCardsMeasure(Number(query.get('days') ?? DEFAULT_CLOSED_CARDS_DAYS)));
 
@@ -6585,111 +6573,6 @@ export class MockBackend {
     else if (rest === '/pause/force') this.pauses.force('project');
     else this.pauses.pauseProject();
     return ok(this.pauses.projectView());
-  }
-
-  /**
-   * The project's focus routes (PM-427): every member reads it (a client too, PM-79), whoever the shared rule
-   * allows sets it. A write replaces the list, records `focus_changed` (a move has no card) and tells the open pages.
-   */
-  private projectFocus(method: string, rest: string, body: unknown, query: URLSearchParams): MockResponse {
-    if (!this.findMember(this.viewerHandle)) return error(403, 'insufficient_access', 'Members only');
-    const view = () => ({ items: clone(this.focusItems), canEdit: this.mayEditFocus() });
-    if (rest === '/focus' && method === 'GET') {
-      if (this.focusLoadFails) return error(500, 'internal_error', 'The focus could not be read');
-      return ok(view());
-    }
-    if (rest === '/focus/changes' && method === 'GET') {
-      const limit = Number(query.get('limit') ?? 50);
-      const events = this.timeline.filter((event) => event.type === 'focus_changed').reverse();
-      return ok({ events: clone(events.slice(0, limit)) });
-    }
-    const refusal = projectFocusRefusal(this.config, this.viewerActor());
-    if (refusal) return error(403, refusal, 'The viewer may not set the focus');
-    if (this.focusSaveError) {
-      const { status, code } = this.focusSaveError;
-      return error(status, code, 'The focus could not be saved');
-    }
-    const item = /^\/focus\/items\/([^/]+)$/.exec(rest);
-    if (rest === '/focus/items' && method === 'POST') {
-      const input = parseBody(ProjectFocusAddRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid focus request');
-      const task = this.findTask(input.key);
-      if (!task) return error(404, 'not_found', 'Unknown task');
-      if (!isOpenTask(task)) return error(409, 'focus_task_closed', 'A closed card cannot be in the focus');
-      if (this.focusItems.some((existing) => existing.key === input.key))
-        return error(409, 'focus_item_exists', 'Already in the focus');
-      if (this.focusItems.length >= PROJECT_FOCUS_MAX_ITEMS)
-        return error(409, 'focus_full', 'The focus is full');
-      const place = Math.min(
-        Math.max(input.position ?? this.focusItems.length + 1, 1),
-        this.focusItems.length + 1,
-      );
-      this.focusItems.splice(place - 1, 0, {
-        key: input.key,
-        addedAt: nowIso(),
-        addedBy: this.viewerActor(),
-      });
-      this.addTimeline(input.key, this.viewerHandle, 'focus_changed', {
-        action: 'added',
-        key: input.key,
-        title: task.title,
-        position: place,
-        previous: null,
-      });
-      this.focusChanged();
-      return ok(view());
-    }
-    if (item && method === 'PATCH') {
-      const input = parseBody(ProjectFocusMoveRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid focus request');
-      const key = item[1]!;
-      const from = this.focusItems.findIndex((existing) => existing.key === key);
-      if (from < 0) return error(404, 'focus_item_unknown', 'Not in the focus');
-      const place = Math.min(Math.max(input.position, 1), this.focusItems.length);
-      if (place !== from + 1) {
-        const [moved] = this.focusItems.splice(from, 1);
-        this.focusItems.splice(place - 1, 0, moved!);
-        this.addTimeline(null, this.viewerHandle, 'focus_changed', {
-          action: 'moved',
-          key,
-          title: this.findTask(key)?.title ?? key,
-          position: place,
-          previous: from + 1,
-        });
-        this.focusChanged();
-      }
-      return ok(view());
-    }
-    if (item && method === 'DELETE') {
-      const key = item[1]!;
-      const from = this.focusItems.findIndex((existing) => existing.key === key);
-      if (from < 0) return error(404, 'focus_item_unknown', 'Not in the focus');
-      this.focusItems.splice(from, 1);
-      this.addTimeline(key, this.viewerHandle, 'focus_changed', {
-        action: 'removed',
-        key,
-        title: this.findTask(key)?.title ?? key,
-        position: null,
-        previous: from + 1,
-      });
-      this.focusChanged();
-      return ok(view());
-    }
-    return error(404, 'not_found', 'Unknown focus route');
-  }
-
-  /** Whether the viewer may set the project's focus (the shared rule). */
-  private mayEditFocus(): boolean {
-    return projectFocusRefusal(this.config, this.viewerActor()) === null;
-  }
-
-  /** Tells the open pages that the focus list changed. */
-  private focusChanged(): void {
-    this.emit({
-      type: 'project_focus_changed',
-      projectKey: fixtures.PROJECT_KEY,
-      focus: { items: clone(this.focusItems) },
-    });
   }
 
   /** The instance's pause routes: the host owner changes it, with or without a project membership. */

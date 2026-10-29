@@ -441,12 +441,6 @@ modules:
     summary: A beérkezett visszajelzések nézete.
     paths:
       - apps/web/src/features/feedback/
-  - id: web/focus
-    area: ui
-    name: Fókusz
-    summary: A projekt fókusza – sáv, panel, jelölés és szűrő a táblán.
-    paths:
-      - apps/web/src/features/focus/
   - id: web/how-we-work
     area: ui
     name: Így dolgozunk

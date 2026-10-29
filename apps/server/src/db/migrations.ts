@@ -2508,4 +2508,11 @@ migrations.push({
     v123DropMailbox('inbox_items', 'payload', `kind = 'approval'`),
   ].join('\n'),
 });
+migrations.push({
+  version: 124,
+  name: 'drop the removed project focus list',
+  // PM-1107: the project focus (PM-427) was removed. Its table was empty on the live instance; the index and the
+  // change-journal triggers go with it. The `focus_changed` timeline events stay (append-only) and keep rendering.
+  sql: `DROP TABLE IF EXISTS project_focus_items;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

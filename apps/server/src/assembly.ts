@@ -114,7 +114,7 @@ import {
   Admission,
   DeferredStarts,
   StartQueue,
-  FocusPull,
+  UrgentPull,
   StartRound,
   MessageStarts,
   queueItemWaiting,
@@ -213,7 +213,6 @@ import {
   SystemFeedbackContext,
   SystemFeedbackService,
 } from './services/feedback';
-import { ProjectFocusService } from './core/tasks';
 import { AgentQuestions } from './core/inbox';
 import { InputStallAlerts } from './runtime/watchers';
 import { UsageAlerts } from './runtime/usage';
@@ -734,7 +733,6 @@ export function createDomain(opts: DomainOptions) {
     // `handoffs` is built below; the callback only runs when a card changes its assignee.
     handoff: (input) => handoffs.begin(input),
   });
-  const projectFocus = new ProjectFocusService({ ctx, projects, tasks, timeline });
   const checklist = new ChecklistService({
     ctx,
     projects,
@@ -805,7 +803,6 @@ export function createDomain(opts: DomainOptions) {
     ctx,
     projects,
     tasks,
-    projectFocus,
     members,
     timeline,
     runner: runnerModule.runner,
@@ -999,24 +996,13 @@ export function createDomain(opts: DomainOptions) {
   // The start that waits for the labels an AI member sets runs as a work start, which needs the starts.
   taskStarts.useLabelWait(workStarts);
   taskStarts.useSeniorWait(workStarts);
-  // Free developers take urgent and focus cards ahead of their turn, at the end of every retry round (PM-427).
-  admission.usePull(
-    new FocusPull({
-      ctx,
-      projects,
-      tasks,
-      focus: projectFocus,
-      admission,
-      seniorWaits,
-      starts: workStarts,
-    }),
-  );
+  // Free developers take urgent cards ahead of their turn, at the end of every retry round (PM-436).
+  admission.usePull(new UrgentPull({ ctx, projects, tasks, admission, seniorWaits, starts: workStarts }));
   const taskWaits = new TaskWaits({ ctx, members });
   const startRound = new StartRound({
     ctx,
     projects,
     tasks,
-    focus: projectFocus,
     seniorWaits,
     admission,
     messaging,
@@ -1739,7 +1725,6 @@ export function createDomain(opts: DomainOptions) {
         attachments,
         sessions,
         cardQuestions,
-        projectFocus,
         taskWaits,
         closer: sessionCloser,
       }),
@@ -2223,9 +2208,8 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_cancelled', () => {
     retryDeferredStarts();
   });
-  // Urgent and focus cards start first and are pulled into development (PM-427): a change of the focus, an
-  // urgent card, or a card that became ready for development starts a round at once.
-  projectFocus.onChange(() => retryDeferredStarts());
+  // Urgent cards start first and are pulled into development (PM-436): an urgent card, or a card that
+  // became ready for development starts a round at once.
   events.on('task_priority_changed', ({ task }) => {
     if (task.priority === 'urgent') retryDeferredStarts();
   });
@@ -2397,7 +2381,6 @@ export function createDomain(opts: DomainOptions) {
     templates,
     timeline,
     involvements,
-    projectFocus,
     projects,
     inbox,
     runnerModule,
@@ -2749,7 +2732,6 @@ export function createDomain(opts: DomainOptions) {
         tasks,
         timeline,
         taskWaits,
-        projectFocus,
         cardQuestions,
         attachments,
         messaging,

@@ -51,7 +51,7 @@ import type { CardQuestions, InboxService } from '../../core/inbox';
 import type { Messaging } from '../../core/messages';
 import type { MemberService, ProjectAccess } from '../../core/members';
 import type { ProjectService } from '../../core/projects';
-import type { ProjectFocusService, TaskService, TaskWaits } from '../../core/tasks';
+import type { TaskService, TaskWaits } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
 import {
   attributedActor,
@@ -93,7 +93,6 @@ interface ExternalToolsDeps {
   >;
   timeline: Pick<TimelineService, 'get'>;
   taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
-  projectFocus: Pick<ProjectFocusService, 'places'>;
   cardQuestions: Pick<CardQuestions, 'list'>;
   attachments: Pick<AttachmentOperations, 'list' | 'open'>;
   messaging: Pick<Messaging, 'sendReporting'>;
@@ -269,7 +268,6 @@ export class ExternalTools implements ExternalToolsHandler {
       throw new TeamToolError('invalid', 'limit must be an integer between 1 and 200.');
     if (args.assignee === 'me')
       throw new TeamToolError('invalid', 'assignee "me" has no meaning here: name a member handle.');
-    const places = this.deps.projectFocus.places(projectKey);
     const cards = this.deps.tasks
       .list(projectKey)
       .filter(
@@ -296,7 +294,6 @@ export class ExternalTools implements ExternalToolsHandler {
           ...(kind === 'theme' ? { kind } : {}),
           ...(complexity ? { complexity: complexity.points } : {}),
           ...(priority !== null ? { priority } : {}),
-          ...(places.has(key) ? { focus: places.get(key) } : {}),
           ...(wait ? { waitsFor: taskWaitShort(wait) } : {}),
         };
       },
@@ -320,13 +317,11 @@ export class ExternalTools implements ExternalToolsHandler {
     const attachments = await this.deps.attachments.list(projectKey, taskKey, ctx.actor);
     const themeCard = detail.task.themeKey ? this.deps.tasks.find(projectKey, detail.task.themeKey) : null;
     const theme = isTheme(detail.task) ? this.deps.tasks.themeOf(projectKey, taskKey) : null;
-    const focus = this.deps.projectFocus.places(projectKey).get(taskKey);
     const wait = this.deps.taskWaits.ofCard(config, detail.task);
     return {
       ...detail,
       ...(wait ? { wait } : {}),
       effectiveRepo: effectiveRepo(config, detail.task),
-      ...(focus ? { focus } : {}),
       repoChoiceNeeded: needsRepoChoice(config, detail.task),
       relations: this.deps.tasks.relationsOf(projectKey, taskKey),
       ...(themeCard

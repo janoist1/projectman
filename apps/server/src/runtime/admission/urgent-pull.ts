@@ -8,24 +8,24 @@ import {
   reachingDevelopers,
   stageDevelopers,
   stageOwners,
-  startClass,
   tempMaxPointsOf,
 } from '@projectman/shared';
-import type { FocusPlace, StagePull, Task } from '@projectman/shared';
+import type { StagePull } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
 import { startContext } from '../../core/tasks';
-import type { ProjectFocusService } from '../../core/tasks';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
-import type { Admission, FocusPulling } from './admission';
+import type { Admission, UrgentPulling } from './admission';
 import { isDeferrable } from './rules';
 import type { SeniorWaits } from './senior-waits';
 import type { WorkStarts } from './work-starts';
 
+const URGENT_PULL: StagePull = { reason: 'urgent' };
+
 /**
- * The focus pull (PM-427): a free developer takes a ready (Indulhat) urgent card, else the next card the
- * project's focus covers, without anybody moving it. A round runs at the end of every `Admission.retryDeferred`
+ * The urgent pull (PM-436): a free developer takes a ready (Indulhat) urgent card without anybody moving it.
+ * A round runs at the end of every `Admission.retryDeferred`
  * (after the loop, without the admission lock: `WorkStarts.pull` takes it for each card it starts), so every
  * event that retries the deferred starts also frees developers for the pull. Rounds do not overlap: one that
  * is asked for while another runs makes the running one go once more.
@@ -40,11 +40,10 @@ import type { WorkStarts } from './work-starts';
  * provider, engine, limits, disk, pause) leaves the developer out of the round. Refusals are logged at debug
  * level only and write no timeline, so the 30-second round does not fill the log.
  */
-export class FocusPull implements FocusPulling {
+export class UrgentPull implements UrgentPulling {
   private readonly ctx: DomainContext;
   private readonly projects: Pick<ProjectService, 'config'>;
   private readonly tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
-  private readonly focus: Pick<ProjectFocusService, 'places' | 'covered'>;
   private readonly admission: Pick<Admission, 'freeDevelopers'>;
   private readonly seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
   private readonly starts: Pick<WorkStarts, 'pull'>;
@@ -55,7 +54,6 @@ export class FocusPull implements FocusPulling {
     ctx: DomainContext;
     projects: Pick<ProjectService, 'config'>;
     tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
-    focus: Pick<ProjectFocusService, 'places' | 'covered'>;
     admission: Pick<Admission, 'freeDevelopers'>;
     seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
     starts: Pick<WorkStarts, 'pull'>;
@@ -63,15 +61,9 @@ export class FocusPull implements FocusPulling {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
-    this.focus = deps.focus;
     this.admission = deps.admission;
     this.seniorWaits = deps.seniorWaits;
     this.starts = deps.starts;
-  }
-
-  /** Key -> place of the project's open cards the focus covers. */
-  places(projectKey: string): ReadonlyMap<string, FocusPlace> {
-    return this.focus.places(projectKey);
   }
 
   /** One round over every project; a round asked for while one runs makes it go once more. */
@@ -98,7 +90,7 @@ export class FocusPull implements FocusPulling {
       try {
         await this.pullFor(projectKey);
       } catch (err) {
-        this.ctx.logger.warn({ err, projectKey }, 'focus pull failed for a project');
+        this.ctx.logger.warn({ err, projectKey }, 'urgent pull failed for a project');
       }
     }
   }
@@ -110,21 +102,12 @@ export class FocusPull implements FocusPulling {
     const source = pullSourceStage(config);
     const development = developmentStage(config);
     if (!source || !development) return;
-    // Nobody free: no card is read (PM-770). Then the focus and the pull candidates are read for exactly
-    // their keys, with the subtasks and prerequisites the unchanged shared rules look at.
+    // Nobody free: no card is read (PM-770). Then the pull candidates are read, with the subtasks and
+    // prerequisites the unchanged shared rules look at.
     let free = this.admission.freeDevelopers(config, development.id);
     if (free.length === 0) return;
-    const { places, cards: focusCards } = this.focus.covered(projectKey);
-    const pullable = this.tasks.readSchedulingTasks(projectKey, {
-      kind: 'pull',
-      stageId: source.id,
-      focusedKeys: [...places.keys()],
-    });
-    const candidates = pullCandidates({
-      config,
-      tasks: startContext(this.tasks, projectKey, pullable),
-      places,
-    });
+    const pullable = this.tasks.readSchedulingTasks(projectKey, { kind: 'pull', stageId: source.id });
+    const candidates = pullCandidates({ config, tasks: startContext(this.tasks, projectKey, pullable) });
     if (candidates.length === 0) return;
     const owners = stageOwners(config, development);
     const developers = stageDevelopers(config, development).filter((developer) =>
@@ -143,11 +126,10 @@ export class FocusPull implements FocusPulling {
       });
       // The card waits for a developer whose limit reaches its points, or nobody can take it: the next card.
       if (pick.kind !== 'member') {
-        this.ctx.logger.debug({ taskKey: card.key, pick: pick.kind }, 'focus pull skipped a card');
+        this.ctx.logger.debug({ taskKey: card.key, pick: pick.kind }, 'urgent pull skipped a card');
         continue;
       }
       const developer = pick.handle;
-      const pulled = pullOf(card, places, focusCards);
       let taken = false;
       let developerOut = false;
       try {
@@ -157,7 +139,7 @@ export class FocusPull implements FocusPulling {
           from: source.id,
           to: development.id,
           developer,
-          pulled,
+          pulled: URGENT_PULL,
         });
       } catch (err) {
         // The card is the developer's already when only the start of their session failed afterwards.
@@ -169,34 +151,25 @@ export class FocusPull implements FocusPulling {
           developerOut = true;
           this.ctx.logger.debug(
             { taskKey: card.key, developer, code: err.code },
-            'focus pull refused because of the developer',
+            'urgent pull refused because of the developer',
           );
         } else if (err instanceof DomainError) {
           this.ctx.logger.debug(
             { taskKey: card.key, developer, code: err.code },
-            'focus pull refused because of the card',
+            'urgent pull refused because of the card',
           );
         } else {
           developerOut = true;
-          this.ctx.logger.warn({ err, taskKey: card.key, developer }, 'focus pull failed');
+          this.ctx.logger.warn({ err, taskKey: card.key, developer }, 'urgent pull failed');
         }
       }
       if (taken) {
         this.ctx.logger.info(
-          { taskKey: card.key, developer, reason: pulled.reason },
+          { taskKey: card.key, developer, reason: URGENT_PULL.reason },
           'a card was pulled into development',
         );
       }
       if (taken || developerOut) free = free.filter((candidate) => candidate.handle !== developer);
     }
   }
-}
-
-/** Why the card is pulled: it is urgent, or the focus item that covers it (the card itself, or the one it is under). */
-function pullOf(card: Task, places: ReadonlyMap<string, FocusPlace>, tasks: readonly Task[]): StagePull {
-  const cls = startClass(card, places);
-  if (cls.kind !== 'focus') return { reason: 'urgent' };
-  const via = places.get(card.key)?.via ?? card.key;
-  const item = via === card.key ? card : tasks.find((task) => task.key === via);
-  return { reason: 'focus', position: cls.position, key: via, title: item?.title ?? via };
 }

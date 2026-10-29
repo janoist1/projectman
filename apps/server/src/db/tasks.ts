@@ -110,17 +110,14 @@ const TASK_SELECT = taskSelect();
  * The scheduling reads (PM-770), each filtered in SQL. Sets travel as one bound JSON array. The partial
  * indexes `tasks_scheduling_*` serve the pull, open and closed reads (their literals match the index
  * conditions). The key reads are driven by the unique key index (`+t.project_key` keeps the planner from
- * walking the project's index range instead), the parent and theme reads are pinned to `tasks_parent` and
- * `tasks_theme` (without table statistics the planner would walk a project index). A test pins the plans.
+ * walking the project's index range instead), the parent reads are pinned to `tasks_parent`
+ * (without table statistics the planner would walk a project index). A test pins the plans.
  * The closing time is compared as a time (an old row may carry an offset), not as text; text that is no
  * time is left out, and the GLOB keeps SQLite from reading a bare number as a Julian day.
  */
 export const SCHEDULING_SQL = {
   linksOfIds: 'SELECT * FROM task_links WHERE task_id IN (SELECT value FROM json_each(?)) ORDER BY id',
   keys: `${TASK_SELECT} WHERE +t.project_key = ? AND t.key IN (SELECT value FROM json_each(?)) ORDER BY t.seq`,
-  themeCards: `${taskSelect('tasks_theme')} WHERE t.project_key = ? AND t.kind = 'task' AND t.parent_key IS NULL
-      AND t.status NOT IN ('done', 'cancelled') AND t.theme_key IN (SELECT value FROM json_each(?))
-    ORDER BY t.seq`,
   children: `${taskSelect('tasks_parent')} WHERE t.project_key = ? AND t.parent_key IN (SELECT value FROM json_each(?))
       AND t.status NOT IN ('done', 'cancelled') ORDER BY t.seq`,
   childrenAll: `${taskSelect('tasks_parent')} WHERE t.project_key = ? AND t.parent_key IN (SELECT value FROM json_each(?))
@@ -129,8 +126,6 @@ export const SCHEDULING_SQL = {
       AND t.assignee IS NULL AND t.priority = 1 ORDER BY t.seq`,
   queue: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
       ORDER BY t.seq`,
-  pullFocused: `${TASK_SELECT} WHERE +t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
-      AND t.assignee IS NULL AND t.key IN (SELECT value FROM json_each(?)) ORDER BY t.seq`,
   open: `${TASK_SELECT} WHERE t.project_key = ? AND t.status NOT IN ('done', 'cancelled') ORDER BY t.seq`,
   closed: `${TASK_SELECT} WHERE t.project_key = ? AND t.kind = 'task' AND t.status IN ('done', 'cancelled')
       AND t.closed_at IS NOT NULL AND t.seq > ?
@@ -210,12 +205,10 @@ export function createTaskRepository(db: Db) {
     // `(task_id, ...)` index); the sets travel as one bound JSON array.
     linksOfIds: db.prepare(SCHEDULING_SQL.linksOfIds),
     schedulingKeys: db.prepare(SCHEDULING_SQL.keys),
-    schedulingThemeCards: db.prepare(SCHEDULING_SQL.themeCards),
     schedulingChildren: db.prepare(SCHEDULING_SQL.children),
     schedulingChildrenAll: db.prepare(SCHEDULING_SQL.childrenAll),
     schedulingPullUrgent: db.prepare(SCHEDULING_SQL.pullUrgent),
     schedulingQueue: db.prepare(SCHEDULING_SQL.queue),
-    schedulingPullFocused: db.prepare(SCHEDULING_SQL.pullFocused),
     schedulingOpen: db.prepare(SCHEDULING_SQL.open),
     schedulingClosed: db.prepare(SCHEDULING_SQL.closed),
     // Uses the `task_links_ref` index: card relations are links with no repository.
@@ -343,32 +336,6 @@ export function createTaskRepository(db: Db) {
       ? []
       : (statements.schedulingKeys.all(projectKey, JSON.stringify([...new Set(keys)])) as TaskRow[]);
 
-  /** `focus`: see `TaskSchedulingQuery`. The shared `projectFocusPlaces` decides the places from these rows. */
-  function focusRows(projectKey: string, keys: readonly string[]): TaskRow[] {
-    const found = new Map<string, TaskRow>();
-    const roots = rowsOfKeys(projectKey, keys);
-    for (const row of roots) found.set(row.key, row);
-    const open = roots.filter((row) => row.status !== 'done' && row.status !== 'cancelled');
-    const themeKeys = open.filter((row) => row.kind === 'theme').map((row) => row.key);
-    const themed =
-      themeKeys.length === 0
-        ? []
-        : (statements.schedulingThemeCards.all(projectKey, JSON.stringify(themeKeys)) as TaskRow[]);
-    for (const row of themed) found.set(row.key, row);
-    // The subtasks of an open card root, and of the cards of an open theme root (they read its theme).
-    const parentKeys = [
-      ...open.filter((row) => row.kind !== 'theme').map((row) => row.key),
-      ...themed.map((r) => r.key),
-    ];
-    if (parentKeys.length > 0)
-      for (const row of statements.schedulingChildren.all(
-        projectKey,
-        JSON.stringify(parentKeys),
-      ) as TaskRow[])
-        found.set(row.key, row);
-    return [...found.values()];
-  }
-
   function closedRows(
     projectKey: string,
     query: Extract<TaskSchedulingQuery, { kind: 'closed-worktrees' }>,
@@ -469,22 +436,10 @@ export function createTaskRepository(db: Db) {
       switch (query.kind) {
         case 'keys':
           return hydrate(rowsOfKeys(projectKey, query.keys));
-        case 'focus':
-          return hydrate(focusRows(projectKey, query.keys));
         case 'queue':
           return hydrate(statements.schedulingQueue.all(projectKey, query.stageId) as TaskRow[]);
-        case 'pull': {
-          const rows = statements.schedulingPullUrgent.all(projectKey, query.stageId) as TaskRow[];
-          if (query.focusedKeys.length > 0)
-            rows.push(
-              ...(statements.schedulingPullFocused.all(
-                projectKey,
-                query.stageId,
-                JSON.stringify([...new Set(query.focusedKeys)]),
-              ) as TaskRow[]),
-            );
-          return hydrate(rows);
-        }
+        case 'pull':
+          return hydrate(statements.schedulingPullUrgent.all(projectKey, query.stageId) as TaskRow[]);
         case 'children': {
           if (query.parentKeys.length === 0) return [];
           const statement = query.includeClosed

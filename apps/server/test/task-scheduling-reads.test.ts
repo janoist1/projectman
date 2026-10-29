@@ -77,47 +77,6 @@ describe('keys', () => {
   });
 });
 
-describe('focus', () => {
-  beforeEach(() => {
-    add(1, { kind: 'theme', stageId: 'ideas' });
-    add(2, { themeKey: 'PM-1' });
-    add(3, { themeKey: 'PM-1', status: 'done', closedAt: at });
-    add(4, { parentKey: 'PM-2' });
-    add(5, { parentKey: 'PM-2', status: 'cancelled', closedAt: at });
-    add(6);
-    add(7, { parentKey: 'PM-6' });
-    add(8);
-    add(9, { kind: 'theme', stageId: 'ideas', status: 'done', closedAt: at });
-    add(10, { themeKey: 'PM-9' });
-  });
-
-  it('a theme root covers its open cards and their open subtasks, with the inherited theme', () => {
-    const found = read({ kind: 'focus', keys: ['PM-1'] });
-    expect(keys(found)).toEqual(['PM-1', 'PM-2', 'PM-4']);
-    expect(found.find((task) => task.key === 'PM-4')?.themeKey).toBe('PM-1');
-  });
-
-  it('a card root covers its open subtasks only', () => {
-    expect(keys(read({ kind: 'focus', keys: ['PM-6'] }))).toEqual(['PM-6', 'PM-7']);
-  });
-
-  it('a closed root is returned and covers nothing', () => {
-    expect(keys(read({ kind: 'focus', keys: ['PM-9'] }))).toEqual(['PM-9']);
-    expect(keys(read({ kind: 'focus', keys: ['PM-3'] }))).toEqual(['PM-3']);
-  });
-
-  it('several roots, a missing root and no roots', () => {
-    expect(keys(read({ kind: 'focus', keys: ['PM-6', 'PM-1', 'PM-404'] }))).toEqual([
-      'PM-1',
-      'PM-2',
-      'PM-4',
-      'PM-6',
-      'PM-7',
-    ]);
-    expect(read({ kind: 'focus', keys: [] })).toEqual([]);
-  });
-});
-
 describe('pull', () => {
   it('reads all priorities and assigned cards for the queue, excluding inactive and other-stage cards and themes', () => {
     add(1, { priority: 'urgent' });
@@ -129,7 +88,7 @@ describe('pull', () => {
     add(7, { kind: 'theme' });
     expect(keys(read({ kind: 'queue', stageId: 'ready' }))).toEqual(['PM-1', 'PM-3', 'PM-5', 'PM-6']);
   });
-  it('returns the active unassigned cards of the stage that are urgent or focused', () => {
+  it('returns the active unassigned urgent cards of the stage', () => {
     add(1, { priority: 'urgent' });
     add(2, { priority: 'urgent', stageId: 'other' });
     add(3, { priority: 'urgent', assignee: 'dev' });
@@ -138,10 +97,7 @@ describe('pull', () => {
     add(6, { priority: 'high' });
     add(7, { kind: 'theme', priority: 'urgent' });
     add(8, { priority: 'urgent', labels: ['hold'] });
-    expect(
-      keys(read({ kind: 'pull', stageId: 'ready', focusedKeys: ['PM-6', 'PM-3', 'PM-7', 'PM-1'] })),
-    ).toEqual(['PM-1', 'PM-6', 'PM-8']);
-    expect(keys(read({ kind: 'pull', stageId: 'ready', focusedKeys: [] }))).toEqual(['PM-1', 'PM-8']);
+    expect(keys(read({ kind: 'pull', stageId: 'ready' }))).toEqual(['PM-1', 'PM-8']);
   });
 });
 
@@ -251,18 +207,12 @@ describe('query plans', () => {
     expect(plan(SCHEDULING_SQL.closed, 'PM', 0, at, 10)).toContain('tasks_scheduling_closed');
   });
 
-  it('drives the key, parent and theme reads by the bound set, not by a walk of the project', () => {
+  it('drives the key and parent reads by the bound set, not by a walk of the project', () => {
     // The first line of a plan is the table the read starts from: the key index, or the index probed per value.
     const first = (sql: string, ...params: unknown[]) => plan(sql, ...params).split('\n')[0];
     expect(first(SCHEDULING_SQL.keys, 'PM', '[]')).toContain('sqlite_autoindex_tasks_2 (key=?)');
-    expect(first(SCHEDULING_SQL.pullFocused, 'PM', 'ready', '[]')).toContain(
-      'sqlite_autoindex_tasks_2 (key=?)',
-    );
     for (const sql of [SCHEDULING_SQL.children, SCHEDULING_SQL.childrenAll])
       expect(first(sql, 'PM', '[]')).toContain('tasks_parent (project_key=? AND parent_key=?)');
-    expect(first(SCHEDULING_SQL.themeCards, 'PM', '[]')).toContain(
-      'tasks_theme (project_key=? AND theme_key=?)',
-    );
     expect(plan(SCHEDULING_SQL.linksOfIds, '[]')).not.toMatch(/SCAN task_links/);
   });
 });

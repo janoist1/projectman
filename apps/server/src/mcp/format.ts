@@ -1,5 +1,6 @@
 import {
   complexityText,
+  DEFAULT_AGENT_PROVIDER,
   isCardLink,
   isTheme,
   modelForProvider,
@@ -290,7 +291,7 @@ export function formatMembers(members: MemberView[], self: string): string {
     // Developers: the largest card they take and the model they run on, so a named assignee can be checked.
     const limit =
       m.complexityLimit !== undefined
-        ? `; complexity limit: ${m.complexityLimit} points; model: ${m.provider ?? 'claude'}/${modelForProvider(m.provider ?? 'claude', m.model)}`
+        ? `; complexity limit: ${m.complexityLimit} points; model: ${m.provider ?? DEFAULT_AGENT_PROVIDER}/${modelForProvider(m.provider ?? DEFAULT_AGENT_PROVIDER, m.model)}`
         : '';
     const status = m.activity ? `${m.status}: ${oneLine(m.activity, 80)}` : m.status;
     const tasks = m.currentTaskKeys.length > 0 ? ` · tasks: ${m.currentTaskKeys.join(', ')}` : '';

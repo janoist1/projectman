@@ -1,6 +1,7 @@
 import { connectedOriginOf } from '@projectman/shared';
 import type { InboxItem, TeamMessage, TeamThread } from '@projectman/shared';
 import { formatDayHeading } from '../../i18n/format';
+import { distinctMembers } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { t } from '../../i18n/t';
 
@@ -97,7 +98,7 @@ export function conversationRows(
     });
   }
   const ordered = [...rows.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
-  const rest = [...members.values()]
+  const rest = distinctMembers(members)
     .filter((member) => member.handle !== myHandle && member.status !== 'retired' && !rows.has(member.handle))
     .map((member) => member.handle);
   return { rows: ordered, rest };

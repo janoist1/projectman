@@ -28,7 +28,7 @@ import { capacityHint, capacityOf, capacityReason } from './capacity';
 import { decidesFixLimit, fixLimitStatus } from './fixLimit';
 import { isAssignedTo, openItems, permissionCommand, shortCommand } from './inbox';
 import { labelName } from './labels';
-import { nameOf } from './members';
+import { distinctMembers, nameOf } from './members';
 import { failureKind, isMerger, mergeStepText } from './merge';
 import type { MemberIndex } from './members';
 import { nextStage } from './pipeline';
@@ -189,7 +189,7 @@ function findWorkers(
   const stepOwners = stage?.kind === 'step' ? (stage.owners ?? []) : [];
   const rank = (member: MemberView) =>
     stepOwners.includes(member.handle) ? 0 : member.handle === task.assignee ? 1 : 2;
-  const working = [...ctx.members.values()].flatMap((member) => {
+  const working = distinctMembers(ctx.members).flatMap((member) => {
     if (member.status === 'idle' || member.status === 'retired') return [];
     const work = member.taskWork?.find((entry) => entry.taskKey === task.key);
     return work ? [{ member, work }] : [];
@@ -511,7 +511,7 @@ function deriveOpenState(
       since: worker.since,
       handingOff: worker.verb === 'handingOff',
     })),
-    holders: waitHolders(task, [...members.values()]),
+    holders: waitHolders(task, distinctMembers(members)),
     openPrerequisites: (prerequisites?.cards ?? []).map((card) => card.key),
     viewer: myHandle,
   });
@@ -558,7 +558,7 @@ function queuedFor(task: Task, ctx: Pick<TaskStateContext, 'pipeline'>): Omit<Ta
 function sketchConfig(ctx: TaskStateContext): Pick<ProjectConfig, 'team' | 'pipeline'> {
   return {
     team: {
-      members: [...ctx.members.values()].map((member) => ({
+      members: distinctMembers(ctx.members).map((member) => ({
         handle: member.handle,
         kind: member.kind,
         displayName: member.displayName,

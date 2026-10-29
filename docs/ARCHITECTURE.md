@@ -2338,7 +2338,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
   Mac single activation. Credentials stay on the administration machine, outside member sessions.
   PM-1116 retired the one-off move commands (`seed` with its PM-717 integrity gate, `dns plan|import|verify|switch`);
-  the last commit that has them is tagged `retired-migrate-dns`. A tool the owner runs on their Mac
+  the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`. A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2: `preflight` and `aws` (PM-534: the machine,
   the security group, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and DNS (PM-537,
@@ -4736,7 +4736,7 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   before activation. No second writer or
   automatic clearing of used targets is allowed; data transport is the owner's administration path.
   PM-1116 retired the one-off CLI commands `inventory`, `hybrid plan` and `hybrid package` (and the cloud
-  `seed`; the last commit that has them is tagged `retired-migrate-dns`); `hybrid back`, `instance` and
+  `seed`; the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`); `hybrid back`, `instance` and
   `verify` stay. Their library functions (`buildHybridPlan`, `createHybridPackage`, `buildInventory`) remain only because the
   test fixtures build a cloud's data with them. The cloud package was made on the Mac from a stopped source and held a closed list
   (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the

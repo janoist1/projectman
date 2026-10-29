@@ -5,7 +5,7 @@ import type { CloudContext } from './context';
 import { CloudError, refused } from './errors';
 
 // The one-off Route 53 → Cloudflare migration commands (plan, import, verify, switch) were retired with the
-// cutover (PM-1116); the last commit that has them is tagged `retired-migrate-dns`. What stays is the read-only status.
+// cutover (PM-1116); the last commit that has them is 358bb7c7 (tag `retired-migrate-dns`). What stays is the read-only status.
 
 function unescape(value: string): string {
   return value.replace(/\\([0-7]{3}|["\\])/g, (_match, escaped: string) =>

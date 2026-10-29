@@ -167,9 +167,12 @@ describe('session orchestrator', () => {
     }));
     h.runnerModule.transcripts.set('/tmp/long.jsonl', items);
     const tail = await h.domain.sessions.detail('AR', session.id, { limit: 3, before: 'e' });
-    expect(tail.chat.map((item) => item.id)).toEqual(['c', 'd', 'e']);
+    expect(tail.chat.map((item) => item.id)).toEqual(['b', 'c', 'd']);
     expect(tail.truncated).toBe(true);
     expect(h.runnerModule.transcriptReads.at(-1)?.opts).toMatchObject({ limit: 4, before: 'e' });
+    const first = await h.domain.sessions.detail('AR', session.id, { limit: 3, before: 'c' });
+    expect(first.chat.map((item) => item.id)).toEqual(['a', 'b']);
+    expect(first.truncated).toBeUndefined();
     const all = await h.domain.sessions.detail('AR', session.id, { limit: 5 });
     expect(all.chat).toHaveLength(5);
     expect(all.truncated).toBeUndefined();

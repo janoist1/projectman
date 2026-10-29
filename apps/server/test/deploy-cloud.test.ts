@@ -278,9 +278,7 @@ else if (tool === 'node') {
       const result = run('rehearse', join(temp, 'rehearsal'), { PROJECTMAN_HEAP_LIMIT_MB: value });
       expect(result.status).toBe(0);
       const server = calls().filter((call) => call.startsWith('node '));
-      expect(server).toEqual([
-        `node --max-old-space-size=${Number(value)} ${diagnosticArgs(join(temp, 'rehearsal'))} ${app}/apps/server/dist/index.js`,
-      ]);
+      expect(server).toEqual([`node --max-old-space-size=${Number(value)} ${app}/apps/server/dist/index.js`]);
     },
   );
 
@@ -295,12 +293,12 @@ else if (tool === 'node') {
       );
       expect(result.status).toBe(0);
       expect(calls().filter((call) => call.startsWith('node '))).toEqual([
-        `node ${diagnosticArgs(join(temp, 'rehearsal'))} ${app}/apps/server/dist/index.js`,
+        `node ${app}/apps/server/dist/index.js`,
       ]);
     },
   );
 
-  it('writes a fatal-error report and one heap snapshot into <home>/diagnostics, keeping only the newest earlier snapshot (PM-1105)', () => {
+  it('with PROJECTMAN_HEAP_SNAPSHOT=1 writes a fatal-error report and one heap snapshot into <home>/diagnostics, keeping only the newest earlier snapshot (PM-1105)', () => {
     expect(run('backup').status).toBe(0);
     const dir = join(temp, 'fresh', 'diagnostics');
     mkdirSync(dir, { recursive: true });
@@ -308,11 +306,32 @@ else if (tool === 'node') {
     utimesSync(join(dir, 'old.heapsnapshot'), new Date(1_000_000_000_000), new Date(1_000_000_000_000));
     writeFileSync(join(dir, 'new.heapsnapshot'), 'x');
     writeFileSync(join(dir, 'report.json'), '{}');
-    run('serve');
+    run('serve', join(temp, 'fresh'), { PROJECTMAN_HEAP_SNAPSHOT: '1' });
     expect(calls().filter((call) => call.startsWith('node '))).toEqual([
       `node ${diagnosticArgs(join(temp, 'fresh'))} ${app}/apps/server/dist/index.js`,
     ]);
     expect(readdirSync(dir).sort()).toEqual(['new.heapsnapshot', 'report.json']);
+  });
+
+  it.each([undefined, '0'])(
+    'writes no diagnostics and touches none when PROJECTMAN_HEAP_SNAPSHOT is %j (PM-1105)',
+    (value) => {
+      expect(run('backup').status).toBe(0);
+      run('serve', join(temp, 'fresh'), value === undefined ? {} : { PROJECTMAN_HEAP_SNAPSHOT: value });
+      expect(calls().filter((call) => call.startsWith('node '))).toEqual([
+        `node ${app}/apps/server/dist/index.js`,
+      ]);
+      expect(existsSync(join(temp, 'fresh', 'diagnostics'))).toBe(false);
+    },
+  );
+
+  it('refuses an unknown PROJECTMAN_HEAP_SNAPSHOT before starting anything (PM-1105)', () => {
+    expect(run('backup').status).toBe(0);
+    const before = calls().length;
+    const result = run('serve', join(temp, 'fresh'), { PROJECTMAN_HEAP_SNAPSHOT: 'yes' });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain('invalid PROJECTMAN_HEAP_SNAPSHOT');
+    expect(calls()).toHaveLength(before);
   });
 
   it.each(['127', '4097', '99999', 'abc', '1e3', '-256', '256.5', '256 ', ' 256', '0'])(

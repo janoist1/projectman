@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -166,13 +167,11 @@ describe('engine menu bar installation', () => {
 
 describe('Swift contract fixtures', () => {
   const fixtures = path.join(ROOT, 'deploy/mac/menubar/Tests/EngineMenuCoreTests/Fixtures');
-  it.each(['running', 'no-cloud', 'stopped', 'not-initialised'])(
+  it.each(readdirSync(fixtures).filter((name) => /^status-.*\.json$/.test(name)))(
     'matches the strict snapshot contract: %s',
     (state) => {
       expect(() =>
-        EngineLocalSnapshot.parse(
-          JSON.parse(readFileSync(path.join(fixtures, `status-${state}.json`), 'utf8')),
-        ),
+        EngineLocalSnapshot.parse(JSON.parse(readFileSync(path.join(fixtures, state), 'utf8'))),
       ).not.toThrow();
     },
   );

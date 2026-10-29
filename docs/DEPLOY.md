@@ -128,6 +128,36 @@ is restarted.
 
 ## Controlling the engine service (PM-1087)
 
+`service install [--path <PATH>]` uses the calling shell's PATH by default. The app passes
+the login shell PATH explicitly. A checkout uses the installing Node; an engine package
+(`engine-package.json` in its root) uses its embedded `bin/node`. Both use the same plist
+and compiled server. The plist associates the background item with `com.projectman.engine-app`.
+
+On the engine Mac, an app-managed service can switch to another complete package:
+
+```sh
+/path/to/package/bin/node /path/to/package/scripts/engine/cli.js service switch --to /path/to/new-package
+```
+
+Without `--to`, the calling CLI's package is the target. Checkout services refuse this
+command; update those with a build and `service install` as before. Switch preserves the
+installed PATH, saves the exact previous plist and stops the engine gracefully. Within
+120 seconds the new service must report the target manifest's version and, if previously
+connected, connect to the cloud. Failure restores the saved plist and verifies the previous
+engine. `REFUSED [switch_rolled_back]` means recovery succeeded;
+`REFUSED [switch_recovery_required]` means manual recovery is needed.
+
+`status --json` includes `service.manager` (`app`, `checkout`, or null), `package`
+(`version`, `tag`, `root`, or null), and `switch` (or null); its schema version remains 1.
+The CLI alone writes `<home>/engine-switch.json`, `engine-switch.previous.plist` and the
+exclusive `engine-switch.lock`. A dead owner's interrupted switch is recovered by the next
+`service switch`, which returns the recovery result; repeat the command to try another target.
+During `switching`, service install, uninstall,
+start, stop and restart refuse with `switch_in_progress`. Another switch refuses with
+`switch_busy`. After inspecting a `rolled_back` or `recovery_required` result, use
+`service switch --clear` to remove its state and backup; an active/interrupted switch cannot
+be cleared. Keep the previous package on disk until the switch has succeeded.
+
 `npm run engine -- service start|stop|restart` controls the installed LaunchAgent. `stop` keeps the file (the
 engine starts again at the next login) and waits until the engine has paused its running sessions and left,
 up to 100 seconds. `npm run engine -- status --json` prints the whole state on one line for other programs

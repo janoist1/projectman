@@ -1,5 +1,7 @@
 {
   "schemaVersion": 1,
+  "package": null,
+  "switch": null,
   "at": "2026-10-28T04:00:00.000Z",
   "home": "/fixture/engine",
   "overall": "running",
@@ -9,6 +11,7 @@
     "cloudOrigin": "https://cloud.example.com"
   },
   "service": {
+    "manager": "checkout",
     "supported": true,
     "installed": true,
     "loaded": true,

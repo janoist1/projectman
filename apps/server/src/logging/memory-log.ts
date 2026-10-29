@@ -1,3 +1,4 @@
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { getHeapStatistics } from 'node:v8';
 
 /** One `memory` log line (PM-775): whole megabytes, rounded. */
@@ -10,6 +11,10 @@ export interface MemoryLogFields {
   arrayBuffersMb: number;
   heapLimitMb: number;
   uptimeS: number;
+  /** The 99th percentile of the event loop delay since the previous line, in milliseconds (PM-1120). */
+  eventLoopP99Ms: number;
+  /** The database statements run since the previous line (PM-1120); 0 when nothing counts them. */
+  statements: number;
 }
 
 const MEMORY_LOG_MIN_SECONDS = 60;
@@ -42,11 +47,21 @@ export function startMemoryLog(options: {
   log: (fields: MemoryLogFields) => void;
   /** The clock in milliseconds; uptime is counted from the start of the log. */
   now?: () => number;
+  /** The running total of database statements; each line carries the difference from the line before. */
+  statements?: () => number;
 }): () => void {
   const now = options.now ?? Date.now;
   const startedAt = now();
+  const loopDelay = monitorEventLoopDelay();
+  loopDelay.enable();
+  let statementsAtLastLine = options.statements?.() ?? 0;
   const timer = setInterval(() => {
     const usage = process.memoryUsage();
+    const statementsNow = options.statements?.() ?? 0;
+    const statements = statementsNow - statementsAtLastLine;
+    statementsAtLastLine = statementsNow;
+    const eventLoopP99Ms = Math.round(loopDelay.percentile(99) / 1e6);
+    loopDelay.reset();
     options.log({
       module: 'memory',
       rssMb: Math.round(usage.rss / MB),
@@ -56,8 +71,13 @@ export function startMemoryLog(options: {
       arrayBuffersMb: Math.round(usage.arrayBuffers / MB),
       heapLimitMb: Math.round(getHeapStatistics().heap_size_limit / MB),
       uptimeS: Math.round((now() - startedAt) / 1000),
+      eventLoopP99Ms,
+      statements,
     });
   }, options.intervalS * 1000);
   timer.unref();
-  return () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    loopDelay.disable();
+  };
 }

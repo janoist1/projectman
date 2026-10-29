@@ -217,7 +217,9 @@ export class TaskStarts implements WorkEntryCheck {
   }
 
   async start(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
-    const result = await this.admission.exclusive(() => this.startLocked(projectKey, taskKey, opts));
+    const result = await this.admission.exclusive('task-start', () =>
+      this.startLocked(projectKey, taskKey, opts),
+    );
     // The card is started: an automatic start of it that waited has nothing left to do.
     this.admission.discardStale(result.task);
     return result;

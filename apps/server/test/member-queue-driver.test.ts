@@ -401,7 +401,7 @@ describe('the member queue driver', () => {
         const run = driver().ensure('AR', 'dev-1');
         await vi.waitFor(() => expect(read).toHaveBeenCalled());
 
-        expect(await h.domain.admission.exclusive(async () => 'free')).toBe('free');
+        expect(await h.domain.admission.exclusive('test', async () => 'free')).toBe('free');
         release(null);
         await run;
         expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();

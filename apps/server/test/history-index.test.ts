@@ -390,6 +390,8 @@ describe('history index', () => {
         'task_loops_task_key',
         'timeline_project_type',
         'sessions_state',
+        // Migration 128 (PM-1120).
+        'sessions_live',
       ])
         old.exec(`DROP INDEX ${index}`);
       // Migration 96 (PM-888) added a column; migrating adds it again.

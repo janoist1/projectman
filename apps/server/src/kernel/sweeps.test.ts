@@ -145,6 +145,17 @@ describe('periodic sweeps', () => {
     expect(vi.getTimerCount()).toBe(1);
   });
 
+  it('reports a round slower than the limit with its name, and only that one', async () => {
+    let now = 0;
+    const onSlow = vi.fn();
+    const slow = sweep({ name: 'slow', atStart: true, run: async () => void (now += 120) });
+    const quick = sweep({ name: 'quick', atStart: true, run: async () => undefined });
+    running = startSweeps([slow, quick], { onSlow, clock: () => now });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onSlow).toHaveBeenCalledTimes(1);
+    expect(onSlow).toHaveBeenCalledWith('slow', 120);
+  });
+
   it('rejects duplicate names before starting any round or timer', () => {
     const item = sweep({ atStart: true });
     expect(() => startSweeps([item, item])).toThrow('sweep "sweep" is listed twice');

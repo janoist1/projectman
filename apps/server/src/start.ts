@@ -18,6 +18,7 @@ import {
   serverLogFile,
   startMemoryLog,
 } from './logging';
+import { statementCount } from './db';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './runtime/usage';
 import { createAppTagReader, resolveAppVersion, EngineConfigError } from './engine-link';
@@ -477,6 +478,7 @@ export async function main(options: MainOptions = {}): Promise<void> {
     stopMemoryLog = startMemoryLog({
       intervalS: config.memoryLogSeconds,
       log: (fields) => app.log.info(fields, 'memory'),
+      statements: statementCount,
     });
   app.log.info({ home: config.app.home, webApp: config.app.webDistDir !== null }, 'projectman server ready');
   await options.afterStart?.({ app });

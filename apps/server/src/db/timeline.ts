@@ -97,6 +97,16 @@ export function createTimelineRepository(db: Db) {
            OR (type = 'task_updated' AND EXISTS (SELECT 1 FROM json_each(data, '$.fields') WHERE value = 'description')))
        ORDER BY seq DESC LIMIT 1`,
     ),
+    // The ids of what `isLoopTriageEvidence` accepts (PM-1120): the work of the card (as `latestWork`) and its stage,
+    // label and check events, newest first. Only ids are read; the events themselves are not.
+    loopEvidenceIds: db.prepare(
+      `SELECT id FROM timeline_events WHERE project_key = ? AND task_key = ?
+         AND (type IN ('attachment_added', 'task_stage_changed', 'task_labels_changed', 'task_check_changed')
+           OR (type = 'task_note'
+             AND json_extract(data, '$.importedAuthor') IS NULL AND json_extract(data, '$.importedAt') IS NULL)
+           OR (type = 'task_updated' AND EXISTS (SELECT 1 FROM json_each(data, '$.fields') WHERE value = 'description')))
+       ORDER BY seq DESC LIMIT ?`,
+    ),
     stateBefore: db.prepare(TIMELINE_SQL.stateBefore),
     structuralEvidence: db.prepare(TIMELINE_SQL.structuralEvidence),
     ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
@@ -175,6 +185,12 @@ export function createTimelineRepository(db: Db) {
       return { events: rows.slice(0, query.limit).map(toEvent), counts, more: rows.length > query.limit };
     },
     /** One event of a project, or null. */
+    /** The ids of the card's newest events a loop assessment may name as evidence (`isLoopTriageEvidence`). */
+    loopEvidenceIds(projectKey: string, taskKey: string, limit: number): string[] {
+      return (statements.loopEvidenceIds.all(projectKey, taskKey, limit) as Array<{ id: string }>).map(
+        (row) => row.id,
+      );
+    },
     get(projectKey: string, id: string): TimelineEvent | null {
       const row = statements.byId.get(projectKey, id) as TimelineRow | undefined;
       return row ? toEvent(row) : null;

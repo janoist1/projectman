@@ -673,7 +673,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
     // The admission lock holds the decision and the process start only: the capacity counts running processes
     // (PM-1108), and whatever a lane reads from an engine for the first input is done outside it.
     const run = (messages: string[]) =>
-      admission.exclusive(() =>
+      admission.exclusive('queue-start', () =>
         admission.start({
           config,
           member,

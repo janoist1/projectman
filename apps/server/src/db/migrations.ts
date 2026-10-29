@@ -2552,4 +2552,11 @@ migrations.push({
       ON CONFLICT (source_id) DO UPDATE SET revision = revision + 1, attempts = 0, next_attempt_at = NULL;
     END;`,
 });
+migrations.push({
+  version: 128,
+  name: 'index the live sessions of a member',
+  // PM-1120: the live-session reads (`listLive`) ask for a project's (and a member's) sessions that are not
+  // closed; the index lets them skip the history of closed ones. No column is added.
+  sql: `CREATE INDEX sessions_live ON sessions(project_key, member, state);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

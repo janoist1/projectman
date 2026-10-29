@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "package": {
+    "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tag": "v2026.10.28",
+    "root": "/fixture/versions/old"
+  },
+  "switch": {
+    "schemaVersion": 1,
+    "phase": "rolled_back",
+    "target": { "version": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "tag": "v2026.10.29" },
+    "previous": { "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "tag": "v2026.10.28" },
+    "startedAt": "2026-10-29T11:00:00.000Z",
+    "updatedAt": "2026-10-29T11:02:00.000Z",
+    "error": { "code": "switch_rolled_back", "message": "The new engine did not become healthy in time." }
+  },
+  "at": "2026-10-29T12:00:00.000Z",
+  "home": "/fixture/engine",
+  "overall": "running",
+  "engine": {
+    "id": "eng_aaaaaaaaaaaa",
+    "name": "Fixture engine",
+    "cloudOrigin": "https://cloud.example.com"
+  },
+  "service": {
+    "manager": "app",
+    "supported": true,
+    "installed": true,
+    "loaded": true,
+    "running": true,
+    "pid": 123
+  },
+  "process": {
+    "running": true,
+    "pid": 123,
+    "startedAt": "2026-10-29T11:03:00.000Z",
+    "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "releaseTag": "v2026.10.28"
+  },
+  "link": {
+    "state": "connected",
+    "since": "2026-10-29T11:03:00.000Z",
+    "attempts": 0,
+    "lastError": null,
+    "pendingEvents": 0,
+    "droppedEvents": 0
+  },
+  "sessions": [
+    {
+      "sessionId": "ses_aaaaaaaaaaaa",
+      "state": "working",
+      "member": null,
+      "provider": null,
+      "label": "PM-1",
+      "startedAt": null
+    }
+  ],
+  "work": {
+    "sessions": 1,
+    "fullTests": 0,
+    "screenshots": 0
+  },
+  "keepAwake": {
+    "mode": "while_working",
+    "holding": true,
+    "since": "2026-10-29T11:05:00.000Z",
+    "supported": true
+  },
+  "machine": {
+    "diskPath": "/fixture",
+    "diskFreeBytes": 182000000000,
+    "diskTotalBytes": 994000000000,
+    "memTotalBytes": 32000000000,
+    "memFreeBytes": 9100000000,
+    "loadAverage1m": 2.4
+  },
+  "logs": {
+    "out": "/fixture/engine/logs/out.log",
+    "err": "/fixture/engine/logs/err.log"
+  }
+}

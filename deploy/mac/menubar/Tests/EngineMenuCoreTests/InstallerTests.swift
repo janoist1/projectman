@@ -31,7 +31,7 @@ final class InstallerFixture {
         calls.append(spec)
         if spec.arguments.contains("--home") {
             let verb = ["status", "service"].first { spec.arguments.contains($0) } ?? ""
-            let sub = spec.arguments.first { ["install", "start", "uninstall"].contains($0) } ?? ""
+            let sub = spec.arguments.first { ["install", "start", "uninstall", "switch"].contains($0) } ?? ""
             let name = verb == "service" ? sub : verb
             if let message = failing[name] {
                 if name == "install" {

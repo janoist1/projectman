@@ -26,7 +26,7 @@ enum StatusIcon {
                     line.move(to: NSPoint(x: x, y: 30)); line.line(to: NSPoint(x: x, y: 30 - height - wave)); line.stroke()
                 }
             }
-            if kind == .noCloud || kind == .warning {
+            if kind == .noCloud || kind == .warning || kind == .caution {
                 context.setBlendMode(.destinationOut)
                 NSBezierPath(ovalIn: NSRect(x: 28, y: 28, width: 22, height: 22)).fill()
                 context.setBlendMode(.normal)

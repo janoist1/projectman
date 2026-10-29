@@ -782,6 +782,28 @@ describe('REST API', () => {
       expect((await call<ApiError>('GET', '/api/projects/AR/config', clientCookie)).status).toBe(200);
       expect((await call('POST', '/api/projects/AR/tasks', clientCookie, { title: 'x' })).status).toBe(403);
     });
+
+    it('lets a client open a card in the first stage once the project allows it (PM-1100)', async () => {
+      const clientCookie = await addHumanAndLogin(h.app, {
+        handle: 'client',
+        name: 'Client',
+        access: 'client',
+      });
+      const current = await call<ConfigView>('GET', '/api/projects/AR/config', cookie);
+      const saved = await call('PATCH', '/api/projects/AR/config', cookie, {
+        baseVersion: current.body.version,
+        taskCreateAccess: 'client',
+      });
+      expect(saved.status).toBe(200);
+      expect((await call('POST', '/api/projects/AR/tasks', clientCookie, { title: 'Idea' })).status).toBe(
+        201,
+      );
+      const later = await call<ApiError>('POST', '/api/projects/AR/tasks', clientCookie, {
+        title: 'Skip the queue',
+        stageId: 'development',
+      });
+      expect(later.status).toBe(403);
+    });
   });
 
   it('serves the web app with an SPA fallback when it is built', async () => {

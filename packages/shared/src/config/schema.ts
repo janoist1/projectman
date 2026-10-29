@@ -34,6 +34,10 @@ export const CardMover = z.discriminatedUnion('kind', [
 ]);
 export type CardMover = z.infer<typeof CardMover>;
 
+/** The lowest human access that may open a new card (PM-1100); a viewer never may, AI members always may. */
+export const TaskCreateAccess = z.enum(['owner', 'admin', 'developer', 'client']);
+export type TaskCreateAccess = z.infer<typeof TaskCreateAccess>;
+
 export const ProjectManagerMoves = z.enum(['queues_and_start', 'start_only']);
 export type ProjectManagerMoves = z.infer<typeof ProjectManagerMoves>;
 
@@ -429,6 +433,8 @@ export const ProjectConfig = z.object({
     /** Owner-controlled approval waiver; absent means every approval still needs a click. */
     operatorApprovalWaiver: z.boolean().optional(),
     cardMover: CardMover.optional(),
+    /** Lowest human access that may open a new card (PM-1100); absent: DEFAULT_TASK_CREATE_ACCESS applies. */
+    taskCreateAccess: TaskCreateAccess.optional(),
     /** Independent PM moves (PM-1094); absent: DEFAULT_PROJECT_MANAGER_MOVES applies. */
     projectManagerMoves: ProjectManagerMoves.optional(),
     /** Lifecycle actions the PM may take on its own (PM-1098); absent: DEFAULT_PROJECT_MANAGER_LIFECYCLE. */

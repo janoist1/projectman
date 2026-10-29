@@ -723,7 +723,7 @@ export function BoardPage() {
         active={activeTheme?.key ?? null}
         onFilter={setThemeFilter}
         onOpen={(themeKey) => navigate(`/p/${key}/tasks/${themeKey}`)}
-        {...(can.createTasks ? { onNew: () => openNewTask({ kind: 'theme' }) } : {})}
+        {...(can.newCards ? { onNew: () => openNewTask({ kind: 'theme' }) } : {})}
       />
       {total === 0 ? (
         <div className={styles.emptyWrap}>

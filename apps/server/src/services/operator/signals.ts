@@ -858,7 +858,23 @@ export class OperatorSignals {
 
   /** Whether the wake interval (or the structural window) still holds the signal back from the coordinator. */
   holdsBack(projectKey: string, signalId: string): boolean {
-    return !this.wakeable(projectKey).some((signal) => signal.id === signalId);
+    return this.heldBack(projectKey, [signalId]).has(signalId);
+  }
+
+  /**
+   * Which of the signals the wake interval (or the structural window) holds back: one question for a whole
+   * queue run, so its cost does not grow with the signals waiting. A signal whose own wake line is not due is
+   * held without reading its case; the cases are read once, for the signals that pass. Reads only.
+   */
+  heldBack(projectKey: string, signalIds: string[]): Set<string> {
+    const held = new Set(signalIds);
+    const open = this.deps.ctx.repos.operatorSignals.listOpen(projectKey);
+    const wakes = this.wakeLine(projectKey);
+    const candidates = new Set(open.filter((s) => held.has(s.id) && wakes(s)).map((signal) => signal.id));
+    if (!candidates.size) return held;
+    for (const signal of this.pending(projectKey, undefined, { open, resolve: false }))
+      if (candidates.has(signal.id)) held.delete(signal.id);
+    return held;
   }
 
   /** The input that gives the coordinator these signals: the wake-up text of its level, one JSON line each. */
@@ -950,14 +966,19 @@ export class OperatorSignals {
     if (!sessions.findRunning(projectKey, member, { type: 'general' })) this.finish(projectKey);
   }
 
+  /**
+   * The open signals the coordinator is owed now. A signal whose case no longer stands is resolved here
+   * (`resolve`); a read-only question (the queue's hold) leaves that to the next sweep.
+   */
   private pending(
     projectKey: string,
     structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
+    { open = this.deps.ctx.repos.operatorSignals.listOpen(projectKey), resolve = true } = {},
   ): OperatorSignalRecord[] {
     const { ctx, projects } = this.deps;
     const now = ctx.now().getTime();
     let board: Map<string, SignalInput> | undefined;
-    return ctx.repos.operatorSignals.listOpen(projectKey).filter((s) => {
+    return open.filter((s) => {
       if (s.resolvedAt) return false;
       // A signal the coordinator took a step on is shown again once its follow-up time has come (PM-545).
       const config = projects.cachedConfig(projectKey);
@@ -981,7 +1002,7 @@ export class OperatorSignals {
         structural,
       );
       if (!valid) {
-        this.resolve(projectKey, s.caseKey);
+        if (resolve) this.resolve(projectKey, s.caseKey);
         return false;
       }
       // The facts of a start under a new attempt cannot be read; the signal is told after the attempt (PM-455).
@@ -1443,47 +1464,36 @@ export class OperatorSignals {
     return stage.kind === 'step' ? available(stageOwners(config, stage)) : [];
   }
   /**
-   * The pending signals whose line may wake the coordinator now (PM-694): the general line waits
+   * Whether a signal's line may wake the coordinator now (PM-694): the general line waits
    * `OPERATOR_SIGNAL_WAKE_INTERVAL_MS` after its last delivery, the fast line (`answer_stalled`) only
-   * `OPERATOR_ANSWER_STALL_WAKE_MS` after its own. Each line counts the deliveries of its own kinds.
+   * `OPERATOR_ANSWER_STALL_WAKE_MS` after its own. Each line counts the deliveries of its own kinds; a
+   * structural signal also waits while one was delivered in the last day. Read once, asked per signal.
    */
-  private wakeable(
-    projectKey: string,
-    structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
-  ): OperatorSignalRecord[] {
+  private wakeLine(projectKey: string): (signal: OperatorSignalRecord) => boolean {
+    const signals = this.deps.ctx.repos.operatorSignals;
     const now = this.deps.ctx.now().getTime();
-    const delivered = (fast: boolean) =>
-      this.deps.ctx.repos.operatorSignals
-        .list(projectKey)
-        .flatMap((s) =>
-          s.deliveredAt && OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) === fast
-            ? [Date.parse(s.deliveredAt)]
-            : [],
-        )
-        .sort((a, b) => b - a)[0];
-    const due = (fast: boolean) => {
-      const last = delivered(fast);
-      return (
-        last === undefined ||
-        now - last >= (fast ? OPERATOR_ANSWER_STALL_WAKE_MS : OPERATOR_SIGNAL_WAKE_INTERVAL_MS)
-      );
-    };
-    const signals = this.pending(projectKey, structural);
-    if (!signals.length) return signals;
-    const dueFast = due(true);
-    const dueGeneral = due(false);
+    const due = (last: string | null, wait: number) => last === null || now - Date.parse(last) >= wait;
+    const dueFast = due(
+      signals.lastDeliveredAt(projectKey, OPERATOR_FAST_SIGNAL_KINDS, 'only'),
+      OPERATOR_ANSWER_STALL_WAKE_MS,
+    );
+    const dueGeneral = due(
+      signals.lastDeliveredAt(projectKey, OPERATOR_FAST_SIGNAL_KINDS, 'except'),
+      OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
+    );
+    const structuralDelivered = signals.deliveredAfter(
+      projectKey,
+      STRUCTURAL_KINDS,
+      new Date(now - 24 * 60 * 60_000).toISOString(),
+    );
     const config = this.deps.projects.cachedConfig(projectKey);
     const recipient = config && coordinationMemberOf(config)?.handle;
-    const structuralDelivered = this.deps.ctx.repos.operatorSignals
-      .list(projectKey)
-      .filter((s) => structuralKind(s.kind) && s.deliveredAt)
-      .some((s) => now - Date.parse(s.deliveredAt!) < 24 * 60 * 60_000);
-    return signals.filter(
-      (s) =>
-        (!structuralKind(s.kind) || !structuralDelivered) &&
-        ((s.deliveredAt && s.deliveredTo !== recipient) ||
-          (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral)),
-    );
+    return (s) =>
+      (!structuralKind(s.kind) || !structuralDelivered) &&
+      !!(
+        (s.deliveredAt && s.deliveredTo !== recipient) ||
+        (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral)
+      );
   }
   private save(signal: OperatorSignalRecord, publish = true): void {
     this.deps.ctx.repos.operatorSignals.save(signal);

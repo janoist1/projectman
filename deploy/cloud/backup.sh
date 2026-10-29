@@ -29,6 +29,7 @@ EXCLUDES=(
   --exclude "$PROJECTMAN_HOME/db.sqlite-wal"
   --exclude "$PROJECTMAN_HOME/db.sqlite-shm"
   --exclude "$PROJECTMAN_HOME/logs"
+  --exclude "$PROJECTMAN_HOME/diagnostics"
   --exclude "$PROJECTMAN_HOME/browsers"
   --exclude "$PROJECTMAN_HOME/.restore-staging"
   --exclude "$PROJECTMAN_HOME/.cloud-volume"

@@ -2510,6 +2510,13 @@ migrations.push({
 });
 migrations.push({
   version: 124,
+  name: 'index the signal deliveries by kind',
+  // PM-1106: the wake lines read the latest delivery of a kind group (`MAX(delivered_at)`) and whether a
+  // structural signal was delivered lately, without reading the whole signal history. No column is added.
+  sql: `CREATE INDEX operator_signals_delivery ON operator_signals(project_key, kind, delivered_at);`,
+});
+migrations.push({
+  version: 125,
   name: 'drop the removed project focus list',
   // PM-1107: the project focus (PM-427) was removed. Its table was empty on the live instance; the index and the
   // change-journal triggers go with it. The `focus_changed` timeline events stay (append-only) and keep rendering.

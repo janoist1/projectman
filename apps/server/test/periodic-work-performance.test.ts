@@ -568,12 +568,12 @@ async function structuralFixture(
         ),
       )
       .digest('hex');
-    // The member queue's signal items: the lane asks `holdsBack` before a delivery and `noticeText` builds its input.
+    // The member queue's signal items: the lane asks `heldBack` before a delivery and `noticeText` builds its input.
     const starts = PROJECTS.map((projectKey) => {
       const ids = signals.filter((signal) => signal.projectKey === projectKey).map((signal) => signal.id);
       return {
-        // One evaluation, as the lane's hold asks it once for the batch.
-        stillValid: () => h.domain.operatorSignals.holdsBack(projectKey, ids[0]!),
+        // One evaluation for the whole queue, as the lane's `holdAll` asks it once per driver run.
+        stillValid: () => h.domain.operatorSignals.heldBack(projectKey, ids),
         run: async () => h.domain.operatorSignals.noticeText(projectKey, ids),
       };
     });
@@ -727,7 +727,8 @@ describe('structural signal performance protocol (PM-783)', () => {
       [200, 2],
       [20, 20],
     ]) {
-      const fixture = await structuralFixture(history!, history!, groups!, 'budget');
+      // Measured under `admission`: with a delivery marker (`budget`) the wake line holds the signals before any case is read.
+      const fixture = await structuralFixture(history!, history!, groups!, 'admission');
       const meter = instrument();
       try {
         meter.start();

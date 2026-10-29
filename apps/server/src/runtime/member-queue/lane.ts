@@ -32,6 +32,11 @@ export interface MemberQueueLane {
   stillOwed(item: StoredMemberQueueItem): boolean;
   /** A code while something holds the item back (it is neither delivered nor woken for), else null. */
   hold(item: StoredMemberQueueItem): Promise<string | null>;
+  /**
+   * `hold` for a whole run of the member's queue at once, by item id; absent: `hold` per item. A lane whose
+   * hold reads shared state answers all its items from one reading, so the cost does not grow with the queue.
+   */
+  holdAll?(items: StoredMemberQueueItem[]): Promise<Map<string, string | null>>;
   /** Whether the item wakes the member now; absent: the stored flag. */
   wakes?(item: StoredMemberQueueItem, config: ProjectConfig): boolean;
   /** Where the item goes now that its place is gone: another place, `closed` (cancelled), or null (it stays). */

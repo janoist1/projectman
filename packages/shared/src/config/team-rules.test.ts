@@ -39,6 +39,12 @@ describe('teamRules', () => {
     });
   });
 
+  it('names the configured access that may open a new card', () => {
+    const config = sampleConfig();
+    config.team.taskCreateAccess = 'client';
+    expect(teamRules(config)[0]).toMatchObject({ id: 'new_card', minimumAccess: 'client' });
+  });
+
   it('keeps only universal rules without labels or refinement stages and falls back to owners', () => {
     const config = sampleConfig();
     config.pipeline.labels = [];

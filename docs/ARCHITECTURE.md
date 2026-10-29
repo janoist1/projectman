@@ -3181,6 +3181,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   machine's memory (docs/HYBRID.md "Settings"); the docker `--memory` limit, the systemd unit and the
   host (`deploy/aws`) are unchanged. **Remote engine:** none; the engine process does not read either
   variable and nothing crosses the server/engine boundary.
+  PM-1105 adds: with `PROJECTMAN_HEAP_SNAPSHOT=1` (opt-in, read only by `entrypoint.sh`) the entrypoint also
+  starts the server with `--report-on-fatalerror` and `--heapsnapshot-near-heap-limit=1`, both writing into
+  `<home>/diagnostics` (created at the start, mode 700, excluded from the restic backup because a heap
+  snapshot holds board data and secrets); only the newest earlier heap snapshot is kept at each start.
+  `start.ts` defaults `PROJECTMAN_HISTORY_SEMANTIC` to `off` in cloud mode. **Machine assumption:** the persistent volume has room for two
+  snapshots of about the heap limit each, and the machine has memory for writing one near the limit.
+  **Remote engine:** none; it concerns only the cloud server process.
   The cloud runs in a container with `git` and without the `claude`, `codex` and `gh` CLIs, as an
   unprivileged user (the entrypoint starts as root only to hand the mounted volume over, then drops
   with `setpriv --no-new-privs`). Its processes: the server (`HOST=127.0.0.1`), Litestream
@@ -5043,7 +5050,7 @@ focus place in the start order are gone. The pure start-order rules are in `pack
 `startClass` (urgent or other), `compareStartClass`, `pullSourceStage`, `pullCandidates` and `startableCards`.
 Stored `focus_changed` timeline events and the `{ reason: 'focus', ... }` form of `StagePull` stay in the shared event
 contract and the web timeline, because the timeline is append-only and old events must keep rendering.
-Migration 124 drops the then empty table `project_focus_items`.
+Migration 125 drops the then empty table `project_focus_items`.
 
 - **Timeline.** `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }`; old events may also carry
   `{ reason: 'focus', ... }`) marks a card the system pulled into the work stage (below).
@@ -5737,6 +5744,17 @@ pid=,ppid=,pgid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envVal
   here; a session's top processes carry the short name only.
 - **Screenshots.** `PROJECTMAN_MACHINE_FIXTURE=<json>` (`npm run shots -- … --machine <file>`,
   [SCREENSHOTS.md](SCREENSHOTS.md)) swaps the probe for fixed data that never signals; the server warns at start.
+
+## Who may open a card (PM-1100)
+
+`team.taskCreateAccess` (`owner|admin|developer|client`, default `developer`, the earlier behavior)
+is the lowest human access that may open a new card. `packages/shared/src/config/task-create.ts`
+owns the rule (`canCreateTasks`, `createsInFirstStageOnly`); the `POST /tasks` route and the web
+fake both call it. A viewer never may, AI members always may (the MCP `create_task` is unchanged),
+and a client's card starts in the first stage only (403 for any other `stageId`). Only an owner
+may change the setting (owner-only change `task_create_access`, never waivable by an Operator).
+The web separates `can.newCards` (the "new card" buttons) from `can.createTasks` (moving, editing
+and starting cards, developer level). No machine-dependent part is affected.
 
 ## Card mover and hand-on requests (PM-439)
 

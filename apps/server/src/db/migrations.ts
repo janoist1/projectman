@@ -2508,4 +2508,11 @@ migrations.push({
     v123DropMailbox('inbox_items', 'payload', `kind = 'approval'`),
   ].join('\n'),
 });
+migrations.push({
+  version: 124,
+  name: 'index the signal deliveries by kind',
+  // PM-1106: the wake lines read the latest delivery of a kind group (`MAX(delivered_at)`) and whether a
+  // structural signal was delivered lately, without reading the whole signal history. No column is added.
+  sql: `CREATE INDEX operator_signals_delivery ON operator_signals(project_key, kind, delivered_at);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

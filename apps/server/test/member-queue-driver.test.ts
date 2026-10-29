@@ -186,6 +186,44 @@ describe('the member queue driver', () => {
       expect(items('dev-2')).toEqual([expect.objectContaining({ wake: false, wait: null })]);
       expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
     });
+
+    it('asks a lane that decides its holds together once per run, not once per item (PM-1106)', async () => {
+      const holdAll = vi.fn(
+        async (queued: { id: string }[]) => new Map(queued.map((i) => [i.id, 'hold_test'])),
+      );
+      const hold = vi.fn(async () => null);
+      driver().register({
+        kinds: ['todo'],
+        completion: 'source',
+        oneAtATime: true,
+        cause: () => ({ kind: 'message', by: { kind: 'system', handle: null } }),
+        render: (item) => item.title,
+        stillOwed: () => true,
+        hold,
+        holdAll,
+      });
+      for (const id of ['probe-1', 'probe-2', 'probe-3'])
+        h.repos.memberQueue.insert({
+          id,
+          projectKey: 'AR',
+          member: 'dev-1',
+          kind: 'todo',
+          source: { type: 'inbox', id },
+          place: general,
+          taskKey: null,
+          wake: true,
+          title: id,
+          from: null,
+          queuedAt: new Date().toISOString(),
+        });
+      await driver().ensure('AR', 'dev-1');
+
+      expect(holdAll).toHaveBeenCalledTimes(1);
+      expect(holdAll.mock.calls[0]![0]).toHaveLength(3);
+      expect(hold).not.toHaveBeenCalled();
+      expect(items().map((item) => item.wait?.code)).toEqual(['hold_test', 'hold_test', 'hold_test']);
+      expect(h.runner.started).toHaveLength(0);
+    });
   });
 
   describe('a lane that works its items', () => {

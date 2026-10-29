@@ -64,6 +64,31 @@ export function createOperatorSignalRepository(db: Db) {
     listOpen(projectKey: string): OperatorSignalRecord[] {
       return (listOpen.all(projectKey) as Row[]).map(record);
     },
+    /** The latest delivery among the signals of these kinds (`except`: of all other kinds); null: none was delivered. */
+    lastDeliveredAt(
+      projectKey: string,
+      kinds: readonly OperatorSignalKind[],
+      scope: 'only' | 'except',
+    ): string | null {
+      const marks = kinds.map(() => '?').join(', ');
+      const row = db
+        .prepare(
+          `SELECT MAX(delivered_at) AS at FROM operator_signals
+          WHERE project_key = ? AND kind ${scope === 'only' ? 'IN' : 'NOT IN'} (${marks})`,
+        )
+        .get(projectKey, ...kinds) as { at: string | null };
+      return row.at;
+    },
+    /** Whether a signal of these kinds was delivered after `since`. */
+    deliveredAfter(projectKey: string, kinds: readonly OperatorSignalKind[], since: string): boolean {
+      const marks = kinds.map(() => '?').join(', ');
+      return !!db
+        .prepare(
+          `SELECT 1 FROM operator_signals
+          WHERE project_key = ? AND kind IN (${marks}) AND delivered_at > ? LIMIT 1`,
+        )
+        .get(projectKey, ...kinds, since);
+    },
     insert(signal: OperatorSignalRecord): void {
       db.prepare(
         `INSERT INTO operator_signals (id, project_key, case_key, kind, state, actionable,

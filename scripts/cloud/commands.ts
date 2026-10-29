@@ -20,7 +20,8 @@ import {
   runStop,
 } from './machine';
 import { Report } from './report';
-import { runImageBuild, selectedImage } from './images';
+import { runImageFetch, type ImageFetchContext } from './image-fetch';
+import { runImageBuild, selectedImage, type ImageBuildContext } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
 import { runSesReceiveCheck, runSesReceiveConfigure, runSesReceivePlan } from './ses-receive';
@@ -28,7 +29,11 @@ import { runSesReceiveCheck, runSesReceiveConfigure, runSesReceivePlan } from '.
 const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
   image-build --ref <SHA40> --out <new directory> [--dry-run]
-                                     build and verify the arm64 image archive on the admin builder
+                                     build and verify the arm64 image archive on a builder with Docker (the local fallback;
+                                     needs no cloud configuration)
+  image-fetch --ref <SHA40> --out <new directory> [--run <id>] [--dry-run]
+                                     fetch and verify the arm64 image bundle that the GitHub workflow projectman-job.yml
+                                     built (finds or follows the run, never starts one; no Docker, no cloud configuration)
   preflight                          check the aws CLI, the login, the region, the machine type and the secrets store
   aws [--dry-run] [--rotate-keys]    create the EC2 machine, the S3 buckets, the IAM users and their keys
   deploy [--ref <tag|sha>] [--dry-run]
@@ -70,7 +75,7 @@ exit status: 0 done, 1 failed, 2 refused (a precondition is missing or the state
 `;
 
 type Flag = 'dry-run' | 'rotate-keys' | 'rotate-engine-token' | 'rotate-integrator-token' | 'feedback';
-type ValueOption = 'ref' | 'lines' | 'to' | 'login-json' | 'out' | 'rotate-owner-token';
+type ValueOption = 'ref' | 'lines' | 'to' | 'login-json' | 'out' | 'run' | 'rotate-owner-token';
 
 interface Invocation {
   dryRun: boolean;
@@ -81,6 +86,12 @@ interface Invocation {
 
 interface CommandSpec {
   summary: string;
+  /**
+   * Runs without the cloud configuration file (where none exists, for example on a GitHub runner): `runCloud`
+   * does not load it. Such a command's `run` declares the narrower context it uses (`deps` and `report`), so
+   * the type check keeps it from reading the configuration.
+   */
+  configless?: true;
   flags: readonly Flag[];
   values?: readonly ValueOption[];
   /** The value options the command cannot do without. */
@@ -129,11 +140,26 @@ async function preflight(context: CloudContext): Promise<void> {
 export const COMMANDS: Record<string, CommandSpec> = {
   'image-build': {
     summary: 'build the image bundle',
+    configless: true,
     flags: ['dry-run'],
     values: ['ref', 'out'],
     required: ['ref', 'out'],
-    run: (context, invocation) =>
+    run: (context: ImageBuildContext, invocation) =>
       runImageBuild(context, invocation.values.ref!, invocation.values.out!, invocation.dryRun),
+  },
+  'image-fetch': {
+    summary: 'fetch the image bundle built on GitHub',
+    configless: true,
+    flags: ['dry-run'],
+    values: ['ref', 'out', 'run'],
+    required: ['ref', 'out'],
+    run: (context: ImageFetchContext, invocation) =>
+      runImageFetch(context, {
+        ref: invocation.values.ref!,
+        output: invocation.values.out!,
+        run: invocation.values.run,
+        dryRun: invocation.dryRun,
+      }),
   },
   'ses plan': { summary: 'preview SES provisioning', flags: [], run: runSesPlan },
   'ses configure': {
@@ -321,6 +347,18 @@ export async function runCloud(argv: readonly string[], deps: CloudDeps): Promis
   const report = new Report((line) => deps.out(line));
   try {
     const parsed = parse(argv);
+    const invocation: Invocation = {
+      dryRun: parsed.flags.has('dry-run'),
+      rotateKeys: parsed.flags.has('rotate-keys'),
+      flags: parsed.flags,
+      values: parsed.values,
+    };
+    const spec = COMMANDS[parsed.command]!;
+    if (spec.configless) {
+      // Only `deps` and `report` exist here; a configless command's `run` is typed to use no more.
+      await spec.run({ deps, report } as CloudContext, invocation);
+      return 0;
+    }
     const configFile = parsed.config
       ? path.resolve(expandHome(parsed.config, deps.homeDir))
       : defaultConfigPath(deps.homeDir);
@@ -337,12 +375,7 @@ export async function runCloud(argv: readonly string[], deps: CloudDeps): Promis
       secretsDir: dir,
       envFile: path.join(dir, ENV_FILE_NAME),
     };
-    await COMMANDS[parsed.command]!.run(context, {
-      dryRun: parsed.flags.has('dry-run'),
-      rotateKeys: parsed.flags.has('rotate-keys'),
-      flags: parsed.flags,
-      values: parsed.values,
-    });
+    await spec.run(context, invocation);
     return 0;
   } catch (error) {
     if (error instanceof CloudError) {

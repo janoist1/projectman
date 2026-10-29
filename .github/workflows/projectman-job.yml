@@ -1,0 +1,165 @@
+# A general compute job (PM-1144, PM-1145): runs one shell command on a GitHub-hosted runner at one commit, then
+# attests and uploads the declared output files. The title of the run (`run-name`) names the job, the commit and
+# the run id, so `npm run cloud -- image-fetch` (and later the engine) finds the run from it. Nothing starts it but
+# a person with write access: `gh workflow run projectman-job.yml --ref <default branch> -f job=... -f run_id=...`.
+# Docs: docs/AWS.md "Prebuilt ARM images", docs/MACHINE-DEPENDENT.md "Compute jobs on GitHub Actions".
+#
+# The file is general: another project copies it as it is into its own repository. It uses no secret, and the
+# workflow file itself must come from the default branch, so a branch cannot change what a job does.
+# Every input reaches the shell through the environment, never through the text of a command.
+name: projectman-job
+run-name: projectman-job ${{ inputs.job }} ${{ inputs.commit }} ${{ inputs.run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Job kind (a-z, 0-9 and -; at most 40 characters), for example cloud-image
+        required: true
+        type: string
+      run_id:
+        description: Id of this run (a-z, 0-9, - and _; at most 64 characters); the artifact is projectman-job-<run_id>
+        required: true
+        type: string
+      commit:
+        description: The commit to check out (40 lowercase hexadecimal characters)
+        required: true
+        type: string
+      command:
+        description: Shell command, run with sh -c in the root of the checkout
+        required: true
+        type: string
+      runs_on:
+        description: The runner
+        required: true
+        type: choice
+        options:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+      outputs:
+        description: One to ten output files under $PROJECTMAN_JOB_OUT, separated by single spaces
+        required: true
+        type: string
+      node:
+        description: Node.js major version to set up; empty = none
+        required: false
+        default: ''
+        type: string
+      timeout_minutes:
+        description: Time limit of the job in minutes (1 to 360)
+        required: false
+        default: '60'
+        type: string
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+jobs:
+  job:
+    name: ${{ inputs.job }} (${{ inputs.runs_on }})
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes) }}
+    steps:
+      - name: Guard
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          JOB: ${{ inputs.job }}
+          RUN_ID: ${{ inputs.run_id }}
+          COMMIT: ${{ inputs.commit }}
+          COMMAND: ${{ inputs.command }}
+          RUNS_ON: ${{ inputs.runs_on }}
+          OUTPUTS: ${{ inputs.outputs }}
+          NODE_VERSION: ${{ inputs.node }}
+          TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+        run: |
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          [[ "$REF_NAME" == "$DEFAULT_BRANCH" ]] || fail "the workflow must run from the default branch"
+          [[ "$JOB" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "job does not match its pattern"
+          [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || fail "run_id does not match its pattern"
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "commit must be 40 lowercase hexadecimal characters"
+          [[ -n "$COMMAND" ]] || fail "command is empty"
+          runner_pattern='^(ubuntu-24\.04|ubuntu-24\.04-arm|macos-15)$'
+          node_pattern='^([0-9]{1,3})?$'
+          outputs_pattern='^[^[:space:]]+( [^[:space:]]+){0,9}$'
+          path_pattern='^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$'
+          [[ "$RUNS_ON" =~ $runner_pattern ]] || fail "runs_on is not an allowed runner"
+          [[ "$NODE_VERSION" =~ $node_pattern ]] || fail "node must be empty or a major version"
+          [[ "$TIMEOUT_MINUTES" =~ ^[0-9]{1,3}$ ]] || fail "timeout_minutes must be a number"
+          (( 10#$TIMEOUT_MINUTES >= 1 && 10#$TIMEOUT_MINUTES <= 360 )) || fail "timeout_minutes must be 1 to 360"
+          [[ "$OUTPUTS" =~ $outputs_pattern ]] || fail "outputs needs one to ten paths separated by single spaces"
+          set -f
+          for path in $OUTPUTS; do
+            [[ ${#path} -le 200 && "$path" =~ $path_pattern ]] || fail "output path $path is not allowed"
+            IFS=/ read -r -a segments <<< "$path"
+            for segment in "${segments[@]}"; do
+              [[ "$segment" != "." && "$segment" != ".." ]] || fail "output path $path is not allowed"
+            done
+          done
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.commit }}
+          persist-credentials: false
+      # No cache: another project may have no lockfile.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: inputs.node != ''
+        with:
+          node-version: ${{ inputs.node }}
+      - name: Run
+        shell: bash
+        env:
+          COMMAND: ${{ inputs.command }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          rm -rf "$RUNNER_TEMP/projectman-job"
+          mkdir -p "$RUNNER_TEMP/projectman-job/out"
+          export PROJECTMAN_JOB_OUT="$RUNNER_TEMP/projectman-job/out"
+          export PROJECTMAN_JOB_COMMIT="$COMMIT"
+          sh -c "$COMMAND"
+      - name: Outputs
+        id: outputs
+        shell: bash
+        env:
+          OUTPUTS: ${{ inputs.outputs }}
+        run: |
+          out="$RUNNER_TEMP/projectman-job/out"
+          stage="$RUNNER_TEMP/projectman-job/stage"
+          real_out="$(realpath "$out")"
+          mkdir -p "$stage"
+          set -f
+          subjects=""
+          for path in $OUTPUTS; do
+            file="$out/$path"
+            # A regular file, reached through no symlink at all.
+            if [[ ! -f "$file" || -L "$file" || "$(realpath "$file")" != "$real_out/$path" ]]; then
+              echo "::error::the declared output $path is missing or not a regular file"
+              exit 1
+            fi
+            mkdir -p "$(dirname "$stage/$path")"
+            cp "$file" "$stage/$path"
+            sha256="$(shasum -a 256 "$stage/$path" | cut -d' ' -f1)"
+            bytes="$(wc -c < "$stage/$path" | tr -d ' ')"
+            line="projectman-job output $path $sha256 $bytes"
+            echo "$line"
+            echo "$line" >> "$GITHUB_STEP_SUMMARY"
+            subjects+="$stage/$path"$'\n'
+          done
+          {
+            echo 'subjects<<PROJECTMAN_JOB_SUBJECTS'
+            printf '%s' "$subjects"
+            echo 'PROJECTMAN_JOB_SUBJECTS'
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: ${{ steps.outputs.outputs.subjects }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: projectman-job-${{ inputs.run_id }}
+          path: ${{ runner.temp }}/projectman-job/stage
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

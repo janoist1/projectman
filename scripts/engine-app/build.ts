@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { EnginePackageManifest } from '../../apps/server/src/contracts';
 import type { CloudDeps, RunOptions } from '../cloud/deps';
 import { CloudError, refused } from '../cloud/errors';
+import { githubRepoOf } from '../cloud/github';
 import { bundleVersions, EngineAppManifest } from './manifest';
 
 export interface EngineAppBuildRequest {
@@ -52,11 +53,6 @@ function binaries(directory: string): string[] {
     });
 }
 
-function releaseRepo(origin: string): string {
-  const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(origin);
-  if (!match) throw refused('origin must name a GitHub owner/repository');
-  return match[1]!;
-}
 const xml = (text: string) =>
   text.replace(
     /[&<>"']/g,
@@ -90,7 +86,7 @@ export async function buildEngineApp(
     JSON.parse(fs.readFileSync(path.join(pkg, 'engine-package.json'), 'utf8')),
   );
   const versions = bundleVersions(manifest.tag);
-  const repo = releaseRepo(request.originUrl);
+  const repo = githubRepoOf(request.originUrl);
   const teamId = request.adHoc ? '' : request.teamId!;
   fs.mkdirSync(out, { recursive: true });
   const work = fs.mkdtempSync(path.join(out, '.build-'));

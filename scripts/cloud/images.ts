@@ -6,6 +6,7 @@ import type { CloudContext } from './context';
 import type { CloudDeps } from './deps';
 import { badUsage, CloudError, refused } from './errors';
 import type { HostSession } from './host';
+import type { Report } from './report';
 
 const sourceShaSchema = z
   .string()
@@ -158,11 +159,11 @@ export async function receiveImage(
 }
 
 /** What an image build needs of its environment: running a command and piping two. */
-interface ImageBuildTools {
+export interface ImageBuildTools {
   deps: Pick<CloudDeps, 'run' | 'pipe'>;
 }
 
-async function checked(
+export async function checked(
   context: ImageBuildTools,
   command: string,
   args: string[],
@@ -268,7 +269,8 @@ export function verifyImage(value: unknown, imageId: string, platform: string, s
     throw new CloudError('built image ID, platform, revision or version does not match');
 }
 
-async function verifyArchive(
+/** The archive's image, by its tar entries alone (no Docker): its ID, platform, revision and version. */
+export async function verifyArchive(
   context: ImageBuildTools,
   file: string,
   imageId: string,
@@ -299,28 +301,52 @@ async function verifyArchive(
   );
 }
 
+/** An image command's `--ref`: 40 lowercase hexadecimal characters. */
+export function imageRef(command: string, ref: string): string {
+  if (!sourceShaSchema.safeParse(ref).success)
+    throw badUsage(`${command} --ref needs 40 lowercase hexadecimal characters`);
+  return ref;
+}
+
+/**
+ * The `--out` of an image command: a new directory (its parent exists) outside the repository checkout,
+ * no symlink on the way. Returns the checkout's real path and the resolved output.
+ */
+export function newOutputDirectory(
+  deps: Pick<CloudDeps, 'repoRoot'>,
+  command: string,
+  output: string,
+): { root: string; out: string } {
+  if (/[\0\r\n,]/.test(output)) throw badUsage(`${command} --out contains an invalid character`);
+  const out = path.resolve(output);
+  try {
+    const root = fs.realpathSync(deps.repoRoot);
+    noSymlinks(out);
+    if (out === root || out.startsWith(`${root}${path.sep}`) || fs.lstatSync(out, { throwIfNoEntry: false }))
+      throw refused(`${command} output must be a new directory outside the repository`);
+    if (!fs.statSync(path.dirname(out)).isDirectory()) throw refused(`${command} output parent must exist`);
+    return { root, out };
+  } catch (error) {
+    if (error instanceof CloudError) throw error;
+    throw refused('builder checkout or output parent is missing or inaccessible');
+  }
+}
+
+/** The part of the cloud context an image build uses: it needs no cloud configuration (PM-1145). */
+export interface ImageBuildContext {
+  deps: ImageBuildTools['deps'] & Pick<CloudDeps, 'repoRoot'>;
+  report: Report;
+}
+
 export async function runImageBuild(
-  context: CloudContext,
+  context: ImageBuildContext,
   ref: string,
   output: string,
   dryRun: boolean,
 ): Promise<void> {
   const platforms = platformSchema.options;
-  if (!sourceShaSchema.safeParse(ref).success)
-    throw badUsage('image-build --ref needs 40 lowercase hexadecimal characters');
-  if (/[\0\r\n,]/.test(output)) throw badUsage('image-build --out contains an invalid character');
-  const out = path.resolve(output);
-  let root: string;
-  try {
-    root = fs.realpathSync(context.deps.repoRoot);
-    noSymlinks(out);
-    if (out === root || out.startsWith(`${root}${path.sep}`) || fs.lstatSync(out, { throwIfNoEntry: false }))
-      throw refused('image-build output must be a new directory outside the repository');
-    if (!fs.statSync(path.dirname(out)).isDirectory()) throw refused('image-build output parent must exist');
-  } catch (error) {
-    if (error instanceof CloudError) throw error;
-    throw refused('builder checkout or output parent is missing or inaccessible');
-  }
+  imageRef('image-build', ref);
+  const { root, out } = newOutputDirectory(context.deps, 'image-build', output);
   const git = (args: string[]) => checked(context, 'git', ['-C', root, ...args]);
   if ((await git(['rev-parse', 'HEAD'])).trim() !== ref) throw refused('builder HEAD differs from --ref');
   if ((await git(['status', '--porcelain', '--untracked-files=all'])).trim())

@@ -1,8 +1,10 @@
 # Hybrid mode in the cloud (PM-317)
 
 For the ARM EC2 target, [AWS.md](AWS.md#prebuilt-arm-images-pm-718) describes the
-PM-718 image bundle (arm64 only since PM-1116). Build it on a separate administration/builder machine at the same
-accepted full SHA as the Mac engine. EC2 imports the arm64 archive over SSH/SSM
+PM-718 image bundle (arm64 only since PM-1116). GitHub builds it (the general `projectman-job.yml` workflow on an
+arm64 runner, PM-1145) at the same accepted full SHA as the Mac engine, and `npm run cloud -- image-fetch` fetches
+and verifies it on the administration machine, which needs no Docker; the local `image-build` on a separate
+builder machine is the fallback. EC2 imports the arm64 archive over SSH/SSM
 and starts the verified immutable image ID; it never builds on the machine. AWS/registry credentials
 do not cross to the engine. A deploy requires the bundle (`deployment.imageBundle`) and refuses one built
 from another commit than the one being deployed.

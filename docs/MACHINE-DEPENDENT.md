@@ -1149,6 +1149,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   The builder must be separate from EC2; ARM never builds on EC2. Actual two-platform native binary
   and disposable cloud smoke evidence, 1 GiB RAM/20 GiB disk capacity and digest-specific cutover
   approval belong to PM-675. A manifest is integrity metadata, not a signature of origin.
+  PM-1145: the bundle is normally built on GitHub and only fetched and verified on the admin machine (see
+  "Compute jobs on GitHub Actions (PM-1144)"); the local `image-build` stays as the fallback.
   PM-723: `smoke.sh` probes the engine door with four anonymous requests (GET link, GET download,
   GET upload, POST upload with an empty binary body), sending only the Cloudflare Access headers;
   none may answer 2xx, and an unreachable probe fails. It needs bash and curl on the machine that
@@ -2798,6 +2800,24 @@ assumption or remote-engine RPC.
   package (including the previous package during a switch) named by the plist. **Does this work on a remote engine?**
   This is the engine's own start-up: it must run on the engine's machine, as the user who owns the
   CLIs; nothing of it crosses to the cloud. On Linux the equivalent is a systemd user unit (not built).
+  **Module:** `scripts`
+
+- **Compute jobs on GitHub Actions (PM-1144, PM-1145)** — `.github/workflows/projectman-job.yml`,
+  `packages/shared/src/domain/compute-job.ts`, `scripts/cloud/{image-fetch,images,github,commands}.ts`,
+  `apps/server/test/{cloud-image-fetch,projectman-job-workflow}.test.ts`, `docs/AWS.md` "Prebuilt ARM images".
+  Heavy machine work (the first one is the cloud image build) runs on a GitHub-hosted runner through one general
+  workflow, started by hand with `gh workflow run`, so the owner's Mac needs no Docker Desktop (its 8 GB VM).
+  **What runs where:** the runner is one of `ubuntu-24.04`, `ubuntu-24.04-arm` or `macos-15` (the cloud image
+  uses `ubuntu-24.04-arm`); it checks out one commit, runs the declared shell command, attests the declared
+  output files (`actions/attest-build-provenance`) and uploads them as the artifact `projectman-job-<run_id>`
+  (7 days). On the admin machine `npm run cloud -- image-fetch` needs `gh` logged in with read access to the
+  repository's Actions and `gh attestation` (gh 2.49 or newer); it needs no Docker and no cloud configuration.
+  It finds or follows the run (never starts one), checks that the run is `projectman-job.yml` dispatched on the
+  default branch, verifies the attestation of both files against the workflow's exact identity and this run,
+  and then checks the bundle with `tar` alone. Owner setup, once: Settings → Actions → General → Workflow
+  permissions → "Read repository contents". The local `image-build` (Docker and Buildx) remains the fallback.
+  **Does this work on a remote engine?** Yes, and the engine is not affected: nothing of it runs on, or crosses
+  to, an engine, and there is no new RPC. The hub and the engine start no job in this step (PM-1147, PM-1148).
   **Module:** `scripts`
 
 - **Non-interactive editors in member sessions** — `runner/env.ts` (`NON_INTERACTIVE_EDITOR_ENV`,

@@ -17,10 +17,9 @@ import {
   seniorWaitMinutesOf,
   tempMaxPointsOf,
   TEAM_SETTING_POLICY,
+  teamSettingOf,
 } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
-
-const BOUNDARY_DEFAULT = TEAM_SETTING_POLICY.boundary.default;
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import { isApiError } from '../../../api/client';
@@ -88,7 +87,7 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
   const { shown, saving, commit, error, locked } = useInstantLimits(config);
   const { limits } = shown.team;
   const loopWatch = loopWatchOf(limits);
-  const boundaryEnabled = shown.team.boundary?.enabled ?? false;
+  const boundary = teamSettingOf(shown, 'boundary');
   return (
     <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
       {locked ? <p className={shared.help}>{t('settings.limits.locked')}</p> : null}
@@ -271,29 +270,25 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
         label={t('settings.limits.boundaryEnabled')}
         help={t('settings.limits.boundaryHelp')}
         disabled={!isOwner}
-        checked={boundaryEnabled}
+        checked={boundary.enabled}
         onChange={(enabled) =>
           commit((draft) => {
-            draft.team.boundary = {
-              enabled,
-              leadTimeoutSeconds:
-                draft.team.boundary?.leadTimeoutSeconds ?? BOUNDARY_DEFAULT.leadTimeoutSeconds,
-            };
+            draft.team.boundary = { ...teamSettingOf(draft, 'boundary'), enabled };
           })
         }
       />
-      {boundaryEnabled ? (
+      {boundary.enabled ? (
         <InstantNumber
           label={t('settings.limits.boundaryTimeout')}
           min={1}
           max={600}
           disabled={!isOwner}
-          value={shown.team.boundary?.leadTimeoutSeconds ?? BOUNDARY_DEFAULT.leadTimeoutSeconds}
+          value={boundary.leadTimeoutSeconds}
           onCommit={(seconds) =>
             commit((draft) => {
               draft.team.boundary = {
-                enabled: draft.team.boundary?.enabled ?? BOUNDARY_DEFAULT.enabled,
-                leadTimeoutSeconds: seconds ?? BOUNDARY_DEFAULT.leadTimeoutSeconds,
+                ...teamSettingOf(draft, 'boundary'),
+                leadTimeoutSeconds: seconds ?? TEAM_SETTING_POLICY.boundary.default.leadTimeoutSeconds,
               };
             })
           }
@@ -388,7 +383,7 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
             <dt>{t('settings.limits.boundaryEnabled')}</dt>
             <dd>
               {t(
-                config.team.boundary?.enabled
+                teamSettingOf(config, 'boundary').enabled
                   ? 'settings.limits.aiEnabledOn'
                   : 'settings.limits.aiEnabledOff',
               )}

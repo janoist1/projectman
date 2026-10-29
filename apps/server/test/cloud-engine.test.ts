@@ -260,6 +260,29 @@ describe('the files of the cloud reach the engine', () => {
   });
 });
 
+describe('a slow team tool over the relay', () => {
+  beforeEach(async () => {
+    // The cloud gives up on a tool well before the engine's relay wait (1.5 s here, as 60 s against 45 s in use).
+    world.toolTimeoutMs = 200;
+    await world.startCloud();
+    await world.startEngine();
+    await online();
+  });
+
+  it('is answered by the cloud with the timeout text, not by the engine with a bare 504', async () => {
+    const { spec } = await startCard('Slow tool');
+    vi.spyOn(domain().teamTools, 'getTask').mockReturnValue(new Promise(() => {}));
+
+    const reply = await mcp(spec.mcpUrl, 'tools/call', {
+      name: 'get_task',
+      arguments: { task_key: world.src.taskKey },
+    });
+
+    expect(reply.status).toBe(200);
+    expect(reply.text).toContain('[timeout]');
+  });
+});
+
 describe('the link across drops, restarts and refusals', () => {
   const engineId = () => world.packaged.engine.id;
   const message = (taskKey: string, text: string) =>

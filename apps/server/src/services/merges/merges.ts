@@ -274,9 +274,11 @@ export class Merges {
         throw conflict('merge_not_ready', 'the card is not ready to merge', { reason: readiness.reason });
       if (row?.state === 'queued') return task;
       if (row?.state === 'running') {
-        // A running merge always holds its repository's slot, alone or as a train member; without one the row is stuck.
+        // A running merge holds its repository's slot, alone or as a train member; a train publishing after a
+        // restart has none yet. Without either, the row is stuck.
         const holder = this.queue.slot(projectKey, row.repo);
         if (holder && runs(holder, row)) return task;
+        if (row.trainId && this.deps.ctx.repos.mergeTrains.get(row.trainId)?.state === 'running') return task;
         throw conflict('merge_queue_conflict', 'the merge is marked running but no run holds it');
       }
       if (!row) throw conflict('merge_not_ready', 'the card has no work to merge', { reason: 'no_merge' });

@@ -1,6 +1,7 @@
 import { DEFAULT_COMPLEXITY_LIMIT, DEFAULT_TEMP_MAX_POINTS } from '../domain/complexity';
 import type { ComplexityPoints } from '../domain/complexity';
 import type { DutyId } from '../domain/duty';
+import type { Actor } from '../domain/event';
 import { memberDuties, stageDuty, stageOwners } from './duties';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
@@ -38,6 +39,15 @@ export function isDeveloper(config: Pick<ProjectConfig, 'team' | 'pipeline'>, me
 /** The largest card a temp worker takes (PM-1101). */
 export function tempMaxPointsOf(config: Pick<ProjectConfig, 'team'>): ComplexityPoints {
   return config.team.limits.tempWorkers.maxPoints ?? DEFAULT_TEMP_MAX_POINTS;
+}
+
+/**
+ * Whether the AI member's explicit assignee has to fit the card (PM-1136): the project asks for it
+ * (`team.assigneeFit`) and the actor is an AI member, including the coordinator's super actor. People
+ * and a person's own Claude (`kind: 'human'`) name anyone freely.
+ */
+export function assigneeFitApplies(config: Pick<ProjectConfig, 'team'>, actor: Pick<Actor, 'kind'>): boolean {
+  return actor.kind === 'ai' && config.team.assigneeFit === 'automatic_and_ai';
 }
 
 export function complexityLimitOf(

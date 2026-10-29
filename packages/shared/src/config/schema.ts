@@ -454,6 +454,11 @@ export const ProjectConfig = z.object({
     prioritySetters: PrioritySetters.optional(),
     /** Duties whose holders may set complexity points; absent: `DEFAULT_COMPLEXITY_SETTERS`. */
     complexitySetters: ComplexitySetters.optional(),
+    /**
+     * Whether an AI member's explicit assignee has to fit the card's complexity limit and specialty
+     * (PM-1136): `automatic` (absent) keeps today's behaviour; `automatic_and_ai` refuses a misfit.
+     */
+    assigneeFit: z.enum(['automatic', 'automatic_and_ai']).optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),

@@ -6,6 +6,7 @@ export { CollectingCloser } from './collecting-close';
 export { approvalRequestedError, gateBlockedError } from './moves';
 export type { MergeGate, StageChange, WorkEntryCheck } from './moves';
 export { BoardService } from './board';
+export { assertAssigneeFits } from './assignee-fit';
 export { prerequisiteCards, startContext } from './scheduling-context';
 export { InvolvementService } from './involvements';
 export { CardMeasure } from './card-measure';

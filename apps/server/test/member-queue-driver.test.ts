@@ -5,6 +5,7 @@ import type { MemberQueueLane } from '../src/runtime/member-queue';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, settle } from './helpers/fakes';
+import { instrumentSql } from './helpers/sql-meter';
 
 /**
  * The member queue's driver (PM-925): the queue is worked through level by level, so a wake an event lost, a
@@ -59,6 +60,25 @@ describe('the member queue driver', () => {
         "SELECT state, close_reason AS reason FROM member_queue_items WHERE kind = 'message' ORDER BY rowid",
       )
       .all() as Array<{ state: string; reason: string | null }>;
+
+  it('bounds SQL across the real driver and per-message holds for a batch of distinct cards', async () => {
+    h = await createDomainHarness();
+    for (let n = 0; n < 20; n++) {
+      const card = await h.domain.tasks.create('AR', { title: `Held card ${n}` }, OWNER_ACTOR);
+      record('dev-1', card.key);
+    }
+    await flush();
+    const meter = instrumentSql();
+    try {
+      meter.start();
+      await driver().ensure('AR', 'dev-1');
+      const count = meter.stop();
+      expect(count).toBeGreaterThan(0);
+      expect(count).toBeLessThanOrEqual(1500);
+    } finally {
+      meter.restore();
+    }
+  });
 
   describe('waking', () => {
     beforeEach(async () => {

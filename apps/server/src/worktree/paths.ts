@@ -32,3 +32,6 @@ export function createKeyedLock(): <T>(key: string, fn: () => Promise<T>) => Pro
     }
   };
 }
+
+/** Shared by both managers. Call with a canonical repository path, after any workspace lock. */
+export const withRepoLock = createKeyedLock();

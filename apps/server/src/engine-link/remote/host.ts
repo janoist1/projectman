@@ -102,6 +102,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
         await call('worktree.removeMergeFix', [args]);
       },
       listMergeFixes: (args) => call('worktree.listMergeFixes', [args]),
+      listTaskWorktrees: (args) => call('worktree.listTaskWorktrees', [args]),
       find: (args) => call('worktree.find', [args]),
       status: (cwd) => call('worktree.status', [cwd]),
       remove: async (args) => {
@@ -111,6 +112,10 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
 
     let warnedWorkspaceSetup = false;
     const memberWorkspaces: MemberWorkspaceManager = {
+      listSnapshotTasks: (args) => call('workspace.listSnapshotTasks', [args]),
+      removeTaskSnapshots: async (args) => {
+        await call('workspace.removeTaskSnapshots', [args]);
+      },
       location: (key) => call('workspace.location', [key]),
       home: (key) => call('workspace.home', [key]),
       ensure: (key) => call('workspace.ensure', [key]),

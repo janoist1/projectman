@@ -2,9 +2,13 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
 import { alertPayloadOf } from '@projectman/shared';
-import { freeBytesOf } from '../src/engine-host';
+import { createLocalEngine, freeBytesOf } from '../src/engine-host';
+import { LocalEngineDirectory } from '../src/runtime/sessions';
+import { WorktreeSweep } from '../src/runtime/watchers';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { flush } from './helpers/fakes';
+import type { MemberWorkspaceManager } from '../src/contracts';
 
 /** Housekeeping (PM-243): the worktrees of closed cards, and the free disk space. */
 
@@ -22,6 +26,28 @@ describe('worktrees of closed cards', () => {
     free = 50 * GB;
     h = await createDomainHarness({ now: () => now, freeDiskBytes: async () => free });
   }
+  it('does not query an engine that does not hold the project', async () => {
+    await setup();
+    const list = vi.spyOn(h.worktrees, 'listTaskWorktrees');
+    const fixes = vi.spyOn(h.worktrees, 'listMergeFixes');
+    const engines = new LocalEngineDirectory(
+      createLocalEngine(
+        { worktrees: h.worktrees, workspacePath: () => null, claudeTmpRoots: [] },
+        h.log.logger,
+      ),
+    );
+    const sweep = new WorktreeSweep({
+      ctx: h.domain.ctx,
+      projects: h.domain.projects,
+      inbox: h.domain.inbox,
+      sessions: h.domain.sessions,
+      engines,
+      disk: { free: async () => free },
+    });
+    expect(await sweep.run()).toMatchObject({ removed: [], kept: [] });
+    expect(list).not.toHaveBeenCalled();
+    expect(fixes).not.toHaveBeenCalled();
+  });
   it('sweeps orphaned fix branches even when their card no longer exists', async () => {
     await setup();
     const config = await h.domain.projects.config('AR');
@@ -232,38 +258,67 @@ describe('worktrees of closed cards', () => {
     expect(h.worktrees.removed).not.toContain(invalid.path);
   });
 
-  it('reads the closed cards in pages and skips a card reopened between two pages', async () => {
+  it('lists only existing worktrees once per repository and rechecks a card after status', async () => {
     await setup();
-    // 104 closed cards without a worktree fill the first page; the two with worktrees come after them.
     for (let n = 0; n < 104; n++) {
-      const key = (
-        await h.domain.tasks.create('AR', { title: `Fictional filler ${n}`, repo: 'web' }, OWNER_ACTOR)
-      ).key;
-      h.repos.tasks.update(h.domain.tasks.get('AR', key).id, {
+      const card = await h.domain.tasks.create('AR', { title: `Filler ${n}`, repo: 'web' }, OWNER_ACTOR);
+      h.repos.tasks.update(card.id, {
         status: 'done',
         closedAt: new Date(now.getTime() - 5 * DAY_MS).toISOString(),
       });
     }
-    const kept = await closedCard('Fictional reopened', 'done', 5 * DAY_MS);
-    const swept = await closedCard('Fictional swept', 'done', 5 * DAY_MS);
-    const read = h.repos.tasks.readScheduling.bind(h.repos.tasks);
-    const pages: number[] = [];
-    h.repos.tasks.readScheduling = (projectKey, query) => {
-      const page = read(projectKey, query);
-      if (query.kind !== 'closed-worktrees') return page;
-      pages.push(page.length);
-      // After the first page: one of the cards of the second page is reopened.
-      if (pages.length === 1)
-        h.repos.tasks.update(h.domain.tasks.get('AR', kept.key).id, { status: 'active' });
-      return page;
+    const kept = await closedCard('Reopened during status', 'done', 5 * DAY_MS);
+    const swept = await closedCard('Swept', 'done', 5 * DAY_MS);
+    await flush();
+    const listed = vi.spyOn(h.worktrees, 'listTaskWorktrees');
+    const found = vi.spyOn(h.worktrees, 'find');
+    const read = vi.spyOn(h.repos.tasks, 'readScheduling');
+    const status = h.worktrees.status.bind(h.worktrees);
+    h.worktrees.status = async (path) => {
+      if (path === kept.path) h.repos.tasks.update(h.repos.tasks.get(kept.key)!.id, { status: 'active' });
+      return status(path);
     };
-
     const report = await h.domain.worktreeSweep.run();
-
-    // The reopened card is not on the second page: 4 fillers and the swept card.
-    expect(pages).toEqual([100, 5]);
+    expect(listed).toHaveBeenCalledTimes(1);
+    expect(found).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
     expect(report.removed).toEqual([swept.key]);
     expect(h.worktrees.removed).toEqual([swept.path]);
+  });
+
+  it('cleans snapshot tasks in bounded batches, skipping recent, open, missing and merging cards', async () => {
+    now = new Date('2026-10-01T12:00:00.000Z');
+    const remove = vi.fn<MemberWorkspaceManager['removeTaskSnapshots']>(async () => undefined);
+    let snapshotKeys: string[] = [];
+    h = await createDomainHarness({
+      now: () => now,
+      memberWorkspaces: true,
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        listSnapshotTasks: async () => snapshotKeys,
+        removeTaskSnapshots: remove,
+      }),
+    });
+    const due: string[] = [];
+    for (let n = 0; n < 103; n++) {
+      const card = await h.domain.tasks.create('AR', { title: `Closed snapshot ${n}` }, OWNER_ACTOR);
+      h.repos.tasks.update(card.id, {
+        status: n % 2 ? 'done' : 'cancelled',
+        closedAt: new Date(now.getTime() - 5 * DAY_MS).toISOString(),
+      });
+      due.push(card.key);
+    }
+    const recent = await h.domain.tasks.create('AR', { title: 'Recently closed' }, OWNER_ACTOR);
+    h.repos.tasks.update(recent.id, { status: 'done', closedAt: now.toISOString() });
+    const open = await h.domain.tasks.create('AR', { title: 'Still open' }, OWNER_ACTOR);
+    vi.spyOn(h.repos.taskMerges, 'open').mockImplementation((_project, key) =>
+      key === due[0] ? ({ id: 'active-merge' } as never) : null,
+    );
+    snapshotKeys = [...due, recent.key, open.key, 'AR-9999'];
+    await flush();
+    await h.domain.worktreeSweep.run();
+    expect(remove.mock.calls.map(([args]) => args.taskKeys.length)).toEqual([99, 3]);
+    expect(remove.mock.calls.flatMap(([args]) => args.taskKeys)).toEqual(due.slice(1));
   });
 });
 

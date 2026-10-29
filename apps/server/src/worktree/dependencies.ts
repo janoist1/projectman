@@ -18,6 +18,28 @@ export const DEPENDENCY_LOCKFILE = 'package-lock.json';
 const HIDDEN_LOCKFILE = path.join('node_modules', '.package-lock.json');
 const withDependencyLock = createKeyedLock();
 const DEPENDENCY_COPY_TIMEOUT_MS = 90_000;
+const LEFTOVER_MAX_AGE_MS = 5 * 60_000;
+
+/** Remove only expired clone temporaries, without traversing workspace or temporary symlinks. */
+export async function cleanupDependencyLeftovers(target: string): Promise<void> {
+  const own = await canonical(target);
+  await withDependencyLock(own, () => cleanupLeftovers(own));
+}
+
+async function cleanupLeftovers(target: string): Promise<void> {
+  for (const dir of ['.', ...(await workspaceDirs(target).catch(() => []))]) {
+    const parent = path.join(target, dir);
+    if (!(await assertSafeParent(target, path.join(parent, 'node_modules'), true).catch(() => false)))
+      continue;
+    for (const entry of await readdirOrEmpty(parent)) {
+      if (!/^\.node_modules\.pm-[a-f0-9]{8}(-old)?$/.test(entry.name)) continue;
+      const file = path.join(parent, entry.name);
+      const info = await lstat(file).catch(() => null);
+      if (!info || Date.now() - info.mtimeMs < LEFTOVER_MAX_AGE_MS) continue;
+      await removeAll(target, [file]);
+    }
+  }
+}
 
 /** The cheap freshness probe shared by the manager and the serialized clone. */
 export async function dependencyState(target: string) {
@@ -101,6 +123,7 @@ async function cloneIntoTarget(
   const backups: { final: string; backup: string }[] = [];
   const started = Date.now();
   try {
+    await cleanupLeftovers(target);
     if (platform !== 'darwin') return skipped('unsupported');
     const { installedAt, lockTime, fresh } = await dependencyState(target);
     if (fresh) return skipped('present');

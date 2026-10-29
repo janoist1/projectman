@@ -25,7 +25,10 @@ function isFullRunConfig(file: string): boolean {
 }
 
 export function mergeTestScope(changed: readonly string[]): MergeTestScope {
-  const files = changed.filter((file) => !file.startsWith('docs/') && !/^[^/]+\.md$/.test(file));
+  const files = changed.filter(
+    (file) =>
+      !file.startsWith('docs/') && !/^[^/]+\.md$/.test(file) && !['.gitignore', 'knip.json'].includes(file),
+  );
   const isCloudInfra = (file: string): boolean =>
     ['scripts/cloud/', 'deploy/aws/', 'deploy/cloud/'].some((prefix) => file.startsWith(prefix));
   if (
@@ -55,6 +58,7 @@ export function mergeTestScope(changed: readonly string[]): MergeTestScope {
       if (file.startsWith('packages/shared/src/')) sharedChanged.push(file);
     } else if (file.startsWith('apps/server/') || file.startsWith('scripts/')) workspaces.add('apps/server');
     else if (file.startsWith('apps/web/')) workspaces.add('apps/web');
+    else if (file.startsWith('apps/feedback-widget/')) workspaces.add('apps/feedback-widget');
     else return { kind: 'all', reason: file };
   }
   return workspaces.size

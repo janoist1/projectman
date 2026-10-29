@@ -18,7 +18,7 @@ import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
 import type { Admission, UrgentPulling } from './admission';
 import { isDeferrable } from './rules';
-import type { SeniorWaits } from './senior-waits';
+import type { SeniorDecisions } from './senior-decisions';
 import type { WorkStarts } from './work-starts';
 
 const URGENT_PULL: StagePull = { reason: 'urgent' };
@@ -45,7 +45,7 @@ export class UrgentPull implements UrgentPulling {
   private readonly projects: Pick<ProjectService, 'config'>;
   private readonly tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
   private readonly admission: Pick<Admission, 'freeDevelopers'>;
-  private readonly seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
+  private readonly seniorDecisions: Pick<SeniorDecisions, 'decisionFor'>;
   private readonly starts: Pick<WorkStarts, 'pull'>;
   private active: Promise<void> | null = null;
   private again = false;
@@ -55,14 +55,14 @@ export class UrgentPull implements UrgentPulling {
     projects: Pick<ProjectService, 'config'>;
     tasks: Pick<TaskService, 'readSchedulingTasks' | 'find'>;
     admission: Pick<Admission, 'freeDevelopers'>;
-    seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
+    seniorDecisions: Pick<SeniorDecisions, 'decisionFor'>;
     starts: Pick<WorkStarts, 'pull'>;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.admission = deps.admission;
-    this.seniorWaits = deps.seniorWaits;
+    this.seniorDecisions = deps.seniorDecisions;
     this.starts = deps.starts;
   }
 
@@ -119,7 +119,7 @@ export class UrgentPull implements UrgentPulling {
       const pick = chooseDeveloper({
         points,
         labels: card.labels,
-        anyDecided: this.seniorWaits.decisionFor(projectKey, card.key)?.decision === 'any',
+        anyDecided: this.seniorDecisions.decisionFor(projectKey, card.key)?.decision === 'any',
         reaching: reachingDevelopers(developers, points, card.labels),
         free,
         tempMaxPoints: tempMaxPointsOf(config),

@@ -35,7 +35,6 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'task_covers', columns: ['set_by_handle'] },
   { table: 'task_loops', columns: ['notified', 'let_run_by'] },
   { table: 'task_fix_limits', columns: ['decider'] },
-  { table: 'senior_waits', columns: ['decided_by'] },
   { table: 'task_handoffs', columns: ['from_member', 'to_member'] },
   { table: 'task_hand_ons', columns: ['mover', 'requested_by'] },
   { table: 'operator_requests', columns: ['from_handle'] },

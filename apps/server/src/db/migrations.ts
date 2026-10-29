@@ -2594,4 +2594,49 @@ migrations.push({
     CREATE INDEX task_acceptance_items_task ON task_acceptance_items(task_id, position);
     ${V130_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
+migrations.push({
+  version: 131,
+  name: 'the Senior wait is an obligation',
+  // PM-1150: the wait of a scored card for a developer whose limit reaches its points (version 36) becomes the
+  // `senior_wait` kind of the obligation tracking. The obligations table is rebuilt as in version 90: the kind
+  // CHECK grows by 'senior_wait', `responsible` may be NULL (nobody holds the step), and the unique index reads
+  // a missing responsible as ''. Every open `senior_waits` row becomes an obligation row of the same step
+  // (subject `senior_busy@<since>`, due at `since` + the default 30 minutes; a question that was asked makes it
+  // 'handed_over' with the inbox item kept, and the owners' answer is in that item); the table, with its change
+  // triggers, goes. The ended rows were history only.
+  sql: `DROP INDEX obligations_unique;
+    DROP INDEX obligations_state;
+    ALTER TABLE obligations RENAME TO obligations_old;
+    CREATE TABLE obligations (
+      id              TEXT PRIMARY KEY,
+      project_key     TEXT NOT NULL,
+      task_key        TEXT NOT NULL,
+      kind            TEXT NOT NULL CHECK (kind IN ('merge','fix_limit','refinement_turn','review_step','work','start','senior_wait')),
+      responsible     TEXT,
+      subject         TEXT NOT NULL,
+      opened_at       TEXT NOT NULL,
+      due_at          TEXT NOT NULL,
+      paused_since    TEXT,
+      pause_reason    TEXT CHECK (pause_reason IN ('held','inbox','permission','start_refused')),
+      woken_at        TEXT,
+      handed_over_at  TEXT,
+      inbox_item_id   TEXT,
+      state           TEXT NOT NULL CHECK (state IN ('open','handed_over','fulfilled','cancelled')),
+      closed_at       TEXT,
+      updated_at      TEXT NOT NULL
+    );
+    INSERT INTO obligations SELECT id, project_key, task_key, kind, responsible, subject, opened_at, due_at, paused_since, pause_reason, woken_at, handed_over_at, inbox_item_id, state, closed_at, updated_at FROM obligations_old ORDER BY rowid;
+    DROP TABLE obligations_old;
+    CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, COALESCE(responsible, ''), subject);
+    CREATE INDEX obligations_state ON obligations(state);
+    INSERT INTO obligations (id, project_key, task_key, kind, responsible, subject, opened_at, due_at,
+        handed_over_at, inbox_item_id, state, updated_at)
+      SELECT 'obl_' || id, project_key, task_key, 'senior_wait', NULL, 'senior_busy@' || since, since,
+        strftime('%Y-%m-%dT%H:%M:%fZ', since, '+30 minutes'),
+        asked_at, inbox_item_id,
+        CASE WHEN asked_at IS NULL THEN 'open' ELSE 'handed_over' END,
+        COALESCE(asked_at, since)
+      FROM senior_waits WHERE ended_at IS NULL ORDER BY rowid;
+    DROP TABLE senior_waits;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -150,7 +150,8 @@ export const V100_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CH
 );
 
 export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
-  ...V81_CHANGE_TRIGGER_TABLES,
+  // Migration 131 (PM-1150) drops `senior_waits` with its triggers: the wait is an obligation row now.
+  ...V81_CHANGE_TRIGGER_TABLES.filter((entry) => entry.table !== 'senior_waits'),
   ...V83_CHANGE_TRIGGER_TABLES,
   ...V92_CHANGE_TRIGGER_TABLES,
   ...V130_CHANGE_TRIGGER_TABLES,

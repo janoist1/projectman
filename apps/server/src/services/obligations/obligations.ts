@@ -39,6 +39,7 @@ import type {
   ObligationSessions,
   ObligationStartOffers,
 } from './ports';
+import { seniorWaitSource } from './senior-wait';
 import { obligationSources } from './sources';
 import type { DerivedObligation, ObligationSource, ProjectView } from './sources';
 
@@ -49,7 +50,7 @@ interface OpenObligation {
   projectKey: string;
   taskKey: string;
   kind: ObligationKind;
-  responsible: string;
+  responsible: string | null;
   subject: string;
   openedAt: string;
 }
@@ -57,12 +58,12 @@ interface OpenObligation {
 interface ObligationsDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'summaries' | 'config' | 'cachedConfig'>;
-  tasks: Pick<TaskService, 'find' | 'readSchedulingTasks'>;
+  tasks: Pick<TaskService, 'find' | 'readSchedulingTasks' | 'publish' | 'startAttempting'>;
   taskWaits: Pick<TaskWaits, 'of'>;
-  inbox: Pick<InboxService, 'openIntegratorTodo' | 'closeObligationTodo'>;
+  inbox: Pick<InboxService, 'openIntegratorTodo' | 'closeObligationTodo' | 'create' | 'resolveByRule'>;
   messaging: Pick<Messaging, 'send'>;
   messages: Pick<MessageService, 'markRecipientDelivered'>;
-  timeline: Pick<TimelineService, 'append'>;
+  timeline: Pick<TimelineService, 'append' | 'latest'>;
   memberQueue: Pick<MemberQueue, 'remindObligation'>;
   sessions: ObligationSessions;
   admission: ObligationAdmission;
@@ -71,8 +72,8 @@ interface ObligationsDeps {
   startOffers: ObligationStartOffers;
 }
 
-const keyOf = (kind: string, taskKey: string, responsible: string, subject: string): string =>
-  `${kind}\u0000${taskKey}\u0000${responsible}\u0000${subject}`;
+const keyOf = (kind: string, taskKey: string, responsible: string | null, subject: string): string =>
+  `${kind}\u0000${taskKey}\u0000${responsible ?? ''}\u0000${subject}`;
 
 const rowKey = (row: Obligation): string => keyOf(row.kind, row.taskKey, row.responsible, row.subject);
 
@@ -154,12 +155,21 @@ export class ObligationsService {
           .listOfTypes(projectKey, taskKey, ['task_created'], 1)
           .some((event) => event.createdAt === since && event.data.imported === true),
     });
+    this.sources.push(
+      seniorWaitSource({ ctx: deps.ctx, inbox: deps.inbox, timeline: deps.timeline, tasks: deps.tasks }),
+    );
+  }
+
+  /** The minutes of a kind's deadline in this configuration: its own, or the project's obligation minutes. */
+  private minutesOf(kind: ObligationKind, config: ProjectConfig | undefined): number {
+    return (
+      (config && this.sourceOf(kind).minutesOf?.(config)) ?? obligationMinutesOf(config?.team.limits ?? {})
+    );
   }
 
   /** Opens the row of a step; the existing row of the same step (closed ones too) is returned unchanged. */
   open(input: OpenObligation): Obligation {
-    const config = this.projects.cachedConfig(input.projectKey);
-    const minutes = config ? obligationMinutesOf(config.team.limits) : obligationMinutesOf({});
+    const minutes = this.minutesOf(input.kind, this.projects.cachedConfig(input.projectKey));
     const repo = this.ctx.repos.obligations;
     repo.insert({
       id: newId('obl'),
@@ -316,8 +326,10 @@ export class ObligationsService {
       if (still && row.state !== 'open') continue;
       // A step that is not open any more is asked about the start too: a refused start is why it may look so.
       const paused =
-        (await this.pauseOf(view, task, row, humanItems.get(taskKey) ?? [], at, !still)) ??
-        (still?.held ? 'held' : null);
+        source.pausable === false
+          ? null
+          : ((await this.pauseOf(view, task, row, humanItems.get(taskKey) ?? [], at, !still)) ??
+            (still?.held ? 'held' : null));
       // Step 2: a step that is not open any more ends, unless something holds the card (a source that
       // derives its steps whatever holds the card has none to keep open).
       if (!still) {
@@ -350,6 +362,8 @@ export class ObligationsService {
     const ownDecisionId =
       row.kind === 'fix_limit' ? this.ctx.repos.taskFixLimits.get(row.taskKey)?.inboxItemId : null;
     if (humanItems.some((item) => item.id !== ownDecisionId)) return 'inbox';
+    // A step with no responsible has no session or start to wait for.
+    if (row.responsible === null) return null;
     const sessions = this.sessions.ofMember(row.projectKey, row.taskKey, row.responsible);
     const live = sessions.filter((session) => session.running);
     if (live.some((session) => session.state === 'waiting_permission' || session.state === 'waiting_input'))
@@ -369,11 +383,13 @@ export class ObligationsService {
     task: Task,
     paused: ObligationPauseReason | null,
     still: DerivedObligation | undefined,
-    minutes: number,
+    projectMinutes: number,
     at: string,
     view: ProjectView,
   ): Promise<void> {
     const repo = this.ctx.repos.obligations;
+    const source = this.sourceOf(row.kind);
+    const minutes = source.minutesOf?.(view.config) ?? projectMinutes;
     const due = Date.parse(at) >= Date.parse(row.dueAt);
     const step = planObligation(
       row,
@@ -384,6 +400,7 @@ export class ObligationsService {
       },
       at,
       minutes,
+      source.rungs,
     );
     switch (step.kind) {
       case 'none':
@@ -408,6 +425,7 @@ export class ObligationsService {
 
   /** The responsible's last move on the card: its last timeline event or the last activity of its sessions. */
   private lastActivityOf(row: Obligation, task: Task): string | null {
+    if (row.responsible === null) return null;
     const events = this.ctx.repos.timeline.list(row.projectKey, { taskKey: task.key, limit: 200 });
     let last: string | null = null;
     for (const event of events) {
@@ -438,11 +456,14 @@ export class ObligationsService {
     at: string,
     view: ProjectView,
   ): Promise<void> {
-    const text = this.sourceOf(row.kind).wakeText(row, minutes, minutesBetween(row.openedAt, at), view);
-    const ai = memberOf(view.config, row.responsible)?.kind === 'ai';
+    const responsible = row.responsible;
+    const text = this.sourceOf(row.kind).wakeText?.(row, minutes, minutesBetween(row.openedAt, at), view);
+    // A kind without a reminder (or a step with no responsible) never climbs this rung; see `rungs`.
+    if (text === undefined || responsible === null) throw new Error(`no reminder for ${row.kind}`);
+    const ai = memberOf(view.config, responsible)?.kind === 'ai';
     this.ctx.unitOfWork(() => {
       this.ctx.repos.obligations.update(row.id, { wokenAt: at, dueAt }, at);
-      if (ai) this.memberQueue.remindObligation(row, text);
+      if (ai) this.memberQueue.remindObligation({ ...row, responsible }, text);
       this.timeline.append({
         projectKey: row.projectKey,
         taskKey: row.taskKey,
@@ -451,7 +472,7 @@ export class ObligationsService {
         data: {
           obligationId: row.id,
           kind: row.kind,
-          responsible: row.responsible,
+          responsible,
           subject: row.subject,
           openedAt: row.openedAt,
           minutes,
@@ -464,7 +485,7 @@ export class ObligationsService {
         row.projectKey,
         SYSTEM_SENDER,
         {
-          to: [row.responsible],
+          to: [responsible],
           taskKey: row.taskKey,
           text,
         },
@@ -487,11 +508,16 @@ export class ObligationsService {
   /** The second expiry: a decision hand-over or one todo. A crash never repeats an existing item. */
   private async handOver(row: Obligation, minutes: number, at: string, view: ProjectView): Promise<void> {
     const source = this.sourceOf(row.kind);
-    const decision = await source.handOver?.(row);
-    if (source.handOver && !decision) {
+    const result = await source.handOver?.(row, view);
+    if (source.handOver && !result) {
       this.ctx.repos.obligations.close(row.id, 'fulfilled', at);
       return;
     }
+    // The source wrote the hand-over and its record itself.
+    if (result === 'settled') return;
+    const responsible = row.responsible;
+    if (responsible === null) throw new Error(`${row.kind} has no responsible to hand over from`);
+    const decision = result ?? null;
     const decisionItem = decision ? this.ctx.repos.inbox.get(decision.decisionItemId) : null;
     if (decision && !decisionItem) throw new Error(`missing hand-over decision ${decision.decisionItemId}`);
     const found = decision ? null : this.todoOf(row);
@@ -529,7 +555,7 @@ export class ObligationsService {
         data: {
           obligationId: row.id,
           kind: row.kind,
-          responsible: row.responsible,
+          responsible,
           subject: row.subject,
           openedAt: row.openedAt,
           minutes,
@@ -564,6 +590,10 @@ export class ObligationsService {
     // The todo first: if closing it fails the row stays, and the next round closes both.
     const todo = this.todoOf(row);
     if (todo) await this.inbox.closeObligationTodo(todo.id, at);
-    this.ctx.repos.obligations.close(row.id, outcome, at);
+    const source = this.sourceOf(row.kind);
+    this.ctx.unitOfWork(() => {
+      this.ctx.repos.obligations.close(row.id, outcome, at);
+      source.onClosed?.(row, outcome, view);
+    });
   }
 }

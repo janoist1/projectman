@@ -478,14 +478,19 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   busy or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
   `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`: the handles whose limit
   reaches the points); a person's Start gets a normal response with that wait. A card of up to the
-  temp worker limit (`tempMaxPointsOf`, PM-1101) may go to a temp worker instead of waiting. `SeniorWaits` (`admission/senior-waits.ts`, table
-  `senior_waits`, one open row per card) keeps when the wait began, the question and the answer over a
-  restart. After `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision,
-  `wait_for_senior` or `any_developer`); "any" lets the free non-temp developer with the largest limit
-  take it. A freed developer who reaches the points takes the card first (`retryDeferred` tries
-  `senior_busy` deferrals first) and the question closes (`senior_took`); an assignment, move,
-  closure, a change of the card's points (`task_complexity_changed`) or of the team's limits closes it
-  (`senior_wait_ended`). When no developer's limit reaches the points the card starts by the "any"
+  temp worker limit (`tempMaxPointsOf`, PM-1101) may go to a temp worker instead of waiting. The wait is the
+  `senior_wait` kind of the obligation tracking (PM-1150, "Obligation tracking" below; the `senior_waits` table and
+  its own sweep are gone): one row per card and wait, derived from the `senior_busy` deferral, subject
+  `senior_busy@<since>`, nobody responsible, so the row keeps when the wait began, the question and (in the
+  question's resolution) the answer over a restart. After `seniorWaitMinutes` (30) the 60 s obligation sweep asks
+  the owners once (an inbox decision, `wait_for_senior` or `any_developer`); "any" lets the free non-temp
+  developer with the largest limit take it. `SeniorDecisions` (`admission/senior-decisions.ts`) reads the answer
+  for the start (`seniorWaitAnswerOf`), writes the `decided` event and retries the starts. A freed developer who
+  reaches the points takes the card first (`retryDeferred` tries `senior_busy` deferrals first); when the card
+  is assigned, moved, closed, its points change (`task_complexity_changed`) or the team's limits change, the
+  next sweep ends the row and closes the question (`senior_took` when a developer who reaches the points took
+  it, else `senior_wait_ended`; `seniorWaitEndReasonOf` in `packages/shared`). When no developer's limit
+  reaches the points the card starts by the "any"
   rule (`no_senior` event). The names `senior_*`, `seniors` and `wait_for_senior` are kept because
   stored rows and events carry them. A config migration turns the old `senior` mark into limit 13 and
   a DB migration turns a "senior" recommendation into 8 points. No machine-dependent part is affected.
@@ -1492,6 +1497,17 @@ An open step of an AI member must not get lost when its session exits, stalls or
 Each kind has a source (`sources.ts`) that derives, from the task waits, the merge requests and the
 refinement turn, which steps are open now; the sweep writes one row of `obligations` (migration 88, not
 journaled) per card, kind, responsible and subject, and closes a row whose step ended.
+
+**`senior_wait` (PM-1150).** The wait of a scored card for a developer whose limit reaches its points (see "The
+complexity limit"). Its source (`senior-wait.ts`) is the first with no responsible (`responsible` is NULL in the
+row and in `Obligation`/`ObligationRef`; the unique index reads it as ''): nobody holds the step, so there is no
+reminder to send and no activity to wait for. A source may set its own `rungs` (here only `hand_over`, so the
+clock goes from the deadline straight to the hand-over), `minutesOf` (`seniorWaitMinutes`, not
+`obligationMinutes`), `pausable: false` (the pauses of the sweep do not apply) and `onClosed` (closes the question
+and writes `senior_took` / `no_senior`). Its `handOver` may return `'settled'`: the source has done everything
+itself (the owners' decision item and the `asked` event, or only a log line when the team has no owner), and the
+generic code writes no `obligation_handed_over` event and no integrator todo. Migration 131 turned every open
+`senior_waits` row into such a row and dropped the table.
 
 **`review_step` (PM-809).** One entry of a card into a `step` stage (the code review), for each AI owner of the
 stage (`stageOwners`) who may set a label the next stage's gate lacks (`stepResult` in

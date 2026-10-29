@@ -430,6 +430,24 @@ export const SENIOR_WAIT_OPTIONS: InboxOption[] = [
   { id: SENIOR_WAIT_OPTION_ANY, label: SENIOR_WAIT_OPTION_ANY, style: 'primary' },
 ];
 
+/**
+ * What a person answered to a Senior wait decision: `wait` on, or release the card to `any` developer.
+ * Null before an answer, for the system's own closing (`resolution.rule`) and for an item that is no such decision.
+ */
+export function seniorWaitAnswerOf(
+  item: Pick<InboxItem, 'kind' | 'payload' | 'resolution'>,
+): { decision: 'wait' | 'any'; by: string; at: string } | null {
+  const { resolution } = item;
+  if (!seniorWaitDecisionOf(item) || !resolution || resolution.rule) return null;
+  const decision =
+    resolution.optionId === SENIOR_WAIT_OPTION_WAIT
+      ? 'wait'
+      : resolution.optionId === SENIOR_WAIT_OPTION_ANY
+        ? 'any'
+        : null;
+  return decision ? { decision, by: resolution.by, at: resolution.at } : null;
+}
+
 /** The one option of an `alert` item: the owner has seen it. The web app translates the id. */
 export const ALERT_SEEN_OPTION: InboxOption = { id: 'seen', label: 'seen', style: 'primary' };
 

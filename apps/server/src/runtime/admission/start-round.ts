@@ -32,7 +32,7 @@ import type { ProjectService } from '../../core/projects';
 import { startContext } from '../../core/tasks';
 import type { TaskService, TaskWaits } from '../../core/tasks';
 import type { Admission, StartRounding } from './admission';
-import type { SeniorWaits } from './senior-waits';
+import type { SeniorDecisions } from './senior-decisions';
 import { DomainError } from '../../kernel';
 
 interface ProjectRound {
@@ -64,7 +64,7 @@ interface StartRoundDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'config'>;
   tasks: Pick<TaskService, 'readSchedulingTasks'>;
-  seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
+  seniorDecisions: Pick<SeniorDecisions, 'decisionFor'>;
   admission: Pick<
     Admission,
     'freeDevelopers' | 'startFrame' | 'engineOffline' | 'check' | 'canReplaceAssignee'
@@ -240,7 +240,7 @@ export class StartRound implements StartRounding {
   }
 
   private async forProject(key: string): Promise<void> {
-    const { ctx, projects, tasks, seniorWaits, admission } = this.deps;
+    const { ctx, projects, tasks, seniorDecisions, admission } = this.deps;
     const config = await projects.config(key).catch(() => null);
     const source = config && pullSourceStage(config);
     const development = config && developmentStage(config);
@@ -263,7 +263,8 @@ export class StartRound implements StartRounding {
       frame: null,
       holds: new Map(),
       wanted: new Set(),
-      offers: new Map(live.map((row) => [row.taskKey, { to: row.responsible, since: row.openedAt }])),
+      // An offer to start a card always has the card mover it is made to.
+      offers: new Map(live.map((row) => [row.taskKey, { to: row.responsible!, since: row.openedAt }])),
       refusals: new Map(),
     };
     const frame = (hold: TaskReadyHold) => {
@@ -305,7 +306,7 @@ export class StartRound implements StartRounding {
     );
     const anyDecided = new Set(
       cards
-        .filter((card) => seniorWaits.decisionFor(key, card.key)?.decision === 'any')
+        .filter((card) => seniorDecisions.decisionFor(key, card.key)?.decision === 'any')
         .map((card) => card.key),
     );
     // An assigned card whose assignee's provider is on hold and who has not begun it goes to another member (PM-1051).

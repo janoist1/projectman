@@ -31,6 +31,19 @@ if [ -n "$HEAP_LIMIT_MB" ]; then
   HEAP_LIMIT_MB=$((10#$HEAP_LIMIT_MB))
 fi
 
+# Crash diagnostics (PM-1105), opt-in: `1` makes the server leave a fatal-error report and a near-limit heap
+# snapshot in <home>/diagnostics; empty, unset or `0` leaves them off. They hold board data and the process's
+# secrets, so nothing writes them unless someone asks.
+HEAP_SNAPSHOT="${PROJECTMAN_HEAP_SNAPSHOT:-}"
+case "$HEAP_SNAPSHOT" in
+  1) ;;
+  0 | "") HEAP_SNAPSHOT= ;;
+  *)
+    echo "entrypoint: invalid PROJECTMAN_HEAP_SNAPSHOT: $HEAP_SNAPSHOT (1, 0 or empty)" >&2
+    exit 64
+    ;;
+esac
+
 # Phase 1, as root: the volume is mounted root-owned. Hand it to the unprivileged user and drop to it.
 if [ "$(id -u)" = 0 ]; then
   mkdir -p "$DATA_DIR"
@@ -99,10 +112,26 @@ restore_state() { # restore_state <home> <write marker: yes|no>
   if [ "$2" = yes ]; then date -u +%Y-%m-%dT%H:%M:%SZ >"$marker"; fi
 }
 
+# What a fatal error leaves behind when PROJECTMAN_HEAP_SNAPSHOT=1 (PM-1105): node's diagnostic report on a fatal
+# error, and one heap snapshot when the heap nears its limit, in <home>/diagnostics, on the data volume and outside
+# the backup (backup.sh leaves the directory out). Only the newest snapshot is kept from earlier starts,
+# so the volume holds at most two at a time (each is about the size of the heap limit).
+prepare_diagnostics() { # prepare_diagnostics <home>; prints the directory
+  local dir=$1/diagnostics old
+  mkdir -p "$dir"
+  chmod 700 "$dir"
+  while IFS= read -r old; do rm -f -- "$old"; done < <(ls -1t "$dir"/*.heapsnapshot 2>/dev/null | tail -n +2)
+  printf '%s\n' "$dir"
+}
+
 start_server() { # start_server <home> <port> [extra NAME=value...]; sets server_pid
-  local home=$1 port=$2 node_args=()
+  local home=$1 port=$2 node_args=() diagnostics
   shift 2
   if [ -n "$HEAP_LIMIT_MB" ]; then node_args+=("--max-old-space-size=$HEAP_LIMIT_MB"); fi
+  if [ -n "$HEAP_SNAPSHOT" ]; then
+    diagnostics=$(prepare_diagnostics "$home")
+    node_args+=("--report-on-fatalerror" "--report-directory=$diagnostics" "--heapsnapshot-near-heap-limit=1" "--diagnostic-dir=$diagnostics")
+  fi
   env -i "${base_env[@]}" "${server_env[@]}" PROJECTMAN_HOME="$home" PORT="$port" HOST=127.0.0.1 PROJECTMAN_MODE=cloud "$@" \
     node ${node_args[@]+"${node_args[@]}"} "$APP_DIR/apps/server/dist/index.js" &
   server_pid=$!

@@ -104,6 +104,20 @@ Plain settings (in the host's environment):
   4096 becomes `node --max-old-space-size=<n>`; empty or unset leaves node's default, which is
   computed from the machine's memory (about 450 MB on the 904 MB machine, so garbage is collected only
   near that line). Any other value stops the container before anything starts (exit 64).
+- **Crash diagnostics (PM-1105), opt-in.** With `PROJECTMAN_HEAP_SNAPSHOT=1` (read by the entrypoint; empty,
+  unset or `0` is off, any other value stops the container with exit 64) the entrypoint adds
+  `--report-on-fatalerror` and `--heapsnapshot-near-heap-limit=1`, writing into `<home>/diagnostics`
+  (`/data/diagnostics`, on the data volume): node's JSON report of a fatal error (an out-of-memory crash
+  included) and at most one heap snapshot per server process as the heap nears its limit. Each start deletes
+  all but the newest earlier snapshot, so the volume holds at most two. The directory is not backed up (a
+  snapshot holds board data and the process's secrets; `backup.sh` excludes it), so copy a snapshot off the
+  volume only to a place you trust, read it with `deploy/cloud/heap-summary.mjs` and delete it. Writing a
+  snapshot needs memory beside the heap; if the machine runs short, the snapshot is lost, not the data.
+  Turn it on in `cloud.env` after an out-of-memory restart you cannot explain, and off again after.
+- The cloud server starts without the local history embedding (`PROJECTMAN_HISTORY_SEMANTIC` defaults to
+  `off` in `PROJECTMAN_MODE=cloud`, PM-1105): its model and backfill would take about 350 MiB of native memory
+  the heap sizing does not count. Setting `on` explicitly turns it back on, as the [semantic
+  profile](#history-semantic-profile) needs.
 - `PROJECTMAN_MEMORY_LOG_SECONDS` is read by the server (cloud and single mode): 0 (the default) is
   off, otherwise 60 to 86400 seconds; any other value stops the start with a `projectman:` message.
   Each line is `memory` with `rssMb`, `heapUsedMb`, `heapTotalMb`, `externalMb`, `arrayBuffersMb`,

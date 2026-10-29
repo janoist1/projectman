@@ -37,6 +37,21 @@ it.each(['Wrong card', ''])('stops with an optional note %j', async (note) => {
   );
 });
 
+it('keeps a decided permission request in the chat although the live inbox lists only what has not ended (PM-1109)', async () => {
+  const project = mockProject();
+  const request = project.backend.inbox.find((item) => item.id === 'inb_perm_push')!;
+  project.backend.inbox.push({
+    ...request,
+    id: 'inb_perm_decided',
+    state: 'resolved',
+    resolution: { optionId: 'deny', by: 'system', at: new Date().toISOString(), note: null },
+  });
+  project.render(sessionRoute, '/sessions/ses_ac21_fe1');
+  const label = t('inbox.resolutions.automatic_deny');
+  expect(await screen.findByText((text) => text.startsWith(label))).toBeTruthy();
+  expect(project.requests.some((entry) => entry.path.endsWith('/inbox?state=active'))).toBe(true);
+});
+
 describe('session header task state', () => {
   it('keeps the stop reason after a failure and retries it with Enter', async () => {
     const project = mockProject();

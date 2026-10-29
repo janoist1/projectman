@@ -334,7 +334,7 @@ Results are short plain text (a roster, a task card with the last 20 timeline ev
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)                                                                                  |
 | handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>`; Operator refusals name their domain code, e.g. `operator_only`, in the message |
-| handler does not settle within 60 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
+| handler does not settle within 45 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
 | any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)                                                                                    |
 
 ## What the handler (domain) should do
@@ -371,7 +371,7 @@ createMcpModule({ handler, resolveContext, logger: app.log }).registerRoutes(app
   own JSON body parser (the raw text goes to the SDK), so the app's parser settings do not
   affect `/mcp`.
 - App-wide `onRequest` hooks such as the login-cookie check must let `/mcp/` through.
-- Optional `toolTimeoutMs` (default 60 000) overrides the timeout, e.g. in tests.
+- Optional `toolTimeoutMs` (default 45 000) overrides the timeout, e.g. in tests.
 
 ## Tests
 

@@ -387,12 +387,15 @@ export class Messaging {
     const unversioned =
       opts.origin?.kind === 'question_forward' ||
       (opts.origin?.kind === 'answer' && memberOf(config, from)?.kind === 'ai');
+    // The commit under review is the recorded pin: sending does not wait for (or fail with) an engine
+    // that is away. A card with no pin (still in work) is read from its branch.
+    const pinned = task && !unversioned ? this.tasks.get(projectKey, task.key).reviewPin?.commit : undefined;
     const version =
       task && !unversioned
         ? {
             stageId: task.stageId,
-            commit: (await this.sessions.sourceHead(config, task))?.commit ?? null,
-            reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
+            commit: pinned ?? (await this.sessions.sourceHead(config, task))?.commit ?? null,
+            reviewCommit: pinned ?? null,
           }
         : undefined;
     const record = () =>

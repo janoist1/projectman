@@ -1404,7 +1404,10 @@ A task that enters a step or release stage a reviewing or testing duty belongs t
 working directory with uncommitted work refuses the move for everybody (`handover_uncommitted`); otherwise the
 commit is pinned (`task_review_pins`, one row per task, shown as `Task.reviewPin` while the task is in that stage,
 named in the reviewer's brief and "Review round"). A task without a repository or a branch is neither checked nor
-pinned. A move completed by a human approval (`decide`) is handed over the same way: uncommitted work leaves the
+pinned. The hand-over read is strict (PM-1110): a card whose source the hub knows but whose engine is not
+connected is refused with `engine_offline` instead of being handed over with no pin, and the head read carries the
+stage and assignee the card had; `move` refuses (`board_stale`) a card that changed since. A message's version takes
+its commit from the recorded pin, and reads the branch only for a card with none. A move completed by a human approval (`decide`) is handed over the same way: uncommitted work leaves the
 task where it is (`gateBlocked.reason` `handover_uncommitted` on the timeline).
 
 `ReviewWatch` (every 30 s, `DomainOptions.reviewWatchMs`; a pull request's new commits check the task at once)
@@ -1982,8 +1985,12 @@ workers follow the machine's size.
   The app re-reads the engine service's plist before every CLI call to follow release checkout
   changes; only when that plist is absent does it use `menubar.json`. It calls the local
   `scripts/engine/cli.ts`, takes `overall` from `status --json` without deriving engine state,
-  and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s while
-  running or visible, 60 s otherwise; 2 s while awaiting an action's target, up to 120 s).
+  and passes only PATH, HOME and a temporary directory to node. Polls are serialized (15 s only
+  while the menu or the details window is open, 60 s otherwise even if sessions run, and a poll runs
+  on every menu open; 2 s while awaiting an action's target, up to 120 s). Each poll starts a node
+  process, so `status` and `logs` stay cheap: `move-work-root` loads lazily, and the
+  `engine-config` import of the whole kernel barrel (`effect` included) remains the main cost
+  (PM-1110).
   **Remote engine:** the app and CLI both run on the engine's Mac; nothing crosses the
   server/engine boundary. Linux and Windows are unsupported. Existing inventory entry:
   “Engine service (launchd)” (its plist is read, not changed by the menu app).
@@ -4102,7 +4109,8 @@ assumption or remote-engine RPC.
   remote task worktrees), read by the bounded `SessionRepository.latestSourceOfTask` query.
   If the card has no assignee, no work binding and no source session, and LOCAL is not registered, there is no engine source to read:
   `sourceHead` returns null without RPC. Single-machine assembly always registers LOCAL; a registered
-  but disconnected engine and a recorded developer workspace retain strict read failures. Remote git
+  but disconnected engine and a recorded developer workspace retain strict read failures (a stage
+  hand-over for review reads strictly since PM-1110: `engine_offline` refuses the move). Remote git
   still runs on the selected engine; no engine path is read by the hub and no RPC contract changes.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
@@ -4460,6 +4468,12 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   clean up descendants when the supervisor dies. **Remote engine:** the supervisor and guard
   run where the tests execute (GitHub Actions or the engine); only existing output and verdict
   data cross the boundary. No new server/engine contract.
+- **Child-guard cleanup permissions (PM-1132)** — `scripts/lib/child-guard.mjs` ignores
+  `ESRCH` and `EPERM` when signaling the child process group, preserving the child's exit
+  status when macOS denies cleanup after the group leader exits. Other signal errors still
+  fail the guard. **Machine assumption:** POSIX process groups; permission denial can leave
+  members beyond the guard's control. **Remote engine:** the guard runs beside its child on
+  the executing engine or CI runner; no new data crosses the server/engine boundary.
 - **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
   `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
   The executor stores passed command keys in the engine-local
@@ -4620,6 +4634,13 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   `packages/shared/src/domain/merge-input.ts` (PM-659), also used by the server's train storage;
   `engine-host/merge-input.ts` still runs `git check-ref-format --branch` after the shared branch
   syntax check. No git or process crosses into server-side DB validation.
+  Which suites cover the remote path (PM-1110): the cloud half of the merge over a fake peer is
+  `core/tasks/tests/merges.test.ts` (`createCloudRemote`) and `engine-link/remote/remote.test.ts`; the engine half
+  (schemas, limits, check checkout protection, a link lost during a full test) is
+  `engine-link/engine-handlers.test.ts`, `engine-limit.test.ts` and `rpc.test.ts`; the real link, both real ends,
+  is `test/cloud-engine.test.ts` and `test/engine-link.test.ts`, which cover the hand-over and the session, not a
+  merge. No suite yet drives a merge (`merge.checkout_for_check`, the full test, `merge.release_check`) over the
+  real link end to end.
   For a train (PM-660), the server calls the same build operation for every approved source
   and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
   full_test.run. The manifest, ordered locks and attribution stay on the server; all members

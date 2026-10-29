@@ -1,13 +1,14 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runNpm } from '../../../scripts/merge-test/npm';
 import { runSteps, type StepRun } from '../../../scripts/merge-test/steps';
 import { vitestFailedFiles } from '../src/full-test/output';
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -40,12 +41,15 @@ describe('merge-test file watchdog at the process boundary', () => {
       const args = fixture(`import { test, afterAll } from ${JSON.stringify(vitest)};\n${body}`);
       const runs: StepRun[] = [];
       const lines: string[] = [];
+      const stdout = vi.spyOn(process.stdout, 'write');
+      const stderr = vi.spyOn(process.stderr, 'write');
       const code = await runSteps([{ kind: 'test', workspace: 'apps/server', args }], {
         tree: 'watchdog-fixture',
         changed: new Set(),
         log: (line) => lines.push(line),
         spawn: async (command) => {
-          const run = await runNpm(command, { fileTimeoutMs: 2_000 });
+          // Keep deliberate fixture failures and reporter events out of the enclosing merge report.
+          const run = await runNpm(command, { fileTimeoutMs: 2_000, forwardOutput: false });
           runs.push(run);
           return run;
         },
@@ -56,6 +60,8 @@ describe('merge-test file watchdog at the process boundary', () => {
       expect(runs[0]?.output).toContain('File deadline exceeded');
       expect(vitestFailedFiles(runs[0]!.output)).toEqual(['hang.test.js']);
       expect(lines).toContain('merge-test failed: apps/server/hang.test.js');
+      expect(stdout).not.toHaveBeenCalled();
+      expect(stderr).not.toHaveBeenCalled();
     },
   );
 
@@ -63,7 +69,7 @@ describe('merge-test file watchdog at the process boundary', () => {
     const vitest = resolve(import.meta.dirname, '../../../node_modules/vitest/dist/index.js');
     const run = await runNpm(
       fixture(`import { test } from ${JSON.stringify(vitest)}; test("ok", () => {});`),
-      { fileTimeoutMs: 2_000 },
+      { fileTimeoutMs: 2_000, forwardOutput: false },
     );
     expect(run).toMatchObject({ code: 0, signaled: false });
     const events = run.output.split('\n').filter((line) => line.startsWith('merge-test file: '));

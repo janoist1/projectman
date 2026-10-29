@@ -298,7 +298,7 @@ describe('websocket', () => {
     await vi.waitFor(() => expect(h.runner.detached).toEqual([sessionId, sessionId]));
   });
 
-  it('looks up the login only for deliveries to subscribers, once per delivery', async () => {
+  it('reads the login once, not at every delivery', async () => {
     const { ws, events } = await connect();
     await waitFor(events, ofType('hello'));
     const resolve = vi.spyOn(h.app.projectman.auth, 'resolve');
@@ -316,7 +316,17 @@ describe('websocket', () => {
     expect(events.filter((e) => e.type === 'config_changed')).toEqual([
       { type: 'config_changed', projectKey: 'AR', version: 'v2' },
     ]);
-    expect(resolve).toHaveBeenCalledTimes(1);
+    // The login was checked when the client connected; the memo stands, so a delivery reads nothing.
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('closes a client that sends more commands than it lets run', async () => {
+    const { ws } = await connect();
+    const closed = new Promise<number>((resolve) =>
+      (ws as unknown as { on(event: 'close', l: (code: number) => void): void }).on('close', resolve),
+    );
+    for (let i = 0; i < 500; i += 1) ws.send(JSON.stringify({ type: 'visibility', visible: true }));
+    expect(await closed).toBe(1008);
   });
 
   it('streams fetched provider usage and changed members to project subscribers', async () => {
@@ -429,4 +439,28 @@ describe('websocket', () => {
       expect(events.some((e) => e.type === 'task_upserted')).toBe(false);
     },
   );
+});
+
+describe('websocket heartbeat', () => {
+  it('sends a frame in its cycle, which a browser (that sees no ping) takes as a sign of life', async () => {
+    const h = await createAppHarness({ app: { wsHeartbeatMs: 20 } });
+    const events: ServerEvent[] = [];
+    try {
+      const cookie = await setupOwner(h.app);
+      const ws = (await h.app.injectWS(
+        '/ws',
+        { headers: { cookie } },
+        { onInit: (socket) => collectInto(socket as unknown as TestSocket, events) },
+      )) as unknown as TestSocket;
+      // The first hello is the greeting; a second one can only come from the cycle.
+      await waitForCondition(() => events.filter(ofType('hello')).length >= 2 || undefined, {
+        timeoutMs: 2000,
+        intervalMs: 5,
+        what: () => `a second hello frame; got ${events.map((e) => e.type).join(', ')}`,
+      });
+      ws.terminate();
+    } finally {
+      await h.close();
+    }
+  });
 });

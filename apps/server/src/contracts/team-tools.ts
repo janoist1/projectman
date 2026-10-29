@@ -328,6 +328,13 @@ export interface FeedbackToolResult {
   task?: { key: string; title: string };
 }
 
+/**
+ * A team-tool handler that has not answered after this long gets a `timeout` tool error (the action may still
+ * complete). The engine's relay wait (`ENGINE_RELAY_WAIT_MS`) is derived from it, so that the cloud's answer
+ * always arrives before the engine gives up and a remote session reads the same text as a local one.
+ */
+export const TEAM_TOOL_TIMEOUT_MS = 45_000;
+
 /** The longest side, in pixels, of an image `read_message_attachment` hands over (larger ones are shrunk). */
 export const MESSAGE_IMAGE_MAX_SIDE = 1568;
 

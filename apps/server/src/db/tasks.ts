@@ -127,6 +127,16 @@ export const SCHEDULING_SQL = {
   queue: `${TASK_SELECT} WHERE t.project_key = ? AND t.stage_id = ? AND t.kind = 'task' AND t.status = 'active'
       ORDER BY t.seq`,
   open: `${TASK_SELECT} WHERE t.project_key = ? AND t.status NOT IN ('done', 'cancelled') ORDER BY t.seq`,
+  // The `list_tasks` page: the stage and assignee filters are optional (a stage names only `task` cards, a
+  // theme carries the first stage's id), the newest change first. Open reads keep to the open partial index.
+  listedOpen: `${TASK_SELECT} WHERE t.project_key = @projectKey AND t.status NOT IN ('done', 'cancelled')
+      AND (@stageId IS NULL OR (t.kind = 'task' AND t.stage_id = @stageId))
+      AND (@assignee IS NULL OR t.assignee = @assignee)
+    ORDER BY t.updated_at DESC, t.key LIMIT @limit`,
+  listedStatus: `${TASK_SELECT} WHERE t.project_key = @projectKey AND t.status = @status
+      AND (@stageId IS NULL OR (t.kind = 'task' AND t.stage_id = @stageId))
+      AND (@assignee IS NULL OR t.assignee = @assignee)
+    ORDER BY t.updated_at DESC, t.key LIMIT @limit`,
   closed: `${TASK_SELECT} WHERE t.project_key = ? AND t.kind = 'task' AND t.status IN ('done', 'cancelled')
       AND t.closed_at IS NOT NULL AND t.seq > ?
       AND t.closed_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'
@@ -210,6 +220,11 @@ export function createTaskRepository(db: Db) {
     schedulingPullUrgent: db.prepare(SCHEDULING_SQL.pullUrgent),
     schedulingQueue: db.prepare(SCHEDULING_SQL.queue),
     schedulingOpen: db.prepare(SCHEDULING_SQL.open),
+    countNotCancelled: db.prepare(
+      "SELECT COUNT(*) AS n FROM tasks WHERE project_key = ? AND status <> 'cancelled'",
+    ),
+    schedulingListedOpen: db.prepare(SCHEDULING_SQL.listedOpen),
+    schedulingListedStatus: db.prepare(SCHEDULING_SQL.listedStatus),
     schedulingClosed: db.prepare(SCHEDULING_SQL.closed),
     // Uses the `task_links_ref` index: card relations are links with no repository.
     linking: db.prepare(
@@ -451,9 +466,25 @@ export function createTaskRepository(db: Db) {
         }
         case 'open':
           return hydrate(statements.schedulingOpen.all(projectKey) as TaskRow[]);
+        case 'listed': {
+          const { status, stageId = null, assignee = null, limit } = query;
+          const params = { projectKey, stageId, assignee, limit };
+          // Newest change first, as the SQL ordered them; `hydrate` would sort by number.
+          const rows =
+            status === 'open'
+              ? (statements.schedulingListedOpen.all(params) as TaskRow[])
+              : (statements.schedulingListedStatus.all({ ...params, status }) as TaskRow[]);
+          const byKey = new Map(hydrate(rows).map((task) => [task.key, task]));
+          return rows.map((row) => byKey.get(row.key)!);
+        }
         case 'closed-worktrees':
           return hydrate(closedRows(projectKey, query));
       }
+    },
+
+    /** How many cards of the project are not cancelled (themes included), without reading them. */
+    countNotCancelled(projectKey: string): number {
+      return (statements.countNotCancelled.get(projectKey) as { n: number }).n;
     },
 
     listByAssignee(projectKey: string, handle: string): Task[] {

@@ -2524,6 +2524,17 @@ migrations.push({
 });
 migrations.push({
   version: 126,
+  name: 'index the open member queue items by source and the waiting ones',
+  // PM-1109: the open items of one source type and the queued items that wait for a code are read on every
+  // card view; both are served by a partial index over the few open rows instead of the whole queue history.
+  // The terms of the second index are the ones of the waiting read. No column is added.
+  sql: `CREATE INDEX member_queue_items_open_source ON member_queue_items(source_type)
+      WHERE state IN ('queued','processing');
+    CREATE INDEX member_queue_items_waiting ON member_queue_items(wait_at)
+      WHERE state = 'queued' AND wake = 1 AND wait_code IS NOT NULL;`,
+});
+migrations.push({
+  version: 127,
   name: 'guard the history index triggers against updates that change nothing they index',
   // PM-1128: `UPDATE OF title, body` fires whenever the column is in the SET list, even with the same value, and
   // the upsert of a document whose date or path changed sets them all. The full text index was rewritten and the

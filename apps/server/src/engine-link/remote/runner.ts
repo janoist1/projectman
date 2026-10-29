@@ -130,8 +130,14 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
     if (!id) throw conflict('engine_offline', 'there is no engine to run the session on');
     return id;
   };
+  /**
+   * The sessions whose terminal a viewer has attached. An engine forgets its attachments at every welcome (a
+   * restarted cloud has no viewers any more), so the ones still viewed are attached again when it connects.
+   */
+  const attached = new Set<string>();
   const sessionEnded = (sessionId: string) => {
     owners.delete(sessionId);
+    attached.delete(sessionId);
     for (const listener of endListeners) listener(sessionId);
   };
 
@@ -159,6 +165,8 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
     for (const [sessionId, engineId] of [...owners])
       if (engineId === id && !reported.has(sessionId) && !startingSessions.has(sessionId))
         sessionEnded(sessionId);
+    for (const sessionId of attached)
+      if (owners.get(sessionId) === id) fire(sessionId, () => hub.call(id, 'terminal.attach', { sessionId }));
   });
   hub.onEvent((id, event) => {
     if (event.kind !== 'runner') return;
@@ -272,13 +280,16 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
       const id = owners.get(sessionId);
       if (!id || !hub.available(id)) return null;
       try {
-        return await hub.call(id, 'terminal.attach', { sessionId });
+        const snapshot = await hub.call(id, 'terminal.attach', { sessionId });
+        attached.add(sessionId);
+        return snapshot;
       } catch (err) {
         logger.debug({ err, sessionId }, 'the terminal could not be attached');
         return null;
       }
     },
     detachTerminal(sessionId) {
+      attached.delete(sessionId);
       fire(sessionId, (id) =>
         hub.call(id, 'terminal.detach', { sessionId }, { timeoutMs: FIRE_AND_FORGET_MS }),
       );

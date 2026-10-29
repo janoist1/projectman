@@ -33,8 +33,8 @@ interface DoneCleanupDeps {
  */
 export class DoneCleanup {
   private readonly deps: DoneCleanupDeps;
-  /** Every call is a timer of its own. */
-  private scheduled = 0;
+  /** The mover the pending cleanup of each task runs with: a task has one timer, however often it moved to done. */
+  private readonly movers = new Map<string, string | null>();
 
   constructor(deps: DoneCleanupDeps) {
     this.deps = deps;
@@ -45,10 +45,15 @@ export class DoneCleanup {
    * member that made the move: its session finishes the turn it is in first.
    */
   schedule(projectKey: string, taskKey: string, mover: string | null = null): void {
-    this.scheduled += 1;
-    this.deps.timers.arm('cleanup', `${projectKey}:${taskKey}:${this.scheduled}`, this.deps.delayMs, () =>
-      this.run(projectKey, taskKey, mover),
-    );
+    const key = `${projectKey}:${taskKey}`;
+    // A pending timer is kept (the timers ignore a second arm of the key); the latest member who moved the task is
+    // the one whose turn the cleanup waits for.
+    if (mover || !this.movers.has(key)) this.movers.set(key, mover);
+    this.deps.timers.arm('cleanup', key, this.deps.delayMs, () => {
+      const moved = this.movers.get(key) ?? null;
+      this.movers.delete(key);
+      this.run(projectKey, taskKey, moved);
+    });
   }
 
   run(projectKey: string, taskKey: string, mover: string | null = null): void {

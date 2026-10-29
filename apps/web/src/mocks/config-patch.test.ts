@@ -106,6 +106,22 @@ describe('mock configuration PATCH', () => {
     ).toMatchObject({ status: 403, body: { error: { code: 'insufficient_access' } } });
   });
 
+  it.each([
+    [undefined, 'client', 403],
+    ['client', 'client', 201],
+    ['client', 'viewer', 403],
+  ] as const)(
+    'opens a card by the task create access %s for a %s with status %s (PM-1100)',
+    (setting, access, status) => {
+      const backend = new MockBackend();
+      backend.config.team.taskCreateAccess = setting;
+      backend.viewerHandle = 'kata';
+      const member = backend.config.team.members.find((member) => member.handle === 'kata')!;
+      if (member.kind === 'human') member.access = access;
+      expect(backend.handle('POST', '/api/projects/AC/tasks', { title: 'Idea' }).status).toBe(status);
+    },
+  );
+
   it('rejects changes by an AI member like the server', () => {
     const backend = new MockBackend();
     backend.viewerHandle = 'fe-1';

@@ -128,6 +128,18 @@ describe('semantic engine', () => {
     expect(scanFor(engine, 'zebra').candidates.map((c) => c.sourceId)).toEqual(['note:1']);
   });
 
+  it('leaves a source alone when an update writes the same title, body and commit', async () => {
+    addSource('note:1', 'Farm', 'We keep an alpaca herd.');
+    const engine = engineOf();
+    await engine.drain();
+
+    db.prepare(
+      `UPDATE history_documents SET title = 'Farm', body = 'We keep an alpaca herd.', at = '2026-10-02T09:00:00.000Z' WHERE source_id = 'note:1'`,
+    ).run();
+
+    expect(engine.counts().dirty).toBe(0);
+  });
+
   it('drops the vectors of a deleted source', async () => {
     addSource('note:1', 'Alpaca farm', 'We keep an alpaca herd.');
     const engine = engineOf();

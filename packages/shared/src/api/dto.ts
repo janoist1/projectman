@@ -1302,8 +1302,14 @@ export const SessionDetail = z.object({
   session: Session,
   chat: z.array(ChatItem),
   task: Task.nullable(),
+  /** Older items exist than the `chat` window holds (PM-1116): load them with `before` the first item's id. */
+  truncated: z.boolean().optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetail>;
+
+/** The window of a session's chat the page asks for (`?limit=&before=`, PM-1116). */
+export const SESSION_CHAT_WINDOW = 200;
+export const SESSION_CHAT_WINDOW_MAX = 1000;
 
 /**
  * An owner sets a session's own permission settings (PM-170, `PATCH` of the session): the CLI mode
@@ -1561,21 +1567,6 @@ export const OwnerAccountView = z.object({
 export type OwnerAccountView = z.infer<typeof OwnerAccountView>;
 export const OwnerAccountsView = z.object({ accounts: z.array(OwnerAccountView) });
 export type OwnerAccountsView = z.infer<typeof OwnerAccountsView>;
-
-/** Puts a theme or card into the project's focus (PM-427); `position` is 1-based, absent: the end of the list. */
-export const ProjectFocusAddRequest = z.object({
-  key: TaskKey,
-  position: z.number().int().min(1).optional(),
-});
-export type ProjectFocusAddRequest = z.infer<typeof ProjectFocusAddRequest>;
-
-/** Moves a focus item to the 1-based `position`, clamped to the length of the list. */
-export const ProjectFocusMoveRequest = z.object({ position: z.number().int().min(1) });
-export type ProjectFocusMoveRequest = z.infer<typeof ProjectFocusMoveRequest>;
-
-/** The project's `focus_changed` events, newest first. */
-export const ProjectFocusChanges = z.object({ events: z.array(TimelineEvent) });
-export type ProjectFocusChanges = z.infer<typeof ProjectFocusChanges>;
 
 /** An existing account accepts with an empty body and its login cookie. */
 export const AcceptInviteRequest = z.object({

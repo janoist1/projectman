@@ -345,3 +345,19 @@ export function userTextOrigin(
     ? 'team_message'
     : firstOrigin;
 }
+
+/**
+ * The last `limit` of `items` (oldest first), or the last `limit` before the item `before`; an unknown
+ * `before` is an empty page (a client that asks for an item that is gone must not get duplicates).
+ * `truncated` is true when older items remain (PM-1116).
+ */
+export function chatWindow<T extends { id: string }>(
+  items: readonly T[],
+  opts: { limit: number; before?: string },
+): { items: T[]; truncated: boolean } {
+  const at = opts.before === undefined ? items.length : items.findIndex((item) => item.id === opts.before);
+  if (at < 0) return { items: [], truncated: false };
+  const end = at;
+  const start = Math.max(0, end - opts.limit);
+  return { items: items.slice(start, end), truncated: start > 0 };
+}

@@ -18,7 +18,6 @@ import {
   describeRepo,
   describeTaskWait,
   describeTheme,
-  focusPlaceText,
   themeCardLines,
   themeProgressText,
   themeState,
@@ -396,7 +395,6 @@ export function formatTaskDetail(
       : taskStatusLine(task),
     ...(!theme ? [`Repo: ${repo} · Priority: ${task.priority ?? 'none'}`] : []),
     ...(detail.wait ? [`Waiting: ${describeTaskWait(detail.wait)}`] : []),
-    ...(detail.focus ? [`Focus: ${focusPlaceText(detail.focus)}`] : []),
     ...(task.complexity ? [`Complexity: ${complexityText(task.complexity)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,

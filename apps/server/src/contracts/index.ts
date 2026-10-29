@@ -15,6 +15,7 @@ export * from './event-bus';
 export * from './full-test';
 export * from './release-work';
 export * from './engine';
+export * from './engine-package';
 export * from './administration';
 export * from './machine';
 export * from './email-login';

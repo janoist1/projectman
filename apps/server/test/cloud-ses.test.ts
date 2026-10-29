@@ -6,6 +6,7 @@ import { parseConfig } from '../../../scripts/cloud/config';
 import { removeEnvNames, updateEnvFile } from '../../../scripts/cloud/secrets';
 import { sesPolicy } from '../../../scripts/cloud/ses';
 import { ACCOUNT, baseConfig } from './helpers/fake-aws';
+import { SHA_NEWEST } from './helpers/fake-host';
 import { CF_TOKEN, CloudflareWorld } from './helpers/fake-cloudflare';
 import {
   I_SES_CONFIG,
@@ -398,6 +399,7 @@ describe('SES plan and configure', () => {
     const other = CloudflareWorld.ready();
     try {
       other.writeToken();
+      other.writeBundle(SHA_NEWEST);
       const configure = vi.spyOn(COMMANDS['ses configure']!, 'run');
       const production = vi.spyOn(COMMANDS['ses request-production']!, 'run');
       expect(await runCloud(['up', '--dry-run'], other.deps())).toBe(0);

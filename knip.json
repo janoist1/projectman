@@ -8,6 +8,7 @@
         "scripts/administration/builder.ts",
         "scripts/administration/supervisor.ts",
         "scripts/*.mjs",
+        "scripts/engine-app/bundle-cli.mjs",
         "scripts/scenarios/*.mjs",
         "deploy/cloud/*.mjs",
         "scripts/lib/*guard*.mjs",

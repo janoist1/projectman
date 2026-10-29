@@ -48,7 +48,8 @@ export class StructuralReviews {
   }
 
   private select(config: ProjectConfig) {
-    const sessions = this.deps.ctx.repos.sessions.list(config.project.key);
+    const sessions = this.deps.ctx.repos.sessions.listLive(config.project.key);
+    // Each candidate's load is read once, not on every comparison of the sort.
     return (
       dutyMembers(config, 'technical_direction')
         .filter(
@@ -56,7 +57,6 @@ export class StructuralReviews {
             member.kind === 'ai' &&
             !isOnLeave(member) &&
             member.handle !== coordinationMemberOf(config)?.handle &&
-            this.deps.admission.memberLoad(config, member.handle) < member.capacity &&
             !sessions.some(
               (s) =>
                 s.member === member.handle &&
@@ -65,11 +65,9 @@ export class StructuralReviews {
                 s.workItem.type !== 'general',
             ),
         )
-        .sort(
-          (a, b) =>
-            this.deps.admission.memberLoad(config, a.handle) -
-              this.deps.admission.memberLoad(config, b.handle) || a.handle.localeCompare(b.handle),
-        )[0] ?? null
+        .map((member) => ({ member, load: this.deps.admission.memberLoad(config, member.handle) }))
+        .filter(({ member, load }) => member.kind === 'ai' && load < member.capacity)
+        .sort((a, b) => a.load - b.load || a.member.handle.localeCompare(b.member.handle))[0]?.member ?? null
     );
   }
 

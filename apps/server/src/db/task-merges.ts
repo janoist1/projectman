@@ -123,8 +123,13 @@ export function mergedState(row: MergeRecord): TaskMerged | undefined {
 const QUEUE_ORDER =
   'queue_rank IS NULL, queue_rank, prioritized_at IS NULL, prioritized_at DESC, created_at, rowid';
 export function createTaskMergeRepository(db: Db) {
-  const read = (sql: string, ...args: string[]) =>
-    (db.prepare(sql).all(...args) as Record<string, unknown>[]).map(record);
+  // A card view reads the card's open and latest merge: each statement is prepared once, not per call.
+  const prepared = new Map<string, { all(...args: string[]): unknown[] }>();
+  const read = (sql: string, ...args: string[]) => {
+    let statement = prepared.get(sql);
+    if (!statement) prepared.set(sql, (statement = db.prepare(sql)));
+    return (statement.all(...args) as Record<string, unknown>[]).map(record);
+  };
   const bump = (projectKey: string, repo: string) =>
     db
       .prepare(
@@ -184,6 +189,35 @@ export function createTaskMergeRepository(db: Db) {
           projectKey,
           taskKey,
         )[0] ?? null
+      );
+    },
+    /** The open merge and the latest merged one of many tasks, in two reads: task key → merge. */
+    ofTasks(taskKeys: readonly string[]): {
+      open: Map<string, MergeRecord>;
+      latestMerged: Map<string, MergeRecord>;
+    } {
+      const open = new Map<string, MergeRecord>();
+      const latestMerged = new Map<string, MergeRecord>();
+      if (taskKeys.length === 0) return { open, latestMerged };
+      const keys = JSON.stringify(taskKeys);
+      for (const merge of read(
+        "SELECT * FROM task_merges WHERE state IN ('requested','queued','running','failed','blocked','fixing') AND task_key IN (SELECT value FROM json_each(?))",
+        keys,
+      ))
+        if (!open.has(merge.taskKey)) open.set(merge.taskKey, merge);
+      for (const merge of read(
+        `SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY task_key ORDER BY finished_at DESC, rowid DESC) AS latest
+           FROM task_merges WHERE state = 'merged' AND task_key IN (SELECT value FROM json_each(?))) WHERE latest = 1`,
+        keys,
+      ))
+        latestMerged.set(merge.taskKey, merge);
+      return { open, latestMerged };
+    },
+    /** The project's open merges, in any open state, in queue order (`task_merges_open` serves it; PM-1120). */
+    openOfProject(projectKey: string) {
+      return read(
+        `SELECT * FROM task_merges WHERE project_key = ? AND state IN ('requested','queued','running','failed','blocked','fixing') ORDER BY ${QUEUE_ORDER}`,
+        projectKey,
       );
     },
     /** The repository's open merges that wait or failed (not the running one), in queue order. */

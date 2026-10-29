@@ -68,8 +68,6 @@ import {
   Me,
   MemberView,
   ProjectPauseView,
-  ProjectFocusChanges,
-  ProjectFocusView,
   ProjectSummary,
   ScheduleRun,
   SchedulesView,
@@ -319,11 +317,11 @@ export const api = {
   boardMoveTask: (key: string, taskKey: string, body: BoardMoveRequest) =>
     apiRequest(routes.boardMoveTask(key, taskKey), { method: 'POST', body, schema: BoardMoveResult }),
   cancelTask: (key: string, taskKey: string, body: CancelTaskRequest) =>
-    apiRequest<unknown>(routes.cancelTask(key, taskKey), { method: 'POST', body }),
+    apiRequest(routes.cancelTask(key, taskKey), { method: 'POST', body, schema: UpdateTaskResponse }),
   closeTheme: (key: string, taskKey: string) =>
-    apiRequest<unknown>(routes.closeTheme(key, taskKey), { method: 'POST', body: {} }),
+    apiRequest(routes.closeTheme(key, taskKey), { method: 'POST', body: {}, schema: UpdateTaskResponse }),
   reopenTask: (key: string, taskKey: string) =>
-    apiRequest<unknown>(routes.reopenTask(key, taskKey), { method: 'POST', body: {} }),
+    apiRequest(routes.reopenTask(key, taskKey), { method: 'POST', body: {}, schema: UpdateTaskResponse }),
 
   members: (key: string) => apiRequest(routes.members(key), { schema: MemberView.array() }),
   hireMember: (key: string, body: HireMemberRequest) =>
@@ -333,8 +331,14 @@ export const api = {
   renameMember: (key: string, handle: string, body: RenameMemberRequest) =>
     apiRequest(routes.memberRename(key, handle), { method: 'POST', body, schema: MemberView }),
 
-  session: (key: string, sessionId: string) =>
-    apiRequest(routes.session(key, sessionId), { schema: SessionDetail }),
+  /** The session with the last `limit` items of its chat (before the item `before`, PM-1116). */
+  session: (key: string, sessionId: string, window: { limit?: number; before?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (window.limit !== undefined) query.set('limit', String(window.limit));
+    if (window.before !== undefined) query.set('before', window.before);
+    const suffix = query.size ? `?${query}` : '';
+    return apiRequest(`${routes.session(key, sessionId)}${suffix}`, { schema: SessionDetail });
+  },
   sendSessionMessage: (key: string, sessionId: string, body: SendMessageRequest) =>
     apiRequest<unknown>(routes.sessionMessages(key, sessionId), { method: 'POST', body }),
   stopSession: (key: string, sessionId: string, body?: import('@projectman/shared').StopSessionRequest) =>
@@ -426,8 +430,11 @@ export const api = {
       { schema: TeamMessagesView },
     ),
 
-  /** Every state (the server defaults to open items): resolved ones feed the history lists. */
-  inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=all`, { schema: InboxView }),
+  /** Every item that has not ended (open or screening, combined questions too), never cut off: what waits for someone. */
+  inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=active`, { schema: InboxView }),
+  /** The newest closed items (resolved, expired, cancelled): the "recently decided" lists. */
+  inboxHistory: (key: string, limit: number) =>
+    apiRequest(`${routes.inbox(key)}?state=closed&limit=${limit}`, { schema: InboxView }),
   /** The questions the Operator screened since `since` (an ISO time with an offset); owners and admins only (PM-558). */
   screenedQuestions: (key: string, since: string) =>
     apiRequest(`${routes.screenedQuestions(key)}?since=${encodeURIComponent(since)}`, {
@@ -442,25 +449,6 @@ export const api = {
   schedules: (key: string) => apiRequest(routes.schedules(key), { schema: SchedulesView }),
   runSchedule: (key: string, handle: string) =>
     apiRequest(routes.runSchedule(key, handle), { method: 'POST', schema: ScheduleRun }),
-
-  /** The project's focus (PM-427): every write answers with the whole view. */
-  projectFocus: (key: string) => apiRequest(routes.projectFocus(key), { schema: ProjectFocusView }),
-  addFocusItem: (key: string, taskKey: string, position?: number) =>
-    apiRequest(routes.projectFocusItems(key), {
-      method: 'POST',
-      body: { key: taskKey, ...(position !== undefined ? { position } : {}) },
-      schema: ProjectFocusView,
-    }),
-  moveFocusItem: (key: string, taskKey: string, position: number) =>
-    apiRequest(routes.projectFocusItem(key, taskKey), {
-      method: 'PATCH',
-      body: { position },
-      schema: ProjectFocusView,
-    }),
-  removeFocusItem: (key: string, taskKey: string) =>
-    apiRequest(routes.projectFocusItem(key, taskKey), { method: 'DELETE', schema: ProjectFocusView }),
-  projectFocusChanges: (key: string, limit = 50) =>
-    apiRequest(`${routes.projectFocusChanges(key)}?limit=${limit}`, { schema: ProjectFocusChanges }),
 
   /** The pause (PM-219): a project's view holds its own and the instance's; the POSTs take an empty body. */
   pauseProject: (key: string) =>

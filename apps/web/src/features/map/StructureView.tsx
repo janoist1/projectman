@@ -19,7 +19,7 @@ import { EmptyState, ErrorState } from '../../components/States';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { StateMark } from '../../components/StateMark';
 import { joinNames, t } from '../../i18n/t';
-import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
+import { isPageEscape, useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import { useNow } from '../../lib/useNow';
 import { DrawerBaseContext } from '../board/drawerBase';
 import { useBoardModel } from '../board/useBoardModel';
@@ -210,7 +210,7 @@ export function StructureView() {
   useEffect(() => {
     if (!selected || mobile || drawerOpen) return;
     const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !document.querySelector('dialog[open], [data-popover-open]')) {
+      if (isPageEscape(event)) {
         event.preventDefault();
         clear();
       }

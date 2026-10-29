@@ -1,6 +1,6 @@
 import { wakesFor } from '../../core/messages';
 import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
-import { LIVE_SESSION_STATES, workMetadataAfterChat } from '@projectman/shared';
+import { LIVE_SESSION_STATES, SESSION_CHAT_WINDOW, workMetadataAfterChat } from '@projectman/shared';
 import type { EnsureSessionOptions, EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
@@ -80,7 +80,6 @@ import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { conflict, DomainError, forbidden, invalid, notFound } from '../../kernel';
 import type { MemberService } from '../../core/members';
-import type { ProjectFocusService } from '../../core/tasks';
 import type { ConfigChange, ProjectService } from '../../core/projects';
 import { RoundCompaction } from './compaction';
 import { DoneCleanup } from './done-cleanup';
@@ -152,8 +151,6 @@ export interface SessionOrchestratorDeps {
   ctx: DomainContext;
   projects: ProjectService;
   tasks: TaskService;
-  /** The project's focus (PM-437), named in the kick-off brief. */
-  projectFocus: Pick<ProjectFocusService, 'get' | 'places'>;
   members: MemberService;
   /** Members whose starts a handle rename holds back (PM-1025). */
   startHolds?: Pick<StartHolds, 'assertFree'>;
@@ -374,8 +371,20 @@ export class SessionOrchestrator {
       assertProviderReady: (provider, member, engineId) =>
         this.assertProviderReady(provider, member, engineId),
       removeSessionFolderOf: (sessionId) => this.removeSessionFolderOf(sessionId),
+      // A stop reason keeps a resumed conversation: it is no proof the conversation cannot be resumed (PM-340).
+      markStartFailed: (sessionId) => void this.markEnded(sessionId, 1, null, { kind: 'failed' }),
       folderRemoval: (sessionId) => this.folderRemovals.get(sessionId),
     });
+  }
+
+  /** Stops the session's process for a restart and ends its row with the reason; the caller starts the next process. */
+  private async stopForRestart(
+    sessionId: string,
+    restartFor: NonNullable<SessionStop['restartFor']>,
+  ): Promise<void> {
+    this.live.stopReasons.set(sessionId, { kind: 'restart', restartFor });
+    await this.deps.runner.stop(sessionId);
+    this.markEnded(sessionId, null);
   }
 
   /** The member workspaces of the engine (PM-138); null: the engine has none, or is not connected. */
@@ -656,6 +665,11 @@ export class SessionOrchestrator {
     return this.ctx.repos.sessions.list(projectKey, filter);
   }
 
+  /** The sessions not closed yet, without their usage and pause; the history of closed ones is not read (PM-1120). */
+  listLive(projectKey: string, member?: string): Session[] {
+    return this.ctx.repos.sessions.listLive(projectKey, member);
+  }
+
   /**
    * Whether only the owner and the admin see the session: a conversation with someone who is not an owner
    * (PM-475, PM-1080), which holds that person's messages, and every session of the retired Operator (decision
@@ -863,9 +877,7 @@ export class SessionOrchestrator {
         // Its review round is over: no live process while the workspace moves to the new commit.
         // Not while paused: the start would be refused after the stop.
         assertNotPaused(this.ctx.repos.pauses, projectKey);
-        this.live.stopReasons.set(existing.id, { kind: 'restart', restartFor: 'new_round' });
-        await this.deps.runner.stop(existing.id);
-        this.markEnded(existing.id, null);
+        await this.stopForRestart(existing.id, 'new_round');
         announce = false;
       }
       return this.launcher.start(
@@ -908,9 +920,7 @@ export class SessionOrchestrator {
       if (!this.mayWorkNow(config, member)) return false;
       const task =
         session.workItem.type === 'task' ? this.deps.tasks.get(projectKey, session.workItem.taskKey) : null;
-      this.live.stopReasons.set(session.id, { kind: 'restart', restartFor: 'description' });
-      await this.deps.runner.stop(session.id);
-      this.markEnded(session.id, null);
+      await this.stopForRestart(session.id, 'description');
       await this.launcher.start(
         config,
         member,
@@ -1065,9 +1075,7 @@ export class SessionOrchestrator {
       sessionId,
       'session_permission_changed',
     );
-    this.live.stopReasons.set(session.id, { kind: 'restart', restartFor: 'permission' });
-    await this.deps.runner.stop(session.id);
-    this.markEnded(session.id, null);
+    await this.stopForRestart(session.id, 'permission');
     await this.launcher.start(
       config,
       member,
@@ -1350,25 +1358,40 @@ export class SessionOrchestrator {
     }
   }
 
-  /** The session with its chat, read from the transcript as its provider wrote it. */
-  async detail(projectKey: string, sessionId: string): Promise<SessionDetail> {
+  /**
+   * The session with its chat, read from the transcript as its provider wrote it: the last `limit`
+   * items (before the item `before`), with `truncated` when older ones remain (PM-1116).
+   */
+  async detail(
+    projectKey: string,
+    sessionId: string,
+    window: { limit: number; before?: string } = { limit: SESSION_CHAT_WINDOW },
+  ): Promise<SessionDetail> {
     const session = this.get(projectKey, sessionId);
     let chat: ChatItem[] = [];
+    let truncated = false;
     if (session.transcriptPath) {
       try {
+        // One item more than shown tells whether older ones remain.
         chat = await this.deps.transcripts.read(session.transcriptPath, {
           provider: session.provider ?? DEFAULT_AGENT_PROVIDER,
           self: session.member,
           cwd: session.cwd,
           firstUserOrigin: openingTurnOrigin(session.workItem),
+          limit: window.limit + 1,
+          ...(window.before === undefined ? {} : { before: window.before }),
           ...engineOption(engineIdOf(session)),
         });
+        if (chat.length > window.limit) {
+          truncated = true;
+          chat = chat.slice(-window.limit);
+        }
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId }, 'could not read the transcript');
       }
     }
     const task = session.workItem.type === 'task' ? this.ctx.repos.tasks.get(session.workItem.taskKey) : null;
-    return { session, chat, task };
+    return { session, chat, task, ...(truncated ? { truncated } : {}) };
   }
 
   /**
@@ -1575,7 +1598,10 @@ export class SessionOrchestrator {
       }
     }
     const removals: Promise<void>[] = [];
-    for (const engineId of this.deps.engines.ids()) {
+    // The folder is on the engine the session ran on: asking the others would make a slow or offline engine
+    // hold up the session's next folder. A row that names no engine (an old one, a start that never made it) asks all.
+    const ranOn = this.ctx.repos.sessions.get(sessionId)?.engineId;
+    for (const engineId of ranOn ? [ranOn] : this.deps.engines.ids()) {
       const folders = this.deps.engines.get(engineId)?.sessionFolders;
       if (!folders) continue;
       const failed = (err: unknown) =>
@@ -1657,7 +1683,9 @@ export class SessionOrchestrator {
       recordedStop ??
       (session && !failed && this.isPaused(session)
         ? ({ kind: 'pause' } as const)
-        : ({ kind: failed ? (reason ? 'login_lost' : 'failed') : 'exited' } as const));
+        : ({
+            kind: failed ? (this.limits.lostLogin(sessionId) ? 'login_lost' : 'failed') : 'exited',
+          } as const));
     // A resumed conversation whose CLI failed before it was ready cannot be resumed (PM-340): the next
     // start begins a new conversation, so it does not fail again and again with the same resume.
     const resumeFailed = failed && session?.state === 'starting' && resuming && !stop;
@@ -1973,9 +2001,7 @@ export class SessionOrchestrator {
       const config = await this.deps.projects.config(current.projectKey);
       const member = memberOf(config, current.member);
       if (!this.mayWorkNow(config, member)) return;
-      this.live.stopReasons.set(current.id, { kind: 'restart', restartFor: 'description' });
-      await this.deps.runner.stop(current.id);
-      this.markEnded(current.id, null);
+      await this.stopForRestart(current.id, 'merge_fix');
       await this.launcher.start(
         config,
         member,
@@ -2012,9 +2038,7 @@ export class SessionOrchestrator {
 
   /** An AI member's status follows its live sessions: waiting beats working beats idle. */
   private recomputeMemberState(projectKey: string, handle: string): void {
-    const live = this.ctx.repos.sessions
-      .list(projectKey, { member: handle })
-      .filter((s) => !ENDED.has(s.state));
+    const live = this.ctx.repos.sessions.listLive(projectKey, handle);
     const waiting = live.find((s) => s.state === 'waiting_permission' || s.state === 'waiting_input');
     const working = live.find((s) => s.state === 'working' || s.state === 'starting');
     let status: MemberStatus = 'idle';

@@ -129,11 +129,16 @@ it('preserves queue rows and indexes while adding checklist notices', () => {
       `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at)
       VALUES ('new', 'AR', 'dev-1', 'checklist', 'checklist', 'onboarding', '{"type":"general"}', ?)`,
     ).run(now);
-    expect(
-      db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'member_queue_items_%'")
-        .all(),
-    ).toHaveLength(3);
+    const indexes = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'member_queue_items_%'")
+      .all();
+    expect(indexes).toEqual(
+      expect.arrayContaining([
+        { name: 'member_queue_items_member' },
+        { name: 'member_queue_items_place' },
+        { name: 'member_queue_items_closed' },
+      ]),
+    );
   } finally {
     db.close();
   }

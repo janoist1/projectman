@@ -39,7 +39,7 @@ export interface PipeEnd {
   signal?: AbortSignal;
 }
 
-export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
+type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
 
 export interface CloudDeps {
   run(command: string, args: string[], options?: RunOptions): Promise<RunResult>;

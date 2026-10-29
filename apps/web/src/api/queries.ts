@@ -6,7 +6,9 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
+import { SESSION_CHAT_WINDOW } from '@projectman/shared';
 import type {
+  Task,
   CreateOwnerInviteRequest,
   CreatedOwnerInvitation,
   AnswerHostRequestRequest,
@@ -435,16 +437,29 @@ export function useRetireMember(key: string) {
 
 /* ---------- sessions ---------- */
 
-export function useSessionDetail(key: string, sessionId: string) {
+/**
+ * A session with its chat: the last `SESSION_CHAT_WINDOW` items, or only the last `limit` when asked (a
+ * peek). The chat events keep it current (`chat_appended`), so it is never refetched on its own (PM-1116).
+ */
+export function useSessionDetail(key: string, sessionId: string, limit?: number) {
   return useQuery({
-    queryKey: queryKeys.session(key, sessionId),
-    queryFn: () => api.session(key, sessionId),
+    queryKey:
+      limit === undefined ? queryKeys.session(key, sessionId) : queryKeys.sessionTail(key, sessionId, limit),
+    queryFn: () => api.session(key, sessionId, { limit: limit ?? SESSION_CHAT_WINDOW }),
+    staleTime: Infinity,
     // An engine that is away answers the same until it returns; the page waits for its event, not for retries (PM-316).
     retry: (count, error) =>
       !(
         isApiError(error) &&
         (error.code === 'engine_offline' || (error.status >= 400 && error.status < 500))
       ) && count < 2,
+  });
+}
+
+/** The chat items before the item `before` (the "Korábbiak" button of a long chat, PM-1116). */
+export function useEarlierChat(key: string, sessionId: string) {
+  return useMutation({
+    mutationFn: (before: string) => api.session(key, sessionId, { limit: SESSION_CHAT_WINDOW, before }),
   });
 }
 
@@ -647,7 +662,7 @@ export function useUpdateSession(key: string) {
     mutationFn: ({ sessionId, body }: { sessionId: string; body: UpdateSessionRequest }) =>
       api.updateSession(key, sessionId, body),
     onSuccess: (session) =>
-      client.setQueryData<SessionDetail>(queryKeys.session(key, session.id), (detail) =>
+      client.setQueriesData<SessionDetail>({ queryKey: queryKeys.session(key, session.id) }, (detail) =>
         detail ? { ...detail, session } : detail,
       ),
   });
@@ -806,8 +821,20 @@ export function useLogoutFeedbackMarker(key: string) {
 
 /* ---------- inbox ---------- */
 
+/** The items that have not ended (open, screening): every one of them, however old (they are what waits for someone). */
 export function useInbox(key: string) {
   return useQuery({ queryKey: queryKeys.inbox(key), queryFn: () => api.inbox(key) });
+}
+
+/** How many closed items the history lists read. */
+const INBOX_HISTORY_LIMIT = 200;
+
+/** The newest closed items: "recently decided" on the inbox page, "you answered" in a conversation. */
+export function useInboxHistory(key: string) {
+  return useQuery({
+    queryKey: queryKeys.inboxHistory(key),
+    queryFn: () => api.inboxHistory(key, INBOX_HISTORY_LIMIT),
+  });
 }
 
 /**
@@ -861,6 +888,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
     },
     onSettled: async (_data, _error, { item }) => {
       await client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
+      await client.invalidateQueries({ queryKey: queryKeys.inboxHistory(key) });
       await client.invalidateQueries({ queryKey: queryKeys.board(key) });
       if (item.payload.operatorKnowledge) {
         await client.invalidateQueries({ queryKey: queryKeys.operatorKnowledge(key) });
@@ -970,8 +998,23 @@ export function useSaveRole(key: string) {
 export function useDeleteRole(key: string) {
   return useProjectMutation(key, (id: string) => api.deleteRole(key, id));
 }
+/**
+ * A change of one card: the server answers with the changed task, which is written to the board and the card,
+ * and the card's detail is read again (its timeline and rounds changed). The rest of the project follows by
+ * the socket events, not by a refetch of everything (PM-1109).
+ */
+function useTaskMutation<T, R extends Task>(key: string, mutationFn: (variables: T) => Promise<R>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: async (task) => {
+      writeTask(client, key, task);
+      await client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
+    },
+  });
+}
 export function useUpdateTask(key: string) {
-  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
+  return useTaskMutation(key, ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
     api.updateTask(key, taskKey, body),
   );
 }
@@ -1003,16 +1046,16 @@ export function useLabels(key: string): LabelView[] {
 }
 const EMPTY_LABELS: LabelView[] = [];
 export function useCancelTask(key: string) {
-  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: CancelTaskRequest }) =>
+  return useTaskMutation(key, ({ taskKey, body }: { taskKey: string; body: CancelTaskRequest }) =>
     api.cancelTask(key, taskKey, body),
   );
 }
 /** Closes a theme; the cards that belong to it are not touched (PM-192). */
 export function useCloseTheme(key: string) {
-  return useProjectMutation(key, (taskKey: string) => api.closeTheme(key, taskKey));
+  return useTaskMutation(key, (taskKey: string) => api.closeTheme(key, taskKey));
 }
 export function useReopenTask(key: string) {
-  return useProjectMutation(key, (taskKey: string) => api.reopenTask(key, taskKey));
+  return useTaskMutation(key, (taskKey: string) => api.reopenTask(key, taskKey));
 }
 
 /** Refresh even after approval_requested: the task waits and new inbox decisions exist. */

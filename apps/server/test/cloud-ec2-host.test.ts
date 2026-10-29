@@ -38,12 +38,6 @@ const context = (): CloudContext => ({
   secretsDir: world.secretsDir,
   envFile: world.envFile,
 });
-const source = () => {
-  const dir = path.join(world.home, 'package');
-  fs.mkdirSync(dir);
-  fs.writeFileSync(path.join(dir, 'db.sqlite'), 'database');
-  return dir;
-};
 const assertClean = () => {
   for (const dir of world.keyDirs) expect(fs.existsSync(dir)).toBe(false);
   for (const call of world.transportCalls.filter((call) => call.command === 'ssh-keygen'))
@@ -180,39 +174,19 @@ describe('EC2 SSH through SSM', () => {
     },
   );
 
-  it('seeds an empty machine, deploys, stops and pulls data with the existing streams', async () => {
-    world.aws.addBucket('acme-projectman-db');
-    world.aws.addBucket('acme-projectman-backup');
-    expect(await run('seed', '--from', source(), '--ref', SHA_NEW)).toBe(0);
-    expect(world.hostCalls.slice(0, 5).map((call) => call.subcommand)).toEqual([
+  it('deploys, stops and pulls data with the existing streams', async () => {
+    expect(await run('deploy', '--ref', SHA_NEW)).toBe(0);
+    expect(world.hostCalls.slice(0, 3).map((call) => call.subcommand)).toEqual([
       'bootstrap',
-      'seed-check',
-      'receive-data',
-      'seed-digest',
-      'bootstrap',
+      'receive-image',
+      'receive-env',
     ]);
-    expect(world.machine.receivedData).toMatch(/^tar /);
-    expect(world.pipes[0]!.to.command).toBe('ssh');
-    expect(world.pipes[0]!.to.signal).toBeDefined();
     expect(await run('stop')).toBe(0);
     const target = path.join(world.home, 'pulled');
     expect(await run('pull-data', '--to', target)).toBe(0);
     expect(fs.readFileSync(path.join(target, 'db.sqlite'), 'utf8')).toBe('sqlite');
     expect(fs.statSync(target).mode & 0o777).toBe(0o700);
-    expect(world.pipes[1]!.from.command).toBe('ssh');
-    assertClean();
-  });
-
-  it.each(['running', 'data', 'bucket', 'credentials'])('preserves the %s seed guard', async (guard) => {
-    world.aws.addBucket('acme-projectman-db');
-    world.aws.addBucket('acme-projectman-backup');
-    const dir = source();
-    if (guard === 'running') world.machine.running = true;
-    if (guard === 'data') world.machine.dataEmpty = false;
-    if (guard === 'bucket') world.aws.buckets.get('acme-projectman-db')!.objects = 1;
-    if (guard === 'credentials') fs.mkdirSync(path.join(dir, 'providers'));
-    expect(await run('seed', '--from', dir, '--ref', SHA_NEW)).toBe(2);
-    expect(world.pipes).toHaveLength(0);
+    expect(world.pipes.at(-1)!.from.command).toBe('ssh');
     assertClean();
   });
 
@@ -328,8 +302,8 @@ describe('refusal and cleanup', () => {
     world.machine.failures.set('logs', { code: 255, stdout: '', stderr: 'host key mismatch' });
     expect(await run('logs')).toBe(1);
     assertClean();
-    world.machine.hangOn = 'build';
-    world.interruptDuring = 'build';
+    world.machine.hangOn = 'start';
+    world.interruptDuring = 'start';
     expect(await run('deploy', '--ref', SHA_NEW)).toBe(1);
     assertClean();
     world.machine.running = false;

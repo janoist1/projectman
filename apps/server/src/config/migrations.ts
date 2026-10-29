@@ -10,6 +10,7 @@ import {
   DEFAULT_PROJECT_MANAGER_LIFECYCLE,
   DEFAULT_PREREQUISITE_OVERRIDE,
   DEFAULT_PROJECT_MANAGER_MOVES,
+  DEFAULT_TASK_CREATE_ACCESS,
   DEFAULT_TEMP_MAX_POINTS,
   DEFAULT_VIEWER_RECIPIENTS,
   defaultMerger,
@@ -425,6 +426,13 @@ function addTempMaxPoints(raw: unknown): unknown {
   return raw;
 }
 
+/** Existing projects keep today's rule: a developer or above opens new cards (PM-1100). */
+function addTaskCreateAccess(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.taskCreateAccess === undefined) team.taskCreateAccess = DEFAULT_TASK_CREATE_ACCESS;
+  return raw;
+}
+
 /**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
@@ -445,6 +453,7 @@ function addTempMaxPoints(raw: unknown): unknown {
  *   - a missing priority setting becomes the project managers (above);
  *   - missing complexity setters become requirements analysis and task breakdown (above);
  *   - a missing viewer recipients setting becomes the project manager only (above);
+ *   - a missing task create access becomes developer (above);
  *   - the retired Operator member (`ai_operator`) leaves the team, with its role override and its
  *     references (above), and is never put back;
  *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
@@ -461,32 +470,34 @@ export function migrateProjectConfig(raw: unknown, context: MigrationContext): u
       addFeedbackProcessing(
         addMerger(
           removeOperator(
-            addViewerRecipients(
-              addComplexitySetters(
-                addPrioritySetters(
-                  addPrerequisiteOverride(
-                    addProjectManagerMoves(
-                      addCardMover(
-                        addProjectManager(
-                          migrateReleaseApproval(
-                            migrateLegacyConfig(
-                              migrateCodexBypass(
-                                migrateScheduledRole(
-                                  dropMessageBurst(
-                                    migrateSeniorLimit(
-                                      dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+            addTaskCreateAccess(
+              addViewerRecipients(
+                addComplexitySetters(
+                  addPrioritySetters(
+                    addPrerequisiteOverride(
+                      addProjectManagerMoves(
+                        addCardMover(
+                          addProjectManager(
+                            migrateReleaseApproval(
+                              migrateLegacyConfig(
+                                migrateCodexBypass(
+                                  migrateScheduledRole(
+                                    dropMessageBurst(
+                                      migrateSeniorLimit(
+                                        dropEmailMailbox(migrateShadowingRoles(raw, context), context),
+                                        context,
+                                      ),
                                       context,
                                     ),
                                     context,
                                   ),
                                   context,
                                 ),
-                                context,
                               ),
+                              context,
                             ),
                             context,
                           ),
-                          context,
                         ),
                       ),
                     ),

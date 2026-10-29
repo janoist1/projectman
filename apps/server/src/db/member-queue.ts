@@ -164,6 +164,31 @@ export function createMemberQueueRepository(db: Db) {
          session_id = NULL, started_at = NULL
        WHERE id = @id AND state = 'processing'`,
     ),
+    // A message item closed as delivered whose receipt says it was not: the victims of PM-1108.
+    untypedMessages: db.prepare(
+      `SELECT id FROM member_queue_items
+       WHERE source_type = 'message' AND state = 'done' AND close_reason = 'delivered'
+         AND EXISTS (
+           SELECT 1 FROM team_messages AS m,
+             json_each(CASE WHEN json_valid(m.receipts) THEN m.receipts ELSE '[]' END) AS r
+           WHERE m.id = member_queue_items.source_id
+             AND json_extract(r.value, '$.handle') = member_queue_items.member
+             AND json_extract(r.value, '$.kind') = 'ai'
+             AND json_extract(r.value, '$.deliveredAt') IS NULL)`,
+    ),
+    untypedRepairMark: db.prepare("SELECT 1 FROM instance_meta WHERE key = 'untyped_message_repair'"),
+    untypedRepairSet: db.prepare(
+      "INSERT OR REPLACE INTO instance_meta (key, value) VALUES ('untyped_message_repair', @at)",
+    ),
+    reopen: db.prepare(
+      `UPDATE member_queue_items SET state = 'queued', close_reason = NULL, closed_at = NULL,
+         session_id = NULL, started_at = NULL
+       WHERE id = @id AND state = 'done' AND close_reason = 'delivered'`,
+    ),
+    release: db.prepare(
+      `UPDATE member_queue_items SET state = 'queued', session_id = NULL, started_at = NULL
+       WHERE id = @id AND state = 'processing'`,
+    ),
     setWait: db.prepare(
       `UPDATE member_queue_items SET wait_code = @code, wait_at = @at, wait_details = @details
        WHERE id = @id AND state = 'queued'`,
@@ -188,11 +213,7 @@ export function createMemberQueueRepository(db: Db) {
       `SELECT * FROM member_queue_items
        WHERE source_type = 'message' AND state IN ('queued','processing') ORDER BY queued_at, rowid`,
     ),
-    waitingOfTask: db.prepare(
-      `SELECT * FROM member_queue_items
-       WHERE project_key = ? AND state = 'queued' AND wake = 1 AND wait_code IS NOT NULL
-         AND (place_task_key = ? OR task_key = ?) ORDER BY wait_at, rowid`,
-    ),
+    // Served by the partial index `member_queue_items_waiting`: its terms are these ones.
     waiting: db.prepare(
       `SELECT * FROM member_queue_items
        WHERE state = 'queued' AND wake = 1 AND wait_code IS NOT NULL ORDER BY wait_at, rowid`,
@@ -306,10 +327,6 @@ export function createMemberQueueRepository(db: Db) {
     listOpenMessages(): StoredMemberQueueItem[] {
       return all(statements.openMessages.all());
     },
-    /** The queued items of a card (its place, or the card they are about) that wake a session and wait for a code. */
-    listWaitingOfTask(projectKey: string, taskKey: string): StoredMemberQueueItem[] {
-      return all(statements.waitingOfTask.all(projectKey, taskKey, taskKey));
-    },
     /** Every queued item that wakes a session and waits for a code, for every project and member. */
     listWaiting(): StoredMemberQueueItem[] {
       return all(statements.waiting.all());
@@ -324,6 +341,25 @@ export function createMemberQueueRepository(db: Db) {
     /** A processing item goes back to the queue, one attempt more (its session ended or got stuck). */
     requeue(id: string, at: string): boolean {
       return statements.requeue.run({ id, at }).changes > 0;
+    },
+    /** The ids of the message items that were closed as delivered while the receipt is still pending (read-only). */
+    listUntypedMessages(): string[] {
+      return (statements.untypedMessages.all() as Array<{ id: string }>).map((row) => row.id);
+    },
+    /** True once the one-time repair of the untyped messages (PM-1108) has run on this database. */
+    untypedRepairDone(): boolean {
+      return statements.untypedRepairMark.get() !== undefined;
+    },
+    markUntypedRepairDone(at: string): void {
+      statements.untypedRepairSet.run({ at });
+    },
+    /** Opens a closed item again (a message item that was closed as delivered without being typed). */
+    reopen(id: string): boolean {
+      return statements.reopen.run({ id }).changes > 0;
+    },
+    /** A processing item goes back to the queue without a try counted (it was claimed but never reached the session). */
+    release(id: string): boolean {
+      return statements.release.run({ id }).changes > 0;
     },
     /** Notes why the queued item has not been started, and since when it was last seen so. */
     setWait(id: string, code: string, at: string, details?: MemberQueueWaitDetails): boolean {

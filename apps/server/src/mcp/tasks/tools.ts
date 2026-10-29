@@ -249,8 +249,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       description:
         'Read the project board as a compact list, newest update first. Defaults to open tasks ' +
         '(active, waiting or blocked). Filter by status, stage or assignee; use get_task for details. A ' +
-        'theme is marked kind "theme"; it is in no stage, so a stage filter leaves themes out. A card in ' +
-        'the project focus carries its place as "focus" (position, and via: the theme or card that covers it).',
+        'theme is marked kind "theme"; it is in no stage, so a stage filter leaves themes out.',
       input: {
         status: z.union([z.literal('open'), TaskStatus]).default('open'),
         stage: StageId.optional(),
@@ -266,7 +265,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       readOnly: true,
       description:
         'Get a task: title, description, stage, status, assignee, labels, links (pull requests, branches), ' +
-        'its relations to other cards, its place in the project focus, its theme (a theme shows its cards ' +
+        'its relations to other cards, its theme (a theme shows its cards ' +
         'and progress), its parent, subtasks, attachments (open one with read_attachment) and recent ' +
         'timeline. The description is shown whole up to ' +
         `${MAX_DESCRIPTION_CHARS} characters; a longer one is shown in parts, and the result says how to ` +

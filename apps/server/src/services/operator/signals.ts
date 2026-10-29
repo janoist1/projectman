@@ -64,7 +64,7 @@ import type {
   TimelineEvent,
   WorkStalledAlert,
 } from '@projectman/shared';
-import type { OperatorSignalRecord } from '../../db';
+import type { OperatorSignalRecord, TaskSessionActivity } from '../../db';
 import {
   StructuralPatterns,
   STRUCTURAL_KINDS,
@@ -82,7 +82,7 @@ import type { ProjectService } from '../../core/projects';
 import { prerequisiteCards } from '../../core/tasks';
 import type { TaskWaits } from '../../core/tasks';
 import type { TaskSchedulingReader } from '../../contracts';
-import { conflict, invalid } from '../../kernel';
+import { KeyedMutex, conflict, invalid } from '../../kernel';
 import { newId } from '../../kernel';
 
 /** Why a queued signal is held back: its own wake line is not due, or it is not owed now (`heldBack`). */
@@ -197,8 +197,30 @@ const ENGAGED_STATES: ReadonlySet<string> = new Set([
   'waiting_input',
 ]);
 
+type OpenMerge = ReturnType<DomainContext['repos']['taskMerges']['openOfProject']>[number];
+
+/** What one pass over a project reads once and every check of that pass shares (PM-1120). */
+interface BoardReads {
+  waits: ReturnType<TaskWaits['of']>;
+  /** The project's open merges by card. */
+  merges: ReadonlyMap<string, OpenMerge>;
+  /** Per card and member: the latest session start, activity and end. */
+  activity: readonly TaskSessionActivity[];
+}
+
+/** The board cases of a pass, the ready stall they carry and whether a transient limit hides it. */
+interface BoardRead {
+  cases: Map<string, SignalInput>;
+  stall: ReadyStall | null;
+  /** The stall cannot be judged now (the AI limit is reached, or work is paused): its clock and alert stay as they are. */
+  held: boolean;
+}
+
 /** One notice per system problem episode; notices never authorize a write. */
 export class OperatorSignals {
+  /** One sweep body per project at a time; a call that arrives while another run still waits for its turn joins that run. */
+  private readonly sweepLocks = new KeyedMutex();
+  private readonly queuedSweeps = new Map<string, { started: boolean; promise: Promise<void> }>();
   constructor(privateDeps: {
     ctx: DomainContext;
     projects: ProjectService;
@@ -626,15 +648,17 @@ export class OperatorSignals {
   }
 
   channel(projectKey: string): { signals: OperatorSignal[]; openSignals: number } {
-    const all = this.deps.ctx.repos.operatorSignals
-      .list(projectKey)
-      .filter((signal) => !isCoordinatorOnlySignal(signal.kind));
-    const since = this.deps.ctx.now().getTime() - 7 * 24 * 60 * 60_000;
+    const { operatorSignals } = this.deps.ctx.repos;
+    const since = new Date(this.deps.ctx.now().getTime() - 7 * 24 * 60 * 60_000).toISOString();
+    // Only the last week is read; the open count comes from the open signals, however old.
     return {
-      signals: all
-        .filter((s) => s.deliveredAt && s.state !== 'pending' && Date.parse(s.raisedAt) >= since)
+      signals: operatorSignals
+        .listSince(projectKey, since)
+        .filter((s) => !isCoordinatorOnlySignal(s.kind) && s.deliveredAt && s.state !== 'pending')
         .map((s) => OperatorSignal.parse(s)),
-      openSignals: all.filter((s) => s.deliveredAt && s.state === 'open' && !s.resolvedAt).length,
+      openSignals: operatorSignals
+        .listOpen(projectKey)
+        .filter((s) => !isCoordinatorOnlySignal(s.kind) && s.deliveredAt && s.state === 'open').length,
     };
   }
 
@@ -655,132 +679,153 @@ export class OperatorSignals {
 
   /** Reconcile current card and session facts before attempting any queued wake-up. */
   async sweep(projectKey?: string): Promise<void> {
-    for (const key of projectKey ? [projectKey] : this.deps.projects.summaries().map((p) => p.key)) {
-      const config = await this.deps.projects.config(key);
-      const cards = this.openCards(key);
-      const active = new Set<string>();
-      for (const kind of STRUCTURAL_KINDS)
-        this.deps.ctx.repos.operatorSignals.arm(key, kind, isoNow(this.deps.ctx));
-      const structural = this.lazyStructuralEvaluation(config);
-      const report = structural()!.report();
-      const previous = this.deps.ctx.repos.operatorSignals.list(key);
-      for (const facts of report.patterns) {
-        const subject = patternSubject(facts.fingerprint);
-        if (
-          previous.some(
-            (s) =>
-              s.kind === 'structural_pattern' &&
-              s.subject === subject &&
-              this.deps.ctx.now().getTime() - Date.parse(s.raisedAt) < STRUCTURAL_WINDOW_MS,
-          )
+    for (const key of projectKey ? [projectKey] : this.deps.projects.summaries().map((p) => p.key))
+      await this.sweepProject(key);
+  }
+
+  /**
+   * One body at a time per project (PM-1120). A call that arrives while another run still waits for its turn
+   * joins that run: the body reads the state when it starts, so it covers every event that came before it.
+   */
+  private sweepProject(key: string): Promise<void> {
+    const queued = this.queuedSweeps.get(key);
+    if (queued && !queued.started) return queued.promise;
+    const run = { started: false, promise: Promise.resolve() };
+    run.promise = this.sweepLocks.run(key, async () => {
+      run.started = true;
+      await this.sweepBody(key);
+    });
+    this.queuedSweeps.set(key, run);
+    const forget = () => {
+      if (this.queuedSweeps.get(key) === run) this.queuedSweeps.delete(key);
+    };
+    run.promise.then(forget, forget);
+    return run.promise;
+  }
+
+  private async sweepBody(key: string): Promise<void> {
+    const config = await this.deps.projects.config(key);
+    const cards = this.openCards(key);
+    const reads = this.readBoard(config, cards);
+    const live = this.deps.ctx.repos.sessions.listLive(key);
+    const active = new Set<string>();
+    for (const kind of STRUCTURAL_KINDS)
+      this.deps.ctx.repos.operatorSignals.arm(key, kind, isoNow(this.deps.ctx));
+    const structural = this.lazyStructuralEvaluation(config);
+    const report = structural()!.report();
+    const previous = this.deps.ctx.repos.operatorSignals.list(key);
+    for (const facts of report.patterns) {
+      const subject = patternSubject(facts.fingerprint);
+      if (
+        previous.some(
+          (s) =>
+            s.kind === 'structural_pattern' &&
+            s.subject === subject &&
+            this.deps.ctx.now().getTime() - Date.parse(s.raisedAt) < STRUCTURAL_WINDOW_MS,
         )
-          continue;
-        this.raise({
-          projectKey: key,
-          kind: 'structural_pattern',
-          subject,
-          caseKey: `structural_pattern:${subject}:${facts.eventIds.at(-1)}`,
-        });
-      }
-      for (const milestone of report.milestones) {
-        const caseKey = `milestone_closed:${milestone.taskKey}:${milestone.eventId}`;
-        if (!previous.some((s) => s.caseKey === caseKey))
-          this.raise({
-            projectKey: key,
-            kind: 'milestone_closed',
-            caseKey,
-            taskKey: milestone.taskKey,
-            subject: milestone.eventId,
-          });
-      }
-      for (const [taskKey, wait] of this.deps.taskWaits.of(config, cards)) {
-        if (wait?.reason !== 'nobody') continue;
-        const task = cards.find((t) => t.key === taskKey)!;
-        const caseKey = `nobody:${task.key}:${task.stageId}`;
-        active.add(caseKey);
-        this.raise({ projectKey: key, kind: 'nobody', caseKey, taskKey, subject: task.stageId });
-      }
-      for (const task of cards) {
-        const reason = this.startBlockedReason(task);
-        if (!reason) {
-          if (this.startAttemptRunning(task))
-            for (const signal of this.deps.ctx.repos.operatorSignals.list(key))
-              if (signal.kind === 'start_blocked' && signal.taskKey === task.key && !signal.resolvedAt)
-                active.add(signal.caseKey);
-          continue;
-        }
-        const caseKey = startBlockedCaseKey(task.key, reason);
-        active.add(caseKey);
-        this.raise({ projectKey: key, kind: 'start_blocked', caseKey, taskKey: task.key, subject: reason });
-      }
-      for (const session of this.deps.ctx.repos.sessions.list(key)) {
-        if (
-          session.state !== 'working' ||
-          this.deps.ctx.now().getTime() - Date.parse(session.lastActivityAt) <
-            OPERATOR_SILENT_WORK_MINUTES * 60_000
-        )
-          continue;
-        const caseKey = `silent:${session.id}`;
-        active.add(caseKey);
-        this.raise({
-          projectKey: key,
-          kind: 'silent',
-          caseKey,
-          subject: session.id,
-          taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-        });
-      }
-      // Built once and reused within this sweep (the stalled-refinement check reads it); never kept between sweeps.
-      const board = this.boardCases(config, cards);
-      for (const input of board.values()) {
-        active.add(input.caseKey);
-        // A card may re-enter between sweeps with the same set key after dismissal.
-        if (
-          input.kind === 'ready_waiting' &&
-          this.deps.ctx.repos.operatorSignals.openByCase(key, input.caseKey)?.state === 'dismissed'
-        )
-          this.resolve(key, input.caseKey);
-        this.raise(input);
-      }
-      this.trackStall(
-        config,
-        [...board.values()].some((input) => input.kind === 'ready_waiting')
-          ? this.readyStall(config, cards, this.deps.taskWaits.of(config, cards))
-          : null,
-      );
-      const outages = this.deps.activeOutageIds(key);
-      for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(key)) {
-        if (
-          structuralKind(signal.kind) &&
-          !signal.resolvedAt &&
-          (signal.state === 'pending' || signal.state === 'open') &&
-          this.deps.ctx.now().getTime() - Date.parse(signal.raisedAt) >= STRUCTURAL_WINDOW_MS
-        )
-          this.resolve(key, signal.caseKey);
-        if (signal.kind === 'outage' && outages !== null && !outages.has(signal.subject ?? ''))
-          this.resolve(key, signal.caseKey);
-        if (
-          (signal.kind === 'nobody' ||
-            signal.kind === 'silent' ||
-            signal.kind === 'start_blocked' ||
-            BOARD_KINDS.has(signal.kind)) &&
-          !active.has(signal.caseKey)
-        )
-          this.resolve(key, signal.caseKey);
-        if (
-          signal.kind === 'refinement_stalled' &&
-          !signal.resolvedAt &&
-          !this.caseHolds(config, signal, () => board)
-        )
-          this.resolve(key, signal.caseKey);
-        if (
-          signal.kind === 'stalled' &&
-          this.deps.ctx.repos.sessions.get(signal.subject ?? '')?.state !== 'waiting_input'
-        )
-          this.resolve(key, signal.caseKey);
-      }
-      await this.deliver(key, structural);
+      )
+        continue;
+      this.raise({
+        projectKey: key,
+        kind: 'structural_pattern',
+        subject,
+        caseKey: `structural_pattern:${subject}:${facts.eventIds.at(-1)}`,
+      });
     }
+    for (const milestone of report.milestones) {
+      const caseKey = `milestone_closed:${milestone.taskKey}:${milestone.eventId}`;
+      if (!previous.some((s) => s.caseKey === caseKey))
+        this.raise({
+          projectKey: key,
+          kind: 'milestone_closed',
+          caseKey,
+          taskKey: milestone.taskKey,
+          subject: milestone.eventId,
+        });
+    }
+    for (const [taskKey, wait] of reads.waits) {
+      if (wait?.reason !== 'nobody') continue;
+      const task = cards.find((t) => t.key === taskKey)!;
+      const caseKey = `nobody:${task.key}:${task.stageId}`;
+      active.add(caseKey);
+      this.raise({ projectKey: key, kind: 'nobody', caseKey, taskKey, subject: task.stageId });
+    }
+    for (const task of cards) {
+      const reason = this.startBlockedReason(task);
+      if (!reason) {
+        if (this.startAttemptRunning(task))
+          for (const signal of previous)
+            if (signal.kind === 'start_blocked' && signal.taskKey === task.key && !signal.resolvedAt)
+              active.add(signal.caseKey);
+        continue;
+      }
+      const caseKey = startBlockedCaseKey(task.key, reason);
+      active.add(caseKey);
+      this.raise({ projectKey: key, kind: 'start_blocked', caseKey, taskKey: task.key, subject: reason });
+    }
+    for (const session of live) {
+      if (
+        session.state !== 'working' ||
+        this.deps.ctx.now().getTime() - Date.parse(session.lastActivityAt) <
+          OPERATOR_SILENT_WORK_MINUTES * 60_000
+      )
+        continue;
+      const caseKey = `silent:${session.id}`;
+      active.add(caseKey);
+      this.raise({
+        projectKey: key,
+        kind: 'silent',
+        caseKey,
+        subject: session.id,
+        taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+      });
+    }
+    // Built once and reused within this sweep (the stalled-refinement check reads it); never kept between sweeps.
+    const board = this.boardRead(config, cards, reads);
+    for (const input of board.cases.values()) {
+      active.add(input.caseKey);
+      // A card may re-enter between sweeps with the same set key after dismissal.
+      if (
+        input.kind === 'ready_waiting' &&
+        this.deps.ctx.repos.operatorSignals.openByCase(key, input.caseKey)?.state === 'dismissed'
+      )
+        this.resolve(key, input.caseKey);
+      this.raise(input);
+    }
+    // A transient limit hides the stall without ending it: its clock and its alert stay as they are.
+    if (!board.held) this.trackStall(config, board.stall, reads.activity);
+    const outages = this.deps.activeOutageIds(key);
+    for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(key)) {
+      if (
+        structuralKind(signal.kind) &&
+        !signal.resolvedAt &&
+        (signal.state === 'pending' || signal.state === 'open') &&
+        this.deps.ctx.now().getTime() - Date.parse(signal.raisedAt) >= STRUCTURAL_WINDOW_MS
+      )
+        this.resolve(key, signal.caseKey);
+      if (signal.kind === 'outage' && outages !== null && !outages.has(signal.subject ?? ''))
+        this.resolve(key, signal.caseKey);
+      if (
+        (signal.kind === 'nobody' ||
+          signal.kind === 'silent' ||
+          signal.kind === 'start_blocked' ||
+          BOARD_KINDS.has(signal.kind)) &&
+        !active.has(signal.caseKey)
+      )
+        this.resolve(key, signal.caseKey);
+      if (
+        signal.kind === 'refinement_stalled' &&
+        !signal.resolvedAt &&
+        !this.caseHolds(config, signal, () => board.cases)
+      )
+        this.resolve(key, signal.caseKey);
+      if (
+        signal.kind === 'stalled' &&
+        this.deps.ctx.repos.sessions.get(signal.subject ?? '')?.state !== 'waiting_input'
+      )
+        this.resolve(key, signal.caseKey);
+    }
+    await this.deliver(key, structural, board);
   }
 
   /** A recipient change or leave invalidates unpresented delivery, without touching earlier human decisions. */
@@ -811,12 +856,13 @@ export class OperatorSignals {
   async deliver(
     projectKey: string,
     structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
+    board?: BoardRead,
   ): Promise<void> {
     const config = this.deps.projects.cachedConfig(projectKey);
     const member = config && coordinationMemberOf(config);
     if (!member || member.kind !== 'ai') return;
     const now = this.deps.ctx.now().getTime();
-    for (const signal of this.pending(projectKey, structural)) {
+    for (const signal of this.pending(projectKey, structural, { board })) {
       // A new item for a signal shown before: its follow-up time came, or it was shown to another binding.
       const due = signal.followUpAt !== null && Date.parse(signal.followUpAt) <= now;
       const followUpAt = due
@@ -981,12 +1027,17 @@ export class OperatorSignals {
   private pending(
     projectKey: string,
     structural = this.lazyStructuralEvaluation(this.deps.projects.cachedConfig(projectKey)),
-    { open = this.deps.ctx.repos.operatorSignals.listOpen(projectKey), resolve = true } = {},
+    {
+      open = this.deps.ctx.repos.operatorSignals.listOpen(projectKey),
+      resolve = true,
+      board: known,
+    }: { open?: OperatorSignalRecord[]; resolve?: boolean; board?: BoardRead } = {},
   ): OperatorSignalRecord[] {
     const { ctx, projects } = this.deps;
     const now = ctx.now().getTime();
-    let board: Map<string, SignalInput> | undefined;
-    let stalledSince: number | null | undefined;
+    let board: Map<string, SignalInput> | undefined = known?.cases;
+    // Read at most once per call, however many ready_waiting signals are asked about.
+    let started: number | null | undefined;
     return open.filter((s) => {
       if (s.resolvedAt) return false;
       // A signal the coordinator took a step on is shown again once its follow-up time has come (PM-545).
@@ -1005,7 +1056,7 @@ export class OperatorSignals {
         config,
         s,
         () => {
-          board ??= config ? this.boardCases(config, this.openCards(projectKey)) : new Map();
+          board ??= config ? this.boardRead(config, this.openCards(projectKey)).cases : new Map();
           return board;
         },
         structural,
@@ -1029,7 +1080,8 @@ export class OperatorSignals {
       )
         return false;
       if (s.kind !== 'ready_waiting' || again) return true;
-      if (stalledSince === undefined) stalledSince = this.stallStart(projectKey);
+      if (started === undefined) started = this.stallStart(projectKey);
+      const stalledSince = started;
       return stalledSince !== null && now - stalledSince >= OPERATOR_READY_WAITING_MINUTES * 60_000;
     });
   }
@@ -1039,7 +1091,7 @@ export class OperatorSignals {
     config: ProjectConfig | undefined,
     s: OperatorSignalRecord,
     board: () => Map<string, SignalInput> = () =>
-      config ? this.boardCases(config, this.openCards(s.projectKey)) : new Map(),
+      config ? this.boardRead(config, this.openCards(s.projectKey)).cases : new Map(),
     structural = this.lazyStructuralEvaluation(config),
   ): boolean {
     if (structuralKind(s.kind)) return (structural()?.facts(s) ?? null) !== null;
@@ -1085,12 +1137,29 @@ export class OperatorSignals {
     }
     return true;
   }
+
+  /** The reads one pass shares: the waits, the open merges and the sessions' activity per card, each read once. */
+  private readBoard(config: ProjectConfig, cards: readonly Task[]): BoardReads {
+    const { ctx, taskWaits } = this.deps;
+    const projectKey = config.project.key;
+    return {
+      waits: taskWaits.of(config, cards),
+      merges: new Map(ctx.repos.taskMerges.openOfProject(projectKey).map((row) => [row.taskKey, row])),
+      activity: ctx.repos.sessions.taskActivity(projectKey),
+    };
+  }
+
   /**
    * The cases of the board kinds that hold now (PM-547), read from the cards, merges, sessions and releases
    * only; the sweep raises and closes by it and `pending` checks a signal against it before waking anyone.
+   * The ready stall they carry is the one read of it: `trackStall` uses it as it is.
    */
-  private boardCases(config: ProjectConfig, cards: readonly Task[]): Map<string, SignalInput> {
-    const { ctx, taskWaits, sessions, releases } = this.deps;
+  private boardRead(
+    config: ProjectConfig,
+    cards: readonly Task[],
+    reads: BoardReads = this.readBoard(config, cards),
+  ): BoardRead {
+    const { ctx, sessions, releases } = this.deps;
     const projectKey = config.project.key;
     const now = ctx.now().getTime();
     const found = new Map<string, SignalInput>();
@@ -1101,17 +1170,14 @@ export class OperatorSignals {
       const member = memberOf(config, handle);
       return member?.kind === 'ai' ? member : null;
     };
-    const waits = taskWaits.of(config, cards);
+    const { waits, merges } = reads;
+    const openMerges = [...merges.values()];
 
     if (works) {
       const activeAt = new Map<string, number>();
-      for (const session of ctx.repos.sessions.list(projectKey)) {
-        if (session.workItem.type !== 'task') continue;
-        const at = Math.max(
-          Date.parse(session.lastActivityAt),
-          session.endedAt ? Date.parse(session.endedAt) : 0,
-        );
-        activeAt.set(session.workItem.taskKey, Math.max(activeAt.get(session.workItem.taskKey) ?? 0, at));
+      for (const row of reads.activity) {
+        const at = Math.max(Date.parse(row.lastActivityAt), row.endedAt ? Date.parse(row.endedAt) : 0);
+        activeAt.set(row.taskKey, Math.max(activeAt.get(row.taskKey) ?? 0, at));
       }
       for (const task of cards) {
         const wait = waits.get(task.key);
@@ -1119,7 +1185,7 @@ export class OperatorSignals {
         if (!wait || !stage || (stage.kind !== 'work' && stage.kind !== 'step')) continue;
         // The scheduling read leaves out the derived `merge`, so the wait cannot say `merge` here: a card
         // with an open merge request waits for the merge, and `merge_waiting` / `merge_blocked` speak for it (PM-578).
-        if (ctx.repos.taskMerges.open(projectKey, task.key)) continue;
+        if (merges.has(task.key)) continue;
         const holders = this.idleHolders(config, stage, wait);
         const idleSince = Math.max(Date.parse(wait.since), activeAt.get(task.key) ?? 0);
         if (holders.length === 0 || now - idleSince < OPERATOR_IDLE_MINUTES * 60_000) continue;
@@ -1130,9 +1196,9 @@ export class OperatorSignals {
           subject: holders.join(','),
         });
       }
-      for (const row of ctx.repos.taskMerges.list('requested')) {
+      for (const row of openMerges) {
         if (
-          row.projectKey !== projectKey ||
+          row.state !== 'requested' ||
           row.startedAt ||
           !aiMember(row.merger) ||
           now - Date.parse(row.requestedAt) < OPERATOR_MERGE_WAIT_MINUTES * 60_000
@@ -1164,9 +1230,10 @@ export class OperatorSignals {
       }
     }
 
+    // Failed merges first, then blocked ones, each in queue order (the order the per-state lists had).
     for (const state of ['failed', 'blocked'] as const)
-      for (const row of ctx.repos.taskMerges.list(state)) {
-        if (row.projectKey !== projectKey || !aiMember(row.merger)) continue;
+      for (const row of openMerges) {
+        if (row.state !== state || !aiMember(row.merger)) continue;
         add({
           kind: 'merge_blocked',
           caseKey: `merge_blocked:${row.taskKey}`,
@@ -1184,17 +1251,16 @@ export class OperatorSignals {
         subject: String(unreleased.taskKeys.length),
       });
 
-    if (works && !aiLimitReached(config, sessions.busyCount())) {
-      const stall = this.readyStall(config, cards, waits);
-      if (stall)
-        add({
-          kind: 'ready_waiting',
-          caseKey: 'ready_waiting:' + stall.cards.join(','),
-          taskKey: null,
-          subject: stall.cards.join(','),
-        });
-    }
-    return found;
+    const held = works && aiLimitReached(config, sessions.busyCount());
+    const stall = works && !held ? this.readyStall(config, cards, waits) : null;
+    if (stall)
+      add({
+        kind: 'ready_waiting',
+        caseKey: 'ready_waiting:' + stall.cards.join(','),
+        taskKey: null,
+        subject: stall.cards.join(','),
+      });
+    return { cases: found, stall, held };
   }
 
   /**
@@ -1266,13 +1332,15 @@ export class OperatorSignals {
    * When the stall of the project last began without a break (PM-1082): the first sweep that found it, or the
    * latest start of a developer's session on a card since, whichever is later; null when none lasts.
    */
-  private stallStart(projectKey: string): number | null {
+  private stallStart(
+    projectKey: string,
+    activity: readonly TaskSessionActivity[] = this.deps.ctx.repos.sessions.taskActivity(projectKey),
+  ): number | null {
     const stall = this.stalls.get(projectKey);
     if (!stall) return null;
     let from = stall.since;
-    for (const session of this.deps.ctx.repos.sessions.list(projectKey))
-      if (session.workItem.type === 'task' && stall.developers.includes(session.member))
-        from = Math.max(from, Date.parse(session.startedAt));
+    for (const row of activity)
+      if (stall.developers.includes(row.member)) from = Math.max(from, Date.parse(row.startedAt));
     return from;
   }
 
@@ -1280,7 +1348,11 @@ export class OperatorSignals {
    * Keeps the clock of the stall and tells the owners once, `OPERATOR_READY_STALL_OWNER_MINUTES` after the
    * coordinator was due to wake (PM-1082). The alert closes when the stall ends; a new stall may tell again.
    */
-  private trackStall(config: ProjectConfig, ready: ReadyStall | null): void {
+  private trackStall(
+    config: ProjectConfig,
+    ready: ReadyStall | null,
+    activity?: readonly TaskSessionActivity[],
+  ): void {
     const { ctx, inbox } = this.deps;
     const projectKey = config.project.key;
     const open = inbox
@@ -1297,7 +1369,7 @@ export class OperatorSignals {
       since: this.stalls.get(projectKey)?.since ?? now,
       developers: ready.developers,
     });
-    const from = this.stallStart(projectKey)!;
+    const from = this.stallStart(projectKey, activity)!;
     const owners = ownerHandles(config);
     if (
       now - from < (OPERATOR_READY_WAITING_MINUTES + OPERATOR_READY_STALL_OWNER_MINUTES) * 60_000 ||

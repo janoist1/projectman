@@ -255,7 +255,7 @@ export class MemberService {
     for (const e of this.ctx.repos.timeline.ofProjectType(projectKey, 'member_renamed', 1000))
       taken.add((e.data as { from: string }).from);
     for (const s of this.ctx.repos.memberState.list(projectKey)) taken.add(s.handle);
-    for (const s of this.ctx.repos.sessions.list(projectKey)) taken.add(s.member);
+    for (const member of this.ctx.repos.sessions.members(projectKey)) taken.add(member);
     return taken;
   }
 
@@ -928,10 +928,9 @@ export class MemberProfiles {
       member,
       duties: memberDuties(config, original),
       tasks: this.tasks
-        .list(projectKey)
+        .listQuery(projectKey, { kind: 'open' })
         .filter(
           (t) =>
-            isOpenTask(t) &&
             !isTheme(t) &&
             (t.assignee === handle ||
               member.currentTaskKeys.includes(t.key) ||

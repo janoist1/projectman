@@ -36,7 +36,7 @@ import type { MessageAttachmentOperations } from '../../contracts';
 import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
-import { DomainError } from '../../kernel';
+import { DomainError, invalid } from '../../kernel';
 import type { EmailChannelEnv } from './config';
 import { projectConfigs } from './mailboxes';
 import { renderEmail } from './render';
@@ -464,7 +464,13 @@ export function createEmailChannelService(deps: {
     },
 
     log(projectKey, before) {
-      return repo.log(projectKey, before);
+      try {
+        return repo.log(projectKey, before);
+      } catch (err) {
+        // A cursor the repository cannot read (a `RangeError`) is the caller's mistake; any other failure stays one.
+        if (!(err instanceof RangeError)) throw err;
+        throw invalid('invalid_request', 'the log cursor is not valid', { cause: String(err) });
+      }
     },
 
     async send(projectKey, caller, input) {

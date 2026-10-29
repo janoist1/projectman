@@ -7,14 +7,13 @@ import { defaultConfigPath, expandHome, loadConfig } from './config';
 import type { CloudContext } from './context';
 import type { CloudDeps } from './deps';
 import { badUsage, CloudError } from './errors';
-import { runDnsPlan, runDnsStatus, runDnsSwitch, runDnsVerify } from './dns';
+import { runDnsStatus } from './dns';
 import {
   runDeploy,
   runLogs,
   runPullData,
   runRehearse,
   runRollback,
-  runSeed,
   runSsh,
   runStart,
   runStatus,
@@ -22,15 +21,15 @@ import {
 } from './machine';
 import { Report } from './report';
 import { runReleaseControl } from './release-control';
-import { platformSchema, runImageBuild, selectedImage, sourceShaSchema, targetPlatform } from './images';
+import { runImageBuild, selectedImage } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
 import { runSesReceiveCheck, runSesReceiveConfigure, runSesReceivePlan } from './ses-receive';
 
 const USAGE = `usage: npm run cloud -- <command> [options]
 commands:
-  image-build --ref <SHA40> --out <new directory> [--all-platforms] [--dry-run]
-                                     build and verify the target machine's image archive (--all-platforms: amd64 and arm64) on the admin builder
+  image-build --ref <SHA40> --out <new directory> [--dry-run]
+                                     build and verify the arm64 image archive on the admin builder
   preflight                          check the aws CLI, the login, the region, the machine type and the secrets store
   aws [--dry-run] [--rotate-keys]    create the EC2 machine, the S3 buckets, the IAM users and their keys
   deploy [--ref <tag|sha>] [--dry-run]
@@ -42,8 +41,6 @@ commands:
   stop [--dry-run]                   stop the board (the data stays)
   start [--dry-run]                  start the board again
   rehearse                           restore the replica and the snapshot in a scratch container on the machine
-  seed --from <dir> [--ref <tag|sha>] [--dry-run]
-                                     fill an empty machine with the package of \`npm run migrate -- hybrid package\`, then deploy
   pull-data --to <new dir> [--dry-run]
                                      copy the stopped board's data to a new directory on this computer
   edge [--dry-run] [--rotate-engine-token] [--rotate-integrator-token] [--rotate-owner-token <id>]
@@ -53,8 +50,7 @@ commands:
   publish [--feedback] [--dry-run]   point the hostname at the tunnel (after the checks); --feedback: the feedback hostname too
                                      (a public board is published only when the running board and the tunnel agree)
   check --login-json <file>          verify the public board: Access (or the public matrix), edge, origin rules, the engine's doors
-  dns plan|import|verify|status       migrate and verify Route 53 DNS; import accepts --update and --dry-run
-  dns switch [--back] [--dry-run]     change registrar name servers after verification; --back: restore Route 53
+  dns status                         the public delegation, DNSSEC, the registrar and the Cloudflare zone
   ses plan                           read the SES identity/account/DNS and preview sender provisioning
   ses configure [--dry-run]          configure SES DKIM, sending-only IAM and protected cloud.env
   ses request-production [--dry-run] request production access separately after owner approval
@@ -75,16 +71,8 @@ options:
 exit status: 0 done, 1 failed, 2 refused (a precondition is missing or the state is dangerous), 64 bad usage
 `;
 
-type Flag =
-  | 'dry-run'
-  | 'rotate-keys'
-  | 'rotate-engine-token'
-  | 'rotate-integrator-token'
-  | 'feedback'
-  | 'update'
-  | 'back'
-  | 'all-platforms';
-type ValueOption = 'ref' | 'lines' | 'from' | 'to' | 'login-json' | 'out' | 'rotate-owner-token';
+type Flag = 'dry-run' | 'rotate-keys' | 'rotate-engine-token' | 'rotate-integrator-token' | 'feedback';
+type ValueOption = 'ref' | 'lines' | 'to' | 'login-json' | 'out' | 'rotate-owner-token';
 
 interface Invocation {
   dryRun: boolean;
@@ -148,17 +136,11 @@ export const COMMANDS: Record<string, CommandSpec> = {
   },
   'image-build': {
     summary: 'build the image bundle',
-    flags: ['dry-run', 'all-platforms'],
+    flags: ['dry-run'],
     values: ['ref', 'out'],
     required: ['ref', 'out'],
     run: (context, invocation) =>
-      runImageBuild(
-        context,
-        invocation.values.ref!,
-        invocation.values.out!,
-        invocation.dryRun,
-        invocation.flags.has('all-platforms') ? platformSchema.options : [targetPlatform(context.config)],
-      ),
+      runImageBuild(context, invocation.values.ref!, invocation.values.out!, invocation.dryRun),
   },
   'ses plan': { summary: 'preview SES provisioning', flags: [], run: runSesPlan },
   'ses configure': {
@@ -179,21 +161,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     run: (context, invocation) => runSesReceiveConfigure(context, invocation.dryRun),
   },
   'ses receive-check': { summary: 'verify SES receiving', flags: [], run: runSesReceiveCheck },
-  'dns plan': { summary: 'plan DNS migration', flags: [], run: (context) => runDnsPlan(context) },
-  'dns import': {
-    summary: 'import DNS records without deleting',
-    flags: ['dry-run', 'update'],
-    run: (context, invocation) =>
-      runDnsPlan(context, { dryRun: invocation.dryRun, update: invocation.flags.has('update') }),
-  },
-  'dns verify': { summary: 'compare authoritative DNS answers', flags: [], run: runDnsVerify },
   'dns status': { summary: 'show delegation and domain status', flags: [], run: runDnsStatus },
-  'dns switch': {
-    summary: 'change registrar name servers',
-    flags: ['dry-run', 'back'],
-    run: (context, invocation) =>
-      runDnsSwitch(context, { dryRun: invocation.dryRun, back: invocation.flags.has('back') }),
-  },
   up: {
     summary: 'set up the cloud board',
     flags: ['dry-run'],
@@ -208,7 +176,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       const zone = await findZone(api, context.config, account.id);
       if (zone?.status !== 'active') {
         context.report.line(
-          'Next: dns plan, dns import, dns verify, dns switch --dry-run, dns switch; dns status until active, then up again (docs/AWS.md)',
+          'Next: point the registrar at the Cloudflare name servers; dns status until active, then up again (docs/AWS.md)',
         );
         return;
       }
@@ -273,18 +241,6 @@ export const COMMANDS: Record<string, CommandSpec> = {
     summary: 'rehearse the restore on the machine',
     flags: [],
     run: (context) => runRehearse(context),
-  },
-  seed: {
-    summary: 'fill an empty machine with the migrated data',
-    flags: ['dry-run'],
-    values: ['from', 'ref'],
-    required: ['from'],
-    run: (context, invocation) =>
-      runSeed(context, {
-        from: invocation.values.from!,
-        ref: invocation.values.ref ?? null,
-        dryRun: invocation.dryRun,
-      }),
   },
   'pull-data': {
     summary: 'copy the stopped board data to this computer',
@@ -360,11 +316,6 @@ function parse(argv: readonly string[]): Parsed {
   }
   for (const name of spec.required ?? [])
     if (values[name] === undefined) throw badUsage(`${command} needs --${name}\n${USAGE}`);
-  if (
-    command === 'image-build' &&
-    (!sourceShaSchema.safeParse(values.ref).success || /[\0\r\n,]/.test(values.out!))
-  )
-    throw badUsage('image-build needs a SHA40 ref and an output path without NUL, newline or comma');
   return { command, config, flags, values };
 }
 

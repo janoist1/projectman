@@ -13,7 +13,7 @@ const managedTags = (name: string) => [
   { Key: 'ProjectmanManaged', Value: 'true' },
 ];
 export const EC2_CONFIG = {
-  instanceType: 't3.small',
+  instanceType: 't4g.small',
   amiId: 'ami-0123456789abcdef0',
   vpcId: 'vpc-0123456789abcdef0',
   subnetId: 'subnet-0123456789abcdef0',
@@ -24,9 +24,9 @@ export class FakeEc2 {
   image = {
     ImageId: EC2_CONFIG.amiId,
     OwnerId: '099720109477',
-    Name: 'ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-20261001',
+    Name: 'ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-20261001',
     State: 'available',
-    Architecture: 'x86_64',
+    Architecture: 'arm64',
     VirtualizationType: 'hvm',
     RootDeviceType: 'ebs',
     RootDeviceName: '/dev/sda1',
@@ -48,7 +48,7 @@ export class FakeEc2 {
   dnsSupport = true;
   gatewayAttached = true;
   offerings = true;
-  architecture = 'x86_64';
+  architecture = 'arm64';
   reservationOwner: string | null = null;
   networkOwner: string | null = null;
   aclAllowsInternet = true;

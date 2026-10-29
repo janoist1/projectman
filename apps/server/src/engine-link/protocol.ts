@@ -9,23 +9,25 @@ import {
   SessionState,
   TokenUsage,
 } from '@projectman/shared';
-import { ADMINISTRATION_CAPABILITIES } from '../contracts';
+import { ADMINISTRATION_CAPABILITIES, TEAM_TOOL_TIMEOUT_MS } from '../contracts';
 import type { EnginePaths, PermissionRefusedInfo, RunnerEvent, RunningSessionInfo } from '../contracts';
 import type { PullRequestInfo, SessionCleanup } from '../contracts';
 
 export const ENGINE_PROTOCOL_VERSION = 1;
 export const ENGINE_MAX_FRAME_BYTES = 4 * 1024 * 1024;
 export const ENGINE_HEARTBEAT_MS = 20_000;
+/** How long the cloud waits for an engine's hello after the upgrade; the engine's own hello takes 3 s at most. */
+export const ENGINE_HELLO_TIMEOUT_MS = 20_000;
 export const ENGINE_DEAD_AFTER_MS = 90_000;
 export const ENGINE_DEAD_AFTER_PINGS = 3;
 export { ENGINE_OFFLINE_AFTER_MS } from '../contracts';
-export const ENGINE_RELAY_WAIT_MS = 60_000;
+/** The team tool's own timeout plus the time for the relay's two hops, so the cloud answers first. */
+export const ENGINE_RELAY_WAIT_MS = TEAM_TOOL_TIMEOUT_MS + 15_000;
 export const ENGINE_UPLOAD_MAX_BYTES = {
   file: MAX_ATTACHMENT_BYTES,
-  transcript: 64 * 1024 * 1024,
-  bundle: 512 * 1024 * 1024,
+  transcript: 8 * 1024 * 1024,
 } as const;
-export const EngineUploadPurpose = z.enum(['file', 'transcript', 'bundle']);
+export const EngineUploadPurpose = z.enum(['file', 'transcript']);
 export type EngineUploadPurpose = z.infer<typeof EngineUploadPurpose>;
 export const EngineUploaded = z.strictObject({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),

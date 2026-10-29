@@ -457,7 +457,7 @@ export class HandoffService {
       deadlineAt: row.deadlineAt,
     });
     try {
-      await this.admission.exclusive(async () => {
+      await this.admission.exclusive('handoff-start', async () => {
         await this.admission.check({ config, member, workItem, capacity: false });
         await this.sessions.ensureSession(row.projectKey, row.from, workItem, {
           messages: [instruction],

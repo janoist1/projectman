@@ -6,6 +6,7 @@ import {
   prioritySettersOf,
   ProjectManagerLifecycleAction,
   projectManagerLifecycleOf,
+  taskCreateAccessOf,
 } from '@projectman/shared';
 import type { ProjectConfig, PatchConfigRequest, Pipeline } from '@projectman/shared';
 import { usePatchConfig } from '../../api/queries';
@@ -120,6 +121,9 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
   const prioritySettersChanged = JSON.stringify(prioritySetters) !== JSON.stringify(settersOf(saved));
   const viewerRecipients =
     draft.team.viewerRecipients !== saved.team.viewerRecipients ? draft.team.viewerRecipients : undefined;
+  // Who may open a new card goes only when it differs from the saved value (PM-1100); owner-only on the server.
+  const taskCreateAccess =
+    taskCreateAccessOf(draft) !== taskCreateAccessOf(saved) ? taskCreateAccessOf(draft) : undefined;
   // The complexity setters go as the whole list when it differs from the saved one (PM-1097); [] is a value.
   const complexitySetters = complexitySettersOf(draft);
   const complexityChanged = JSON.stringify(complexitySetters) !== JSON.stringify(complexitySettersOf(saved));
@@ -131,6 +135,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     baseVersion,
     ...(merger ? { merger } : {}),
     ...(cardMover ? { cardMover } : {}),
+    ...(taskCreateAccess ? { taskCreateAccess } : {}),
     ...(projectManagerMoves ? { projectManagerMoves } : {}),
     ...(lifecycleChanged ? { projectManagerLifecycle } : {}),
     ...(prerequisiteOverride ? { prerequisiteOverride } : {}),

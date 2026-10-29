@@ -114,7 +114,7 @@ import {
   Admission,
   DeferredStarts,
   StartQueue,
-  FocusPull,
+  UrgentPull,
   StartRound,
   MessageStarts,
   queueItemWaiting,
@@ -213,7 +213,6 @@ import {
   SystemFeedbackContext,
   SystemFeedbackService,
 } from './services/feedback';
-import { ProjectFocusService } from './core/tasks';
 import { AgentQuestions } from './core/inbox';
 import { InputStallAlerts } from './runtime/watchers';
 import { UsageAlerts } from './runtime/usage';
@@ -428,6 +427,8 @@ export interface DomainOptions {
   handoffSweepMs?: number;
   /** How often the member queues are worked through for what an event missed (default 30 s, PM-925). */
   memberQueueSweepMs?: number;
+  /** How long an event's request for a deferred-start retry waits for the others of its burst (default 750 ms). */
+  retryDebounceMs?: number;
   /**
    * Makes what the machine display measures with (PM-320); default: the operating system's
    * (`createMachineProbe`). It gets the pids of the running sessions' CLIs, for the fixed-data probe
@@ -734,7 +735,6 @@ export function createDomain(opts: DomainOptions) {
     // `handoffs` is built below; the callback only runs when a card changes its assignee.
     handoff: (input) => handoffs.begin(input),
   });
-  const projectFocus = new ProjectFocusService({ ctx, projects, tasks, timeline });
   const checklist = new ChecklistService({
     ctx,
     projects,
@@ -805,7 +805,6 @@ export function createDomain(opts: DomainOptions) {
     ctx,
     projects,
     tasks,
-    projectFocus,
     members,
     timeline,
     runner: runnerModule.runner,
@@ -864,6 +863,7 @@ export function createDomain(opts: DomainOptions) {
     deferred: deferredStarts,
     disk,
     engines,
+    retryDebounceMs: opts.retryDebounceMs,
   });
   // The Operator's request ends with its turn. Registered before the delivery's idle listener below, so
   // the owner's next message opens a new request after this one closed, not before.
@@ -903,13 +903,7 @@ export function createDomain(opts: DomainOptions) {
         ]
       : [];
   };
-  deferredStarts.useQueueWaits({
-    ofTask: (task) =>
-      ctx.repos.memberQueue
-        .listWaitingOfTask(task.projectKey, task.key)
-        .flatMap((item) => queueWaitOf(item).map((wait) => wait.waiting)),
-    all: () => ctx.repos.memberQueue.listWaiting().flatMap(queueWaitOf),
-  });
+  deferredStarts.useQueueWaits({ all: () => ctx.repos.memberQueue.listWaiting().flatMap(queueWaitOf) });
   const refinement = new RefinementSteps({
     projects,
     tasks,
@@ -999,24 +993,13 @@ export function createDomain(opts: DomainOptions) {
   // The start that waits for the labels an AI member sets runs as a work start, which needs the starts.
   taskStarts.useLabelWait(workStarts);
   taskStarts.useSeniorWait(workStarts);
-  // Free developers take urgent and focus cards ahead of their turn, at the end of every retry round (PM-427).
-  admission.usePull(
-    new FocusPull({
-      ctx,
-      projects,
-      tasks,
-      focus: projectFocus,
-      admission,
-      seniorWaits,
-      starts: workStarts,
-    }),
-  );
+  // Free developers take urgent cards ahead of their turn, at the end of every retry round (PM-436).
+  admission.usePull(new UrgentPull({ ctx, projects, tasks, admission, seniorWaits, starts: workStarts }));
   const taskWaits = new TaskWaits({ ctx, members });
   const startRound = new StartRound({
     ctx,
     projects,
     tasks,
-    focus: projectFocus,
     seniorWaits,
     admission,
     messaging,
@@ -1739,7 +1722,6 @@ export function createDomain(opts: DomainOptions) {
         attachments,
         sessions,
         cardQuestions,
-        projectFocus,
         taskWaits,
         closer: sessionCloser,
       }),
@@ -1810,13 +1792,8 @@ export function createDomain(opts: DomainOptions) {
   });
 
   // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
-  if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.sweep({ respectPause: true }));
-  const retryDeferredStarts = () => {
-    background.run(
-      () => admission.retryDeferred(),
-      (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
-    );
-  };
+  if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.retryWaiting());
+  const retryDeferredStarts = () => admission.requestRetry();
   const outages = new WorkOutages({
     ctx,
     projects,
@@ -2223,9 +2200,8 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_cancelled', () => {
     retryDeferredStarts();
   });
-  // Urgent and focus cards start first and are pulled into development (PM-427): a change of the focus, an
-  // urgent card, or a card that became ready for development starts a round at once.
-  projectFocus.onChange(() => retryDeferredStarts());
+  // Urgent cards start first and are pulled into development (PM-436): an urgent card, or a card that
+  // became ready for development starts a round at once.
   events.on('task_priority_changed', ({ task }) => {
     if (task.priority === 'urgent') retryDeferredStarts();
   });
@@ -2353,7 +2329,6 @@ export function createDomain(opts: DomainOptions) {
 
   let sweeps: RunningSweeps | undefined;
   let stopMessageSweep: (() => void) | undefined;
-  let superHandoffSweep: ReturnType<typeof setInterval> | undefined;
 
   /** What the engine's settings view counts (PM-315): its sessions and what waits for it. */
   const engineCounters = (id: EngineId): EngineCounters => ({
@@ -2397,7 +2372,6 @@ export function createDomain(opts: DomainOptions) {
     templates,
     timeline,
     involvements,
-    projectFocus,
     projects,
     inbox,
     runnerModule,
@@ -2505,18 +2479,6 @@ export function createDomain(opts: DomainOptions) {
       }
       // Uploads no message took within a day are deleted (now, and hourly).
       stopMessageSweep = messageAttachments.startSweeping();
-      // The owner's questions about super operations that lapsed unanswered are settled every minute.
-      superHandoffSweep = setInterval(() => {
-        try {
-          superHandoffs.sweep();
-        } catch (err) {
-          opts.logger.warn({ err }, 'sweeping the super-mode handoffs failed');
-        }
-        void superHandoffs.settleOpen().catch((err: unknown) => {
-          opts.logger.warn({ err }, 'settling the detached super operations failed');
-        });
-      }, 60_000);
-      superHandoffSweep.unref();
       emailChannel.start();
       emailQueue?.start();
       githubSync.start();
@@ -2547,151 +2509,168 @@ export function createDomain(opts: DomainOptions) {
         () => autoAdvance.sweep(),
         (err) => opts.logger.warn({ err }, 'automatic stage advance sweep failed'),
       );
-      sweeps = startSweeps([
-        {
-          name: 'collecting-close',
-          everyMs: 15 * 60_000,
-          atStart: true,
-          run: () => collectingCloser.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'collecting card sweep failed'),
-        },
-        {
-          name: 'web-push',
-          everyMs: 60000,
-          run: () => webPush.sweep(),
-          onError: () => opts.logger.warn('web push sweep failed'),
-        },
-        {
-          name: 'handoffs',
-          everyMs: opts.handoffSweepMs ?? 15_000,
-          run: () => handoffs.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'handoff sweep failed'),
-        },
-        // ... and refused hand-overs and message wake-ups retry once admission allows them.
-        {
-          name: 'deferred-starts',
-          everyMs: opts.handOffRetryMs ?? 30_000,
-          run: () => admission.retryDeferred(),
-          onError: (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
-        },
-        // Whatever an event missed (a hold lifted, a limit gone, a lost wake-up) is picked up from the queues.
-        {
-          name: 'member-queue',
-          everyMs: opts.memberQueueSweepMs ?? 30_000,
-          atStart: true,
-          run: () => memberQueueDriver.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'member queue sweep failed'),
-        },
-        {
-          name: 'outages',
-          everyMs: opts.outageCheckMs ?? 30_000,
-          atStart: true,
-          run: () => outages.check(),
-          onError: (err) => opts.logger.warn({ err }, 'outage check failed'),
-        },
-        {
-          name: 'delegations',
-          everyMs: 1000,
-          run: () => inbox.sweepDelegations(),
-          onError: () => opts.logger.warn('delegation deadline sweep failed'),
-        },
-        // The branch of a task in review must stay at the commit handed over (PM-183).
-        {
-          name: 'review-watch',
-          everyMs: opts.reviewWatchMs ?? 30_000,
-          run: async () => {
-            await reviewWatch.check();
-            // A pin that has no run yet (the server stopped between the move and the queueing) gets one.
-            await fullTests.syncAll();
+      sweeps = startSweeps(
+        [
+          // The owner's questions about super operations that lapsed unanswered are settled every minute.
+          {
+            name: 'super-handoffs',
+            everyMs: 60_000,
+            run: async () => {
+              try {
+                superHandoffs.sweep();
+              } catch (err) {
+                opts.logger.warn({ err }, 'sweeping the super-mode handoffs failed');
+              }
+              await superHandoffs.settleOpen();
+            },
+            onError: (err) => opts.logger.warn({ err }, 'settling the detached super operations failed'),
           },
-          onError: (err) => opts.logger.warn({ err }, 'review commit check failed'),
-        },
-        // A loop on a card ends when its branch got a commit or nobody wrote for a whole window (PM-261).
-        {
-          name: 'loop-watch',
-          everyMs: opts.loopWatchMs ?? 60_000,
-          atStart: true,
-          run: () => loopWatch.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'loop watch sweep failed'),
-        },
-        {
-          name: 'operator-signals',
-          everyMs: opts.operatorSignalMs ?? 60_000,
-          run: () => operatorSignals.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
-        },
-        {
-          name: 'operator-approvals',
-          everyMs: 60_000,
-          atStart: true,
-          run: async () => operatorApprovals.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
-        },
-        // Without an owner's live super key nobody connected works the integrator todos and held decisions:
-        // they go to the owners (PM-1045). No timeout otherwise.
-        {
-          name: 'integrator-todos',
-          everyMs: 30_000,
-          atStart: true,
-          run: () => inbox.sweepIntegratorTodos(),
-          onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
-        },
-        // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
-        // people (PM-558). A question that waited through a restart is looked at now.
-        {
-          name: 'question-screening',
-          everyMs: opts.questionScreeningMs ?? 30_000,
-          atStart: true,
-          run: () => questionScreening.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
-        },
-        // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
-        {
-          name: 'senior-waits',
-          everyMs: opts.seniorWaitMs ?? 60_000,
-          run: async () => seniorWaits.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
-        },
-        // An open step of an AI member past its deadline: one reminder, then an integrator todo (PM-806).
-        {
-          name: 'obligations',
-          everyMs: opts.obligationSweepMs ?? 60_000,
-          atStart: true,
-          run: () => obligations.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'obligation sweep failed'),
-        },
-        // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
-        {
-          name: 'disk',
-          everyMs: opts.diskCheckMs ?? 60_000,
-          atStart: true,
-          run: () => disk.check(),
-          onError: (err) => opts.logger.warn({ err }, 'free disk space check failed'),
-        },
-        // The worktrees of closed cards (PM-243): at startup and then every few hours.
-        {
-          name: 'worktrees',
-          everyMs: opts.worktreeSweepMs ?? 6 * 60 * 60_000,
-          atStart: true,
-          run: async () => {
-            await worktreeSweep.run();
+          {
+            name: 'collecting-close',
+            everyMs: 15 * 60_000,
+            atStart: true,
+            run: () => collectingCloser.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'collecting card sweep failed'),
           },
-          onError: (err) => opts.logger.warn({ err }, 'worktree sweep failed'),
-        },
-        // Sessions that sat idle for a quarter of an hour close (PM-295).
-        {
-          name: 'idle-close',
-          everyMs: opts.idleCloseSweepMs ?? 60_000,
-          run: () => sessionCloser.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
-        },
-        {
-          name: 'live-sessions',
-          everyMs: opts.liveSessionSweepMs ?? 60_000,
-          run: () => sessions.sweepLive(),
-          onError: (err) => opts.logger.warn({ err }, 'live session sweep failed'),
-        },
-      ]);
+          {
+            name: 'web-push',
+            everyMs: 60000,
+            run: () => webPush.sweep(),
+            onError: () => opts.logger.warn('web push sweep failed'),
+          },
+          {
+            name: 'handoffs',
+            everyMs: opts.handoffSweepMs ?? 15_000,
+            run: () => handoffs.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'handoff sweep failed'),
+          },
+          // ... and refused hand-overs and message wake-ups retry once admission allows them.
+          {
+            name: 'deferred-starts',
+            everyMs: opts.handOffRetryMs ?? 30_000,
+            run: () => admission.retryDeferred(),
+            onError: (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
+          },
+          // Whatever an event missed (a hold lifted, a limit gone, a lost wake-up) is picked up from the queues.
+          {
+            name: 'member-queue',
+            everyMs: opts.memberQueueSweepMs ?? 30_000,
+            atStart: true,
+            run: () => memberQueueDriver.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'member queue sweep failed'),
+          },
+          {
+            name: 'outages',
+            everyMs: opts.outageCheckMs ?? 30_000,
+            atStart: true,
+            run: () => outages.check(),
+            onError: (err) => opts.logger.warn({ err }, 'outage check failed'),
+          },
+          {
+            name: 'delegations',
+            everyMs: 1000,
+            run: () => inbox.sweepDelegations(),
+            onError: () => opts.logger.warn('delegation deadline sweep failed'),
+          },
+          // The branch of a task in review must stay at the commit handed over (PM-183).
+          {
+            name: 'review-watch',
+            everyMs: opts.reviewWatchMs ?? 30_000,
+            run: async () => {
+              await reviewWatch.check();
+              // A pin that has no run yet (the server stopped between the move and the queueing) gets one.
+              await fullTests.syncAll();
+            },
+            onError: (err) => opts.logger.warn({ err }, 'review commit check failed'),
+          },
+          // A loop on a card ends when its branch got a commit or nobody wrote for a whole window (PM-261).
+          {
+            name: 'loop-watch',
+            everyMs: opts.loopWatchMs ?? 60_000,
+            atStart: true,
+            run: () => loopWatch.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'loop watch sweep failed'),
+          },
+          {
+            name: 'operator-signals',
+            everyMs: opts.operatorSignalMs ?? 60_000,
+            run: () => operatorSignals.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
+          },
+          {
+            name: 'operator-approvals',
+            everyMs: 60_000,
+            atStart: true,
+            run: async () => operatorApprovals.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
+          },
+          // Without an owner's live super key nobody connected works the integrator todos and held decisions:
+          // they go to the owners (PM-1045). No timeout otherwise.
+          {
+            name: 'integrator-todos',
+            everyMs: 30_000,
+            atStart: true,
+            run: () => inbox.sweepIntegratorTodos(),
+            onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
+          },
+          // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
+          // people (PM-558). A question that waited through a restart is looked at now.
+          {
+            name: 'question-screening',
+            everyMs: opts.questionScreeningMs ?? 30_000,
+            atStart: true,
+            run: () => questionScreening.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
+          },
+          // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
+          {
+            name: 'senior-waits',
+            everyMs: opts.seniorWaitMs ?? 60_000,
+            run: async () => seniorWaits.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
+          },
+          // An open step of an AI member past its deadline: one reminder, then an integrator todo (PM-806).
+          {
+            name: 'obligations',
+            everyMs: opts.obligationSweepMs ?? 60_000,
+            atStart: true,
+            run: () => obligations.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'obligation sweep failed'),
+          },
+          // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
+          {
+            name: 'disk',
+            everyMs: opts.diskCheckMs ?? 60_000,
+            atStart: true,
+            run: () => disk.check(),
+            onError: (err) => opts.logger.warn({ err }, 'free disk space check failed'),
+          },
+          // The worktrees of closed cards (PM-243): at startup and then every few hours.
+          {
+            name: 'worktrees',
+            everyMs: opts.worktreeSweepMs ?? 6 * 60 * 60_000,
+            atStart: true,
+            run: async () => {
+              await worktreeSweep.run();
+            },
+            onError: (err) => opts.logger.warn({ err }, 'worktree sweep failed'),
+          },
+          // Sessions that sat idle for a quarter of an hour close (PM-295).
+          {
+            name: 'idle-close',
+            everyMs: opts.idleCloseSweepMs ?? 60_000,
+            run: () => sessionCloser.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
+          },
+          {
+            name: 'live-sessions',
+            everyMs: opts.liveSessionSweepMs ?? 60_000,
+            run: () => sessions.sweepLive(),
+            onError: (err) => opts.logger.warn({ err }, 'live session sweep failed'),
+          },
+        ],
+        { onSlow: (name, ms) => opts.logger.warn({ sweep: name, ms }, 'periodic sweep round was slow') },
+      );
     },
 
     async stop(): Promise<void> {
@@ -2700,6 +2679,8 @@ export function createDomain(opts: DomainOptions) {
       // No sweep ticks from here on; running rounds end with the background work (PM-613).
       const sweepsStopped = sweeps?.stop();
       sweeps = undefined;
+      // No debounced retry fires from here on; a round that runs is waited for below.
+      const retriesStopped = admission.dispose();
       ctx.journal.stop();
       unsubscribeJournalWake();
       unsubscribeOutageKeys?.();
@@ -2707,7 +2688,6 @@ export function createDomain(opts: DomainOptions) {
       unsubscribeSignalActivity();
       usage.stop();
       stopMessageSweep?.();
-      if (superHandoffSweep) clearInterval(superHandoffSweep);
       emailChannel.stop();
       await emailQueue?.stop();
       const drained = schedules.stop();
@@ -2721,7 +2701,7 @@ export function createDomain(opts: DomainOptions) {
       await historyDocumentsStopped;
       await history.stop();
       await opts.historySemantic?.stop();
-      await Promise.all([sweepsStopped, background.stop()]);
+      await Promise.all([sweepsStopped, retriesStopped, background.stop()]);
       await delivery.close();
       pauses.dispose();
       sessions.dispose();
@@ -2749,7 +2729,6 @@ export function createDomain(opts: DomainOptions) {
         tasks,
         timeline,
         taskWaits,
-        projectFocus,
         cardQuestions,
         attachments,
         messaging,

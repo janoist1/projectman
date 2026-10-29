@@ -13,7 +13,7 @@ describe('startOfferText (PM-804)', () => {
     expect(text.split('\n')).toEqual([
       'Can start now: PM-1 "Add the thing".',
       'Move each to development with update_task (stage_id development); the system picks the developer. ' +
-        'Skip a card only if a frame or focus lock holds it now. ' +
+        'Skip a card only if a frame lock holds it now. ' +
         "If the owner's comment holds a card, do not start it: open an integrator todo to move it back to incoming.",
     ]);
   });

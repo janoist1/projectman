@@ -1,6 +1,5 @@
 import type { Actor } from '../domain/event';
 import type { AgentProvider, HumanAccess } from '../domain/member';
-import type { TaskKey } from '../domain/task';
 import type { SuperCommand } from '../api/super-handoff';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 import { canonical } from './canonical';
@@ -164,7 +163,6 @@ export type SuperMutationCommand =
   | { kind: 'access_change'; handle: string; before: HumanAccess | null; after: HumanAccess }
   /** An AI member's permission mode, approver or outbound network setting. */
   | { kind: 'permission_change'; handle: string }
-  | { kind: 'focus_change'; before: TaskKey[]; after: TaskKey[] }
   | { kind: 'runtime_start'; providers: AgentProvider[] }
   | { kind: 'administration'; command: SuperAdministrationCommand }
   | { kind: 'owner_command' }
@@ -275,8 +273,6 @@ export function ownerReservedEffect(
     case 'permission_change':
     case 'owner_command':
       return 'security';
-    case 'focus_change':
-      return null;
     case 'runtime_start':
       if (command.providers.some((provider) => !['claude', 'codex', 'gemini', 'nanogpt'].includes(provider)))
         throw new Error('unknown runtime provider');

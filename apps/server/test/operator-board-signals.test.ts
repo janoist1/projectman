@@ -771,6 +771,49 @@ describe('ready_waiting signal', () => {
       expect(stalled().filter((item) => item.state === 'open')).toHaveLength(1);
       expect(stalled()).toHaveLength(2);
     });
+
+    it('keeps the alert and its clock through a transient AI limit (PM-1120)', async () => {
+      await setup({ adjust: withReadyQueue });
+      await place({ stageId: 'ready', status: 'active' });
+      await stallFor(ownerWait);
+      const [alert] = stalled();
+      expect(alert).toMatchObject({ state: 'open' });
+      config().team.limits.maxConcurrentAi = 0;
+      await sweep();
+      expect(stalled().map((item) => [item.id, item.state])).toEqual([[alert!.id, 'open']]);
+      config().team.limits.maxConcurrentAi = 3;
+      later(1);
+      await sweep();
+      expect(stalled().map((item) => [item.id, item.state])).toEqual([[alert!.id, 'open']]);
+    });
+  });
+
+  describe('the reads of a sweep (PM-1120)', () => {
+    it('reads the waits and the sessions’ activity once, and never the whole session history', async () => {
+      await setup({ adjust: withReadyQueue });
+      await place({ stageId: 'ready', status: 'active' });
+      await sweep();
+      // The delivery wakes the coordinator, which reads sessions of its own: not part of the sweep's reads.
+      vi.spyOn(h.domain.operatorSignals, 'deliver').mockResolvedValue();
+      const waits = vi.spyOn(h.domain.taskWaits, 'of');
+      const activity = vi.spyOn(h.repos.sessions, 'taskActivity');
+      const all = vi.spyOn(h.repos.sessions, 'list');
+      await sweep();
+      expect(waits).toHaveBeenCalledTimes(1);
+      expect(activity).toHaveBeenCalledTimes(1);
+      // Only a card's own sessions are listed (the answer-stall check), never the project's whole history.
+      expect(all.mock.calls.filter(([, filters]) => !filters)).toEqual([]);
+    });
+
+    it('runs at most two sweep bodies for three events in one tick', async () => {
+      await setup({ adjust: withReadyQueue });
+      await place({ stageId: 'ready', status: 'active' });
+      const waits = vi.spyOn(h.domain.taskWaits, 'of');
+      await Promise.all([1, 2, 3].map(() => h.domain.operatorSignals.sweep('AR')));
+      await flush();
+      expect(waits.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect(waits.mock.calls.length).toBeLessThanOrEqual(2);
+    });
   });
 });
 

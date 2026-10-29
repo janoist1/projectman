@@ -114,6 +114,8 @@ const APPROVAL_REFUSALS = {
 /** Free-text answer to a question (the text is the resolution note). */
 export const ANSWER_OPTION: InboxOption = { id: 'answer', label: 'answer', style: 'secondary' };
 
+type QuestionGroup = NonNullable<ReturnType<DomainContext['repos']['inbox']['groupOf']>>;
+
 interface CreateInboxItemInput {
   id?: string;
   projectKey: string;
@@ -446,8 +448,8 @@ export class InboxService {
   }
 
   /** Read-time projection; original questions and the combination audit remain in their own rows. */
-  withQuestionGroup(item: InboxItem): InboxItem {
-    const group = this.ctx.repos.inbox.groupOf(item.id);
+  withQuestionGroup(item: InboxItem, known?: QuestionGroup | null): InboxItem {
+    const group = known === undefined ? this.ctx.repos.inbox.groupOf(item.id) : known;
     if (!group) return item;
     const primary = this.ctx.repos.inbox.get(group.primaryItemId);
     const originalQuestion = questionPayloadOf(item)?.question ?? item.title;
@@ -700,7 +702,13 @@ export class InboxService {
       limit?: number;
     } = {},
   ) {
-    return this.ctx.repos.inbox.list(projectKey, filter).map((item) => this.withQuestionGroup(item));
+    return this.withQuestionGroups(this.ctx.repos.inbox.list(projectKey, filter));
+  }
+
+  /** `withQuestionGroup` of many items, the groups read together instead of one by one. */
+  private withQuestionGroups(items: InboxItem[]): InboxItem[] {
+    const groups = this.ctx.repos.inbox.groupsOf(items.map((item) => item.id));
+    return items.map((item) => this.withQuestionGroup(item, groups.get(item.id) ?? null));
   }
 
   /**
@@ -709,27 +717,8 @@ export class InboxService {
    * `SCREENED_QUESTIONS_LIMIT`; `today` counts all of them asked at or after `since`.
    */
   screenedQuestions(projectKey: string, since: string): ScreenedQuestionsResponse {
-    const screened = this.ctx.repos.inbox
-      .list(projectKey, { kind: 'question' })
-      .filter((item) => {
-        const group = this.ctx.repos.inbox.groupOf(item.id);
-        return !group || group.primaryItemId === item.id;
-      })
-      .map((item) => ({ item: this.withQuestionGroup(item), screening: questionPayloadOf(item)?.screening }))
-      .filter(
-        ({ item, screening }) =>
-          screening &&
-          (item.state === 'screening' ||
-            screening.outcome === 'answered' ||
-            screening.outcome === 'forwarded' ||
-            screening.outcome === 'moot'),
-      )
-      .map(({ item, screening }) => ({ item, at: screening?.at ?? item.createdAt }));
-    screened.sort((a, b) => b.at.localeCompare(a.at));
-    return {
-      items: screened.slice(0, SCREENED_QUESTIONS_LIMIT).map(({ item }) => item),
-      today: screened.filter(({ item }) => item.createdAt >= since).length,
-    };
+    const screened = this.ctx.repos.inbox.screenedQuestions(projectKey, since, SCREENED_QUESTIONS_LIMIT);
+    return { items: this.withQuestionGroups(screened.items), today: screened.today };
   }
 
   /** The decision items of one gate request of a task, oldest first. */
@@ -762,16 +751,14 @@ export class InboxService {
       .cachedConfig(projectKey)
       ?.team.members.find((entry) => entry.handle === handle);
     const reader = viewer ?? (member?.kind === 'human' ? { handle, access: member.access } : undefined);
-    return this.ctx.repos.inbox
-      .listOpen()
-      .map((item) => this.withQuestionGroup(item))
-      .filter(
-        (item) =>
-          item.projectKey === projectKey &&
-          !isLinkedQuestion(item) &&
-          humanInboxAssignment(item, handle) &&
-          (!reader || canSeeInboxItem(reader, item)),
-      ).length;
+    const mine = this.ctx.repos.inbox
+      .listOpenAssigned(projectKey, handle)
+      .filter((item) => humanInboxAssignment(item, handle) && (!reader || canSeeInboxItem(reader, item)));
+    // A question combined into another one is counted with its primary.
+    const groups = this.ctx.repos.inbox.groupsOf(
+      mine.filter((item) => item.kind === 'question').map((item) => item.id),
+    );
+    return mine.filter((item) => (groups.get(item.id)?.primaryItemId ?? item.id) === item.id).length;
   }
 
   /**

@@ -13,7 +13,6 @@ import type {
   FeedbackMarkView,
   FeedbackOutcome,
   FeedbackStatus,
-  FocusPlace,
   HistorySearchInput,
   HistorySearchResult,
   HistorySearchStats,
@@ -234,8 +233,6 @@ export type TaskSummary = Pick<
   complexity?: ComplexityPoints;
   /** Present only when a person set a priority. */
   priority?: TaskPriority;
-  /** The card's place in the project's focus (PM-437); absent when it is not in it. */
-  focus?: FocusPlace;
   /** Who or what the card waits for, in a few words (PM-460); absent on a closed card and a theme. */
   waitsFor?: string;
 };
@@ -249,8 +246,6 @@ export type TaskSummary = Pick<
 export interface TaskToolDetail extends TaskDetail {
   /** The repository the work happens in; null when there is none. */
   effectiveRepo?: string | null;
-  /** The task's place in the project's focus (PM-437); absent when it is not in it. */
-  focus?: FocusPlace;
   /** The project has several repositories and the task names none: a person has to choose. */
   repoChoiceNeeded?: boolean;
   /** The first page of the task's readable attachments (oldest first); the rest with list_attachments. */
@@ -332,6 +327,13 @@ export interface FeedbackToolResult {
   /** The card a create step opened. */
   task?: { key: string; title: string };
 }
+
+/**
+ * A team-tool handler that has not answered after this long gets a `timeout` tool error (the action may still
+ * complete). The engine's relay wait (`ENGINE_RELAY_WAIT_MS`) is derived from it, so that the cloud's answer
+ * always arrives before the engine gives up and a remote session reads the same text as a local one.
+ */
+export const TEAM_TOOL_TIMEOUT_MS = 45_000;
 
 /** The longest side, in pixels, of an image `read_message_attachment` hands over (larger ones are shrunk). */
 export const MESSAGE_IMAGE_MAX_SIDE = 1568;

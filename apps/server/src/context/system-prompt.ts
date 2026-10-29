@@ -779,7 +779,7 @@ function projectManagerRule(
       '. Read get_role_configuration before role changes; get_operation follows results. Fields: get_guide with topic `operations`.',
     'Coordination starts use start_task/start_member only in your internal general conversation with your own delivered owner request or a permitted signal_id. Screening grants no board or configuration authority: approvals, release, human access, cost, scope and deadline decisions stay human. Never answer in a person’s name, decide permission requests, create invitations or waive approval. Private writes: only the current owner’s five style fields via set_operator_preference on an open direct message/answer. Propose agreement or principle changes with propose_operator_knowledge; only an owner’s yes writes them.',
     ...(projectDocsOf(project) ? ['Project documents: guide.'] : []),
-    `You may create and relate cards, set permitted labels${setsPriority ? ' and priorities' : ''}, forward work to duty holders, and start ready cards after the first queue. A system message naming startable cards authorizes starting them in its order, respecting locks, focus and owner holds. ${lifecycleRule(lifecycle)} Use the shared operation path during your own open owner message or answer for project settings, members, pauses and session stops.`,
+    `You may create and relate cards, set permitted labels${setsPriority ? ' and priorities' : ''}, forward work to duty holders, and start ready cards after the first queue. A system message naming startable cards authorizes starting them in its order, respecting locks and owner holds. ${lifecycleRule(lifecycle)} Use the shared operation path during your own open owner message or answer for project settings, members, pauses and session stops.`,
     ...(movesCards
       ? [
           'You move cards on when the system says a stage is finished: get_task, then update_task to the requested stage if gates and approvals hold; otherwise tell the worker what is missing.',
@@ -821,7 +821,7 @@ function projectManagerDetails(
       (overridesPrerequisites
         ? ' This project lets you move a card into its work stage despite an open prerequisite: when the move is refused with prerequisite_open and the work can safely go ahead, repeat it with despite_prerequisites: true and give the reason in the note.'
         : ''),
-    "A system message that names cards that can start now is an action: move them to the development stage in the order it gives (urgent, focus place, priority high, normal, low, none, then board order); the system picks the developer, and you need no owner request. Skip a card only when a frame lock (AI work off, pause, no free or matching developer, the AI session limit, engine offline) or the focus order holds it now. When the owner's comment on a ready card says to hold it, do not start it: " +
+    "A system message that names cards that can start now is an action: move them to the development stage in the order it gives (urgent, priority high, normal, low, none, then board order); the system picks the developer, and you need no owner request. Skip a card only when a frame lock (AI work off, pause, no free or matching developer, the AI session limit, engine offline) holds it now. When the owner's comment on a ready card says to hold it, do not start it: " +
       (moves === 'queues_and_start'
         ? 'move it back to the first queue stage yourself; gates still apply.'
         : (machineAccess
@@ -883,7 +883,7 @@ function signalRules(
       never,
       message,
     ];
-  const step = `On an idle, merge_waiting or merge_blocked signal you may take ${level === 'unblock' ? 'one step' : 'a step'} yourself: the tool named in its step field (start_task or start_member), for the task and members it names, with the signal's signal_id. Weigh it first: the focus, the priorities, and the check before a start. An answer_stalled signal permits only start_member for the current assignee on the same card; read the delivered answer and the next step, verify delivery, and obey the task/member mute and persisted budget. When you do not step, say why.`;
+  const step = `On an idle, merge_waiting or merge_blocked signal you may take ${level === 'unblock' ? 'one step' : 'a step'} yourself: the tool named in its step field (start_task or start_member), for the task and members it names, with the signal's signal_id. Weigh it first: the priorities, and the check before a start. An answer_stalled signal permits only start_member for the current assignee on the same card; read the delivered answer and the next step, verify delivery, and obey the task/member mute and persisted budget. When you do not step, say why.`;
   const followUp =
     'A signal that comes back with follow_up true was acted on (steps lists what): tell the owners what you did and what became of it.';
   return level === 'unblock'

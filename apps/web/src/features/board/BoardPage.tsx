@@ -23,7 +23,6 @@ import { useDoneFold } from './doneFold';
 import { useFileDrop } from './useFileDrop';
 import { useBoardFilters } from './useBoardFilters';
 import { TaskCard } from './TaskCard';
-import { FocusStrip } from '../focus/FocusStrip';
 import { TeamStrip } from './TeamStrip';
 import { ThemeStrip } from './ThemeStrip';
 import { sortColumnEntries, useBoardModel } from './useBoardModel';
@@ -718,14 +717,13 @@ export function BoardPage() {
         {filters}
       </PageHeader>
       {isMobile ? <FilterChips view={view} /> : null}
-      <FocusStrip />
       <ThemeStrip
         tasks={board.data.tasks}
         pipeline={pipeline}
         active={activeTheme?.key ?? null}
         onFilter={setThemeFilter}
         onOpen={(themeKey) => navigate(`/p/${key}/tasks/${themeKey}`)}
-        {...(can.createTasks ? { onNew: () => openNewTask({ kind: 'theme' }) } : {})}
+        {...(can.newCards ? { onNew: () => openNewTask({ kind: 'theme' }) } : {})}
       />
       {total === 0 ? (
         <div className={styles.emptyWrap}>
@@ -739,7 +737,7 @@ export function BoardPage() {
         <div className={styles.emptyWrap}>
           <EmptyState
             icon="board"
-            title={view.focusActive ? t('focus.onlyEmpty') : t('board.filteredEmpty')}
+            title={t('board.filteredEmpty')}
             action={
               view.clearable > 0 ? (
                 <Button variant="secondary" size="sm" onClick={view.clear}>

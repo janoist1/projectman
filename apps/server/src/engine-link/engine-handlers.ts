@@ -88,7 +88,7 @@ interface EngineHandlerDeps {
   emit: (event: EngineEvent) => void;
   /** Sessions whose terminal output the cloud asked for. */
   terminals: Set<string>;
-  /** Where the bundle of a branch is made before it is uploaded. */
+  /** Where a file of a session's working directory is staged before it is uploaded. */
   exportDir: string;
   /** A session started (PM-1087): the engine status remembers who runs it. Gets the spec the cloud sent. */
   onSessionStarted?: (spec: {
@@ -203,7 +203,7 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     );
   };
 
-  const upload = (token: string, purpose: 'file' | 'transcript' | 'bundle', body: Buffer) =>
+  const upload = (token: string, purpose: 'file' | 'transcript', body: Buffer) =>
     transfers.upload(limit.token(token), purpose, { size: body.length, stream: () => Readable.from([body]) });
 
   const handlers: Handlers = {

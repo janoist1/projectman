@@ -25,6 +25,11 @@ export interface DomainContext {
    * (better-sqlite3 transactions are), so read what needs an await before; units of work nest.
    */
   unitOfWork<T>(fn: () => T extends PromiseLike<unknown> ? never : T): T;
+  /**
+   * Runs `fn` once the enclosing unit of work has committed (dropped on a rollback), at once outside
+   * one. For what must not be told before the change is durable: the domain events.
+   */
+  afterCommit(fn: () => void): void;
 }
 
 export function createDomainContext(deps: {
@@ -33,8 +38,8 @@ export function createDomainContext(deps: {
   logger: FastifyBaseLogger;
   now: () => Date;
 }): DomainContext {
-  // Events published inside the open units of work, innermost last.
-  const pending: ServerEvent[][] = [];
+  // Events and callbacks held inside the open units of work, innermost last.
+  const pending: (ServerEvent | (() => void))[][] = [];
   const bus: EventBus = {
     publish(event) {
       const buffer = pending.at(-1);
@@ -43,7 +48,11 @@ export function createDomainContext(deps: {
         buffer &&
         event.type === 'member_queue_changed' &&
         buffer.some(
-          (e) => e.type === event.type && e.projectKey === event.projectKey && e.member === event.member,
+          (e) =>
+            typeof e !== 'function' &&
+            e.type === event.type &&
+            e.projectKey === event.projectKey &&
+            e.member === event.member,
         )
       )
         return;
@@ -59,8 +68,13 @@ export function createDomainContext(deps: {
     logger: deps.logger,
     now: deps.now,
     journal: new ChangeJournal(deps.repos, deps.now),
+    afterCommit(fn) {
+      const buffer = pending.at(-1);
+      if (buffer) buffer.push(fn);
+      else fn();
+    },
     unitOfWork<T>(fn: () => T): T {
-      const buffer: ServerEvent[] = [];
+      const buffer: (ServerEvent | (() => void))[] = [];
       pending.push(buffer);
       let result: T;
       try {
@@ -71,7 +85,7 @@ export function createDomainContext(deps: {
       // Committed, or released into the enclosing unit of work, which publishes on its commit.
       const outer = pending.at(-1);
       if (outer) outer.push(...buffer);
-      else for (const event of buffer) deps.bus.publish(event);
+      else for (const item of buffer) typeof item === 'function' ? item() : deps.bus.publish(item);
       return result;
     },
   };

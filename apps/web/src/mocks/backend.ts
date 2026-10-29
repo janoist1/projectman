@@ -1,7 +1,9 @@
 import type { MemberContextPreview, ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
 import {
+  chatWindow,
   checklistConditionHolds,
   checklistProgress,
+  SESSION_CHAT_WINDOW,
   SetChecklistItemStateRequest,
   type ProjectChecklist,
   applyMemberEmailChange,
@@ -238,10 +240,9 @@ import {
   DEFAULT_CLOSED_CARDS_DAYS,
   isClosedSince,
   measureClosedCard,
-  PROJECT_FOCUS_MAX_ITEMS,
-  ProjectFocusAddRequest,
-  ProjectFocusMoveRequest,
-  projectFocusRefusal,
+  canCreateTasks,
+  createsInFirstStageOnly,
+  taskCreateAccessOf,
   taskWait,
   waitHolders,
   waitWorkers,
@@ -305,7 +306,6 @@ import type {
   TaskMergeState,
   TaskMerged,
   PlanUsage,
-  ProjectFocusItem,
   ReleaseStep,
   ScheduleRun,
   ServerEvent,
@@ -504,12 +504,6 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
-  /** The project's focus (PM-427), in order; a test or a screenshot scenario fills it. */
-  focusItems: ProjectFocusItem[] = [];
-  /** While set, the focus cannot be read (the strip's load error). */
-  focusLoadFails = false;
-  /** While set, every focus write is refused with this error (the panel's save error). */
-  focusSaveError: { status: number; code: ErrorCode } | null = null;
   integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
   integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
   superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
@@ -2742,12 +2736,21 @@ export class MockBackend {
     if (!viewer) return error(403, 'not_a_member', 'Not a member');
     if (restricted && (viewer.kind !== 'human' || !['owner', 'admin'].includes(viewer.role)))
       return error(403, 'insufficient_access', 'Owner or admin required');
-    if (
-      (rest === '/tasks' && method === 'POST') ||
-      /\/tasks\/[^/]+\/(close-theme|reopen|board-move)$/.test(rest)
-    ) {
+    if (/\/tasks\/[^/]+\/(close-theme|reopen|board-move)$/.test(rest)) {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
         return error(403, 'insufficient_access', 'Developer access required');
+    }
+    if (rest === '/tasks' && method === 'POST') {
+      const access = this.viewerAccess();
+      if (!canCreateTasks(this.config, access))
+        return error(403, 'insufficient_access', `Requires ${taskCreateAccessOf(this.config)} access`);
+      const stageId = (body as { stageId?: unknown } | undefined)?.stageId;
+      if (
+        createsInFirstStageOnly(access) &&
+        stageId !== undefined &&
+        stageId !== this.config.pipeline.stages[0]?.id
+      )
+        return error(403, 'insufficient_access', 'A client opens cards in the first stage only');
     }
     if (rest.startsWith('/invites')) return this.handleInvitations(method, rest, body);
     if (rest === '/email' || rest.startsWith('/email/'))
@@ -2853,7 +2856,6 @@ export class MockBackend {
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
     if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
-    if (/^\/focus(\/|$)/.test(rest)) return this.projectFocus(method, rest, body, query);
     if (rest === '/measure/closed-cards' && method === 'GET')
       return ok(this.closedCardsMeasure(Number(query.get('days') ?? DEFAULT_CLOSED_CARDS_DAYS)));
 
@@ -2921,10 +2923,15 @@ export class MockBackend {
       const sessionError = this.sessionErrors.get(session.id);
       if (sessionError) return error(409, sessionError, 'The engine is not connected');
       const task = session.workItem.type === 'task' ? this.findTask(session.workItem.taskKey) : undefined;
+      const window = chatWindow(this.chats[session.id] ?? [], {
+        limit: Number(query.get('limit') ?? SESSION_CHAT_WINDOW),
+        before: query.get('before') ?? undefined,
+      });
       return ok({
         session: clone(session),
-        chat: clone(this.chats[session.id] ?? []),
+        chat: clone(window.items),
         task: task ? clone(task) : null,
+        ...(window.truncated ? { truncated: true } : {}),
       });
     }
     if ((m = /^\/sessions\/([\w-]+)\/messages$/.exec(rest)) && method === 'POST')
@@ -3179,16 +3186,28 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.sweepIntegratorTodos(nowIso());
+      // Like the server: open items by default and never cut off; any other state is a history, the newest N.
+      const wanted = query.get('state') ?? 'open';
+      const limit = Number(query.get('limit')) || (wanted === 'open' || wanted === 'active' ? Infinity : 500);
+      const inState = (item: InboxItem) =>
+        wanted === 'all' ||
+        (wanted === 'closed'
+          ? ['resolved', 'expired', 'cancelled'].includes(item.state)
+          : wanted === 'active'
+            ? ['open', 'screening'].includes(item.state)
+            : item.state === wanted);
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
         items: clone(
           this.inbox
             .filter(
               (item) =>
+                inState(item) &&
                 canSeeInboxItem(this.taskViewer(), item) &&
                 (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)) &&
                 (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
             )
+            .slice(-limit)
             .map((item) => visibleQuestionItem(this.taskViewer(), item, (key) => !!this.findTask(key))),
         ),
       });
@@ -6585,111 +6604,6 @@ export class MockBackend {
     else if (rest === '/pause/force') this.pauses.force('project');
     else this.pauses.pauseProject();
     return ok(this.pauses.projectView());
-  }
-
-  /**
-   * The project's focus routes (PM-427): every member reads it (a client too, PM-79), whoever the shared rule
-   * allows sets it. A write replaces the list, records `focus_changed` (a move has no card) and tells the open pages.
-   */
-  private projectFocus(method: string, rest: string, body: unknown, query: URLSearchParams): MockResponse {
-    if (!this.findMember(this.viewerHandle)) return error(403, 'insufficient_access', 'Members only');
-    const view = () => ({ items: clone(this.focusItems), canEdit: this.mayEditFocus() });
-    if (rest === '/focus' && method === 'GET') {
-      if (this.focusLoadFails) return error(500, 'internal_error', 'The focus could not be read');
-      return ok(view());
-    }
-    if (rest === '/focus/changes' && method === 'GET') {
-      const limit = Number(query.get('limit') ?? 50);
-      const events = this.timeline.filter((event) => event.type === 'focus_changed').reverse();
-      return ok({ events: clone(events.slice(0, limit)) });
-    }
-    const refusal = projectFocusRefusal(this.config, this.viewerActor());
-    if (refusal) return error(403, refusal, 'The viewer may not set the focus');
-    if (this.focusSaveError) {
-      const { status, code } = this.focusSaveError;
-      return error(status, code, 'The focus could not be saved');
-    }
-    const item = /^\/focus\/items\/([^/]+)$/.exec(rest);
-    if (rest === '/focus/items' && method === 'POST') {
-      const input = parseBody(ProjectFocusAddRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid focus request');
-      const task = this.findTask(input.key);
-      if (!task) return error(404, 'not_found', 'Unknown task');
-      if (!isOpenTask(task)) return error(409, 'focus_task_closed', 'A closed card cannot be in the focus');
-      if (this.focusItems.some((existing) => existing.key === input.key))
-        return error(409, 'focus_item_exists', 'Already in the focus');
-      if (this.focusItems.length >= PROJECT_FOCUS_MAX_ITEMS)
-        return error(409, 'focus_full', 'The focus is full');
-      const place = Math.min(
-        Math.max(input.position ?? this.focusItems.length + 1, 1),
-        this.focusItems.length + 1,
-      );
-      this.focusItems.splice(place - 1, 0, {
-        key: input.key,
-        addedAt: nowIso(),
-        addedBy: this.viewerActor(),
-      });
-      this.addTimeline(input.key, this.viewerHandle, 'focus_changed', {
-        action: 'added',
-        key: input.key,
-        title: task.title,
-        position: place,
-        previous: null,
-      });
-      this.focusChanged();
-      return ok(view());
-    }
-    if (item && method === 'PATCH') {
-      const input = parseBody(ProjectFocusMoveRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid focus request');
-      const key = item[1]!;
-      const from = this.focusItems.findIndex((existing) => existing.key === key);
-      if (from < 0) return error(404, 'focus_item_unknown', 'Not in the focus');
-      const place = Math.min(Math.max(input.position, 1), this.focusItems.length);
-      if (place !== from + 1) {
-        const [moved] = this.focusItems.splice(from, 1);
-        this.focusItems.splice(place - 1, 0, moved!);
-        this.addTimeline(null, this.viewerHandle, 'focus_changed', {
-          action: 'moved',
-          key,
-          title: this.findTask(key)?.title ?? key,
-          position: place,
-          previous: from + 1,
-        });
-        this.focusChanged();
-      }
-      return ok(view());
-    }
-    if (item && method === 'DELETE') {
-      const key = item[1]!;
-      const from = this.focusItems.findIndex((existing) => existing.key === key);
-      if (from < 0) return error(404, 'focus_item_unknown', 'Not in the focus');
-      this.focusItems.splice(from, 1);
-      this.addTimeline(key, this.viewerHandle, 'focus_changed', {
-        action: 'removed',
-        key,
-        title: this.findTask(key)?.title ?? key,
-        position: null,
-        previous: from + 1,
-      });
-      this.focusChanged();
-      return ok(view());
-    }
-    return error(404, 'not_found', 'Unknown focus route');
-  }
-
-  /** Whether the viewer may set the project's focus (the shared rule). */
-  private mayEditFocus(): boolean {
-    return projectFocusRefusal(this.config, this.viewerActor()) === null;
-  }
-
-  /** Tells the open pages that the focus list changed. */
-  private focusChanged(): void {
-    this.emit({
-      type: 'project_focus_changed',
-      projectKey: fixtures.PROJECT_KEY,
-      focus: { items: clone(this.focusItems) },
-    });
   }
 
   /** The instance's pause routes: the host owner changes it, with or without a project membership. */

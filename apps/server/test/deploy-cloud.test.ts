@@ -5,8 +5,10 @@ import {
   globSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -48,6 +50,10 @@ const withoutComments = (source: string) =>
     .filter((line) => !line.trimStart().startsWith('#'))
     .join('\n');
 
+/** The node flags of the fatal-error report and the near-limit heap snapshot (PM-1105). */
+const diagnosticArgs = (home: string) =>
+  `--report-on-fatalerror --report-directory=${home}/diagnostics --heapsnapshot-near-heap-limit=1 --diagnostic-dir=${home}/diagnostics`;
+
 describe('cloud backup and restore with fake storage tools', () => {
   let temp: string;
   let home: string;
@@ -68,6 +74,7 @@ describe('cloud backup and restore with fake storage tools', () => {
     'db.sqlite-wal',
     'db.sqlite-shm',
     'logs/server.log',
+    'diagnostics/near-limit.heapsnapshot',
     'providers/login.json',
     'engine.key',
     'engine.json',
@@ -210,6 +217,15 @@ else if (tool === 'node') {
   });
   afterEach(() => rmSync(temp, { recursive: true, force: true }));
 
+  it('forgets old snapshots on every backup and prunes at most once a week', () => {
+    expect(run('backup').status).toBe(0);
+    expect(run('backup').status).toBe(0);
+    const resticCalls = calls().filter((line) => line.startsWith('restic '));
+    expect(resticCalls.filter((line) => line.startsWith('restic forget')).length).toBe(2);
+    expect(resticCalls.some((line) => line.includes('--prune'))).toBe(false);
+    expect(resticCalls.filter((line) => line === 'restic prune').length).toBe(1);
+  });
+
   it('restores every durable file with matching SQLite references, without engine credentials or a second writer', () => {
     expect(run('backup').status).toBe(0);
     const scratch = join(temp, 'rehearsal');
@@ -290,6 +306,42 @@ else if (tool === 'node') {
       ]);
     },
   );
+
+  it('with PROJECTMAN_HEAP_SNAPSHOT=1 writes a fatal-error report and one heap snapshot into <home>/diagnostics, keeping only the newest earlier snapshot (PM-1105)', () => {
+    expect(run('backup').status).toBe(0);
+    const dir = join(temp, 'fresh', 'diagnostics');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'old.heapsnapshot'), 'x');
+    utimesSync(join(dir, 'old.heapsnapshot'), new Date(1_000_000_000_000), new Date(1_000_000_000_000));
+    writeFileSync(join(dir, 'new.heapsnapshot'), 'x');
+    writeFileSync(join(dir, 'report.json'), '{}');
+    run('serve', join(temp, 'fresh'), { PROJECTMAN_HEAP_SNAPSHOT: '1' });
+    expect(calls().filter((call) => call.startsWith('node '))).toEqual([
+      `node ${diagnosticArgs(join(temp, 'fresh'))} ${app}/apps/server/dist/index.js`,
+    ]);
+    expect(readdirSync(dir).sort()).toEqual(['new.heapsnapshot', 'report.json']);
+  });
+
+  it.each([undefined, '0'])(
+    'writes no diagnostics and touches none when PROJECTMAN_HEAP_SNAPSHOT is %j (PM-1105)',
+    (value) => {
+      expect(run('backup').status).toBe(0);
+      run('serve', join(temp, 'fresh'), value === undefined ? {} : { PROJECTMAN_HEAP_SNAPSHOT: value });
+      expect(calls().filter((call) => call.startsWith('node '))).toEqual([
+        `node ${app}/apps/server/dist/index.js`,
+      ]);
+      expect(existsSync(join(temp, 'fresh', 'diagnostics'))).toBe(false);
+    },
+  );
+
+  it('refuses an unknown PROJECTMAN_HEAP_SNAPSHOT before starting anything (PM-1105)', () => {
+    expect(run('backup').status).toBe(0);
+    const before = calls().length;
+    const result = run('serve', join(temp, 'fresh'), { PROJECTMAN_HEAP_SNAPSHOT: 'yes' });
+    expect(result.status).toBe(64);
+    expect(result.stderr).toContain('invalid PROJECTMAN_HEAP_SNAPSHOT');
+    expect(calls()).toHaveLength(before);
+  });
 
   it.each(['127', '4097', '99999', 'abc', '1e3', '-256', '256.5', '256 ', ' 256', '0'])(
     'refuses PROJECTMAN_HEAP_LIMIT_MB=%j before starting anything (PM-775)',

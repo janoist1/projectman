@@ -18,6 +18,7 @@ import {
   serverLogFile,
   startMemoryLog,
 } from './logging';
+import { statementCount } from './db';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './runtime/usage';
 import { createAppTagReader, resolveAppVersion, EngineConfigError } from './engine-link';
@@ -60,7 +61,7 @@ import { createSesEmailSender, parseEmailChannelEnv, scrubEmailChannelEnv } from
  *   PROJECTMAN_SHUTDOWN_PAUSE_MS (60000): how long stopping the server (SIGTERM, SIGINT) lets the
  *   sessions come to a safe point before it closes (PM-219); 0 turns the pause off. The service unit's
  *   TimeoutStopSec must exceed it by about 20 seconds.
- *   PROJECTMAN_HISTORY_SEMANTIC (on) and PROJECTMAN_HISTORY_MODEL_DIR (beside the bundle, or
+ *   PROJECTMAN_HISTORY_SEMANTIC (on; off in cloud mode) and PROJECTMAN_HISTORY_MODEL_DIR (beside the bundle, or
  *   apps/server/models/history): the local embedding of the history search (PM-767); `off`, or a missing
  *   model, leaves the word search alone.
  *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
@@ -295,18 +296,23 @@ async function configFromEnv(
       feedbackPublicUrl,
       feedbackWidgetFile: join(installDir, 'apps', 'feedback-widget', 'dist', 'widget.js'),
       shutdownPauseMs,
-      historySemantic: parseHistorySemantic(env),
+      historySemantic: parseHistorySemantic(env, engineMode),
     },
   };
 }
 
 /**
- * `PROJECTMAN_HISTORY_SEMANTIC` (on) and `PROJECTMAN_HISTORY_MODEL_DIR` (PM-767): the local embedding of the history.
- * `off` switches it off; otherwise it is on, and a build without the pinned model (beside the bundle in a build, in
- * `apps/server/models/history` from source) searches by the words and logs the search as `unavailable`.
+ * `PROJECTMAN_HISTORY_SEMANTIC` (on; off in cloud mode, PM-1105) and `PROJECTMAN_HISTORY_MODEL_DIR` (PM-767): the
+ * local embedding of the history. `off` switches it off; otherwise it is on, and a build without the pinned model
+ * (beside the bundle in a build, in `apps/server/models/history` from source) searches by the words and logs the
+ * search as `unavailable`. The cloud's heap and memory are sized without the worker's model, so there it starts
+ * only when the variable says `on` (docs/HYBRID.md "History semantic profile").
  */
-function parseHistorySemantic(env: NodeJS.ProcessEnv): { enabled: boolean; modelDirectory: string } {
-  const flag = env.PROJECTMAN_HISTORY_SEMANTIC || 'on';
+export function parseHistorySemantic(
+  env: NodeJS.ProcessEnv,
+  mode: RunMode,
+): { enabled: boolean; modelDirectory: string } {
+  const flag = env.PROJECTMAN_HISTORY_SEMANTIC || (mode === 'cloud' ? 'off' : 'on');
   if (flag !== 'on' && flag !== 'off')
     throw new Error(`invalid PROJECTMAN_HISTORY_SEMANTIC: ${flag} (on or off)`);
   const candidates = env.PROJECTMAN_HISTORY_MODEL_DIR
@@ -472,6 +478,7 @@ export async function main(options: MainOptions = {}): Promise<void> {
     stopMemoryLog = startMemoryLog({
       intervalS: config.memoryLogSeconds,
       log: (fields) => app.log.info(fields, 'memory'),
+      statements: statementCount,
     });
   app.log.info({ home: config.app.home, webApp: config.app.webDistDir !== null }, 'projectman server ready');
   await options.afterStart?.({ app });

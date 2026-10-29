@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -101,6 +101,24 @@ describe('the arguments of the heavy CLI', () => {
 });
 
 describe('the heavy CLI', () => {
+  it('preserves the child exit status when process-group cleanup is denied', () => {
+    const guard = pathToFileURL(path.join(ROOT, 'scripts/lib/child-guard.mjs')).href;
+    const run = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `process.kill = () => { throw Object.assign(new Error('denied'), { code: 'EPERM' }); };
+         process.argv = [process.execPath, 'guard', process.execPath, '-e', 'process.exit(7)'];
+         await import(${JSON.stringify(guard)});`,
+      ],
+      { encoding: 'utf8', timeout: 5_000 },
+    );
+    expect(run.error).toBeUndefined();
+    expect(run.status).toBe(7);
+    expect(run.stderr).toBe('');
+  });
+
   it("exits with the command's status", async () => {
     expect((await heavy(node('process.exit(0)'))).code).toBe(0);
     expect((await heavy(node('process.exit(3)'))).code).toBe(3);

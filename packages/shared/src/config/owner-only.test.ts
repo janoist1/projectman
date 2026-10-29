@@ -301,4 +301,11 @@ describe('ownerOnlyChanges', () => {
       'machine_access',
     );
   });
+
+  it('requires an owner to change who may open a new card (PM-1100)', () => {
+    expect(changed((c) => void (c.team.taskCreateAccess = 'client'))).toContain('task_create_access');
+  });
+  it('leaves restating the default new card access to an admin', () => {
+    expect(changed((c) => void (c.team.taskCreateAccess = 'developer'))).toEqual([]);
+  });
 });

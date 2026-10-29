@@ -1,4 +1,11 @@
-import { complexityText, isCardLink, isTheme, QUESTION_SCREENING_MINUTES } from '@projectman/shared';
+import {
+  complexityText,
+  DEFAULT_AGENT_PROVIDER,
+  isCardLink,
+  isTheme,
+  modelForProvider,
+  QUESTION_SCREENING_MINUTES,
+} from '@projectman/shared';
 import type {
   Attachment,
   MemberView,
@@ -18,7 +25,6 @@ import {
   describeRepo,
   describeTaskWait,
   describeTheme,
-  focusPlaceText,
   themeCardLines,
   themeProgressText,
   themeState,
@@ -49,7 +55,6 @@ import type {
   ProjectStateReport,
   MessageStateReport,
   WakeStart,
-  ReleaseCheckResult,
   ReleaseStateReport,
 } from '../contracts';
 import { MESSAGE_IMAGE_MAX_SIDE } from '../contracts';
@@ -229,17 +234,6 @@ function releaseLines(release: ReleaseStateReport | null): string[] {
   ];
 }
 
-/** check_release: either the refusal propose_release would give, or the candidate; nothing was recorded. */
-export function formatReleaseCheck(check: ReleaseCheckResult): string {
-  const proposers = check.proposers.join(', ') || 'none';
-  if (check.refusal)
-    return `Release check: would be refused — ${check.refusal.code}: ${check.refusal.message}. Proposers (deployment duty): ${proposers}. Nothing was recorded.`;
-  const candidate = check.candidate;
-  if (!candidate) return 'Release check: no result. Nothing was recorded.';
-  const cards = candidate.tasks.map((task) => `${task.key} ${oneLine(task.title, 120)}`).join('; ');
-  return `Release check passed: commit ${candidate.commit}, base ${candidate.baseCommit ?? 'unknown'}, ${candidate.tasks.length} cards (${cards}); proposers: ${proposers}. Nothing was recorded.`;
-}
-
 function signalLine(signal: OperatorSignal): string {
   const explanations: Record<OperatorSignal['kind'], string> = {
     structural_pattern:
@@ -282,9 +276,14 @@ export function formatMembers(members: MemberView[], self: string): string {
     const specialty = m.specialtyLabels?.length
       ? `; automatic assignment requires a label: ${m.specialtyLabels.join(', ')}`
       : '';
+    // Developers: the largest card they take and the model they run on, so a named assignee can be checked.
+    const limit =
+      m.complexityLimit !== undefined
+        ? `; complexity limit: ${m.complexityLimit} points; model: ${m.provider ?? DEFAULT_AGENT_PROVIDER}/${modelForProvider(m.provider ?? DEFAULT_AGENT_PROVIDER, m.model)}`
+        : '';
     const status = m.activity ? `${m.status}: ${oneLine(m.activity, 80)}` : m.status;
     const tasks = m.currentTaskKeys.length > 0 ? ` · tasks: ${m.currentTaskKeys.join(', ')}` : '';
-    return `- ${who} — ${m.displayName} · ${role}${specialty} · ${status}${tasks}`;
+    return `- ${who} — ${m.displayName} · ${role}${limit}${specialty} · ${status}${tasks}`;
   });
   return [`Team (${members.length} members, address them by handle):`, ...lines].join('\n');
 }
@@ -396,7 +395,6 @@ export function formatTaskDetail(
       : taskStatusLine(task),
     ...(!theme ? [`Repo: ${repo} · Priority: ${task.priority ?? 'none'}`] : []),
     ...(detail.wait ? [`Waiting: ${describeTaskWait(detail.wait)}`] : []),
-    ...(detail.focus ? [`Focus: ${focusPlaceText(detail.focus)}`] : []),
     ...(task.complexity ? [`Complexity: ${complexityText(task.complexity)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,

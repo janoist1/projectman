@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { deployDocsUrl } from '@projectman/shared';
 import type { CreateEngineResponse, EngineView } from '@projectman/shared';
 import { useCreateEngine, useRevokeEngine, useServerVersion } from '../../api/queries';
 import { Button, ButtonLink } from '../../components/Button';
@@ -11,7 +12,6 @@ import { errorCode, errorMessage } from '../../lib/errors';
 import { CopyRow } from '../engines/CopyRow';
 import { EngineModeSwitch } from '../engines/EngineModeSwitch';
 import {
-  DEPLOY_DOCS_URL,
   ENGINE_APP_SHIM_PATH,
   LINK_HEADERS_FILE,
   LINK_HEADERS_SAMPLE,
@@ -53,7 +53,7 @@ export function assistantInstruction(
       download:
         download.state === 'ready'
           ? download.url
-          : t('ownerOnboarding.guide.assistantDownloadDocs', { url: DEPLOY_DOCS_URL }),
+          : t('ownerOnboarding.guide.assistantDownloadDocs', { url: deployDocsUrl() }),
     });
   }
   return t('ownerOnboarding.guide.assistantInstruction', {
@@ -90,7 +90,7 @@ function AppDownloadStep({ download }: { download: EngineAppDownload }) {
       {none ? (
         <p className={styles.hint}>
           {t('ownerOnboarding.guide.appNoReleaseBody')}{' '}
-          <a href={DEPLOY_DOCS_URL} target="_blank" rel="noreferrer">
+          <a href={deployDocsUrl()} target="_blank" rel="noreferrer">
             {t('ownerOnboarding.guide.appNoReleaseLink')}
           </a>
         </p>

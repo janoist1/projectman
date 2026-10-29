@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ProjectChangeEventsResponse,
   decodeProjectEventCursor,
@@ -16,9 +16,11 @@ describe('project change events API (PM-761)', () => {
   let h: AppHarness;
   let cookie: string;
   let now: Date;
+  let expectedErrors: RegExp[];
   beforeEach(async () => {
     now = new Date(AT);
-    h = await createAppHarness({ now: () => now });
+    expectedErrors = [];
+    h = await createAppHarness({ now: () => now, expectedErrors });
     cookie = await setupOwner(h.app);
     await createProject(h, cookie);
   });
@@ -47,21 +49,6 @@ describe('project change events API (PM-761)', () => {
     });
     expect(response.statusCode, response.body).toBe(201);
     return response.json().secret as string;
-  };
-  const waitBeyondRequestAudit = () => {
-    const { domain, repos } = h.app.projectman;
-    const poll = domain.changes.poll.bind(domain.changes);
-    // Explicit keys audit the request before polling. Start beyond that audit to exercise the wait.
-    vi.spyOn(domain.changes, 'poll').mockImplementationOnce((input) =>
-      poll({
-        ...input,
-        after: encodeProjectEventCursor({
-          generation: repos.projectChanges.generation(),
-          projectKey: 'AR',
-          seq: repos.projectChanges.head('AR'),
-        }),
-      }),
-    );
   };
   const appendMany = (count: number, project = 'AR') => {
     const { repos } = h.app.projectman;
@@ -227,6 +214,16 @@ describe('project change events API (PM-761)', () => {
     expect(body).toEqual({ events: [], nextCursor: start.nextCursor });
   });
 
+  it('lets a key wait out an empty project: its own read leaves no audit entry to wake it', async () => {
+    const secret = await readKey();
+    const start = await page('waitMs=0', { bearer: secret });
+    const started = Date.now();
+    const body = await page(`after=${start.nextCursor}&waitMs=400`, { bearer: secret });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(350);
+    expect(body).toEqual({ events: [], nextCursor: start.nextCursor });
+    expect(h.app.projectman.repos.superAudit.list('AR', { limit: 10 }).entries).toEqual([]);
+  });
+
   it('continues from the same cursor after a restart of the server', async () => {
     await createTask('Before');
     const before = await page('waitMs=0');
@@ -248,7 +245,6 @@ describe('project change events API (PM-761)', () => {
   it('answers 401 to a reader whose key is revoked during the wait', async () => {
     const secret = await readKey();
     const start = await page('waitMs=0', { bearer: secret });
-    waitBeyondRequestAudit();
     const waiting = events(`after=${start.nextCursor}&waitMs=10000`, { bearer: secret });
     await sleep(100);
     const revoked = await inject(
@@ -272,7 +268,6 @@ describe('project change events API (PM-761)', () => {
   it('answers 401 to a reader whose key expires during the wait', async () => {
     const secret = await readKey(30);
     const start = await page('waitMs=0', { bearer: secret });
-    waitBeyondRequestAudit();
     const waiting = events(`after=${start.nextCursor}&waitMs=10000`, { bearer: secret });
     await sleep(100);
     now = new Date(now.getTime() + 31 * 24 * 3600 * 1000);
@@ -294,6 +289,7 @@ describe('project change events API (PM-761)', () => {
   });
 
   it('does not hold the shutdown up with a waiting reader', async () => {
+    expectedErrors.push(/^request failed$/);
     const start = await page('waitMs=0');
     const waiting = events(`after=${start.nextCursor}&waitMs=25000`);
     await sleep(100);

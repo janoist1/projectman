@@ -165,8 +165,7 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
   Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.
   Guest conversations cannot call it until a separate task provides a viewer filter.
-  The overview also carries the `release` block (PM-542: the running version, commit and tag, the latest live and the
-  open release, the latest merges into the default branch), the starts that wait without a card (`general`) and the
+  The overview also carries a legacy `release: null` block, the starts that wait without a card (`general`) and the
   undelivered team messages per AI member.
 - `prioritize_merge { task_key, reason }` (PM-576) puts the card's queued merge at the front of its repository's
   merge queue. The card's merger and the Operator (in an owner's open request, logged as the step `task_update`)
@@ -184,16 +183,12 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   the request time; `limit` is 1–100 (30). A check shows only when the caller may see all its cards. A check recorded
   without a step report (an older engine or merge-test script) shows its steps as unknown, never as zero. `get_task`
   adds the card's latest three checks. Handler method: `listMergeChecks(ctx, input)`.
-- `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
-  not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
-  candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the
-  deployment duty who may propose it. It records nothing; the Operator never proposes a release itself.
 - `publish_release { summary, repo?, commit?, tag?, preview? }` (PM-968) is the deployment duty holder's tool: it tags
   a merged merge commit (default: the head of the default branch; `tag` default `vYYYY.M.D`, `.N` suffix on a taken
   day) with an annotated tag and makes the public GitHub release, whose notes are the summary and the cards merged since
   the previous publication. It runs on request only, with no owner approval. `preview: true` writes nothing. A repeat
   call finishes an interrupted publication; a commit that is published already, a taken tag, a repository without
-  `github` and a caller without the duty are refused (`release_*` codes). `propose_release` and `cloud deploy` are
+  `github` and a caller without the duty are refused (`release_*` codes). `cloud deploy` is
   unchanged. Handler method: `publishRelease(ctx, args)`.
 - `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
   (PM-495) are Operator tools for the decision log and the roadmap: the first reads the file at the fresh head of
@@ -221,7 +216,8 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   the handler refuses the rest with `machine_access_required`, a guest conversation with `operator_owner_only`.
   The owners get it when the integrator is not available (the result says so). A project manager's card with
   an open or handed-over obligation is refused with `obligation_tracked`. `ask_human` with
-  `recipient: integrator` from a member without machine access goes to the owners (`no_machine_access`).
+  `recipient: integrator` reaches the integrator when the screening member has machine access (the asker's
+  does not matter); a screening member without it sends the todo to the owners (`no_machine_access`).
   Returns text. Handler: `openIntegratorTodo`.
 - `reassign_task { task_key, assignee | null, reason }` and `cancel_task { task_key, reason }` (PM-1040) let only
   the selected PM's internal general session change a card's assignee or close it, with no owner request and
@@ -334,7 +330,7 @@ Results are short plain text (a roster, a task card with the last 20 timeline ev
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)                                                                                  |
 | handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>`; Operator refusals name their domain code, e.g. `operator_only`, in the message |
-| handler does not settle within 60 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
+| handler does not settle within 45 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
 | any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)                                                                                    |
 
 ## What the handler (domain) should do
@@ -371,7 +367,7 @@ createMcpModule({ handler, resolveContext, logger: app.log }).registerRoutes(app
   own JSON body parser (the raw text goes to the SDK), so the app's parser settings do not
   affect `/mcp`.
 - App-wide `onRequest` hooks such as the login-cookie check must let `/mcp/` through.
-- Optional `toolTimeoutMs` (default 60 000) overrides the timeout, e.g. in tests.
+- Optional `toolTimeoutMs` (default 45 000) overrides the timeout, e.g. in tests.
 
 ## Tests
 

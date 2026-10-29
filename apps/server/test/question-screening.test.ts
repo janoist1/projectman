@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { QUESTION_SCREENING_MINUTES, questionPayloadOf, routes } from '@projectman/shared';
-import type { ProjectConfig, ScreenedQuestionsResponse, Session } from '@projectman/shared';
+import { memberOf, QUESTION_SCREENING_MINUTES, questionPayloadOf, routes } from '@projectman/shared';
+import type { AiMemberConfig, ProjectConfig, ScreenedQuestionsResponse, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { conflict, DomainError } from '../src/kernel';
@@ -835,5 +835,156 @@ describe('GET /api/projects/:key/inbox/screened (PM-558)', () => {
 
     const none = await get(cookie, `?since=${encodeURIComponent('2999-01-01T00:00:00.000Z')}`);
     expect((none.json() as ScreenedQuestionsResponse).today).toBe(0);
+  });
+});
+
+/** A todo the screening makes for an integrator that no integrator can take goes to the technical decider (PM-1139). */
+describe('a machine step no integrator can take goes to the technical decider', () => {
+  let h: DomainHarness;
+  let dev: ToolContext;
+  let devSession: string;
+
+  async function start(opts: { lead: boolean; integratorAvailable: boolean; pmMachineAccess: boolean }) {
+    h = await createDomainHarness({
+      screenQuestions: true,
+      now: () => new Date(START),
+      integratorTodoAccess: { available: () => opts.integratorAvailable },
+      adjust: (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm')!;
+        if (pm.kind === 'ai') {
+          pm.onLeave = false;
+          pm.machineAccess = opts.pmMachineAccess;
+        }
+        if (opts.lead)
+          config.team.members.push({
+            ...(memberOf(config, 'cr') as AiMemberConfig),
+            handle: 'lead',
+            displayName: 'Lead',
+            role: 'lead_developer',
+          });
+      },
+    });
+    await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+    const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+    devSession = started.session!.id;
+    dev = { sessionId: devSession, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+    await settle();
+  }
+  afterEach(async () => {
+    await h.domain.stop();
+    await h.cleanup();
+  });
+
+  const step = {
+    what: 'Install the CLI',
+    where: 'Build machine',
+    expected: 'The version prints',
+    recipient: 'integrator' as const,
+  };
+  const item = (id: string) => h.domain.inbox.get('AR', id);
+  const sessionsOf = (member: string) => h.domain.sessions.list('AR', { member });
+  const typedInto = (sessionId: string) => [
+    ...h.runner.started.filter((s) => s.sessionId === sessionId).map((s) => s.initialMessage ?? ''),
+    ...h.runner.messages.filter((m) => m.sessionId === sessionId).map((m) => m.text),
+  ];
+  const humanQueue = () => h.domain.inbox.list('AR', { state: 'open', kind: 'question' });
+  const operatorTool = (): ToolContext => ({
+    projectKey: 'AR',
+    member: 'pm',
+    sessionId: sessionsOf('pm')[0]!.id,
+    taskKey: null,
+  });
+  async function ask() {
+    const result = await h.domain.teamTools.askHuman(dev, { question: 'Install the CLI?' });
+    await settle();
+    return result.inboxItemId;
+  }
+  const screenTodo = (itemId: string) =>
+    h.domain.teamTools.screenQuestion(operatorTool(), {
+      itemId,
+      outcome: 'todo',
+      todo: step,
+      note: 'A machine step.',
+    });
+
+  it.each([
+    { cause: 'integrator_unavailable', integratorAvailable: false, pmMachineAccess: true },
+    { cause: 'no_machine_access', integratorAvailable: true, pmMachineAccess: false },
+  ])(
+    'forwards the todo to the lead with no owner todo ($cause)',
+    async ({ cause, integratorAvailable, pmMachineAccess }) => {
+      await start({ lead: true, integratorAvailable, pmMachineAccess });
+      const id = await ask();
+      h.runner.setState(devSession, 'idle');
+      const before = typedInto(devSession).length;
+
+      const result = await screenTodo(id);
+      await settle();
+
+      expect(result).toMatchObject({ forwardedTo: 'lead', recipientRefusal: cause });
+      expect(result).not.toHaveProperty('recipient');
+      expect(item(id)).toMatchObject({
+        state: 'resolved',
+        resolution: { by: 'pm', rule: 'operator_forwarded' },
+      });
+      expect(item(id).payload).toMatchObject({ recipient: 'owner' });
+      expect(item(id).payload).not.toHaveProperty('integratorOpenedAt');
+      expect(questionPayloadOf(item(id))?.screening).toMatchObject({
+        outcome: 'todo',
+        forwardedTo: 'lead',
+        recipientRefusal: cause,
+        todo: { recipient: 'integrator' },
+      });
+      expect(humanQueue()).toEqual([]);
+      const event = h.domain.timeline
+        .list('AR', { taskKey: 'AR-1' })
+        .find((e) => e.type === 'question_screened');
+      expect(event?.data).toMatchObject({ outcome: 'todo', forwardedTo: 'lead', recipientRefusal: cause });
+      expect(event?.data).not.toHaveProperty('recipient');
+
+      // The lead is woken with the step and decides; the asker is told, and is not pointed back at the owners.
+      const woken = typedInto(sessionsOf('lead')[0]!.id).join('\n');
+      expect(woken).toContain('Install the CLI');
+      expect(woken).toContain('Build machine');
+      const told = typedInto(devSession).slice(before).join('\n');
+      expect(told).toContain('went to `lead`');
+      expect(told).not.toContain('reask_of');
+    },
+  );
+
+  it('opens an owner todo with the refusal when there is no technical decider', async () => {
+    await start({ lead: false, integratorAvailable: false, pmMachineAccess: true });
+    const id = await ask();
+
+    const result = await screenTodo(id);
+
+    expect(result).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
+    expect(result).not.toHaveProperty('forwardedTo');
+    expect(item(id).state).toBe('open');
+    expect(humanQueue().map((i) => i.id)).toEqual([id]);
+  });
+
+  it('opens an owner todo when the asker is the decider itself', async () => {
+    await start({ lead: true, integratorAvailable: false, pmMachineAccess: true });
+    await ask();
+    const own = h.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'question',
+      source: 'lead',
+      assignees: ['owner'],
+      title: 'Install the CLI?',
+      state: 'screening',
+      payload: {
+        question: 'Install the CLI?',
+        requestedRecipient: 'integrator',
+        screening: { until: START.toISOString() },
+      },
+      options: [],
+    });
+
+    const result = await screenTodo(own.id);
+
+    expect(result).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
+    expect(item(own.id).state).toBe('open');
   });
 });

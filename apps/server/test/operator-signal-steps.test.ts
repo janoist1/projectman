@@ -32,12 +32,11 @@ const open = (kind: OperatorSignalKind) =>
 
 async function setup(
   level: OperatorWatch | undefined,
-  opts: { adjust?: (config: ProjectConfig) => void; target?: boolean; appVersion?: string } = {},
+  opts: { adjust?: (config: ProjectConfig) => void; appVersion?: string } = {},
 ) {
   now = new Date('2026-10-12T10:00:00Z');
   h = await createDomainHarness({
     now: () => now,
-    ...(opts.target ? { releaseTarget: { projectKey: 'AR', repo: 'web' } } : {}),
     ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
     adjust: (config) => {
       const pm = config.team.members.find((m) => m.handle === 'pm')!;
@@ -372,56 +371,6 @@ describe('level drive', () => {
     expect(result.recipient.handle).toBe('pm-2');
     expect(roundSteps()).toMatchObject([
       { action: 'task_start', taskKey: null, member: 'pm-2', status: 'done', signalId: signal.id },
-    ]);
-  });
-
-  it('starts the deployment duty for work merged but not released', async () => {
-    const sha = (n: number) => n.toString(16).padStart(40, '0');
-    await setup('drive', {
-      target: true,
-      appVersion: sha(1),
-      adjust: (config) => {
-        const developer = config.team.members.find((m) => m.handle === 'dev-2')!;
-        config.team.members.push({
-          ...developer,
-          handle: 'ops',
-          displayName: 'Ops',
-          role: 'devops',
-        } as typeof developer);
-      },
-    });
-    for (const [index, at] of [
-      [1, '2026-10-01T00:00:00.000Z'],
-      [2, '2026-10-02T00:00:00.000Z'],
-    ] as const)
-      h.repos.taskMerges.save(
-        mergeRow(`AR-${index}`, {
-          id: `mrg_${index}`,
-          state: 'merged',
-          startedBy: 'dev-1',
-          startedAt: at,
-          mergeCommit: sha(index),
-          finishedAt: at,
-        }),
-      );
-    await h.domain.operatorSignals.sweep('AR');
-    await flush();
-    const signal = open('unreleased')[0]!;
-    await expect(
-      h.domain.teamTools.startMember(await operator(), {
-        member: 'dev-1',
-        text: 'Release.',
-        signalId: signal.id,
-      }),
-    ).rejects.toThrow('operator_no_request');
-    const result = await h.domain.teamTools.startMember(await operator(), {
-      member: 'ops',
-      text: 'Merged work is not live.',
-      signalId: signal.id,
-    });
-    expect(result.recipient.handle).toBe('ops');
-    expect(roundSteps()).toMatchObject([
-      { action: 'task_start', taskKey: null, member: 'ops', status: 'done', signalId: signal.id },
     ]);
   });
 });

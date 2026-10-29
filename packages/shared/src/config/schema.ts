@@ -371,7 +371,16 @@ export const ReviewTestConfig = z.object({
 });
 export type ReviewTestConfig = z.infer<typeof ReviewTestConfig>;
 
+/** Repository-specific heavy-check conventions shown in member prompts (PM-1112). */
+export const HeavyChecks = z.object({
+  commands: z.array(z.string().trim().min(1).max(100)).min(1).max(10),
+  unavailableExit: z.number().int().min(1).max(255).optional(),
+  ptySkipped: z.array(z.string().trim().min(1).max(200)).max(10).optional(),
+});
+export type HeavyChecks = z.infer<typeof HeavyChecks>;
+
 export const RepoConfig = z.object({
+  heavyChecks: HeavyChecks.optional(),
   /** Short name used in task.repo, e.g. "locked". */
   name: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
   /** Path relative to the workspace root ("." for the root itself). */
@@ -445,6 +454,11 @@ export const ProjectConfig = z.object({
     prioritySetters: PrioritySetters.optional(),
     /** Duties whose holders may set complexity points; absent: `DEFAULT_COMPLEXITY_SETTERS`. */
     complexitySetters: ComplexitySetters.optional(),
+    /**
+     * Whether an AI member's explicit assignee has to fit the card's complexity limit and specialty
+     * (PM-1136): `automatic` (absent) keeps today's behaviour; `automatic_and_ai` refuses a misfit.
+     */
+    assigneeFit: z.enum(['automatic', 'automatic_and_ai']).optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),

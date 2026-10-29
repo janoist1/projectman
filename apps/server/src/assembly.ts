@@ -29,20 +29,17 @@ import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
 import {
   SUPER_OWNER_YES,
-  createAdministrationExecutor,
   createOperateExecutor,
   createCommandExecutor,
-  createAdministrationSettler,
   createOperatorAppCredentials,
   createOperatorAppOperations,
   createOperatorAppSessions,
-  createSuperAdministration,
+  createSuperOperations,
   createSuperDiagnostics,
   createSuperHandoffService,
   createSuperOperator,
-  createSuperRights,
 } from './services/super-operator';
-import type { OperatorAppOperations, SuperAdministration } from './services/super-operator';
+import type { OperatorAppOperations, SuperOperations } from './services/super-operator';
 import { createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -67,21 +64,11 @@ import {
   TaskMerged,
 } from '@projectman/shared';
 import path from 'node:path';
-import type {
-  Actor,
-  EngineId,
-  HybridReleaseTarget,
-  Me,
-  ProjectConfig,
-  ReleaseEngineStatus,
-  Session,
-  Task,
-} from '@projectman/shared';
+import type { Actor, EngineId, Me, ProjectConfig, Session, Task } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { InvitationAccounts } from './core/members';
 import type { EngineCounters } from './runtime/sessions';
 import type {
-  AdministrationPort,
   AttachmentStorage,
   ConfigStore,
   ContextPackBuilder,
@@ -114,7 +101,8 @@ import {
   Admission,
   DeferredStarts,
   StartQueue,
-  FocusPull,
+  UsageWake,
+  UrgentPull,
   StartRound,
   MessageStarts,
   queueItemWaiting,
@@ -147,7 +135,6 @@ import { createDomainContext, defaultTemplateRegistry, isoNow } from './core/bas
 import type { DomainContext, TemplateRegistry } from './core/base';
 import { createEventBus } from './core/base';
 import { GithubSync } from './services/github';
-import { InboxService } from './core/inbox';
 import { OperatorActions, OperatorApprovals } from './services/operator';
 import { FixLimitWatch } from './runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from './services/full-tests';
@@ -156,20 +143,14 @@ import { DecisionCandidates, DocWrites } from './services/project-docs';
 import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
 import { createPermissionBroker, engineIdOf, fullTestSandbox, StartHolds } from './runtime/sessions';
-import {
-  ReleaseDeployments,
-  ReleasePublishService,
-  ReleaseService,
-  ReleaseWorkGate,
-} from './services/releases';
-import type { ReleaseTarget } from './services/releases';
+import { ReleasePublishService } from './services/releases';
 import { LoopWatch } from './runtime/watchers';
 import { HumanQuestions, OpenQuestionLabel } from './core/inbox';
 import { ApprovalQuestions } from './core/inbox';
 import { QuestionClosing } from './core/inbox';
 import { InvitationService, OwnerInvitationService } from './core/members';
-import { MemberProfiles, MemberService } from './core/members';
-import { MessageService, Messaging, RelationNotices } from './core/messages';
+import { MemberProfiles } from './core/members';
+import { MessageService, RelationNotices } from './core/messages';
 import { MemberQueue } from './core/member-queue';
 import { MessageDelivery, MessageRouter, SessionMessages } from './runtime/delivery';
 import {
@@ -196,14 +177,11 @@ import { createMachineProbe } from './machine';
 import { checklistEngineHolds, createNewProjectEngines, LocalEngineDirectory } from './runtime/sessions';
 import type { EngineRegistry } from './runtime/sessions';
 import { createCheckBranchGit, createLocalEngine } from './engine-host';
-import { createAdministrationService } from './administration';
-import type { EngineAdministration } from './administration';
 import { conflict, forbidden, notFound } from './kernel';
 import { SessionCloser } from './runtime/sessions';
 import { SessionOrchestrator } from './runtime/sessions';
 import { AutoAdvance, LeftParts, wireCardAdvance } from './runtime/watchers';
-import { CollectingCloser, PrerequisiteClosures, TaskService, TaskWaits } from './core/tasks';
-import { TimelineService } from './core/timeline';
+import { CollectingCloser, PrerequisiteClosures, TaskWaits } from './core/tasks';
 import { InvolvementService } from './core/tasks';
 import {
   FeedbackNotices,
@@ -213,7 +191,6 @@ import {
   SystemFeedbackContext,
   SystemFeedbackService,
 } from './services/feedback';
-import { ProjectFocusService } from './core/tasks';
 import { AgentQuestions } from './core/inbox';
 import { InputStallAlerts } from './runtime/watchers';
 import { UsageAlerts } from './runtime/usage';
@@ -221,7 +198,7 @@ import { DiskGuard } from './runtime/watchers';
 import { WorkOutages } from './runtime/watchers';
 import { WorktreeSweep } from './runtime/watchers';
 import { CardMeasure } from './core/tasks';
-import { attributedActor, humanActor, SYSTEM_ACTOR } from './kernel';
+import { attributedActor, humanActor } from './kernel';
 import { SYSTEM_SENDER, isSessionAtWork, questionPayloadOf } from '@projectman/shared';
 import { DomainError } from './kernel';
 import { ObligationsService } from './services/obligations';
@@ -246,20 +223,8 @@ export interface DomainOptions {
   webPushTransport?: PushTransport;
   integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
   revokeIntegratorAccessKey?: (userId: string, keyId: string) => unknown;
-  /** The owner's grant every machine operation passes (PM-881); absent: no machine operation runs. */
-  operatorGrants?: import('./contracts').OperatorGrantGate;
   integratorTodoAccess?: IntegratorTodoAccess;
   nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
-  /**
-   * The project and repository that are this instance itself (PM-491): its releases are proposed,
-   * approved and deployed. Absent: releases are off (`release_not_configured`).
-   */
-  releaseTarget?: ReleaseTarget;
-  /**
-   * The hybrid release (PM-752): the remote engine and the target the instance releases to, and the cloud
-   * registry's view of the engines. Absent: the single-target release only.
-   */
-  releaseHybrid?: { binding: HybridReleaseTarget; engines: () => ReleaseEngineStatus[] };
   /** The commit the server was started from (`resolveAppVersion`); a release goes live when it equals its commit. */
   appVersion?: string;
   /** The release tag on the running build's commit (PM-542); absent: none. */
@@ -428,6 +393,8 @@ export interface DomainOptions {
   handoffSweepMs?: number;
   /** How often the member queues are worked through for what an event missed (default 30 s, PM-925). */
   memberQueueSweepMs?: number;
+  /** How long an event's request for a deferred-start retry waits for the others of its burst (default 750 ms). */
+  retryDebounceMs?: number;
   /**
    * Makes what the machine display measures with (PM-320); default: the operating system's
    * (`createMachineProbe`). It gets the pids of the running sessions' CLIs, for the fixed-data probe
@@ -447,17 +414,6 @@ export interface DomainOptions {
    * only a process that carries it can be an orphan of this instance. Absent: none is recognised.
    */
   instanceTag?: string;
-  /**
-   * The protected administration adapter (PM-763): the hub's own supervisor over its Unix socket (null: the
-   * hub has none), the engines' supervisors over their links, and which engine runs a full test or builds an
-   * image. Absent: the domain has no administration (`domain.administration` is null).
-   */
-  administration?: {
-    hub: AdministrationPort | null;
-    engines: EngineAdministration;
-    isEngineOnline(id: EngineId): boolean;
-    builderEngine(): EngineId | null;
-  };
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -734,7 +690,6 @@ export function createDomain(opts: DomainOptions) {
     // `handoffs` is built below; the callback only runs when a card changes its assignee.
     handoff: (input) => handoffs.begin(input),
   });
-  const projectFocus = new ProjectFocusService({ ctx, projects, tasks, timeline });
   const checklist = new ChecklistService({
     ctx,
     projects,
@@ -805,7 +760,6 @@ export function createDomain(opts: DomainOptions) {
     ctx,
     projects,
     tasks,
-    projectFocus,
     members,
     timeline,
     runner: runnerModule.runner,
@@ -838,7 +792,10 @@ export function createDomain(opts: DomainOptions) {
     now,
     background,
     ttlMs: opts.planUsageTtlMs,
-    onFetched: (provider, engineId, value) => sessions.observeProviderUsage(provider, engineId, value),
+    onFetched: (provider, engineId, value) => {
+      sessions.observeProviderUsage(provider, engineId, value);
+      usageWake.observe(provider, engineId, value);
+    },
   });
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, engines });
@@ -864,6 +821,7 @@ export function createDomain(opts: DomainOptions) {
     deferred: deferredStarts,
     disk,
     engines,
+    retryDebounceMs: opts.retryDebounceMs,
   });
   // The Operator's request ends with its turn. Registered before the delivery's idle listener below, so
   // the owner's next message opens a new request after this one closed, not before.
@@ -903,13 +861,7 @@ export function createDomain(opts: DomainOptions) {
         ]
       : [];
   };
-  deferredStarts.useQueueWaits({
-    ofTask: (task) =>
-      ctx.repos.memberQueue
-        .listWaitingOfTask(task.projectKey, task.key)
-        .flatMap((item) => queueWaitOf(item).map((wait) => wait.waiting)),
-    all: () => ctx.repos.memberQueue.listWaiting().flatMap(queueWaitOf),
-  });
+  deferredStarts.useQueueWaits({ all: () => ctx.repos.memberQueue.listWaiting().flatMap(queueWaitOf) });
   const refinement = new RefinementSteps({
     projects,
     tasks,
@@ -999,24 +951,13 @@ export function createDomain(opts: DomainOptions) {
   // The start that waits for the labels an AI member sets runs as a work start, which needs the starts.
   taskStarts.useLabelWait(workStarts);
   taskStarts.useSeniorWait(workStarts);
-  // Free developers take urgent and focus cards ahead of their turn, at the end of every retry round (PM-427).
-  admission.usePull(
-    new FocusPull({
-      ctx,
-      projects,
-      tasks,
-      focus: projectFocus,
-      admission,
-      seniorWaits,
-      starts: workStarts,
-    }),
-  );
+  // Free developers take urgent cards ahead of their turn, at the end of every retry round (PM-436).
+  admission.usePull(new UrgentPull({ ctx, projects, tasks, admission, seniorWaits, starts: workStarts }));
   const taskWaits = new TaskWaits({ ctx, members });
   const startRound = new StartRound({
     ctx,
     projects,
     tasks,
-    focus: projectFocus,
     seniorWaits,
     admission,
     messaging,
@@ -1195,10 +1136,8 @@ export function createDomain(opts: DomainOptions) {
   });
   const reviewWatch = new ReviewWatch({ ctx, projects, tasks, sessions, messaging });
   // The maintenance fence of a hybrid release (PM-752): merges, document writes and test runs start through it.
-  const releaseWork = new ReleaseWorkGate(() => ctx.repos.releaseDeployments.maintenanceHeld());
   // The server's full test of the pinned commit (PM-217) holds the reviewers back until its result is in.
   const fullTests = new FullTestRuns({
-    work: releaseWork,
     runSandbox: fullTestSandbox,
     ctx,
     projects,
@@ -1231,7 +1170,6 @@ export function createDomain(opts: DomainOptions) {
   });
   messageRouter.registerCardHold('full_test', fullTests);
   const merges = new Merges({
-    work: releaseWork,
     cards: mergeCards,
     ctx,
     projects,
@@ -1252,7 +1190,6 @@ export function createDomain(opts: DomainOptions) {
     engines,
     messaging,
     merges,
-    work: releaseWork,
     onPublished: (event) => historyDocuments.mainMoved(event),
     ...(opts.integratorCredentials?.reactivate
       ? {
@@ -1295,52 +1232,17 @@ export function createDomain(opts: DomainOptions) {
   inbox.registerDecider('merge_request', async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, attributedActor(by));
   });
-  const releases = new ReleaseService({
-    ctx,
-    projects,
-    tasks,
-    inbox,
-    timeline,
-    engines,
-    target: opts.releaseTarget ?? null,
-    appVersion: () => opts.appVersion ?? 'dev',
-    appTag: opts.appTag ?? (async () => null),
-    // The instance's own repository is on the machine the server runs on.
-    engineId: () => LOCAL_ENGINE_ID,
-  });
   const releasePublications = new ReleasePublishService({
     ctx,
+    appVersion: () => opts.appVersion ?? 'dev',
+    appTag: opts.appTag ?? (async () => null),
     projects,
     engines,
     github: opts.github,
     // The repository is where the publishing member works.
     engineId: (projectKey, member) => engines.engineFor(projectKey, member) ?? LOCAL_ENGINE_ID,
   });
-  inbox.registerDecider('release', (item, by, optionId, note) => releases.decide(item, by, optionId, note));
-  const releaseDeployments = new ReleaseDeployments({
-    ctx,
-    releases,
-    pause: pauses,
-    work: releaseWork,
-    binding: opts.releaseHybrid?.binding ?? null,
-    engines: opts.releaseHybrid?.engines ?? (() => []),
-    // The fence is down: what the gate held back starts now.
-    onResumed: () => {
-      merges.pump();
-      docWrites.pump();
-      fullTests.pump();
-    },
-  });
-  // The release deployment fence (PM-752) keeps a restart out of a deployment that holds the instance.
-  const administration = opts.administration
-    ? createAdministrationService({
-        ...opts.administration,
-        fence: () => {
-          const held = ctx.repos.releaseDeployments.active();
-          return held ? { releaseId: held.releaseId } : null;
-        },
-      })
-    : null;
+
   // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
   const feedbackNotices = new FeedbackNotices({ ctx, projects, messaging });
   events.on('feedback_needs_processor', (event) => feedbackNotices.needsProcessor(event));
@@ -1389,7 +1291,6 @@ export function createDomain(opts: DomainOptions) {
   const screenshotRuns =
     opts.engines || engines.ids().some((id) => engines.get(id)?.screenshotExecutor)
       ? new ScreenshotRuns({
-          work: releaseWork,
           outputTail,
           executorFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.screenshotExecutor,
           platformFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.platform,
@@ -1471,7 +1372,6 @@ export function createDomain(opts: DomainOptions) {
     wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
     taskWaits,
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
-    releases,
     inbox,
     startWaitingOf: (task) => tasks.startWaitingOf(task),
     startAttempting: (task) => tasks.startAttempting(task),
@@ -1588,7 +1488,6 @@ export function createDomain(opts: DomainOptions) {
     deferred: deferredStarts,
     taskWaits,
     operatorSignals,
-    releases,
     requests: operatorRequests,
     diagnostics: {
       checks(projectKey, taskKey) {
@@ -1682,7 +1581,7 @@ export function createDomain(opts: DomainOptions) {
     openQuestionLabel,
   });
   // The in-app Operator's super-operation path (PM-888) is composed below, after the tools that use it.
-  let superPath: { operations: OperatorAppOperations; administration: SuperAdministration } | null = null;
+  let superPath: { operations: OperatorAppOperations; direct: SuperOperations } | null = null;
   const hostRequests = createHostRequestsService({
     ctx,
     host: () => opts.accounts.hostOwner(),
@@ -1730,7 +1629,7 @@ export function createDomain(opts: DomainOptions) {
         },
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
-      releases: new ReleaseTools({ calls: toolCaller, releases, publications: releasePublications }),
+      releases: new ReleaseTools({ calls: toolCaller, publications: releasePublications }),
       tasks: new TaskTools({
         calls: toolCaller,
         ctx,
@@ -1739,7 +1638,6 @@ export function createDomain(opts: DomainOptions) {
         attachments,
         sessions,
         cardQuestions,
-        projectFocus,
         taskWaits,
         closer: sessionCloser,
       }),
@@ -1810,13 +1708,17 @@ export function createDomain(opts: DomainOptions) {
   });
 
   // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
-  if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.sweep({ respectPause: true }));
-  const retryDeferredStarts = () => {
-    background.run(
-      () => admission.retryDeferred(),
-      (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
-    );
-  };
+  if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.retryWaiting());
+  const retryDeferredStarts = () => admission.requestRetry();
+  const usageWake = new UsageWake({
+    projects,
+    ctx,
+    engines,
+    background,
+    driver: memberQueueDriver,
+    retry: retryDeferredStarts,
+    standby: opts.standby,
+  });
   const outages = new WorkOutages({
     ctx,
     projects,
@@ -1911,6 +1813,14 @@ export function createDomain(opts: DomainOptions) {
     if (change.previous?.team.limits.aiEnabled === false && change.next.team.limits.aiEnabled)
       retryDeferredStarts();
   });
+  // The pause threshold rose (or was lifted): what the plan usage held back is measured against it again.
+  events.on('config_changed', (change) =>
+    usageWake.configChanged(
+      change.projectKey,
+      change.previous?.team.limits.pauseAbovePlanUsagePercent,
+      change.next.team.limits.pauseAbovePlanUsagePercent,
+    ),
+  );
   // A member called back from leave: the starts and messages that waited for it continue.
   events.on('config_changed', (change) => {
     const { previous, next } = change;
@@ -1981,16 +1891,6 @@ export function createDomain(opts: DomainOptions) {
     credentials: appCredentials.authority,
   });
   superOperator.useMutationAuthorizer(superHandoffs.authorizer);
-  // The super mode's administration (PM-764): reads, direct operations and the filtered diagnostics, all bound to
-  // the project and to an engine linked to it. The executor re-checks the integrator's rights right before it
-  // starts anything, and the settler only reads what the supervisor recorded.
-  const engineLinked = (projectKey: string, engineId: EngineId): boolean => {
-    if (engines.get(engineId)?.workspacePath(projectKey)) return true;
-    const config = projects.cachedConfig(projectKey);
-    return !!config?.team.members.some(
-      (member) => member.kind === 'ai' && engines.engineFor(projectKey, member.handle) === engineId,
-    );
-  };
   const commandDeps = {
     inbox,
     tasks,
@@ -2024,48 +1924,16 @@ export function createDomain(opts: DomainOptions) {
     'operate',
     createOperateExecutor({ ...commandDeps, messaging, pauses, sessions }),
   );
-  // Without a gate no machine operation runs: the fallback refuses like a missing grant.
-  const operatorGrants: import('./contracts').OperatorGrantGate = opts.operatorGrants ?? {
-    active: () => null,
-    assertActive: () => {
-      throw forbidden('operator_grant_inactive', 'the Operator has no active grant for machine operations');
-    },
-  };
-  const superRights = createSuperRights({
-    credentials: appCredentials.authority,
-    config: (key) => projects.config(key),
-  });
-  if (administration) {
-    const administrationDeps = {
-      ctx,
-      grants: operatorGrants,
-      administration,
-      rights: superRights,
-      projects,
-      timeline,
-      engineLinked,
-      builderEngine: () => opts.administration?.builderEngine() ?? null,
-      release: (releaseId: string) => releases.getForControl(releaseId),
-    };
-    superHandoffs.registerExecutor('administration', createAdministrationExecutor(administrationDeps));
-    superHandoffs.registerSettler('administration', createAdministrationSettler(administrationDeps));
-  }
-  const superAdministration = createSuperAdministration({
-    handoffs: superHandoffs,
-    administration,
-    grants: operatorGrants,
-    rights: superRights,
-    diagnostics: createSuperDiagnostics({ ctx }),
-    engineLinked,
-  });
+  const superDiagnostics = createSuperDiagnostics({ ctx });
+  const superOperations = createSuperOperations({ handoffs: superHandoffs, diagnostics: superDiagnostics });
   const appOperations = createOperatorAppOperations({
     ctx,
     credentials: appCredentials,
     superOperator,
-    superAdministration,
+    superOperations,
     projects,
   });
-  superPath = { operations: appOperations, administration: superAdministration };
+  superPath = { operations: appOperations, direct: superOperations };
   superHandoffs.registerAppResume(appOperations.resume);
   inbox.registerSuperOperationAnswer(superHandoffs.ownerAnswer);
   // The owner's yes on an in-app Operator's operation: the Operator's turn may be over, so the server goes on
@@ -2223,9 +2091,8 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_cancelled', () => {
     retryDeferredStarts();
   });
-  // Urgent and focus cards start first and are pulled into development (PM-427): a change of the focus, an
-  // urgent card, or a card that became ready for development starts a round at once.
-  projectFocus.onChange(() => retryDeferredStarts());
+  // Urgent cards start first and are pulled into development (PM-436): an urgent card, or a card that
+  // became ready for development starts a round at once.
   events.on('task_priority_changed', ({ task }) => {
     if (task.priority === 'urgent') retryDeferredStarts();
   });
@@ -2353,7 +2220,6 @@ export function createDomain(opts: DomainOptions) {
 
   let sweeps: RunningSweeps | undefined;
   let stopMessageSweep: (() => void) | undefined;
-  let superHandoffSweep: ReturnType<typeof setInterval> | undefined;
 
   /** What the engine's settings view counts (PM-315): its sessions and what waits for it. */
   const engineCounters = (id: EngineId): EngineCounters => ({
@@ -2371,7 +2237,7 @@ export function createDomain(opts: DomainOptions) {
     hostRequests,
     superOperator,
     superHandoffs,
-    superAdministration,
+    superOperations,
     operatorKnowledge: opts.operatorKnowledge,
     operatorPreferences,
     sharedOperatorKnowledge,
@@ -2397,7 +2263,6 @@ export function createDomain(opts: DomainOptions) {
     templates,
     timeline,
     involvements,
-    projectFocus,
     projects,
     inbox,
     runnerModule,
@@ -2440,10 +2305,7 @@ export function createDomain(opts: DomainOptions) {
     merges,
     docWrites,
     decisionCandidates,
-    releases,
     releasePublications,
-    releaseDeployments,
-    administration,
     loopWatch,
     questionScreening,
     seniorWaits,
@@ -2487,7 +2349,7 @@ export function createDomain(opts: DomainOptions) {
       inbox.expireOpenPermissions();
       // What was running for the integrator when the server stopped may have had its effect: marked unknown, never re-run.
       superHandoffs.reconcile();
-      // A detached administration job (a test, a build) goes on in its supervisor: its recorded result settles it.
+      // Settle any operation kind with a registered asynchronous result reader.
       await superHandoffs.settleOpen().catch((error: unknown) => {
         opts.logger.warn({ err: error }, 'settling the detached super operations failed');
       });
@@ -2505,18 +2367,6 @@ export function createDomain(opts: DomainOptions) {
       }
       // Uploads no message took within a day are deleted (now, and hourly).
       stopMessageSweep = messageAttachments.startSweeping();
-      // The owner's questions about super operations that lapsed unanswered are settled every minute.
-      superHandoffSweep = setInterval(() => {
-        try {
-          superHandoffs.sweep();
-        } catch (err) {
-          opts.logger.warn({ err }, 'sweeping the super-mode handoffs failed');
-        }
-        void superHandoffs.settleOpen().catch((err: unknown) => {
-          opts.logger.warn({ err }, 'settling the detached super operations failed');
-        });
-      }, 60_000);
-      superHandoffSweep.unref();
       emailChannel.start();
       emailQueue?.start();
       githubSync.start();
@@ -2547,151 +2397,168 @@ export function createDomain(opts: DomainOptions) {
         () => autoAdvance.sweep(),
         (err) => opts.logger.warn({ err }, 'automatic stage advance sweep failed'),
       );
-      sweeps = startSweeps([
-        {
-          name: 'collecting-close',
-          everyMs: 15 * 60_000,
-          atStart: true,
-          run: () => collectingCloser.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'collecting card sweep failed'),
-        },
-        {
-          name: 'web-push',
-          everyMs: 60000,
-          run: () => webPush.sweep(),
-          onError: () => opts.logger.warn('web push sweep failed'),
-        },
-        {
-          name: 'handoffs',
-          everyMs: opts.handoffSweepMs ?? 15_000,
-          run: () => handoffs.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'handoff sweep failed'),
-        },
-        // ... and refused hand-overs and message wake-ups retry once admission allows them.
-        {
-          name: 'deferred-starts',
-          everyMs: opts.handOffRetryMs ?? 30_000,
-          run: () => admission.retryDeferred(),
-          onError: (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
-        },
-        // Whatever an event missed (a hold lifted, a limit gone, a lost wake-up) is picked up from the queues.
-        {
-          name: 'member-queue',
-          everyMs: opts.memberQueueSweepMs ?? 30_000,
-          atStart: true,
-          run: () => memberQueueDriver.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'member queue sweep failed'),
-        },
-        {
-          name: 'outages',
-          everyMs: opts.outageCheckMs ?? 30_000,
-          atStart: true,
-          run: () => outages.check(),
-          onError: (err) => opts.logger.warn({ err }, 'outage check failed'),
-        },
-        {
-          name: 'delegations',
-          everyMs: 1000,
-          run: () => inbox.sweepDelegations(),
-          onError: () => opts.logger.warn('delegation deadline sweep failed'),
-        },
-        // The branch of a task in review must stay at the commit handed over (PM-183).
-        {
-          name: 'review-watch',
-          everyMs: opts.reviewWatchMs ?? 30_000,
-          run: async () => {
-            await reviewWatch.check();
-            // A pin that has no run yet (the server stopped between the move and the queueing) gets one.
-            await fullTests.syncAll();
+      sweeps = startSweeps(
+        [
+          // The owner's questions about super operations that lapsed unanswered are settled every minute.
+          {
+            name: 'super-handoffs',
+            everyMs: 60_000,
+            run: async () => {
+              try {
+                superHandoffs.sweep();
+              } catch (err) {
+                opts.logger.warn({ err }, 'sweeping the super-mode handoffs failed');
+              }
+              await superHandoffs.settleOpen();
+            },
+            onError: (err) => opts.logger.warn({ err }, 'settling the detached super operations failed'),
           },
-          onError: (err) => opts.logger.warn({ err }, 'review commit check failed'),
-        },
-        // A loop on a card ends when its branch got a commit or nobody wrote for a whole window (PM-261).
-        {
-          name: 'loop-watch',
-          everyMs: opts.loopWatchMs ?? 60_000,
-          atStart: true,
-          run: () => loopWatch.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'loop watch sweep failed'),
-        },
-        {
-          name: 'operator-signals',
-          everyMs: opts.operatorSignalMs ?? 60_000,
-          run: () => operatorSignals.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
-        },
-        {
-          name: 'operator-approvals',
-          everyMs: 60_000,
-          atStart: true,
-          run: async () => operatorApprovals.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
-        },
-        // Without an owner's live super key nobody connected works the integrator todos and held decisions:
-        // they go to the owners (PM-1045). No timeout otherwise.
-        {
-          name: 'integrator-todos',
-          everyMs: 30_000,
-          atStart: true,
-          run: () => inbox.sweepIntegratorTodos(),
-          onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
-        },
-        // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
-        // people (PM-558). A question that waited through a restart is looked at now.
-        {
-          name: 'question-screening',
-          everyMs: opts.questionScreeningMs ?? 30_000,
-          atStart: true,
-          run: () => questionScreening.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
-        },
-        // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
-        {
-          name: 'senior-waits',
-          everyMs: opts.seniorWaitMs ?? 60_000,
-          run: async () => seniorWaits.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
-        },
-        // An open step of an AI member past its deadline: one reminder, then an integrator todo (PM-806).
-        {
-          name: 'obligations',
-          everyMs: opts.obligationSweepMs ?? 60_000,
-          atStart: true,
-          run: () => obligations.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'obligation sweep failed'),
-        },
-        // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
-        {
-          name: 'disk',
-          everyMs: opts.diskCheckMs ?? 60_000,
-          atStart: true,
-          run: () => disk.check(),
-          onError: (err) => opts.logger.warn({ err }, 'free disk space check failed'),
-        },
-        // The worktrees of closed cards (PM-243): at startup and then every few hours.
-        {
-          name: 'worktrees',
-          everyMs: opts.worktreeSweepMs ?? 6 * 60 * 60_000,
-          atStart: true,
-          run: async () => {
-            await worktreeSweep.run();
+          {
+            name: 'collecting-close',
+            everyMs: 15 * 60_000,
+            atStart: true,
+            run: () => collectingCloser.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'collecting card sweep failed'),
           },
-          onError: (err) => opts.logger.warn({ err }, 'worktree sweep failed'),
-        },
-        // Sessions that sat idle for a quarter of an hour close (PM-295).
-        {
-          name: 'idle-close',
-          everyMs: opts.idleCloseSweepMs ?? 60_000,
-          run: () => sessionCloser.sweep(),
-          onError: (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
-        },
-        {
-          name: 'live-sessions',
-          everyMs: opts.liveSessionSweepMs ?? 60_000,
-          run: () => sessions.sweepLive(),
-          onError: (err) => opts.logger.warn({ err }, 'live session sweep failed'),
-        },
-      ]);
+          {
+            name: 'web-push',
+            everyMs: 60000,
+            run: () => webPush.sweep(),
+            onError: () => opts.logger.warn('web push sweep failed'),
+          },
+          {
+            name: 'handoffs',
+            everyMs: opts.handoffSweepMs ?? 15_000,
+            run: () => handoffs.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'handoff sweep failed'),
+          },
+          // ... and refused hand-overs and message wake-ups retry once admission allows them.
+          {
+            name: 'deferred-starts',
+            everyMs: opts.handOffRetryMs ?? 30_000,
+            run: () => admission.retryDeferred(),
+            onError: (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
+          },
+          // Whatever an event missed (a hold lifted, a limit gone, a lost wake-up) is picked up from the queues.
+          {
+            name: 'member-queue',
+            everyMs: opts.memberQueueSweepMs ?? 30_000,
+            atStart: true,
+            run: () => memberQueueDriver.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'member queue sweep failed'),
+          },
+          {
+            name: 'outages',
+            everyMs: opts.outageCheckMs ?? 30_000,
+            atStart: true,
+            run: () => outages.check(),
+            onError: (err) => opts.logger.warn({ err }, 'outage check failed'),
+          },
+          {
+            name: 'delegations',
+            everyMs: 1000,
+            run: () => inbox.sweepDelegations(),
+            onError: () => opts.logger.warn('delegation deadline sweep failed'),
+          },
+          // The branch of a task in review must stay at the commit handed over (PM-183).
+          {
+            name: 'review-watch',
+            everyMs: opts.reviewWatchMs ?? 30_000,
+            run: async () => {
+              await reviewWatch.check();
+              // A pin that has no run yet (the server stopped between the move and the queueing) gets one.
+              await fullTests.syncAll();
+            },
+            onError: (err) => opts.logger.warn({ err }, 'review commit check failed'),
+          },
+          // A loop on a card ends when its branch got a commit or nobody wrote for a whole window (PM-261).
+          {
+            name: 'loop-watch',
+            everyMs: opts.loopWatchMs ?? 60_000,
+            atStart: true,
+            run: () => loopWatch.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'loop watch sweep failed'),
+          },
+          {
+            name: 'operator-signals',
+            everyMs: opts.operatorSignalMs ?? 60_000,
+            run: () => operatorSignals.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
+          },
+          {
+            name: 'operator-approvals',
+            everyMs: 60_000,
+            atStart: true,
+            run: async () => operatorApprovals.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'operator approval sweep failed'),
+          },
+          // Without an owner's live super key nobody connected works the integrator todos and held decisions:
+          // they go to the owners (PM-1045). No timeout otherwise.
+          {
+            name: 'integrator-todos',
+            everyMs: 30_000,
+            atStart: true,
+            run: () => inbox.sweepIntegratorTodos(),
+            onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
+          },
+          // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
+          // people (PM-558). A question that waited through a restart is looked at now.
+          {
+            name: 'question-screening',
+            everyMs: opts.questionScreeningMs ?? 30_000,
+            atStart: true,
+            run: () => questionScreening.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
+          },
+          // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
+          {
+            name: 'senior-waits',
+            everyMs: opts.seniorWaitMs ?? 60_000,
+            run: async () => seniorWaits.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
+          },
+          // An open step of an AI member past its deadline: one reminder, then an integrator todo (PM-806).
+          {
+            name: 'obligations',
+            everyMs: opts.obligationSweepMs ?? 60_000,
+            atStart: true,
+            run: () => obligations.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'obligation sweep failed'),
+          },
+          // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
+          {
+            name: 'disk',
+            everyMs: opts.diskCheckMs ?? 60_000,
+            atStart: true,
+            run: () => disk.check(),
+            onError: (err) => opts.logger.warn({ err }, 'free disk space check failed'),
+          },
+          // The worktrees of closed cards (PM-243): at startup and then every few hours.
+          {
+            name: 'worktrees',
+            everyMs: opts.worktreeSweepMs ?? 6 * 60 * 60_000,
+            atStart: true,
+            run: async () => {
+              await worktreeSweep.run();
+            },
+            onError: (err) => opts.logger.warn({ err }, 'worktree sweep failed'),
+          },
+          // Sessions that sat idle for a quarter of an hour close (PM-295).
+          {
+            name: 'idle-close',
+            everyMs: opts.idleCloseSweepMs ?? 60_000,
+            run: () => sessionCloser.sweep(),
+            onError: (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
+          },
+          {
+            name: 'live-sessions',
+            everyMs: opts.liveSessionSweepMs ?? 60_000,
+            run: () => sessions.sweepLive(),
+            onError: (err) => opts.logger.warn({ err }, 'live session sweep failed'),
+          },
+        ],
+        { onSlow: (name, ms) => opts.logger.warn({ sweep: name, ms }, 'periodic sweep round was slow') },
+      );
     },
 
     async stop(): Promise<void> {
@@ -2700,6 +2567,8 @@ export function createDomain(opts: DomainOptions) {
       // No sweep ticks from here on; running rounds end with the background work (PM-613).
       const sweepsStopped = sweeps?.stop();
       sweeps = undefined;
+      // No debounced retry fires from here on; a round that runs is waited for below.
+      const retriesStopped = admission.dispose();
       ctx.journal.stop();
       unsubscribeJournalWake();
       unsubscribeOutageKeys?.();
@@ -2707,7 +2576,6 @@ export function createDomain(opts: DomainOptions) {
       unsubscribeSignalActivity();
       usage.stop();
       stopMessageSweep?.();
-      if (superHandoffSweep) clearInterval(superHandoffSweep);
       emailChannel.stop();
       await emailQueue?.stop();
       const drained = schedules.stop();
@@ -2721,7 +2589,7 @@ export function createDomain(opts: DomainOptions) {
       await historyDocumentsStopped;
       await history.stop();
       await opts.historySemantic?.stop();
-      await Promise.all([sweepsStopped, background.stop()]);
+      await Promise.all([sweepsStopped, retriesStopped, background.stop()]);
       await delivery.close();
       pauses.dispose();
       sessions.dispose();
@@ -2749,18 +2617,16 @@ export function createDomain(opts: DomainOptions) {
         tasks,
         timeline,
         taskWaits,
-        projectFocus,
         cardQuestions,
         attachments,
         messaging,
         members,
         projectState,
-        releases,
         docWrites,
         humanQuestions,
         structuralReviews,
         superHandoffs,
-        superAdministration,
+        superOperations,
         inbox,
         history,
         operatorKnowledge: opts.operatorKnowledge,

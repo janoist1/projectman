@@ -849,19 +849,22 @@ export class FixLimitWatch {
     if (member?.kind !== 'ai') return;
     try {
       const fixLimit = this.timeline.latest(task.projectKey, task.key, 'task_fix_limit');
+      // The admission lock holds the decision and the start, as for the queue's own starts.
       await this.delivery.startAndDeliver(task.projectKey, handle, workItem, (messages) =>
-        this.admission.start({
-          config,
-          member,
-          workItem,
-          cause: {
-            kind: 'fix_limit',
-            eventId: fixLimit?.id,
-            rounds: fixLimit?.data.rounds as number | undefined,
-            limit: fixLimit?.data.limit as number | undefined,
-          },
-          messages: [...messages, formatInjectedTeamMessage('projectman', text, task.key)],
-        }),
+        this.admission.exclusive('fix-limit-start', () =>
+          this.admission.start({
+            config,
+            member,
+            workItem,
+            cause: {
+              kind: 'fix_limit',
+              eventId: fixLimit?.id,
+              rounds: fixLimit?.data.rounds as number | undefined,
+              limit: fixLimit?.data.limit as number | undefined,
+            },
+            messages: [...messages, formatInjectedTeamMessage('projectman', text, task.key)],
+          }),
+        ),
       );
     } catch (err) {
       this.ctx.logger.info({ err, taskKey: task.key, member: handle }, 'fix limit notice stored for later');

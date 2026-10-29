@@ -1,7 +1,7 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { motorAppDownloadUrl } from '@projectman/shared';
 import { useServerVersion } from '../../api/queries';
 import { readStorage, writeStorage } from '../../lib/hooks';
-import { engineAppDownloadUrl } from './engineView';
 import type { EngineMode } from './engineView';
 
 const STORAGE_KEY = 'engineMode';
@@ -32,6 +32,5 @@ export type EngineAppDownload = { state: 'loading' } | { state: 'none' } | { sta
 export function useEngineAppDownload(): EngineAppDownload {
   const version = useServerVersion(true);
   if (version.isPending) return { state: 'loading' };
-  const url = engineAppDownloadUrl(version.data?.latestRelease?.url);
-  return url ? { state: 'ready', url } : { state: 'none' };
+  return version.data?.latestReleaseTag ? { state: 'ready', url: motorAppDownloadUrl() } : { state: 'none' };
 }

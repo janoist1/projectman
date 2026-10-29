@@ -4,6 +4,8 @@ import type { ClientCommand } from '@projectman/shared';
 /** The subset of the browser WebSocket the client uses (tests provide their own). */
 export interface WebSocketLike {
   readonly readyState: number;
+  /** Bytes queued and not yet sent; a connection that cannot take them is dead or too slow. */
+  readonly bufferedAmount?: number;
   onopen: ((event: Event) => void) | null;
   onmessage: ((event: MessageEvent) => void) | null;
   onclose: ((event: CloseEvent) => void) | null;
@@ -27,6 +29,10 @@ export interface SocketClientOptions {
   /** First retry delay; doubles per attempt up to maxDelayMs (with jitter). */
   baseDelayMs?: number;
   maxDelayMs?: number;
+  /** The connection is dropped after this long without any frame (the server sends one every 30 s). */
+  silenceMs?: number;
+  /** The connection is dropped when more than this many bytes wait to be sent. */
+  maxBufferedBytes?: number;
 }
 
 const OPEN = 1;
@@ -52,6 +58,8 @@ export class SocketClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
   private visible: boolean | null = null;
+  private lastFrameAt = 0;
+  private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly projects = new Map<string, number>();
   private readonly terminals = new Map<string, Set<TerminalListener>>();
   private readonly eventListeners = new Set<(event: ServerEvent) => void>();
@@ -59,7 +67,13 @@ export class SocketClient {
   private readonly reconnectListeners = new Set<() => void>();
 
   constructor(options: SocketClientOptions) {
-    this.options = { baseDelayMs: 500, maxDelayMs: 15_000, ...options };
+    this.options = {
+      baseDelayMs: 500,
+      maxDelayMs: 15_000,
+      silenceMs: 75_000,
+      maxBufferedBytes: 4 * 1024 * 1024,
+      ...options,
+    };
   }
 
   start(): void {
@@ -72,6 +86,7 @@ export class SocketClient {
     this.running = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.clearSilenceTimer();
     const socket = this.socket;
     this.socket = null;
     if (socket) {
@@ -156,9 +171,58 @@ export class SocketClient {
     this.send({ type: 'visibility', visible });
   }
 
+  /**
+   * Drops the connection and reconnects when it has been silent for too long. A hidden tab's timers run late
+   * (or not at all), so the page calls this when it becomes visible again.
+   */
+  checkAlive(): void {
+    if (this.socket?.readyState !== OPEN) return;
+    if (Date.now() - this.lastFrameAt >= this.options.silenceMs) this.drop();
+  }
+
   /** Sends when connected; state (subscriptions, attachments) is replayed on reconnect. */
   send(command: ClientCommand): void {
-    if (this.socket && this.socket.readyState === OPEN) this.socket.send(JSON.stringify(command));
+    const socket = this.socket;
+    if (!socket || socket.readyState !== OPEN) return;
+    if ((socket.bufferedAmount ?? 0) > this.options.maxBufferedBytes) {
+      this.drop();
+      return;
+    }
+    socket.send(JSON.stringify(command));
+  }
+
+  /** Gives up the current connection without waiting for its close handshake (a dead one may never finish it). */
+  private drop(): void {
+    const socket = this.socket;
+    if (!socket) return;
+    this.socket = null;
+    this.clearSilenceTimer();
+    socket.onclose = null;
+    try {
+      socket.close(4000, 'connection lost');
+    } catch {
+      // already closed
+    }
+    this.scheduleReconnect();
+  }
+
+  private clearSilenceTimer(): void {
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.silenceTimer = null;
+  }
+
+  /** Waits out the rest of the silence allowance; a frame only moves `lastFrameAt`, so a busy stream costs no timers. */
+  private armSilenceTimer(): void {
+    this.clearSilenceTimer();
+    const left = this.options.silenceMs - (Date.now() - this.lastFrameAt);
+    this.silenceTimer = setTimeout(
+      () => {
+        this.silenceTimer = null;
+        this.checkAlive();
+        if (this.socket) this.armSilenceTimer();
+      },
+      Math.max(left, 1000),
+    );
   }
 
   private setStatus(status: ConnectionStatus): void {
@@ -181,6 +245,8 @@ export class SocketClient {
       if (this.socket !== socket) return;
       this.attempts = 0;
       this.connections += 1;
+      this.lastFrameAt = Date.now();
+      this.armSilenceTimer();
       this.setStatus('open');
       if (this.visible !== null) this.send({ type: 'visibility', visible: this.visible });
       for (const projectKey of this.projects.keys()) this.send({ type: 'subscribe_project', projectKey });
@@ -189,6 +255,7 @@ export class SocketClient {
     };
     socket.onmessage = (message) => {
       if (this.socket !== socket) return;
+      this.lastFrameAt = Date.now();
       this.handleMessage(message.data);
     };
     socket.onerror = () => {
@@ -197,6 +264,7 @@ export class SocketClient {
     socket.onclose = () => {
       if (this.socket !== socket) return;
       this.socket = null;
+      this.clearSilenceTimer();
       if (this.running) this.scheduleReconnect();
       else this.setStatus('closed');
     };

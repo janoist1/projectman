@@ -85,22 +85,6 @@ function enginePrefix(mode: EngineMode): string {
 /** The shim's path, for the assistant to check that the app has installed it. */
 export const ENGINE_APP_SHIM_PATH = '~/Library/Application Support/projectman/engine/bin/projectman-engine';
 
-/** Where the install steps are described, for the case that no release has a download yet. */
-export const DEPLOY_DOCS_URL = 'https://github.com/janoist1/projectman/blob/main/docs/DEPLOY.md';
-
-/** The asset every release carries, under `releases/latest/download/`. */
-const ENGINE_APP_DMG = 'projectman-motor.dmg';
-
-/** The motor app's download link, built from the URL of the latest published release; null when it has none. */
-export function engineAppDownloadUrl(releaseUrl: string | null | undefined): string | null {
-  const match = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/releases(\/|$)/.exec(
-    releaseUrl ?? '',
-  );
-  return match
-    ? `https://github.com/${match[1]}/${match[2]}/releases/latest/download/${ENGINE_APP_DMG}`
-    : null;
-}
-
 /** The command that sets the engine up on its machine; the key is asked for there, never put in the command. */
 export function engineCommand(id: string, mode: EngineMode): string {
   return `${enginePrefix(mode)} init --cloud ${window.location.origin} --id ${id}`;

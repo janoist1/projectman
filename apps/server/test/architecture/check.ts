@@ -159,7 +159,10 @@ export function checkDependencies(
         forbidden.add(key);
         if (!excepted.has(key)) edge('layer', from.id, to.id, file.path, target);
       }
-      if (to.sealed && target !== posix.join(to.target, 'index.ts')) {
+      if (
+        to.sealed &&
+        !(to.entries ?? ['index.ts']).some((entry) => target === posix.join(to.target, entry))
+      ) {
         edge('sealed', from.id, to.id, file.path, target);
       }
     }

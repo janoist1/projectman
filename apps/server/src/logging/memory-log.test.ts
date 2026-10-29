@@ -59,10 +59,31 @@ describe('startMemoryLog (PM-775)', () => {
       arrayBuffersMb: 1,
       heapLimitMb: expect.any(Number),
       uptimeS: 60,
+      eventLoopP99Ms: expect.any(Number),
+      statements: 0,
     });
     expect(Number.isInteger(lines[0]!.heapLimitMb)).toBe(true);
     expect(lines[0]!.heapLimitMb).toBeGreaterThan(0);
     expect(lines[1]!.uptimeS).toBe(120);
+    stop();
+  });
+
+  it('logs the statements run since the previous line', () => {
+    let total = 100;
+    const lines: MemoryLogFields[] = [];
+    const stop = startMemoryLog({
+      intervalS: 60,
+      log: (fields) => lines.push(fields),
+      now: () => clock,
+      statements: () => total,
+    });
+
+    total += 40;
+    vi.advanceTimersByTime(60_000);
+    total += 5;
+    vi.advanceTimersByTime(60_000);
+
+    expect(lines.map((line) => line.statements)).toEqual([40, 5]);
     stop();
   });
 

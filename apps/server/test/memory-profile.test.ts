@@ -54,12 +54,12 @@ function copyHome(withMarker = true): string {
 }
 
 describe('image and guide', () => {
-  it('the Dockerfile copies the three tools, and the guide and the inventory name them', () => {
+  it('the image does not carry the three tools, and the guide and the inventory name them', () => {
     const dockerfile = readFileSync(join(cloudDir, 'Dockerfile'), 'utf8');
     const guide = readFileSync(join(root, 'docs/HYBRID.md'), 'utf8');
     const architecture = readFileSync(join(root, 'docs/ARCHITECTURE.md'), 'utf8');
+    expect(dockerfile).not.toMatch(/^COPY .*\.mjs/m);
     for (const name of ['memory-probe.mjs', 'memory-profile.mjs', 'heap-summary.mjs']) {
-      expect(dockerfile).toContain(`deploy/cloud/${name}`);
       expect(guide).toContain(name);
       expect(architecture).toContain(name);
     }
@@ -408,32 +408,93 @@ describe('heap-summary', () => {
           'number',
         ],
         edge_fields: ['type', 'name_or_index', 'to_node'],
+        edge_types: [
+          ['context', 'element', 'property', 'internal', 'hidden', 'shortcut', 'weak'],
+          'string_or_number',
+          'node',
+        ],
       },
-      node_count: 5,
-      edge_count: 2,
+      node_count: 6,
+      edge_count: 6,
     },
   };
   // type, name (index into strings), id, self_size, edge_count, trace_node_id, detachedness
   const nodes = [
-    3, 1, 1, 100, 0, 0, 0, 3, 2, 3, 300, 1, 0, 0, 3, 2, 5, 200, 1, 0, 0, 2, 3, 7, 50, 0, 0, 0, 5, 4, 9, 10, 0,
-    0, 0,
+    [9, 0, 1, 0, 2, 0, 0], // the root
+    [3, 1, 3, 100, 2, 0, 0], // root .holder -> Object
+    [3, 2, 5, 300, 1, 0, 0], // Object [0] -> Widget
+    [3, 2, 7, 200, 0, 0, 0], // Object [1] -> Widget
+    [5, 4, 9, 10, 1, 0, 0], // root .(secret key) -> closure, weak .label -> the first Widget
+    [2, 3, 11, 50, 0, 0, 0], // the first Widget .label -> string
   ];
-  const strings = ['', 'Object', 'Widget', 'hunter2-secret-password', 'handler "quoted" \\ name'];
-  const text = `{"snapshot":${JSON.stringify(layout.snapshot)},\n"nodes":[${nodes.join(',')}],\n"edges":[0,1,2,3,4,5],\n"trace_function_infos":[],\n"trace_tree":[],\n"samples":[],\n"locations":[],\n"strings":${JSON.stringify(strings)}}`;
+  // type, name_or_index, to_node (the node's offset in `nodes`)
+  const edges = [
+    [2, 5, 7],
+    [2, 6, 28],
+    [1, 0, 14],
+    [1, 1, 21],
+    [2, 7, 35],
+    [6, 7, 14],
+  ];
+  const strings = [
+    '',
+    'Object',
+    'Widget',
+    'hunter2-secret-password',
+    'handler "quoted" \\ name',
+    'holder',
+    'secret key with spaces',
+    'label',
+  ];
+  const text = `{"snapshot":${JSON.stringify(layout.snapshot)},\n"nodes":[${nodes.flat().join(',')}],\n"edges":[${edges.flat().join(',')}],\n"trace_function_infos":[],\n"trace_tree":[],\n"samples":[],\n"locations":[],\n"strings":${JSON.stringify(strings)}}`;
 
-  it('counts the live bytes and groups by type and constructor name, whatever the chunking', async () => {
+  it('counts the live bytes, groups by type and constructor name, and names the retainers over strong edges, whatever the chunking', async () => {
     const { createSnapshotSummarizer } = await load('heap-summary.mjs');
+    const toWidget = ['synthetic', '.holder -> object Object'];
     for (const size of [1, 7, 1000]) {
       const summarizer = createSnapshotSummarizer();
       for (let i = 0; i < text.length; i += size) summarizer.feed(text.slice(i, i + size));
       expect(summarizer.finish()).toEqual({
         liveBytes: 660,
-        nodeCount: 5,
+        nodeCount: 6,
         byType: [
           { type: 'object', name: 'Widget', count: 2, selfBytes: 500 },
           { type: 'object', name: 'Object', count: 1, selfBytes: 100 },
           { type: 'string', name: '(value hidden)', count: 1, selfBytes: 50 },
           { type: 'closure', name: 'handler "quoted" \\ name', count: 1, selfBytes: 10 },
+          { type: 'synthetic', name: '', count: 1, selfBytes: 0 },
+        ],
+        // The closure's weak edge does not keep the first Widget: the Object retains both Widgets and the string.
+        retainers: [
+          { type: 'object', name: 'Object', selfBytes: 100, retainedBytes: 650, path: toWidget },
+          {
+            type: 'object',
+            name: 'Widget',
+            selfBytes: 300,
+            retainedBytes: 350,
+            path: [...toWidget, '[0] -> object Widget'],
+          },
+          {
+            type: 'object',
+            name: 'Widget',
+            selfBytes: 200,
+            retainedBytes: 200,
+            path: [...toWidget, '[1] -> object Widget'],
+          },
+          {
+            type: 'string',
+            name: '(value hidden)',
+            selfBytes: 50,
+            retainedBytes: 50,
+            path: [...toWidget, '[0] -> object Widget', '.label -> string (value hidden)'],
+          },
+          {
+            type: 'closure',
+            name: 'handler "quoted" \\ name',
+            selfBytes: 10,
+            retainedBytes: 10,
+            path: ['synthetic', '.(name hidden) -> closure handler "quoted" \\ name'],
+          },
         ],
       });
     }
@@ -445,7 +506,8 @@ describe('heap-summary', () => {
     const result = runNode([summaryPath, file]);
     expect(result.status).toBe(0);
     expect(result.stdout).not.toContain('hunter2');
-    expect(JSON.parse(result.stdout)).toMatchObject({ liveBytes: 660, nodeCount: 5 });
+    expect(result.stdout).not.toContain('secret key');
+    expect(JSON.parse(result.stdout)).toMatchObject({ liveBytes: 660, nodeCount: 6 });
   });
 
   it('refuses a missing argument and a file that is not a snapshot', () => {
@@ -459,16 +521,21 @@ describe('heap-summary', () => {
     expect(runNode([summaryPath, file]).status).toBe(1);
   });
 
-  it('summarises a real snapshot: top 40 groups, no string content', () => {
+  it('summarises a real snapshot: top 40 groups, the retainer of the largest object, no string content', () => {
     const secret = `SNAPSHOT-ONLY-SECRET-${'x'.repeat(40)}`;
     class RetainedWidget {
       readonly label = secret + Math.random();
     }
-    const retained = Array.from({ length: 150_000 }, () => new RetainedWidget());
+    // Held only through a global, so that is the path the summary must name.
+    const holder = globalThis as { heapSummaryHolder?: { widgets: RetainedWidget[] } };
+    holder.heapSummaryHolder = { widgets: Array.from({ length: 150_000 }, () => new RetainedWidget()) };
     const file = join(temp, 'real.heapsnapshot');
-    writeHeapSnapshot(file);
+    try {
+      writeHeapSnapshot(file);
+    } finally {
+      delete holder.heapSummaryHolder;
+    }
     const result = runNode([summaryPath, file]);
-    expect(retained.length).toBe(150_000);
     expect(result.status).toBe(0);
     expect(result.stdout).not.toContain('SNAPSHOT-ONLY-SECRET');
     const summary = JSON.parse(result.stdout);
@@ -482,6 +549,12 @@ describe('heap-summary', () => {
     for (const row of summary.byType) {
       expect(Object.keys(row).sort()).toEqual(['count', 'name', 'selfBytes', 'type']);
     }
+    // PM-1105: the widgets' array is named with the global property that holds it.
+    const widgets = summary.retainers.find(
+      (row: { path: string[] }) => row.path.at(-1) === '.widgets -> object Array',
+    );
+    expect(widgets.path).toContain('.heapSummaryHolder -> object Object');
+    expect(widgets.retainedBytes).toBeGreaterThan(10_000_000);
   });
 });
 

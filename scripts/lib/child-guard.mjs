@@ -28,7 +28,8 @@ function killGroup(signal) {
   try {
     process.kill(-child.pid, signal);
   } catch (err) {
-    if (err.code !== 'ESRCH') throw err;
+    // macOS may deny signaling a group after its leader exits (for example, zombie members).
+    if (err.code !== 'ESRCH' && err.code !== 'EPERM') throw err;
   }
 }
 

@@ -14,9 +14,10 @@ import {
   describeAttachment,
   describeLink,
   describeTheme,
-  focusPlaceText,
   recentTimeline,
   relationLines,
+  BRIEF_TIMELINE_LIMIT,
+  QUIET_TIMELINE_EVENTS,
 } from '../agent-text';
 import type { TextStyle } from '../agent-text';
 import type { ContextPackInput, RelatedSession } from '../contracts';
@@ -35,24 +36,12 @@ import {
 } from './format';
 import type { Situation } from './work-item';
 
-/** Timeline entries shown in the brief (the most recent ones). */
-const TIMELINE_LIMIT = 15;
 /** Attachments listed in the brief; the rest are named by count, to be listed with list_attachments. */
 const ATTACHMENT_LIMIT = 10;
 /** Longer descriptions are cut; the agent reads the rest with get_task. */
 const DESCRIPTION_LIMIT = 12_000;
 /** Maximum length of free text (notes, messages, questions) in a timeline line. */
 const TEXT_LIMIT = 280;
-/** Events that say little about the task itself. */
-const QUIET_EVENTS = new Set<string>([
-  'session_started',
-  'session_ended',
-  'session_permission_changed',
-  'permission_requested',
-  'permission_resolved',
-  'permission_refused',
-  'permission_escalated',
-]);
 
 /**
  * The kick-off brief typed as the first message of a new task session: the task, its
@@ -157,9 +146,6 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   // brief of a card without a theme does not grow (PM-181).
   if (input.theme) sections.push(['## Theme', describeTheme(input.theme, style)].join('\n'));
 
-  // The project's focus (PM-437); left out when it has no open item.
-  if (input.focus) sections.push(focusSection(input.focus));
-
   const related = input.relatedSessions ?? [];
   if (related.length > 0) sections.push(relatedSessionsSection(task.key, related));
 
@@ -171,12 +157,12 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   );
 
   const { lines, total } = recentTimeline(input.timeline, {
-    limit: TIMELINE_LIMIT,
+    limit: BRIEF_TIMELINE_LIMIT,
     textLimit: TEXT_LIMIT,
     style,
-    skip: QUIET_EVENTS,
+    skip: new Set(QUIET_TIMELINE_EVENTS),
   });
-  const omitted = total - lines.length;
+  const omitted = (input.timelineTotal ?? total) - lines.length;
   sections.push(
     [
       '## Recent timeline',
@@ -211,23 +197,6 @@ function refinementSection(input: ContextPackInput, task: Task): string | null {
     'This card is being worked out before development, one step at a time.',
     `- Steps needed: ${needed.length > 0 ? needed.map((id) => `${labelRef(id, labels)} (${task.labels.includes(id) ? 'done' : 'to do'})`).join(', ') : 'none'}`,
     `- On turn: ${onTurn}`,
-  ].join('\n');
-}
-
-/**
- * The project's focus (PM-437): what the team works on now, in order, and where the card stands in it.
- * Only people set it; there is no team tool for it.
- */
-function focusSection(focus: NonNullable<ContextPackInput['focus']>): string {
-  return [
-    '## Project focus',
-    'What the team works on now, in this order. Urgent cards come first even outside it. Only people set it.',
-    ...focus.items.map(
-      (item) => `${item.position}. ${item.key}${item.kind === 'theme' ? ' (theme)' : ''} ${item.title}`,
-    ),
-    focus.place
-      ? `Your card is in the focus: ${focusPlaceText(focus.place)}.`
-      : 'Your card is not in the focus.',
   ].join('\n');
 }
 

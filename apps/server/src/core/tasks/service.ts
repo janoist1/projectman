@@ -49,6 +49,7 @@ import {
   repoOf,
   subtaskParentRefusal,
   timelineNoteExcerpt,
+  workStageOf,
 } from '@projectman/shared';
 import type {
   GateEvaluation,
@@ -85,6 +86,7 @@ import {
 } from '../../kernel';
 import { BoardOrder } from './board-order';
 import { BoardGroupMove } from './group-move';
+import { assertAssigneeFits } from './assignee-fit';
 import { planComplexity } from './complexity';
 import type { ComplexityChange } from './complexity';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
@@ -250,6 +252,16 @@ export class TaskService implements TaskSchedulingReader {
 
   list(projectKey: string): Task[] {
     return this.store.list(projectKey);
+  }
+
+  /** The cards a scheduling query selects, as `get` shows them (why their start waits, their merge). */
+  listQuery(projectKey: string, query: TaskSchedulingQuery): Task[] {
+    return this.store.listQuery(projectKey, query);
+  }
+
+  /** How many cards the project has that are not cancelled, without reading them. */
+  countNotCancelled(projectKey: string): number {
+    return this.ctx.repos.tasks.countNotCancelled(projectKey);
   }
 
   /**
@@ -610,6 +622,12 @@ export class TaskService implements TaskSchedulingReader {
     return task;
   }
 
+  /** The owners released the card to any developer: the same condition as `SeniorWaits.decisionFor` (it needs `decidedBy`). */
+  private anyDecided(task: Task): boolean {
+    const wait = this.ctx.repos.seniorWaits.open(task.projectKey, task.key);
+    return wait?.decision === 'any' && Boolean(wait.decidedBy);
+  }
+
   private inColumn(config: ProjectConfig, task: Task, columnId: string): boolean {
     return boardColumnOf(config.pipeline.stages.find((stage) => stage.id === task.stageId)) === columnId;
   }
@@ -644,8 +662,6 @@ export class TaskService implements TaskSchedulingReader {
         throw themeRefused(task.key, 'have an assignee');
       if (change.repo !== undefined && change.repo !== null)
         throw themeRefused(task.key, 'have a repository');
-      if (change.priority !== undefined && change.priority !== null)
-        throw themeRefused(task.key, 'have a priority');
     }
     // Validate the whole change against the task as it will be.
     const patch: TaskPatch = {};
@@ -735,6 +751,20 @@ export class TaskService implements TaskSchedulingReader {
             target.provider ?? DEFAULT_AGENT_PROVIDER,
             target.handle,
           );
+        // An AI actor's choice has to fit the card's complexity limit and specialty when the project asks (PM-1136).
+        // Outside the work stage (a card in the queue) the work stage is the one the card will start in, so the
+        // assignee kept by `start_task` cannot get round the limit. The stored points and labels count: a change of
+        // them in the same call is not taken into account.
+        const workStage = workStageOf(config, { stageId: change.stageId ?? task.stageId });
+        if (change.assignee !== null && workStage)
+          assertAssigneeFits({
+            config,
+            actor,
+            task: { complexity: task.complexity, labels: task.labels },
+            workStage,
+            member: change.assignee,
+            anyDecided: this.anyDecided(task),
+          });
         patch.assignee = change.assignee;
       }
     }
@@ -1186,14 +1216,10 @@ export class TaskService implements TaskSchedulingReader {
       handoff?: HandoffReason;
     } = {},
   ): Task {
-    let previous: string | null = null;
-    let changed = false;
-    const assigned = this.ctx.unitOfWork(() => {
+    return this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
       if (task.assignee === assignee) return task;
       if (isTheme(task)) throw themeRefused(taskKey, 'have an assignee');
-      previous = task.assignee;
-      changed = true;
       const next = this.store.write(task, { assignee, updatedAt: isoNow(this.ctx) });
       this.timeline.append({
         projectKey,
@@ -1204,11 +1230,13 @@ export class TaskService implements TaskSchedulingReader {
       });
       if (handoff) this.handoff?.({ task: next, previous: task.assignee, actor, reason: handoff });
       this.publish(next);
+      // Told once the change is durable: inside a larger unit of work, after its commit. Only the listeners
+      // that run before the first asynchronous one are done when the outermost unit returns.
+      this.ctx.afterCommit(
+        () => void this.ctx.events.emit('task_assigned', { task: next, previous: task.assignee, actor }),
+      );
       return next;
     });
-    // Only the listeners that run before the first asynchronous one are done when this returns.
-    if (changed) void this.ctx.events.emit('task_assigned', { task: assigned, previous, actor });
-    return assigned;
   }
 
   addLink(

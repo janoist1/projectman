@@ -61,8 +61,8 @@ export const ServerVersionView = z.object({
   commit: z.string().nullable(),
   /** The release tag of that commit; null when it was not released. */
   tag: z.string().nullable(),
-  /** The latest release published on GitHub that the cloud knows of; null when there is none. The motor app's download link comes from it. */
-  latestRelease: z.object({ tag: z.string(), url: z.string() }).nullable().optional(),
+  /** The tag of the latest release published on projectman's own GitHub repository; null when there is none. The motor app's download link shows only with it. */
+  latestReleaseTag: z.string().nullable(),
 });
 export type ServerVersionView = z.infer<typeof ServerVersionView>;
 
@@ -392,42 +392,6 @@ export const IntegratorKeyAuditPage = z.object({
   nextBefore: z.number().int().positive().nullable(),
 });
 export type IntegratorKeyAuditPage = z.infer<typeof IntegratorKeyAuditPage>;
-
-/** How long the owner's grant for machine operations lasts (PM-881); `until_revoked` has no end. */
-export const OPERATOR_GRANT_DURATIONS = ['until_revoked', '12h', '7d'] as const;
-export const OperatorGrantDuration = z.enum(OPERATOR_GRANT_DURATIONS);
-export type OperatorGrantDuration = z.infer<typeof OperatorGrantDuration>;
-export const OperatorGrantState = z.object({
-  active: z.boolean(),
-  grantId: z.string().nullable(),
-  grantedAt: z.string().nullable(),
-  /** The name of the owner who granted it. */
-  grantedBy: z.string().nullable(),
-  /** Null: until revoked, or there is no active grant. */
-  expiresAt: z.string().nullable(),
-  lastUsedAt: z.string().nullable(),
-  /** The viewer is the host owner with their own login. */
-  canManage: z.boolean(),
-});
-export type OperatorGrantState = z.infer<typeof OperatorGrantState>;
-export const OperatorGrantResponse = z.object({ grant: OperatorGrantState });
-export type OperatorGrantResponse = z.infer<typeof OperatorGrantResponse>;
-export const CreateOperatorGrantRequest = z.object({
-  duration: OperatorGrantDuration.default('until_revoked'),
-});
-export type CreateOperatorGrantRequest = z.infer<typeof CreateOperatorGrantRequest>;
-export const OperatorGrantAuditEntry = z.object({
-  grantId: z.string(),
-  action: z.enum(['granted', 'revoked', 'replaced', 'expired']),
-  at: z.string(),
-  expiresAt: z.string().nullable(),
-  /** Who granted or revoked it; for `expired`, who granted it. */
-  by: z.string(),
-});
-export type OperatorGrantAuditEntry = z.infer<typeof OperatorGrantAuditEntry>;
-/** Newest first, at most 100. */
-export const OperatorGrantAuditPage = z.object({ entries: z.array(OperatorGrantAuditEntry) });
-export type OperatorGrantAuditPage = z.infer<typeof OperatorGrantAuditPage>;
 
 export const SetupRequest = z.object({
   name: z.string().min(1),
@@ -1304,8 +1268,14 @@ export const SessionDetail = z.object({
   session: Session,
   chat: z.array(ChatItem),
   task: Task.nullable(),
+  /** Older items exist than the `chat` window holds (PM-1116): load them with `before` the first item's id. */
+  truncated: z.boolean().optional(),
 });
 export type SessionDetail = z.infer<typeof SessionDetail>;
+
+/** The window of a session's chat the page asks for (`?limit=&before=`, PM-1116). */
+export const SESSION_CHAT_WINDOW = 200;
+export const SESSION_CHAT_WINDOW_MAX = 1000;
 
 /**
  * An owner sets a session's own permission settings (PM-170, `PATCH` of the session): the CLI mode
@@ -1563,21 +1533,6 @@ export const OwnerAccountView = z.object({
 export type OwnerAccountView = z.infer<typeof OwnerAccountView>;
 export const OwnerAccountsView = z.object({ accounts: z.array(OwnerAccountView) });
 export type OwnerAccountsView = z.infer<typeof OwnerAccountsView>;
-
-/** Puts a theme or card into the project's focus (PM-427); `position` is 1-based, absent: the end of the list. */
-export const ProjectFocusAddRequest = z.object({
-  key: TaskKey,
-  position: z.number().int().min(1).optional(),
-});
-export type ProjectFocusAddRequest = z.infer<typeof ProjectFocusAddRequest>;
-
-/** Moves a focus item to the 1-based `position`, clamped to the length of the list. */
-export const ProjectFocusMoveRequest = z.object({ position: z.number().int().min(1) });
-export type ProjectFocusMoveRequest = z.infer<typeof ProjectFocusMoveRequest>;
-
-/** The project's `focus_changed` events, newest first. */
-export const ProjectFocusChanges = z.object({ events: z.array(TimelineEvent) });
-export type ProjectFocusChanges = z.infer<typeof ProjectFocusChanges>;
 
 /** An existing account accepts with an empty body and its login cookie. */
 export const AcceptInviteRequest = z.object({

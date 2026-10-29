@@ -30,6 +30,7 @@ import type {
   TaskStartWaiting,
   TimelineEvent,
 } from '@projectman/shared';
+import type { TaskSchedulingQuery } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { mergeState, mergedState } from '../../db';
 import type { DomainContext } from '../base';
@@ -44,6 +45,8 @@ export interface StartWaitingReader {
   waitingFor(task: Task): TaskStartWaiting | undefined;
   /** Whether a deferred start of the task is under a new attempt (its wait is silent meanwhile). */
   attempting(task: Task): boolean;
+  /** Runs a synchronous read of many cards with the waits of the member queue loaded once for all of them. */
+  reading<T>(read: () => T): T;
 }
 
 /** Work that follows a committed unit of work: notifications and listeners. */
@@ -68,6 +71,14 @@ export class TaskStore {
   private readonly readyHold?: (task: Task) => TaskReadyHold | undefined;
   private readonly startOffer?: (task: Task) => TaskStartOffer | undefined;
   private readonly fixLimit: ((task: Task) => TaskFixLimit | undefined) | undefined;
+  /** The rows of the cards being viewed together (`views`); null for a single card, which reads its own. */
+  private reads: {
+    keys: ReadonlySet<string>;
+    images: Map<string, string[]>;
+    covers: ReturnType<DomainContext['repos']['taskCovers']['choicesOf']>;
+    merges: ReturnType<DomainContext['repos']['taskMerges']['ofTasks']>;
+    handOns: ReturnType<DomainContext['repos']['taskHandOns']['ofTasks']>;
+  } | null = null;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -108,22 +119,29 @@ export class TaskStore {
       handOn: ________,
       ...rest
     } = task;
-    const startWaiting = this.startWaitingOf(task);
-    const outage = this.outageOf?.(task);
-    const readyHold = this.readyHold?.(task);
-    const startOffer = this.startOffer?.(task);
+    // A closed card has no work to wait for: only its cover and its merge are read.
+    const open = isOpenTask(task);
+    const startWaiting = open ? this.startWaitingOf(task) : undefined;
+    const outage = open ? this.outageOf?.(task) : undefined;
+    const readyHold = open ? this.readyHold?.(task) : undefined;
+    const startOffer = open ? this.startOffer?.(task) : undefined;
     const reviewPin = this.reviewPin(task);
     const cover = this.cover(task);
     const loop = this.loop(task);
-    const fixLimit = this.fixLimit?.(task);
+    const fixLimit = open ? this.fixLimit?.(task) : undefined;
     const handoffs = this.handoffs(task);
-    const openMerge = this.ctx.repos.taskMerges.open(task.projectKey, task.key);
-    const lastMerge = this.ctx.repos.taskMerges.latestMerged(task.projectKey, task.key);
+    const reads = this.batched(task);
+    const openMerge = reads
+      ? reads.merges.open.get(task.key)
+      : this.ctx.repos.taskMerges.open(task.projectKey, task.key);
+    const lastMerge = reads
+      ? reads.merges.latestMerged.get(task.key)
+      : this.ctx.repos.taskMerges.latestMerged(task.projectKey, task.key);
     const merge = openMerge ? mergeState(openMerge) : undefined;
     const merged = lastMerge ? mergedState(lastMerge) : undefined;
-    const record = this.ctx.repos.taskHandOns.get(task.projectKey, task.key);
+    const record = open ? this.handOnRecord(task) : undefined;
     const handOn =
-      record && isOpenTask(task)
+      record && open
         ? {
             fromStageId: record.fromStageId,
             toStageId: record.toStageId,
@@ -209,10 +227,26 @@ export class TaskStore {
 
   /** The card's cover (PM-195, PM-224): the chosen image, else its first image; none when hidden or without an image. */
   private cover(task: Task): string | null {
+    const reads = this.batched(task);
+    if (reads)
+      return coverAttachmentId(
+        (reads.images.get(task.key) ?? []).map((id) => ({ id, preview: 'image' as const })),
+        reads.covers.get(task.key),
+      );
     return coverAttachmentId(
       this.ctx.repos.attachments.listReady(task.projectKey, task.key),
       this.ctx.repos.taskCovers.get(task.key)?.choice,
     );
+  }
+
+  private handOnRecord(task: Task) {
+    const reads = this.batched(task);
+    return reads ? reads.handOns.get(task.key) : this.ctx.repos.taskHandOns.get(task.projectKey, task.key);
+  }
+
+  /** The rows read together for `task`, while its view is one of many; a card outside that set reads its own. */
+  private batched(task: Task): NonNullable<TaskStore['reads']> | null {
+    return this.reads?.keys.has(task.key) ? this.reads : null;
   }
 
   /** The commit handed over with the task's current stage (PM-183); none once it left that stage. */
@@ -288,8 +322,35 @@ export class TaskStore {
     return this.startWaiting.attempting(task);
   }
 
+  /** Every card of the project, closed ones too. */
   list(projectKey: string): Task[] {
-    return this.ctx.repos.tasks.list(projectKey).map((task) => this.view(task));
+    return this.views(this.ctx.repos.tasks.list(projectKey));
+  }
+
+  /** The cards a scheduling query selects (an open card read, a `list_tasks` page), as `get` shows them. */
+  listQuery(projectKey: string, query: TaskSchedulingQuery): Task[] {
+    return this.views(this.ctx.repos.tasks.readScheduling(projectKey, query));
+  }
+
+  /**
+   * The views of many cards, with the member queue's waits and the rows of the cards' own parts (cover, merge,
+   * hand-on) read once for all of them: the reads do not grow with the cards, closed ones included (PM-1109).
+   */
+  private views(tasks: Task[]): Task[] {
+    const keys = tasks.map((task) => task.key);
+    const { repos } = this.ctx;
+    this.reads = {
+      keys: new Set(keys),
+      images: repos.attachments.readyImagesOf(keys),
+      covers: repos.taskCovers.choicesOf(keys),
+      merges: repos.taskMerges.ofTasks(keys),
+      handOns: repos.taskHandOns.ofTasks(tasks.filter(isOpenTask).map((task) => task.key)),
+    };
+    try {
+      return this.startWaiting.reading(() => tasks.map((task) => this.view(task)));
+    } finally {
+      this.reads = null;
+    }
   }
 
   get(projectKey: string, taskKey: string): Task {

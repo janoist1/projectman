@@ -8,10 +8,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { ProjectConfig } from '@projectman/shared';
 import { getTemplate } from '@projectman/templates';
 import type { MemberWorkspaceKey, MemberWorkspaceManager, WorkspaceDependencyInstaller } from '../contracts';
-import { createMemberWorkspaceManager } from './index';
+import { createMemberWorkspaceManager, createWorktreeManager } from './index';
 import { MemberWorkspaceError } from './member-workspace-manager';
 import { localWorkspaceAccess } from './workspace-access';
 import { createGitSeed } from '../../test/helpers/git-seed';
+import * as gitCommands from './git';
 
 /*
  * Every test copies independent repositories into a temp directory: a bare "remote", the project
@@ -126,6 +127,38 @@ async function startTask(member: string, branch: string): Promise<string> {
 
 // Real git in temp repositories: slower than the default timeout when the whole suite runs.
 describe('member workspaces', { timeout: 30_000 }, () => {
+  it('serializes repository fetches across member workspaces and task worktrees', async () => {
+    await manager.ensure(key('dev'));
+    await manager.ensure(key('reviewer'));
+    const original = gitCommands.git;
+    let active = 0;
+    let peak = 0;
+    const spy = vi.spyOn(gitCommands, 'git').mockImplementation(async (args, options) => {
+      if (args[1] !== projectRepo || args[2] !== 'fetch') return original(args, options);
+      active++;
+      peak = Math.max(peak, active);
+      try {
+        return await original(args, options);
+      } finally {
+        active--;
+      }
+    });
+    try {
+      const worktrees = createWorktreeManager({
+        rootDir: path.join(base, 'legacy-worktrees'),
+        logger: silentLogger(),
+      });
+      const results = await Promise.all([
+        manager.fetchBase(key('dev')),
+        manager.fetchBase(key('reviewer')),
+        worktrees.ensureForTask({ project, repoName: 'app', taskKey: 'AR-99', title: 'Concurrent fetch' }),
+      ]);
+      expect(results[0]).toEqual(results[1]);
+      expect(peak).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
   it('does not install in worker-owned clones or accept an invalid member key', async () => {
     const prepare = vi.fn<WorkspaceDependencyInstaller['prepare']>();
     manager = createMemberWorkspaceManager({
@@ -498,6 +531,52 @@ describe('handing a task commit over (PM-739)', { timeout: 30_000 }, () => {
       () => true,
       () => false,
     );
+
+  it('removes a task snapshot and incoming refs, preserves other refs and permits republishing', async () => {
+    const { commit, branch } = await developed();
+    const source = await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit);
+    const incoming = 'refs/projectman/incoming/dev/AR-4/deadbeef';
+    const other = `${SNAPSHOTS}/dev/AR-5/${commit}`;
+    const foreign = `${SNAPSHOTS}/dev/BR-4/${commit}`;
+    const malformed = `${SNAPSHOTS}/dev/AR-4/unrecognized`;
+    const main = await git('-C', projectRepo, 'rev-parse', 'HEAD');
+    const symbolic = `${SNAPSHOTS}/alias/AR-4/${main}`;
+    await git('-C', projectRepo, 'symbolic-ref', symbolic, 'refs/heads/main');
+    for (const ref of [incoming, other, foreign, malformed])
+      await git('-C', projectRepo, 'update-ref', ref, commit);
+    await git('-C', projectRepo, 'pack-refs', '--all');
+    const args = { project, repoName: 'app' };
+    expect(await manager.listSnapshotTasks(args)).toEqual(['AR-4', 'AR-5']);
+    const before = await git(
+      '-C',
+      projectRepo,
+      'for-each-ref',
+      '--format=%(objectname) %(refname)',
+      'refs/heads/',
+    );
+    await manager.removeTaskSnapshots({ ...args, taskKeys: ['AR-4'] });
+    expect(await manager.resolveSource(source)).toBeNull();
+    expect(await manager.resolveSource({ path: projectRepo, ref: symbolic })).toBeNull();
+    expect(
+      await git('-C', projectRepo, 'for-each-ref', '--format=%(refname)', 'refs/projectman/incoming/'),
+    ).toBe('');
+    for (const ref of [other, foreign, malformed])
+      expect(await manager.resolveSource({ path: projectRepo, ref })).toBe(commit);
+    expect(
+      await git('-C', projectRepo, 'for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads/'),
+    ).toBe(before);
+    expect(await manager.publishTaskBranch(key('dev'), 'AR-4', branch, commit)).toEqual(source);
+    expect(await manager.resolveSource(source)).toBe(commit);
+  });
+
+  it.each([
+    { name: 'another project', taskKeys: ['BR-4'] },
+    { name: 'oversized batch', taskKeys: Array.from({ length: 101 }, (_, n) => `AR-${n + 1}`) },
+  ])('refuses snapshot cleanup for $name', async ({ taskKeys }) => {
+    await expect(manager.removeTaskSnapshots({ project, repoName: 'app', taskKeys })).rejects.toMatchObject({
+      code: 'workspace_invalid',
+    });
+  });
 
   it('gives both reviewers and the merger the same commit although the source never had it', async () => {
     const { commit, branch } = await developed();

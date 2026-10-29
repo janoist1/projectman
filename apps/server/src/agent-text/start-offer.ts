@@ -2,6 +2,16 @@
  * The action message that names the ready cards the system can start now (PM-804). It names what to do
  * and never does it: the member moves the cards, the system picks the developer (decision 3 of PM-427).
  */
+export function ownerHoldText(backStageId: string, how: 'move' | 'integrator' | 'ask'): string {
+  const action =
+    how === 'move'
+      ? `move it back to ${backStageId} yourself; gates still apply`
+      : how === 'integrator'
+        ? `open an integrator todo to move it back to ${backStageId}`
+        : `ask the owners with ask_human to move it back to ${backStageId}`;
+  return `If the owner's comment holds a card, do not start it: ${action}.`;
+}
+
 interface StartOfferText {
   /** The card, or for a collecting card the collector. */
   subjectKey: string;
@@ -15,6 +25,7 @@ interface StartOfferText {
   assigned?: boolean;
   /** The first stage, where a card the owner holds goes back. */
   backStageId: string;
+  holdBack: 'move' | 'integrator' | 'ask';
 }
 
 export function startOfferText(input: StartOfferText): string {
@@ -31,14 +42,14 @@ export function startOfferText(input: StartOfferText): string {
     lines.push(
       `Each has an assignee who has not started it: start it with start_task, which keeps the assignee (unless their provider is paused and they have not begun the card: then it picks a fitting free member instead) and moves the card to ${toStageId} if it is not there yet. ` +
         `Do not move it with update_task: that starts nobody. ` +
-        `If the owner's comment holds a card, do not start it: open an integrator todo to move it back to ${backStageId}.`,
+        ownerHoldText(backStageId, input.holdBack),
     );
     return lines.join('\n');
   }
   lines.push(
     `Move each to ${toStageId} with update_task (stage_id ${toStageId}); the system picks the developer. ` +
-      `Skip a card only if a frame or focus lock holds it now. ` +
-      `If the owner's comment holds a card, do not start it: open an integrator todo to move it back to ${backStageId}.`,
+      `Skip a card only if a frame lock holds it now. ` +
+      ownerHoldText(backStageId, input.holdBack),
   );
   return lines.join('\n');
 }

@@ -1,20 +1,17 @@
-// The move tool: hybrid migration, inventory, verification, and instance roles.
+// The move tool: the way back from the hybrid mode, verification, and instance roles.
 //
 //   npx tsx scripts/migrate/cli.ts <command> [options]      (docs/HYBRID.md has the procedure)
 //
-//   inventory --home H [--json FILE]           read-only facts and findings about a home and its work
 //   verify    --home H [--no-paths|--hybrid-cloud]   is the home whole and consistent (server stopped)
 //   instance  status|standby|retire|engine|activate --home H ...  who may work (only one copy is active)
-//   hybrid    plan --home H                      the hybrid mode (PM-318, docs/HYBRID.md): what goes to the cloud (read-only)
-//   hybrid    package --home H --out DIR --engine-name N --cloud URL   the cloud's package of a STOPPED home; writes engine.key and engine.json in H
 //   hybrid    back --home H --from DIR --confirm-source-retired        the cloud's data replaces the Mac's home (the old entries are kept)
 //
+// The one-off commands that moved a home to the cloud (`inventory`, `hybrid plan`, `hybrid package`) were
+// retired with the cutover (PM-1116); the last commit that has them is 358bb7c7 (tag `retired-migrate-dns`). Their
+// functions stay in hybrid.ts and inventory.ts: the tests build their cloud data with them.
 // Exit status: 0 done, 1 refused or a blocking finding, 2 wrong usage.
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { buildHybridPlan, createHybridPackage, hybridBack, renderHybridPlan } from './hybrid';
+import { hybridBack } from './hybrid';
 import { activateHome, engineHome, instanceStatus, retireHome, standbyHome } from './instance';
-import { buildInventory, formatInventory } from './inventory';
 import { MigrationRefused } from './package';
 import { formatVerify, verifyHome } from './verify';
 
@@ -23,13 +20,7 @@ interface Args {
   flags: Map<string, string[]>;
 }
 
-const BOOLEAN_FLAGS = new Set([
-  'no-paths',
-  'confirm-source-retired',
-  'json-only',
-  'hybrid-cloud',
-  'discard-cloud-data',
-]);
+const BOOLEAN_FLAGS = new Set(['no-paths', 'confirm-source-retired', 'hybrid-cloud', 'discard-cloud-data']);
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
@@ -65,16 +56,6 @@ async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
   const [command, sub] = args.positional;
   switch (command) {
-    case 'inventory': {
-      const inventory = await buildInventory({ home: one(args, 'home') });
-      const json = optional(args, 'json');
-      if (json) {
-        mkdirSync(dirname(resolve(json)), { recursive: true });
-        writeFileSync(resolve(json), `${JSON.stringify(inventory, null, 2)}\n`, { mode: 0o600 });
-      }
-      console.log(formatInventory(inventory));
-      return inventory.findings.some((f) => f.severity === 'blocker') ? 1 : 0;
-    }
     case 'verify': {
       const result = await verifyHome({
         home: one(args, 'home'),
@@ -87,28 +68,6 @@ async function main(argv: string[]): Promise<number> {
     case 'hybrid': {
       const home = one(args, 'home');
       switch (sub) {
-        case 'plan':
-          console.log(renderHybridPlan(await buildHybridPlan({ home })));
-          return 0;
-        case 'package': {
-          const out = resolve(one(args, 'out'));
-          const result = await createHybridPackage({
-            home,
-            out,
-            engineName: one(args, 'engine-name'),
-            cloudUrl: one(args, 'cloud'),
-          });
-          console.log(
-            `Cloud package written to ${out}/home (${Object.keys(result.manifest.files).length} files); ` +
-              `engine ${result.engine.id} "${result.engine.name}", ${result.sessionsMoved} sessions moved to it.\n` +
-              `Written in ${home}: ${result.keyFile} (the machine key, mode 600, shown nowhere) and ${result.configFile}.`,
-          );
-          for (const warning of result.warnings) console.log(`  WARNING ${warning}`);
-          console.log(
-            'The package is a SECRET (the database, the cookie key): upload only home/ to the cloud volume, never put it in a repository, a task or a message.',
-          );
-          return 0;
-        }
         case 'back': {
           const report = await hybridBack({
             home,
@@ -123,7 +82,7 @@ async function main(argv: string[]): Promise<number> {
           return 0;
         }
         default:
-          throw new UsageError('hybrid needs plan, package or back');
+          throw new UsageError('hybrid needs back');
       }
     }
     case 'instance': {
@@ -156,7 +115,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     default:
-      throw new UsageError('commands: inventory, verify, instance, hybrid');
+      throw new UsageError('commands: verify, instance, hybrid');
   }
 }
 

@@ -45,6 +45,11 @@ interface EngineClientOptions {
   register: (rpc: EngineRpc) => void;
   /** Called for a request refused before any handler (unknown method, invalid parameters). */
   onRefused: (request: { id: string; method: string; code: 'unknown_method' | 'invalid_params' }) => void;
+  /**
+   * Called when the cloud has welcomed the engine, before any request is handled. State that belongs to the
+   * previous link (the attached terminals: the cloud asks for them again) is dropped here.
+   */
+  onWelcome?: () => void;
   buffer: EventBuffer;
   status: EngineStatusWriter;
   logger: FastifyBaseLogger;
@@ -102,6 +107,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
 
   let socket: LinkSocket | null = null;
   let rpc: EngineRpc | null = null;
+  /**
+   * Whether the cloud of this connection repeats its acknowledgement as a heartbeat (an older one sends none).
+   * The wire carries no flag: an ack equal to the highest one of this connection (the welcome's included) can
+   * only be a repeat, because a cloud acknowledges an event once and never an old sequence again.
+   */
+  let cloudHeartbeats = false;
+  let highestAck = 0;
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
   let failures = 0;
@@ -166,7 +178,10 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       ended = true;
       clearTimeout(handshake);
       if (socket === ws) socket = null;
-      if (rpc === connection) rpc = null;
+      if (rpc === connection) {
+        rpc = null;
+        cloudHeartbeats = false;
+      }
       connection?.close();
       buffer.disconnect();
       if (welcomed) {
@@ -255,6 +270,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           onFailed: (failure) => logger.warn(failure, 'engine link: a request failed'),
         });
         options.register(connection);
+        options.onWelcome?.();
         try {
           // Replay everything the cloud has not acknowledged, in order.
           buffer.connect(send, frame.ackedSeq);
@@ -267,6 +283,8 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         welcomed = true;
         clearTimeout(handshake);
         rpc = connection;
+        cloudHeartbeats = false;
+        highestAck = frame.ackedSeq;
         failures = 0;
         connectedAt = now();
         logger.info(
@@ -283,6 +301,8 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         return;
       }
       if (frame.t === 'ack') {
+        if (frame.seq === highestAck) cloudHeartbeats = true;
+        highestAck = Math.max(highestAck, frame.seq);
         try {
           buffer.acknowledge(frame.seq);
         } catch {
@@ -314,13 +334,14 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
   return {
     start() {
       if (watchdog) return;
-      // The global WebSocket shows no ping or pong, so a link that went silent is noticed by the events
-      // it never acknowledges: if some are waiting and nothing came for `ENGINE_DEAD_AFTER_MS`, reconnect.
-      // It takes two ticks in a row: after a stalled event loop Node runs the timer before it reads the
-      // frames queued meanwhile, so one late tick alone does not prove the cloud went silent.
+      // The global WebSocket shows no ping or pong, so the cloud repeats its acknowledgement every
+      // `ENGINE_HEARTBEAT_MS` as an app-level heartbeat (idle links included): if no frame came for
+      // `ENGINE_DEAD_AFTER_MS`, reconnect. It takes two ticks in a row: after a stalled event loop Node runs
+      // the timer before it reads the frames queued meanwhile, so one late tick alone does not prove the
+      // cloud went silent. Only a cloud seen repeating its acknowledgement is judged by it: an older one
+      // is quiet when idle, and reconnecting would only repeat that every few minutes.
       watchdog = setInterval(() => {
-        const silent =
-          !!socket && !!rpc && buffer.pending() > 0 && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS;
+        const silent = !!socket && !!rpc && cloudHeartbeats && now() - lastFrameAt > ENGINE_DEAD_AFTER_MS;
         silentTicks = silent ? silentTicks + 1 : 0;
         if (silent && silentTicks >= 2 && socket) {
           silentTicks = 0;

@@ -12,7 +12,6 @@ import {
 } from '@projectman/shared';
 import type { QuestionRecipient, QuestionRecipientRefusal } from '@projectman/shared';
 import type {
-  AdministrationTarget,
   OperatorOperation,
   BuiltInRoleId,
   RoleConfigurationRead,
@@ -27,7 +26,6 @@ import type {
 } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type {
-  AdministrationLogsOptions,
   ChecklistToolView,
   OperatorToolsHandler,
   UpdateChecklistInput,
@@ -55,13 +53,13 @@ import type {
 } from '../../services/operator';
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super-operator';
-import type { OperatorAppOperations, SuperAdministration } from '../../services/super-operator';
+import type { OperatorAppOperations, SuperOperations } from '../../services/super-operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 
 /** What the super-operation tools stand on (PM-888). */
 interface SuperPath {
   operations: OperatorAppOperations;
-  administration: Pick<SuperAdministration, 'operation'>;
+  direct: Pick<SuperOperations, 'operation'>;
 }
 
 /** The machine reads were the Operator's alone; with no Operator (decision 66, PM-1076) nobody holds them. */
@@ -590,28 +588,7 @@ export class OperatorTools implements OperatorToolsHandler {
   async getOperation(ctx: ToolContext, args: { operationId: string }) {
     try {
       await this.appCaller(ctx, 'get_operation');
-      return await this.superPath().administration.operation(ctx.projectKey, args.operationId);
-    } catch (err) {
-      throw this.appFailure(err);
-    }
-  }
-
-  async getMachineStatus(ctx: ToolContext, _args: { target: AdministrationTarget }): Promise<never> {
-    try {
-      await this.appCaller(ctx, 'get_machine_status');
-      throw machineReadRefused();
-    } catch (err) {
-      throw this.appFailure(err);
-    }
-  }
-
-  async getMachineLogs(
-    ctx: ToolContext,
-    _args: { target: AdministrationTarget } & AdministrationLogsOptions,
-  ): Promise<never> {
-    try {
-      await this.appCaller(ctx, 'get_machine_logs');
-      throw machineReadRefused();
+      return await this.superPath().direct.operation(ctx.projectKey, args.operationId);
     } catch (err) {
       throw this.appFailure(err);
     }
@@ -645,6 +622,8 @@ export class OperatorTools implements OperatorToolsHandler {
     outcome: ScreeningOutcome;
     recipient?: QuestionRecipient;
     recipientRefusal?: QuestionRecipientRefusal;
+    /** The technical decider a todo no integrator can take went to, instead of the owners (PM-1139). */
+    forwardedTo?: string;
   }> {
     return this.calls.guard(async () => {
       const { config } = await this.calls.callerWithRequest(ctx, 'screen_question');
@@ -705,13 +684,21 @@ export class OperatorTools implements OperatorToolsHandler {
       const by = ctx.member;
       const settled =
         outcome === 'decision' || outcome === 'todo'
-          ? await this.inbox.releaseScreened(item.id, {
-              outcome,
-              by,
-              note,
-              ...(args.todo ? { todo: args.todo } : {}),
-              ...(args.feedbackId !== undefined ? { feedbackId: args.feedbackId } : {}),
-            })
+          ? await this.inbox.releaseScreened(
+              item.id,
+              {
+                outcome,
+                by,
+                note,
+                ...(args.todo ? { todo: args.todo } : {}),
+                ...(args.feedbackId !== undefined ? { feedbackId: args.feedbackId } : {}),
+              },
+              // A todo no integrator can take goes to the technical decider, not to the owners (PM-1139).
+              outcome === 'todo'
+                ? (resolved, to, close) =>
+                    this.messaging.forwardQuestion(resolved, { to, note, reason: 'machine_step' }, close)
+                : undefined,
+            )
           : await this.inbox.settleScreened(
               item.id,
               {
@@ -734,12 +721,13 @@ export class OperatorTools implements OperatorToolsHandler {
           `question_not_screening: ${item.id} is not waiting for the PM any more.`,
         );
       const payload = questionPayloadOf(settled);
+      const forwardedTo = outcome === 'todo' ? payload?.screening?.forwardedTo : undefined;
       return {
         inboxItemId: item.id,
         outcome,
         ...(outcome === 'todo'
           ? {
-              recipient: payload?.recipient ?? 'owner',
+              ...(forwardedTo ? { forwardedTo } : { recipient: payload?.recipient ?? 'owner' }),
               ...(payload?.screening?.recipientRefusal
                 ? { recipientRefusal: payload.screening.recipientRefusal }
                 : {}),

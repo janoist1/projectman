@@ -5,6 +5,7 @@ import type { WebSocketLike } from './socket';
 
 class FakeSocket implements WebSocketLike {
   readyState = 0;
+  bufferedAmount = 0;
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;
@@ -109,6 +110,44 @@ describe('SocketClient', () => {
     sockets[1]!.open();
     // The server forgets it with the connection, so the last known value is said again.
     expect(sockets[1]!.sent).toEqual([{ type: 'visibility', visible: false }]);
+  });
+
+  it('reconnects a socket that stays silent, but not one that keeps hearing from the server', () => {
+    client.start();
+    sockets[0]!.open();
+    // A frame every 30 s keeps the connection past the 75 s allowance.
+    for (let i = 0; i < 4; i += 1) {
+      vi.advanceTimersByTime(30_000);
+      sockets[0]!.receive({ type: 'hello', serverTime: 'now' });
+    }
+    expect(sockets).toHaveLength(1);
+
+    vi.advanceTimersByTime(80_000);
+    expect(client.getStatus()).toBe('reconnecting');
+    vi.advanceTimersByTime(200);
+    expect(sockets).toHaveLength(2);
+    sockets[1]!.open();
+    expect(client.getStatus()).toBe('open');
+  });
+
+  it('checks for silence when the page asks, since a hidden tab runs its timers late', () => {
+    client.start();
+    sockets[0]!.open();
+    client.checkAlive();
+    expect(client.getStatus()).toBe('open');
+    // The clock moved on while no timer ran.
+    vi.setSystemTime(Date.now() + 76_000);
+    client.checkAlive();
+    expect(client.getStatus()).toBe('reconnecting');
+  });
+
+  it('reconnects when too much is waiting to be sent', () => {
+    client.start();
+    sockets[0]!.open();
+    sockets[0]!.bufferedAmount = 8 * 1024 * 1024;
+    client.send({ type: 'visibility', visible: true });
+    expect(sockets[0]!.sent).toEqual([]);
+    expect(client.getStatus()).toBe('reconnecting');
   });
 
   it('says nothing about visibility until it has been told', () => {

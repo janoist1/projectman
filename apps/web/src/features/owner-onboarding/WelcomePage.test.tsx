@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
+import { motorAppDownloadUrl } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
@@ -117,12 +118,12 @@ describe('connecting the first machine', () => {
 });
 
 describe('the motor app install in the guide', () => {
-  const RELEASE = { tag: 'v2026.10.11', url: 'https://github.com/acme/tool/releases/tag/v2026.10.11' };
+  const RELEASE = 'v2026.10.11';
 
   /** The "Magam csinálom" tab of a machine that has not connected yet. */
-  async function openManualTab(latestRelease: typeof RELEASE | null) {
+  async function openManualTab(latestReleaseTag: string | null) {
     const backend = ownerBackend();
-    backend.serverVersion = { ...backend.serverVersion, latestRelease };
+    backend.serverVersion = { ...backend.serverVersion, latestReleaseTag };
     backend.addEngine({ name: 'Laptop', createdBy: OWNER.userId });
     renderWelcome(backend);
     fireEvent.click(await screen.findByRole('button', { name: t('ownerOnboarding.guide.tabManual') }));
@@ -133,9 +134,7 @@ describe('the motor app install in the guide', () => {
   it('offers the dmg of the latest release to download', async () => {
     await openManualTab(RELEASE);
     const link = await screen.findByRole('link', { name: t('ownerOnboarding.guide.appDownloadAria') });
-    expect(link.getAttribute('href')).toBe(
-      'https://github.com/acme/tool/releases/latest/download/projectman-motor.dmg',
-    );
+    expect(link.getAttribute('href')).toBe(motorAppDownloadUrl());
     expect(link.hasAttribute('download')).toBe(true);
     expect(screen.queryByText((text) => text.startsWith('git clone'))).toBeNull();
   });

@@ -6,7 +6,6 @@ import {
   OPERATOR_MERGE_WAIT_MINUTES,
   OPERATOR_READY_STALL_OWNER_MINUTES,
   OPERATOR_READY_WAITING_MINUTES,
-  OPERATOR_UNRELEASED_HOURS,
 } from '@projectman/shared';
 import type { OperatorSignalKind, ProjectConfig, Task } from '@projectman/shared';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
@@ -40,13 +39,10 @@ const onLeave = (handle: string) => {
   if (member?.kind === 'ai') member.onLeave = true;
 };
 
-async function setup(
-  opts: { adjust?: (config: ProjectConfig) => void; target?: boolean; appVersion?: string } = {},
-) {
+async function setup(opts: { adjust?: (config: ProjectConfig) => void; appVersion?: string } = {}) {
   now = new Date('2026-10-11T10:00:00Z');
   h = await createDomainHarness({
     now: () => now,
-    ...(opts.target ? { releaseTarget: { projectKey: 'AR', repo: 'web' } } : {}),
     ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
     adjust: (config) => {
       const pm = config.team.members.find((m) => m.handle === 'pm')!;
@@ -319,113 +315,6 @@ function merged(index: number, finishedAt: string) {
     }),
   );
 }
-
-describe('unreleased signal', () => {
-  const MERGES = [
-    [1, '2026-10-01T00:00:00.000Z'],
-    [2, '2026-10-02T00:00:00.000Z'],
-    [3, '2026-10-03T00:00:00.000Z'],
-  ] as const;
-
-  it('rises for work merged after the running version for a day, and closes on a new live release', async () => {
-    await setup({ target: true, appVersion: sha(1) });
-    for (const [index, at] of MERGES) merged(index, at);
-    expect(h.domain.releases.unreleased('AR')).toEqual({
-      base: sha(1),
-      count: 2,
-      oldestAt: '2026-10-02T00:00:00.000Z',
-      taskKeys: ['AR-2', 'AR-3'],
-    });
-    await sweep();
-    expect(open('unreleased')).toMatchObject([
-      { caseKey: `unreleased:${sha(1)}`, taskKey: null, subject: '2' },
-    ]);
-    h.repos.releases.insert(
-      {
-        id: 'rel_1',
-        projectKey: 'AR',
-        repo: 'web',
-        taskKey: 'AR-3',
-        state: 'live',
-        commit: sha(3),
-        baseCommit: sha(1),
-        tasks: ['AR-2', 'AR-3'],
-        summary: 'Summary',
-        proposedBy: 'dev-1',
-        proposedAt: now.toISOString(),
-        decidedBy: null,
-        decidedAt: null,
-        deployStartedAt: null,
-        previousCommit: null,
-        liveAt: now.toISOString(),
-        tag: null,
-        url: null,
-        publishedAt: null,
-        failure: null,
-        publishError: null,
-      },
-      now.toISOString(),
-    );
-    await sweep();
-    expect(open('unreleased')).toEqual([]);
-  });
-
-  it('waits for the day', async () => {
-    await setup({ target: true, appVersion: sha(1) });
-    merged(1, '2026-10-01T00:00:00.000Z');
-    merged(2, new Date(now.getTime() - (OPERATOR_UNRELEASED_HOURS * 60 - 1) * 60_000).toISOString());
-    await sweep();
-    expect(open('unreleased')).toEqual([]);
-    later(1);
-    await sweep();
-    expect(open('unreleased')).toHaveLength(1);
-  });
-
-  it.each([
-    ['no release target', { target: false, appVersion: sha(1) }],
-    ['an unknown base', { target: true, appVersion: 'dev' }],
-    ['a base that never landed', { target: true, appVersion: sha(9) }],
-  ])('does not rise with %s', async (_name, opts) => {
-    await setup(opts);
-    for (const [index, at] of MERGES) merged(index, at);
-    await sweep();
-    expect(h.domain.releases.unreleased('AR')).toBeNull();
-    expect(open('unreleased')).toEqual([]);
-  });
-
-  it('does not rise while a release is open', async () => {
-    await setup({ target: true, appVersion: sha(1) });
-    for (const [index, at] of MERGES) merged(index, at);
-    h.repos.releases.insert(
-      {
-        id: 'rel_1',
-        projectKey: 'AR',
-        repo: 'web',
-        taskKey: 'AR-3',
-        state: 'proposed',
-        commit: sha(3),
-        baseCommit: sha(1),
-        tasks: ['AR-2', 'AR-3'],
-        summary: 'Summary',
-        proposedBy: 'dev-1',
-        proposedAt: now.toISOString(),
-        decidedBy: null,
-        decidedAt: null,
-        deployStartedAt: null,
-        previousCommit: null,
-        liveAt: null,
-        tag: null,
-        url: null,
-        publishedAt: null,
-        failure: null,
-        publishError: null,
-      },
-      now.toISOString(),
-    );
-    await sweep();
-    expect(open('unreleased')).toEqual([]);
-  });
-});
 
 describe('ready_waiting signal', () => {
   /** A queue between the backlog and the development stage, so a card can stand ready in it. */
@@ -770,6 +659,49 @@ describe('ready_waiting signal', () => {
       await stallFor(ownerWait);
       expect(stalled().filter((item) => item.state === 'open')).toHaveLength(1);
       expect(stalled()).toHaveLength(2);
+    });
+
+    it('keeps the alert and its clock through a transient AI limit (PM-1120)', async () => {
+      await setup({ adjust: withReadyQueue });
+      await place({ stageId: 'ready', status: 'active' });
+      await stallFor(ownerWait);
+      const [alert] = stalled();
+      expect(alert).toMatchObject({ state: 'open' });
+      config().team.limits.maxConcurrentAi = 0;
+      await sweep();
+      expect(stalled().map((item) => [item.id, item.state])).toEqual([[alert!.id, 'open']]);
+      config().team.limits.maxConcurrentAi = 3;
+      later(1);
+      await sweep();
+      expect(stalled().map((item) => [item.id, item.state])).toEqual([[alert!.id, 'open']]);
+    });
+  });
+
+  describe('the reads of a sweep (PM-1120)', () => {
+    it('reads the waits and the sessions’ activity once, and never the whole session history', async () => {
+      await setup({ adjust: withReadyQueue });
+      await place({ stageId: 'ready', status: 'active' });
+      await sweep();
+      // The delivery wakes the coordinator, which reads sessions of its own: not part of the sweep's reads.
+      vi.spyOn(h.domain.operatorSignals, 'deliver').mockResolvedValue();
+      const waits = vi.spyOn(h.domain.taskWaits, 'of');
+      const activity = vi.spyOn(h.repos.sessions, 'taskActivity');
+      const all = vi.spyOn(h.repos.sessions, 'list');
+      await sweep();
+      expect(waits).toHaveBeenCalledTimes(1);
+      expect(activity).toHaveBeenCalledTimes(1);
+      // Only a card's own sessions are listed (the answer-stall check), never the project's whole history.
+      expect(all.mock.calls.filter(([, filters]) => !filters)).toEqual([]);
+    });
+
+    it('runs at most two sweep bodies for three events in one tick', async () => {
+      await setup({ adjust: withReadyQueue });
+      await place({ stageId: 'ready', status: 'active' });
+      const waits = vi.spyOn(h.domain.taskWaits, 'of');
+      await Promise.all([1, 2, 3].map(() => h.domain.operatorSignals.sweep('AR')));
+      await flush();
+      expect(waits.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect(waits.mock.calls.length).toBeLessThanOrEqual(2);
     });
   });
 });

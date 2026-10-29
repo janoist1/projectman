@@ -22,8 +22,6 @@ export const queryKeys = {
   operatorQueue: (key: string, handle: string, closedSince: string) =>
     ['project', key, 'operator-queue', handle, closedSince] as const,
   /** The Operator's grant for machine operations (PM-881); one for the whole instance. */
-  operatorGrant: ['operator-grant'] as const,
-  operatorGrantAudit: ['operator-grant-audit'] as const,
   operatorPreferenceMeAll: (key: string) => ['project', key, 'operator-preference'] as const,
   operatorPreferenceMe: (key: string, handle: string | null) =>
     ['project', key, 'operator-preference', handle] as const,
@@ -61,9 +59,17 @@ export const queryKeys = {
   /** Prefix of every task detail query of a project. */
   taskDetails: (key: string) => ['project', key, 'task'] as const,
   session: (key: string, sessionId: string) => ['project', key, 'session', sessionId] as const,
+  /** A session detail with only its last `limit` chat items (a peek); under the key of the full one. */
+  sessionTail: (key: string, sessionId: string, limit: number) =>
+    ['project', key, 'session', sessionId, 'tail', limit] as const,
   /** Prefix of every session detail query of a project. */
   sessionDetails: (key: string) => ['project', key, 'session'] as const,
+  /** The open items of the inbox. */
   inbox: (key: string) => ['project', key, 'inbox'] as const,
+  /** The sessions people were involved in: the prefix of the recent list and of each filtered, paged list. */
+  involvements: (key: string) => ['project', key, 'involvements'] as const,
+  /** The newest closed items of the inbox. */
+  inboxHistory: (key: string) => ['project', key, 'inbox-history'] as const,
   /** The Operator's screened questions of a day (PM-561); `since` is the start of the viewer's day. */
   screenedQuestions: (key: string, since: string) => ['project', key, 'inbox-screened', since] as const,
   screenedQuestionsAll: (key: string) => ['project', key, 'inbox-screened'] as const,
@@ -101,9 +107,6 @@ export const queryKeys = {
   members: (key: string) => ['project', key, 'members'] as const,
   roles: (key: string) => ['project', key, 'roles'] as const,
   config: (key: string) => ['project', key, 'config'] as const,
-  /** The project's focus (PM-427) and its change list; kept live by `project_focus_changed`. */
-  focus: (key: string) => ['project', key, 'focus'] as const,
-  focusChanges: (key: string) => ['project', key, 'focus-changes'] as const,
   /** The instance's pause (PM-220): not under a project, it covers all of them. */
   instancePause: ['instancePause'] as const,
 };

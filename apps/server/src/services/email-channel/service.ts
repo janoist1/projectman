@@ -36,7 +36,7 @@ import type { MessageAttachmentOperations } from '../../contracts';
 import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
-import { DomainError } from '../../kernel';
+import { DomainError, invalid } from '../../kernel';
 import type { EmailChannelEnv } from './config';
 import { projectConfigs } from './mailboxes';
 import { renderEmail } from './render';
@@ -250,29 +250,65 @@ export function createEmailChannelService(deps: {
     });
   }
 
-  function closeItem(
+  /** The approval's row while it still waits; anything else (decided meanwhile, another project) is a 409. */
+  function waitingRecord(item: InboxItem): EmailMessageRecord {
+    const payload = emailApprovalOf(item);
+    const record = payload?.emailId ? repo.messages.get(payload.emailId) : null;
+    if (!record || record.projectKey !== item.projectKey || record.status !== 'pending_approval')
+      throw refused('email_unknown', 'the e-mail approval is no longer waiting', 409);
+    return record;
+  }
+
+  /**
+   * Settles the approval in one unit of work: the row leaves `pending_approval` and the inbox item closes
+   * together, or neither does. Run it only after every await of the decision, so a parallel decision cannot
+   * slip in between the check and the write: the loser finds the row or the item already settled (409).
+   */
+  function settle(
     item: InboxItem,
-    optionId: string,
     by: Resolver,
+    optionId: string,
     note: string | null,
-    rule?: 'email_not_allowed',
-  ): void {
-    const at = now().toISOString();
-    const closed = ctx.repos.inbox.close(
-      item.id,
-      'resolved',
-      {
-        optionId,
-        by: by.handle,
+    outcome: {
+      status: 'rejected' | 'cancelled' | 'sending';
+      /** What the e-mail row keeps; an approval leaves it as it is. */
+      recordNote?: string | null;
+      rule?: 'email_not_allowed';
+    },
+  ): EmailMessageRecord {
+    const [settled, closed] = ctx.unitOfWork(() => {
+      const record = waitingRecord(item);
+      const at = now().toISOString();
+      if (
+        !repo.messages.transition(record.id, 'pending_approval', {
+          status: outcome.status,
+          note: outcome.recordNote,
+          decidedBy: by.handle,
+          decidedAt: at,
+          updatedAt: at,
+        })
+      )
+        throw refused('email_unknown', 'the e-mail approval is no longer waiting', 409);
+      const closedItem = ctx.repos.inbox.close(
+        item.id,
+        'resolved',
+        {
+          optionId,
+          by: by.handle,
+          at,
+          note: outcome.status === 'cancelled' ? (outcome.recordNote ?? null) : note,
+          ...(by.via ? { via: by.via } : {}),
+          ...(by.superActor ? { actor: by.superActor } : {}),
+          ...(outcome.rule ? { rule: outcome.rule } : {}),
+        },
         at,
-        note,
-        ...(by.via ? { via: by.via } : {}),
-        ...(by.superActor ? { actor: by.superActor } : {}),
-        ...(rule ? { rule } : {}),
-      },
-      at,
-    );
+      );
+      if (!closedItem) throw refused('email_unknown', 'the e-mail approval is no longer waiting', 409);
+      return [repo.messages.get(record.id)!, closedItem] as const;
+    });
     publishInbox(closed);
+    changed(item.projectKey);
+    return settled;
   }
 
   const inbound = createEmailInbound({
@@ -301,21 +337,9 @@ export function createEmailChannelService(deps: {
   };
 
   async function decide(item: InboxItem, by: Resolver, optionId: string, note: string | null): Promise<void> {
-    const payload = emailApprovalOf(item);
-    const record = payload?.emailId ? repo.messages.get(payload.emailId) : null;
-    if (!record || record.projectKey !== item.projectKey || record.status !== 'pending_approval')
-      throw refused('email_unknown', 'the e-mail approval is no longer waiting', 409);
+    const record = waitingRecord(item);
     if (optionId === 'reject') {
-      const at = now().toISOString();
-      repo.messages.update(record.id, {
-        status: 'rejected',
-        note,
-        decidedBy: by.handle,
-        decidedAt: at,
-        updatedAt: at,
-      });
-      closeItem(item, optionId, by, note);
-      changed(item.projectKey);
+      settle(item, by, optionId, note, { status: 'rejected', recordNote: note });
       await notify(
         item.projectKey,
         record.member!,
@@ -340,18 +364,14 @@ export function createEmailChannelService(deps: {
         : recipientRefusal
           ? { reason: recipientRefusal }
           : content[0];
+    // No await from here to the end of the settling: a parallel decision on the same item gets a 409.
     if (refusal) {
-      const at = now().toISOString();
       const refusalNote = noteOf(refusal);
-      repo.messages.update(record.id, {
+      settle(item, by, optionId, note, {
         status: 'cancelled',
-        note: refusalNote,
-        decidedBy: by.handle,
-        decidedAt: at,
-        updatedAt: at,
+        recordNote: refusalNote,
+        rule: 'email_not_allowed',
       });
-      closeItem(item, optionId, by, refusalNote, 'email_not_allowed');
-      changed(item.projectKey);
       await notify(
         item.projectKey,
         record.member!,
@@ -360,16 +380,15 @@ export function createEmailChannelService(deps: {
       );
       return;
     }
-    const at = now().toISOString();
-    repo.messages.update(record.id, {
-      decidedBy: by.handle,
-      decidedAt: at,
-      updatedAt: at,
-    });
-    closeItem(item, optionId, by, note);
+    // `sending` keeps the row out of `pending_approval` until `deliver` has the mail, so a decision that
+    // arrives meanwhile cannot send it again or reject it.
+    const sending = settle(item, by, optionId, note, { status: 'sending' });
     try {
-      await deliver(item.projectKey, config, repo.messages.get(record.id)!);
+      await deliver(item.projectKey, config, sending);
     } catch {
+      // `deliver` marks a failed send itself; a mail that never reached it must not stay `sending`.
+      if (repo.messages.transition(record.id, 'sending', { status: 'failed', note: 'unavailable' }))
+        changed(item.projectKey);
       await notify(item.projectKey, record.member!, record.taskKey, 'Your e-mail could not be sent.');
       return;
     }
@@ -464,7 +483,13 @@ export function createEmailChannelService(deps: {
     },
 
     log(projectKey, before) {
-      return repo.log(projectKey, before);
+      try {
+        return repo.log(projectKey, before);
+      } catch (err) {
+        // A cursor the repository cannot read (a `RangeError`) is the caller's mistake; any other failure stays one.
+        if (!(err instanceof RangeError)) throw err;
+        throw invalid('invalid_request', 'the log cursor is not valid', { cause: String(err) });
+      }
     },
 
     async send(projectKey, caller, input) {

@@ -4,8 +4,6 @@ import { TASK_PRIORITIES, isOpenTask } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { t } from '../../i18n/t';
 import { matchesFilter } from '../../lib/taskState';
-import { useFocus } from '../focus/FocusContext';
-import { useFocusFilter } from '../focus/useFocusFilter';
 import type { BoardFilter } from '../../lib/taskState';
 import {
   activeFilterCount,
@@ -72,22 +70,14 @@ export function useBoardFilters({
     () => (activeTheme ? entries.filter((entry) => entry.task.themeKey === activeTheme.key) : entries),
     [entries, activeTheme],
   );
-  // "Csak a fókusz" (PM-438): the cards the project's focus covers; a viewer who may not see it gets the board.
-  const focus = useFocusFilter();
-  const { places, visible: focusVisible } = useFocus();
-  const focusOnly = focus.active;
-  const themed = useMemo(
-    () => (focusOnly ? inTheme.filter((entry) => places.has(entry.task.key)) : inTheme),
-    [inTheme, focusOnly, places],
-  );
   const searched = useMemo(
-    () => themed.filter((entry) => matchesSearch(entry.task, search, labels)),
-    [themed, search, labels],
+    () => inTheme.filter((entry) => matchesSearch(entry.task, search, labels)),
+    [inTheme, search, labels],
   );
   // Everything but the state: the segments count over this, so each says what it would show.
   const narrowed = useMemo(
-    () => themed.filter((entry) => matchesCardFilters(entry.task, filters, search, labels ?? [])),
-    [themed, filters, search, labels],
+    () => inTheme.filter((entry) => matchesCardFilters(entry.task, filters, search, labels ?? [])),
+    [inTheme, filters, search, labels],
   );
   const visible = useMemo(
     () => narrowed.filter((entry) => matchesFilter(entry.state.phase, filters.phase)),
@@ -102,7 +92,7 @@ export function useBoardFilters({
     [narrowed],
   );
 
-  const clearable = activeFilterCount(filters) + (focus.requested ? 1 : 0);
+  const clearable = activeFilterCount(filters);
   const priorityChoices: FilterOption[] = [
     ...TASK_PRIORITIES.map((level) => ({ value: level, label: t(`priority.levels.${level}`) })),
     { value: NO_PRIORITY, label: t('priority.none') },
@@ -113,8 +103,7 @@ export function useBoardFilters({
     filters.priority === NO_PRIORITY
       ? t('board.filterNoPriority')
       : t('board.filterPriorityValue', { level: labelOf(priorityChoices, filters.priority) });
-  const chips: { id: 'assignee' | 'label' | 'priority' | 'focus'; value: string }[] = [];
-  if (focus.requested) chips.push({ id: 'focus', value: t('focus.onlyChip') });
+  const chips: { id: 'assignee' | 'label' | 'priority'; value: string }[] = [];
   if (filters.assignee) chips.push({ id: 'assignee', value: labelOf(assignees, filters.assignee) });
   if (filters.label) chips.push({ id: 'label', value: labelOf(labelChoices, filters.label) });
   if (filters.priority) chips.push({ id: 'priority', value: priorityValue });
@@ -128,18 +117,8 @@ export function useBoardFilters({
     showPriority:
       Boolean(filters.priority) ||
       entries.some((entry) => isOpenTask(entry.task) && entry.task.priority !== null),
-    clear: () => {
-      setBoardFilters(noBoardFilters);
-      focus.set(false);
-    },
+    clear: () => setBoardFilters(noBoardFilters),
     clearable,
-    /** "Csak a fókusz": whether it is asked for (the viewer may see the focus), and how to set it. */
-    focusOnly: focus.requested,
-    /** The board is narrowed to the focus now (asked for, and the list is known). */
-    focusActive: focusOnly,
-    setFocusOnly: focus.set,
-    /** The viewer may see the focus: the toggle is offered only then. */
-    focusVisible,
     assignees,
     labelChoices,
     activeTheme,
@@ -147,7 +126,7 @@ export function useBoardFilters({
     visible,
     counts,
     /** A filter or the search narrows the board: only then does an empty column say so. */
-    narrowing: clearable > 0 || search !== '' || activeTheme !== null || focusOnly,
+    narrowing: clearable > 0 || search !== '' || activeTheme !== null,
     /** The values the board is narrowed to by member, label and theme, for the subtitle. */
     values: [
       ...(activeTheme ? [activeTheme.title] : []),

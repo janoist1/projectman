@@ -1,4 +1,3 @@
-import type { AdministrationCommand } from '../api/administration';
 import type { SuperCommand } from '../api/super-handoff';
 import type { AgentProvider, HumanAccess } from '../domain/member';
 import { coordinationMemberOf } from './project-manager';
@@ -68,26 +67,6 @@ function memberUpdate(
   const onlyLeave = keys.length === 1 && changes.onLeave === true;
   if (effective === 'nanogpt' && !onlyLeave) mutations.push(runtime('nanogpt'));
   return mutations.length ? mutations : [{ kind: 'routine', operation: 'member_update' }];
-}
-
-/** Exhaustive on purpose: a new administration command does not classify until someone decides its effect. */
-function administrationMutation(request: AdministrationCommand): SuperMutationCommand {
-  switch (request.kind) {
-    case 'owner_command':
-      return { kind: 'owner_command' };
-    case 'restart':
-    case 'full_test':
-    case 'image_build':
-    case 'deploy':
-    case 'process_cleanup':
-      return { kind: 'administration', command: request.kind };
-    default: {
-      const unknown: never = request;
-      throw new SuperCommandUnclassifiable(
-        `unknown administration command ${String((unknown as { kind?: unknown }).kind)}`,
-      );
-    }
-  }
 }
 
 /** The mutations a handoff command would make; every one must classify, or the whole command is refused. */
@@ -165,7 +144,7 @@ export function superCommandMutations(
     case 'credential_revoke':
       return [{ kind: 'remove', resource: 'credential', id: command.keyId }];
     case 'administration':
-      return [administrationMutation(command.request)];
+      throw new SuperCommandUnclassifiable('administration is retired');
     default:
       throw new SuperCommandUnclassifiable('unknown command');
   }

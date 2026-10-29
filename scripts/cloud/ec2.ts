@@ -10,10 +10,8 @@ import { CloudError, refused } from './errors';
 /** EC2 provisioning runs on the owner's machine, with the central account's explicit CLI target (PM-676). */
 const CANONICAL_OWNER = '099720109477';
 const SSM_POLICY = 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore';
-function imageName(architecture: 'x86_64' | 'arm64') {
-  return new RegExp(
-    `^ubuntu/images/hvm-ssd(?:-gp3)?/ubuntu-noble-24\\.04-${architecture === 'arm64' ? 'arm64' : 'amd64'}-server-\\d{8}(?:\\.\\d+)?$`,
-  );
+function imageName() {
+  return /^ubuntu\/images\/hvm-ssd(?:-gp3)?\/ubuntu-noble-24\.04-arm64-server-\d{8}(?:\.\d+)?$/;
 }
 const TAGS = z.array(z.looseObject({ Key: z.string(), Value: z.string() }));
 const trust = {
@@ -179,7 +177,7 @@ async function environment(context: CloudContext, cli: AwsCli, account: string, 
         '--owners',
         CANONICAL_OWNER,
         '--filters',
-        `Name=name,Values=ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-${ec2.architecture === 'arm64' ? 'arm64' : 'amd64'}-server-*`,
+        `Name=name,Values=ubuntu/images/hvm-ssd*/ubuntu-noble-24.04-arm64-server-*`,
         'Name=state,Values=available',
         `Name=architecture,Values=${ec2.architecture}`,
         'Name=virtualization-type,Values=hvm',
@@ -187,10 +185,8 @@ async function environment(context: CloudContext, cli: AwsCli, account: string, 
       ],
       z.looseObject({ Images: z.array(imageSchema) }),
     );
-    for (const image of images.Images.filter((image) => imageName(ec2.architecture).test(image.Name)))
-      context.report.line(
-        `available Ubuntu 24.04 ${ec2.architecture === 'arm64' ? 'arm64' : 'amd64'}: ${image.ImageId} ${image.Name}`,
-      );
+    for (const image of images.Images.filter((image) => imageName().test(image.Name)))
+      context.report.line(`available Ubuntu 24.04 arm64: ${image.ImageId} ${image.Name}`);
   }
   const answer = await cli.callAs(
     ['ec2', 'describe-images', '--image-ids', ec2.amiId],
@@ -204,7 +200,7 @@ async function environment(context: CloudContext, cli: AwsCli, account: string, 
     !image ||
     image.ImageId !== ec2.amiId ||
     image.OwnerId !== CANONICAL_OWNER ||
-    !imageName(ec2.architecture).test(image.Name) ||
+    !imageName().test(image.Name) ||
     image.State !== 'available' ||
     image.Architecture !== ec2.architecture ||
     image.VirtualizationType !== 'hvm' ||

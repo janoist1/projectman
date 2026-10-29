@@ -397,7 +397,7 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
     fullTestLine(input.project, task) === null
       ? [
           `Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step owns the full check before merge'}. Run only targeted tests if needed for this review.`,
-          'Verify that the developer recorded the local hand-over checks required by the repository, including `npm run dead-code` if that script is available; ask for missing checks before approving.',
+          'Verify that the developer recorded the local hand-over checks the repository requires; ask for missing checks before approving.',
         ]
       : []),
     ...(pin
@@ -498,12 +498,9 @@ function developerTests(input: ContextPackInput, task: Task): string {
   return input.serverFullTest && reviewTest
     ? `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: the server runs ${code(reviewTest.command)} once on the commit you hand over, PTY tests included, and sends the task back if it fails.`
     : testsAtMerge(input, task)
-      ? `While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Also run the repository's fast local hand-over checks, including \`npm run dead-code\` from the repository root if that script is available; record results on the card and fix new findings without automatically extending the baseline. When adding a merge check that can run quickly locally, update the developer hand-over checklist in the same change. Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step runs the full check once before the task enters the default branch'}.`
+      ? `While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Also run the repository's fast local hand-over checks and record the results on the card. Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step runs the full check once before the task enters the default branch'}.`
       : "While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.";
 }
-
-const INSTALL_DEPENDENCIES =
-  'Install the dependencies only if they are missing from your working directory: they are often in place already.';
 
 /**
  * What finishing the current stage looks like for each duty with concrete steps. A member gets the
@@ -514,10 +511,10 @@ const INSTALL_DEPENDENCIES =
 const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
   implementation: building((where, tests) => [
     'Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
-    `${INSTALL_DEPENDENCIES} Implement the change ${where}. ${tests}`,
+    `Implement the change ${where}. ${tests}`,
   ]),
   maintenance: building((where, tests) => [
-    `${INSTALL_DEPENDENCIES} Make the maintenance change the task describes ${where}, small and focused. ${tests}`,
+    `Make the maintenance change the task describes ${where}, small and focused. ${tests}`,
   ]),
   docs: building((where) => [`Update the documentation the task affects ${where}.`]),
   content: building((where) => [
@@ -566,7 +563,7 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
     if (s.ownsStage) return ownerSteps(input, s);
     return [
       'Do the deployment or operations work you were asked for and report to the sender with send_message. Production changes need an approved human decision.',
-      'If you are asked to prepare a release of this instance: call propose_release with preview: true to see the commit and the cards, write a short English summary of the cards with their keys, then call propose_release with the title and the summary. Your session ends with that call; an owner approves and the release watcher deploys. Never tag, push or touch the live instance yourself.',
+      'If you are asked to publish a release: call publish_release with preview: true, then publish_release with a short English summary and the card keys. Publishing creates a git tag and GitHub release; deployment is the owner-requested cloud deploy command.',
       'If you are asked for a release of a repository (a git tag and a GitHub release): call publish_release with preview: true to see the tag, the commit and the cards, write a short English summary with the card keys, then call publish_release with the summary. It only tags and publishes; it deploys nothing. If it ends with release_publish_failed after the tag was pushed, call it again to finish.',
     ];
   },

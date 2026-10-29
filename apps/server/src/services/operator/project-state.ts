@@ -1,4 +1,4 @@
-import type { OperatorPauses, OperatorReleases, WaitingStarts, OperatorDiagnosticSources } from './ports';
+import type { OperatorPauses, WaitingStarts, OperatorDiagnosticSources } from './ports';
 import {
   conditionHolds,
   isOpenTask,
@@ -40,7 +40,6 @@ export class ProjectState {
     deferred: WaitingStarts;
     taskWaits: Pick<TaskWaits, 'ofCard'>;
     operatorSignals: Pick<OperatorSignals, 'active'>;
-    releases: Pick<OperatorReleases, 'overview'>;
     requests: Pick<OperatorRequests, 'openFor'>;
     diagnostics: OperatorDiagnosticSources;
   };
@@ -258,7 +257,8 @@ export class ProjectState {
   async overview(projectKey: string): Promise<ProjectStateReport> {
     const { ctx, projects, tasks, pauses } = this.deps;
     const config = await projects.config(projectKey);
-    const cards = tasks.list(projectKey).filter((t) => !isTheme(t));
+    // Only open cards: a closed card has no start that waits and no place in the stage counts.
+    const cards = tasks.listQuery(projectKey, { kind: 'open' }).filter((t) => !isTheme(t));
     const pause = pauses.projectView(projectKey);
     const owners = ownerHandles(config);
     const waitingStarts: ProjectStateReport['waitingStarts'] = this.deps.deferred
@@ -266,9 +266,10 @@ export class ProjectState {
       .filter(
         ({ start }) =>
           start.projectKey === projectKey &&
-          start.stillValid(
-            start.taskKey === null ? null : (cards.find((t) => t.key === start.taskKey) ?? null),
-          ),
+          // A start of a card that is not open (closed, or a theme) no longer applies.
+          (start.taskKey === null
+            ? start.stillValid(null)
+            : cards.some((t) => t.key === start.taskKey && start.stillValid(t))),
       )
       .map(({ start, waiting }) => ({
         taskKey: start.taskKey,
@@ -310,7 +311,7 @@ export class ProjectState {
       stages: config.pipeline.stages.map((s) => ({
         stageId: s.id,
         // The board shows only open cards; done and cancelled ones stay in their last stage.
-        count: cards.filter((t) => isOpenTask(t) && t.stageId === s.id).length,
+        count: cards.filter((t) => t.stageId === s.id).length,
       })),
       sessions: ctx.repos.sessions
         .list(projectKey)
@@ -324,7 +325,7 @@ export class ProjectState {
         .list(projectKey, { state: 'open' })
         .filter((item) => item.assignees.some((handle) => owners.includes(handle)))
         .map((item) => ({ id: item.id, kind: item.kind, taskKey: item.taskKey, title: item.title })),
-      release: await this.deps.releases.overview(projectKey),
+      release: null,
       waitingMessages,
     };
   }

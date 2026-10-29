@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
+import { chatWindow } from '@projectman/shared';
 import type { ChatItem, HandoffSummary, PlanUsage, SessionState, ProjectConfig } from '@projectman/shared';
 import type {
   ContextPack,
@@ -227,7 +228,10 @@ export function createFakeRunnerModule(): FakeRunnerModule {
         transcriptReads.push({ path, opts });
         const items = transcripts.get(path);
         if (!items) throw new Error(`no transcript at ${path}`);
-        return items;
+        // The window as the real reader cuts it, so callers are tested against its semantics.
+        return opts?.limit === undefined
+          ? items
+          : chatWindow(items, { limit: opts.limit, before: opts.before }).items;
       },
       async summary(path, opts) {
         summaryReads.push({ path, opts });
@@ -332,6 +336,11 @@ export class FakeMemoryStore implements MemberMemoryStore {
 }
 
 export class FakeWorktreeManager implements WorktreeManager {
+  async listTaskWorktrees(args: Parameters<WorktreeManager['listTaskWorktrees']>[0]) {
+    return [...this.existing.entries()]
+      .filter(([key]) => key.startsWith(`${args.project.project.key}/`) && key.endsWith(`/${args.repoName}`))
+      .map(([key, info]) => ({ taskKey: key.split('/')[1]!, path: info.path }));
+  }
   readonly fixes = new Map<string, WorktreeInfo>();
   async ensureMergeFix(args: Parameters<WorktreeManager['ensureMergeFix']>[0]) {
     const key = `${args.project.project.key}/${args.taskKey}/${args.repoName}`;
@@ -415,6 +424,7 @@ export class FakeWorktreeManager implements WorktreeManager {
   }
   async remove(args: { path: string; force?: boolean }): Promise<void> {
     this.removed.push(args.path);
+    for (const [key, info] of this.existing) if (info.path === args.path) this.existing.delete(key);
   }
 }
 

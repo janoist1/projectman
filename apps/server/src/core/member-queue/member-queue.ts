@@ -394,6 +394,33 @@ export class MemberQueue {
   }
 
   /**
+   * PM-1108: a session that a screening or a signal started took the member's whole place batch, closed the
+   * messages in it as delivered, and typed none of them. Their receipts stay pending. The victims are counted
+   * (read-only, every age) and logged, then opened again once: the mark in `instance_meta` keeps the repair
+   * from running at every start, as the cause is fixed and no new victim can appear.
+   */
+  private reopenUntypedMessages(): void {
+    const repo = this.ctx.repos.memberQueue;
+    if (repo.untypedRepairDone()) return;
+    const ids = repo.listUntypedMessages();
+    this.ctx.logger.info(
+      { found: ids.length },
+      'counted message queue items closed as delivered but not typed',
+    );
+    const reopened = ids.filter((id) => repo.reopen(id));
+    repo.markUntypedRepairDone(isoNow(this.ctx));
+    if (reopened.length > 0)
+      this.ctx.logger.warn(
+        { found: ids.length, reopened: reopened.length },
+        'reopened message queue items that were closed as delivered without being typed',
+      );
+    for (const id of reopened) {
+      const item = repo.get(id);
+      if (item) this.changed([item]);
+    }
+  }
+
+  /**
    * Startup: fills in what the source writes did not (an item of before this slice, a failed sync), and closes
    * what no longer holds. Safe to run any number of times.
    */
@@ -404,6 +431,7 @@ export class MemberQueue {
       });
     const { repos } = this.ctx;
     this.ctx.unitOfWork(() => {
+      this.reopenUntypedMessages();
       for (const item of repos.inbox.listOpen()) this.guarded('inbox', item.id, () => this.syncInbox(item));
       // The questions the PM has not settled yet (the PM's screening items).
       for (const { key } of this.projects.summaries())

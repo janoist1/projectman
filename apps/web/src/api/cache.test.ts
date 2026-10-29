@@ -8,7 +8,7 @@ import type {
   SessionDetail,
   TaskDetail,
 } from '@projectman/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   chats,
   inbox,
@@ -25,14 +25,6 @@ import { appendUnique, applyServerEvent, upsertBy, writeTaskDetail } from './cac
 import { queryKeys } from './queryKeys';
 
 const KEY = 'AC';
-it('refreshes grant state and audit after an owner changes machine access', () => {
-  const client = new QueryClient();
-  client.setQueryData(queryKeys.operatorGrant, {});
-  client.setQueryData(queryKeys.operatorGrantAudit, {});
-  applyServerEvent(client, { type: 'operator_grant_changed' });
-  expect(client.getQueryState(queryKeys.operatorGrant)?.isInvalidated).toBe(true);
-  expect(client.getQueryState(queryKeys.operatorGrantAudit)?.isInvalidated).toBe(true);
-});
 it('refreshes super DTOs when their timeline changes without executing an operation', () => {
   const client = new QueryClient();
   const keys = [
@@ -221,6 +213,54 @@ describe('applyServerEvent', () => {
       expect(client.getQueryState(key)!.isInvalidated).toBe(true);
   });
 
+  it('leaves the project manager corner alone for the ticks and messages of other members (PM-1109)', () => {
+    const client = seed();
+    const corner = queryKeys.projectManager(KEY);
+    client.setQueryData(corner, {});
+    const session = sessions.find((entry) => entry.id === 'ses_ac21_fe1')!;
+    for (let tick = 0; tick < 50; tick++) {
+      applyServerEvent(client, {
+        type: 'member_state',
+        projectKey: KEY,
+        handle: 'fe-1',
+        status: 'working',
+        activity: `Tick ${tick}`,
+      });
+      applyServerEvent(client, { type: 'session_upserted', projectKey: KEY, session });
+    }
+    applyServerEvent(client, { type: 'plan_usage', projectKey: KEY, provider: 'claude', usage: planUsage });
+    const message = { ...new MockBackend().messages[0]!, from: 'fe-1', to: ['qa'] };
+    applyServerEvent(client, { type: 'team_message', projectKey: KEY, message });
+    expect(client.getQueryState(corner)!.isInvalidated).toBe(false);
+  });
+
+  it('reads the project manager corner again for the manager own session and messages', () => {
+    const message = { ...new MockBackend().messages[0]!, from: 'fe-1', to: ['pm'] };
+    const session = { ...sessions.find((entry) => entry.id === 'ses_ac21_fe1')!, member: 'pm' };
+    for (const event of [
+      { type: 'team_message', projectKey: KEY, message },
+      { type: 'session_upserted', projectKey: KEY, session },
+    ] as const) {
+      const client = seed();
+      client.setQueryData(queryKeys.projectManager(KEY), {});
+      applyServerEvent(client, event);
+      expect(client.getQueryState(queryKeys.projectManager(KEY))!.isInvalidated).toBe(true);
+    }
+  });
+
+  it('reads a key once for the events of one burst (PM-1109)', () => {
+    const client = seed();
+    client.setQueryData(queryKeys.screenedQuestionsAll(KEY), {});
+    const read = vi.spyOn(client, 'invalidateQueries');
+    const question = inbox.find((item) => item.kind === 'question')!;
+    applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item: question });
+    applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item: question });
+    const screened = read.mock.calls.filter(([filters]) =>
+      JSON.stringify(filters?.queryKey).includes('inbox-screened'),
+    );
+    expect(screened).toHaveLength(1);
+  });
+
   it('writes a task detail returned by a mutation to the board, the detail and its sessions', () => {
     const client = seed();
     const detail = client.getQueryData<TaskDetail>(queryKeys.task(KEY, 'AC-21'))!;
@@ -288,16 +328,14 @@ describe('applyServerEvent', () => {
 });
 
 describe('the Operator queue events', () => {
-  it('reads the queue, the corner and the grant again when the queue or the grant changes', () => {
+  it('reads the queue and the corner when the queue changes', () => {
     const client = new QueryClient();
     const keys = [
       queryKeys.projectManager(KEY),
       queryKeys.operatorQueue(KEY, 'pm', '2026-10-22T00:00:00.000Z'),
-      queryKeys.operatorGrant,
     ];
     keys.forEach((key) => client.setQueryData(key, {}));
     applyServerEvent(client, { type: 'member_queue_changed', projectKey: KEY, member: 'operator' });
-    applyServerEvent(client, { type: 'operator_grant_changed' });
     keys.forEach((key) => expect(client.getQueryState(key)!.isInvalidated).toBe(true));
   });
 });
@@ -376,25 +414,5 @@ describe('contract follow-up events', () => {
     };
     applyServerEvent(client, { type: 'task_upserted', projectKey: KEY, task });
     expect(client.getQueryState(queryKeys.task(KEY, task.key))!.isInvalidated).toBe(true);
-  });
-
-  it('puts the focus list of a project_focus_changed event into the view, keeping the right to edit', () => {
-    const client = seed();
-    const item = {
-      key: 'AC-24',
-      addedAt: '2026-10-01T10:00:00.000Z',
-      addedBy: { kind: 'human' as const, handle: 'owner' },
-    };
-    client.setQueryData(queryKeys.focus(KEY), { items: [], canEdit: false });
-    client.setQueryData(queryKeys.focusChanges(KEY), { events: [] });
-    applyServerEvent(client, { type: 'project_focus_changed', projectKey: KEY, focus: { items: [item] } });
-    expect(client.getQueryData(queryKeys.focus(KEY))).toEqual({ items: [item], canEdit: false });
-    expect(client.getQueryState(queryKeys.focusChanges(KEY))!.isInvalidated).toBe(true);
-  });
-
-  it('leaves a focus that was never read alone', () => {
-    const client = seed();
-    applyServerEvent(client, { type: 'project_focus_changed', projectKey: KEY, focus: { items: [] } });
-    expect(client.getQueryData(queryKeys.focus(KEY))).toBeUndefined();
   });
 });

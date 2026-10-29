@@ -78,15 +78,18 @@ function workName(session: Session): string {
     : t(`pause.progress.work.${session.workItem.type}`);
 }
 
+/** How many of a session's last chat items the profile shows (and asks for). */
+const PEEK_ITEMS = 8;
+
 function SessionPeek({ sessionId }: { sessionId: string }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
-  const detail = useSessionDetail(key, sessionId);
+  const detail = useSessionDetail(key, sessionId, PEEK_ITEMS);
   if (detail.error) return <ErrorState compact error={detail.error} />;
   if (!detail.data) return <LoadingState compact />;
   return (
     <ChatView
-      items={detail.data.chat.slice(-8)}
+      items={detail.data.chat.slice(-PEEK_ITEMS)}
       members={members}
       myHandle={myHandle}
       sessionMember={detail.data.session.member}

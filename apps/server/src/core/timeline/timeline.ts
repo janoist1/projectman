@@ -44,12 +44,13 @@ export class TimelineService {
     };
     this.ctx.repos.timeline.insert(event);
     this.ctx.bus.publish({ type: 'timeline_appended', projectKey: event.projectKey, event });
-    // The conversation on a card is watched for message storms (PM-186): the listeners run here, in
-    // the unit of work that records the entry.
+    // The conversation on a card is watched for message storms (PM-186): the listeners hear of the entry
+    // once the unit of work that records it has committed.
     if (event.taskKey && (event.type === 'team_message' || event.type === 'task_note'))
-      void this.ctx.events.emit('task_talk_recorded', { event });
+      this.ctx.afterCommit(() => void this.ctx.events.emit('task_talk_recorded', { event }));
     // A note, an attachment and a new description are the work of a team that does not write code (PM-431).
-    if (event.taskKey && isLoopWork(event)) void this.ctx.events.emit('task_work_recorded', { event });
+    if (event.taskKey && isLoopWork(event))
+      this.ctx.afterCommit(() => void this.ctx.events.emit('task_work_recorded', { event }));
     return event;
   }
 
@@ -69,7 +70,17 @@ export class TimelineService {
   }
 
   /** Most recent events, oldest first. */
-  list(projectKey: string, opts: { taskKey?: string; limit?: number } = {}): TimelineEvent[] {
+  list(
+    projectKey: string,
+    opts: { taskKey?: string; limit?: number; excludeTypes?: readonly TimelineEventType[] } = {},
+  ): TimelineEvent[] {
     return this.ctx.repos.timeline.list(projectKey, opts);
+  }
+
+  count(
+    projectKey: string,
+    opts: { taskKey?: string; excludeTypes?: readonly TimelineEventType[] } = {},
+  ): number {
+    return this.ctx.repos.timeline.count(projectKey, opts);
   }
 }

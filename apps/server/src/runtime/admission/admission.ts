@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   aiLimitReached,
   canReplaceUnstartedAssignee,
@@ -29,7 +30,6 @@ import type {
   AgentProvider,
   CapacityHolder,
   EngineId,
-  FocusPlace,
   FreeDeveloper,
   MemberHandle,
   PlanUsage,
@@ -46,9 +46,9 @@ import { conflict, DomainError } from '../../kernel';
 import type { PlanUsageCache } from '../usage';
 import type { ProjectService } from '../../core/projects';
 import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
-import { prerequisiteCards } from '../../core/tasks';
+import { prerequisiteCards, startContext } from '../../core/tasks';
 import type { TaskService } from '../../core/tasks';
-import { KeyedMutex } from '../../kernel';
+import { KeyedMutex, withoutIntegratorExecution } from '../../kernel';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
 import {
   assertAiEnabled,
@@ -58,6 +58,12 @@ import {
   isDeferrable,
   waitingOf,
 } from './rules';
+
+/** How long the admission lock may be held before the log says who holds it (PM-1120). */
+export const ADMISSION_LOCK_WARN_MS = 10_000;
+
+/** An engine read of the admission check slower than this is logged with its name (PM-1133). */
+const ADMISSION_STEP_WARN_MS = 1_000;
 
 /** What an `attempt` came to (PM-543): the start ran or no longer applies, or admission put it off. */
 type AttemptOutcome = { kind: 'done' } | { kind: 'deferred'; waiting: TaskStartWaiting };
@@ -81,10 +87,11 @@ interface AdmissionRequest {
   cause?: SessionStartCause;
 }
 
-/** What `retryDeferred` asks of the focus pull (PM-427). */
-export interface FocusPulling {
-  /** Key -> place of the project's open cards the focus covers. */
-  places(projectKey: string): ReadonlyMap<string, FocusPlace>;
+/** How long an event's request for a retry waits for the others of its burst. */
+const RETRY_DEBOUNCE_MS = 750;
+
+/** What `retryDeferred` asks of the urgent pull (PM-436). */
+export interface UrgentPulling {
   /** One round: pulls the cards free developers take, at the end of the retry loop. */
   run(): Promise<void>;
 }
@@ -116,10 +123,18 @@ export class Admission {
   private readonly disk?: Pick<DiskGuard, 'assertRoom'>;
   private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'projectEngine' | 'get'>;
   private readonly locks = new KeyedMutex();
-  private pull: FocusPulling | undefined;
+  private readonly lockContext = new AsyncLocalStorage<{
+    holder: string;
+    member?: string;
+    phases: Record<string, number>;
+  }>();
+  private pull: UrgentPulling | undefined;
   private round: StartRounding | undefined;
   private retrying: Promise<void> | null = null;
   private retryAgain = false;
+  private readonly retryDebounceMs: number;
+  private requestedRetry: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
   private queueRetry: (() => Promise<void>) | undefined;
   private readonly onOutageRefusal?: (
     projectKey: string,
@@ -144,7 +159,10 @@ export class Admission {
     disk?: Pick<DiskGuard, 'assertRoom'>;
     /** The engines (PM-311): a member whose engine is not connected waits (`engine_offline`). */
     engines?: Pick<EngineDirectory, 'engineFor' | 'projectEngine' | 'get'>;
+    /** How long a requested retry waits to join the ones that follow it (default `RETRY_DEBOUNCE_MS`). */
+    retryDebounceMs?: number;
   }) {
+    this.retryDebounceMs = deps.retryDebounceMs ?? RETRY_DEBOUNCE_MS;
     this.disk = deps.disk;
     this.engines = deps.engines;
     this.ctx = deps.ctx;
@@ -156,9 +174,58 @@ export class Admission {
     this.onOutageRefusal = deps.onOutageRefusal;
   }
 
-  /** Runs `fn` alone among admission decisions and the starts they allow (across projects). */
-  exclusive<T>(fn: () => Promise<T>): Promise<T> {
-    return this.locks.run('ai-admission', fn);
+  /**
+   * Runs `fn` alone among admission decisions and the starts they allow (across projects). A lock held past
+   * `ADMISSION_LOCK_WARN_MS` is logged once with the holder's `label` (PM-1120): every other start waits for it.
+   */
+  exclusive<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    return this.locks.run('ai-admission', () =>
+      this.lockContext.run({ holder: label, phases: {} }, async () => {
+        const heldSince = Date.now();
+        const timer = setTimeout(
+          () =>
+            this.ctx.logger.warn(
+              { holder: label, heldMs: Date.now() - heldSince },
+              'the admission lock is held for a long time',
+            ),
+          ADMISSION_LOCK_WARN_MS,
+        );
+        timer.unref();
+        try {
+          return await fn();
+        } finally {
+          clearTimeout(timer);
+          const heldMs = Date.now() - heldSince;
+          if (heldMs > ADMISSION_STEP_WARN_MS)
+            this.ctx.logger.warn(
+              { ...this.lockContext.getStore(), heldMs },
+              'an admission lock round was slow',
+            );
+        }
+      }),
+    );
+  }
+
+  /** Engine reads happen before admission's lock. Only check() decides whether work may start. */
+  async warm(projectKey: string, handle: string | undefined): Promise<void> {
+    if (!handle) return;
+    try {
+      const config = await this.projects.config(projectKey);
+      const member = memberOf(config, handle);
+      if (member?.kind !== 'ai') return;
+      const engineId = this.engines?.engineFor(projectKey, handle);
+      if (this.engines && (!engineId || !this.engines.get(engineId))) return;
+      const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+      await Promise.allSettled([
+        this.sessions.assertProviderReady(provider, handle, engineId ?? undefined),
+        ...(pausesOnPlanUsage(provider)
+          ? [this.planUsage.get(provider, engineId ?? this.usageEngine(projectKey, handle))]
+          : []),
+        ...(this.disk ? [this.disk.assertRoom(config, engineId ?? undefined)] : []),
+      ]);
+    } catch {
+      // Configuration and engine failures are rechecked by admission, in its usual refusal order.
+    }
   }
 
   /**
@@ -179,7 +246,7 @@ export class Admission {
   holders(config: ProjectConfig, handle: string, excludeTaskKey?: string): CapacityHolder[] {
     const holders: CapacityHolder[] = [];
     const ofTask = new Map<string, CapacityHolder>();
-    for (const s of this.sessions.list(config.project.key, { member: handle })) {
+    for (const s of this.sessions.listLive(config.project.key, handle)) {
       if (!this.sessions.isRunning(s.id)) continue;
       const awaitsFirstTurn = this.sessions.awaitsFirstTurn(s.id);
       const working = isSessionAtWork(s, { awaitsFirstTurn, pendingInput: false, messageOnItsWay: false });
@@ -234,6 +301,8 @@ export class Admission {
   /** Throws the refusal when the work must wait (see the class comment for the checks). */
   async check(request: AdmissionRequest): Promise<void> {
     const { config, member, workItem } = request;
+    const context = this.lockContext.getStore();
+    if (context) context.member = member?.handle;
     const projectKey = config.project.key;
     assertAiEnabled(config);
     assertNotPaused(this.ctx.repos.pauses, projectKey);
@@ -266,16 +335,34 @@ export class Admission {
     // The hold is on the key that engine uses (PM-1091), so it is read once the engine is known.
     this.sessions.assertProviderCooldown(provider, engineId);
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
-    if (member) await this.sessions.assertProviderReady(provider, member.handle, engineId);
+    if (member)
+      await this.timed('provider-ready', () =>
+        this.sessions.assertProviderReady(provider, member.handle, engineId),
+      );
     if (pausesOnPlanUsage(provider)) {
-      const usage = await this.planUsage.get(
-        provider,
-        engineId ?? this.usageEngine(projectKey, member?.handle),
+      const usage = await this.timed('plan-usage', () =>
+        this.planUsage.get(provider, engineId ?? this.usageEngine(projectKey, member?.handle)),
       );
       this.assertUsageBelowPause(config, provider, usage);
     }
     // Last, because it measures the disk (PM-243).
-    await this.disk?.assertRoom(config, engineId);
+    if (this.disk) await this.timed('disk', () => this.disk!.assertRoom(config, engineId));
+  }
+
+  /**
+   * One engine read of the admission check, logged when it is slow (PM-1133): the check runs under the
+   * admission lock, so the log names the read that keeps every other start waiting.
+   */
+  private async timed<T>(step: string, read: () => Promise<T>): Promise<T> {
+    const startedAt = Date.now();
+    try {
+      return await read();
+    } finally {
+      const ms = Date.now() - startedAt;
+      const context = this.lockContext.getStore();
+      if (context) context.phases[step] = (context.phases[step] ?? 0) + ms;
+      if (ms > ADMISSION_STEP_WARN_MS) this.ctx.logger.warn({ step, ms }, 'an admission check step was slow');
+    }
   }
 
   /**
@@ -436,6 +523,8 @@ export class Admission {
   async start(
     request: AdmissionRequest & { member: AiMemberConfig; workItem: WorkItemRef },
   ): Promise<EnsureSessionResult> {
+    const context = this.lockContext.getStore();
+    if (context) context.member = request.member.handle;
     const requested = request.workItem;
     request = { ...request, workItem: sessionWorkItemOf(request.member, request.workItem) };
     const projectKey = request.config.project.key;
@@ -466,10 +555,12 @@ export class Admission {
     }
     try {
       await this.check(request);
-      return await this.sessions.ensureSession(projectKey, request.member.handle, requested, {
-        messages: request.messages,
-        cause: request.cause,
-      });
+      return await this.timed('session-start', () =>
+        this.sessions.ensureSession(projectKey, request.member.handle, requested, {
+          messages: request.messages,
+          cause: request.cause,
+        }),
+      );
     } catch (err) {
       const refusal = err as { code?: unknown; details?: unknown } | null;
       if (typeof refusal?.code === 'string' && OUTAGE_REFUSALS.some((code) => code === refusal.code)) {
@@ -493,7 +584,8 @@ export class Admission {
    * `done` (the start ran, or no longer applies) or `deferred` with why it waits.
    */
   async attempt(start: AutomaticStart): Promise<AttemptOutcome> {
-    return this.exclusive(() =>
+    await this.warm(start.projectKey, start.waitsFor());
+    return this.exclusive('deferred-attempt', () =>
       this.publishingWaitingChanges(start.taskKey, async (): Promise<AttemptOutcome> => {
         // The previous deferral of this start stays stored until the attempt settles.
         const previous = this.deferred.take(start.key);
@@ -590,12 +682,13 @@ export class Admission {
    * the project's master switch is left alone while the switch is off, and one that waits for a
    * member on leave while the member is away: a retry could only be refused and logged again,
    * and turning the switch on or calling the member back retries them. The order is `retryOrder`'s; the
-   * focus pull (PM-427) goes last. Rounds do not overlap: a start being retried is out of the store,
+   * urgent pull (PM-436) goes last. Rounds do not overlap: a start being retried is out of the store,
    * so a second round meanwhile would not see it (and one that fails puts it back after the round that
    * saw the change). A round asked for while one runs makes the running one go once more, and both
    * callers get the result of the last.
    */
   retryDeferred(): Promise<void> {
+    this.cancelRequestedRetry();
     if (this.retrying) {
       this.retryAgain = true;
       return this.retrying;
@@ -616,6 +709,42 @@ export class Admission {
       }
     })();
     return this.retrying;
+  }
+
+  /**
+   * What an event that could free a place, a limit or a hold asks for: a `retryDeferred` shortly after, the
+   * requests of one burst (a session's end moves a card, a label, an idle) joined into one. The timer and
+   * the callers that wait for the result call `retryDeferred` itself.
+   */
+  requestRetry(): void {
+    if (this.disposed || this.requestedRetry) return;
+    if (this.retryDebounceMs <= 0) {
+      this.runRequestedRetry();
+      return;
+    }
+    this.requestedRetry = setTimeout(() => this.runRequestedRetry(), this.retryDebounceMs);
+    this.requestedRetry.unref?.();
+  }
+
+  private runRequestedRetry(): void {
+    this.requestedRetry = undefined;
+    // Autonomous work keeps its own system authority, not that of the request that asked for it.
+    withoutIntegratorExecution(() => this.retryDeferred()).catch((err: unknown) => {
+      this.ctx.logger.warn({ err }, 'deferred start retry failed');
+    });
+  }
+
+  /** A retry that runs now covers the one asked for and not yet started. */
+  private cancelRequestedRetry(): void {
+    if (this.requestedRetry) clearTimeout(this.requestedRetry);
+    this.requestedRetry = undefined;
+  }
+
+  /** No retry is asked for any more (the server stops); resolves when the round that is running has ended. */
+  async dispose(): Promise<void> {
+    this.disposed = true;
+    this.cancelRequestedRetry();
+    await this.retrying?.catch(() => {});
   }
 
   private async retryRound(): Promise<void> {
@@ -642,7 +771,7 @@ export class Admission {
     try {
       await this.pull?.run();
     } catch (err) {
-      this.ctx.logger.warn({ err }, 'focus pull failed');
+      this.ctx.logger.warn({ err }, 'urgent pull failed');
     }
     try {
       await this.round?.run();
@@ -695,24 +824,23 @@ export class Admission {
   }
 
   /**
-   * The order the deferred starts are retried in (PM-427): urgent cards, then the focus cards by their
-   * place, then the rest; within one class the cards that wait for a Senior go first (older first, as the
-   * others do): a Senior who frees up is not taken by an older card that waits for any free developer
-   * (PM-348); then the order the store lists them in. The places are read once per project.
+   * The order the deferred starts are retried in (PM-436): urgent cards, then the rest; within one class
+   * the cards that wait for a Senior go first (older first, as the others do): a Senior who frees up is not
+   * taken by an older card that waits for any free developer (PM-348); then the order the store lists them in.
    */
   private retryOrder(): DeferredStart[] {
-    const places = new Map<string, ReadonlyMap<string, FocusPlace>>();
-    const placesOf = (projectKey: string) => {
-      let known = places.get(projectKey);
-      if (!known) {
-        known = this.pull?.places(projectKey) ?? new Map<string, FocusPlace>();
-        places.set(projectKey, known);
-      }
-      return known;
-    };
-    const ranked = this.deferred.list().map((entry) => ({
+    const entries = this.deferred.list().map((entry) => ({ entry, task: this.taskOf(entry.start) }));
+    // The parents and themes of the cards, read once per project: their priority counts (`effectivePriority`).
+    const contexts = new Map<string, Task[]>();
+    for (const projectKey of new Set(entries.map(({ entry }) => entry.start.projectKey))) {
+      const cards = entries.flatMap(({ entry, task }) =>
+        task && entry.start.projectKey === projectKey ? [task] : [],
+      );
+      contexts.set(projectKey, startContext(this.tasks, projectKey, cards));
+    }
+    const ranked = entries.map(({ entry, task }) => ({
       entry,
-      class: startClass(this.taskOf(entry.start), placesOf(entry.start.projectKey)),
+      class: startClass(task, contexts.get(entry.start.projectKey)),
       senior: entry.waiting.reason === 'senior_busy',
     }));
     return ranked
@@ -721,10 +849,10 @@ export class Admission {
   }
 
   /**
-   * Binds the focus pull (PM-427; it needs the starts, which need this class, so it is bound after): its
-   * round runs at the end of `retryDeferred`, and its places order the deferred starts.
+   * Binds the urgent pull (PM-436; it needs the starts, which need this class, so it is bound after): its
+   * round runs at the end of `retryDeferred`.
    */
-  usePull(pull: FocusPulling): void {
+  usePull(pull: UrgentPulling): void {
     this.pull = pull;
   }
 
@@ -737,7 +865,7 @@ export class Admission {
     this.round = round;
   }
 
-  /** The members a stored deferred start of the project waits for (`FocusPull` leaves them out: they are not free). */
+  /** The members a stored deferred start of the project waits for (`UrgentPull` leaves them out: they are not free). */
   membersWaitedFor(projectKey: string): Set<string> {
     const members = new Set<string>();
     for (const { start, waiting } of this.deferred.list()) {
@@ -763,7 +891,7 @@ export class Admission {
 
   private hasLiveScheduledRun(projectKey: string, handle: string): boolean {
     return this.sessions
-      .list(projectKey, { member: handle })
+      .listLive(projectKey, handle)
       .some((s) => s.workItem.type === 'schedule' && this.sessions.isRunning(s.id));
   }
 

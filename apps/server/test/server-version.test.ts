@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { routes, ServerVersionView } from '@projectman/shared';
+import { PROJECTMAN_RELEASES_URL, routes, ServerVersionView } from '@projectman/shared';
 import type { Release } from '@projectman/shared';
 import { createAppHarness, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -38,18 +38,8 @@ describe('server version API', () => {
     await h?.close();
   });
 
-  async function start(
-    version = COMMIT,
-    appTag?: () => Promise<string | null>,
-    releaseTarget?: { projectKey: string; repo: string },
-  ) {
-    h = await createAppHarness({
-      app: {
-        appVersion: version,
-        ...(appTag ? { appTag } : {}),
-        ...(releaseTarget ? { releaseTarget } : {}),
-      },
-    });
+  async function start(version = COMMIT, appTag?: () => Promise<string | null>) {
+    h = await createAppHarness({ app: { appVersion: version, ...(appTag ? { appTag } : {}) } });
     const cookie = await setupOwner(h.app);
     return {
       ...h.app.projectman,
@@ -83,11 +73,12 @@ describe('server version API', () => {
       version: COMMIT,
       commit: COMMIT,
       tag: 'v2026.10.23',
+      latestReleaseTag: null,
     });
   });
 
-  it('names the latest published release of the release target, whatever commit runs', async () => {
-    const { repos, read } = await start(COMMIT, undefined, { projectKey: 'AR', repo: 'web' });
+  it('names the newest release of the projectman repository, whatever commit runs', async () => {
+    const { repos, read } = await start();
     const publication = {
       id: 'rpub_old',
       projectKey: 'AR',
@@ -99,7 +90,7 @@ describe('server version API', () => {
       summary: 'Release',
       publishedBy: 'owner',
       taggedAt: '2026-10-22T08:00:00Z',
-      url: 'https://github.com/acme/web/releases/tag/v2026.10.22',
+      url: `${PROJECTMAN_RELEASES_URL}tag/v2026.10.22`,
       publishedAt: '2026-10-22T08:00:00Z',
     };
     repos.releasePublications.insert(publication);
@@ -108,13 +99,27 @@ describe('server version API', () => {
       id: 'rpub_new',
       commit: 'c'.repeat(40),
       tag: 'v2026.10.23',
-      url: 'https://github.com/acme/web/releases/tag/v2026.10.23',
+      url: `${PROJECTMAN_RELEASES_URL}tag/v2026.10.23`,
       publishedAt: '2026-10-23T08:00:00Z',
     });
-    expect(ServerVersionView.parse((await read()).json()).latestRelease).toEqual({
-      tag: 'v2026.10.23',
-      url: 'https://github.com/acme/web/releases/tag/v2026.10.23',
+    // A newer release of a foreign repository and an unfinished one do not count.
+    repos.releasePublications.insert({
+      ...publication,
+      id: 'rpub_foreign',
+      commit: 'd'.repeat(40),
+      tag: 'v2026.10.24',
+      url: 'https://github.com/acme/web/releases/tag/v2026.10.24',
+      publishedAt: '2026-10-24T08:00:00Z',
     });
+    repos.releasePublications.insert({
+      ...publication,
+      id: 'rpub_open',
+      commit: 'e'.repeat(40),
+      tag: 'v2026.10.25',
+      url: null,
+      publishedAt: null,
+    });
+    expect(ServerVersionView.parse((await read()).json()).latestReleaseTag).toBe('v2026.10.23');
   });
 
   it('falls back to the newest published legacy release for the running commit', async () => {
@@ -132,12 +137,12 @@ describe('server version API', () => {
 
   it.each([COMMIT, 'a'.repeat(64)])('returns an unpublished commit: %s', async (commit) => {
     const { read } = await start(commit);
-    expect((await read()).json()).toEqual({ version: commit, commit, tag: null });
+    expect((await read()).json()).toEqual({ version: commit, commit, tag: null, latestReleaseTag: null });
   });
 
   it.each(['dev', 'custom-build'])('keeps a non-commit version: %s', async (version) => {
     const { read } = await start(version);
-    expect((await read()).json()).toEqual({ version, commit: null, tag: null });
+    expect((await read()).json()).toEqual({ version, commit: null, tag: null, latestReleaseTag: null });
   });
 
   it('falls back to the running build tag', async () => {
@@ -149,7 +154,12 @@ describe('server version API', () => {
     const { read } = await start(COMMIT, async () => {
       throw new Error('Unavailable');
     });
-    expect((await read()).json()).toEqual({ version: COMMIT, commit: COMMIT, tag: null });
+    expect((await read()).json()).toEqual({
+      version: COMMIT,
+      commit: COMMIT,
+      tag: null,
+      latestReleaseTag: null,
+    });
   });
 
   it('requires authentication', async () => {

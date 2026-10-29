@@ -335,6 +335,16 @@ describe('engine process', () => {
       expect(JSON.stringify(hello)).not.toContain(KEY);
     });
 
+    it('sends the hello within 3 s although a provider probe never answers', async () => {
+      const slow = fake.runner as typeof fake.runner & Pick<SessionRunner, 'providerStatus'>;
+      slow.providerStatus = () => new Promise(() => {});
+      const startedAt = Date.now();
+      await startEngine();
+      await cloud.connected();
+      expect(Date.now() - startedAt).toBeLessThan(3000);
+      expect(cloud.hellos[0]!.providers.every((entry) => !entry.available)).toBe(true);
+    });
+
     it('gives a new boot id at every start and the same instance tag for the same home', async () => {
       const first = await startEngine();
       await cloud.connected();
@@ -685,6 +695,33 @@ describe('engine process', () => {
         accept: 'application/json',
         body,
       });
+    });
+
+    it('answers ping and the initialized notification itself, without a hop to the cloud', async () => {
+      const relayed: string[] = [];
+      cloud.handle('mcp.relay', (params) => {
+        relayed.push(params.body);
+        return { status: 200, contentType: 'application/json', body: '{}' };
+      });
+      await startEngine();
+      await cloud.connected();
+      const send = (message: object) =>
+        rawRequest(port, {
+          path: `/mcp/${TOKEN}`,
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json',
+            host: `127.0.0.1:${port}`,
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', ...message }),
+        });
+      const ping = await send({ id: 7, method: 'ping' });
+      expect(ping.status).toBe(200);
+      expect(JSON.parse(ping.body)).toEqual({ jsonrpc: '2.0', id: 7, result: {} });
+      expect((await send({ method: 'notifications/initialized' })).status).toBe(202);
+      // A request of that name that is not a plain ping or notification is relayed as any other call.
+      await send({ id: 8, method: 'tools/call', params: { name: 'ping' } });
+      expect(relayed).toHaveLength(1);
     });
 
     it('passes the cloud’s status through, and answers 502 for a status that cannot be one', async () => {

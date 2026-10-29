@@ -1,12 +1,13 @@
 import type { MemberContextPreview, ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
 import {
+  chatWindow,
   checklistConditionHolds,
   checklistProgress,
+  SESSION_CHAT_WINDOW,
   SetChecklistItemStateRequest,
   type ProjectChecklist,
   applyMemberEmailChange,
   emailMailboxTaken,
-  CreateOperatorGrantRequest,
   superAccessVerdict,
   superDecisionRefusal,
   externalQuestionAnswerRefusal,
@@ -188,7 +189,6 @@ import {
   mergeReadiness,
   moveMerge,
   mergeRequestOf,
-  releaseApprovalOf,
   ALERT_SEEN_OPTION,
   WorkOutageAlert,
   limitTokens,
@@ -238,10 +238,6 @@ import {
   DEFAULT_CLOSED_CARDS_DAYS,
   isClosedSince,
   measureClosedCard,
-  PROJECT_FOCUS_MAX_ITEMS,
-  ProjectFocusAddRequest,
-  ProjectFocusMoveRequest,
-  projectFocusRefusal,
   canCreateTasks,
   createsInFirstStageOnly,
   taskCreateAccessOf,
@@ -254,7 +250,6 @@ import type {
   EmailApprovalPayload,
   EmailParkedAlert,
   MemberQueueItem,
-  OperatorGrantState,
   TaskDetail,
   PartsClosed,
   MessageAttachment,
@@ -308,7 +303,6 @@ import type {
   TaskMergeState,
   TaskMerged,
   PlanUsage,
-  ProjectFocusItem,
   ReleaseStep,
   ScheduleRun,
   ServerEvent,
@@ -486,8 +480,7 @@ function mockCommit(task: Pick<Task, 'key'>, salt: string): string {
  * real server would, so the UI runs through its normal data path.
  */
 export class MockBackend {
-  serverVersion: ServerVersionView = { version: 'dev', commit: null, tag: null };
-  operatorGrantAudits: import('@projectman/shared').OperatorGrantAuditEntry[] = [];
+  serverVersion: ServerVersionView = { version: 'dev', commit: null, tag: null, latestReleaseTag: null };
   auth: MockAuthState;
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
   setupCode: string | null = null;
@@ -497,8 +490,6 @@ export class MockBackend {
   /** Whether some owner has a live super key (PM-1045); the integrator's todos go to the owners without one. */
   liveSuperKey = true;
   private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
-  /** A release decision is refused with `owner_approval_required`, like an integrator key's (PM-491). */
-  refuseReleaseApproval = false;
   user = { ...fixtures.mockUser };
   config: ProjectConfig = fixtures.buildConfig();
   structure = clone(fixtures.structureFixture);
@@ -507,12 +498,6 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
-  /** The project's focus (PM-427), in order; a test or a screenshot scenario fills it. */
-  focusItems: ProjectFocusItem[] = [];
-  /** While set, the focus cannot be read (the strip's load error). */
-  focusLoadFails = false;
-  /** While set, every focus write is refused with this error (the panel's save error). */
-  focusSaveError: { status: number; code: ErrorCode } | null = null;
   integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
   integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
   superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
@@ -627,15 +612,6 @@ export class MockBackend {
   /** The member queues (PM-894), every AI member's items in one list; a test fills it, the views are computed from it. */
   queueItems: MemberQueueItem[] = [];
   /** The grant of machine operations the Operator works with (PM-890): off, and the viewer can manage it. */
-  operatorGrant: OperatorGrantState = {
-    active: false,
-    grantId: null,
-    grantedAt: null,
-    grantedBy: null,
-    expiresAt: null,
-    lastUsedAt: null,
-    canManage: true,
-  };
   memories: Record<string, string> = {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
   };
@@ -1647,60 +1623,6 @@ export class MockBackend {
     return item;
   }
 
-  /**
-   * The Devops proposes a release (PM-491, PM-492): the release card (a theme), the approval item for
-   * the owners and the first `release_changed` row. Returns the item. The cards of the release are
-   * listed with their titles from the board; a key the board does not know keeps its key as title.
-   */
-  proposeRelease(input: {
-    commit: string;
-    baseCommit?: string | null;
-    summary: string;
-    taskKeys: readonly string[];
-    title?: string;
-    proposedBy?: string;
-  }): InboxItem {
-    const title = input.title ?? `Release ${input.commit.slice(0, 8)}`;
-    const card = this.createTask({ title, kind: 'theme' }).body as Task;
-    const proposedBy = input.proposedBy ?? 'fe-1';
-    const releaseId = mockId('rel');
-    const item: InboxItem = {
-      id: mockId('inb'),
-      projectKey: fixtures.PROJECT_KEY,
-      kind: 'release',
-      assignees: boundaryOwners(this.config),
-      source: proposedBy,
-      sessionId: null,
-      taskKey: card.key,
-      title,
-      body: input.summary,
-      payload: {
-        release: {
-          releaseId,
-          commit: input.commit,
-          baseCommit: input.baseCommit ?? null,
-          tasks: input.taskKeys.map((key) => ({ key, title: this.findTask(key)?.title ?? key })),
-          summary: input.summary,
-        },
-      },
-      options: [
-        { id: 'approve', label: 'approve', style: 'primary' },
-        { id: 'reject', label: 'reject', style: 'danger' },
-      ],
-      state: 'open',
-      resolution: null,
-      createdAt: nowIso(),
-    };
-    this.addTimeline(card.key, proposedBy, 'release_changed', {
-      releaseId,
-      state: 'proposed',
-      previousState: null,
-      commit: input.commit,
-    });
-    this.upsertInbox(item);
-    return item;
-  }
-
   /** A mail of an AI member waiting for the owners' approval (PM-942): the `approval` item for the owners. */
   proposeEmail(input: Partial<EmailApprovalPayload> = {}): InboxItem {
     const email: EmailApprovalPayload = {
@@ -2057,55 +1979,6 @@ export class MockBackend {
 
     if (path === '/api/me') return ok(this.me());
     if (method === 'GET' && path === '/api/version') return ok(this.serverVersion);
-    if (path === '/api/auth/operator-grant' || path === '/api/auth/operator-grant/audit') {
-      const canManage = this.operatorGrant.canManage && this.me().hostOwner === true && !this.integratorMode;
-      const at = nowIso();
-      const grant = this.operatorGrant;
-      const record = (action: import('@projectman/shared').OperatorGrantAuditEntry['action']) => {
-        this.operatorGrantAudits.unshift({
-          grantId: grant.grantId!,
-          action,
-          at,
-          expiresAt: grant.expiresAt,
-          by: this.user.name,
-        });
-      };
-      if (grant.active && grant.expiresAt && grant.expiresAt <= at) {
-        record('expired');
-        grant.active = false;
-      }
-      if (path.endsWith('/audit')) {
-        if (!canManage) return error(403, 'operator_grant_owner_only', 'Own owner login required');
-        return ok({ entries: clone(this.operatorGrantAudits) });
-      }
-      if (method !== 'GET' && !canManage)
-        return error(403, 'operator_grant_owner_only', 'Own owner login required');
-      if (method === 'POST') {
-        const input = CreateOperatorGrantRequest.safeParse(body);
-        if (!input.success) return error(400, 'invalid_request', 'Invalid grant duration');
-        if (grant.active) record('replaced');
-        Object.assign(grant, {
-          active: true,
-          grantId: `grant-${this.operatorGrantAudits.length + 1}`,
-          grantedAt: at,
-          grantedBy: this.user.name,
-          lastUsedAt: null,
-          expiresAt:
-            input.data.duration === 'until_revoked'
-              ? null
-              : new Date(
-                  Date.parse(at) + (input.data.duration === '12h' ? 43_200_000 : 604_800_000),
-                ).toISOString(),
-        });
-        record('granted');
-      }
-      if (method === 'DELETE') {
-        if (!grant.active) return error(404, 'not_found', 'Grant inactive');
-        record('revoked');
-        grant.active = false;
-      }
-      return ok({ grant: { ...clone(grant), canManage } });
-    }
     if (path === '/api/me/push' || path.startsWith('/api/me/push/'))
       return (
         this.push.handle(method, path.slice('/api/me/push'.length), body) ??
@@ -2865,7 +2738,6 @@ export class MockBackend {
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
     if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
-    if (/^\/focus(\/|$)/.test(rest)) return this.projectFocus(method, rest, body, query);
     if (rest === '/measure/closed-cards' && method === 'GET')
       return ok(this.closedCardsMeasure(Number(query.get('days') ?? DEFAULT_CLOSED_CARDS_DAYS)));
 
@@ -2933,10 +2805,15 @@ export class MockBackend {
       const sessionError = this.sessionErrors.get(session.id);
       if (sessionError) return error(409, sessionError, 'The engine is not connected');
       const task = session.workItem.type === 'task' ? this.findTask(session.workItem.taskKey) : undefined;
+      const window = chatWindow(this.chats[session.id] ?? [], {
+        limit: Number(query.get('limit') ?? SESSION_CHAT_WINDOW),
+        before: query.get('before') ?? undefined,
+      });
       return ok({
         session: clone(session),
-        chat: clone(this.chats[session.id] ?? []),
+        chat: clone(window.items),
         task: task ? clone(task) : null,
+        ...(window.truncated ? { truncated: true } : {}),
       });
     }
     if ((m = /^\/sessions\/([\w-]+)\/messages$/.exec(rest)) && method === 'POST')
@@ -3191,16 +3068,28 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.sweepIntegratorTodos(nowIso());
+      // Like the server: open items by default and never cut off; any other state is a history, the newest N.
+      const wanted = query.get('state') ?? 'open';
+      const limit = Number(query.get('limit')) || (wanted === 'open' || wanted === 'active' ? Infinity : 500);
+      const inState = (item: InboxItem) =>
+        wanted === 'all' ||
+        (wanted === 'closed'
+          ? ['resolved', 'expired', 'cancelled'].includes(item.state)
+          : wanted === 'active'
+            ? ['open', 'screening'].includes(item.state)
+            : item.state === wanted);
       // Use the shared privacy rule, including private knowledge approvals.
       return ok({
         items: clone(
           this.inbox
             .filter(
               (item) =>
+                inState(item) &&
                 canSeeInboxItem(this.taskViewer(), item) &&
                 (query.get('mine') !== 'true' || humanInboxAssignment(item, this.viewerHandle)) &&
                 (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
             )
+            .slice(-limit)
             .map((item) => visibleQuestionItem(this.taskViewer(), item, (key) => !!this.findTask(key))),
         ),
       });
@@ -6599,111 +6488,6 @@ export class MockBackend {
     return ok(this.pauses.projectView());
   }
 
-  /**
-   * The project's focus routes (PM-427): every member reads it (a client too, PM-79), whoever the shared rule
-   * allows sets it. A write replaces the list, records `focus_changed` (a move has no card) and tells the open pages.
-   */
-  private projectFocus(method: string, rest: string, body: unknown, query: URLSearchParams): MockResponse {
-    if (!this.findMember(this.viewerHandle)) return error(403, 'insufficient_access', 'Members only');
-    const view = () => ({ items: clone(this.focusItems), canEdit: this.mayEditFocus() });
-    if (rest === '/focus' && method === 'GET') {
-      if (this.focusLoadFails) return error(500, 'internal_error', 'The focus could not be read');
-      return ok(view());
-    }
-    if (rest === '/focus/changes' && method === 'GET') {
-      const limit = Number(query.get('limit') ?? 50);
-      const events = this.timeline.filter((event) => event.type === 'focus_changed').reverse();
-      return ok({ events: clone(events.slice(0, limit)) });
-    }
-    const refusal = projectFocusRefusal(this.config, this.viewerActor());
-    if (refusal) return error(403, refusal, 'The viewer may not set the focus');
-    if (this.focusSaveError) {
-      const { status, code } = this.focusSaveError;
-      return error(status, code, 'The focus could not be saved');
-    }
-    const item = /^\/focus\/items\/([^/]+)$/.exec(rest);
-    if (rest === '/focus/items' && method === 'POST') {
-      const input = parseBody(ProjectFocusAddRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid focus request');
-      const task = this.findTask(input.key);
-      if (!task) return error(404, 'not_found', 'Unknown task');
-      if (!isOpenTask(task)) return error(409, 'focus_task_closed', 'A closed card cannot be in the focus');
-      if (this.focusItems.some((existing) => existing.key === input.key))
-        return error(409, 'focus_item_exists', 'Already in the focus');
-      if (this.focusItems.length >= PROJECT_FOCUS_MAX_ITEMS)
-        return error(409, 'focus_full', 'The focus is full');
-      const place = Math.min(
-        Math.max(input.position ?? this.focusItems.length + 1, 1),
-        this.focusItems.length + 1,
-      );
-      this.focusItems.splice(place - 1, 0, {
-        key: input.key,
-        addedAt: nowIso(),
-        addedBy: this.viewerActor(),
-      });
-      this.addTimeline(input.key, this.viewerHandle, 'focus_changed', {
-        action: 'added',
-        key: input.key,
-        title: task.title,
-        position: place,
-        previous: null,
-      });
-      this.focusChanged();
-      return ok(view());
-    }
-    if (item && method === 'PATCH') {
-      const input = parseBody(ProjectFocusMoveRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid focus request');
-      const key = item[1]!;
-      const from = this.focusItems.findIndex((existing) => existing.key === key);
-      if (from < 0) return error(404, 'focus_item_unknown', 'Not in the focus');
-      const place = Math.min(Math.max(input.position, 1), this.focusItems.length);
-      if (place !== from + 1) {
-        const [moved] = this.focusItems.splice(from, 1);
-        this.focusItems.splice(place - 1, 0, moved!);
-        this.addTimeline(null, this.viewerHandle, 'focus_changed', {
-          action: 'moved',
-          key,
-          title: this.findTask(key)?.title ?? key,
-          position: place,
-          previous: from + 1,
-        });
-        this.focusChanged();
-      }
-      return ok(view());
-    }
-    if (item && method === 'DELETE') {
-      const key = item[1]!;
-      const from = this.focusItems.findIndex((existing) => existing.key === key);
-      if (from < 0) return error(404, 'focus_item_unknown', 'Not in the focus');
-      this.focusItems.splice(from, 1);
-      this.addTimeline(key, this.viewerHandle, 'focus_changed', {
-        action: 'removed',
-        key,
-        title: this.findTask(key)?.title ?? key,
-        position: null,
-        previous: from + 1,
-      });
-      this.focusChanged();
-      return ok(view());
-    }
-    return error(404, 'not_found', 'Unknown focus route');
-  }
-
-  /** Whether the viewer may set the project's focus (the shared rule). */
-  private mayEditFocus(): boolean {
-    return projectFocusRefusal(this.config, this.viewerActor()) === null;
-  }
-
-  /** Tells the open pages that the focus list changed. */
-  private focusChanged(): void {
-    this.emit({
-      type: 'project_focus_changed',
-      projectKey: fixtures.PROJECT_KEY,
-      focus: { items: clone(this.focusItems) },
-    });
-  }
-
   /** The instance's pause routes: the host owner changes it, with or without a project membership. */
   private instancePause(method: string, path: string): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
@@ -6946,13 +6730,8 @@ export class MockBackend {
       const started = this.startMerge(request.taskKey);
       if (started.status >= 400) return started;
     }
-    const release = releaseApprovalOf(item);
-    if (item.kind === 'release') {
-      if (!release || !item.taskKey) return error(404, 'not_found', 'Unknown release');
-      // The integrator's key is no approval: the server refuses it the same way.
-      if (this.refuseReleaseApproval)
-        return error(403, 'owner_approval_required', 'Only an owner decides a release');
-    }
+    if (item.kind === 'release')
+      return error(409, 'inbox_item_closed', 'Release approvals have been retired');
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',
@@ -6971,24 +6750,6 @@ export class MockBackend {
       },
     };
     this.upsertInbox(resolved);
-    if (release && item.taskKey) {
-      const approved = input.optionId === 'approve';
-      this.addTimeline(
-        item.taskKey,
-        viewer.handle,
-        'release_changed',
-        {
-          releaseId: release.releaseId,
-          state: approved ? 'approved' : 'rejected',
-          previousState: 'proposed',
-          commit: release.commit,
-          ...(!approved && note ? { note } : {}),
-        },
-        null,
-        nowIso(),
-        resolved.resolution?.actor,
-      );
-    }
     const group = questionPayloadOf(item)?.group;
     const groupLive = group ? new Set(questionGroupLiveItemIds(group)) : null;
     if (!groupLive || groupLive.has(item.id)) this.afterResolve(resolved, attached as MessageAttachmentRef[]);

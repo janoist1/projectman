@@ -12,6 +12,7 @@ let world: CloudflareWorld;
 beforeEach(() => {
   world = new CloudflareWorld();
   world.writeConfig();
+  world.writeBundle();
   world.writeToken();
 });
 afterEach(() => world.cleanup());
@@ -19,26 +20,29 @@ afterEach(() => world.cleanup());
 const preflight = () => runCloud(['preflight'], world.deps());
 
 const AWS_LINES = (secretsDir: string) => [
+  expect.stringMatching(
+    /^ok image: source=\w{40} platform=linux\/arm64 archiveSha256=\w{64} imageId=sha256:\w{64}$/,
+  ),
   'ok aws-cli: aws-cli/2.17.1',
   `ok aws-login: profile aroom, account ${ACCOUNT} (arn:aws:iam::${ACCOUNT}:user/aroom), region eu-west-1`,
-  `available Ubuntu 24.04 amd64: ${EC2_CONFIG.amiId} ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-20261001`,
+  `available Ubuntu 24.04 arm64: ${EC2_CONFIG.amiId} ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-20261001`,
   `available subnet: ${EC2_CONFIG.subnetId} eu-west-1b, VPC ${EC2_CONFIG.vpcId}, state available`,
   `ok ec2-environment: ${EC2_CONFIG.amiId}, ${EC2_CONFIG.vpcId}/${EC2_CONFIG.subnetId}, eu-west-1b, direct public IPv4 egress`,
-  'cost instance: t3.small, Linux On-Demand in eu-west-1; running hours (730 hours/month if always on)',
+  'cost instance: t4g.small, Linux On-Demand in eu-west-1; running hours (730 hours/month if always on)',
   'cost EBS: encrypted gp3 40 GiB, baseline 3000 IOPS/125 MiB/s; charged while stopped too',
   'cost IPv4: one auto-assigned public IPv4, billed while allocated; no Elastic IP, NAT, load balancer or second machine',
   'cost other: internet data transfer, S3 storage/requests; burstable CPU credits are standard, with no unlimited-credit surcharge',
   'Review current regional rates before approval: https://aws.amazon.com/ec2/pricing/on-demand/ https://aws.amazon.com/ebs/pricing/ https://aws.amazon.com/vpc/pricing/',
-  'ok aws-ec2: Ubuntu 24.04 amd64, public subnet, outbound only',
+  'ok aws-ec2: Ubuntu 24.04 arm64, public subnet, outbound only',
   `ok secrets-store: ${secretsDir} (directory 700, files 600)`,
 ];
 
 describe('preflight', () => {
   it('lists Ubuntu 24.04 images, subnet choices and costs with no EC2 or DNS writes', async () => {
     expect(await preflight()).toBe(0);
-    expect(world.output).toContain(`available Ubuntu 24.04 amd64: ${EC2_CONFIG.amiId}`);
+    expect(world.output).toContain(`available Ubuntu 24.04 arm64: ${EC2_CONFIG.amiId}`);
     expect(world.output).toContain(`available subnet: ${EC2_CONFIG.subnetId} eu-west-1b`);
-    expect(world.output).toContain('cost instance: t3.small');
+    expect(world.output).toContain('cost instance: t4g.small');
     expect(world.output).toContain('cost EBS: encrypted gp3 40 GiB');
     expect(world.output).toContain('cost IPv4: one');
     expect(world.aws.mutations()).toEqual([]);

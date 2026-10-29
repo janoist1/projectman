@@ -13,7 +13,7 @@ import { sendControlRequest } from '../control/client';
  */
 
 export interface RunOptions {
-  /** Always given (an absolute path): the watcher renames its own checkout while it runs. */
+  /** The absolute working directory of the command. */
   cwd: string;
   /** Added to the process environment. */
   env?: NodeJS.ProcessEnv;
@@ -40,8 +40,6 @@ export interface LiveDeps {
   now(): Date;
   sleep(ms: number): Promise<void>;
   out(text: string): void;
-  /** Called once, after the watcher's lock: the process leaves the checkout the switch renames. */
-  chdir(directory: string): void;
   readonly platform: NodeJS.Platform;
   readonly uid: number;
   readonly pid: number;
@@ -143,7 +141,6 @@ export function realDeps(home: string): LiveDeps {
     now: () => new Date(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     out: (text) => process.stdout.write(text),
-    chdir: (directory) => process.chdir(directory),
     platform: process.platform,
     uid: process.getuid?.() ?? 0,
     pid: process.pid,

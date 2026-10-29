@@ -38,16 +38,13 @@ export interface HandlerContext {
   id: string;
 }
 type Handler = (params: unknown, context: HandlerContext) => unknown | Promise<unknown>;
-type Cached = { expiresAt: number; response: Promise<ResponseFrame> };
 /** One state per authenticated engine; retained across replacement/reconnection. Never persisted. */
 export interface RpcState {
   ackedSeq: number;
-  results: Map<string, Cached>;
   eventQueue: Promise<void>;
 }
 export const createRpcState = (): RpcState => ({
   ackedSeq: 0,
-  results: new Map(),
   eventQueue: Promise.resolve(),
 });
 
@@ -102,7 +99,6 @@ export function createEngineRpc(options: {
   side: 'cloud' | 'engine';
   send: (data: string) => void;
   state?: RpcState;
-  now?: () => number;
   /** Called for a request answered before any handler ran: an unknown method or invalid parameters. */
   onRefused?: (request: { id: string; method: string; code: 'unknown_method' | 'invalid_params' }) => void;
   /**
@@ -112,7 +108,6 @@ export function createEngineRpc(options: {
   onFailed?: (failure: { method: string; category: string }) => void;
 }): EngineRpc {
   const state = options.state ?? createRpcState();
-  const now = options.now ?? Date.now;
   const handlers = new Map<string, Handler>();
   const events = new Set<(event: EngineEvent) => void | Promise<void>>();
   const terminals = new Set<(sessionId: string, data: string) => void>();
@@ -141,20 +136,6 @@ export function createEngineRpc(options: {
       return;
     }
     const secret = frame.method === 'secret.nanogpt_key';
-    // Only the cloud caches incoming engine requests. In-flight duplicates share the same promise.
-    const cache = options.side === 'cloud' && !secret;
-    if (cache) {
-      for (const [id, item] of state.results) if (item.expiresAt <= now()) state.results.delete(id);
-      const previous = state.results.get(frame.id);
-      if (previous) {
-        send(await previous.response);
-        return;
-      }
-      if (state.results.size >= 10_000) {
-        send(failure('internal', 'Request capacity exceeded'));
-        return;
-      }
-    }
     const execute = async (): Promise<ResponseFrame> => {
       const handler = handlers.get(frame.method);
       if (!handler) return failure(secret ? 'secret_not_allowed' : 'unknown_method', 'Method unavailable');
@@ -205,22 +186,15 @@ export function createEngineRpc(options: {
         return failure('internal', 'Engine request failed');
       }
     };
-    const response = execute().then((response) => {
-      try {
-        encodeFrame(response);
-        return response;
-      } catch {
-        return failure('result_too_large', 'Engine result exceeds the frame limit');
-      }
-    });
-    if (cache) {
-      const item: Cached = { expiresAt: Infinity, response };
-      state.results.set(frame.id, item);
-      void response.then(() => {
-        item.expiresAt = now() + 5 * 60_000;
-      });
+    // The answer is encoded once; it is not kept after it is sent.
+    const response = await execute();
+    let encoded: string;
+    try {
+      encoded = encodeFrame(response);
+    } catch {
+      encoded = encodeFrame(failure('result_too_large', 'Engine result exceeds the frame limit'));
     }
-    send(await response);
+    if (!closed) options.send(encoded);
   };
   return {
     call(method, params, callOptions = {}) {

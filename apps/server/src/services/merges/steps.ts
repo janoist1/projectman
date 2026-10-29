@@ -754,6 +754,46 @@ export class MergeSteps {
     await this.notify(row, config);
   }
 
+  /**
+   * The slot's last resort when the program threw past its own handling (a failing `block`): a row
+   * that is still `running` is blocked, so a merge is never left running without a run. Never rejects.
+   * A train blocks all its members itself (`terminal`), so it is left alone.
+   */
+  async abandon(running: MergeRun, cause: unknown): Promise<void> {
+    const { ctx, timeline } = this.deps;
+    if (running.train) return;
+    try {
+      const row = ctx.repos.taskMerges.get(running.row.id);
+      if (!row || row.state !== 'running') return;
+      const message = cause instanceof Error ? cause.message : 'the merge program failed';
+      ctx.unitOfWork(() => {
+        this.save(row, {
+          state: 'blocked',
+          step: undefined,
+          finishedAt: undefined,
+          block: { reason: 'merge_error', message, at: isoNow(ctx) },
+        });
+        timeline.append({
+          projectKey: row.projectKey,
+          taskKey: row.taskKey,
+          actor: SYSTEM_ACTOR,
+          type: 'task_merge_blocked',
+          data: {
+            mergeId: row.id,
+            repo: row.repo,
+            base: row.base,
+            reason: 'merge_error',
+            message,
+            landed: row.landed,
+          },
+        });
+      });
+      await this.notify(row, await this.deps.projects.config(row.projectKey));
+    } catch (err) {
+      ctx.logger.warn({ err, mergeId: running.row.id }, 'could not block a merge whose run failed');
+    }
+  }
+
   clearAlert(row: MergeRecord, by?: string): void {
     for (const item of this.deps.inbox.list(row.projectKey, { taskKey: row.taskKey, state: 'open' })) {
       const alert = alertPayloadOf(item);

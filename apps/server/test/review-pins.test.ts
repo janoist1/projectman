@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { aiActor } from '../src/kernel';
+import { aiActor, DomainError } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, pullRequest } from './helpers/fakes';
@@ -325,6 +325,36 @@ describe('review at a pinned commit, in task worktrees (old mode)', () => {
         .filter((e) => e.type === 'task_stage_changed')
         .at(-1)?.data,
     ).toMatchObject({ branchMoved: { branch: 'task/AR-1', pinned: 'c1', head: 'c2' } });
+  });
+
+  it('refuses the hand-over while the card engine is away, instead of handing over with no pin', async () => {
+    await setup();
+    const read = vi
+      .spyOn(h.domain.sessions, 'sourceHead')
+      .mockImplementation(async (_config, _task, opts) => {
+        if (opts?.strict) throw new DomainError('engine_offline', 'the card engine is not connected');
+        return null;
+      });
+    await expect(
+      h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1')),
+    ).rejects.toMatchObject({ code: 'engine_offline' });
+    expect(h.domain.tasks.get('AR', 'AR-1').stageId).toBe('development');
+    read.mockRestore();
+  });
+
+  it('refuses a hand-over read for a card whose assignee changed meanwhile', async () => {
+    const worktree = await setup();
+    const real = h.domain.sessions.sourceHead.bind(h.domain.sessions);
+    h.worktrees.heads.set(worktree, head('c1'));
+    vi.spyOn(h.domain.sessions, 'sourceHead').mockImplementation(async (config, task, opts) => {
+      const found = await real(config, task, opts);
+      await h.domain.tasks.update('AR', 'AR-1', { assignee: 'dev-2' }, OWNER_ACTOR);
+      return found;
+    });
+    await expect(
+      h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1')),
+    ).rejects.toMatchObject({ code: 'board_stale' });
+    expect(h.domain.tasks.get('AR', 'AR-1').reviewPin).toBeFalsy();
   });
 
   it("stops only the stage's reviewers, once the task is back, and leaves other members on the card", async () => {

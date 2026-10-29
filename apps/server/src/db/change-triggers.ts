@@ -65,7 +65,6 @@ const V81_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
     from: (row) => `tasks WHERE id = ${row}.task_id`,
   },
   ofProject('attachments', 'task', 'task_key'),
-  ofProject('project_focus_items', 'task', 'task_key'),
   ofProject('task_covers', 'task', 'task_key'),
   ofProject('task_fix_limits', 'task', 'task_key'),
   ofProject('task_hand_ons', 'task', 'task_key'),

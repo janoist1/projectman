@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  engineAppDownloadUrl,
   engineCommand,
   engineInitCommand,
   engineServiceStatus,
@@ -34,19 +33,4 @@ describe('the commands of each install mode', () => {
       'npm run engine -- project set SHOP /work/shop && npm run engine -- service install',
     );
   });
-});
-
-describe('the motor app download link', () => {
-  it('is built from the owner and repository of the latest published release', () => {
-    expect(engineAppDownloadUrl('https://github.com/acme/tool/releases/tag/v2026.10.11')).toBe(
-      'https://github.com/acme/tool/releases/latest/download/projectman-motor.dmg',
-    );
-  });
-
-  it.each([null, undefined, '', 'u', 'https://example.com/acme/tool/releases/tag/v1'])(
-    'is absent for %j',
-    (url) => {
-      expect(engineAppDownloadUrl(url)).toBeNull();
-    },
-  );
 });

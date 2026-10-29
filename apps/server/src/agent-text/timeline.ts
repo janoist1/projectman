@@ -1,10 +1,22 @@
-import type { TimelineEvent } from '@projectman/shared';
+import type { TimelineEvent, TimelineEventType } from '@projectman/shared';
 import { numberedRef } from './links';
 import { relationPhrase } from './relations';
 import { formatTimestamp, oneLine, PLAIN_STYLE, type TextStyle } from './text';
 
 /** Maximum length of a data value shown for an event type without its own wording. */
 const FIELD_LIMIT = 80;
+
+export const BRIEF_TIMELINE_LIMIT = 15;
+/** Events that say little about the task itself. */
+export const QUIET_TIMELINE_EVENTS: readonly TimelineEventType[] = [
+  'session_started',
+  'session_ended',
+  'session_permission_changed',
+  'permission_requested',
+  'permission_resolved',
+  'permission_refused',
+  'permission_escalated',
+];
 
 /**
  * What a team message line says when the message is for the reader and has not been typed into its

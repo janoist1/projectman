@@ -109,6 +109,17 @@ describe('task lifecycle', () => {
     expect(events).toContainEqual({ type: 'task_upserted', projectKey: 'AR', task });
   });
 
+  it('tells the listeners of an assignment inside a larger unit of work only after it committed', () => {
+    const inTransaction: boolean[] = [];
+    h.domain.ctx.events.on('task_assigned', () => void inTransaction.push(h.repos.db.inTransaction));
+
+    h.domain.tasks.handOverTasks('AR', [], OWNER_ACTOR);
+    h.domain.tasks.assign('AR', 'AR-1', 'dev-1', OWNER_ACTOR);
+    h.domain.tasks.handOverTasks('AR', ['dev-1'], OWNER_ACTOR, { 'dev-1': 'dev-2' });
+
+    expect(inTransaction).toEqual([false, false]);
+  });
+
   it.each(LIVE_SESSION_STATES)(
     'allows reassignment with a %s session, including an unassigned reviewer session (PM-342)',
     async (state) => {

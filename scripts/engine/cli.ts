@@ -8,18 +8,22 @@
 //   npm run engine -- logs [--lines N] [--json]   (PM-1087; the end of the service's output and error logs)
 //   npm run engine -- keep-awake on|off   (PM-1086; the Mac stays awake while work runs; after the engine restarts)
 //   npm run engine -- start
-//   npm run engine -- app install|uninstall   (PM-1088; native macOS menu bar app)
+//   npm run engine -- app uninstall   (PM-1088's menu bar app; `app install` is retired by PM-1125: the downloaded app installs itself)
 //   npm run engine -- service install|uninstall|status|start|stop|restart   (macOS LaunchAgent, PM-318, PM-1087; deploy/mac/com.projectman.engine.plist)
+//   npm run engine -- service install [--path <PATH>]
+//   npm run engine -- service switch [--to <package-root> | --clear]   (app-managed engine, PM-1124)
 //   npm run engine -- move-work-root <absolute path>   (PM-846; the engine is stopped; docs/DEPLOY.md "Separate work volume")
 //   (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)
 //
 // `start` runs the server in engine mode (PROJECTMAN_MODE=engine) in the foreground; stop it with Ctrl-C
-// or SIGTERM, which pauses the running sessions first. Exit status: 0 done, 1 refused or not healthy, 2 wrong usage.
+// or SIGTERM, which pauses the running sessions first. In an engine package (PM-1104) it runs the built server
+// under the package's own node (`start-command.ts`). Exit status: 0 done, 1 refused or not healthy, 2 wrong usage.
 import { spawn, spawnSync } from 'node:child_process';
 import { homedir, release } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runEngineCli } from './commands';
+import { engineStartCommand } from './start-command';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -36,14 +40,6 @@ runEngineCli(process.argv.slice(2), {
     supportDir: path.join(homedir(), 'Library/Application Support/projectman'),
     buildDir: path.join(homedir(), 'Library/Caches/projectman/menubar-build'),
     osRelease: release(),
-    run: (command, args) => {
-      const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-      return {
-        status: result.status ?? 1,
-        stdout: result.stdout ?? '',
-        stderr: result.stderr ?? result.error?.message ?? '',
-      };
-    },
   },
   env: process.env,
   cwd: process.cwd(),
@@ -71,15 +67,8 @@ runEngineCli(process.argv.slice(2), {
   },
   startEngine: (_home, env) =>
     new Promise<number>((resolve) => {
-      const child = spawn(
-        process.execPath,
-        ['--import', 'tsx', path.join(root, 'apps/server/src/index.ts')],
-        {
-          cwd: root,
-          env,
-          stdio: 'inherit',
-        },
-      );
+      const { command, args } = engineStartCommand(root, process.execPath);
+      const child = spawn(command, args, { cwd: root, env, stdio: 'inherit' });
       // The engine pauses its sessions on SIGINT/SIGTERM; the signal is passed on, not handled here.
       for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => child.kill(signal));
       child.on('exit', (code) => resolve(code ?? 1));

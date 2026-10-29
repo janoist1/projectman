@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
-import { CheckField, SelectField } from '../../components/Field';
+import { SelectField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { t } from '../../i18n/t';
@@ -113,9 +113,6 @@ export function PhoneFilters({ view }: { view: FilterView }) {
         }
       >
         <div className={styles.sheet}>
-          {view.focusVisible ? (
-            <CheckField label={t('focus.only')} checked={view.focusOnly} onChange={view.setFocusOnly} />
-          ) : null}
           <SelectField
             label={t('board.filterMember')}
             value={view.filters.assignee}
@@ -176,9 +173,7 @@ export function FilterChips({ view }: { view: FilterView }) {
                 ? view.setAssignee('')
                 : chip.id === 'priority'
                   ? view.setPriority('')
-                  : chip.id === 'focus'
-                    ? view.setFocusOnly(false)
-                    : view.setLabel('')
+                  : view.setLabel('')
             }
           >
             <span className={styles.chipValue}>{chip.value}</span>

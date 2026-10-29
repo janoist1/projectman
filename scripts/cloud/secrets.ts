@@ -41,7 +41,7 @@ function lstatOrNull(target: string): fs.Stats | null {
 }
 
 /** What is wrong with the directory, or null when it is fine (or missing). */
-export function secretsDirProblem(dir: string): string | null {
+function secretsDirProblem(dir: string): string | null {
   const stat = lstatOrNull(dir);
   if (!stat) return null;
   if (stat.isSymbolicLink()) return `${dir} is a symbolic link; the secrets store must be a real directory`;

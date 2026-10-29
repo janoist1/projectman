@@ -12,7 +12,6 @@ import type {
   OperatorKnowledgeDocument,
   PausePoint,
   PreviousConversationReason,
-  FocusPlace,
   ProjectConfig,
   ProjectChecklist,
   SessionState,
@@ -58,6 +57,8 @@ export interface ContextPackInput {
   stage: Stage | null;
   /** Recent timeline of the task (oldest first). */
   timeline: TimelineEvent[];
+  /** All non-quiet events of the task, for the brief's omitted count (PM-1112). */
+  timelineTotal?: number;
   /** Roster of the team (humans and AI). */
   team: MemberView[];
   /** The member's own durable memory (markdown). */
@@ -109,16 +110,6 @@ export interface ContextPackInput {
   handoff?: HandoffTakeover;
   /** PM-342: this new conversation replaces one that could not go on. Only for a new conversation. */
   previousConversation?: PreviousConversation;
-  /** The project's focus (PM-437), named in the kick-off brief. Omitted when the focus has no open item. */
-  focus?: ContextFocus;
-}
-
-/** The project's focus as a session's brief tells it (PM-437). */
-export interface ContextFocus {
-  /** Only open items, in focus order; position is the 1-based place in the whole list. */
-  items: Array<{ position: number; key: string; title: string; kind: 'task' | 'theme' }>;
-  /** The place of this session's card, when it is in the focus. */
-  place: FocusPlace | null;
 }
 
 /** A card handed over to the member (PM-342), as the brief and the resumed conversation's first message tell it. */
@@ -345,6 +336,11 @@ export type DependencyRefreshResult =
   | { status: 'skipped'; reason: DependencySkip };
 
 export interface WorktreeManager {
+  /** Existing task worktrees in this repository, excluding main, merge-fix and prunable entries. */
+  listTaskWorktrees(args: {
+    project: ProjectConfig;
+    repoName: string;
+  }): Promise<Array<{ taskKey: string; path: string }>>;
   ensureMergeFix(args: {
     project: ProjectConfig;
     repoName: string;
@@ -486,6 +482,10 @@ export interface WorkspaceDependencyInstaller {
 }
 
 export interface MemberWorkspaceManager {
+  /** Tasks with snapshot or leftover incoming refs in the project repository. */
+  listSnapshotTasks(args: { project: ProjectConfig; repoName: string }): Promise<string[]>;
+  /** Deletes only these tasks' snapshot and incoming refs, preserving all branches. At most 100 keys. */
+  removeTaskSnapshots(args: { project: ProjectConfig; repoName: string; taskKeys: string[] }): Promise<void>;
   /** Where the workspace is (or would be), without creating anything. */
   location(key: MemberWorkspaceKey): Promise<MemberWorkspaceInfo>;
   /**

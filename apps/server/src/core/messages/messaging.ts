@@ -348,19 +348,21 @@ export class Messaging {
     ) {
       // An AI member's message asks a new round only of a recipient with a role on the card (PM-426).
       const fromAi = memberOf(config, from)?.kind === 'ai';
-      for (const handle of recipients)
-        if (!humans.includes(handle) && (!fromAi || recipientHasCardRole(this.ctx, config, task, handle)))
-          this.sessions.requestReviewRound(projectKey, task.key, handle);
       // The task's pinned commit follows the branch (PM-183) when it is the stage's reviewers or
       // testers who were asked: that is a new round, not a branch that moved behind their back.
+      // It comes first: an offline engine (`engine_offline`) refuses the request before any round starts.
       const stage = stageOf(config, task.stageId);
       if (stage && stageOwners(config, stage).some((handle) => recipients.includes(handle)))
         await this.tasks.repinReview(projectKey, task.key, from).catch((err: unknown) => {
+          if (err instanceof DomainError && err.code === 'engine_offline') throw err;
           this.ctx.logger.warn(
             { err, taskKey: task.key },
             'could not pin the commit of the new review round',
           );
         });
+      for (const handle of recipients)
+        if (!humans.includes(handle) && (!fromAi || recipientHasCardRole(this.ctx, config, task, handle)))
+          this.sessions.requestReviewRound(projectKey, task.key, handle);
       // A new commit pinned: its full test is queued before the reviewers get this message (PM-217).
       await this.ctx.events.emit('task_review_round', { projectKey, taskKey: task.key, from });
     }
@@ -387,12 +389,15 @@ export class Messaging {
     const unversioned =
       opts.origin?.kind === 'question_forward' ||
       (opts.origin?.kind === 'answer' && memberOf(config, from)?.kind === 'ai');
+    // The commit under review is the recorded pin: sending does not wait for (or fail with) an engine
+    // that is away. A card with no pin (still in work) is read from its branch.
+    const pinned = task && !unversioned ? this.tasks.get(projectKey, task.key).reviewPin?.commit : undefined;
     const version =
       task && !unversioned
         ? {
             stageId: task.stageId,
-            commit: (await this.sessions.sourceHead(config, task))?.commit ?? null,
-            reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
+            commit: pinned ?? (await this.sessions.sourceHead(config, task))?.commit ?? null,
+            reviewCommit: pinned ?? null,
           }
         : undefined;
     const record = () =>
@@ -884,11 +889,13 @@ export class Messaging {
    * The Operator passes a screened question to another member (PM-558): the member gets an action message
    * (origin `question_forward`, so it wakes even with no role on the card) and the asking member an info
    * message saying where it went and how to ask a person after all. `close` runs in the transaction of the
-   * message to the recipient. Returns the closed item.
+   * message to the recipient. Returns the closed item. With `reason: 'machine_step'` (PM-1139) the question was
+   * a machine step no integrator can take and `to` is the technical decider: the message names the step and
+   * leaves the choice to `to`, who asks the owners if they must act, and the asker gets no hint to ask them.
    */
   async forwardQuestion(
     item: InboxItem,
-    forward: { to: string; note: string },
+    forward: { to: string; note: string; reason?: 'machine_step' },
     close: () => InboxItem,
   ): Promise<InboxItem | null> {
     const resolution = item.resolution;
@@ -897,6 +904,9 @@ export class Messaging {
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
     const details = typeof item.payload.details === 'string' ? item.payload.details.trim() : '';
     const by = resolution.by;
+    const screening = questionPayloadOf(item)?.screening;
+    const step = screening?.todo;
+    const machineStep = forward.reason === 'machine_step';
     let closed: InboxItem | null = null;
     await this.send(
       item.projectKey,
@@ -904,11 +914,17 @@ export class Messaging {
       {
         to: [forward.to],
         taskKey: item.taskKey,
-        text:
-          `\`${asker}\` asked a person${item.taskKey ? ` on ${item.taskKey}` : ''}, and the Operator passed the question on to you, ` +
-          `because answering it is your part of the work:\n\n${question}` +
-          (details ? `\n\nDetails from \`${asker}\`:\n${details}` : '') +
-          `\n\nThe Operator's note: ${forward.note}\n\nAnswer \`${asker}\` yourself with send_message.`,
+        text: machineStep
+          ? `\`${asker}\` asked for a machine step${item.taskKey ? ` on ${item.taskKey}` : ''} that no integrator can take now` +
+            `${screening?.recipientRefusal ? ` (${screening.recipientRefusal})` : ''}:\n\n${question}` +
+            (step ? `\n\nWhat: ${step.what}\nWhere: ${step.where}\nExpected: ${step.expected}` : '') +
+            (details ? `\n\nDetails from \`${asker}\`:\n${details}` : '') +
+            `\n\nThe Operator's note: ${forward.note}\n\nYou decide whether the step is needed. Tell \`${asker}\` with send_message how to go on without it, or that you take it over. ` +
+            `If the owners must act, ask them yourself with ask_human.`
+          : `\`${asker}\` asked a person${item.taskKey ? ` on ${item.taskKey}` : ''}, and the Operator passed the question on to you, ` +
+            `because answering it is your part of the work:\n\n${question}` +
+            (details ? `\n\nDetails from \`${asker}\`:\n${details}` : '') +
+            `\n\nThe Operator's note: ${forward.note}\n\nAnswer \`${asker}\` yourself with send_message.`,
       },
       {
         beforeRecord: () => {
@@ -930,7 +946,9 @@ export class Messaging {
           taskKey: item.taskKey,
           text:
             `Your question "${truncate(question, QUESTION_NOTICE_LIMIT)}" went to \`${forward.to}\`, not to a person: ` +
-            `${forward.note} \`${forward.to}\` answers you with a message. ${reaskHint(item.id)}`,
+            (machineStep
+              ? `${forward.note} \`${forward.to}\` decides and answers you with a message, and asks the owners if they must act.`
+              : `${forward.note} \`${forward.to}\` answers you with a message. ${reaskHint(item.id)}`),
         },
         {
           kind: 'info',

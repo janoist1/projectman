@@ -45,7 +45,7 @@ import { approvalHintOf, decisionToast, openItemIds, openItemsFor } from '../../
 import { closureTexts, sessionClosure, sessionStatus } from '../../lib/sessions';
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
-import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
+import { isPageEscape, useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { nameOf } from '../../lib/members';
 import { canStartRefinement } from '../../lib/refinement';
 import type { MemberIndex } from '../../lib/members';
@@ -70,7 +70,6 @@ import { TaskAttachments } from './TaskAttachments';
 import { TaskTimeline } from './TimelineAttachment';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
-import { FocusRow } from '../focus/FocusRow';
 import { TaskProperties } from './TaskProperties';
 import { TaskThread } from './TaskThread';
 import { TaskRounds, TaskUsage } from './TaskUsage';
@@ -328,9 +327,8 @@ export function TaskDrawer() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      // An open dialog or popover takes Escape for itself.
-      if (event.key === 'Escape' && !document.querySelector('dialog[open], [data-popover-open]'))
-        navigate(drawerBase.close);
+      // A dialog, a popover or a field takes Escape for itself: a draft in the card is not discarded by it.
+      if (isPageEscape(event)) navigate(drawerBase.close);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -610,12 +608,7 @@ export function TaskDrawer() {
         </div>
 
         {theme ? (
-          <>
-            <ThemeSummary task={task} tasks={cards} />
-            <section className={drawer.props}>
-              <FocusRow key={`focus:${task.key}`} task={task} />
-            </section>
-          </>
+          <ThemeSummary task={task} tasks={cards} />
         ) : (
           <TaskProperties
             task={task}

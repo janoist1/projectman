@@ -247,6 +247,9 @@ export const ERROR_CODES = [
   // A card recommended for the Senior while every Senior is busy (PM-348): only the automatic start
   // gets it, and waits; a person's Start is answered with the waiting card instead.
   'senior_busy',
+  // The AI member's named assignee exceeds the card's complexity limit or misses its specialty
+  // (`team.assigneeFit`, PM-1136); details: member, reason, points, limit.
+  'assignee_unfit',
   'no_work_stage',
   'not_stage_owner',
   'member_not_scheduled',
@@ -283,14 +286,6 @@ export const ERROR_CODES = [
   // the caller is not the member the card is being handed over from.
   'task_handoff_open',
   'handoff_not_open',
-  // The project's focus (PM-427): only a person who owns the project or prioritizes sets it; the item is
-  // already in it, is not in it, the list is full, or the theme or card is closed.
-  'focus_humans_only',
-  'focus_not_allowed',
-  'focus_item_exists',
-  'focus_item_unknown',
-  'focus_full',
-  'focus_task_closed',
   // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
   // request of the owner; a tool it never calls.
   'operator_owner_only',

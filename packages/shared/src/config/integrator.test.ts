@@ -310,7 +310,7 @@ describe('reserved mutation effects (PM-759)', () => {
   ] as const)('classifies removing a %s as %s', (resource, effect) => {
     expect(ownerReservedEffect(null, { kind: 'remove', resource, id: 'x' })).toBe(effect);
   });
-  it('reserves an access change for the owner and frees focus and deploy', () => {
+  it('reserves an access change for the owner and frees deploy', () => {
     expect(
       ownerReservedEffect(null, {
         kind: 'access_change',
@@ -319,9 +319,6 @@ describe('reserved mutation effects (PM-759)', () => {
         after: 'admin',
       }),
     ).toBe('security');
-    expect(
-      ownerReservedEffect(null, { kind: 'focus_change', before: ['AC-1', 'AC-2'], after: ['AC-2', 'AC-1'] }),
-    ).toBeNull();
     expect(ownerReservedEffect(null, { kind: 'administration', command: 'deploy' })).toBeNull();
     for (const operation of ['task_create', 'task_start', 'inbox_resolve'] as const)
       expect(ownerReservedEffect(null, { kind: 'routine', operation })).toBeNull();

@@ -71,6 +71,22 @@ describe('versioned message wake-up', () => {
     ).toMatchObject({ kind: 'mention', by: { handle: 'owner', via: 'integrator' }, messageId: sent.id });
   });
 
+  it('finds the note of an event by its event id, recipient and text with one lookup (PM-1108)', async () => {
+    h = await createDomainHarness();
+    await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
+    const sent = await h.domain.messaging.send(
+      'AR',
+      'owner',
+      { to: ['cr'], text: 'Review this.', taskKey: 'AR-1' },
+      { kind: 'action', origin: { kind: 'note', eventId: 'evt_note' } },
+    );
+    const note = { from: 'owner', to: 'cr', body: sent.body, eventId: 'evt_note' };
+
+    expect(h.repos.messages.hasEventNote('AR', 'AR-1', note)).toBe(true);
+    expect(h.repos.messages.hasEventNote('AR', 'AR-1', { ...note, eventId: 'evt_other' })).toBe(false);
+    expect(h.repos.messages.hasEventNote('AR', 'AR-1', { ...note, to: 'dev-1' })).toBe(false);
+  });
+
   it('keeps messages arriving during typing for the next input without duplicate delivery', async () => {
     h = await createDomainHarness();
     await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);

@@ -11,8 +11,6 @@ import type {
 } from '../../contracts';
 import { conflict } from '../../kernel';
 import type { EngineLinks } from '../index';
-import type { EngineAdministration } from '../../administration';
-import { createRemoteAdministration } from './administration';
 import { createAttachmentMaterializer } from './attachments';
 import { createRemoteGithub } from './github';
 import { registerCloudHandlers } from './handlers';
@@ -70,8 +68,6 @@ export interface CloudRemote {
   machineProbe: RemoteMachineProbe;
   github: GithubService;
   attachments: EngineAttachments;
-  /** The administration supervisors of the engines' machines over their links (PM-763). */
-  administration: EngineAdministration;
   /** The runner module the domain asks for: the permission handlers are bound to its `broker`. */
   createRunnerModule(
     broker: PermissionBroker,
@@ -191,7 +187,6 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
     machineProbe,
     github,
     attachments,
-    administration: createRemoteAdministration({ hub }),
     createRunnerModule(broker, key) {
       if (key) nanogptKey = key;
       registerCloudHandlers({

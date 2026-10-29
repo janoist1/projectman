@@ -507,6 +507,25 @@ describe('cloud mode remote parts', () => {
       });
     });
 
+    it('lists worktrees and snapshots and removes only the requested task refs through the engine', async () => {
+      const engine = await online();
+      const host = remote.directory.host('eng_a' as never)!;
+      const args = { project: testConfig(), repoName: testConfig().project.repos[0]!.name };
+      const entries = [{ taskKey: 'AR-1', path: '/engine/worktrees/AR/AR-1-web' }];
+      engine.answer('worktree.listTaskWorktrees', () => entries);
+      engine.answer('workspace.listSnapshotTasks', () => ['AR-1']);
+      engine.answer('workspace.removeTaskSnapshots', () => null);
+      expect(await host.worktrees.listTaskWorktrees(args)).toEqual(entries);
+      expect(await host.memberWorkspaces!.listSnapshotTasks(args)).toEqual(['AR-1']);
+      const removal = { ...args, taskKeys: ['AR-1'] };
+      await host.memberWorkspaces!.removeTaskSnapshots(removal);
+      expect(engine.requests.slice(-3)).toEqual([
+        { method: 'worktree.listTaskWorktrees', params: [args] },
+        { method: 'workspace.listSnapshotTasks', params: [args] },
+        { method: 'workspace.removeTaskSnapshots', params: [removal] },
+      ]);
+    });
+
     it('hands a task commit over on the engine, and asks for an update when the engine cannot (PM-739)', async () => {
       const engine = await online();
       const host = remote.directory.host('eng_a' as never)!;
@@ -576,6 +595,50 @@ describe('cloud mode remote parts', () => {
         { type: 'terminal_data', sessionId: 's1', data: 'hello' },
       ]);
       expect(remote.hub.mirror('eng_a' as never).running.get('s1')?.state).toBe('working');
+    });
+
+    it('keeps the link when an event or terminal listener throws, and still serves the others', async () => {
+      const engine = await online();
+      engine.answer('session.start', (params) => running(params.sessionId));
+      await remote.runner.start(spec());
+      remote.hub.onEvent(() => {
+        throw new Error('listener broke');
+      });
+      remote.hub.onTerminal(() => {
+        throw new Error('listener broke');
+      });
+      const seen: RunnerEvent[] = [];
+      remote.runner.onEvent((event) => seen.push(event));
+      await engine.emit({
+        kind: 'runner',
+        event: { type: 'state', sessionId: 's1', state: 'working', activity: null },
+      });
+      await engine.terminal('s1', 'out');
+      expect(seen.map((event) => event.type)).toEqual(['state', 'terminal_data']);
+    });
+
+    it('attaches a viewed terminal again when its engine connects, and not a detached one', async () => {
+      const engine = await online();
+      engine.answer('session.start', (params) => running(params.sessionId));
+      engine.answer('terminal.attach', () => null);
+      await remote.runner.start(spec());
+      await remote.runner.attachTerminal?.('s1');
+      engine.disconnect();
+      const again = cloud.connect('eng_a' as never, {
+        hello: { running: [running('s1')] },
+        prepare: (fresh) => fresh.answer('terminal.attach', () => null),
+      });
+      await vi.waitFor(() =>
+        expect(again.requests.map((entry) => entry.method)).toContain('terminal.attach'),
+      );
+      remote.runner.detachTerminal?.('s1');
+      again.disconnect();
+      const last = cloud.connect('eng_a' as never, {
+        hello: { running: [running('s1')] },
+        prepare: (fresh) => fresh.answer('terminal.attach', () => null),
+      });
+      await vi.waitFor(() => expect(remote.hub.mirror('eng_a' as never).connected).toBe(true));
+      expect(last.requests.map((entry) => entry.method)).not.toContain('terminal.attach');
     });
 
     it('applies a repeated event twice without harm and ends the session on exit', async () => {
@@ -1177,17 +1240,6 @@ describe('cloud mode remote parts', () => {
       expect(asked(b, 'workspace.home')).toHaveLength(1);
     });
 
-    it('sends the machine and administration calls only to the host owner’s engine', async () => {
-      await remote.hub.call(A as never, 'machine.processes', {});
-      await expect(remote.hub.call(B as never, 'machine.processes', {})).rejects.toMatchObject({
-        code: 'engine_not_host',
-      });
-      await expect(remote.hub.call(B as never, 'admin.status', {} as never)).rejects.toMatchObject({
-        code: 'engine_not_host',
-      });
-      expect(b.requests).toEqual([]);
-    });
-
     it('does not give the cloud’s NanoGPT key to another owner’s engine, and a NanoGPT start there waits for its own key (PM-1068)', async () => {
       await expect(b.call('secret.nanogpt_key', { sessionId: 's1' })).rejects.toMatchObject({
         linkCode: 'secret_not_allowed',
@@ -1309,6 +1361,20 @@ describe('cloud mode remote parts', () => {
       expect(engine.callIds).toHaveLength(1);
       await engine.call('permission.cancel', { reqId: engine.callIds[0]! });
       await expect(deciding).resolves.toMatchObject({ behavior: 'deny' });
+    });
+
+    it('expires a pending decision when the engine reconnects, also on a resumed link', async () => {
+      const engine = await online();
+      sessionEngines.set('s1', 'eng_a');
+      const deciding = engine.call('permission.decide', { request: permissionRequest('s1') } as never);
+      await vi.waitFor(() => expect(broker.decide).toHaveBeenCalledTimes(1));
+      const signal = vi.mocked(broker.decide).mock.calls[0]![1] as AbortSignal;
+      // The engine's own call fails the moment its link closes; the cloud's side expires the item.
+      deciding.catch(() => undefined);
+      engine.disconnect();
+      expect(signal.aborted).toBe(false);
+      cloud.connect('eng_a' as never, { resumed: true });
+      await vi.waitFor(() => expect(signal.aborted).toBe(true));
     });
 
     it('refuses to decide for a session of another engine', async () => {

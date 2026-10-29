@@ -1,13 +1,13 @@
 # The cloud board on AWS EC2
 
-## Prebuilt ARM and amd64 images (PM-718)
+## Prebuilt ARM images (PM-718)
 
 The PM-675 target is Frankfurt (`eu-central-1`), `t4g.micro`, Canonical Ubuntu 24.04 arm64,
-20 GiB gp3. Set `aws.ec2.architecture: "arm64"` and `deployment.imageBundle` in cloud config v1.
-Omitting architecture keeps `x86_64`. AMI name/architecture, instance type capabilities and the
-existing instance must agree; the ownership, IMDS, SSM and empty-inbound guards stay in force.
-The imageBundle directory is relative to the config file, or absolute. It need not exist when
-config is first written; preflight, seed and deploy verify it before remote writes.
+20 GiB gp3. Only arm64 is supported (PM-1116): `aws.ec2.architecture` is `"arm64"` (the default) and
+`deployment.imageBundle` is required for an `ec2` config. AMI name/architecture, instance type
+capabilities and the existing instance must agree; the ownership, IMDS, SSM and empty-inbound guards
+stay in force. The imageBundle directory is relative to the config file, or absolute. It need not exist
+when config is first written; preflight and deploy verify it before remote writes.
 
 On a **separate admin/builder machine**, with a clean checkout at the accepted full lowercase SHA:
 
@@ -16,13 +16,11 @@ npm run cloud -- image-build --ref <SHA40> --out /new/path/outside-the-checkout 
 npm run cloud -- image-build --ref <SHA40> --out /new/path/outside-the-checkout
 ```
 
-By default only the target machine's platform is built (PM-916): linux/arm64 for an EC2 config with
-`architecture: "arm64"`, linux/amd64 otherwise, the same rule `deploy` uses to pick its archive.
-`--all-platforms` builds both. Emulated builds (amd64 on an ARM Mac or arm64 on x86) are slow and
-can fail inside QEMU, so build the other platform only when a machine needs it.
+Only linux/arm64 is built. An emulated build (arm64 on an x86 builder) is slow and can fail inside
+QEMU, so build on an arm64 builder when you can.
 
-Docker and an already configured Buildx `docker-container` driver must support the requested
-platform(s) through native builders or emulation. The command does not create a builder, fetch,
+Docker and an already configured Buildx `docker-container` driver must support linux/arm64
+through a native builder or emulation. The command does not create a builder, fetch,
 switch branches or publish. Sequential, single-platform Docker exports use the same SHA and
 tracked source context, then load/inspect verifies config digest, Linux architecture, revision
 LABEL and PROJECTMAN_VERSION. The bundle becomes valid only when every requested export passes and its
@@ -30,27 +28,25 @@ strict `manifest.json` is atomically published. Dry-run only checks/plans and cr
 See the [Buildx build reference](https://docs.docker.com/reference/cli/docker/buildx/build/) and
 [Docker exporter documentation](https://docs.docker.com/build/exporters/oci-docker/).
 
-Keep `manifest.json` and the archives it lists (`linux-amd64.tar`, `linux-arm64.tar`) together. A
-manifest holds one or two images; older two-image bundles stay valid, and `deploy` refuses a bundle
-without the target platform's image (`image bundle has no <platform> image`). Code from before
-PM-916 does not read a one-image bundle: the same checkout builds and uses a bundle. Output must be a new
+Keep `manifest.json` and the archive it lists (`linux-arm64.tar`) together. A manifest holds one
+arm64 image; a bundle with another platform is refused, and `deploy` refuses a bundle built from another
+commit than the ref being deployed. Output must be a new
 directory outside the repository with no symlink components, NUL/newline or comma in its path.
 The manifest records sourceSha and each archive's SHA-256, bytes and image config ID. It is
 integrity metadata, not a signature: the owner approves the specific builder output and digests.
 Record these values from the `ok image` report in the PM-675 round approval.
 
-`deploy --ref <SHA40> --dry-run` validates the selected archive locally. Deploy sends only that
-platform's tar over the existing SSH/SSM stream. Host import checks free disk, bounded bytes/hash,
-host platform, sole source tag and config content before load, then inspects the immutable ID.
-It neither starts the board nor opens SQLite. A conflicting source tag refuses import.
-Seed retains the empty bucket/host checks and PM-717 data integrity gate **before** image import,
-receive-env and pinned start. There is no host build or fallback on a configured bundle path.
+`deploy --ref <SHA40> --dry-run` validates the archive locally. Deploy sends the tar over the existing
+SSH/SSM stream. Host import checks free disk, bounded bytes/hash, host platform, sole source tag and
+config content before load, then inspects the immutable ID. It neither starts the board nor opens
+SQLite. A conflicting source tag refuses import. There is no host build: the machine only imports a
+verified image.
 
 Prebuilt starts use the immutable image ID. Status exposes the actual container ID; health checks
 it together with the history's SHA/ID/platform. Manual and health rollback retain previous IDs;
-ARM refuses a legacy record without its digest/platform. Old amd64 records and deployment without
-an imageBundle retain the existing host-build path. Rollback does not undo DB migrations: keep
-the existing point-in-time recovery gate. No image import prunes current/previous images.
+a history record without its image ID or with another platform (an old amd64 one) cannot be started.
+Rollback does not undo DB migrations: keep the existing point-in-time recovery gate. No image import
+prunes current/previous images.
 
 Real builds of the target platform and disposable runtime smoke (Node/better-sqlite3, cloudflared,
 litestream, restic and cloud server), plus 1 GiB RAM and import disk headroom checks, are PM-675
@@ -82,7 +78,7 @@ to the board and receives no AWS profile credentials. Provisioning does not chan
    image or disk-size default is chosen. Retain `aws.profile=aroom`, `route53.profile=i`.
    To discover candidates before the config is complete, the owner can read the catalogue with
    `aws --profile aroom --region <region> ec2 describe-images --owners 099720109477 --filters
-'Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*'` (use amd64 for x86_64) and
+'Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*'` and
    `aws --profile aroom --region <region> ec2 describe-subnets`. No resource is created by these reads.
    EC2 refuses a missing/empty compute profile and the registrar profile `i` before any AWS call.
    Other explicit central profiles are accepted; the name check supplements STS/owner checks.
@@ -150,7 +146,7 @@ may be `i`, and only its SES and narrow-user IAM calls.
 
 ## EC2 host operation through SSM (PM-677)
 
-All host commands (`deploy`, `rollback`, `status`, `logs`, `stop`, `start`, `rehearse`, `seed`,
+All host commands (`deploy`, `rollback`, `status`, `logs`, `stop`, `start`, `rehearse`,
 `pull-data`, `ssh`, and the host step of `up`) use the same `deploy/aws/host.sh`, systemd unit,
 JSON responses, full-SHA image tags and data paths. There is **no inbound SSH rule**,
 public-IP connection, long-lived key import or public-SSH fallback; the connection always uses an
@@ -225,13 +221,13 @@ access, sshd/EIC timeout change, durable SSH key or host build.
   EIC key. Ctrl-C and identity, ownership, host-key and schema errors stop at once with no retry. The
   explicit lists are `RETRYABLE_READS` and `READ_ONLY_SUBCOMMANDS` in `scripts/cloud/host.ts`; a new
   subcommand is neither retried nor treated as read-only. A state-changing command or a tar/secret stream
-  (`bootstrap`, `receive-env`, `receive-image`, `build`, `start`, `stop`, `receive-data`, …) is never
+  (`bootstrap`, `receive-env`, `receive-image`, `start`, `stop`, …) is never
   repeated by the transport.
 - **Load check before the first change.** Once per session, before its first state-changing subcommand,
   the diagnostics must not show `load1 > 2 × cpuCount` or less than 128 MiB available memory, and a
   connection probe must succeed; otherwise the same bounded wait runs, then the change is refused
   (`cloud_host_busy`, exit 2). Unreachable diagnostics are a refusal too, never leave for a blind change.
-  The check is not repeated mid-session, because the session's own build would otherwise block its `start`.
+  The check is not repeated mid-session, because the session's own image import would otherwise block its `start`.
   Interactive `ssh` is not gated.
 - **Errors.** `CloudTransportError` (`scripts/cloud/errors.ts`, internal; the CLI still exits 0/1/2/64)
   carries `code` (`cloud_ssh_auth_timeout`, `cloud_ssh_unavailable`, `cloud_host_busy`,
@@ -257,14 +253,12 @@ Use `--config <file>` on every command if it is outside the default store.
    `npm run cloud -- status` then proves Online lookup, authenticated host key, EIC and SSH while
    reporting the existing unit/container state. Follow with `logs --lines 25` and `ssh`; exit the shell.
    Verify that no temporary key directory or correlated active SSM session remains.
-3. For a fresh empty host and empty database/backup buckets, stop the local writer, make the
-   approved hybrid package, then `seed --from <package-dir> --ref <approved-sha>`. Existing host
-   data, a running board, nonempty buckets or provider credentials in the package must refuse the seed.
-   `deploy --ref <approved-sha>` updates an already-seeded installation without relaxing these guards.
+3. `deploy --ref <approved-sha>` updates the installed board with the bundle built at that SHA. The
+   first seeding of a host (`seed`) is retired (PM-1116; commit `358bb7c7` on `main`, tagged `retired-migrate-dns`, has it).
 4. Verify `status`, `logs` and `rehearse` (requires `REHEARSAL PASSED`). In the approved downtime
    window, `stop`, `pull-data --to <new-directory>` and `start` verify one-writer behavior and the
    return stream. Keep the copy outside a git worktree; never copy a running database.
-5. Exercise Ctrl-C during a disposable build or transfer. Confirm local SSH/plugin descendants
+5. Exercise Ctrl-C during a disposable image transfer. Confirm local SSH/plugin descendants
    ended, key files disappeared, and active SSM sessions for the printed correlation id closed.
    A partial pull directory is removed. Recheck empty inbound rules. Rollback keeps the existing
    migration refusal and point-in-time restore procedure; an older image is not a database downgrade.
@@ -321,16 +315,17 @@ Short and in order: account setup, local credentials, and commands that the owne
    Do this only after PM-533 is released: AI sessions must be denied access to `~/.aws`.
    Check `aws --version` and `aws sts get-caller-identity --profile <aws.profile>`.
 5. **Configuration:** fill `config.json` from `deploy/aws/config.example.json`, including unique bucket names.
-6. **DNS delegation:** run `dns switch` as in "DNS move" below, only after green `dns verify`. The domain is managed
+6. **DNS delegation:** done (PM-537); the commands that moved it are retired (see "DNS" below). The domain is managed
    through **Route 53 Domains**, even though RDAP names Gandi as the underlying registrar.
    Check automatic renewal: the owner's recorded expiration is **2026-11-19**; `dns status` reads the current value.
-7. **First setup:** use the one-time code in `logs`; when moving an existing board, use `seed` (PM-318).
+7. **First setup:** use the one-time code in `logs`.
 8. **Public checks:** `brew install cloudflared`, `cloudflared access login https://<hostname>`,
    then create the mode-600 `login.json` described in "Verification" for `check`.
 9. **Backup password:** copy `RESTIC_PASSWORD` from `cloud.env` into your password manager after `aws`.
 10. **Engine:** set `linkHeadersFile` to `~/.config/projectman/cloud/engine-access-token.json`
     as in [HYBRID.md](HYBRID.md).
-11. **Later:** manually delete the old Route 53 hosted zone after keeping the rollback window.
+11. **Later:** manually delete the old Route 53 hosted zone when the owner decides; the delegation cannot be
+    switched back by the tool any more.
 
 The AWS profile needs the EC2 and IAM rights of "EC2 central account and provisioning" above, the S3 actions `CreateBucket`, `ListBucket`, `GetBucketVersioning`,
 `Get`/`PutBucketPublicAccessBlock`, `Get`/`PutEncryptionConfiguration`, `Get`/`PutLifecycleConfiguration`,
@@ -369,29 +364,29 @@ name, so a second run changes nothing.
 The file is validated strictly (`version: 1`, no unknown field). A wrong field exits with status 2
 and names the field's path. `deploy/aws/config.example.json` has every field you usually set.
 
-| Field                                    | Default                                      | Meaning                                                                                                |
-| ---------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `aws.compute`                            | `ec2`                                        | only `ec2` exists; any other value is refused with a message that names the fix                        |
-| `aws.profile`                            | required                                     | the AWS CLI profile of compute, S3 and IAM; not `i` (the registrar profile)                            |
-| `aws.ec2`                                | required                                     | explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)                             |
-| `aws.region`                             | required                                     | for example `eu-west-1`                                                                                |
-| `aws.availabilityZone`                   | none                                         |                                                                                                        |
-| `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                       |
-| `aws.databaseBucket`, `aws.backupBucket` | required, different                          | S3 names, lowercase, no dots                                                                           |
-| `repository.url`                         | `https://github.com/janoist1/projectman.git` | what the machine builds                                                                                |
-| `cloudflare.zone`, `.hostname`           | required                                     | the zone (`example.com`) and the board's name in it (`board.example.com`, one label under the zone)    |
-| `cloudflare.feedbackHostname`            | none                                         | the feedback widget's own name (HYBRID.md); one label under the zone, not the board's                  |
-| `cloudflare.accountId`                   | the only account the token sees              | needed when the token sees more than one account                                                       |
-| `cloudflare.tunnelName`                  | `aws.instanceName`                           | the tunnel's name, and the prefix of the Access applications, policies and service tokens (`<N>`)      |
-| `cloudflare.tokenFile`                   | `<secrets store>/cloudflare-token`           | an absolute path or `~/…`                                                                              |
-| `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                     |
-| `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                      |
-| `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                            |
-| `releaseTarget`                          | none                                         | `{projectKey, repo}` the board releases; `deploy` sends it as `PROJECTMAN_RELEASE_TARGET`              |
-| `hybrid`                                 | none                                         | `{engineId, targetHash}` of a hybrid release (needs `releaseTarget`); `deploy` sends the two env lines |
-| `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                       |
-| `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                            |
-| `ses.profile`                            | `aws.profile`                                | the account of the SES identity and sender IAM user (PM-729 uses `i`); not the compute account         |
+| Field                                    | Default                                      | Meaning                                                                                             |
+| ---------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `aws.compute`                            | `ec2`                                        | only `ec2` exists; any other value is refused with a message that names the fix                     |
+| `aws.profile`                            | required                                     | the AWS CLI profile of compute, S3 and IAM; not `i` (the registrar profile)                         |
+| `aws.ec2`                                | required                                     | explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)                          |
+| `aws.region`                             | required                                     | for example `eu-west-1`                                                                             |
+| `aws.availabilityZone`                   | none                                         |                                                                                                     |
+| `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                    |
+| `aws.databaseBucket`, `aws.backupBucket` | required, different                          | S3 names, lowercase, no dots                                                                        |
+| `repository.url`                         | `https://github.com/janoist1/projectman.git` | what the machine builds                                                                             |
+| `cloudflare.zone`, `.hostname`           | required                                     | the zone (`example.com`) and the board's name in it (`board.example.com`, one label under the zone) |
+| `cloudflare.feedbackHostname`            | none                                         | the feedback widget's own name (HYBRID.md); one label under the zone, not the board's               |
+| `cloudflare.accountId`                   | the only account the token sees              | needed when the token sees more than one account                                                    |
+| `cloudflare.tunnelName`                  | `aws.instanceName`                           | the tunnel's name, and the prefix of the Access applications, policies and service tokens (`<N>`)   |
+| `cloudflare.tokenFile`                   | `<secrets store>/cloudflare-token`           | an absolute path or `~/…`                                                                           |
+| `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                  |
+| `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                   |
+| `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                         |
+| `releaseTarget`                          | none                                         | Retired; accepted for compatibility and ignored with a warning                                      |
+| `hybrid`                                 | none                                         | Retired; accepted for compatibility and ignored with a warning                                      |
+| `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                    |
+| `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                         |
+| `ses.profile`                            | `aws.profile`                                | the account of the SES identity and sender IAM user (PM-729 uses `i`); not the compute account      |
 
 `cloud.env` is a docker env-file: `NAME=value`, one per line, no quotes. `npm run cloud` sets only
 the names it owns and keeps every other line and comment: `aws` writes the S3 names and keys,
@@ -462,17 +457,16 @@ The commands of this chapter talk to the machine over SSH and run `deploy/aws/ho
 machine is Ubuntu with Docker; the board is the container of [HYBRID.md](HYBRID.md), supervised by
 the systemd unit `projectman-cloud.service`.
 
-| Command                                   | What it does                                                                                                                                                         |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `deploy [--ref <tag\|sha>] [--dry-run]`   | installs the machine (idempotent), sends `cloud.env`, builds the image of the ref there, starts it, waits up to 180 s for health, goes back to the old image if none |
-| `rollback [--dry-run]`                    | starts the previous image (the one before the current), waits for health                                                                                             |
-| `status`                                  | the state of the EC2 machine, the unit, the container and its health, the deploy history, disk and memory                                                            |
-| `logs [--lines <n>]`                      | the last `n` lines (default 200, at most 10000) of the unit's log (`journalctl`)                                                                                     |
-| `ssh`                                     | a shell on the machine, with the same safe connection                                                                                                                |
-| `stop [--dry-run]`, `start [--dry-run]`   | stop the board (data stays, the unit is disabled); start the current image again and wait for health                                                                 |
-| `rehearse`                                | the restore rehearsal of HYBRID.md in a scratch container on the machine; passes only on the line `REHEARSAL PASSED`                                                 |
-| `seed --from <dir> [--ref …] [--dry-run]` | fills an empty machine with the package of `npm run migrate -- hybrid package`, then deploys                                                                         |
-| `pull-data --to <new dir> [--dry-run]`    | copies the stopped board's data to a new directory on your Mac                                                                                                       |
+| Command                                 | What it does                                                                                                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy [--ref <tag\|sha>] [--dry-run]` | installs the machine (idempotent), sends `cloud.env` and the image of the bundle, starts it, waits up to 180 s for health, goes back to the old image if none |
+| `rollback [--dry-run]`                  | starts the previous image (the one before the current), waits for health                                                                                      |
+| `status`                                | the state of the EC2 machine, the unit, the container and its health, the deploy history, disk and memory                                                     |
+| `logs [--lines <n>]`                    | the last `n` lines (default 200, at most 10000) of the unit's log (`journalctl`)                                                                              |
+| `ssh`                                   | a shell on the machine, with the same safe connection                                                                                                         |
+| `stop [--dry-run]`, `start [--dry-run]` | stop the board (data stays, the unit is disabled); start the current image again and wait for health                                                          |
+| `rehearse`                              | the restore rehearsal of HYBRID.md in a scratch container on the machine; passes only on the line `REHEARSAL PASSED`                                          |
+| `pull-data --to <new dir> [--dry-run]`  | copies the stopped board's data to a new directory on your Mac                                                                                                |
 
 `--dry-run` reads only and never connects: no SSH.
 
@@ -494,12 +488,10 @@ the systemd unit `projectman-cloud.service`.
    Bootstrap checks the actual daemon's `Driver` and `DriverStatus`, restarts an existing unsupported
    store only when the board is provably stopped and neither current nor previous deploy history exists,
    and checks the result. Unavailable or malformed daemon information stops bootstrap; a running classic
-   daemon needs no restart. Repeated bootstrap is safe, including seed's two calls.
-   It also installs git, turns on unattended upgrades, makes a 2 GB swap file (the 2 GB machine builds
-   a Node image), and installs the unit file.
-4. **`build`** fetches the repository at the commit and builds the image on the machine. It refuses
-   below 3 GiB of free disk. Old images beyond the current and the previous one, and build cache
-   beyond 2 GB, are removed.
+   daemon needs no restart. Repeated bootstrap is safe.
+   It also installs git, turns on unattended upgrades, makes a 2 GB swap file, and installs the unit file.
+4. **`receive-image`** imports the bundle's archive of the commit (see "Prebuilt ARM images"); the
+   machine never builds an image. Old images beyond the current and the previous one are removed.
 5. **`start`** writes `/etc/projectman/image.env` (`IMAGE=projectman-cloud:<sha>`) and
    `/var/lib/projectman/deploy.json` (`current`, `previous`, `lastStoppedAt`), then restarts the unit.
 6. **Health.** The command polls the container's health check every 5 s for 180 s. If it never
@@ -531,37 +523,14 @@ procedure; this bootstrap change grants no additional live-operation permission.
 | `/etc/docker/daemon.json`                      | explicit classic image store (`features.containerd-snapshotter=false`); unrelated settings preserved (PM-725) |
 | `/var/lib/projectman/data`                     | the board's data (`/data` in the container, owner 10001, mode 700)                                            |
 | `/var/lib/projectman/deploy.json`              | the deploy history and the time the board last stopped                                                        |
-| `/opt/projectman/src`                          | the checkout the image is built from                                                                          |
 
 The SSH connection is the EC2 one (SSM and EC2 Instance Connect with an ephemeral key, no inbound
 rule); it is described in the EC2 chapter above.
 
-### `seed` and `pull-data`
+### `pull-data`
 
-`seed` is for the first start with the data you already have (the move from the Mac,
-[HYBRID.md](HYBRID.md), "3. The cutover"). Stop the board on the Mac first, then
-`npm run migrate -- hybrid package`, then `npm run cloud -- seed --from <the package folder>`. It
-refuses (exit 2) when: the folder has no `db.sqlite` or holds anything the cloud must not get (the
-same closed list as the package); either bucket already has an object (a replica exists, a seed
-would collide); the board is running on the machine; or `/var/lib/projectman/data` is not empty.
-All of that is checked before the upload where it can be (the buckets and the folder before any
-connection). The data goes over the SSH connection as a `tar` stream, is owned by the container's
-user. Before any build/start, the mandatory PM-717 `seed-integrity` gate compares the closed
-package's database SHA-256 and byte count before and after upload with `host.sh seed-digest`.
-The host reads only `/var/lib/projectman/data/db.sqlite` with Ubuntu 24.04 coreutils, without
-opening SQLite or starting a container. Both sides reject a missing, non-regular or symlink DB
-and any `db.sqlite-wal`, `db.sqlite-shm` or `db.sqlite-journal` entry (including dangling symlinks).
-The host checks that the unit/container is stopped before and after hashing and detects file changes.
-Only an exact match permits deployment and prints, before build/start:
-`ok seed-integrity: database sha256=<64hex> bytes=<n> (before first start)`.
-Record that proof on PM-675; never record database contents. Keep the package closed and use one
-administrator throughout the maintenance window; no other cloud operation may start the board.
-
-Local precondition refusals exit 2; host state refusals (host exit 3) also exit 2. Invalid/incomplete
-digest JSON, hash/size mismatch, changed/disappearing source, read/hash or transport errors exit 1.
-`FAIL seed-integrity` means **STOP**: no build/start, automatic retry, deletion or overwrite follows.
-Uploaded data remains in place; ask the owner for a recovery decision. A used target still refuses
-another seed. `--dry-run` only previews this mandatory gate and never connects or claims remote proof.
+The first move of the Mac's data to the machine (`seed`) is done and retired (PM-1116); the last commit
+that has it is `358bb7c7` on `main`, tagged `retired-migrate-dns`. The machine keeps its data between deploys.
 
 `pull-data --to <new folder>` is the way back (`npm run migrate -- hybrid back` takes the folder).
 The folder must not exist (its parent must), must not be inside a git work tree, and is created with
@@ -569,61 +538,12 @@ mode 700. The board must be stopped first (`npm run cloud -- stop`): a copy of a
 copy. A failed download removes the folder. The command prints what in the copy the way back would
 refuse.
 
-### Release control (PM-749, part of PM-735)
+### Retired release configuration (PM-1113)
 
-`npm run cloud -- release-control [--config <file>]` is how the release watcher on your Mac reaches the cloud
-board's local control socket (`/data/control.sock` in the container) over the same verified SSH session (EC2/SSM)
-that `deploy` uses. No port is published and no live home is mounted: the machine runs one fixed
-command, `docker exec -i -u 10001:10001 projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin
-LANG=C.UTF-8 /usr/local/bin/node /app/apps/server/dist/control/cli.js /data/control.sock`, and nothing from the
-request becomes a command, a path, a container or a user. `env -i` runs before Node and clears the environment
-`docker exec` would inherit from the container (PM-754): the relay sees only `PATH` and `LANG`, never the
-board's `NODE_OPTIONS`, `NODE_PATH`, AWS, backup or provider settings, and there is no fallback to the inherited
-environment. It relies on `/usr/bin/env` and `/usr/local/bin/node` of the official Node-based image; if either is
-missing the call fails as a transport error. What the channel does and does not protect is in
-[SECURITY.md](SECURITY.md) "The control socket and the admin channel".
-
-- **Input.** Exactly one `ControlRequest` JSON line on the standard input: UTF-8, at most 16 KiB, ending in a
-  newline, then end of input. Anything else (two lines, text after the newline, broken JSON, an unknown or
-  malformed operation) is refused locally before any connection, with status 2. There is no approval,
-  proposal or rejection operation: those stay with the person in the board.
-- **Output.** The standard output is the one `ControlResponse` line (at most 64 KiB), re-serialised from the
-  parsed value. Diagnostics and the session report go to the standard error and hold no secret. A
-  domain refusal such as `{"ok":false,"error":{"code":"release_state_conflict",…}}` is an answer: it is passed
-  on unchanged and the exit status is 0.
-- **Exit status.** `0` the machine answered (the answer may say `ok:false`); `1` the transport failed (SSH/SSM,
-  the relay, no or half an answer, a timeout); `2` refused before or by the machine (invalid input, no
-  `releaseTarget` for a `release_*` operation, the board is not running); `64` a wrong flag or argument.
-- **No retry.** A request is sent once. When the answer of a `release_claim` or `release_report` is lost (status
-  1), do not send it again blindly: read the release with `{"op":"release_get","releaseId":"…"}` (it returns
-  every state, terminal ones too) and decide from the state. A claim is only approved → deploying, and a report
-  cannot skip a state, so a repeated request is refused rather than applied twice.
-- **Operations.** `release_next`, `release_get`, `release_claim`, `release_report` and `status` as on the local
-  socket; `engine_status` answers `{"ok":true,"pause":…,"engines":[{id,online,version,lastSeenAt}]}` from the
-  cloud engine registry (`[]` in single mode), which is how the watcher sees which engine runs which version.
-- **Release target.** The optional `releaseTarget: {"projectKey": "PM", "repo": "projectman"}` of `config.json`
-  becomes `PROJECTMAN_RELEASE_TARGET=PM/projectman` in the `cloud.env` that `deploy` sends (your local file is
-  not changed). `release_get`, `release_claim` and `release_report` all refuse a release whose project or
-  repository is not exactly that target (`release_not_configured`). Without the field nothing changes: the board
-  does not release, and `release-control` refuses release operations locally.
-- **Hybrid release (PM-752).** The optional `hybrid: {"engineId": "eng_…", "targetHash": "<64 hex>"}` (a remote
-  engine, never `local`; refused without `releaseTarget`) becomes `PROJECTMAN_RELEASE_ENGINE_ID` and
-  `PROJECTMAN_RELEASE_TARGET_HASH` in the sent `cloud.env`, replacing any such line; your local file is not
-  changed. The server then keeps the deployment attempt and the maintenance fence, takes the
-  `release_deploy_get`, `release_deploy_begin` and `release_deploy_change` operations on this channel (the
-  request must stay within 16 KiB and the answer within 64 KiB), and refuses the single-target `release_claim` and
-  `release_report` (`release_protocol_unavailable`). The first hybrid release cannot be driven by a build without
-  this protocol.
-
-The hybrid release coordinator (PM-751, `npm run release`, [DEPLOY.md](DEPLOY.md) "The hybrid release watcher")
-is the caller of this channel: it uses `release_next`, `release_get`, `engine_status` and the PM-752
-`release_deploy_*` operations through this relay, never the single-target `release_claim` and `release_report`.
-Its configuration names the same `hybrid` target (`engineId`, `targetHash`) that `deploy` sends.
-
-Does this work on a remote engine? The control socket and the release records are the cloud server's; the
-engines are not involved. What crosses the Mac/machine boundary is one request line and one response line over
-the existing host session, nothing more. An engine's version reaches the server through the engine registry, and
-`engine_status` only reports it.
+The old `releaseTarget` and `hybrid` keys are accepted for existing configuration files,
+but ignored with a warning. Deployment strips stale `PROJECTMAN_RELEASE_*` lines from the
+environment sent to the host. There is no `release-control` or `release-probe` command.
+Use `npm run cloud -- deploy --ref <commit>` and the publication procedure in [DEPLOY.md](DEPLOY.md).
 
 ### What was not tried
 
@@ -836,70 +756,34 @@ flag from `cloud.env`; run it again and nothing changes.
 **Does this work on a remote engine?** Yes. The public board concerns the browser side only: the engine
 still connects outward to `/engine`, which is behind its own Access application and its own machine key.
 
-## DNS move (PM-537)
+## DNS (PM-537, one-off move retired in PM-1116)
 
-Move the **whole zone**, including mail (SES MX, DKIM and verification TXT) and site verification.
-The commands only read the Route 53 hosted zone; the explicit `switch` updates registrar delegation.
-All imported records are DNS-only (`proxied: false`);
-`publish` later adds the tunnel records separately. Cloudflare's automatic scan is disabled by `edge`.
+The zone moved to Cloudflare once, including mail (SES MX, DKIM and verification TXT) and site
+verification. The commands that did it (`dns plan`, `dns import`, `dns verify`, `dns switch [--back]`) are
+retired; the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`. What stays is the read-only
+`npm run cloud -- dns status`: it reads delegation and DS through Cloudflare and Google DoH, reports the
+registrar name servers, the DNSSEC key count, the registration expiry and auto-renew, and requests an
+activation check for a pending zone. Both public resolver answers are printed; allow cached delegation to
+expire. An unavailable registrar API is a warning, and the Cloudflare activation is still reported.
+Renewal disabled or expiration within 30 days produces a warning. The registrar API calls use `us-east-1`
+irrespective of the machine's region, as required by the
+[AWS CLI reference](https://docs.aws.amazon.com/cli/latest/reference/route53domains/get-domain-detail.html).
 
-1. `npm run cloud -- edge`: creates the full zone and prints its two assigned name servers.
-2. `npm run cloud -- dns plan`, then `npm run cloud -- dns import`, then
-   `npm run cloud -- dns verify`. `plan` only reads and prints `create`, `same`, `different`,
-   `skip` or `REFUSE` per record. A refusal exits 2 and prevents every import write.
-   `import --dry-run` previews writes; `--update` explicitly allows PATCH of differing records.
-   Nothing is deleted. Cloudflare-only records are listed as warnings, except published tunnel CNAMEs.
-3. **Only after green verification**, `npm run cloud -- dns switch --dry-run`, then
-   `npm run cloud -- dns switch`. DNSSEC must be disabled first if `dns status` reports a DS record or registrar keys.
-4. `npm run cloud -- dns status` until Cloudflare reports `active`. It reads delegation and DS
-   through Cloudflare and Google DoH, reports registrar name servers, DNSSEC key count, registration expiry and auto-renew, and requests an
-   activation check for a pending zone. Both public resolver answers are printed; allow cached delegation to expire.
-5. `npm run cloud -- publish`, then `check`. Test **SES receiving and DKIM** after the change.
+All imported records are DNS-only (`proxied: false`); `publish` adds the tunnel records separately.
+Cloudflare's automatic scan is disabled by `edge`. Test **SES receiving and DKIM** after any change.
 
-Mapping: A/AAAA make one record per address; CNAME and delegated subdomain NS lose the trailing dot;
-MX preserves priority; TXT quoted chunks are decoded and joined with no separator; SRV preserves
-priority/weight/port/target; CAA preserves flags/tag/value. Apex NS/SOA are skipped. Aliases become
-CNAMEs (matching A+AAAA aliases produce one); Cloudflare flattens the apex. Names are lowercase,
-with Route 53 octal escapes decoded. TTL is clamped to 60–86400 seconds; a TTL difference counts as
-`different`. Routing policies, health checks, unsupported types and occupied publish hostnames are refused.
-
-`verify` compares sorted responses from **both Cloudflare authorities and all four Route 53 authorities**,
-resolving their IPs first with the system resolver. Nonalias differences exit 1. Alias differences only warn,
-because providers can flatten them to different addresses.
-If a Cloudflare authority does not answer for the pending zone, verification prints a specific error and
-exits 1. In that case `dns plan` with **every imported record `same`**, no `different`, `create` or `REFUSE`,
-is fallback evidence of API contents, but it is not a green authoritative verification. Wait, then run
-`dns verify` again; delegation cannot change until it is green. There is no manual override.
-
-Keep the Route 53 hosted zone for **at least one week** as a rollback path (about USD 0.50/month).
-To roll back, run `npm run cloud -- dns switch --back --dry-run`, then `dns switch --back`
-to restore its four awsdns name servers in Route 53 Domains, then check public delegation
-and mail delivery again. Never delete that zone during the move. It can be deleted manually later.
-
-### Explicit delegation switch
-
-`dns switch [--back] [--dry-run]` reads Route 53 Domains first, then the target name servers.
-If the registrar already has that exact set it reports `unchanged`. Otherwise it refuses registrar
-DNSSEC keys or public DS records, runs `dns verify` again in the same invocation, and refuses (exit 2)
-unless it is green. There is no override. `--back` targets the retained Route 53 delegation set and
-does not require verification against Cloudflare. `--dry-run` performs checks but never submits an update.
-The rollback warns that records changed in Cloudflare since the move are not copied back to Route 53.
-If the domain cannot be read through Route 53 Domains, `switch` refuses (exit 2): missing permission
-names `route53domains:GetDomainDetail`; another registrar requires a manual delegation step there,
-with the same green verification prerequisite.
-Renewal disabled or expiration within 30 days produces a warning. `dns status` treats an unavailable
-registrar API as a warning and still reports Cloudflare activation.
-
-The update is asynchronous: the command prints its operation ID; poll `dns status` afterwards.
-The registrar API calls use `us-east-1` irrespective of the machine's region, as required by the
-[AWS CLI reference](https://docs.aws.amazon.com/cli/latest/reference/route53domains/update-domain-nameservers.html).
+**There is no delegation rollback in the tools.** The old Route 53 hosted zone is kept until the owner
+deletes it manually (about USD 0.50/month); records changed in Cloudflare since the move are not in it.
+If delegation ever has to go back, it is a manual step in Route 53 Domains by the owner, and the same
+mail and delivery checks follow. [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (the return to the Mac) does
+not switch DNS back either.
 
 ### `up`
 
 `npm run cloud -- up [--login-json <file>] [--dry-run]` runs `preflight` → `aws` → `edge` → `deploy`.
 If the zone is active it continues with `publish`, then `check` when a login file is supplied.
-A pending zone prints `dns plan`, `dns import`, `dns verify`, `dns switch` and stops before publish.
-It never changes delegation implicitly.
+A pending zone prints `dns status` (run it until active) and stops before publish.
+It never changes delegation.
 The first failure stops the sequence with that command's exit status. Dry-run passes through the provisioning
 steps without writes and skips the live login check.
 
@@ -1249,6 +1133,6 @@ provisioning CLI; the engine gets no key, no queue and no protocol change.
 
 - A live trial: nothing here was run against a real AWS account by the team. The first real run is
   yours; start with `preflight` and `aws --dry-run`.
-- The release watcher (`com.projectman.live-watcher`) still updates the Mac, not the cloud machine.
+- Update the cloud with the owner-requested `cloud deploy` and rebuild/reinstall the Mac engine at the same commit (PM-1113; [DEPLOY.md](DEPLOY.md)).
 - Several machines: one machine means one database writer.
 - AWS Organizations, SSO session renewal, billing alarms: set them up in your AWS account.

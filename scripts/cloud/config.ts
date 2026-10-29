@@ -55,7 +55,7 @@ const awsSchema = z
     backupBucket: bucketName,
     ec2: z
       .strictObject({
-        architecture: z.enum(['x86_64', 'arm64']).default('x86_64'),
+        architecture: z.literal('arm64').default('arm64'),
         instanceType: z
           .string()
           .max(64)
@@ -172,8 +172,8 @@ const releaseTargetSchema = z.strictObject({
 const configSchema = z
   .strictObject({
     version: z.literal(1),
+    /** Legacy release configuration is accepted but ignored (PM-1113). */
     releaseTarget: releaseTargetSchema.optional(),
-    /** The remote engine and the target hash a hybrid release goes to (PM-752); needs `releaseTarget`. */
     hybrid: HybridReleaseTarget.optional(),
     aws: awsSchema,
     repository: repositorySchema.prefault({}),
@@ -187,9 +187,7 @@ const configSchema = z
     const issue = (pathParts: (string | number)[], message: string) =>
       context.addIssue({ code: 'custom', path: pathParts, message });
     const { aws, cloudflare, access } = config;
-    if (config.hybrid && !config.releaseTarget) issue(['hybrid'], 'needs releaseTarget');
-    if (aws.ec2?.architecture === 'arm64' && !config.deployment)
-      issue(['deployment', 'imageBundle'], 'required for arm64');
+    if (aws.ec2 && !config.deployment) issue(['deployment', 'imageBundle'], 'required for the arm64 machine');
     if (config.ses) {
       if (config.ses.from.split('@')[1] !== config.ses.domain)
         issue(['ses', 'from'], 'must be an address of exactly ses.domain');
@@ -251,9 +249,9 @@ export type ParsedCloudConfig = z.output<typeof configSchema>;
 /** The configuration with every default filled in. */
 export interface CloudConfig {
   deployment?: { imageBundle: string };
-  /** Absent: the board does not release (PM-749). */
+  /** Legacy configuration, ignored with a warning (PM-1113). */
   releaseTarget?: { projectKey: string; repo: string };
-  /** Absent: the board releases to the cloud server only (PM-752). */
+  /** Legacy configuration, ignored with a warning (PM-1113). */
   hybrid?: { engineId: string; targetHash: string };
   version: 1;
   aws: {

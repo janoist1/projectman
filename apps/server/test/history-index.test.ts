@@ -5,7 +5,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { as, historyHarness } from './helpers/history';
-import { HISTORY_INDEX_VERSION, LATEST_SCHEMA_VERSION, migrate, schemaVersion } from '../src/db';
+import { HISTORY_INDEX_VERSION, LATEST_SCHEMA_VERSION, migrate, migrations, schemaVersion } from '../src/db';
 import type { Repositories } from '../src/db';
 import { createHistoryService } from '../src/services/history';
 import { createHistoryIndexer } from '../src/services/history/indexer';
@@ -331,92 +331,31 @@ describe('history index', () => {
       await h.domain.stop();
       h.repos.db.close();
 
-      // Take the database back before the index and later detector bookkeeping, at version 83.
-      const old = new Database(join(directory, 'db.sqlite'));
-      for (const row of old
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'history\\_%' ESCAPE '\\'",
-        )
-        .all() as Array<{ name: string }>)
-        old.exec(`DROP TRIGGER ${row.name}`);
-      for (const table of [
-        'history_semantic_chunks',
-        'history_semantic_sources',
-        'history_semantic_dirty',
-        'history_semantic_state',
-        'history_fts',
-        'history_documents',
-        'history_dirty',
-        'history_index_state',
-        'history_doc_state',
-        'history_searches',
-        'operator_signal_arms',
-        'obligations',
-        'operator_grants',
-        'merge_check_run_tasks',
-        'merge_check_runs',
-        'web_push_devices',
-        'web_push_settings',
-        'web_push_items',
-        'member_queue_items',
-        'email_contacts',
-        'email_contact_events',
-        'email_messages',
-        // Migration 105 (PM-968) created it.
-        'release_publications',
-        'project_checklist_items',
-        'project_checklists',
-        // Migration 117 (PM-1060) created it.
-        'project_engines',
-        // Migration 118 (PM-1062) created them.
-        'owner_accounts',
-        'owner_invitations',
-        // Migration 122 (PM-1064) created it.
-        'host_requests',
-      ])
-        old.exec(`DROP TABLE ${table}`);
-      // Migration 99 (PM-925) dropped the pending recipients table, which version 83 still has and 84 to 98 read.
-      old.exec(`CREATE TABLE team_message_pending (
-        message_id TEXT NOT NULL REFERENCES team_messages(id) ON DELETE CASCADE,
-        project_key TEXT NOT NULL,
-        handle TEXT NOT NULL,
-        seq INTEGER NOT NULL,
-        PRIMARY KEY (message_id, handle)
-      )`);
-      // The hot read indexes (migration 91) do not exist at version 83 either; migrating recreates them.
-      for (const index of [
-        'inbox_open',
-        'task_merges_task',
-        'task_loops_task_key',
-        'timeline_project_type',
-        'sessions_state',
-      ])
-        old.exec(`DROP INDEX ${index}`);
-      // Migration 96 (PM-888) added a column; migrating adds it again.
-      old.exec('ALTER TABLE operator_steps DROP COLUMN operation_id');
-      // Migration 101 (PM-479) added a column and three tables; migrating creates them again.
-      old.exec('ALTER TABLE operator_steps DROP COLUMN system_feedback');
-      for (const table of [
-        'system_feedback_forwarding',
-        'system_feedback_occurrences',
-        'system_feedback_items',
-      ])
-        old.exec(`DROP TABLE ${table}`);
-      // Migration 103 (PM-909) added two columns; migrating adds them again.
-      old.exec('ALTER TABLE full_test_runs DROP COLUMN runner');
-      old.exec('ALTER TABLE full_test_runs DROP COLUMN external_url');
-      // Migration 104 (PM-943) added a column; migrating adds it again.
-      old.exec('ALTER TABLE team_messages DROP COLUMN email');
-      // Migration 108 (PM-983) added a column; migrating adds it again.
-      old.exec('ALTER TABLE member_state DROP COLUMN activity_task_key');
-      // Migration 109 (PM-1006) added a column; migrating adds it again.
-      old.exec('ALTER TABLE tasks DROP COLUMN complexity');
-      // Migration 116 (PM-1071) added two columns; migrating adds them again.
-      old.exec('ALTER TABLE team_messages DROP COLUMN location');
-      old.exec('ALTER TABLE team_messages DROP COLUMN places');
-      // Migration 119 (PM-1062) added a column; migrating adds it again.
-      old.exec('ALTER TABLE projects DROP COLUMN created_by');
+      // Build the historical schema forwards, independently of all later tables and columns.
+      const current = new Database(join(directory, 'db.sqlite'));
+      const old = new Database(':memory:');
+      for (const migration of migrations.filter((m) => m.version <= 83)) old.exec(migration.sql);
+      old.pragma('foreign_keys = OFF');
+      for (const { name } of old
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        .all() as { name: string }[]) {
+        const sourceColumns = new Set(
+          (current.pragma(`table_info("${name}")`) as { name: string }[]).map((column) => column.name),
+        );
+        const columns = (old.pragma(`table_info("${name}")`) as { name: string }[])
+          .map((column) => column.name)
+          .filter((column) => sourceColumns.has(column));
+        if (!columns.length) continue;
+        const names = columns.map((column) => `"${column}"`).join(', ');
+        const insert = old.prepare(
+          `INSERT OR REPLACE INTO "${name}" (${names}) VALUES (${columns.map(() => '?').join(', ')})`,
+        );
+        for (const row of current.prepare(`SELECT ${names} FROM "${name}"`).raw().all() as unknown[][])
+          insert.run(...row);
+      }
+      current.close();
       old.pragma('user_version = 83');
+      await old.backup(join(directory, 'db.sqlite'));
       expect(old.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE 'history%'").get()).toEqual(
         { n: 0 },
       );

@@ -1,15 +1,12 @@
 import fs from 'node:fs';
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
-import type { ReleaseImageRef } from '@projectman/shared';
 import { forbiddenEntries } from '../migrate/hybrid-entries';
-import { AwsCli } from './aws-cli';
 import { expandHome } from './config';
 import type { CloudContext } from './context';
 import { CloudError, refused } from './errors';
 import type { HostSession, HostStatus } from './host';
-import { hostStatusSchema, readHostStatus, readUnitFile, withHost } from './host';
+import { readHostStatus, readUnitFile, withHost } from './host';
 import type { StepResult } from './report';
 import { readSecret } from './secrets';
 import { readEc2HostInstance } from './ec2-host';
@@ -18,7 +15,7 @@ import type { SelectedImage } from './images';
 
 /**
  * The commands that manage the machine (PM-535): `deploy`, `rollback`, `status`, `logs`, `ssh`, `stop`,
- * `start`, `rehearse`, `seed` and `pull-data`. They talk to the machine through a `withHost` session
+ * `start`, `rehearse` and `pull-data`. They talk to the machine through a `withHost` session
  * (docs/AWS.md, "The machine and the installation") and to `deploy/aws/host.sh` on it.
  */
 
@@ -26,7 +23,6 @@ const HEALTH_ATTEMPTS = 36;
 const HEALTH_INTERVAL_MS = 5_000;
 const HEALTH_SECONDS = (HEALTH_ATTEMPTS * HEALTH_INTERVAL_MS) / 1000;
 const BOOTSTRAP_TIMEOUT_MS = 20 * 60_000;
-const BUILD_TIMEOUT_MS = 60 * 60_000;
 const REHEARSE_TIMEOUT_MS = 30 * 60_000;
 const SHA = /^[0-9a-f]{40}$/;
 const TAG_NAME = /^[A-Za-z0-9._-]{1,100}$/;
@@ -37,60 +33,6 @@ const RESTORE_DOC = 'docs/AWS.md, "Restoring the database to a point in time"';
 const seedCheckSchema = z.looseObject({
   container: z.enum(['running', 'stopped']),
   dataEmpty: z.boolean(),
-});
-const seedDigestSchema = z.strictObject({
-  databaseSha256: z.string().regex(/^[0-9a-f]{64}$/),
-  databaseBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-});
-
-/** Read a closed package without opening SQLite; detect replacement and writes during hashing. */
-function sourceDigest(directory: string, initial: boolean): z.output<typeof seedDigestSchema> {
-  const invalid = (message: string, precondition = initial): never => {
-    throw precondition ? refused(message) : new CloudError(message);
-  };
-  const database = path.join(directory, 'db.sqlite');
-  const check = (precondition: boolean) => {
-    const stat = fs.lstatSync(database, { throwIfNoEntry: false, bigint: true });
-    if (!stat?.isFile())
-      invalid('the source has no db.sqlite regular file (symlinks are refused)', precondition);
-    for (const suffix of ['-wal', '-shm', '-journal']) {
-      if (fs.lstatSync(`${database}${suffix}`, { throwIfNoEntry: false }))
-        invalid(`the source has a db.sqlite${suffix} sidecar; the package must be closed`, precondition);
-    }
-    return stat!;
-  };
-  const fingerprint = (stat: fs.BigIntStats) =>
-    [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
-  const before = check(initial);
-  if (before.size <= 0n || before.size > BigInt(Number.MAX_SAFE_INTEGER))
-    invalid('the source database size must be a positive safe integer');
-  const fd = fs.openSync(database, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-  try {
-    if (fingerprint(fs.fstatSync(fd, { bigint: true })) !== fingerprint(before))
-      throw new CloudError('the source database changed before hashing');
-    const hash = createHash('sha256');
-    const buffer = Buffer.alloc(1024 * 1024);
-    let bytes = 0;
-    for (;;) {
-      const count = fs.readSync(fd, buffer);
-      if (count === 0) break;
-      hash.update(buffer.subarray(0, count));
-      bytes += count;
-    }
-    if (
-      fingerprint(before) !== fingerprint(check(false)) ||
-      fingerprint(before) !== fingerprint(fs.fstatSync(fd, { bigint: true })) ||
-      BigInt(bytes) !== before.size
-    )
-      throw new CloudError('the source database changed during hashing');
-    return { databaseSha256: hash.digest('hex'), databaseBytes: bytes };
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-const objectsSchema = z.looseObject({
-  Contents: z.array(z.looseObject({})).optional(),
-  KeyCount: z.number().optional(),
 });
 
 // ---- what to deploy ----
@@ -193,41 +135,10 @@ function cloudEnvText(context: CloudContext): string {
     if (equals > 0 && /SECRET|PASSWORD|TOKEN/.test(line.slice(0, equals)))
       context.report.protect(line.slice(equals + 1));
   }
-  return withHybridTarget(withReleaseTarget(text, context.config.releaseTarget), context.config.hybrid);
-}
-
-const RELEASE_TARGET_ENV = 'PROJECTMAN_RELEASE_TARGET';
-const RELEASE_ENGINE_ENV = 'PROJECTMAN_RELEASE_ENGINE_ID';
-const RELEASE_TARGET_HASH_ENV = 'PROJECTMAN_RELEASE_TARGET_HASH';
-
-/**
- * The hybrid binding of the release (PM-752): the configured engine and target hash replace any such line of the
- * file, both together. Without one the text is left as it is. The server refuses a lone value at start.
- */
-function withHybridTarget(
-  text: string,
-  hybrid: { engineId: string; targetHash: string } | undefined,
-): string {
-  if (!hybrid) return text;
-  const kept = text
+  return text
     .split('\n')
-    .filter(
-      (line) => !line.startsWith(`${RELEASE_ENGINE_ENV}=`) && !line.startsWith(`${RELEASE_TARGET_HASH_ENV}=`),
-    );
-  const body = kept.join('\n').replace(/\n*$/, '\n');
-  return `${body}${RELEASE_ENGINE_ENV}=${hybrid.engineId}\n${RELEASE_TARGET_HASH_ENV}=${hybrid.targetHash}\n`;
-}
-
-/**
- * The cloud.env the machine gets (PM-749): the configured release target (`releaseTarget` of the
- * configuration, already validated) replaces any `PROJECTMAN_RELEASE_TARGET` line of the file. Without one the
- * text is left as it is, so a board that does not release behaves as before. The local file is not changed.
- */
-function withReleaseTarget(text: string, target: { projectKey: string; repo: string } | undefined): string {
-  if (!target) return text;
-  const kept = text.split('\n').filter((line) => !line.startsWith(`${RELEASE_TARGET_ENV}=`));
-  const body = kept.join('\n').replace(/\n*$/, '\n');
-  return `${body}${RELEASE_TARGET_ENV}=${target.projectKey}/${target.repo}\n`;
+    .filter((line) => !/^PROJECTMAN_RELEASE_(?:TARGET|ENGINE_ID|TARGET_HASH)=/.test(line))
+    .join('\n');
 }
 
 function formatBytes(bytes: number): string {
@@ -303,58 +214,6 @@ async function waitHealthy(
   return { healthy: false, status: status! };
 }
 
-// ---- the pieces of the hybrid coordinator (PM-751) ----
-
-/** What `release-probe` answers: the machine's status and three facts about one immutable image. */
-const releaseImageProbeSchema = z.strictObject({
-  status: hostStatusSchema,
-  imagePresent: z.boolean(),
-  imageVerified: z.boolean(),
-  imageLockHeld: z.boolean(),
-  databaseSchemaVersion: z.number().int().nonnegative().nullable(),
-});
-type ReleaseImageProbe = z.output<typeof releaseImageProbeSchema>;
-
-/**
- * Starts an image that is already on the machine and verified there (the coordinator received it earlier).
- * Nothing else happens: no bootstrap, no apt, no cloud.env, no secret. The host's `start` checks the ID, the
- * revision, the version and the platform again. A lost answer is the caller's to reconcile with a probe.
- */
-export async function startPreparedImage(
-  context: CloudContext,
-  host: HostSession,
-  image: ReleaseImageRef,
-): Promise<void> {
-  void context;
-  await host.call('start', [image.commit, image.commit, image.imageId]);
-}
-
-/** Polls until the container of exactly this commit, image ID and platform is healthy, or the time is out. */
-export function waitImageHealthy(
-  context: CloudContext,
-  host: HostSession,
-  image: ReleaseImageRef,
-): Promise<HealthResult> {
-  return waitHealthy(context, host, image.commit, image.imageId, image.platform);
-}
-
-/** One read-only look at the image, the image lock and the schema (`release-probe`); it changes nothing. */
-export async function probeReleaseImage(
-  context: CloudContext,
-  host: HostSession,
-  image: ReleaseImageRef,
-): Promise<ReleaseImageProbe> {
-  void context;
-  const text = await host.call('release-probe', [image.commit, image.imageId, image.platform], {
-    timeoutMs: 120_000,
-  });
-  try {
-    return releaseImageProbeSchema.parse(JSON.parse(text));
-  } catch {
-    throw new CloudError('the machine answered release-probe in an unexpected shape');
-  }
-}
-
 /** The warning that goes with every return to an older image (the migration problem). */
 function migrationWarning(context: CloudContext, ref: string, stoppedAt: string | null | undefined): void {
   context.report.line(
@@ -372,45 +231,36 @@ function reportedFailure(message: string): CloudError {
 
 // ---- deploy and rollback ----
 
-/** bootstrap, receive-env, build, start; then waits for health and goes back to the earlier image if it never comes. */
+/** bootstrap, receive-image, receive-env, start; then waits for health and goes back to the earlier image if it never comes. */
 async function deployOnHost(
   context: CloudContext,
   host: HostSession,
   target: Target,
   envText: string,
-  image?: SelectedImage,
+  image: SelectedImage,
 ): Promise<void> {
-  const { config, report, deps } = context;
+  const { report, deps } = context;
   await report.run('bootstrap', async (): Promise<StepResult> => {
     await host.call('bootstrap', [], { input: readUnitFile(deps.repoRoot), timeoutMs: BOOTSTRAP_TIMEOUT_MS });
     return { status: 'ok', detail: 'Docker, git, swap, directories, systemd unit' };
   });
-  if (image)
-    await report.run('receive-image', async (): Promise<StepResult> => {
-      await receiveImage(context, host, image);
-      return {
-        status: 'ok',
-        detail: `source=${target.sha} platform=${image.platform} archiveSha256=${image.archiveSha256} imageId=${image.imageId}`,
-      };
-    });
+  await report.run('receive-image', async (): Promise<StepResult> => {
+    await receiveImage(context, host, image);
+    return {
+      status: 'ok',
+      detail: `source=${target.sha} platform=${image.platform} archiveSha256=${image.archiveSha256} imageId=${image.imageId}`,
+    };
+  });
   await report.run('receive-env', async (): Promise<StepResult> => {
     await host.call('receive-env', [], { input: envText });
     return { status: 'updated', detail: '/etc/projectman/cloud.env' };
   });
   const before = (await readHostStatus(host)).deploy?.current ?? null;
-  if (!image)
-    await report.run('build', async (): Promise<StepResult> => {
-      await host.call('build', [target.sha, config.repository.url], {
-        timeoutMs: BUILD_TIMEOUT_MS,
-        stdio: 'inherit',
-      });
-      return { status: 'created', detail: `projectman-cloud:${target.sha.slice(0, 12)}` };
-    });
   await report.run('start', async (): Promise<StepResult> => {
-    await host.call('start', [target.sha, target.ref, ...(image ? [image.imageId] : [])]);
+    await host.call('start', [target.sha, target.ref, image.imageId]);
     return { status: 'updated', detail: `${target.ref} (${target.sha.slice(0, 12)})` };
   });
-  const result = await waitHealthy(context, host, target.sha, image?.imageId, image?.platform);
+  const result = await waitHealthy(context, host, target.sha, image.imageId, image.platform);
   if (result.healthy) {
     report.step('ok', 'health', `${target.ref} is healthy`);
     return;
@@ -422,7 +272,7 @@ async function deployOnHost(
   await showLogs(context, host, 200).catch((error: unknown) =>
     report.line(`  (the log could not be read: ${error instanceof Error ? error.message : String(error)})`),
   );
-  if (before && (before.sha !== target.sha || before.imageId !== image?.imageId)) {
+  if (before && (before.sha !== target.sha || before.imageId !== image.imageId)) {
     report.line(`going back to ${before.ref} (${before.sha.slice(0, 12)})`);
     await report.run('rollback', async (): Promise<StepResult> => {
       await host.call('start', recordedStart(context, before));
@@ -449,12 +299,9 @@ function recordedStart(
   context: CloudContext,
   entry: NonNullable<NonNullable<HostStatus['deploy']>['current']>,
 ): string[] {
-  if (
-    context.config.aws.ec2?.architecture === 'arm64' &&
-    (!entry.imageId || entry.platform !== 'linux/arm64')
-  )
+  if (!entry.imageId || entry.platform !== 'linux/arm64')
     throw refused('ARM start/rollback requires a recorded image ID and platform');
-  return [entry.sha, entry.ref, ...(entry.imageId ? [entry.imageId] : [])];
+  return [entry.sha, entry.ref, entry.imageId];
 }
 
 export async function runDeploy(context: CloudContext, options: DeployOptions): Promise<void> {
@@ -470,7 +317,7 @@ export async function runDeploy(context: CloudContext, options: DeployOptions): 
     report.step(
       'skipped',
       'deploy',
-      `dry-run: would connect by SSH through SSM, bootstrap ${config.aws.instanceName}, ${image ? `receive verified image ${image.imageId}` : `build ${target.sha} there`}, send cloud.env, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
+      `dry-run: would connect by SSH through SSM, bootstrap ${config.aws.instanceName}, receive verified image ${image.imageId}, send cloud.env, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
     );
     return;
   }
@@ -621,122 +468,6 @@ async function readSeedCheck(host: HostSession): Promise<z.output<typeof seedChe
   } catch {
     throw new CloudError('the machine answered seed-check in an unexpected shape');
   }
-}
-
-interface SeedOptions {
-  from: string;
-  ref: string | null;
-  dryRun: boolean;
-}
-
-export async function runSeed(context: CloudContext, options: SeedOptions): Promise<void> {
-  const { config, report, deps } = context;
-  const directory = path.resolve(expandHome(options.from, deps.homeDir));
-  const cli = new AwsCli(deps, config.aws);
-
-  const before = await report.guard('seed-source', async () => {
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(directory);
-    } catch {
-      throw refused(`${directory} does not exist`);
-    }
-    if (!stat.isDirectory()) throw refused(`${directory} is not a directory`);
-    const digest = await report.guard('seed-integrity', async () => sourceDigest(directory, true));
-    const forbidden = forbiddenEntries(directory);
-    if (forbidden.length > 0)
-      throw refused(
-        `${directory} holds what the cloud must not get: ${forbidden.map((item) => `${item.name} (${item.why})`).join('; ')}`,
-      );
-    report.step('ok', 'seed-source', directory);
-    return digest;
-  });
-  const target = await resolveTarget(context, options.ref);
-  const image = selectedImage(context, target.sha);
-  const envText = cloudEnvText(context);
-  for (const bucket of [config.aws.databaseBucket, config.aws.backupBucket]) {
-    await report.run(`bucket-empty ${bucket}`, async (): Promise<StepResult> => {
-      const answer = await cli.callAsOrNull(
-        ['s3api', 'list-objects-v2', '--bucket', bucket, '--max-keys', '1'],
-        ['NoSuchBucket'],
-        objectsSchema,
-      );
-      if (!answer) throw refused(`the bucket ${bucket} does not exist; run \`npm run cloud -- aws\` first`);
-      if ((answer.Contents?.length ?? 0) > 0 || (answer.KeyCount ?? 0) > 0)
-        throw refused(
-          `the bucket ${bucket} is not empty, so the cloud already has (or had) a replica; a seed would collide with it`,
-        );
-      return { status: 'ok', detail: 'nothing in it' };
-    });
-  }
-  report.line(
-    'note: the instance on the Mac must be stopped before the seed, or its changes since the package are lost (docs/HYBRID.md)',
-  );
-  if (options.dryRun) {
-    report.step(
-      'skipped',
-      'seed',
-      `dry-run: would check over ssh that the board is not running and the data directory is empty, upload ${directory}, require seed-integrity (source before/after and host database sha256/bytes), then deploy ${target.ref}`,
-    );
-    return;
-  }
-  await withHost(context, async (host) => {
-    await report.run('bootstrap', async (): Promise<StepResult> => {
-      await host.call('bootstrap', [], {
-        input: readUnitFile(deps.repoRoot),
-        timeoutMs: BOOTSTRAP_TIMEOUT_MS,
-      });
-      return { status: 'ok' };
-    });
-    await report.run('seed-check', async (): Promise<StepResult> => {
-      const check = await readSeedCheck(host);
-      if (check.container === 'running')
-        throw refused('the board is running on the machine; a seed goes in before the first start');
-      if (!check.dataEmpty)
-        throw refused(
-          '/var/lib/projectman/data on the machine is not empty; a seed fills an empty machine only',
-        );
-      return { status: 'ok', detail: 'the board is stopped and the data directory is empty' };
-    });
-    await report.run('seed-upload', async (): Promise<StepResult> => {
-      const receive = await host.command('receive-data');
-      const result = await deps.pipe(
-        { command: 'tar', args: ['-C', directory, '-c', '.'], env: { COPYFILE_DISABLE: '1' } },
-        receive,
-      );
-      if (host.signal.aborted) throw new CloudError('interrupted');
-      if (result.code === 3)
-        throw refused('the host refused receive-data; the target state no longer permits a seed');
-      const lost = result.code !== 0 ? host.transportError('receive-data', result) : null;
-      if (lost) throw lost;
-      if (result.code !== 0)
-        throw new CloudError(
-          `the upload failed (status ${result.code}): ${result.stderr.trim().split('\n').slice(-2).join(' | ')}`,
-        );
-      return { status: 'created', detail: `${directory} to /var/lib/projectman/data` };
-    });
-    await report.run('seed-integrity', async (): Promise<StepResult> => {
-      const text = await host.call('seed-digest');
-      let remote: z.output<typeof seedDigestSchema>;
-      try {
-        remote = seedDigestSchema.parse(JSON.parse(text));
-      } catch {
-        throw new CloudError('the machine answered seed-digest in an unexpected shape');
-      }
-      const after = sourceDigest(directory, false);
-      for (const digest of [after, remote]) {
-        if (digest.databaseSha256 !== before.databaseSha256 || digest.databaseBytes !== before.databaseBytes)
-          throw new CloudError(
-            'database hash or size changed or differs from the uploaded package; STOP and request owner recovery',
-          );
-      }
-      return {
-        status: 'ok',
-        detail: `database sha256=${before.databaseSha256} bytes=${before.databaseBytes} (before first start)`,
-      };
-    });
-    await deployOnHost(context, host, target, envText, image);
-  });
 }
 
 interface PullOptions {

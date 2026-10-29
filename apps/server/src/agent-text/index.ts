@@ -6,18 +6,24 @@
  */
 export { describeAttachment, formatBytes } from './attachments';
 export { cardQuestionLines, cardWorkerLines, stateText } from './card-thread';
-export { focusPlaceText } from './focus';
 export { describeLink, linkTarget } from './links';
 export { relationLines, relationPhrase } from './relations';
 export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';
 export { partsLeftText } from './parts-left';
 export { roleLabel } from './role';
-export { collectorNotReadyText, startOfferText } from './start-offer';
+export { collectorNotReadyText, startOfferText, ownerHoldText } from './start-offer';
 export { describeTaskWait, taskWaitShort } from './task-wait';
 export { describeRepo } from './repo';
 export { describeTheme, themeCardLines, themeProgressText, themeState } from './theme';
 export { formatTimestamp, oneLine, truncate, type TextStyle } from './text';
-export { describeEvent, eventFullText, recentTimeline, timelineLine } from './timeline';
+export {
+  describeEvent,
+  eventFullText,
+  recentTimeline,
+  timelineLine,
+  BRIEF_TIMELINE_LIMIT,
+  QUIET_TIMELINE_EVENTS,
+} from './timeline';
 
 export {
   startReason,

@@ -39,7 +39,7 @@ export interface PipeEnd {
   signal?: AbortSignal;
 }
 
-export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
+type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
 
 export interface CloudDeps {
   run(command: string, args: string[], options?: RunOptions): Promise<RunResult>;
@@ -57,8 +57,6 @@ export interface CloudDeps {
    * what it opened); the result removes the handler.
    */
   onInterrupt(handler: () => void): () => void;
-  /** The standard input, for the commands that take a request on it (`release-control`); absent in most fakes. */
-  stdin?: AsyncIterable<Uint8Array>;
   /** The user's home directory (the secrets store is under it). */
   homeDir: string;
   /** The checkout the command runs from. */
@@ -279,7 +277,6 @@ export function realDeps(): CloudDeps {
         for (const signal of signals) process.off(signal, handler);
       };
     },
-    stdin: process.stdin,
     homeDir: os.homedir(),
     repoRoot: path.resolve(fileURLToPath(new URL('../..', import.meta.url))),
   };

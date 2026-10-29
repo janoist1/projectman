@@ -132,28 +132,6 @@ describe('session orchestrator', () => {
     expect(timeline).toContainEqual(['session_ended', null]);
   });
 
-  it('gives the brief the project focus: open items in order, and the place of the card (PM-437)', async () => {
-    const none = await h.domain.sessions.ensureSession('AR', 'cr', task);
-    expect(h.contextBuilder.inputs.at(-1)).not.toHaveProperty('focus');
-    h.runner.emit({ type: 'exit', sessionId: none.session.id, exitCode: 0, signal: null });
-
-    const other = await h.domain.tasks.create('AR', { title: 'Signup form' }, OWNER_ACTOR);
-    const sub = await h.domain.tasks.create('AR', { title: 'Validation', parentKey: other.key }, OWNER_ACTOR);
-    await h.domain.projectFocus.add('AR', 'AR-1', OWNER_ACTOR);
-    await h.domain.projectFocus.add('AR', other.key, OWNER_ACTOR);
-    await h.domain.sessions.ensureSession('AR', 'cr', task);
-    expect(h.contextBuilder.inputs.at(-1)?.focus).toEqual({
-      items: [
-        { position: 1, key: 'AR-1', title: 'Login page', kind: 'task' },
-        { position: 2, key: other.key, title: 'Signup form', kind: 'task' },
-      ],
-      place: { position: 1 },
-    });
-    // A subtask is covered by its parent's item.
-    await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: sub.key });
-    expect(h.contextBuilder.inputs.at(-1)?.focus?.place).toEqual({ position: 2, via: other.key });
-  });
-
   it('reads a reloaded chat as its provider wrote it, relative to the session directory', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     expect(session.provider).toBe('claude');
@@ -169,13 +147,35 @@ describe('session orchestrator', () => {
     expect(h.runnerModule.transcriptReads).toEqual([
       {
         path: '/tmp/fictional.jsonl',
-        opts: { provider: 'claude', self: 'cr', cwd: session.cwd, firstUserOrigin: 'brief' },
+        opts: { provider: 'claude', self: 'cr', cwd: session.cwd, firstUserOrigin: 'brief', limit: 201 },
       },
       {
         path: '/tmp/general.jsonl',
-        opts: { provider: 'claude', self: 'cr', cwd: general.cwd, firstUserOrigin: 'human' },
+        opts: { provider: 'claude', self: 'cr', cwd: general.cwd, firstUserOrigin: 'human', limit: 201 },
       },
     ]);
+  });
+
+  it('shows the last items of a long chat and says that older ones remain', async () => {
+    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/tmp/long.jsonl' });
+    const items = ['a', 'b', 'c', 'd', 'e'].map((id) => ({
+      id,
+      kind: 'assistant_text' as const,
+      ts: '2026-10-01T10:00:00.000Z',
+      text: id,
+    }));
+    h.runnerModule.transcripts.set('/tmp/long.jsonl', items);
+    const tail = await h.domain.sessions.detail('AR', session.id, { limit: 3, before: 'e' });
+    expect(tail.chat.map((item) => item.id)).toEqual(['b', 'c', 'd']);
+    expect(tail.truncated).toBe(true);
+    expect(h.runnerModule.transcriptReads.at(-1)?.opts).toMatchObject({ limit: 4, before: 'e' });
+    const first = await h.domain.sessions.detail('AR', session.id, { limit: 3, before: 'c' });
+    expect(first.chat.map((item) => item.id)).toEqual(['a', 'b']);
+    expect(first.truncated).toBeUndefined();
+    const all = await h.domain.sessions.detail('AR', session.id, { limit: 5 });
+    expect(all.chat).toHaveLength(5);
+    expect(all.truncated).toBeUndefined();
   });
 
   it('starts over with the brief when the first start never produced a conversation', async () => {

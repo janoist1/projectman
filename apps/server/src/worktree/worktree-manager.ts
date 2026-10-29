@@ -10,9 +10,9 @@ import type {
 } from '../contracts';
 import { isTaskBranch, taskBranchName } from '@projectman/shared';
 import { isStrictlyWithin } from '../kernel';
-import { cloneDependencies, dependencyState } from './dependencies';
+import { cleanupDependencyLeftovers, cloneDependencies, dependencyState } from './dependencies';
 import { git, GitCommandError, gitSucceeds, isoOrNull, tryGit } from './git';
-import { canonical, createKeyedLock } from './paths';
+import { canonical, createKeyedLock, withRepoLock } from './paths';
 
 /** A fetch that takes longer is abandoned; the worktree starts from the last known state. */
 const FETCH_TIMEOUT_MS = 60_000;
@@ -79,7 +79,6 @@ interface ListedWorktree {
 export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeManager {
   const rootDir = path.resolve(opts.rootDir);
   const log = opts.logger;
-  const withLock = createKeyedLock();
   const withDependencyLock = createKeyedLock();
   const dependencyRepos = new Map<string, string>();
   const dependencyFailures = new Map<
@@ -145,7 +144,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     taskKey: string;
   }): Promise<WorktreeInfo | null> {
     const { repo, repoPath, target } = await taskLocation(args);
-    return withLock(await canonical(repoPath), async () => {
+    return withRepoLock(await canonical(repoPath), async () => {
       const found = await findByPath(await listWorktrees(repoPath), target);
       if (!found) return null;
       const branch = found.branch ?? (await git(['-C', target, 'rev-parse', '--abbrev-ref', 'HEAD'])).trim();
@@ -174,6 +173,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
       const repoPath = dependencyRepos.get(path.resolve(worktreePath));
       if (!repoPath) return { status: 'skipped', reason: 'not_worktree' };
       const own = await canonical(worktreePath);
+      await cleanupDependencyLeftovers(own);
       if ((await dependencyState(own)).fresh) {
         dependencyFailures.delete(own);
         return { status: 'skipped', reason: 'present' };
@@ -212,7 +212,9 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
           dependencyFailures.delete(own);
         } else {
           log.debug({ path: own, reason: result.reason }, 'dependencies not cloned into the worktree');
-          if (['no_reference', 'unsupported', 'failed'].includes(result.reason)) {
+          if (
+            ['no_reference', 'unsupported', 'failed', 'no_lockfile', 'not_ignored'].includes(result.reason)
+          ) {
             dependencyFailures.set(own, { lockTime: state.lockTime, at: Date.now(), result });
             log.info({ path: own, reason: result.reason }, 'worktree dependencies left unchanged');
           }
@@ -255,7 +257,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
   ): Promise<WorktreeInfo> {
     const { project, taskKey, title } = args;
     const { repo, repoPath, target } = location;
-    return withLock(await canonical(repoPath), async () => {
+    return withRepoLock(await canonical(repoPath), async () => {
       await git(['-C', repoPath, 'worktree', 'prune']);
       await ensureSharedRepoSettings(repoPath);
       const worktrees = await listWorktrees(repoPath);
@@ -370,6 +372,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
 
   async function status(worktreePath: string): Promise<{ dirty: boolean; unpushedCommits: number }> {
     const dir = path.resolve(worktreePath);
+    await cleanupDependencyLeftovers(dir);
     const porcelain = await git(['-C', dir, 'status', '--porcelain']);
     return { dirty: porcelain.trim().length > 0, unpushedCommits: await unpushedCommits(dir) };
   }
@@ -412,7 +415,8 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     if (!self || !main) throw new WorktreeError('not_a_worktree', `${dir} is not a git worktree`);
     if (self.main) throw new WorktreeError('main_worktree', `${dir} is a main checkout, not a task worktree`);
 
-    await withLock(await canonical(main.path), async () => {
+    await withRepoLock(await canonical(main.path), async () => {
+      await cleanupDependencyLeftovers(dir);
       if (!force && (await status(dir)).dirty) {
         throw new WorktreeError(
           'dirty',
@@ -455,7 +459,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
 
   async function findMergeFix(args: { project: ProjectConfig; repoName: string; taskKey: string }) {
     const { repo, repoPath, target, branch } = await fixLocation(args);
-    return withLock(await canonical(repoPath), async () => {
+    return withRepoLock(await canonical(repoPath), async () => {
       const found = await findByPath(await listWorktrees(repoPath), target);
       if (!found) return null;
       if (found.branch !== branch)
@@ -473,7 +477,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(args.commit))
       throw new WorktreeError('no_start_point', 'merge fix needs a commit id');
     const { repo, repoPath, target, branch } = await fixLocation(args);
-    const info = await withLock(await canonical(repoPath), async () => {
+    const info = await withRepoLock(await canonical(repoPath), async () => {
       await ensureSharedRepoSettings(repoPath);
       const listed = await listWorktrees(repoPath);
       const found = await findByPath(listed, target);
@@ -502,7 +506,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
 
   async function removeMergeFix(args: { project: ProjectConfig; repoName: string; taskKey: string }) {
     const location = await fixLocation(args);
-    await withLock(await canonical(location.repoPath), async () => {
+    await withRepoLock(await canonical(location.repoPath), async () => {
       // Revalidate immediately before destructive git operations, under the repository lock.
       const current = await fixLocation(args);
       const found = await findByPath(await listWorktrees(current.repoPath), current.target);
@@ -560,7 +564,30 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     return fixes;
   }
 
+  async function listTaskWorktrees(args: { project: ProjectConfig; repoName: string }) {
+    const { repo, repoPath, target } = await taskLocation({
+      ...args,
+      taskKey: `${args.project.project.key}-1`,
+    });
+    const parent = await canonical(path.dirname(target));
+    return withRepoLock(await canonical(repoPath), async () => {
+      const result: Array<{ taskKey: string; path: string }> = [];
+      const suffix = `-${repo.name}`;
+      for (const entry of await listWorktrees(repoPath)) {
+        if (entry.main || entry.prunable || !path.basename(entry.path).endsWith(suffix)) continue;
+        if ((await canonical(path.dirname(entry.path))) !== parent) continue;
+        const taskKey = path.basename(entry.path).slice(0, -suffix.length);
+        if (!TaskKey.safeParse(taskKey).success || !taskKey.startsWith(`${args.project.project.key}-`))
+          continue;
+        if ((await canonical(entry.path)) !== path.join(parent, `${taskKey}${suffix}`)) continue;
+        result.push({ taskKey, path: entry.path });
+      }
+      return result;
+    });
+  }
+
   return {
+    listTaskWorktrees,
     ensureMergeFix,
     findMergeFix,
     removeMergeFix,

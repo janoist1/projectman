@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises';
-import { z } from 'zod';
 import { ChatItem } from '@projectman/shared';
 import type { EngineId } from '@projectman/shared';
 import type { PlanUsageProvider, TranscriptReader } from '../../contracts';
@@ -43,7 +42,7 @@ export function createRemoteTranscripts(options: {
       if (!id) throw conflict('engine_offline', 'the transcript is on an engine that is not connected');
       const ticket = transfers.issueUpload(id, 'transcript');
       try {
-        const { provider, self, firstUserOrigin, cwd, confineTo } = opts ?? {};
+        const { provider, self, firstUserOrigin, cwd, confineTo, limit, before } = opts ?? {};
         const receipt = await hub.call(id, 'transcript.read', {
           path,
           opts: {
@@ -52,11 +51,18 @@ export function createRemoteTranscripts(options: {
             ...(firstUserOrigin === undefined ? {} : { firstUserOrigin }),
             ...(cwd === undefined ? {} : { cwd }),
             ...(confineTo === undefined ? {} : { confineTo }),
+            ...(limit === undefined ? {} : { limit }),
+            ...(before === undefined ? {} : { before }),
           },
           uploadToken: ticket.token,
         });
         const received = ticket.take(receipt);
-        return z.array(ChatItem).parse(JSON.parse(await readFile(received.path, 'utf8')));
+        // The engine already cut the items to the window. The file is parsed once; each item is
+        // validated in place, so the hub never holds the raw and the validated copy side by side.
+        const items: unknown = JSON.parse(await readFile(received.path, 'utf8'));
+        if (!Array.isArray(items)) throw new Error('the uploaded transcript is not a list of items');
+        for (let i = 0; i < items.length; i += 1) items[i] = ChatItem.parse(items[i]);
+        return items as ChatItem[];
       } finally {
         ticket.dispose();
       }

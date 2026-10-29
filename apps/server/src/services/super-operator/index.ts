@@ -15,8 +15,6 @@ import type { Actor, HumanMemberConfig, ProjectConfig, SuperMutationInput } from
 
 export { SUPER_OWNER_YES, SuperHandoffService, createSuperHandoffService } from './handoffs';
 export type { SuperCommandExecutor, SuperExecutorJob } from './handoffs';
-export { createAdministrationExecutor, createAdministrationSettler } from './administration';
-export type { SuperAdministrationDeps } from './administration';
 export { createOperateExecutor } from './operate';
 export { createCommandExecutor } from './commands';
 export { createSuperDiagnostics } from './diagnostics';
@@ -27,13 +25,12 @@ export {
   createOperatorAppSessions,
 } from './app';
 export type { OperatorAppOperations } from './app';
-export { createSuperAdministration } from './facade';
-export type { SuperAdministration } from './facade';
+export { createSuperOperations } from './facade';
+export type { SuperOperations } from './facade';
 export { relayOwnerAnswer } from './relay';
 export { resolveIntegratorTodo } from './todo';
 export { INTEGRATOR_INBOX_LIMIT, listIntegratorInbox, resolveIntegratorFixLimit } from './fix-limit';
 export { updateInstanceKnowledge } from './instance-knowledge';
-export { createSuperRights } from './rights';
 
 /** The actor a step made with the principal is recorded as: the holder's, or the queue item issuer's (decision 66). */
 const principalActor = (
@@ -224,7 +221,7 @@ export function createSuperOperator(deps: {
     },
     async execute<T>(
       context: IntegratorExecutionContext,
-      target: { projectKey: string; taskKey?: string; operation: string },
+      target: { projectKey: string; taskKey?: string; operation: string; audited?: boolean },
       run: () => Promise<T>,
     ): Promise<T> {
       await deps.projects.config(target.projectKey);
@@ -232,9 +229,10 @@ export function createSuperOperator(deps: {
         const config = await deps.projects.config(target.projectKey);
         assertIntegratorAccess(config, 'read');
         // A read key's call is audited too (PM-784): the entry carries the project's Operator and the key's
-        // id and prefix, while the principal's mode stays `read`.
+        // id and prefix, while the principal's mode stays `read`. A plain read of the REST API (`audited: false`)
+        // leaves no entry: it changes nothing, and its own rows would wake the long poll of the change journal.
         const actor = principalActor(config, context.principal, context.email, context.issuer);
-        if (!actor) return run();
+        if (!actor || target.audited === false) return run();
         return deps.audit.runExternal(
           { projectKey: target.projectKey, actor, requestId: context.requestId },
           target.operation,
@@ -252,6 +250,7 @@ export function createSuperOperator(deps: {
       context: IntegratorExecutionContext,
       operation: string,
       run: () => Promise<T>,
+      options: { audited?: boolean } = {},
     ): Promise<T> {
       const configs = await Promise.all(deps.projects.summaries().map((p) => deps.projects.config(p.key)));
       return runIntegratorExecution(scopeFor({ ...context, projectKey: null }), async () => {
@@ -264,7 +263,7 @@ export function createSuperOperator(deps: {
         for (const config of projects) {
           assertIntegratorAccess(config, 'read');
           const actor = principalActor(config, context.principal, context.email);
-          if (context.principal.mode !== 'super' || !actor) continue;
+          if (context.principal.mode !== 'super' || !actor || options.audited === false) continue;
           const next = work;
           work = () =>
             deps.audit.runExternal(

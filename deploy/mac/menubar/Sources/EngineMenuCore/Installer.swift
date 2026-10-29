@@ -91,19 +91,28 @@ public struct Installer {
     }
 
     private func bundleVersion() throws -> String {
-        let manifest = bundleEngine.appendingPathComponent(EngineLocator.packageFile)
-        guard let data = try? Data(contentsOf: manifest),
-              let version = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["version"] as? String,
-              EngineLayout.isSafeVersion(version) else { throw MessageError("REFUSED [bundle_engine_missing] \(manifest.path)") }
-        return version
+        guard let package = BundledPackage.read(at: bundleEngine) else {
+            throw MessageError("REFUSED [bundle_engine_missing] \(bundleEngine.appendingPathComponent(EngineLocator.packageFile).path)")
+        }
+        return package.version
     }
     /// `versions/<version>.partial` is renamed to `versions/<version>` only when complete; the running and the
     /// previous version stay.
     private func unpack() throws -> String {
+        let previous = layout.currentVersion()
+        let version = try stage()
+        try layout.writeShim()
+        try layout.point(to: version)
+        layout.prune(keep: Set([version] + (previous.map { [$0] } ?? [])))
+        return version
+    }
+    /// Copies the bundle's engine to `versions/<version>` and nothing else: `current` stays, nothing is pruned. The
+    /// first half of `unpack`, and the first step of a release switch (PM-1126), which points `current` only after
+    /// `service switch` succeeded.
+    public func stage() throws -> String {
         let version = try bundleVersion()
         let files = FileManager.default
         let destination = layout.version(version), partial = layout.partial(version)
-        let previous = layout.currentVersion()
         if !files.fileExists(atPath: destination.appendingPathComponent(EngineLocator.packageFile).path) {
             try files.createDirectory(at: layout.versions, withIntermediateDirectories: true)
             try? files.removeItem(at: partial)
@@ -116,10 +125,21 @@ public struct Installer {
                 throw error
             }
         }
-        try layout.writeShim()
-        try layout.point(to: version)
-        layout.prune(keep: Set([version] + (previous.map { [$0] } ?? [])))
         return version
+    }
+
+    /// The release switch (PM-1126): stage the bundled package, let *its* CLI run `service switch --to <root>`, and only when
+    /// that succeeded point `current` at it. The running and the previous version stay, the older ones go. A failed
+    /// switch leaves `current` alone; the CLI has already rolled the service back and written `rolled_back`.
+    public func switchEngine(to offer: SwitchOffer, running: String, engine: EngineLocation) throws {
+        let version = try stage()
+        guard version == offer.version else { throw MessageError("REFUSED [bundle_changed] \(version)") }
+        let root = layout.version(version).path
+        let target = EngineLocation(schemaVersion: 1, node: root + "/bin/node", root: root, home: engine.home, path: engine.path)
+        let result = try runner(target.command(["service", "switch", "--to", root], timeout: 600))
+        guard result.status == 0 else { throw MessageError(RawError.text(result)) }
+        try layout.point(to: version)
+        layout.prune(keep: [version, running])
     }
 
     /// Steps 3 to 5; a step that fails undoes the new plist.

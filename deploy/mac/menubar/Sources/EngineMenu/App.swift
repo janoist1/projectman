@@ -19,7 +19,21 @@ final class AppState: ObservableObject {
     @Published var logs: Logs?
     @Published var logError: String?
     @Published var overlay: MenuOverlay?
-    var model: MenuModel { MenuModel.make(fetch: fetch, action: action, now: Date(), overlay: overlay) }
+    /// The app's own update (j, k).
+    @Published var update: AppUpdateStatus = .idle
+    /// The label of the release this app is switching the engine to (l, while it runs the engine CLI).
+    @Published var switching: String?
+    /// The engine package in this app's bundle; nil without one (a development build).
+    var bundled: BundledPackage?
+    /// Targets whose switch failed in this session: the app does not retry them by itself.
+    var failedTargets = Set<String>()
+    private let identity = Updates.identity
+    var model: MenuModel {
+        let offer = fetch.snapshot.flatMap { SwitchPolicy.menuOffer($0, bundled: bundled, failed: failedTargets) }
+        let context = UpdateContext(app: update, canSelfUpdate: identity.canSelfUpdate, canDownload: identity.latestReleaseURL != nil,
+                                    switching: switching, offer: offer)
+        return MenuModel.make(fetch: fetch, action: action, now: Date(), overlay: overlay, update: context)
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
@@ -38,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var actionDeadline: Date?
     private var commandRunning = false
     private var pendingAction: EngineAction?
+    private var maintenance: Maintenance!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard isPlaced() else { return }
@@ -51,8 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             self.state.overlay = self.flow.overlay; self.render()
         }
         flow.onEngineChanged = { [weak self] in self?.refresh() }
+        maintenance = Maintenance(state: state, idle: { [weak self] in
+            guard let self else { return false }
+            return !self.flow.busy && self.state.overlay == nil && self.state.action == nil && !self.commandRunning
+        }, changed: { [weak self] in self?.render(); self?.refresh() })
         let mode = SetupFlow.mode()
         if mode == .installed { startInstalled() }
+        maintenance.start()
         render(); refresh()
         if mode == .offer { flow.offer() }
     }
@@ -105,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func scheduleRefresh() {
         timer?.invalidate()
         guard !commandRunning, !fetching else { return }
-        let interval: TimeInterval = state.action != nil ? 2 : (flow.isWatching ? 5 : (menuOpen || window != nil ? 15 : 60))
+        let interval: TimeInterval = state.action != nil || state.switching != nil ? 2 : (flow.isWatching ? 5 : (menuOpen || window != nil ? 15 : 60))
         let remaining = max(0.1, interval - Date().timeIntervalSince(lastFetch))
         timer = Timer(timeInterval: remaining, repeats: false) { [weak self] _ in self?.refresh() }
         RunLoop.main.add(timer!, forMode: .common)
@@ -165,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 self.render()
                 self.scheduleRefresh()
                 self.flow.observe(fetch, mode: mode)
+                self.maintenance.observe(fetch)
                 if let pending = self.pendingAction {
                     self.pendingAction = nil; self.act(pending)
                 }
@@ -182,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         status.button?.setAccessibilityLabel(accessibility); status.button?.toolTip = accessibility
         menu.removeAllItems()
         let heading = NSMenuItem(title: model.header.text, action: nil, keyEquivalent: "")
-        let color: NSColor = model.icon == .running ? .systemGreen : model.icon == .noCloud ? .systemYellow : model.icon == .warning ? .systemRed : .systemGray
+        let color: NSColor = model.icon == .running ? .systemGreen : model.icon == .noCloud ? .systemYellow : model.icon == .warning ? .systemRed : model.icon == .caution ? .systemOrange : .systemGray
         let headingText = NSMutableAttributedString(string: "● " + model.header.text, attributes: [.font: NSFont.boldSystemFont(ofSize: 13)])
         headingText.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: 1))
         heading.attributedTitle = headingText; heading.isEnabled = false
@@ -232,10 +253,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         case .start: act(.start)
         case .stop: act(.stop)
         case .restart: act(.restart)
+        case .retryUpdate: maintenance.retryUpdate()
+        case .copyUpdateError: maintenance.copyUpdateError()
+        case .downloadManually: maintenance.openDownloadPage()
+        case .updateNow, .retrySwitch: maintenance.switchNow()
+        case .copySwitchError: maintenance.copySwitchError()
         }
     }
     private func act(_ action: EngineAction) {
-        guard state.action == nil else { return }
+        guard state.action == nil, state.switching == nil else { return }
         if fetching { pendingAction = action; return }
         guard let snapshot = state.fetch.snapshot, snapshot.service.installed else { return }
         if action == .start && snapshot.overall != "stopped" { return }

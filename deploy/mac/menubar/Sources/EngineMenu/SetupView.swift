@@ -35,7 +35,7 @@ struct SetupView: View {
         switch flow.screen {
         case .welcome:
             return Panel(title: L10n.text(.welcomeTitle), body: L10n.text(.welcomeBody),
-                         bullets: [L10n.text(.welcomeLogin), L10n.text(.welcomeQuit)], note: L10n.text(.welcomeApproval),
+                         bullets: [L10n.text(.welcomeLogin), L10n.text(.welcomeQuit)] + (Updates.identity.canSelfUpdate ? [L10n.text(.welcomeUpdate)] : []), note: L10n.text(.welcomeApproval),
                          actions: [action(.notNow, .cancel) { flow.dismiss() }, action(.installButton, .primary) { flow.install() }])
         case .missingTools(let waiting):
             if waiting {

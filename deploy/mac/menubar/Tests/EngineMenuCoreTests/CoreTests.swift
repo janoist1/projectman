@@ -115,9 +115,9 @@ final class CoreTests: XCTestCase {
         let m = MenuModel.make(fetch: .unavailable("error"), action: nil, now: Date())
         XCTAssertEqual(m.header.key, .unavailable); XCTAssertEqual(m.rows.compactMap(\.command), [.retry, .details, .quit])
     }
-    func testUpdateNeededOnlyOffersQuit() {
+    func testUpdateNeededWithoutAReleaseOnlyOffersQuit() {
         let m = MenuModel.make(fetch: .updateNeeded, action: nil, now: Date())
-        XCTAssertEqual(m.rows.compactMap(\.command), [.quit])
+        XCTAssertEqual(m.header.key, .appTooOld); XCTAssertEqual(m.rows.compactMap(\.command), [.quit])
     }
     func testRestartWaitsForNewPid() throws {
         XCTAssertFalse(EngineAction.restart.reached(try snapshot(), previousPid: 123))

@@ -15,7 +15,7 @@ struct DetailsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(state.fetch.snapshot?.engine?.name ?? L10n.text(.unnamed)).font(.headline)
                         HStack {
-                            Circle().fill(state.model.icon == .running ? Color(nsColor: .systemGreen) : state.model.icon == .noCloud ? Color(nsColor: .systemYellow) : state.model.icon == .warning ? Color(nsColor: .systemRed) : Color(nsColor: .systemGray)).frame(width: 8, height: 8).accessibilityHidden(true)
+                            Circle().fill(state.model.icon == .running ? Color(nsColor: .systemGreen) : state.model.icon == .noCloud ? Color(nsColor: .systemYellow) : state.model.icon == .warning ? Color(nsColor: .systemRed) : state.model.icon == .caution ? Color(nsColor: .systemOrange) : Color(nsColor: .systemGray)).frame(width: 8, height: 8).accessibilityHidden(true)
                             Text(state.model.header.text)
                         }
                         if let engine = state.fetch.snapshot?.engine {

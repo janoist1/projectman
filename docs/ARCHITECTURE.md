@@ -1952,7 +1952,7 @@ workers follow the machine's size.
   repository, so the write happens there and nothing crosses the server/engine boundary.
   Related: the Codex `packed-refs.lock` grant of PM-411.
 
-- **Engine menu bar app (PM-1088, PM-1125)** — `deploy/mac/menubar/` (Swift 5.9 package, AppKit
+- **Engine menu bar app (PM-1088, PM-1125, PM-1126)** — `deploy/mac/menubar/` (Swift 5.9 package, AppKit
   `NSStatusItem` / `NSMenu` and SwiftUI details and setup windows; logic in `EngineMenuCore` behind
   seams, UI in `EngineMenu`), `scripts/engine/menubar.ts`. PM-1125: the downloaded app
   (`com.projectman.engine-app`) installs itself on first launch: it moves itself to `/Applications`
@@ -1982,10 +1982,29 @@ workers follow the machine's size.
   engine runs) takes about 0.17 s CPU per `status --json` instead of 0.29 s; a checkout engine
   running through tsx still pays its transform cost. `lazy-packages.test.ts` pins the eagerly
   loaded packages of the CLI bundle to `@projectman/shared`, `execa` and `zod`.
-  **Remote engine:** the app, the install, the removal and the CLI all run on the engine's Mac;
-  nothing crosses the server/engine boundary and there is no new cloud request. Linux and Windows
+  **PM-1126, self-update:** at launch, every 6 hours, when the engine's version differs from the
+  bundled one and when the status schema is too new, the app reads
+  `https://github.com/<ProjectmanReleaseRepo>/releases/latest/download/projectman-motor.json`
+  (`Info.plist` keys `ProjectmanReleaseRepo`, `ProjectmanTeamId`, `CFBundleVersion`). A newer
+  `bundleVersion` (arm64, `minimumMacOS` met) is downloaded to
+  `~/Library/Caches/com.projectman.engine-app/updates/`, checked (size, sha256), unpacked with
+  `ditto -x -k`, verified with `SecStaticCodeCheckValidity` (identifier `com.projectman.engine-app`
+  and the Team ID leaf OU of the running app), replaced with `FileManager.replaceItemAt` and
+  relaunched by a detached `/bin/sh -c 'sleep 1; open …'`; the engine keeps running. An ad-hoc
+  build (empty `ProjectmanTeamId`) never updates. A failure keeps the old app and shows menu state k.
+  **PM-1126, release switch:** an app-managed (`manager: "app"`) engine whose bundled package
+  version differs from the running one is staged under `engine/versions/<ver>`, switched with the
+  new package's `service switch --to <root>` (automatically when `work` is 0, after a confirmation
+  otherwise), then `current` is pointed at it and older versions are pruned (the running and the
+  previous one stay). The menu shows the engine's `switch` state (switching, rolled back, recovery
+  required). A checkout engine is never switched by the app.
+  **Remote engine:** the app, the install, the removal, the update download and the CLI all run on
+  the engine's Mac; the download is that Mac's own outbound traffic to GitHub (not the cloud's).
+  Nothing crosses the server/engine boundary and there is no new cloud request. Linux and Windows
   are unsupported. Existing inventory entries: “Engine service (launchd)” (the app runs its
-  `service install|uninstall`) and “Engine app package (PM-1104, PM-1121)” (the bundled engine).
+  `service install|uninstall|switch`) and “Engine app package (PM-1104, PM-1121)” (the bundled
+  engine). **Machine assumptions added:** outbound HTTPS to github.com, `ditto`, the Security
+  framework, a writable `~/Library/Caches` and the app's own bundle location, `/bin/sh` and `open`.
   Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
 

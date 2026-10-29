@@ -578,6 +578,50 @@ describe('cloud mode remote parts', () => {
       expect(remote.hub.mirror('eng_a' as never).running.get('s1')?.state).toBe('working');
     });
 
+    it('keeps the link when an event or terminal listener throws, and still serves the others', async () => {
+      const engine = await online();
+      engine.answer('session.start', (params) => running(params.sessionId));
+      await remote.runner.start(spec());
+      remote.hub.onEvent(() => {
+        throw new Error('listener broke');
+      });
+      remote.hub.onTerminal(() => {
+        throw new Error('listener broke');
+      });
+      const seen: RunnerEvent[] = [];
+      remote.runner.onEvent((event) => seen.push(event));
+      await engine.emit({
+        kind: 'runner',
+        event: { type: 'state', sessionId: 's1', state: 'working', activity: null },
+      });
+      await engine.terminal('s1', 'out');
+      expect(seen.map((event) => event.type)).toEqual(['state', 'terminal_data']);
+    });
+
+    it('attaches a viewed terminal again when its engine connects, and not a detached one', async () => {
+      const engine = await online();
+      engine.answer('session.start', (params) => running(params.sessionId));
+      engine.answer('terminal.attach', () => null);
+      await remote.runner.start(spec());
+      await remote.runner.attachTerminal?.('s1');
+      engine.disconnect();
+      const again = cloud.connect('eng_a' as never, {
+        hello: { running: [running('s1')] },
+        prepare: (fresh) => fresh.answer('terminal.attach', () => null),
+      });
+      await vi.waitFor(() =>
+        expect(again.requests.map((entry) => entry.method)).toContain('terminal.attach'),
+      );
+      remote.runner.detachTerminal?.('s1');
+      again.disconnect();
+      const last = cloud.connect('eng_a' as never, {
+        hello: { running: [running('s1')] },
+        prepare: (fresh) => fresh.answer('terminal.attach', () => null),
+      });
+      await vi.waitFor(() => expect(remote.hub.mirror('eng_a' as never).connected).toBe(true));
+      expect(last.requests.map((entry) => entry.method)).not.toContain('terminal.attach');
+    });
+
     it('applies a repeated event twice without harm and ends the session on exit', async () => {
       const engine = await online();
       engine.answer('session.start', (params) => running(params.sessionId));
@@ -1309,6 +1353,20 @@ describe('cloud mode remote parts', () => {
       expect(engine.callIds).toHaveLength(1);
       await engine.call('permission.cancel', { reqId: engine.callIds[0]! });
       await expect(deciding).resolves.toMatchObject({ behavior: 'deny' });
+    });
+
+    it('expires a pending decision when the engine reconnects, also on a resumed link', async () => {
+      const engine = await online();
+      sessionEngines.set('s1', 'eng_a');
+      const deciding = engine.call('permission.decide', { request: permissionRequest('s1') } as never);
+      await vi.waitFor(() => expect(broker.decide).toHaveBeenCalledTimes(1));
+      const signal = vi.mocked(broker.decide).mock.calls[0]![1] as AbortSignal;
+      // The engine's own call fails the moment its link closes; the cloud's side expires the item.
+      deciding.catch(() => undefined);
+      engine.disconnect();
+      expect(signal.aborted).toBe(false);
+      cloud.connect('eng_a' as never, { resumed: true });
+      await vi.waitFor(() => expect(signal.aborted).toBe(true));
     });
 
     it('refuses to decide for a session of another engine', async () => {

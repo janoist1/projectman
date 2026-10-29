@@ -820,8 +820,20 @@ export function useLogoutFeedbackMarker(key: string) {
 
 /* ---------- inbox ---------- */
 
+/** The items that have not ended (open, screening): every one of them, however old (they are what waits for someone). */
 export function useInbox(key: string) {
   return useQuery({ queryKey: queryKeys.inbox(key), queryFn: () => api.inbox(key) });
+}
+
+/** How many closed items the history lists read. */
+const INBOX_HISTORY_LIMIT = 200;
+
+/** The newest closed items: "recently decided" on the inbox page, "you answered" in a conversation. */
+export function useInboxHistory(key: string) {
+  return useQuery({
+    queryKey: queryKeys.inboxHistory(key),
+    queryFn: () => api.inboxHistory(key, INBOX_HISTORY_LIMIT),
+  });
 }
 
 /**
@@ -875,6 +887,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
     },
     onSettled: async (_data, _error, { item }) => {
       await client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
+      await client.invalidateQueries({ queryKey: queryKeys.inboxHistory(key) });
       await client.invalidateQueries({ queryKey: queryKeys.board(key) });
       if (item.payload.operatorKnowledge) {
         await client.invalidateQueries({ queryKey: queryKeys.operatorKnowledge(key) });
@@ -984,10 +997,20 @@ export function useSaveRole(key: string) {
 export function useDeleteRole(key: string) {
   return useProjectMutation(key, (id: string) => api.deleteRole(key, id));
 }
+/**
+ * The server answers with the changed task: write it to the board and the card, and read the card's detail again
+ * (its timeline and rounds changed). The rest of the project follows by the socket events, not by a refetch.
+ */
 export function useUpdateTask(key: string) {
-  return useProjectMutation(key, ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
-    api.updateTask(key, taskKey, body),
-  );
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskKey, body }: { taskKey: string; body: UpdateTaskRequest }) =>
+      api.updateTask(key, taskKey, body),
+    onSuccess: async (task) => {
+      writeTask(client, key, task);
+      await client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
+    },
+  });
 }
 /** The server answers with the task's detail: write it instead of refetching the project. */
 export function useCreateTaskComment(key: string) {

@@ -42,6 +42,7 @@ export class AuthService {
   private readonly now: () => Date;
   readonly sessionTtlMs: number;
   private readonly keyListeners = new Set<() => void>();
+  private readonly revokeListeners = new Set<(token: string) => void>();
 
   constructor(opts: { repos: Repositories; now?: () => Date; sessionTtlMs?: number }) {
     this.repos = opts.repos;
@@ -437,5 +438,20 @@ export class AuthService {
 
   revoke(token: string): void {
     this.repos.authSessions.delete(tokenId(token));
+    for (const listener of [...this.revokeListeners]) {
+      try {
+        listener(token);
+      } catch {
+        // A holder of a remembered login that cannot be told still re-checks it on its own.
+      }
+    }
+  }
+
+  /** Calls `listener` with the token of every session revoked (logout, login rotation), so a remembered login can be dropped at once. */
+  onSessionRevoked(listener: (token: string) => void): () => void {
+    this.revokeListeners.add(listener);
+    return () => {
+      this.revokeListeners.delete(listener);
+    };
   }
 }

@@ -48,7 +48,7 @@ export { visibleTeamTools } from './server';
  */
 
 interface CreateMcpModuleOptions extends McpModuleOptions {
-  /** A tool call is answered with a `timeout` error after this long. Default 60 s. */
+  /** A tool call is answered with a `timeout` error after this long. Default `TEAM_TOOL_TIMEOUT_MS`. */
   toolTimeoutMs?: number;
 }
 

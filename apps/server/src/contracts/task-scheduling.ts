@@ -9,6 +9,8 @@ import type { Task, TimelineEvent } from '@projectman/shared';
  * - `queue`: all active `task` cards of this stage, assigned ones too (PM-879).
  * - `children`: the direct subtasks of these cards (open ones, closed too with `includeClosed`).
  * - `open`: every card that is not done or cancelled, themes included.
+ * - `listed`: the `list_tasks` page: the cards with this status (`open`: not done or cancelled, themes
+ *   included), optionally of one stage (`task` cards only) and one assignee, the newest change first, at most `limit`.
  * - `closed-worktrees`: done or cancelled `task` cards closed at or before `closedBefore` (a UTC ISO time),
  *   a page of at most `limit` (1-500, default 100) by number, after `afterSeq` (default 0).
  */
@@ -18,6 +20,7 @@ export type TaskSchedulingQuery =
   | { kind: 'queue'; stageId: string }
   | { kind: 'children'; parentKeys: readonly string[]; includeClosed?: boolean }
   | { kind: 'open' }
+  | { kind: 'listed'; status: Task['status'] | 'open'; stageId?: string; assignee?: string; limit: number }
   | { kind: 'closed-worktrees'; closedBefore: string; afterSeq?: number; limit?: number };
 
 /**

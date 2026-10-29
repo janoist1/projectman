@@ -41,6 +41,10 @@ interface WsSocket {
 
 const OPEN = 1;
 const POLICY_VIOLATION = 1008;
+/** How long a client's login check stands: a delivery to many events does not read the session table each time. */
+const LOGIN_CHECK_TTL_MS = 5_000;
+/** Commands a client may have waiting; a client that sends faster than they run is closed. */
+const MAX_PENDING_COMMANDS = 200;
 
 /** A command's refusal: the error code is the message. */
 const errorEvent = (code: ErrorCode): ServerEvent => ({ type: 'error', message: code });
@@ -55,6 +59,8 @@ interface Client {
   /** Sessions whose terminal this client is attached to. */
   terminals: Set<string>;
   alive: boolean;
+  /** When the login was last found valid (ms); 0 forces a new check (a revoke clears it). */
+  checkedAt: number;
 }
 
 function messageText(data: unknown): string {
@@ -78,10 +84,20 @@ export function registerWebsocket(
   const clients = new Set<Client>();
 
   const authenticated = (client: Client) => {
-    if (deps.auth.resolve(client.token)) return true;
+    const now = Date.now();
+    if (now - client.checkedAt < LOGIN_CHECK_TTL_MS) return true;
+    if (deps.auth.resolve(client.token)) {
+      client.checkedAt = now;
+      return true;
+    }
     client.socket.close(POLICY_VIOLATION, 'session expired');
     return false;
   };
+
+  // A logout or a new login ends the session at once, not after the remembered check.
+  const stopListeningForRevokes = deps.auth.onSessionRevoked((token) => {
+    for (const client of clients) if (client.token === token) client.checkedAt = 0;
+  });
 
   /** Sends the event if the client's login session is still valid (else closes the socket). */
   const send = (client: Client, event: ServerEvent) => {
@@ -291,11 +307,18 @@ export function registerWebsocket(
       projects: new Set(),
       terminals: new Set(),
       alive: true,
+      checkedAt: 0,
     };
     clients.add(client);
     let commands = Promise.resolve();
+    let pendingCommands = 0;
     socket.on('message', (data) => {
-      commands = commands.then(() => handle(client, data));
+      if (pendingCommands >= MAX_PENDING_COMMANDS) {
+        socket.close(POLICY_VIOLATION, 'too many commands');
+        return;
+      }
+      pendingCommands += 1;
+      commands = commands.then(() => handle(client, data)).finally(() => (pendingCommands -= 1));
     });
     socket.on('pong', () => {
       client.alive = true;
@@ -325,12 +348,15 @@ export function registerWebsocket(
       } catch {
         // closed meanwhile
       }
+      // A browser cannot see a ping: this frame tells its client the connection lives (it closes after a long silence).
+      send(client, { type: 'hello', serverTime: new Date().toISOString() });
     }
   }, deps.heartbeatMs ?? 30_000);
   heartbeat.unref();
 
   app.addHook('onClose', async () => {
     clearInterval(heartbeat);
+    stopListeningForRevokes();
     unsubscribe();
   });
 }

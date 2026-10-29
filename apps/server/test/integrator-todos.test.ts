@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   TODO_DONE_OPTION,
   TODO_CANNOT_OPTION,
+  inboxRecipientOf,
   questionPayloadOf,
   routes,
   connectedActorOf,
@@ -499,25 +500,47 @@ it('defaults to unavailable when no integrator access adapter was provided', asy
   }
 });
 
-it('keeps the todo of an asker without machine access with the owners', async () => {
-  const h = await createDomainHarness({ integratorTodoAccess: { available: () => true } });
-  try {
-    const item = h.domain.inbox.create({
-      projectKey: 'AR',
-      kind: 'question',
-      source: 'dev-1',
-      assignees: ['owner'],
-      title: 'Measure',
-      state: 'screening',
-      payload: { question: 'Measure', requestedRecipient: 'integrator', screening: { until: START } },
-      options: [],
+describe('the machine access of the screening member decides, not the asker’s', () => {
+  const releaseAskedByDev = async (screenerMachineAccess: boolean | undefined) => {
+    const h = await createDomainHarness({
+      integratorTodoAccess: { available: () => true },
+      adjust: (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm');
+        if (pm?.kind === 'ai' && screenerMachineAccess !== undefined)
+          pm.machineAccess = screenerMachineAccess;
+      },
     });
-    const result = await h.domain.inbox.releaseScreened(item.id, { outcome: 'todo', todo: step, by: 'pm' });
-    expect(result!.payload).toMatchObject({
+    try {
+      const item = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source: 'dev-1',
+        assignees: ['owner'],
+        title: 'Measure',
+        state: 'screening',
+        payload: { question: 'Measure', requestedRecipient: 'integrator', screening: { until: START } },
+        options: [],
+      });
+      const result = await h.domain.inbox.releaseScreened(item.id, { outcome: 'todo', todo: step, by: 'pm' });
+      return result!;
+    } finally {
+      await h.cleanup();
+    }
+  };
+
+  it('gives an asker without machine access the integrator when the screening member has it', async () => {
+    const result = await releaseAskedByDev(undefined);
+    expect(inboxRecipientOf(result)).toBe('integrator');
+    expect(result.payload).toMatchObject({ recipient: 'integrator' });
+    expect(result.payload.screening).not.toHaveProperty('recipientRefusal');
+  });
+
+  it('keeps the todo with the owners when the screening member has no machine access', async () => {
+    const result = await releaseAskedByDev(false);
+    expect(inboxRecipientOf(result)).toBe('owner');
+    expect(result.payload).toMatchObject({
       recipient: 'owner',
       screening: { recipientRefusal: 'no_machine_access' },
     });
-  } finally {
-    await h.cleanup();
-  }
+  });
 });

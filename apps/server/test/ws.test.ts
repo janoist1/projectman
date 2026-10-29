@@ -329,6 +329,19 @@ describe('websocket', () => {
     expect(await closed).toBe(1008);
   });
 
+  it('closes a client that does not read its output, instead of queueing for it without limit', async () => {
+    const { ws, events } = await connect();
+    await waitFor(events, ofType('hello'));
+    const closed = new Promise<number>((resolve) =>
+      (ws as unknown as { on(event: 'close', l: (code: number) => void): void }).on('close', resolve),
+    );
+    const [server] = [...h.app.websocketServer.clients];
+    Object.defineProperty(server, 'bufferedAmount', { value: 64 * 1024 * 1024 });
+    h.app.projectman.domain.bus.publish({ type: 'operator_grant_changed' });
+    expect(await closed).toBe(1013);
+    expect(events.some((e) => e.type === 'operator_grant_changed')).toBe(false);
+  });
+
   it('streams fetched provider usage and changed members to project subscribers', async () => {
     const { ws, events } = await connect();
     await waitFor(events, ofType('hello'));

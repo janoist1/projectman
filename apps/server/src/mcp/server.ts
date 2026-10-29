@@ -59,7 +59,7 @@ export const jsonSchemaValidator = new AjvJsonSchemaValidator();
  */
 const listings = new Map<string, Tool[]>();
 
-function toolListing(tools: readonly TeamTool[]): Tool[] {
+export function toolListing(tools: readonly TeamTool[]): Tool[] {
   const signature = tools.map((tool) => tool.name).join('\u0000');
   let listing = listings.get(signature);
   if (!listing) {

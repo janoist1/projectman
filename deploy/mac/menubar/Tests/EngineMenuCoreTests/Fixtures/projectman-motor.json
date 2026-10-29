@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "tag": "v2026.10.29",
+  "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "bundleVersion": "20261029.0",
+  "minimumMacOS": "13.0",
+  "arch": "arm64",
+  "teamId": "ABCDE12345",
+  "zip": {
+    "name": "projectman-motor.zip",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "size": 12345
+  },
+  "dmg": {
+    "name": "projectman-motor.dmg",
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "size": 23456
+  }
+}

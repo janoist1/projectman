@@ -4412,6 +4412,11 @@ projectman-cloud /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 
   including items without a wait code; threshold changes recheck the project's queued members.
   These caches and wake decisions run on the server, with the existing `usage.plan` and
   `provider.status` RPCs; credentials and CLI probes stay on the remote engine.
+  `Admission.warm` preloads login, usage and disk readings outside the admission lock for a known
+  member. It makes no start decision: the locked check still enforces admission, and session startup
+  remains serialized because capacity and workspace availability count running processes, not reservations.
+  Slow lock rounds report their full duration and phase timings with the holder and member; slow queue
+  sweeps report their five slowest members. No new server/engine message is introduced.
   PM-1091: the NanoGPT quota and rate hold (`ProviderQuotaHolds`, in memory on the hub) is per key: the
   cloud's key is `'host'`, an engine with its own key file is held under its engine id
   (`EngineDirectory.nanogptKeyHolder`). Only a `usage.plan` measurement on the engine that owns the key

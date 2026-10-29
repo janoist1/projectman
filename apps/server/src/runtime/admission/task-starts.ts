@@ -217,6 +217,10 @@ export class TaskStarts implements WorkEntryCheck {
   }
 
   async start(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
+    await this.admission.warm(
+      projectKey,
+      opts.assignee ?? this.tasks.find(projectKey, taskKey)?.assignee ?? undefined,
+    );
     const result = await this.admission.exclusive('task-start', () =>
       this.startLocked(projectKey, taskKey, opts),
     );

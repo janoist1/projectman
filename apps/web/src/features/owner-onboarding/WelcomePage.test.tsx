@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
-import { afterEach, describe, expect, it } from 'vitest';
+import { motorAppDownloadUrl } from '@projectman/shared';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { MockBackend } from '../../mocks/backend';
@@ -95,7 +96,9 @@ describe('connecting the first machine', () => {
     });
     const created = backend.engines.at(-1)!;
     expect(created.createdBy).toBe(OWNER.userId);
-    expect(assistantInstruction(created, null)).not.toContain(backend.lastEngineKey!);
+    expect(assistantInstruction(created, null, 'checkout', { state: 'none' })).not.toContain(
+      backend.lastEngineKey!,
+    );
   });
 
   it('keeps the key out of the page after a reload and offers a new one', async () => {
@@ -107,7 +110,46 @@ describe('connecting the first machine', () => {
   });
 
   it('quotes a machine name with an apostrophe in the command run on the machine', () => {
-    const text = assistantInstruction({ id: 'eng_aaaaaaaaaaaa', name: "Eszter's Mac" }, null);
+    const text = assistantInstruction({ id: 'eng_aaaaaaaaaaaa', name: "Eszter's Mac" }, null, 'checkout', {
+      state: 'none',
+    });
     expect(text).toContain(`--name 'Eszter'\\''s Mac'`);
+  });
+});
+
+describe('the motor app install in the guide', () => {
+  const RELEASE = 'v2026.10.11';
+
+  /** The "Magam csinálom" tab of a machine that has not connected yet. */
+  async function openManualTab(latestReleaseTag: string | null) {
+    const backend = ownerBackend();
+    backend.serverVersion = { ...backend.serverVersion, latestReleaseTag };
+    backend.addEngine({ name: 'Laptop', createdBy: OWNER.userId });
+    renderWelcome(backend);
+    fireEvent.click(await screen.findByRole('button', { name: t('ownerOnboarding.guide.tabManual') }));
+  }
+
+  beforeEach(() => window.localStorage.clear());
+
+  it('offers the dmg of the latest release to download', async () => {
+    await openManualTab(RELEASE);
+    const link = await screen.findByRole('link', { name: t('ownerOnboarding.guide.appDownloadAria') });
+    expect(link.getAttribute('href')).toBe(motorAppDownloadUrl());
+    expect(link.hasAttribute('download')).toBe(true);
+    expect(screen.queryByText((text) => text.startsWith('git clone'))).toBeNull();
+  });
+
+  it('points to the install guide instead when no release is published', async () => {
+    await openManualTab(null);
+    const docs = await screen.findByRole('link', { name: t('ownerOnboarding.guide.appNoReleaseLink') });
+    expect(docs.getAttribute('href')).toContain('docs/DEPLOY.md');
+    expect(screen.queryByRole('link', { name: t('ownerOnboarding.guide.appDownloadAria') })).toBeNull();
+  });
+
+  it('shows the checkout install once the checkout mode is chosen', async () => {
+    await openManualTab(RELEASE);
+    fireEvent.click(await screen.findByRole('radio', { name: t('engines.mode.checkout') }));
+    expect(await screen.findByText((text) => text.startsWith('git clone'))).toBeTruthy();
+    expect(screen.queryByRole('link', { name: t('ownerOnboarding.guide.appDownloadAria') })).toBeNull();
   });
 });

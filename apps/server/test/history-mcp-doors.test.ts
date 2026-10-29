@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
-import { EXTERNAL_DENIED, EXTERNAL_TOOLS, externalToolNamed } from '../src/mcp/super-operator/registry';
+import { EXTERNAL_DENIED, externalToolNamed } from '../src/mcp/super-operator/registry';
 import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
@@ -119,11 +119,10 @@ describe('the history tools on the member and the integrator door', () => {
   const matchesOf = (result: ToolResult): any[] => JSON.parse(result.content[0]!.text!).matches;
 
   describe('the member’s own door', () => {
-    it('lists the two search tools with strict schemas and hides statistics from a plain member', async () => {
+    it('lists the two search tools with strict schemas', async () => {
       const tools = await member.list();
       const byName = Object.fromEntries(tools.map((tool) => [tool.name, tool]));
       for (const name of ['search_history', 'read_history_source']) expect(byName[name], name).toBeDefined();
-      expect(byName.get_history_search_stats).toBeUndefined();
       expect(byName.search_history!.inputSchema.required).toEqual(['query']);
       expect(byName.search_history!.inputSchema.additionalProperties).toBe(false);
       expect(byName.read_history_source!.inputSchema.required).toEqual(['source_id']);
@@ -155,13 +154,6 @@ describe('the history tools on the member and the integrator door', () => {
       expect(records()).toHaveLength(0);
     });
 
-    it('refuses a direct call of the hidden statistics tool before reaching the handler', async () => {
-      const stats = await member.call('get_history_search_stats');
-      expect(stats.isError).toBe(true);
-      expect(stats.content[0]!.text).toMatch(/get_history_search_stats.*not found/);
-      expect(records()).toHaveLength(0);
-    });
-
     it('does not tell a hidden source from a missing one', async () => {
       const missing = await member.call('read_history_source', { source_id: 'msg_nothing_here' });
       expect(missing.isError).toBe(true);
@@ -171,12 +163,11 @@ describe('the history tools on the member and the integrator door', () => {
   });
 
   describe.each(['read', 'super'] as const)('the integrator door in %s mode', (mode) => {
-    it('offers the two searches as read tools and never the statistics', async () => {
+    it('offers the two searches as read tools', async () => {
       const door = bearer(mode);
       const names = (await door.list()).map((tool) => tool.name);
       expect(names).toContain('search_history');
       expect(names).toContain('read_history_source');
-      expect(names).not.toContain('get_history_search_stats');
       const tools = Object.fromEntries((await door.list()).map((tool) => [tool.name, tool]));
       expect(tools.search_history!.inputSchema.required).toEqual(
         expect.arrayContaining(['project_key', 'query']),
@@ -211,14 +202,6 @@ describe('the history tools on the member and the integrator door', () => {
         source_id: 'msg_nothing_here',
       });
       expect(missing.structuredContent?.errorCode).toBe('not_found');
-      expect(records()).toHaveLength(0);
-    });
-
-    it('refuses the statistics, also when they are called directly', async () => {
-      const door = bearer(mode);
-      const denied = await door.call('get_history_search_stats', { project_key: 'AR' });
-      expect(denied.isError).toBe(true);
-      expect(denied.structuredContent?.errorCode).toBe('integrator_not_allowed');
       expect(records()).toHaveLength(0);
     });
   });
@@ -257,7 +240,7 @@ describe('the history tools on the member and the integrator door', () => {
     expect(records()).toHaveLength(2);
   });
 
-  it('binds the new tools in the external registry: two read tools, one denied', () => {
+  it('binds the two search tools in the external registry as read tools', () => {
     for (const name of ['search_history', 'read_history_source']) {
       const bound = externalToolNamed(name);
       expect(bound, name).toBeDefined();
@@ -265,8 +248,5 @@ describe('the history tools on the member and the integrator door', () => {
       expect(bound!.access, name).toBe('read');
       expect(EXTERNAL_DENIED, name).not.toHaveProperty(name);
     }
-    expect(externalToolNamed('get_history_search_stats')).toBeUndefined();
-    expect(EXTERNAL_DENIED).toHaveProperty('get_history_search_stats');
-    expect(EXTERNAL_TOOLS.map((tool) => tool.name)).not.toContain('get_history_search_stats');
   });
 });

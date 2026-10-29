@@ -5,7 +5,7 @@ import { z } from 'zod';
  * content is read again through the existing reading API. Raw terminal, chat and secret data never
  * go in.
  */
-export const PROJECT_CHANGE_KINDS = [
+const PROJECT_CHANGE_KINDS = [
   'task',
   'timeline',
   'message',
@@ -29,8 +29,8 @@ export const ProjectChangeEvent = z.object({
 });
 export type ProjectChangeEvent = z.infer<typeof ProjectChangeEvent>;
 
-export const PROJECT_CHANGE_MAX_LIMIT = 500;
-export const PROJECT_CHANGE_DEFAULT_LIMIT = 100;
+const PROJECT_CHANGE_MAX_LIMIT = 500;
+const PROJECT_CHANGE_DEFAULT_LIMIT = 100;
 export const PROJECT_CHANGE_MAX_WAIT_MS = 25_000;
 
 /** Query of `GET /api/projects/:key/events`. */

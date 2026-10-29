@@ -1,7 +1,8 @@
 import type { Session, Task } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import { formatScheduleTime } from '../../lib/schedules';
-import { closureTexts, isLiveSession, sessionClosure, sessionStatus } from '../../lib/sessions';
+import { isLiveSession } from '@projectman/shared';
+import { closureTexts, sessionClosure, sessionStatus } from '../../lib/sessions';
 import type { ClosureContext, SessionStatus } from '../../lib/sessions';
 
 /** When a scheduled session's run was due, in the project's time zone. */

@@ -382,7 +382,6 @@ export const hu = {
     avatar: 'Operátor, super jogosítvánnyal',
     credentialLead: 'Claude Code-ból · kulcs',
     activity: 'Mit tett az Operátor super jogosítvánnyal?',
-    handoffsTitle: 'Átadások',
     operationsTitle: 'Műveletek',
     emptyAll: 'Az Operátor még nem tett semmit super jogosítvánnyal.',
     operations: {
@@ -400,7 +399,6 @@ export const hu = {
     empty: 'Ezzel a kulccsal még nem történt semmi.',
     more: 'Továbbiak betöltése',
     handoff: '↑ az átadás',
-    handedOff: 'Az Operátor gépi munkát adott át: {operation}. Ok: {reason}',
     executed: 'végrehajtotta az átadást: {operation}',
     operation: 'Super művelet: {operation}',
     unknownHint: 'Nézd meg a naplót, mielőtt újra próbálod.',
@@ -595,8 +593,17 @@ export const hu = {
     commandTitle: 'Beállító parancs: {name}',
     commandIntro:
       'Futtasd a gépen, a projectman mappájában. A parancs bekéri a létrehozáskor kapott kulcsot.',
+    commandIntroApp:
+      'Futtasd a gépen, a Terminálban. A parancs bekéri a létrehozáskor kapott kulcsot, utána az app magától elindítja a motort.',
     commandKeyGone:
       'A kulcsot itt nem mutatjuk újra. Ha elveszett, vond vissza ezt a motort, és hozz létre újat.',
+    /** How the engine is installed: the motor app (default) or a projectman checkout. */
+    mode: {
+      label: 'Telepítés:',
+      aria: 'Telepítés módja',
+      app: 'Motor-app (Mac)',
+      checkout: 'Checkout (fejlesztői)',
+    },
     /** The revoke confirmation. */
     revokeTitle: 'Visszavonod: {name}?',
     revokeBody:
@@ -854,6 +861,22 @@ export const hu = {
       manualService: '4. Indítsd el, és maradjon is futva',
       manualServiceAria: 'Az indító parancs',
       manualLinux: 'Linuxon: {command}.',
+      /** The motor app's install (the default mode); it has no checkout and starts the engine itself. */
+      appDownload: '1. Töltsd le és nyisd meg a motor-appot',
+      appDownloadButton: 'Motor-app letöltése (.dmg)',
+      appDownloadAria: 'A motor-app letöltése (projectman-motor.dmg)',
+      appDownloadHint:
+        'Első indításkor a „Motor telepítése” gombbal felteszi a motort. Apple Silicon Mac és macOS 13 vagy újabb kell; Linuxon válaszd a checkoutot.',
+      appNoRelease: '1. Telepítsd a motor-appot',
+      appNoReleaseBody: 'Letöltési link még nincs, mert nincs közzétett kiadás. A telepítés lépései:',
+      appNoReleaseLink: 'Telepítési leírás',
+      appService: '4. Az indítás magától megy',
+      appServiceHint:
+        'Az app elindítja a motort, amint a bekötés kész. Ha a macOS kéri, kapcsold be a „projectman motor” háttérelemet.',
+      assistantDownloadDocs: 'a leírás szerint: {url}',
+      /** The assistant's text in app mode; the key and the access values are never in it. */
+      assistantInstructionApp:
+        'Segíts bekötni ezt a gépet a projectmanbe ({origin}). Futtasd sorban, és minden lépés után mondd el röviden, mi történt:\n1. Nézd meg, megvan-e ez a fájl: {shim}. Ha nincs, kérd meg, hogy töltse le és nyissa meg a motor-appot ({download}), kattintson a „Motor telepítése” gombra, és szóljon, ha kész.\n2. Nézd meg, megvan-e a {file} (600-as joggal). Ha nincs, kérd meg, hogy hozza létre a gazdától kapott két értékkel, ilyen tartalommal: {sample} Az értékeket ne kérd el és ne írd ki.\n3. Kérd meg, hogy másolja ki a gép kulcsát a projectman oldaláról, és szóljon. Utána futtasd: {init} A kulcsot soha ne írd ki és ne mentsd máshová.\n4. A motort az app magától elindítja. Néhány másodperc múlva nézd meg: {status}. Ha a macOS jóváhagyást kér a háttérelemhez, kérd meg, hogy kapcsolja be.\n5. Nézd meg, telepítve és belépve van-e a claude (és ha van, a codex). Ha nincs belépve, indítsd el a belépést; a jelszót én írom be.\nHa valami nem sikerül, állj meg, és mondd el, mi a hiba.',
       details: 'Részletes leírás',
       newKey: 'Elveszett a kulcs? Új kulcs',
       newKeyTitle: 'Új kulcs: {name}',

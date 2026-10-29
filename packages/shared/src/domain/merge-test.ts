@@ -75,16 +75,8 @@ export const MERGE_TEST_TIMING_PREFIX = 'merge-test timing: ';
 export const MERGE_TEST_WORKERS_PREFIX = 'merge-test workers: ';
 const MERGE_TEST_SCOPE_LINE = /^merge-test scope: (all|modules|cloud|shared|workspaces|none|files)\b/;
 
-export const MergeTestScopeKind = z.enum([
-  'all',
-  'modules',
-  'cloud',
-  'shared',
-  'workspaces',
-  'none',
-  'files',
-]);
-export type MergeTestScopeKind = z.infer<typeof MergeTestScopeKind>;
+const MergeTestScopeKind = z.enum(['all', 'modules', 'cloud', 'shared', 'workspaces', 'none', 'files']);
+type MergeTestScopeKind = z.infer<typeof MergeTestScopeKind>;
 /** `cached`: taken from the step cache, not measured. `rerun_*`: the failed files were rerun once. */
 export const MergeTestStepResult = z.enum(['passed', 'failed', 'cached', 'rerun_passed', 'rerun_failed']);
 export type MergeTestStepResult = z.infer<typeof MergeTestStepResult>;

@@ -9,7 +9,7 @@ export const EMAIL_SUBJECT_MAX = 200;
 export const EMAIL_TEXT_MAX = 20000;
 export const EMAIL_QUOTE_MAX = 300;
 export const EMAIL_REPLY_TOKEN_DAYS = 60;
-export const EMAIL_CONTACT_SOURCE_DAYS = 7;
+const EMAIL_CONTACT_SOURCE_DAYS = 7;
 export const EMAIL_SENDS_PER_MEMBER_DAY = 30;
 export const EMAIL_SENDS_PER_CONTACT_DAY = 10;
 export const EMAIL_INBOUND_TEXT_MAX = 10000;
@@ -42,14 +42,8 @@ export const EmailParkReason = z.enum([
 export type EmailParkReason = z.infer<typeof EmailParkReason>;
 export const EmailContactSource = z.enum(['settings', 'message', 'email', 'complaint', 'member']);
 export type EmailContactSource = z.infer<typeof EmailContactSource>;
-export const EmailContentRefusalReason = z.enum([
-  'task_not_visible',
-  'secret',
-  'path',
-  'email_address',
-  'label_id',
-]);
-export type EmailContentRefusalReason = z.infer<typeof EmailContentRefusalReason>;
+const EmailContentRefusalReason = z.enum(['task_not_visible', 'secret', 'path', 'email_address', 'label_id']);
+type EmailContentRefusalReason = z.infer<typeof EmailContentRefusalReason>;
 export const EmailRecipientRefusal = z.enum(['not_member', 'not_human', 'no_address', 'not_wanted']);
 export type EmailRecipientRefusal = z.infer<typeof EmailRecipientRefusal>;
 export const EmailContactRefusal = z.enum([
@@ -75,7 +69,7 @@ export const EmailContact = z.object({
   source: EmailContactSource.nullable(),
 });
 export type EmailContact = z.infer<typeof EmailContact>;
-export const EmailSenderView = z.object({
+const EmailSenderView = z.object({
   handle: MemberHandle,
   displayName: z.string(),
   sendWithoutApproval: z.boolean(),
@@ -84,7 +78,7 @@ export const EmailSenderView = z.object({
   /** Another member's handle is the same, so neither has an address until one is renamed. */
   addressConflict: z.boolean(),
 });
-export type EmailSenderView = z.infer<typeof EmailSenderView>;
+type EmailSenderView = z.infer<typeof EmailSenderView>;
 export const EmailChannelView = z.object({
   configured: z.boolean(),
   enabled: z.boolean(),

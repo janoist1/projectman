@@ -29,7 +29,7 @@ export type SettingsSection = z.infer<typeof SettingsSection>;
 export const CardView = z.enum(['card', 'thread', 'attachments', 'timeline']);
 export type CardView = z.infer<typeof CardView>;
 
-export const UI_LOCATION_PAGES = [
+const UI_LOCATION_PAGES = [
   'board',
   'inbox',
   'map',

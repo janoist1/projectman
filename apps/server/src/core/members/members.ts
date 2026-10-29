@@ -31,6 +31,7 @@ import {
   stagesToJoin,
   taskSeq,
   taskWorkOf,
+  isLiveSession,
   LIVE_SESSION_STATES,
 } from '@projectman/shared';
 import type {
@@ -43,7 +44,6 @@ import type {
   MemberView,
   WorkOutage,
   ProjectConfig,
-  SessionState,
   TaskKey,
   UpdateMemberRequest,
   OperatorMemberChanges,
@@ -73,8 +73,6 @@ import type { TimelineService } from '../timeline';
 import { unique } from '../../kernel';
 import { visibleSession, visibleTimelineEvent } from '../projects';
 import type { Viewer } from '../projects';
-
-const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
 
 /** Throws unless a member of this kind may hold the role (a built-in or one of the team's custom roles). */
 export function assertRoleFor(config: ProjectConfig, role: string, kind: 'human' | 'ai'): void {
@@ -148,8 +146,7 @@ export class MemberService {
       const keys = new Set<string>();
       for (const task of openTasks.values()) if (task.assignee === m.handle) keys.add(task.key);
       for (const s of sessions) {
-        if (s.member !== m.handle || s.workItem.type !== 'task' || ENDED_SESSION_STATES.has(s.state))
-          continue;
+        if (s.member !== m.handle || s.workItem.type !== 'task' || !isLiveSession(s)) continue;
         if (openTasks.has(s.workItem.taskKey)) keys.add(s.workItem.taskKey);
       }
       const currentTaskKeys = [...keys].sort((a, b) => taskSeq(a) - taskSeq(b));

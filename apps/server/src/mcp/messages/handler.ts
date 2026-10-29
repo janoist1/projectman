@@ -8,7 +8,7 @@ import type { SentMessageRecipient, WorkspaceFile } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { Messaging } from '../../core/messages';
 import type { MessageAttachmentService } from '../../core/attachments';
-import { RELAY_WINDOW_MS, type OperatorRequests } from '../../services/operator';
+import { RELAY_WINDOW_MS, type OperatorRequests } from '../../services/coordination';
 import { aiActor } from '../../kernel';
 import { toMessageToolError, toFileToolError, isOwner, OWNER_ONLY } from '../caller';
 

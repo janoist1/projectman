@@ -4,11 +4,10 @@ import { memberOf } from './lookup';
 import { projectManagerOf } from './project-manager';
 import { isRefinementStage } from './refinement';
 import type { CardMover, ProjectConfig } from './schema';
-
-export const DEFAULT_CARD_MOVER: CardMover = { kind: 'worker' };
+import { teamSettingOf } from './team-settings';
 
 export function cardMoverOf(config: Pick<ProjectConfig, 'team'>): CardMover {
-  return config.team.cardMover ?? DEFAULT_CARD_MOVER;
+  return teamSettingOf(config, 'cardMover');
 }
 
 export function cardMoverHandle(config: Pick<ProjectConfig, 'team'>): string | null {

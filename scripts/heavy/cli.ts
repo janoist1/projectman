@@ -4,7 +4,7 @@
 //   npm run heavy -- [--label <text>] [--max-wait <seconds>] [--] <command> [args...]
 //
 // Exit status: the command's (128+n after a signal); 75 when --max-wait ran out; 2 for a bad call.
-// docs/ARCHITECTURE.md has the queue ("Heavy-run queue").
+// docs/modules/scripts.md has the queue ("Heavy-run queue").
 import { runHeavy } from './run';
 
 runHeavy({

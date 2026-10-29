@@ -1,3 +1,4 @@
+import { isLiveSessionState } from '@projectman/shared';
 import type { SessionState } from '@projectman/shared';
 
 /**
@@ -54,16 +55,10 @@ export interface StateSnapshot {
 /** The activity of a session whose conversation is being compacted. */
 const COMPACTING_ACTIVITY = 'Compacting the conversation';
 
-const TERMINAL_STATES: ReadonlySet<SessionState> = new Set(['exited', 'failed']);
-
-function isLive(state: SessionState): boolean {
-  return !TERMINAL_STATES.has(state);
-}
-
 /** Pure transition function. Unknown or irrelevant signals keep the current state. */
 export function nextState(current: StateSnapshot, signal: SessionSignal): StateSnapshot {
   const { state } = current;
-  if (!isLive(state)) return current;
+  if (!isLiveSessionState(state)) return current;
 
   switch (signal.kind) {
     case 'session_start':

@@ -25,6 +25,8 @@ import { t } from '../../../i18n/t';
 import { errorCode, errorMessage } from '../../../lib/errors';
 import { useNow } from '../../../lib/useNow';
 import { CopyRow } from '../../engines/CopyRow';
+import { EngineModeSwitch } from '../../engines/EngineModeSwitch';
+import { useEngineMode } from '../../engines/useEngineMode';
 import {
   defaultFirst,
   engineCommand,
@@ -464,12 +466,13 @@ function RenameDialog({ engine, onClose }: { engine: EngineView; onClose: () => 
 
 /** The set-up command of an engine that has not connected yet; the key is never shown again. */
 function CommandDialog({ engine, onClose }: { engine: EngineView; onClose: () => void }) {
+  const [mode] = useEngineMode();
   return (
     <Dialog
       open
       size="md"
       title={t('engines.commandTitle', { name: engine.name })}
-      description={t('engines.commandIntro')}
+      description={t(mode === 'app' ? 'engines.commandIntroApp' : 'engines.commandIntro')}
       onClose={onClose}
       footer={
         <Button variant="secondary" size="md" onClick={onClose}>
@@ -477,7 +480,8 @@ function CommandDialog({ engine, onClose }: { engine: EngineView; onClose: () =>
         </Button>
       }
     >
-      <CopyRow text={engineCommand(engine.id)} label={t('engines.commandAria')} />
+      <EngineModeSwitch />
+      <CopyRow text={engineCommand(engine.id, mode)} label={t('engines.commandAria')} />
       <p className={styles.muted}>{t('engines.commandKeyGone')}</p>
     </Dialog>
   );

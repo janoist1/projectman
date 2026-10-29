@@ -22,10 +22,10 @@ import {
 const tempWorkersSchema = TeamLimits.shape.tempWorkers.removeDefault();
 
 /** A repository's full test as an edit sets it (PM-538): the whole object, the command trimmed, unknown keys refused. */
-export const ReviewTestPatch = ReviewTestConfig.extend({
+const ReviewTestPatch = ReviewTestConfig.extend({
   command: z.string().trim().min(1).max(500),
 }).strict();
-export type ReviewTestPatch = z.infer<typeof ReviewTestPatch>;
+type ReviewTestPatch = z.infer<typeof ReviewTestPatch>;
 
 /** PATCH fields deliberately omit defaults so partial edits retain existing values. */
 export const PatchConfigRequest = z
@@ -132,26 +132,26 @@ export const PatchConfigRequest = z
 export type PatchConfigRequest = z.infer<typeof PatchConfigRequest>;
 
 /** Operator edits replace or explicitly reset only the named built-in roles. */
-export const OperatorRoleOverridesPatch = z.partialRecord(BuiltInRoleId, RoleBundle.nullable());
-export type OperatorRoleOverridesPatch = z.infer<typeof OperatorRoleOverridesPatch>;
+const OperatorRoleOverridesPatch = z.partialRecord(BuiltInRoleId, RoleBundle.nullable());
+type OperatorRoleOverridesPatch = z.infer<typeof OperatorRoleOverridesPatch>;
 
 /**
  * Operator edits of one pipeline label (PM-880): only the name, color and meaning are editable, and the
  * label's other fields (who may set it, gates, clearing rules) stay as they are. `null` removes the color
  * or the meaning. A label without a definition gets one; its name then defaults to its id.
  */
-export const OperatorLabelPatch = z
+const OperatorLabelPatch = z
   .object({
     name: LabelDefinition.shape.name.optional(),
     color: LabelColor.nullable().optional(),
     meaning: LabelDefinition.shape.meaning.unwrap().nullable().optional(),
   })
   .strict();
-export type OperatorLabelPatch = z.infer<typeof OperatorLabelPatch>;
+type OperatorLabelPatch = z.infer<typeof OperatorLabelPatch>;
 
 /** Keyed by label id; the other labels, stages and columns of the pipeline stay unchanged. */
-export const OperatorLabelsPatch = z.record(LabelId, OperatorLabelPatch);
-export type OperatorLabelsPatch = z.infer<typeof OperatorLabelsPatch>;
+const OperatorLabelsPatch = z.record(LabelId, OperatorLabelPatch);
+type OperatorLabelsPatch = z.infer<typeof OperatorLabelsPatch>;
 
 export const OperatorConfigPatch = PatchConfigRequest.omit({ baseVersion: true, message: true }).extend({
   roleOverrides: OperatorRoleOverridesPatch.optional(),

@@ -4,8 +4,8 @@ import {
   StructuralPatterns,
   patternSubject,
   STRUCTURAL_WINDOW_MS,
-} from '../src/services/operator/structural-patterns';
-import type { StructuralSignalRef } from '../src/services/operator/structural-patterns';
+} from '../src/services/coordination/structural-patterns';
+import type { StructuralSignalRef } from '../src/services/coordination/structural-patterns';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 

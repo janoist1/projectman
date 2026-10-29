@@ -124,12 +124,6 @@ export class TeamToolsService implements TeamToolsHandler {
   async readHistorySource(ctx: ToolContext, args: Parameters<HistoryToolsHandler['readHistorySource']>[1]) {
     return this.tools.history.readHistorySource(ctx, args);
   }
-  async getHistorySearchStats(
-    ctx: ToolContext,
-    args: Parameters<HistoryToolsHandler['getHistorySearchStats']>[1],
-  ) {
-    return this.tools.history.getHistorySearchStats(ctx, args);
-  }
 
   async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
     return this.tools.operator.getOperatorDiagnostics(ctx, args);

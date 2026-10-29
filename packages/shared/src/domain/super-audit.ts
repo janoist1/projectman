@@ -15,7 +15,7 @@ export type SuperAuditOutcome = z.infer<typeof SuperAuditOutcome>;
 export const SUPER_AUDIT_NAME = /^[a-z][a-z0-9_.-]{0,63}$/;
 export const SUPER_AUDIT_REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/;
 
-export const SuperOperationName = z.string().regex(SUPER_AUDIT_NAME);
+const SuperOperationName = z.string().regex(SUPER_AUDIT_NAME);
 
 /** What the audit shows of an entry: the token only by its prefix, and the origin. */
 export const SuperOperationAudit = z.object({
@@ -35,8 +35,8 @@ export const SuperOperationAudit = z.object({
 });
 export type SuperOperationAudit = z.infer<typeof SuperOperationAudit>;
 
-export const SUPER_AUDIT_DEFAULT_LIMIT = 50;
-export const SUPER_AUDIT_MAX_LIMIT = 100;
+const SUPER_AUDIT_DEFAULT_LIMIT = 50;
+const SUPER_AUDIT_MAX_LIMIT = 100;
 
 /** `GET /api/projects/:key/operator-super/audit`: newest first; `before` is an entry id of the project. */
 export const SuperAuditQuery = z.strictObject({

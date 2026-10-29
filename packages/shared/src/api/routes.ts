@@ -30,11 +30,7 @@ export const routes = {
   operatorApprovalWaiver: (key: string) => `/api/projects/${key}/operator/approval-waiver`,
   /** GET the super mode's audit (`SuperAuditPage`, PM-757), newest first; the owner's own login only. */
   operatorSuperAudit: (key: string) => `/api/projects/${key}/operator-super/audit`,
-  /** GET the project's super-mode handoffs (`ListSuperHandoffsResponse`, PM-762); the integrator and the owner. */
-  superHandoffs: (key: string) => `/api/projects/${key}/operator-super/handoffs`,
-  superHandoff: (key: string, handoffId: string) =>
-    `/api/projects/${key}/operator-super/handoffs/${handoffId}`,
-  /** POST `SuperOperateRequest`: starts a command without a handoff; 202 `{operation}` (PM-764). */
+  /** POST `SuperOperateRequest`: starts a command; 202 `{operation}` (PM-764). */
   superOperations: (key: string) => `/api/projects/${key}/operator-super/operations`,
   /** GET `{operation, result}`: the operation and the administration result recorded for it, if any. */
   superOperation: (key: string, operationId: string) =>

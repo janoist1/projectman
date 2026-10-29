@@ -659,8 +659,6 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     const superTools = (await listTools(key('super').secret)).map((tool) => tool.name);
     const readTools = (await listTools(key('read').secret)).map((tool) => tool.name);
     const superOnly = [
-      'list_super_handoffs',
-      'execute_super_handoff',
       'super_operate',
       'get_super_operation',
       'query_super_diagnostics',
@@ -713,7 +711,8 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       structuredContent: { errorCode: 'integrator_read_only' },
     });
     expect(
-      (await call(read, 'list_super_handoffs', { project_key: 'AR' })).structuredContent?.errorCode,
+      (await call(read, 'get_super_operation', { project_key: 'AR', operation_id: 'sop_missing' }))
+        .structuredContent?.errorCode,
     ).toBe('integrator_not_allowed');
     for (const name of ['attach_file', 'merge_task', 'operate']) {
       const denied = await call(superKey, name, { project_key: 'AR' });
@@ -841,9 +840,12 @@ describe('the bearer MCP endpoint (PM-760)', () => {
 
   it('answers a super tool with structured JSON and keeps the domain error code', async () => {
     const { secret } = key('super');
-    const handoffs = await call(secret, 'list_super_handoffs', { project_key: 'AR' });
-    expect(handoffs.structuredContent).toEqual({ handoffs: [] });
-    expect(JSON.parse(handoffs.content[0]!.text!)).toEqual({ handoffs: [] });
+    const operations = await call(secret, 'query_super_diagnostics', {
+      project_key: 'AR',
+      query: 'operations',
+    });
+    expect(operations.structuredContent).toMatchObject({ rows: [] });
+    expect(JSON.parse(operations.content[0]!.text!)).toEqual(operations.structuredContent);
     const missing = await call(secret, 'get_super_operation', {
       project_key: 'AR',
       operation_id: 'sop_missing',

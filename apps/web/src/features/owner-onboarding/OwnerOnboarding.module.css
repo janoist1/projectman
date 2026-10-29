@@ -242,6 +242,10 @@
   display: grid;
   gap: 8px;
 }
+/* The download button is as wide as its label, not a field-like bar across the step. */
+.download {
+  justify-self: start;
+}
 @media (prefers-reduced-motion: reduce) {
   .live[data-state='waiting'] .liveDot {
     animation: none;

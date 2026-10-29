@@ -50,7 +50,7 @@ import type {
   OperatorKnowledge,
   StructuralReviews,
   LoopTriages,
-} from '../../services/operator';
+} from '../../services/coordination';
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super-operator';
 import type { OperatorAppOperations, SuperOperations } from '../../services/super-operator';
@@ -61,10 +61,6 @@ interface SuperPath {
   operations: OperatorAppOperations;
   direct: Pick<SuperOperations, 'operation'>;
 }
-
-/** The machine reads were the Operator's alone; with no Operator (decision 66, PM-1076) nobody holds them. */
-const machineReadRefused = () =>
-  new TeamToolError('forbidden', 'operator_only: no member may read the machine this way.');
 
 /** What the checklist tools stand on (PM-977): every write goes through the checklist service. */
 type OperatorToolsChecklist = Pick<

@@ -29,7 +29,7 @@ export interface SessionPermissionFields {
 }
 
 /** Where a setting that applies to a session comes from: its member, or the session's own. */
-export type PermissionSource = 'member' | 'session';
+type PermissionSource = 'member' | 'session';
 
 export interface EffectiveSessionPermissions {
   /** The CLI mode the session runs in (absent only for a member without one, which reads as `default`). */

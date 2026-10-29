@@ -779,23 +779,28 @@ describe('operatorConfigVerdict', () => {
     expect(() => patch('unknown')).toThrow();
   });
 
-  it.each(OPERATOR_WATCH_LEVELS)('requires approval for a team watch field set to %s', (level) => {
+  it.each(OPERATOR_WATCH_LEVELS)('decides a team watch field set to %s by its effective level', (level) => {
     const previous = config();
     const next = structuredClone(previous);
     next.team.operatorWatch = level;
-    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
-      level: 'approval',
-      changes: [
-        {
-          area: 'project',
-          target: null,
-          field: 'operatorWatch',
-          before: null,
-          after: level,
-          level: 'approval',
-        },
-      ],
-    });
+    // Restating the default level is no change.
+    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject(
+      level === 'report'
+        ? { level: 'now', changes: [] }
+        : {
+            level: 'approval',
+            changes: [
+              {
+                area: 'project',
+                target: null,
+                field: 'operatorWatch',
+                before: 'report',
+                after: level,
+                level: 'approval',
+              },
+            ],
+          },
+    );
     expect(ownerOnlyChanges(previous, next)).toEqual(level === 'report' ? [] : ['operator_watch']);
     expect(integratorConfigRefusal(previous, next)).toBe(level === 'report' ? null : 'owner_settings');
     const cleared = structuredClone(next);

@@ -65,7 +65,7 @@ import {
   unique,
 } from '../../kernel';
 import type { HostRequestsService } from '../../services/host-requests';
-import type { ProjectState, StructuralReviews } from '../../services/operator';
+import type { ProjectState, StructuralReviews } from '../../services/coordination';
 import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
 import {
@@ -76,7 +76,7 @@ import {
   resolveIntegratorTodo,
   updateInstanceKnowledge,
 } from '../../services/super-operator';
-import type { SuperOperations, SuperHandoffService, SuperOperator } from '../../services/super-operator';
+import type { SuperOperations, SuperOperator } from '../../services/super-operator';
 
 /** Attachments get_task shows; the rest are paged with list_attachments. */
 const ATTACHMENTS_IN_TASK = 20;
@@ -101,7 +101,6 @@ interface ExternalToolsDeps {
   docWrites: Pick<DocWrites, 'read' | 'requestExternal' | 'externalState'>;
   humanQuestions: HumanQuestionsPort;
   structuralReviews: Pick<StructuralReviews, 'requestExternal'>;
-  superHandoffs: Pick<SuperHandoffService, 'list' | 'execute'>;
   superOperations: SuperOperations;
   inbox: Pick<
     InboxService,
@@ -461,24 +460,6 @@ export class ExternalTools implements ExternalToolsHandler {
       throw new TeamToolError('invalid', `limit must be an integer between 1 and ${MAX_ATTACHMENT_PAGE}.`);
     const all = await this.deps.attachments.list(ctx.projectKey, taskKey, ctx.actor);
     return { attachments: all.slice(offset, offset + limit), total: all.length, offset };
-  }
-
-  async listSuperHandoffs(
-    ctx: ExternalToolContext,
-    query: Parameters<ExternalToolsHandler['listSuperHandoffs']>[1],
-  ) {
-    return { handoffs: this.deps.superHandoffs.list(ctx.projectKey, query) };
-  }
-
-  async executeSuperHandoff(ctx: ExternalToolContext, args: { handoffId: string; requestId: string }) {
-    return {
-      operation: await this.deps.superHandoffs.execute(
-        ctx.projectKey,
-        args.handoffId,
-        args.requestId,
-        this.access(ctx),
-      ),
-    };
   }
 
   async superOperate(ctx: ExternalToolContext, request: Parameters<ExternalToolsHandler['superOperate']>[1]) {

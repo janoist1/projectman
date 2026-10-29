@@ -22,7 +22,7 @@ import {
   PatchConfigRequest,
   prepareOperatorConfigPatch,
 } from './edit';
-import { approvalPolicyChanged } from './owner-only';
+import { ownerOnlyChanges } from './owner-only';
 import { validateProjectConfig } from './invariants';
 
 function config() {
@@ -463,7 +463,7 @@ describe('duty bundles', () => {
     ]) {
       const next = structuredClone(c);
       change(next);
-      expect(approvalPolicyChanged(c, next)).toBe(true);
+      expect(ownerOnlyChanges(c, next)).toContain('approval_policy');
     }
   });
   it.each(['human', 'ai', 'both'] as const)(

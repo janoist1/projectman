@@ -1,6 +1,6 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { MockBackend } from '../../mocks/backend';
@@ -36,11 +36,23 @@ function renderSetup(state: unknown, held = false) {
   return { backend, engine, project };
 }
 
+beforeEach(() => window.localStorage.clear());
+
 it('shows the command for the folder of the wizard, quoted, and waits for the machine to hold it', async () => {
   renderSetup({ folder: "/work/Eszter's shop" });
-  const command = await screen.findByText((text) => text.startsWith('npm run engine -- project set SHOP'));
+  const command = await screen.findByText((text) => text.includes('project set SHOP'));
   expect(command.textContent).toContain(`'/work/Eszter'\\''s shop'`);
+  expect(command.textContent).toContain('/projectman-engine" project set');
+  expect(command.textContent).toMatch(/service restart$/);
   expect(screen.getByRole('status').getAttribute('data-state')).toBe('waiting');
+});
+
+it('shows the checkout command once the checkout install is chosen, for the repos as well', async () => {
+  renderSetup({ folder: '/work/shop', repos: [{ name: 'web', path: './web' }] });
+  fireEvent.click(await screen.findByRole('radio', { name: t('engines.mode.checkout') }));
+  const command = await screen.findByText((text) => text.startsWith('npm run engine -- project set SHOP'));
+  expect(command.textContent).toMatch(/service install$/);
+  expect(screen.getByText((text) => text.startsWith('npm run engine -- repo add SHOP web'))).toBeTruthy();
 });
 
 it('switches to running once the machine reports that it holds the project', async () => {
@@ -51,5 +63,5 @@ it('switches to running once the machine reports that it holds the project', asy
 it('asks for the folder when the page was opened without the wizard state', async () => {
   renderSetup(undefined);
   expect(await screen.findByLabelText(t('projects.create.workspace'))).toBeTruthy();
-  expect(screen.queryByText((text) => text.startsWith('npm run engine -- project set'))).toBeNull();
+  expect(screen.queryByText((text) => text.includes('project set'))).toBeNull();
 });

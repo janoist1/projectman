@@ -7,7 +7,7 @@ import type { ToolContext } from '../src/contracts';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp/tools';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
-import { OperatorRequests } from '../src/services/operator';
+import { OperatorRequests } from '../src/services/coordination';
 import { createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';

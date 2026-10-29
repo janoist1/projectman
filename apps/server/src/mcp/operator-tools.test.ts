@@ -169,9 +169,7 @@ describe('Operator MCP tools', () => {
     '%s describes and forwards the parallel-work confirmation',
     async (name) => {
       const tool = TEAM_TOOLS.find((t) => t.name === name)!;
-      expect(tool.description).toContain(
-        'If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended.',
-      );
+      expect(tool.inputSchema.shape.despite_workers?.description).toBeDefined();
       const handler = createFakeTeamToolsHandler();
       const input =
         name === 'send_message'

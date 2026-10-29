@@ -15,6 +15,7 @@ import {
   operatorCriticalOp,
   OperatorOperation,
   OperatorPlan,
+  teamSettingOf,
   unknownPatchRepo,
 } from '@projectman/shared';
 import type {
@@ -133,7 +134,7 @@ export class OperatorActions implements OperatorConfigAuthorization {
       throw forbidden('operator_no_request', 'waiver needs the same open own-login owner request');
     if (
       !canWaiveOperatorApproval(verdict, {
-        enabled: previous.team.operatorApprovalWaiver ?? false,
+        enabled: teamSettingOf(previous, 'operatorApprovalWaiver'),
         agreementVersion: expectedAgreementVersion,
         ownerRequest: true,
       })
@@ -276,7 +277,7 @@ export class OperatorActions implements OperatorConfigAuthorization {
         'waiverEligible' in preview &&
         !autonomous &&
         canWaiveOperatorApproval(preview, {
-          enabled: config.team.operatorApprovalWaiver ?? false,
+          enabled: teamSettingOf(config, 'operatorApprovalWaiver'),
           agreementVersion: knowledge?.agreement?.version ?? null,
           ownerRequest: this.ownerRequest(config, request, source),
         })

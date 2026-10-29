@@ -2,6 +2,7 @@ import type { HumanAccess } from '../domain/member';
 import { memberOf } from './lookup';
 import { projectManagerOf } from './project-manager';
 import type { ProjectConfig, ViewerRecipients } from './schema';
+import { teamSettingOf } from './team-settings';
 
 /** A member's access level as the rules below see it: `ai` for an AI member, absent for a non-member. */
 export type CommunicationAccess = HumanAccess | 'ai' | undefined;
@@ -40,26 +41,15 @@ export function accessOfHandle(
   return member.kind === 'ai' ? 'ai' : member.access;
 }
 
-/** Whether the configured member with this handle may write only to the contacts. */
-export function isContactRestrictedMember(
-  config: Pick<ProjectConfig, 'team'>,
-  handle: string | null | undefined,
-): boolean {
-  return isContactRestricted(accessOfHandle(config, handle));
-}
-
 export type TeamMessageRecipientRefusal = {
   code: 'recipient_not_contact' | 'insufficient_access';
   /** The distinct recipients the sender may not write to. */
   recipients: string[];
 };
 
-/** A read-only viewer writes only to the project manager unless the project says otherwise (PM-1102). */
-export const DEFAULT_VIEWER_RECIPIENTS: ViewerRecipients = 'project_manager';
-
-/** Whom a read-only viewer may write to in this project. */
+/** Whom a read-only viewer may write to in this project (PM-1102). */
 export function viewerRecipientsOf(config: Pick<ProjectConfig, 'team'>): ViewerRecipients {
-  return config.team.viewerRecipients ?? DEFAULT_VIEWER_RECIPIENTS;
+  return teamSettingOf(config, 'viewerRecipients');
 }
 
 /**

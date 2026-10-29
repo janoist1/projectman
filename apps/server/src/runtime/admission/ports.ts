@@ -1,6 +1,6 @@
 /**
  * What the refinement line (`RefinementSteps`) needs from the outside, declared where it is used: the
- * services side (`services/operator`) fills it in `assembly.ts`, so the runtime imports no service.
+ * services side (`services/coordination`) fills it in `assembly.ts`, so the runtime imports no service.
  */
 
 /** The turn of a refinement step that ended without its label (PM-702). */

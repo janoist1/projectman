@@ -10,6 +10,7 @@ import {
   memberRoles,
   roleBundle,
   isBuiltInRole,
+  teamSettingOf,
   validateProjectConfig,
 } from '@projectman/shared';
 import type { DutyId, ProjectConfig } from '@projectman/shared';
@@ -358,7 +359,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
       <label className={styles.check}>
         <input
           type="checkbox"
-          checked={draft.team.releaseFourEyes ?? false}
+          checked={teamSettingOf(draft, 'releaseFourEyes')}
           disabled={!isOwner || save.isPending}
           onChange={(e) => setDraft({ ...draft, team: { ...draft.team, releaseFourEyes: e.target.checked } })}
         />
@@ -383,7 +384,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
                 baseVersion: version,
                 roleOverrides: draft.team.roleOverrides ?? {},
                 roles: draft.team.roles,
-                releaseFourEyes: draft.team.releaseFourEyes ?? false,
+                releaseFourEyes: teamSettingOf(draft, 'releaseFourEyes'),
               })
             }
           >

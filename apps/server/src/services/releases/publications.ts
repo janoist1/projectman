@@ -1,4 +1,10 @@
-import { dutyMembers, isReleaseTagName, RELEASE_TAG_PATTERN, releaseTagName } from '@projectman/shared';
+import {
+  dutyMembers,
+  isReleaseTagName,
+  PROJECTMAN_RELEASES_URL,
+  RELEASE_TAG_PATTERN,
+  releaseTagName,
+} from '@projectman/shared';
 import type { EngineId, ProjectConfig, ServerVersionView, TaskKey } from '@projectman/shared';
 import { MergeError } from '../../contracts';
 import type { BranchMerger, EngineDirectory, GithubService, PublishedRelease } from '../../contracts';
@@ -66,7 +72,13 @@ export class ReleasePublishService {
     } catch {
       // A missing tag must not hide the running version.
     }
-    return { version, commit, tag };
+    let latestReleaseTag: string | null = null;
+    try {
+      latestReleaseTag = this.deps.ctx.repos.releasePublications.latestTagUnder(PROJECTMAN_RELEASES_URL);
+    } catch {
+      // The download link is a convenience; it must not hide the running version either.
+    }
+    return { version, commit, tag, latestReleaseTag };
   }
 
   /** What `publish` would do, with nothing recorded and nothing sent. */

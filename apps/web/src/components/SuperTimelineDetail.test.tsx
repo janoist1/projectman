@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
-import type { SuperHandoff, TimelineEvent } from '@projectman/shared';
+import type { TimelineEvent } from '@projectman/shared';
 import { setFetchImplementation } from '../api/client';
 import { t } from '../i18n/t';
 import { mockProject } from '../test/mockProject';
@@ -74,29 +74,13 @@ it('links a successful operation back to its recorded handoff and preserves the 
     operatorMode: 'super' as const,
     credential: { id: 'key', prefix: 'pmi_test' },
   };
-  const handoff: SuperHandoff = {
-    id: 'h',
-    projectKey: 'AC',
-    taskKey: 'AC-21',
-    requestedBy: { kind: 'ai', handle: actor.handle },
+  const command = {
+    kind: 'merge_order' as const,
+    repo: 'webshop',
+    taskKeys: [],
+    expectedRevision: 0,
     reason: 'Queue maintenance',
-    command: {
-      kind: 'merge_order',
-      repo: 'webshop',
-      taskKeys: [],
-      expectedRevision: 0,
-      reason: 'Queue maintenance',
-    },
-    expectedConfigVersion: null,
-    state: 'succeeded',
-    operationId: 'op',
-    createdAt: at,
-    updatedAt: at,
   };
-  project.backend.superHandoffs = [
-    ...Array.from({ length: 51 }, (_, i) => ({ ...handoff, id: `recent_${i}`, reason: 'Recent handoff' })),
-    handoff,
-  ];
   project.backend.superOperations = [
     {
       id: 'op',
@@ -105,7 +89,7 @@ it('links a successful operation back to its recorded handoff and preserves the 
       handoffId: 'h',
       state: 'succeeded',
       requestId: '00000000-0000-4000-8000-000000000000',
-      command: handoff.command,
+      command,
       ownerQuestionId: null,
       errorCode: null,
       createdAt: at,
@@ -117,7 +101,7 @@ it('links a successful operation back to its recorded handoff and preserves the 
     projectKey: 'AC',
     taskKey: 'AC-21',
     sessionId: null,
-    actor: handoff.requestedBy,
+    actor: { kind: 'ai', handle: actor.handle },
     type: 'super_handoff_changed',
     data: { handoffId: 'h', state: 'pending' },
     createdAt: at,
@@ -137,7 +121,6 @@ it('links a successful operation back to its recorded handoff and preserves the 
   );
   expect(screen.getByText('Handoff changed')).toBeTruthy();
   expect(screen.getByText('Operation changed')).toBeTruthy();
-  expect(await screen.findByText(/Queue maintenance/)).toBeTruthy();
   expect(screen.getByText(t('superMode.states.pending'))).toBeTruthy();
   await waitFor(() =>
     expect(screen.getByRole('link', { name: t('superMode.handoff') }).getAttribute('href')).toBe(
@@ -150,6 +133,24 @@ it('links a successful operation back to its recorded handoff and preserves the 
   expect(project.requests.every((request) => request.method === 'GET')).toBe(true);
 });
 
+it('renders an old handoff event from the timeline alone, with no read', () => {
+  const project = mockProject();
+  const event: TimelineEvent = {
+    id: 'old',
+    projectKey: 'AC',
+    taskKey: 'AC-21',
+    sessionId: null,
+    actor: { kind: 'ai', handle: 'operator' },
+    type: 'super_handoff_changed',
+    data: { handoffId: 'h', state: 'pending' },
+    createdAt: new Date().toISOString(),
+  };
+  const fallback = t('timeline.events.super_handoff_changed', { state: t('superMode.states.pending') });
+  project.render(<SuperTimelineDetail event={event} events={[event]} fallback={fallback} />);
+  expect(screen.getByText(fallback)).toBeTruthy();
+  expect(project.requests).toHaveLength(0);
+});
+
 it('preserves the timeline description for non-owners and on a failed detail read', async () => {
   const project = mockProject();
   project.context.isOwner = false;
@@ -159,11 +160,11 @@ it('preserves the timeline description for non-owners and on a failed detail rea
     taskKey: 'AC-21',
     sessionId: null,
     actor: { kind: 'ai', handle: 'operator' },
-    type: 'super_handoff_changed',
-    data: { handoffId: 'missing', state: 'pending' },
+    type: 'super_operation_changed',
+    data: { operationId: 'missing', state: 'pending' },
     createdAt: new Date().toISOString(),
   };
-  const fallback = t('timeline.events.super_handoff_changed', { state: t('superMode.states.pending') });
+  const fallback = t('timeline.events.super_operation_changed', { state: t('superMode.states.pending') });
   const rendered = project.render(<SuperTimelineDetail event={event} events={[event]} fallback={fallback} />);
   expect(screen.getByText(fallback)).toBeTruthy();
   expect(project.requests).toHaveLength(0);

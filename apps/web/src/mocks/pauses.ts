@@ -1,4 +1,4 @@
-import { DEFAULT_PAUSE_FORCE_AFTER_MS, isWorkPaused, pauseStateOf } from '@projectman/shared';
+import { DEFAULT_PAUSE_FORCE_AFTER_MS, isLiveSession, isWorkPaused, pauseStateOf } from '@projectman/shared';
 import type {
   InstancePauseView,
   PausePoint,
@@ -24,7 +24,6 @@ export interface PauseHost {
   viewer(): { name: string; handle: string; role: string };
   /** The viewer is the chopper's host owner, whatever their role in the project. */
   isHostOwner(): boolean;
-  isLive(session: Session): boolean;
   isAiMember(handle: string): boolean;
   emit(event: ServerEvent): void;
   addTimeline(
@@ -115,7 +114,7 @@ export class MockPauses {
 
   private hold(pause: OpenPause): void {
     for (const session of this.host.sessions()) {
-      if (!this.host.isLive(session) || !this.host.isAiMember(session.member)) continue;
+      if (!isLiveSession(session) || !this.host.isAiMember(session.member)) continue;
       if (this.open.some((entry) => entry.rows.some((row) => row.sessionId === session.id))) continue;
       const point = IMMEDIATE_POINT[session.state] ?? null;
       const at = nowIso();

@@ -21,15 +21,17 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
       title: 'Send a team message',
       readOnly: false,
       description:
-        'Send a message to teammates (humans or AI members): to hand over work, report findings or reply to a ' +
-        'team message. AI members receive it in their session for the task: an idle session at once, one in ' +
-        'the middle of a turn when that turn ends; the result says, per recipient, what happens to it. ' +
-        'Humans see it in the app. The PM starts work with start_task or start_member and uses this for ' +
-        'information and replies. If the message would put a member to work on a card where a member of ' +
-        'the same role already works, nothing is sent and the result names them; send again with ' +
-        'despite_workers: true only if the parallel work is intended.',
+        'Send a message to teammates (humans or AI members): hand over work, report findings, reply. An AI ' +
+        'member gets it in its task session, at once when idle, else when its turn ends; the result says ' +
+        'what happens per recipient. Humans see it in the app.',
       input: {
-        despite_workers: z.boolean().optional(),
+        despite_workers: z
+          .boolean()
+          .optional()
+          .describe(
+            'A message that would put a member to work on a card where one of the same role already works ' +
+              'is not sent (the result names them); true sends it anyway, only for intended parallel work.',
+          ),
         to: z
           .array(MemberHandle)
           .min(1)

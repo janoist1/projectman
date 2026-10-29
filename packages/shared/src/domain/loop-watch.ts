@@ -31,7 +31,7 @@ export const LoopTriageFacts = z.strictObject({
 });
 export type LoopTriageFacts = z.infer<typeof LoopTriageFacts>;
 
-export const LOOP_TRIAGE_TIMEOUT_MS = 600_000;
+const LOOP_TRIAGE_TIMEOUT_MS = 600_000;
 /** Private loop lifecycle state; it is never part of the public TaskLoop DTO. */
 export const LoopTriageState = z.strictObject({
   generation: z.number().int().min(0),
@@ -88,7 +88,7 @@ export function isLoopTriageEvidence(event: Pick<TimelineEvent, 'type' | 'data'>
 }
 
 /** The duty whose AI holder is told first: following stuck work and reminding the next one is its job. */
-export const LOOP_WATCH_DUTY: DutyId = 'scheduling';
+const LOOP_WATCH_DUTY: DutyId = 'scheduling';
 
 /** One team message of a card: when, who wrote it and who it went to. */
 export interface LoopTalk {

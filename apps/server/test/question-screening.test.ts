@@ -987,4 +987,20 @@ describe('a machine step no integrator can take goes to the technical decider', 
     expect(result).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
     expect(item(own.id).state).toBe('open');
   });
+
+  it.each([
+    { lead: true, technicalDecider: 'lead' },
+    { lead: false, technicalDecider: null },
+  ])(
+    'names the technical decider in the screening notice (lead: $lead)',
+    async ({ lead, technicalDecider }) => {
+      await start({ lead, integratorAvailable: true, pmMachineAccess: true });
+      const id = await ask();
+
+      const notice = h.domain.questionScreening.noticeText([id]);
+      const line = JSON.parse(notice.split('\n').at(-1)!) as { id: string; technicalDecider: string | null };
+
+      expect(line).toMatchObject({ id, technicalDecider });
+    },
+  );
 });

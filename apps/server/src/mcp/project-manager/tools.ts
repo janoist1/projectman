@@ -500,9 +500,10 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           .enum(['answered', 'forwarded', 'moot', 'decision', 'todo'])
           .describe(
             'answered: a fact you found (needs answer; the member may ask a person again). forwarded: another ' +
-              'AI member’s work (needs forward_to). moot: obsolete, also after it went to the people. decision: ' +
-              'a person decides, as asked. todo: an owner or integrator step (needs todo). Fields another ' +
-              'outcome needs are refused (invalid_outcome_fields).',
+              'AI member’s work, a technical choice to the notice’s technicalDecider (needs forward_to). moot: ' +
+              'obsolete, also after it went to the people. decision: only an owner decision, as asked. todo: an ' +
+              'owner or integrator step (needs todo). Fields another outcome needs are refused ' +
+              '(invalid_outcome_fields).',
           ),
         note: z
           .string()

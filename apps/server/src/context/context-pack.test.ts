@@ -1792,7 +1792,7 @@ describe('system prompt', () => {
         'todo: a step for the owner or their external integrator; give what, where, expected and recipient (owner or integrator).',
         'Independently choose the recipient, regardless of requestedRecipient',
         'Integrator addressing grants no execution authority; approvals and decisions stay with the owner.',
-        'decision: everything else.',
+        'technicalDecider',
       ]) {
         expect(pm.guide.role).toContain(text);
         expect(operator).not.toContain(text);

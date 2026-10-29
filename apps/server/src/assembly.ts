@@ -114,6 +114,7 @@ import {
   Admission,
   DeferredStarts,
   StartQueue,
+  UsageWake,
   UrgentPull,
   StartRound,
   MessageStarts,
@@ -837,7 +838,10 @@ export function createDomain(opts: DomainOptions) {
     now,
     background,
     ttlMs: opts.planUsageTtlMs,
-    onFetched: (provider, engineId, value) => sessions.observeProviderUsage(provider, engineId, value),
+    onFetched: (provider, engineId, value) => {
+      sessions.observeProviderUsage(provider, engineId, value);
+      usageWake.observe(provider, engineId, value);
+    },
   });
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, engines });
@@ -1794,6 +1798,18 @@ export function createDomain(opts: DomainOptions) {
   // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
   if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.retryWaiting());
   const retryDeferredStarts = () => admission.requestRetry();
+  // The plan usage fell below a project's pause threshold, or the threshold rose above it: what waited for
+  // it starts without another event. The queue gets a full pass, as an item the pause held back may carry no
+  // wait code (PM-1133).
+  const wakeAfterUsage = () => {
+    retryDeferredStarts();
+    if (opts.standby) return;
+    background.run(
+      () => memberQueueDriver.sweep(),
+      (err) => opts.logger.warn({ err }, 'could not wake the member queues after the plan usage changed'),
+    );
+  };
+  const usageWake = new UsageWake({ projects, wake: wakeAfterUsage });
   const outages = new WorkOutages({
     ctx,
     projects,
@@ -1887,6 +1903,12 @@ export function createDomain(opts: DomainOptions) {
   events.on('config_changed', (change) => {
     if (change.previous?.team.limits.aiEnabled === false && change.next.team.limits.aiEnabled)
       retryDeferredStarts();
+  });
+  // The pause threshold rose (or was lifted): what the plan usage held back is measured against it again.
+  events.on('config_changed', (change) => {
+    const before = change.previous?.team.limits.pauseAbovePlanUsagePercent;
+    if (before !== undefined && before !== change.next.team.limits.pauseAbovePlanUsagePercent)
+      wakeAfterUsage();
   });
   // A member called back from leave: the starts and messages that waited for it continue.
   events.on('config_changed', (change) => {
@@ -2484,7 +2506,7 @@ export function createDomain(opts: DomainOptions) {
       githubSync.start();
       background.start();
       // Restore quota holds before schedulers or background probes can admit inference.
-      const restoredStarts = admission.restoreDeferred(rebuildDeferredStart);
+      admission.restoreDeferred(rebuildDeferredStart);
       usage.start();
       schedules.start();
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
@@ -2495,7 +2517,9 @@ export function createDomain(opts: DomainOptions) {
       await merges.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
-      if (restoredStarts > 0) retryDeferredStarts();
+      // A queued item carries no record of what it waited for after a restart, so this is not limited to the
+      // restored starts (PM-1133).
+      retryDeferredStarts();
       // ... and the pause that stopping the server made ends: its sessions start again (PM-219).
       // In the background: starting the sessions again must not hold the server back.
       background.run(

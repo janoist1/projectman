@@ -61,6 +61,9 @@ import {
 /** How long the admission lock may be held before the log says who holds it (PM-1120). */
 export const ADMISSION_LOCK_WARN_MS = 10_000;
 
+/** An engine read of the admission check slower than this is logged with its name (PM-1133). */
+const ADMISSION_STEP_WARN_MS = 1_000;
+
 /** What an `attempt` came to (PM-543): the start ran or no longer applies, or admission put it off. */
 type AttemptOutcome = { kind: 'done' } | { kind: 'deferred'; waiting: TaskStartWaiting };
 
@@ -294,16 +297,32 @@ export class Admission {
     // The hold is on the key that engine uses (PM-1091), so it is read once the engine is known.
     this.sessions.assertProviderCooldown(provider, engineId);
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
-    if (member) await this.sessions.assertProviderReady(provider, member.handle, engineId);
+    if (member)
+      await this.timed('provider-ready', () =>
+        this.sessions.assertProviderReady(provider, member.handle, engineId),
+      );
     if (pausesOnPlanUsage(provider)) {
-      const usage = await this.planUsage.get(
-        provider,
-        engineId ?? this.usageEngine(projectKey, member?.handle),
+      const usage = await this.timed('plan-usage', () =>
+        this.planUsage.get(provider, engineId ?? this.usageEngine(projectKey, member?.handle)),
       );
       this.assertUsageBelowPause(config, provider, usage);
     }
     // Last, because it measures the disk (PM-243).
-    await this.disk?.assertRoom(config, engineId);
+    if (this.disk) await this.timed('disk', () => this.disk!.assertRoom(config, engineId));
+  }
+
+  /**
+   * One engine read of the admission check, logged when it is slow (PM-1133): the check runs under the
+   * admission lock, so the log names the read that keeps every other start waiting.
+   */
+  private async timed<T>(step: string, read: () => Promise<T>): Promise<T> {
+    const startedAt = Date.now();
+    try {
+      return await read();
+    } finally {
+      const ms = Date.now() - startedAt;
+      if (ms > ADMISSION_STEP_WARN_MS) this.ctx.logger.warn({ step, ms }, 'an admission check step was slow');
+    }
   }
 
   /**

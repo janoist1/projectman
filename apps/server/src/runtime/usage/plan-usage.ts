@@ -32,6 +32,12 @@ interface Accounts {
 const entryKey = (engineId: EngineId, provider: AgentProvider): string => `${engineId}\0${provider}`;
 
 /**
+ * A value this many TTLs old still answers `get` at once while a fresh one is fetched behind it: the probe
+ * spawns a CLI, and admission asks for it under its lock (PM-1133). A TTL of 0 never serves a stale value.
+ */
+const STALE_TTL_FACTOR = 5;
+
+/**
  * Caches the plan usage per engine and provider (an account lives on an engine's machine; fetching it
  * may be slow); failures read as "unknown" (null). Claude's usage comes from `provider`; other
  * providers' from `providerFor` (looked up when needed), and a provider without a source is unknown.
@@ -80,7 +86,9 @@ export class PlanUsageCache {
       this.entries.set(key, entry);
     }
     const current = entry;
-    if (current.fetchedAt > 0 && this.now().getTime() - current.fetchedAt < this.ttlMs) return current.value;
+    const age = this.now().getTime() - current.fetchedAt;
+    if (current.fetchedAt > 0 && age < this.ttlMs) return current.value;
+    const stale = current.fetchedAt > 0 && age < this.ttlMs * STALE_TTL_FACTOR;
     current.pending ??= Promise.resolve()
       .then(() => source?.get(engineId) ?? null)
       .catch((err: unknown) => {
@@ -97,7 +105,11 @@ export class PlanUsageCache {
         }
         return value;
       });
-    return current.pending;
+    if (!stale) return current.pending;
+    current.pending.catch((err: unknown) =>
+      this.logger.warn({ err, provider, engineId }, 'plan usage refresh failed'),
+    );
+    return current.value;
   }
 
   /** Every entry's age is reset; with an engine only that engine's entries, never another one's. */

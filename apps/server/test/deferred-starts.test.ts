@@ -1,3 +1,4 @@
+import { LOCAL_ENGINE_ID } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { waitFor } from '../src/runner/test-helpers';
@@ -347,6 +348,54 @@ describe('deferred starts across a restart', () => {
     await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(1);
     expect(stored(h)).toEqual([]);
+  });
+
+  describe('what the plan usage held back (PM-1133)', () => {
+    const deferHandOver = async () => {
+      h = await createDomainHarness({ persistent: true, planUsagePercent: 95 });
+      const task = await h.domain.tasks.create('AR', { title: 'Fictional review' }, OWNER_ACTOR);
+      await h.domain.tasks.moveToStage('AR', task.key, 'code_review', OWNER_ACTOR);
+      await waitFor(() => h.domain.tasks.get('AR', task.key).startWaiting);
+      expect(h.domain.tasks.get('AR', task.key).startWaiting).toMatchObject({ reason: 'plan_usage_paused' });
+      return task;
+    };
+
+    it('starts a deferred hand-over once the usage falls below the threshold, without another event', async () => {
+      await deferHandOver();
+      expect(h.runner.started).toHaveLength(0);
+      h.runnerModule.planUsage.value = planUsage(10);
+      await h.domain.planUsage.get('claude', LOCAL_ENGINE_ID);
+      await waitFor(() => h.runner.started.length === 1);
+      expect(h.runner.lastStarted()).toMatchObject({ member: 'cr' });
+    });
+
+    it('starts a queued message once the usage falls below the threshold, without another event', async () => {
+      h = await createDomainHarness({ persistent: true, planUsagePercent: 95 });
+      await h.domain.messaging.send('AR', 'owner', { to: ['cr'], text: 'Please check Acme.' });
+      await settle();
+      expect(h.runner.started).toHaveLength(0);
+      h.runnerModule.planUsage.value = planUsage(10);
+      await h.domain.planUsage.get('claude', LOCAL_ENGINE_ID);
+      await waitFor(() => h.runner.started.length === 1);
+      expect(h.runner.lastStarted()).toMatchObject({ member: 'cr' });
+    });
+
+    it('starts a deferred hand-over once the pause threshold is raised above the usage', async () => {
+      await deferHandOver();
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        config.team.limits.pauseAbovePlanUsagePercent = 100;
+        return 'Raise the pause threshold';
+      });
+      await waitFor(() => h.runner.started.length === 1);
+    });
+
+    it('does not start anything while the usage stays above the threshold', async () => {
+      await deferHandOver();
+      h.runnerModule.planUsage.value = planUsage(92);
+      await h.domain.planUsage.get('claude', LOCAL_ENGINE_ID);
+      await settle();
+      expect(h.runner.started).toHaveLength(0);
+    });
   });
 
   it('retries the restored starts in the order they were deferred in', async () => {

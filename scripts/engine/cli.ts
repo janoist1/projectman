@@ -1,4 +1,4 @@
-// The engine's setup and start commands (PM-314; docs/ARCHITECTURE.md "Machine-dependent parts").
+// The engine's setup and start commands (PM-314; docs/MACHINE-DEPENDENT.md).
 //
 //   npm run engine -- init --cloud <https-url> --id <eng_…> [--name <name>] [--force]   (the key on standard input)
 //   npm run engine -- project set <KEY> <path>

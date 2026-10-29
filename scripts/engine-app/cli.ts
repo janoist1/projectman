@@ -3,7 +3,7 @@
 //   npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>]
 //
 // The package lands in <dir>/<sha>; see package.ts for its layout. Exit status: 0 done, 1 failed, 2 refused
-// (also an existing, non-empty target), 64 wrong usage. Docs: docs/ARCHITECTURE.md "Engine app package".
+// (also an existing, non-empty target), 64 wrong usage. Docs: docs/MACHINE-DEPENDENT.md "Engine app package".
 import { acquireHeavyLock, defaultHeavyLockDir, runSandboxed } from '../../apps/server/src/full-test';
 import { realDeps } from '../cloud/deps';
 import { runEngineAppCli } from './commands';

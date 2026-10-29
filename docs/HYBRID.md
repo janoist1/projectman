@@ -13,7 +13,7 @@ migrations; recovery approval still applies.
 The hybrid mode splits projectman in two: the **cloud** keeps the board, the database, the
 accounts and the secrets, and is reachable from anywhere; the **engine** on your Mac runs the AI
 sessions, the git checkouts and the tests, and connects to the cloud over an outbound link
-(ARCHITECTURE.md, "Machine-dependent parts": "Cloud composition" and "Cloud deployment and backup").
+([MACHINE-DEPENDENT.md](MACHINE-DEPENDENT.md): "Cloud composition" and "Cloud deployment and backup").
 This guide is the cloud side: a container image with the Cloudflare tunnel inside, where the data
 lives, how the first setup works from a browser, how it is backed up and restored, and how the
 engine connects.
@@ -279,7 +279,7 @@ local (a console on the same machine) needs no code.
 
 ## Connecting the engine
 
-On the Mac, with the engine ([ARCHITECTURE.md](ARCHITECTURE.md), "Cloud composition"):
+On the Mac, with the engine ([MACHINE-DEPENDENT.md](MACHINE-DEPENDENT.md), "Cloud composition"):
 
 1. In the web app, Settings → Engines (Beállítások → Motorok), add an engine. The machine key
    (`pme_…`) is shown **once**; the engine id is `eng_…`.
@@ -404,7 +404,7 @@ litestream restore -config deploy/cloud/litestream.yml -o ./restored.sqlite /dat
 A restored database that is put in service (not only looked at) must get a new event generation first,
 or the readers of the project change journal (PM-761) could continue cursors from the journal that
 was lost: `UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key = 'project_change_generation'`
-(`docs/ARCHITECTURE.md`, "Project change journal"). Their cursors are then refused with
+(`docs/modules/core-base.md`, "Project change journal"). Their cursors are then refused with
 `event_cursor_expired`, and they read again from the start.
 
 ## Updating
@@ -694,7 +694,7 @@ text, which only a copy of the cloud's history on the owner's machine could be.
 
 The board runs in the cloud (`PROJECTMAN_MODE=cloud`); the AI work runs on the Mac as an **engine**
 (`PROJECTMAN_MODE=engine`), connected outward to the cloud with a machine key
-([ARCHITECTURE.md](ARCHITECTURE.md) "Machine-dependent parts"). This page is how the owner's Mac
+([MACHINE-DEPENDENT.md](MACHINE-DEPENDENT.md)). This page is how the owner's Mac
 gets there from the single-machine mode, how it comes back, and what stays where.
 **This page is not a permission to move.** The live instance is never stopped, changed or updated by
 anything here until the owner has said so for the concrete move.

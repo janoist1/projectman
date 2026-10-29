@@ -2,8 +2,8 @@ import { spawn as spawnChild } from 'node:child_process';
 import type { FastifyBaseLogger } from 'fastify';
 
 /**
- * PM-1086: keeps the Mac awake while the engine has work (docs/ARCHITECTURE.md "Machine-dependent
- * parts", "Keep awake while working"). It holds `/usr/bin/caffeinate` while a session, a merge check or a
+ * PM-1086: keeps the Mac awake while the engine has work (docs/MACHINE-DEPENDENT.md,
+ * "Keep awake while working"). It holds `/usr/bin/caffeinate` while a session, a merge check or a
  * screenshot run is active and lets go `releaseDelayMs` after the last one ended, so two jobs in a row do
  * not flicker. Everything machine-dependent (platform, pid, the process start, the clock) is injected.
  */

@@ -1530,7 +1530,7 @@ migrations.push({
   // PM-761: change signals scripts and the integrator can read again with a cursor. The journal starts
   // empty (no history is made up); triggers on the state tables write it in the changing transaction
   // (db/change-triggers.ts). `project_change_generation` is made once with the database; a restore from a
-  // snapshot must replace it (docs/ARCHITECTURE.md "Project change journal").
+  // snapshot must replace it (docs/modules/core-base.md "Project change journal").
   sql: `CREATE TABLE instance_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL

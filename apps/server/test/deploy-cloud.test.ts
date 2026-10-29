@@ -643,7 +643,8 @@ describe('deploy/cloud image', () => {
   });
 
   it('does not claim the processes are isolated from a compromised server', () => {
-    for (const text of [guide, entrypoint, read('docs/SECURITY.md'), read('docs/ARCHITECTURE.md')]) {
+    const docs = ['docs/SECURITY.md', 'docs/ARCHITECTURE.md', 'docs/MACHINE-DEPENDENT.md'].map(read);
+    for (const text of [guide, entrypoint, ...docs]) {
       expect(text).not.toMatch(/server never sees the tunnel token/i);
     }
     expect(guide).toMatch(/does not protect against a compromised server/);

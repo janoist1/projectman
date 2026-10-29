@@ -988,7 +988,10 @@ export type OperatorTrailMark = 'answered' | 'forwarded' | 'moot' | 'at';
 
 export function operatorTrailMark(item: InboxItem): OperatorTrailMark {
   if (item.state === 'screening') return 'at';
-  const outcome = screeningOf(item)?.outcome;
+  const screening = screeningOf(item);
+  // A machine step that went to the technical decider (PM-1139) is forwarded, though its outcome is `todo`.
+  if (screening?.forwardedTo) return 'forwarded';
+  const outcome = screening?.outcome;
   return outcome === 'answered' || outcome === 'forwarded' ? outcome : 'moot';
 }
 
@@ -1006,7 +1009,7 @@ export function operatorTrailNote(
   if (item.state === 'screening' && screening)
     return t('inbox.operatorTrail.until', { time: formatTime(screening.until) });
   const note = screening?.note?.trim();
-  if (screening?.outcome === 'forwarded' && screening.forwardedTo) {
+  if (screening?.forwardedTo) {
     const name = nameOf(screening.forwardedTo, members, myHandle);
     return note
       ? t('inbox.operatorTrail.forwardedTo', { name, note })

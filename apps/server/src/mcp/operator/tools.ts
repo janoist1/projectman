@@ -468,16 +468,22 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           issue('feedback_id', 'invalid_outcome_fields: feedback_id goes only with todo.');
       },
       async run({ ctx, args, handler }) {
+        const result = await handler.screenQuestion(ctx, {
+          itemId: args.item_id,
+          outcome: args.outcome,
+          note: args.note,
+          ...(args.answer !== undefined ? { answer: args.answer } : {}),
+          ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
+          ...(args.todo ? { todo: args.todo } : {}),
+          ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
+        });
         return JSON.stringify(
-          await handler.screenQuestion(ctx, {
-            itemId: args.item_id,
-            outcome: args.outcome,
-            note: args.note,
-            ...(args.answer !== undefined ? { answer: args.answer } : {}),
-            ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
-            ...(args.todo ? { todo: args.todo } : {}),
-            ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
-          }),
+          result.forwardedTo
+            ? {
+                ...result,
+                message: `No integrator can take it (${result.recipientRefusal}): it went to \`${result.forwardedTo}\`, who decides whether it is needed and asks the owners if they must act.`,
+              }
+            : result,
         );
       },
     }),

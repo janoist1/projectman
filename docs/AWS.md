@@ -9,7 +9,73 @@ capabilities and the existing instance must agree; the ownership, IMDS, SSM and 
 stay in force. The imageBundle directory is relative to the config file, or absolute. It need not exist
 when config is first written; preflight and deploy verify it before remote writes.
 
-On a **separate admin/builder machine**, with a clean checkout at the accepted full lowercase SHA:
+### Build on GitHub, fetch on the admin machine (PM-1145)
+
+The image is built on GitHub's `ubuntu-24.04-arm` runner by the general workflow
+`.github/workflows/projectman-job.yml` (PM-1144), so the admin Mac needs no Docker Desktop. The workflow is
+general: another project copies the same file into its repository and passes its own command. It starts only
+by hand (`workflow_dispatch`), only from the default branch, holds `contents: read`, `id-token: write` and
+`attestations: write`, and uses no secret. It runs `command` with `sh -c` at the checked-out `commit`, with
+`PROJECTMAN_JOB_COMMIT` and `PROJECTMAN_JOB_OUT` set, then attests every declared output file and uploads them as
+the artifact `projectman-job-<run_id>` (7 days). The title of the run is
+`projectman-job <job> <commit> <run_id>`.
+
+The cloud image is the first job. Its values (the same ones that are in `CLOUD_IMAGE_JOB`,
+`scripts/cloud/image-fetch.ts`; after PM-1148 they live in the project settings):
+
+| Input             | Value                                                                                                                                                                                                                |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `job`             | `cloud-image`                                                                                                                                                                                                        |
+| `runs_on`         | `ubuntu-24.04-arm`                                                                                                                                                                                                   |
+| `node`            | `22`                                                                                                                                                                                                                 |
+| `timeout_minutes` | `60`                                                                                                                                                                                                                 |
+| `outputs`         | `bundle/manifest.json bundle/linux-arm64.tar`                                                                                                                                                                        |
+| `command`         | `npm ci && docker buildx create --name projectman --driver docker-container --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"` (`image-build` needs no config) |
+
+Start it for the accepted full SHA (the `run_id` is `manual-<first 8 of the SHA>-<time>`):
+
+```sh
+SHA=<SHA40>
+gh workflow run projectman-job.yml --ref main -f job=cloud-image -f run_id="manual-${SHA:0:8}-$(date -u +%Y%m%d%H%M%S)" \
+  -f commit="$SHA" -f runs_on=ubuntu-24.04-arm -f node=22 -f timeout_minutes=60 \
+  -f outputs='bundle/manifest.json bundle/linux-arm64.tar' \
+  -f command='npm ci && docker buildx create --name projectman --driver docker-container --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"'
+```
+
+Then fetch and verify the bundle on the admin machine (needs `gh` logged in, with read access to the repository's
+Actions, and `gh attestation`, gh 2.49 or newer; no Docker, no cloud configuration):
+
+```sh
+npm run cloud -- image-fetch --ref <SHA40> --out /new/path/outside-the-checkout --dry-run
+npm run cloud -- image-fetch --ref <SHA40> --out /new/path/outside-the-checkout [--run <run number>]
+```
+
+`image-fetch` never starts a run. It takes the newest `projectman-job.yml` run of `cloud-image` at that SHA
+(or the run given with `--run`) and follows it while it is going (every 15 seconds, at most 60 minutes). With no
+such run it refuses and prints the `gh workflow run` line above. It then refuses the run unless it ran the
+workflow `.github/workflows/projectman-job.yml` by hand on the repository's default branch, succeeded, and has a
+title of this job and SHA. It downloads the artifact and verifies the attestation of **both** files against the
+exact workflow identity (`.../.github/workflows/projectman-job.yml@refs/heads/<default branch>`, no self-hosted
+runner) and against this very run, so member code that ran on a `pm-check/*` branch, or a file of another job, is
+not accepted. Last it checks the manifest (`sourceSha` equals `--ref`), the archive hash and the image inside the
+archive with `tar` alone. The `--out` rules are those of `image-build`. On success the archive is moved in and
+`manifest.json` is written last, atomically; on any failure `--out` is removed. The bundle is the one `image-build`
+writes, so `deploy` and the host are unchanged; there is no registry. The report line is `ok image: source=...
+platform=linux/arm64 archiveSha256=... imageId=... run=<url>`.
+
+One-time owner setting: Settings → Actions → General → Workflow permissions → "Read repository contents".
+
+Measuring (PM-1144): on the same SHA, before: `/usr/bin/time -l npm run cloud -- image-build --ref <SHA> --out <new>`
+with the Docker VM's memory peak and the Memory Pressure from Activity Monitor, then `time npm run cloud -- deploy
+--ref <SHA>`. After, with Docker Desktop stopped: the GitHub run's time including the wait, `time npm run cloud --
+image-fetch --ref <SHA> --out <new>` with the bundle size and the Memory Pressure, and the same `deploy`. It stays
+if a release no longer needs Docker Desktop and takes at most about 5 minutes longer than before; otherwise the
+PM-1145 merge is reverted.
+
+### The local fallback
+
+The local `image-build` stays for a GitHub outage and for commits from before PM-1145 (they cannot be built on
+GitHub). On a **separate admin/builder machine**, with a clean checkout at the accepted full lowercase SHA:
 
 ```sh
 npm run cloud -- image-build --ref <SHA40> --out /new/path/outside-the-checkout --dry-run

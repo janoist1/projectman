@@ -13,7 +13,7 @@ import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, type TeamServerDeps } fro
 import { registerExternalRoutes } from './super-operator/route';
 
 export { FeedbackTools } from './feedback';
-export { OperatorTools } from './operator';
+export { OperatorTools } from './project-manager';
 export { MemberTools } from './members';
 export { TaskTools } from './tasks';
 export { AttachmentTools } from './attachments';

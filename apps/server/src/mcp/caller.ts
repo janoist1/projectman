@@ -36,10 +36,10 @@ import {
   OPERATOR_SCREENING_TOOLS,
   OPERATOR_TOOL_ACTIONS,
   PM_CARD_TOOLS,
-} from '../services/operator';
-import type { CoordinationRequests, OperatorRequests, OperatorSteps } from '../services/operator';
+} from '../services/coordination';
+import type { CoordinationRequests, OperatorRequests, OperatorSteps } from '../services/coordination';
 import type { Viewer } from '../core/projects';
-import type { OperatorSignals } from '../services/operator';
+import type { OperatorSignals } from '../services/coordination';
 import type { ProjectService } from '../core/projects';
 import type { TaskService } from '../core/tasks';
 

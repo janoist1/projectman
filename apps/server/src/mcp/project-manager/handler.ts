@@ -50,7 +50,7 @@ import type {
   OperatorKnowledge,
   StructuralReviews,
   LoopTriages,
-} from '../../services/operator';
+} from '../../services/coordination';
 import type { ObligationsService } from '../../services/obligations';
 import { appRequestId } from '../../services/super-operator';
 import type { OperatorAppOperations, SuperAdministration } from '../../services/super-operator';

@@ -240,7 +240,7 @@ describe('team tool registration', () => {
       'services/email-channel': ['send_email', 'set_email_contact', 'list_email_contacts'],
       'services/github': ['link_pull_request'],
       'services/host-requests': ['ask_host', 'list_host_requests', 'withdraw_host_request'],
-      'services/operator': [
+      'services/coordination': [
         'get_role_configuration',
         'request_structural_review',
         'triage_loop',

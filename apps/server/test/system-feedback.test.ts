@@ -4,8 +4,8 @@ import type { ProjectConfig, Session, SystemFeedbackItem } from '@projectman/sha
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { DomainError, humanActor } from '../src/kernel';
-import { OperatorRequests } from '../src/services/operator';
-import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../src/services/operator/requests';
+import { OperatorRequests } from '../src/services/coordination';
+import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../src/services/coordination/requests';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';

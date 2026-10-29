@@ -732,7 +732,7 @@ construction order; the factories return the existing classes without changing b
 | `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
 | `services/project-docs`                           | Operator document writes and decision candidates.                           |
 | `services/schedules`                              | Scheduled member work.                                                      |
-| `services/operator`                               | Operator actions, signals, requests and project management.                 |
+| `services/coordination`                           | Operator actions, signals, requests and project management.                 |
 | `runner`                                          | Provider CLIs, PTYs, permission waits, transcripts, usage probes and trust. |
 | `worktree`                                        | Task and member worktree creation and dependency refresh.                   |
 | `engine-host`                                     | Engine-local files, session roots, host operations and branch merging.      |
@@ -761,7 +761,7 @@ A module's detailed behaviour lives in its own file under [modules/](modules/), 
 - [`core/member-queue`](modules/core-member-queue.md) — the member queue (PM-894)
 - [`runtime/sessions`](modules/runtime-sessions.md) — pause and resume, the control socket
 - [`services/merges`](modules/services-merges.md) — merge, merge trains and the merge check (PM-452)
-- [`services/operator`](modules/services-operator.md) — the Operator and the project manager's coordination tools
+- [`services/coordination`](modules/services-coordination.md) — the Operator and the project manager's coordination tools
 - [`services/super-operator`](modules/services-super-operator.md) — super mode: owner-bound operations, the
   external MCP endpoint, diagnostics
 - [`services/releases`](modules/services-releases.md) — release of the instance
@@ -840,10 +840,10 @@ REST routes already register by module: `api/<module>.ts` exports
 No REST contract changes. This refactor moves server code only; engine calls and
 file-transfer boundaries stay unchanged.
 
-The Operator slice (PM-605) lives in `services/operator/`, with one entry point and
+The Operator slice (PM-605) lives in `services/coordination/`, with one entry point and
 structural ports for sessions, admission, delivery, pauses and releases. Its six tools
 (`get_project_state`, `operate`, `screen_question`, `dismiss_signal`, `start_task`, `start_member`) live in
-`mcp/operator/`; signal decisions and manager/Operator channels register in `api/operator.ts`.
+`mcp/project-manager/`; signal decisions and manager/Operator channels register in `api/operator.ts`.
 This module needs no Effect program: retries belong to admission, reply relay uses
 `background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
 (`assembly.ts`) declares the sweep list.
@@ -866,7 +866,7 @@ coordinator (`coordinatorSuperActorOf`, `isCoordinatorSuperActor` in `config/ope
 tool surface (`operate`, knowledge, preferences, diagnostics) is the selected project manager's. The external MCP
 tool names (`super_operate`, ...), `integrator_keys` and the old rows are unchanged.
 
-Personal conversational style (PM-688) lives in `services/operator/preferences.ts`.
+Personal conversational style (PM-688) lives in `services/coordination/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
 authenticated Operator session and its current human request, or the selected active PM's
 internal general session and open direct owner message/answer (PM-1021); they accept no person,
@@ -880,7 +880,7 @@ in background rounds. Only direct current-owner message/answer/conversation laun
 PM style data. Its overridable template style precedes project role and member instructions;
 explicit style requests or corrections teach preferences, not a single technical question.
 
-Shared approved agreement and principles (PM-689) live in `services/operator/knowledge.ts`.
+Shared approved agreement and principles (PM-689) live in `services/coordination/knowledge.ts`.
 Only an Operator owner message/answer can propose them. The inbox's registered
 `operator_knowledge` decider accepts a human owner's own-login decision; the private CAS
 shares `ProjectService.withConfigurationLock` with configuration commits. The inbox stores
@@ -1625,7 +1625,7 @@ retroactive signals, including after restart. Detection and migration stay on th
 machine-dependent boundary changes.
 
 PM-696 adds report-only `structural_pattern` and `milestone_closed` signals. The server's
-`services/operator/structural-patterns.ts` reads structured timeline evidence in a seven-day window:
+`services/coordination/structural-patterns.ts` reads structured timeline evidence in a seven-day window:
 the same repository-relative conflict or failed-test file on two independent cards, or at least three
 fix rounds on each of two cards. Retries on one card and raw output never form a pattern. Signal cases
 retain a short SHA256 fingerprint; their original timeline window reconstructs the evidence after restart.

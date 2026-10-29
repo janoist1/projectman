@@ -6,7 +6,7 @@ import type { OperatorKnowledgeChange, OperatorOperation, Session } from '@proje
 import type { ToolContext } from '../src/contracts';
 import { createContextPackBuilder } from '../src/context';
 import { humanActor } from '../src/kernel';
-import { OperatorRequests } from '../src/services/operator';
+import { OperatorRequests } from '../src/services/coordination';
 import {
   createDomainHarness,
   OWNER,

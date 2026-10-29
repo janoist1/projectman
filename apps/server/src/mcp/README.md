@@ -192,13 +192,13 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text
   in them as one commit pushed to the default branch (the owner's own conversation and an open request only; it
   answers `published`, `queued` or `running`). Handler methods: `readProjectDoc(ctx, { doc, fromLine?, lineCount? })`,
-  `writeProjectDocs(ctx, { baseCommit, message, edits })`. See `docs/modules/services-operator.md`, "Project manager documents".
+  `writeProjectDocs(ctx, { baseCommit, message, edits })`. See `docs/modules/services-coordination.md`, "Project manager documents".
 - `list_decision_candidates { limit? }` and `mark_decision_candidates { items }` (PM-496) are Operator tools for
   the owner's answers on cards that may be decisions: the first lists them (a read tool: no open request, not in
   guest conversations; `limit` 1..50, default 20; `{ candidates, more }`), the second records the owner's verdict
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
-  `markDecisionCandidates(ctx, { items })`. See `docs/modules/services-operator.md`, "Decision candidates".
+  `markDecisionCandidates(ctx, { items })`. See `docs/modules/services-coordination.md`, "Decision candidates".
 - `dismiss_signal { signal_id, note }` (PM-679, PM-780) closes a delivered, unpresented `ready_waiting`
   whose cards all wait on purpose, an intermediate/resolved `refinement_stalled`, or a coordinator-only
   `structural_pattern` / `milestone_closed` that needs no review. Structural signals never go in
@@ -242,7 +242,7 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   `todo` and must identify existing system feedback in the same project (`invalid_outcome_fields` otherwise).
   The reference is stored atomically in the screening payload and `question_screened` event. Recording failure
   must not delay a todo or its fallback: omit the reference in that case. Handler method: `screenQuestion(ctx, { itemId,
-outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/services-operator.md`.
+outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/services-coordination.md`.
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the

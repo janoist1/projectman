@@ -70,7 +70,7 @@ async function runGetProjectState<C>({
 }
 
 export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
-  module: 'services/operator',
+  module: 'services/coordination',
   tools: [
     defineTool({
       name: 'get_role_configuration',

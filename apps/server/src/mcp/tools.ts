@@ -11,7 +11,7 @@ import { FEEDBACK_TOOL_GROUP } from './feedback';
 import { GITHUB_TOOL_GROUP } from './github';
 import { SCREENSHOT_TOOL_GROUP } from './full-tests';
 import { RELEASE_TOOL_GROUP } from './releases';
-import { OPERATOR_TOOL_GROUP } from './operator';
+import { OPERATOR_TOOL_GROUP } from './project-manager';
 import { INBOX_TOOL_GROUP } from './inbox';
 import { MESSAGE_TOOL_GROUP } from './messages';
 import { EMAIL_CHANNEL_TOOL_GROUP } from './email-channel';

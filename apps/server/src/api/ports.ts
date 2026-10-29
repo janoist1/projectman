@@ -34,7 +34,7 @@ import type {
   OperatorPreferences,
   OperatorSignals,
   ProjectManagerChannels,
-} from '../services/operator';
+} from '../services/coordination';
 
 export interface ApiDomain extends AuthDomain {
   readonly checklist: ChecklistService;

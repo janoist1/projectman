@@ -995,7 +995,7 @@ export interface UpdateChecklistResult {
   added?: string[];
 }
 
-/** The tools of services/operator (PM-605). */
+/** The tools of services/coordination (PM-605). */
 export interface OperatorToolsHandler {
   getRoleConfiguration(ctx: ToolContext, args: { role: BuiltInRoleId }): Promise<RoleConfigurationRead>;
   requestStructuralReview(

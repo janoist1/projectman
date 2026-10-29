@@ -64,7 +64,7 @@ import {
   unique,
 } from '../../kernel';
 import type { HostRequestsService } from '../../services/host-requests';
-import type { ProjectState, StructuralReviews } from '../../services/operator';
+import type { ProjectState, StructuralReviews } from '../../services/coordination';
 import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
 import type { ReleaseService } from '../../services/releases';

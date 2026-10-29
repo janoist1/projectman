@@ -1,8 +1,8 @@
-# services/operator
+# services/coordination
 
 ## Responsibility
 
-The project manager's coordination: owner requests and their steps, the coordination tools (`mcp/operator`), signal
+The project manager's coordination: owner requests and their steps, the coordination tools (`mcp/project-manager`), signal
 triage, question screening and the Operator's knowledge, checklist and preferences. The built-in Operator member is
 retired (decision 66, PM-1076); the coordination it did belongs to the selected project manager.
 
@@ -44,7 +44,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
 - **Approval waiver execution (PM-692).** Only an owner's own login can change the switch through
   `PUT /api/projects/:key/operator/approval-waiver`, with the current configuration and approved agreement
   versions. Generic configuration edits and reverts cannot change it. The shared waiver rule consumes
-  `waiverEligible`; `services/operator` supplies the actual open owner message, answer or approved
+  `waiverEligible`; `services/coordination` supplies the actual open owner message, answer or approved
   continuation provenance. Signal rounds never qualify. `core/projects` reauthorizes the full diff through
   `OperatorConfigAuthorization` inside the same lock as knowledge writes. Before saving it persists
   `operator_execution_intents` (migration 69), bound to an existing step. Server-generated Step, Request-Id,
@@ -64,7 +64,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   and AI messages are data, the three levels, `get_project_state` for "why is it stuck", the report after each request
   (`operatorReport` labels in the locales).
 - **State reports (PM-465).** The read-only MCP tool `get_project_state { task_key? }` is available only to the
-  Operator (`operator_only`, 403), without an open owner request. `ProjectState` in `services/operator/project-state.ts`
+  Operator (`operator_only`, 403), without an open owner request. `ProjectState` in `services/coordination/project-state.ts`
   reads the task service's admission waiting reason, fix limit and loop view, shared start/gate rules,
   open Senior waits, inbox questions, pause records and live sessions. Its task report names each recorded reason;
   its overview counts cards by stage (themes excluded), lists live and idle sessions with `lastActivityAt`,
@@ -192,7 +192,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   from the owner's own-login message). The Operator's capacity rule (`memberQueueStartLimits`) is unchanged.
   Such a conversation is seen by owners and admins only, like the Operator's sessions (`Sessions.isRestrictedSession`:
   REST detail, websocket events, terminal); the person's own view is the corner (`ProjectManagerCorner`, read only).
-- **Owner requests** (migration 47, `OperatorRequests` in `services/operator/requests.ts`). A request opens when an
+- **Owner requests** (migration 47, `OperatorRequests` in `services/coordination/requests.ts`). A request opens when an
   owner's message, or the owner's answer to the Operator's question, is delivered into its session
   (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on
   the session's `idle` or `ended` (the listener is registered before the delivery's own idle listener, so the next
@@ -211,7 +211,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   channel plus the last 50 requests with their steps, the newest last) to a person's own login (the owners' requests
   to an owner, their own to anyone else; PM-475); no new WebSocket event.
 
-- **Operations and approvals** (PM-464, `services/operator/actions.ts`). `operate` and `start_task` are Operator-only
+- **Operations and approvals** (PM-464, `services/coordination/actions.ts`). `operate` and `start_task` are Operator-only
   MCP tools and need an open owner request. Configuration previews reuse the member service's draft mutations;
   `operatorConfigVerdict` chooses immediate execution, an owner approval item, or refusal. Configuration commits
   recheck the verdict and the approved change rows under the project's configuration lock. Approval decisions
@@ -248,7 +248,7 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   the old and new value. Same boundary as the role patch: configuration stays on the server, nothing
   machine-dependent is added.
 
-- **System signals** (PM-476, migration 50, `services/operator/signals.ts`). Provider/engine outages,
+- **System signals** (PM-476, migration 50, `services/coordination/signals.ts`). Provider/engine outages,
   cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
   create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.
   The sweep checks `WorkOutages.activeIds` only after its first evaluation (`null` means not yet observed),

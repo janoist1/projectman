@@ -1031,7 +1031,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     `no_machine_access`. Hub-side only: no engine operation, credential or process is added.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
     `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
-    online budget in `task_loops.triage_json`; `services/operator/loop-triage.ts` sends a
+    online budget in `task_loops.triage_json`; `services/coordination/loop-triage.ts` sends a
     report-only `loop_suspected` signal to the selected PM, even when it participates in the loop.
     The engine link state freezes the deadline while offline, and reconnect sweeps resume it.
     Queued delivery alone never creates an owner decision. No new engine operation or CLI mount.
@@ -1982,7 +1982,7 @@ assumption or remote-engine RPC.
   engine the machine view answers `engine_offline` (409). Since PM-1059 "the default engine" is
   `EngineDirectory.hostEngine()`, asked at every call: the view, the identity and the signals of the
   orphan round always target the same host machine and never a project's engine.
-  **Filtered diagnostics (PM-697):** `services/operator/project-state.ts` projects only
+  **Filtered diagnostics (PM-697):** `services/coordination/project-state.ts` projects only
   CPU percentage, memory, sample time and free disk space through the assembly adapter.
   The latest card session selects the stored engine id; no session, offline or a different
   engine than the monitor's gives `machine: null`. Disk space comes from that same

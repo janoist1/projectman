@@ -122,7 +122,7 @@
   "[\"types\",\"apps/server/src/services/email-channel/index.ts\",\"Verdict\"]",
   "[\"types\",\"apps/server/src/services/email-channel/types.ts\",\"EmailChannelEnv\"]",
   "[\"types\",\"apps/server/src/services/github/test-fixtures/harness.ts\",\"FakeGhCall\"]",
-  "[\"types\",\"apps/server/src/services/operator/ports.ts\",\"OperatorPauseRequester\"]",
+  "[\"types\",\"apps/server/src/services/coordination/ports.ts\",\"OperatorPauseRequester\"]",
   "[\"types\",\"apps/server/src/services/project-docs/write-queue.ts\",\"DocWriteRun\"]",
   "[\"types\",\"apps/server/src/worktree/workspace-access.ts\",\"TransferSource\"]",
   "[\"types\",\"apps/web/src/api/client.ts\",\"HttpMethod\"]",

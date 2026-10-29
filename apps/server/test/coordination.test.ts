@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OPERATOR_IDLE_MINUTES, OperatorSignal } from '@projectman/shared';
 import type { AiMemberConfig, OperatorSignalKind, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { CoordinationRequests, OperatorRequests, OperatorSteps } from '../src/services/operator';
+import { CoordinationRequests, OperatorRequests, OperatorSteps } from '../src/services/coordination';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

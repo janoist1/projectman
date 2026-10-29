@@ -252,6 +252,16 @@ export class TaskService implements TaskSchedulingReader {
     return this.store.list(projectKey);
   }
 
+  /** The cards a scheduling query selects, as `get` shows them (why their start waits, their merge). */
+  listQuery(projectKey: string, query: TaskSchedulingQuery): Task[] {
+    return this.store.listQuery(projectKey, query);
+  }
+
+  /** How many cards the project has that are not cancelled, without reading them. */
+  countNotCancelled(projectKey: string): number {
+    return this.ctx.repos.tasks.countNotCancelled(projectKey);
+  }
+
   /**
    * The stored cards a scheduling query selects (PM-770): no project-wide list and no board view, so
    * none of the derived fields. A caller that needs them for a card reads it with `get`.

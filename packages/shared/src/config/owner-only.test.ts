@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approvalPolicyChanged, ownerOnlyChanges } from './owner-only';
+import { ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
 import { ProjectConfig } from './schema';
 

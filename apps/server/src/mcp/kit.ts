@@ -39,7 +39,6 @@ export const TEAM_TOOL_NAMES = [
   'mark_decision_candidates',
   'search_history',
   'read_history_source',
-  'get_history_search_stats',
   'screen_question',
   'combine_questions',
   'dismiss_signal',

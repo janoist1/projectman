@@ -20,7 +20,7 @@ import { errorMessage } from '../../lib/errors';
 import { useIsMobile } from '../../lib/hooks';
 import { stagePosition } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
-import { isLiveSession } from '../../lib/sessions';
+import { isLiveSession } from '@projectman/shared';
 import type { SessionStatus } from '../../lib/sessions';
 import type { TaskPhase } from '../../lib/taskState';
 import { prChip } from '../board/cardModel';

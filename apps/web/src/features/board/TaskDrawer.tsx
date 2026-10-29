@@ -70,6 +70,7 @@ import { TaskAttachments } from './TaskAttachments';
 import { TaskTimeline } from './TimelineAttachment';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
+import { TaskAcceptance } from './TaskAcceptance';
 import { TaskProperties } from './TaskProperties';
 import { TaskThread } from './TaskThread';
 import { TaskRounds, TaskUsage } from './TaskUsage';
@@ -624,6 +625,15 @@ export function TaskDrawer() {
     const content = (
       <div key="content" className={styles.group} hidden={view !== 'card'}>
         <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
+
+        {theme ? null : (
+          <TaskAcceptance
+            key={`acceptance:${task.key}`}
+            task={task}
+            items={detail.data?.acceptance}
+            loading={detail.isPending}
+          />
+        )}
 
         {theme && model ? (
           <ThemeCards task={task} tasks={cards} pipeline={pipeline} byKey={model.byKey} />

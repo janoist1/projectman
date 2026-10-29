@@ -6,7 +6,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../contracts';
 import { TeamToolError } from '../contracts';
-import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../services/operator';
+import { OPERATOR_GUEST_TOOLS, OPERATOR_READ_TOOLS } from '../services/coordination';
 import { createMcpModule } from './index';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, toolListing } from './server';
 import { TEAM_TOOLS } from './tools';

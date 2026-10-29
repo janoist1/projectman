@@ -10,11 +10,9 @@ export const SCREENSHOT_TOOL_GROUP: TeamToolGroup = {
       title: 'Take screenshots',
       readOnly: false,
       description:
-        'Take screenshots with `npm run shots` (docs/SCREENSHOTS.md): the server runs the scenario of your ' +
-        'working directory in its own sandbox, where the browser starts (it does not in yours). The images ' +
-        "go to the 'shots' folder of your session folder. The call waits up to 40 seconds; if the run is " +
-        'not over then, it answers `running`, and you ask for its end with get_screenshot_run. One run at a ' +
-        'time per session.',
+        'Take screenshots (`npm run shots`, docs/SCREENSHOTS.md): the server runs a scenario in its own ' +
+        "sandbox, where the browser starts; images go to 'shots' in your session folder. Waits up " +
+        'to 40 seconds, then may answer `running`: follow it with get_screenshot_run. One run at a time per session.',
       input: {
         scenario: z
           .string()

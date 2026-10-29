@@ -15,7 +15,7 @@ afterEach(() => {
 
 function menu(tag: string | null, commit: string | null = COMMIT) {
   const project = mockProject();
-  project.backend.serverVersion = { version: commit ?? 'dev', commit, tag };
+  project.backend.serverVersion = { version: commit ?? 'dev', commit, tag, latestReleaseTag: null };
   const rendered = project.render(
     <MeContext.Provider value={project.context.me}>
       <AccountMenu settingsPath={null} />

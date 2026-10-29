@@ -1,5 +1,15 @@
-import type { MemberContextPreview, ProviderLoginStatus, ServerVersionView } from '@projectman/shared';
+import type {
+  AcceptanceChange,
+  AcceptanceItem,
+  MemberContextPreview,
+  ProviderLoginStatus,
+  ServerVersionView,
+} from '@projectman/shared';
 import {
+  ACCEPTANCE_OPEN_LABEL,
+  ACCEPTANCE_UNCONFIRMED_LABEL,
+  acceptanceLabels,
+  acceptanceRefusal,
   chatWindow,
   checklistConditionHolds,
   checklistProgress,
@@ -39,8 +49,6 @@ import {
   CreateIntegratorAccessKeyRequest,
   IntegratorKeyAuditQuery,
   SuperAuditQuery,
-  ListSuperHandoffsQuery,
-  SUPER_OPEN_STATES,
   InvolvementQuery,
   canManageProviderKeys,
   SetProviderKeyRequest,
@@ -103,6 +111,7 @@ import {
   attachmentPreviewOf,
   withQuestionAttachmentGone,
   canDeleteAttachment,
+  canResolveInboxItem,
   canSeeInboxItem,
   visibleQuestionItem,
   isPendingQuestion,
@@ -128,6 +137,7 @@ import {
   handOnRequestOf,
   holdersAllow,
   isBuiltInRole,
+  isLiveSession,
   isOnLeave,
   isRequiredProjectManager,
   isOpenTask,
@@ -480,7 +490,7 @@ function mockCommit(task: Pick<Task, 'key'>, salt: string): string {
  * real server would, so the UI runs through its normal data path.
  */
 export class MockBackend {
-  serverVersion: ServerVersionView = { version: 'dev', commit: null, tag: null };
+  serverVersion: ServerVersionView = { version: 'dev', commit: null, tag: null, latestReleaseTag: null };
   auth: MockAuthState;
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
   setupCode: string | null = null;
@@ -498,10 +508,11 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
+  /** The cards' acceptance items by card key (PM-1137); a card with no entry has none. */
+  private acceptance = new Map<string, AcceptanceItem[]>();
   integratorKeys: import('@projectman/shared').IntegratorAccessKeyInfo[] = [];
   integratorKeyAudits: import('@projectman/shared').IntegratorKeyAuditEntry[] = [];
   superAudits: import('@projectman/shared').SuperOperationAudit[] = [];
-  superHandoffs: import('@projectman/shared').SuperHandoff[] = [];
   superOperations: import('@projectman/shared').SuperOperation[] = [];
   superResults = new Map<string, import('@projectman/shared').SuperAdministrationResult>();
   private viewerAccess(): import('@projectman/shared').HumanAccess {
@@ -566,14 +577,13 @@ export class MockBackend {
       role: this.findMember(this.viewerHandle)?.role ?? '',
     }),
     isHostOwner: () => this.isHostOwner(),
-    isLive: (session) => this.isLive(session),
     isAiMember: (handle) => this.findMember(handle)?.kind === 'ai',
     emit: (event) => this.emit(event),
     addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
     updateSession: (id, patch) => this.updateSession(id, patch),
     updateTask: (key, patch) => this.updateTask(key, patch),
     flushHeldMessages: () => {
-      for (const session of this.sessions) if (this.isLive(session)) this.flushTeamMessages(session);
+      for (const session of this.sessions) if (isLiveSession(session)) this.flushTeamMessages(session);
     },
   });
   inbox: InboxItem[] = clone(fixtures.inbox);
@@ -876,11 +886,6 @@ export class MockBackend {
     });
   }
 
-  /** A session that has not exited or failed. */
-  isLive(session: Session): boolean {
-    return session.state !== 'exited' && session.state !== 'failed';
-  }
-
   updateTask(key: string, patch: Partial<Task>, actor = this.viewerHandle): Task | undefined {
     const task = this.findTask(key);
     if (!task) return undefined;
@@ -925,6 +930,174 @@ export class MockBackend {
     });
     this.settleSeniorWaits();
     return ok(this.taskDetail(task));
+  }
+
+  /** The card's acceptance items in order (PM-1137); a copy. */
+  acceptanceOf(taskKey: string): AcceptanceItem[] {
+    return clone(this.acceptance.get(taskKey) ?? []);
+  }
+
+  /** Sets a card's acceptance items as they stand (a fixture), the system labels following them. */
+  putAcceptance(taskKey: string, items: AcceptanceItem[]): void {
+    this.acceptance.set(taskKey, clone(items));
+    this.syncAcceptanceLabels(taskKey);
+  }
+
+  /**
+   * An update's acceptance changes as the viewer, all or nothing, by the shared rules (`acceptanceRefusal`);
+   * the system labels follow the items. Returns the server's answer to a refusal, null when it all went through.
+   */
+  changeAcceptance(taskKey: string, changes: AcceptanceChange[]): MockResponse | null {
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    if (isTheme(task)) return error(400, 'task_is_theme', 'A theme has no acceptance items');
+    const member = this.findMember(this.viewerHandle);
+    const actor = { kind: member?.kind ?? 'human', handle: this.viewerHandle } as const;
+    const items = this.acceptanceOf(taskKey);
+    const moves: { from: AcceptanceItem; target: Task }[] = [];
+    const events: Record<string, unknown>[] = [];
+    const now = nowIso();
+    for (const change of changes) {
+      const item = change.op === 'add' ? undefined : items.find((entry) => entry.id === change.itemId);
+      if (change.op !== 'add' && !item)
+        return error(404, 'acceptance_item_not_found', 'Unknown acceptance item', { itemId: change.itemId });
+      const target = change.op === 'move' ? this.findTask(change.taskKey) : null;
+      const reason = acceptanceRefusal({
+        config: this.config,
+        task,
+        item,
+        count: items.length,
+        change,
+        actor,
+        target,
+      });
+      if (reason)
+        return error(409, 'acceptance_item_refused', 'The acceptance item cannot be changed', {
+          reason,
+          itemId: item?.id ?? null,
+        });
+      const marked = { markedBy: this.viewerHandle, markedAt: now, confirmedBy: null, confirmedAt: null };
+      const cleared = { evidence: null, reason: null, movedTo: null };
+      let next: AcceptanceItem;
+      if (change.op === 'add') {
+        next = {
+          id: `acc_${mockId('item').slice(5).padStart(10, '0')}`,
+          position: Math.max(-1, ...items.map((entry) => entry.position)) + 1,
+          text: change.text,
+          state: 'open',
+          ...cleared,
+          origin: null,
+          markedBy: null,
+          markedAt: null,
+          confirmedBy: null,
+          confirmedAt: null,
+          createdBy: this.viewerHandle,
+          createdAt: now,
+          updatedAt: now,
+        };
+        items.push(next);
+      } else {
+        const current = item!;
+        if (change.op === 'remove') {
+          items.splice(items.indexOf(current), 1);
+          events.push({ itemId: current.id, change: change.op, text: current.text, state: current.state });
+          continue;
+        }
+        if (change.op === 'edit') next = { ...current, text: change.text, updatedAt: now };
+        else if (change.op === 'done')
+          next = {
+            ...current,
+            ...cleared,
+            ...marked,
+            state: 'done',
+            evidence: change.evidence,
+            updatedAt: now,
+          };
+        else if (change.op === 'not_needed')
+          next = {
+            ...current,
+            ...cleared,
+            ...marked,
+            state: 'not_needed',
+            reason: change.reason,
+            updatedAt: now,
+          };
+        else if (change.op === 'move') {
+          next = {
+            ...current,
+            ...cleared,
+            ...marked,
+            state: 'moved',
+            movedTo: change.taskKey,
+            updatedAt: now,
+          };
+          moves.push({ from: next, target: target! });
+        } else if (change.op === 'reopen')
+          next = {
+            ...current,
+            ...cleared,
+            state: 'open',
+            markedBy: null,
+            markedAt: null,
+            confirmedBy: null,
+            confirmedAt: null,
+            updatedAt: now,
+          };
+        else next = { ...current, confirmedBy: this.viewerHandle, confirmedAt: now, updatedAt: now };
+        items[items.indexOf(current)] = next;
+      }
+      events.push({
+        itemId: next.id,
+        change: change.op,
+        text: next.text,
+        state: next.state,
+        ...(change.op === 'move' ? { taskKey: change.taskKey } : {}),
+        ...(change.op === 'reopen' && change.note ? { note: change.note } : {}),
+      });
+    }
+    this.acceptance.set(taskKey, items);
+    for (const { from, target } of moves) {
+      const there = this.acceptanceOf(target.key);
+      if (there.some((entry) => entry.origin?.taskKey === taskKey && entry.origin.itemId === from.id))
+        continue;
+      there.push({
+        ...from,
+        id: `acc_${mockId('item').slice(5).padStart(10, '0')}`,
+        position: Math.max(-1, ...there.map((entry) => entry.position)) + 1,
+        state: 'open',
+        evidence: null,
+        reason: null,
+        movedTo: null,
+        origin: { taskKey, itemId: from.id },
+        markedBy: null,
+        markedAt: null,
+        confirmedBy: null,
+        confirmedAt: null,
+        createdBy: this.viewerHandle,
+        createdAt: now,
+        updatedAt: now,
+      });
+      this.acceptance.set(target.key, there);
+      this.syncAcceptanceLabels(target.key);
+    }
+    for (const data of events) this.addTimeline(taskKey, this.viewerHandle, 'acceptance_item_changed', data);
+    this.syncAcceptanceLabels(taskKey);
+    return null;
+  }
+
+  /** Puts the system labels the card's items call for on the card and takes the others off. */
+  private syncAcceptanceLabels(taskKey: string): void {
+    const task = this.findTask(taskKey);
+    if (!task) return;
+    const wanted = acceptanceLabels(this.acceptanceOf(taskKey));
+    const labels = task.labels.filter(
+      (id) => id !== ACCEPTANCE_OPEN_LABEL && id !== ACCEPTANCE_UNCONFIRMED_LABEL,
+    );
+    if (wanted.open && labelDefinition(this.config, ACCEPTANCE_OPEN_LABEL))
+      labels.push(ACCEPTANCE_OPEN_LABEL);
+    if (wanted.unconfirmed && labelDefinition(this.config, ACCEPTANCE_UNCONFIRMED_LABEL))
+      labels.push(ACCEPTANCE_UNCONFIRMED_LABEL);
+    if (JSON.stringify(labels) !== JSON.stringify(task.labels)) this.updateTask(taskKey, { labels });
   }
 
   addTimeline(
@@ -1138,7 +1311,11 @@ export class MockBackend {
     if (!task?.loop) return;
     if (optionId === 'stop_work') {
       for (const session of this.sessions)
-        if (session.workItem.type === 'task' && session.workItem.taskKey === task.key && this.isLive(session))
+        if (
+          session.workItem.type === 'task' &&
+          session.workItem.taskKey === task.key &&
+          isLiveSession(session)
+        )
           this.updateSession(session.id, { state: 'exited', activity: null });
       this.endLoop(task.key, 'stopped', by);
       return;
@@ -1182,7 +1359,7 @@ export class MockBackend {
       testsFailed: rounds.testsFailed,
       extraRounds: this.fixState(taskKey).extraRounds,
       remainingExtraRounds: remainingFixExtraRounds(this.fixState(taskKey).extraRounds),
-      extraRoundLimit: MAX_FIX_EXTRA_ROUNDS as 3,
+      extraRoundLimit: MAX_FIX_EXTRA_ROUNDS,
     };
   }
 
@@ -1448,17 +1625,17 @@ export class MockBackend {
   updateSession(id: string, patch: Partial<Session>): Session | undefined {
     const session = this.findSession(id);
     if (!session) return undefined;
-    const wasEnded = !this.isLive(session);
+    const wasEnded = !isLiveSession(session);
     const stateChanged = patch.state !== undefined && patch.state !== session.state;
     Object.assign(session, patch, {
       lastActivityAt: nowIso(),
       ...(stateChanged ? { stateSince: nowIso() } : {}),
     });
     // A session that runs again no longer rests: the reason of its last stop goes (PM-288).
-    if (wasEnded && this.isLive(session)) delete session.lastStop;
+    if (wasEnded && isLiveSession(session)) delete session.lastStop;
     if (wasEnded || session.state === 'idle' || session.state === 'waiting_input')
       this.flushTeamMessages(session);
-    if (session.workItem.type === 'schedule' && !this.isLive(session)) {
+    if (session.workItem.type === 'schedule' && !isLiveSession(session)) {
       const run = this.scheduleRuns.find((r) => r.sessionId === session.id);
       if (run) {
         run.status = session.state === 'failed' ? 'failed' : 'done';
@@ -1544,7 +1721,7 @@ export class MockBackend {
     if (sessionId)
       this.appendChat(sessionId, [this.chatItem('team_message', { direction: 'out', from, to, text: body })]);
     for (const handle of to) {
-      const live = this.sessions.filter((s) => s.member === handle && this.isLive(s));
+      const live = this.sessions.filter((s) => s.member === handle && isLiveSession(s));
       const target =
         live.find((s) => s.workItem.type === 'task' && s.workItem.taskKey === taskKey) ?? live[0];
       if (target) this.flushTeamMessages(target);
@@ -2477,12 +2654,7 @@ export class MockBackend {
         return error(403, 'insufficient_access', 'Only the engine owner or the project owner may unbind it');
       const bound = bindings.find((b) => b.engineId === engineId);
       if (!bound) return error(404, 'engine_not_found', 'The engine is not bound');
-      if (
-        this.sessions.some(
-          (session) =>
-            session.engineId === engineId && session.state !== 'exited' && session.state !== 'failed',
-        )
-      )
+      if (this.sessions.some((session) => session.engineId === engineId && isLiveSession(session)))
         return error(409, 'engine_in_use', 'The project has a session on this engine');
       if (bound.isDefault && bindings.length > 1)
         return error(409, 'engine_is_default', 'Make another engine the default first');
@@ -2497,7 +2669,7 @@ export class MockBackend {
   }
 
   private machineView(): MachineView {
-    const live = this.sessions.filter((session) => this.isLive(session));
+    const live = this.sessions.filter((session) => isLiveSession(session));
     return {
       sampledAt: nowIso(),
       intervalMs: 15000,
@@ -2536,7 +2708,7 @@ export class MockBackend {
         { kind: 'server', name: 'projectman', cpuPercent: 2, memoryBytes: 120 * 1024 ** 2, processCount: 1 },
       ],
       rest: { cpuPercent: 10, memoryBytes: 1024 ** 3 },
-      closedSessions: this.sessions.filter((session) => !this.isLive(session)).length,
+      closedSessions: this.sessions.filter((session) => !isLiveSession(session)).length,
     };
   }
 
@@ -2564,27 +2736,6 @@ export class MockBackend {
         entries: clone(entries),
         nextBefore: start + entries.length < all.length ? entries.at(-1)!.id : null,
       });
-    }
-    if (rest === '/operator-super/handoffs') {
-      if (this.viewerAccess() !== 'owner') return error(403, 'owner_only', 'Owner access required');
-      const input = ListSuperHandoffsQuery.safeParse(Object.fromEntries(query));
-      if (!input.success) return error(400, 'invalid_request', 'Invalid handoff query');
-      return ok({
-        handoffs: clone(
-          this.superHandoffs
-            .filter((entry) =>
-              input.data.state ? entry.state === input.data.state : SUPER_OPEN_STATES.includes(entry.state),
-            )
-            .slice(0, input.data.limit),
-        ),
-      });
-    }
-    if ((m = /^\/operator-super\/handoffs\/([^/]+)$/.exec(rest))) {
-      if (this.viewerAccess() !== 'owner') return error(403, 'insufficient_access', 'Owner access required');
-      const handoff = this.superHandoffs.find(
-        (entry) => entry.id === decodeURIComponent(m![1]!) && entry.projectKey === this.config.project.key,
-      );
-      return handoff ? ok({ handoff: clone(handoff) }) : error(404, 'not_found', 'Handoff not found');
     }
     if ((m = /^\/operator-super\/operations\/([^/]+)$/.exec(rest))) {
       if (this.viewerAccess() !== 'owner') return error(403, 'owner_only', 'Owner access required');
@@ -3728,7 +3879,7 @@ export class MockBackend {
         if (input.onLeave) {
           config.onLeave = member.onLeave = true;
           // Like the server: the running sessions of a member sent on leave stop.
-          for (const session of this.sessions.filter((s) => s.member === handle && this.isLive(s)))
+          for (const session of this.sessions.filter((s) => s.member === handle && isLiveSession(s)))
             this.updateSession(session.id, { state: 'exited', activity: null, endedAt: nowIso() });
           this.setMemberState(handle, 'idle', null);
         } else {
@@ -3823,7 +3974,8 @@ export class MockBackend {
       fields: ['status', 'closedAt'],
       ...why,
     });
-    for (const session of this.taskSessions(taskKey)) if (this.isLive(session)) this.stopSession(session.id);
+    for (const session of this.taskSessions(taskKey))
+      if (isLiveSession(session)) this.stopSession(session.id);
     for (const item of this.inbox.filter((entry) => entry.taskKey === taskKey && entry.state === 'open'))
       this.upsertInbox({ ...item, state: 'cancelled' });
     for (const member of this.members)
@@ -3989,6 +4141,7 @@ export class MockBackend {
       sessions: clone(this.taskSessions(task.key)),
       rounds: this.cardRounds(task.key),
       fixRounds: { rounds: this.fixRoundsOf(task.key).rounds, limit: this.fixLimitOf(task.key) },
+      ...(isTheme(task) ? {} : { acceptance: this.acceptanceOf(task.key) }),
     };
   }
 
@@ -5145,7 +5298,7 @@ export class MockBackend {
         duplicateMarkRefusal({
           task,
           stageKind: stageOf(this.config, task.stageId)?.kind,
-          hasLiveSession: this.taskSessions(task.key).some((session) => this.isLive(session)),
+          hasLiveSession: this.taskSessions(task.key).some((session) => isLiveSession(session)),
           mayCancel: lifecycleAllowed(this.config, { kind: 'human', handle: this.viewerHandle }, 'cancel'),
         }),
     });
@@ -5399,7 +5552,7 @@ export class MockBackend {
         s.member === assignee &&
         s.workItem.type === 'task' &&
         s.workItem.taskKey === task.key &&
-        this.isLive(s),
+        isLiveSession(s),
     );
     if (this.findMember(assignee)?.kind === 'ai' && !running && !this.config.team.limits.aiEnabled)
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
@@ -5611,7 +5764,7 @@ export class MockBackend {
         s.member === handle &&
         s.workItem.type === 'task' &&
         s.workItem.taskKey === task.key &&
-        this.isLive(s),
+        isLiveSession(s),
     );
     if (live) return;
     const session: Session = {
@@ -5761,7 +5914,7 @@ export class MockBackend {
       emailMailboxTaken([this.config, ...this.email.otherProjects], this.config.project.key, handle, to)
     )
       return error(409, 'email_mailbox_taken', 'The mailbox name is taken', { mailbox: to });
-    if (this.sessions.some((s) => s.member === handle && s.state !== 'exited' && s.state !== 'failed'))
+    if (this.sessions.some((s) => s.member === handle && isLiveSession(s)))
       return error(409, 'member_session_live', `${handle} is working`, { reason: 'session', member: handle });
 
     const next = renameMemberInConfig(this.config, handle, to);
@@ -5840,10 +5993,10 @@ export class MockBackend {
     const text = input.text.trim();
     if (!text) return error(400, 'invalid_request', 'The message text is empty', { field: 'text' });
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
-    if (!this.isLive(session) && !this.config.team.limits.aiEnabled)
+    if (!isLiveSession(session) && !this.config.team.limits.aiEnabled)
       return error(409, 'ai_disabled', 'AI work is switched off in this project');
     // A stopped session is not started while the team is paused; a live one takes the message and holds it.
-    if (!this.isLive(session) && this.pauses.isPaused())
+    if (!isLiveSession(session) && this.pauses.isPaused())
       return error(409, 'team_paused', 'The team is paused');
     if (taskKey && this.findTask(taskKey) && !isOpenTask(this.findTask(taskKey)!))
       return error(409, 'task_closed', 'Task is closed');
@@ -5926,7 +6079,7 @@ export class MockBackend {
     const holders: CapacityHolder[] = [];
     const ofTask = new Map<string, CapacityHolder>();
     for (const s of this.sessions) {
-      if (s.member !== handle || !this.isLive(s)) continue;
+      if (s.member !== handle || !isLiveSession(s)) continue;
       const working = isSessionAtWork(s, {
         awaitsFirstTurn: false,
         pendingInput: false,
@@ -5987,7 +6140,7 @@ export class MockBackend {
    */
   private admissionRefusal(member: AiMemberConfig, opts: { scheduleRun?: boolean } = {}): ErrorCode | null {
     const limits = this.config.team.limits;
-    const live = this.sessions.filter((s) => this.isLive(s));
+    const live = this.sessions.filter((s) => isLiveSession(s));
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
     const plan = this.planUsageFor(provider);
     if (!limits.aiEnabled) return 'ai_disabled';
@@ -6296,7 +6449,7 @@ export class MockBackend {
     if (!member) return error(404, 'not_found', 'Unknown member');
     if (member.kind !== 'ai') return error(400, 'not_ai_member', 'Only AI conversations');
     const existing = this.sessions.find((s) => s.member === handle && s.workItem.type === 'general');
-    if (existing && this.isLive(existing)) return { status: 202, body: clone(existing) };
+    if (existing && isLiveSession(existing)) return { status: 202, body: clone(existing) };
     const refusal = this.admissionRefusal(member);
     if (refusal) return error(409, refusal, 'The conversation cannot start now');
     const at = nowIso();
@@ -6444,7 +6597,7 @@ export class MockBackend {
     }
     const to = effectiveSessionPermissions(member, next);
     const restart =
-      this.isLive(session) && session.state !== 'idle' && from.permissionMode !== to.permissionMode;
+      isLiveSession(session) && session.state !== 'idle' && from.permissionMode !== to.permissionMode;
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
     const record = (field: 'mode' | 'approver', values: [unknown, unknown], sources: [string, string]) => {
       if (values[0] === values[1] && sources[0] === sources[1]) return;
@@ -6675,7 +6828,7 @@ export class MockBackend {
       return ok(clone(resolved));
     }
     if (operatorApproval) {
-      if (!item.assignees.includes(viewer.handle) && viewer.access !== 'owner')
+      if (!canResolveInboxItem(viewer, item))
         return error(403, 'not_an_assignee', 'Only assignees may decide');
       return this.resolveOperatorApproval(item, operatorApproval, input.optionId, viewer.handle);
     }
@@ -6686,8 +6839,7 @@ export class MockBackend {
       const refusal = approvalRefusal(this.config, gate.label, viewer.handle, task);
       if (refusal) return error(403, refusal, 'The approval is not allowed');
     }
-    if (!item.assignees.includes(viewer.handle) && !(item.kind !== 'decision' && viewer.access === 'owner'))
-      return error(403, 'not_an_assignee', 'Only assignees may decide');
+    if (!canResolveInboxItem(viewer, item)) return error(403, 'not_an_assignee', 'Only assignees may decide');
     const note = input.note?.trim() || null;
     const attached = (input.attachmentIds ?? []).map((id) =>
       this.messageAttachments.find((file) => file.id === id),
@@ -6791,7 +6943,7 @@ export class MockBackend {
         sessionId,
       );
       const session = sessionId ? this.findSession(sessionId) : undefined;
-      if (session && this.isLive(session))
+      if (session && isLiveSession(session))
         this.updateSession(session.id, { state: allowed ? 'working' : 'idle', activity: null });
       return;
     }

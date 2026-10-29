@@ -301,12 +301,12 @@ modules:
     summary: A kártyák, jegyzetek, lezárt kérdések, üzenetek és dokumentumok tartós keresőindexe.
     paths:
       - apps/server/src/services/history/
-  - id: services/operator
+  - id: services/coordination
     area: service
-    name: Operátor
-    summary: Operátori műveletek, jelzések, kérések és projektkezelés.
+    name: Koordináció
+    summary: A projektmenedzser koordinációja, jelzések, kérések és projektkezelés.
     paths:
-      - apps/server/src/services/operator/
+      - apps/server/src/services/coordination/
 
   # Server: engine
   - id: runner

@@ -6,8 +6,8 @@ import type { FullTestExecutor, ScreenshotExecutor } from './full-test';
 
 /**
  * The engine (PM-311): the machine the AI sessions, their worktrees and their sandboxes live on. The
- * domain reaches every machine-dependent part through an `EngineHost` (see "Machine-dependent parts"
- * in docs/ARCHITECTURE.md); today there is one, `local`, the machine the server runs on.
+ * domain reaches every machine-dependent part through an `EngineHost` (see docs/MACHINE-DEPENDENT.md);
+ * today there is one, `local`, the machine the server runs on.
  */
 
 /** The places of an engine. `null`: the engine has none of it (the feature is off). */

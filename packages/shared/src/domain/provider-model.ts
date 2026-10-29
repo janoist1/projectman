@@ -58,7 +58,7 @@ export function hasPlanUsage(provider: AgentProvider): boolean {
 }
 
 /** NanoGPT is paused on quota failures, independently of the configurable usage threshold. */
-export const PLAN_USAGE_PAUSE_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
+const PLAN_USAGE_PAUSE_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
 
 export function pausesOnPlanUsage(provider: AgentProvider): boolean {
   return PLAN_USAGE_PAUSE_PROVIDERS.includes(provider);
@@ -87,7 +87,7 @@ export function planUsagePause(
 const CLAUDE_MODEL =
   /^(?:default|best|opus|sonnet|haiku|fable|opusplan)(?:\[1m\])?$|^claude|^anthropic|opus|sonnet|haiku|fable|\[1m\]/i;
 
-export function modelFitsProvider(provider: AgentProvider, model: string): boolean {
+function modelFitsProvider(provider: AgentProvider, model: string): boolean {
   const claude = CLAUDE_MODEL.test(model.trim());
   const gemini = /^gemini-/i.test(model.trim());
   return (

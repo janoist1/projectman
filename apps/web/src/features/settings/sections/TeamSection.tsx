@@ -372,6 +372,40 @@ function PriorityControls({ config, helpId }: { config: ProjectConfig; helpId: s
   );
 }
 
+/** Whether the AI members' explicit assignments also have to fit the complexity limit (PM-1137). Saves as it changes. */
+function AssigneeFitControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const noteId = useId();
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-describedby={helpId}
+    >
+      <label className={`${shared.contactRow} ${shared.choiceRow}`}>
+        <input
+          type="checkbox"
+          checked={shown.team.assigneeFit === 'automatic_and_ai'}
+          aria-describedby={noteId}
+          onChange={(event) =>
+            commit((draft) => {
+              draft.team.assigneeFit = event.target.checked ? 'automatic_and_ai' : 'automatic';
+            })
+          }
+        />
+        <span className={shared.dutyText}>
+          <span>{t('settings.team.assigneeFit.question')}</span>
+          <span id={noteId} className={shared.dutyHolders}>
+            {t('settings.team.assigneeFit.note')}
+          </span>
+        </span>
+      </label>
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
 /** The first stage's name: where a client's new card starts (PM-1100). */
 function firstStageName(config: ProjectConfig): string {
   return config.pipeline.stages[0]?.name ?? '';
@@ -745,6 +779,7 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
   const { key, can, isOwner } = useProject();
   const roles = useRoles(key);
   const priorityHelpId = useId();
+  const assigneeFitHelpId = useId();
   const lifecycleHelpId = useId();
   const prerequisiteHelpId = useId();
   return (
@@ -919,6 +954,30 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
             </dl>
           </div>
         )}
+      </section>
+      <section aria-labelledby="settings-assignee-fit-title">
+        <h3 id="settings-assignee-fit-title" className={shared.groupTitle}>
+          {t('settings.team.assigneeFit.label')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={assigneeFitHelpId} className={shared.help}>
+            {t('settings.team.assigneeFit.help')}
+          </p>
+          {can.manageTeam ? (
+            <AssigneeFitControls config={config} helpId={assigneeFitHelpId} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.assigneeFit.readOnlyLabel')}</dt>
+                <dd>
+                  {config.team.assigneeFit === 'automatic_and_ai'
+                    ? t('settings.team.assigneeFit.value.automaticAndAi')
+                    : t('settings.team.assigneeFit.value.automatic')}
+                </dd>
+              </div>
+            </dl>
+          )}
+        </div>
       </section>
       <section aria-labelledby="settings-merger-title">
         <h3 id="settings-merger-title" className={shared.groupTitle}>

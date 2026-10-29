@@ -5,7 +5,7 @@ import type { ProjectDocToolsHandler, ProjectDocRead, ProjectDocWrite, ToolConte
 import type { DomainContext } from '../../core/base';
 import { DomainError } from '../../kernel';
 import type { ProjectService } from '../../core/projects';
-import type { OperatorSteps } from '../../services/operator';
+import type { OperatorSteps } from '../../services/coordination';
 import { docWindow, type DocWrites, type DecisionCandidates } from '../../services/project-docs';
 import {
   refusalOf,

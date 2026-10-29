@@ -75,6 +75,17 @@ export function createReleasePublicationRepository(db: Db) {
         .get(projectKey, repo) as PublicationRow | undefined;
       return row ? publication(row) : null;
     },
+    /** The tag of the newest finished release, of any project, whose URL starts with `urlPrefix`; null when none. */
+    latestTagUnder(urlPrefix: string): string | null {
+      const row = db
+        .prepare(
+          `SELECT tag FROM release_publications
+           WHERE url IS NOT NULL AND substr(url, 1, length(?)) = ?
+           ORDER BY published_at DESC, rowid DESC LIMIT 1`,
+        )
+        .get(urlPrefix, urlPrefix) as { tag: string } | undefined;
+      return row?.tag ?? null;
+    },
     /** The tag of a commit whose GitHub release exists; null when it was not published. */
     tagOfCommit(commit: string): string | null {
       const row = db

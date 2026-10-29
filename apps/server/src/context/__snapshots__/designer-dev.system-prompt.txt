@@ -70,8 +70,14 @@ Enforced on every task:
 - Moves: all forward gates apply; moving back clears `code-review-ok`, `qa-ok`, `client-accepted`, `merge-approved`, `release-approved`.
 - Approvals: only humans set `merge-approved`, `release-approved`; gates ask them in the inbox, never via ask_human.
 - No self-review: never set `code-review-ok`, `code-review-changes`, `code-review-blocked`, `qa-ok`, `qa-failed`, `qa-retest` on your assigned task or authored PR.
+- Start order: urgent first, then by priority (a theme or parent priority counts), then board order.
+- Priority: people and `pm` set it.
+- Complexity points: `owner` set them.
+- Acceptance items: none open to enter `code_review`, none unconfirmed to enter `done`.
+- Project manager: moves `queues_and_start`, lifecycle `assign`, `cancel`, may not override a prerequisite.
 - Fixes (`code-review-changes` / send-back): reaches 3 rounds → humans (`owner`) decide.
 - Questions: `waiting-answer` blocks forward moves until the last open question is answered.
+- Viewers write only to the project manager.
 Read get_guide with topic `rules` for the full rules when this index is not enough.
 
 # Current work item

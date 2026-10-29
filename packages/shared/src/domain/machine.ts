@@ -8,8 +8,8 @@ import { SessionState, WorkItemRef } from './session';
  * uses it, and which processes of a finished session are left behind ("orphans").
  */
 
-export const MachineLevel = z.enum(['ok', 'high', 'critical']);
-export type MachineLevel = z.infer<typeof MachineLevel>;
+const MachineLevel = z.enum(['ok', 'high', 'critical']);
+type MachineLevel = z.infer<typeof MachineLevel>;
 
 /** The operating system's memory pressure (macOS only). */
 export const MemoryPressure = z.enum(['normal', 'warn', 'critical']);
@@ -19,7 +19,7 @@ export type MemoryPressure = z.infer<typeof MemoryPressure>;
  * A value at a threshold is already in the higher level. Swap is compared with the *physical*
  * memory, not with the swap size: on macOS the swap file grows on demand.
  */
-export const MACHINE_THRESHOLDS = {
+const MACHINE_THRESHOLDS = {
   cpuPercent: { high: 70, critical: 90 },
   memoryPercent: { high: 80, critical: 90 },
   swapOfMemoryPercent: { high: 25, critical: 50 },

@@ -7,8 +7,6 @@ import { z } from 'zod';
 
 /** The default place of the client configuration, below the user's home. */
 export const CLIENT_CONFIG_RELATIVE_PATH = '.config/projectman/client.json';
-/** The default key file named by a configuration written for the existing integrator-key layout. */
-export const CLIENT_KEY_RELATIVE_PATH = '.config/projectman/integrator-key';
 
 /** `~/.config/projectman/client.json`: `{ version: 1, baseUrl, keyFile, accessHeadersFile? }`. */
 export const ClientConfig = z.strictObject({

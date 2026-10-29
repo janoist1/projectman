@@ -48,9 +48,9 @@ export const MemberUsage = z.object({
 });
 export type MemberUsage = z.infer<typeof MemberUsage>;
 
-export const EMPTY_TOKEN_COUNTS: TokenCounts = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+const EMPTY_TOKEN_COUNTS: TokenCounts = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
-export function addTokenCounts(a: TokenCounts, b: TokenCounts): TokenCounts {
+function addTokenCounts(a: TokenCounts, b: TokenCounts): TokenCounts {
   return {
     input: a.input + b.input,
     output: a.output + b.output,

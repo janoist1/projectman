@@ -14,7 +14,7 @@ import { createIntegratorKeyRepository } from './integrator-keys';
 import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
 import { createSuperAuditRepository } from './super-audit';
 import { createSuperHandoffRepository } from './super-handoffs';
-export type { StoredSuperHandoff, StoredSuperOperation } from './super-handoffs';
+export type { StoredSuperOperation } from './super-handoffs';
 import { createFeedbackRepository } from './feedback';
 import { createSystemFeedbackRepository } from './system-feedback';
 export type { SystemFeedbackItemRecord } from './system-feedback';

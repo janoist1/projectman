@@ -16,9 +16,7 @@ import type {
   FeedbackStatus,
   HistorySearchInput,
   HistorySearchResult,
-  HistorySearchStats,
   HistorySourceRead,
-  HistoryStatsInput,
   MemberHandle,
   MergeCheckRun,
   MergeCheckRunKind,
@@ -59,7 +57,6 @@ import type {
   ConfigChangeRow,
   ProjectDoc,
   NewSuperCommand,
-  SuperHandoff,
   ExternalAttachmentRead,
   ExternalDocWriteState,
   ExternalQuestionRead,
@@ -68,7 +65,6 @@ import type {
 import type {
   Actor,
   InboxItem,
-  ListSuperHandoffsQuery,
   HostRequestState,
   HostRequestListResponse,
   HostRequestView,
@@ -723,12 +719,6 @@ export interface HistoryToolsHandler {
     ctx: ToolContext,
     args: HistorySourceReadArgs & { projectKey?: string },
   ): Promise<HistorySourceRead>;
-  /**
-   * get_history_search_stats: the private statistics of the search log. Only the Operator, in the general
-   * conversation of a human owner or admin, tied to their own open message or answer request; otherwise
-   * `history_stats_forbidden`.
-   */
-  getHistorySearchStats(ctx: ToolContext, args: HistoryStatsInput): Promise<HistorySearchStats>;
 }
 
 export interface InboxToolsHandler {
@@ -971,7 +961,7 @@ export interface UpdateChecklistResult {
   added?: string[];
 }
 
-/** The tools of services/operator (PM-605). */
+/** The tools of services/coordination (PM-605). */
 export interface OperatorToolsHandler {
   getRoleConfiguration(ctx: ToolContext, args: { role: BuiltInRoleId }): Promise<RoleConfigurationRead>;
   requestStructuralReview(
@@ -1181,14 +1171,6 @@ export interface ExternalToolsHandler {
     ctx: ExternalToolContext,
     args: { taskKey: string; offset?: number; limit?: number },
   ): Promise<AttachmentPage>;
-  listSuperHandoffs(
-    ctx: ExternalToolContext,
-    query: ListSuperHandoffsQuery,
-  ): Promise<{ handoffs: SuperHandoff[] }>;
-  executeSuperHandoff(
-    ctx: ExternalToolContext,
-    args: { handoffId: string; requestId: string },
-  ): Promise<{ operation: SuperOperation }>;
   superOperate(
     ctx: ExternalToolContext,
     request: SuperOperateRequest,

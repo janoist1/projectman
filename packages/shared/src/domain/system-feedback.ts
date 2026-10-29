@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { HumanAccess } from './member';
+import { PROJECTMAN_REPOSITORY } from './upstream';
 
 /**
  * System feedback (PM-472): a gap in projectman the Operator found, recorded per installation. The host
@@ -13,11 +14,9 @@ export const SYSTEM_FEEDBACK_TITLE_MAX = 120;
 export const SYSTEM_FEEDBACK_TEXT_MAX = 2000;
 /** The edited text of a manual send. */
 export const SYSTEM_FEEDBACK_BODY_MAX = 7000;
-/** The reason a feedback is dismissed with. */
-export const SYSTEM_FEEDBACK_REASON_MAX = 500;
 /** New items per project in a rolling 24 hours. */
 export const SYSTEM_FEEDBACK_NEW_PER_DAY = 10;
-export const SYSTEM_FEEDBACK_REPOSITORY = 'janoist1/projectman';
+export const SYSTEM_FEEDBACK_REPOSITORY = PROJECTMAN_REPOSITORY;
 /** The longest prefilled issue address the browser is sent to. */
 export const SYSTEM_FEEDBACK_PREFILL_URL_MAX = 8000;
 
@@ -26,8 +25,8 @@ export type SystemFeedbackState = z.infer<typeof SystemFeedbackState>;
 export const SystemFeedbackForwardingMode = z.enum(['manual', 'card', 'off']);
 export type SystemFeedbackForwardingMode = z.infer<typeof SystemFeedbackForwardingMode>;
 
-export const RedactionKind = z.enum(['secret', 'path', 'email', 'project', 'member', 'client']);
-export type RedactionKind = z.infer<typeof RedactionKind>;
+const RedactionKind = z.enum(['secret', 'path', 'email', 'project', 'member', 'client']);
+type RedactionKind = z.infer<typeof RedactionKind>;
 /** How many places of each kind were covered; a missing kind is 0. */
 export const RedactionCounts = z.partialRecord(RedactionKind, z.number().int().positive());
 export type RedactionCounts = z.infer<typeof RedactionCounts>;

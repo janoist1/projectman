@@ -17,7 +17,9 @@ import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
 import { useNow } from '../../../lib/useNow';
 import { CopyRow } from '../../engines/CopyRow';
+import { EngineModeSwitch } from '../../engines/EngineModeSwitch';
 import { engineState, projectSetCommand, statusText } from '../../engines/engineView';
+import { useEngineMode } from '../../engines/useEngineMode';
 import { SettingsSection } from './SettingsSection';
 import styles from './EnginesSection.module.css';
 
@@ -42,6 +44,7 @@ export function ProjectEnginesCard({
   const toast = useToast();
   const now = new Date(useNow(true, 30_000));
   const [dialog, setDialog] = useState<Dialogs>(null);
+  const [mode] = useEngineMode();
   const engines = query.data?.engines;
   const bound = new Set(engines?.map((engine) => engine.id));
   // A machine of the caller's own that this project does not use yet; a revoked one cannot be bound.
@@ -87,7 +90,7 @@ export function ProjectEnginesCard({
             <div className={styles.setup}>
               <p className={styles.line}>{t('projectEngines.notHolding')}</p>
               <CopyRow
-                text={projectSetCommand(key, t('projectEngines.folderPlaceholder'))}
+                text={projectSetCommand(key, t('projectEngines.folderPlaceholder'), mode)}
                 label={t('projectEngines.commandAria')}
               />
               <p className={styles.muted}>{t('projectEngines.folderHint')}</p>
@@ -178,9 +181,12 @@ export function ProjectEnginesCard({
           {bindButton('primary')}
         </div>
       ) : (
-        <ul className={styles.list} aria-label={title}>
-          {query.data.engines.map(row)}
-        </ul>
+        <>
+          {query.data.engines.some((engine) => !engine.holdsProject) && <EngineModeSwitch />}
+          <ul className={styles.list} aria-label={title}>
+            {query.data.engines.map(row)}
+          </ul>
+        </>
       )}
       {dialog?.kind === 'bind' && <BindDialog free={free} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'unbind' && <UnbindDialog engine={dialog.engine} onClose={() => setDialog(null)} />}

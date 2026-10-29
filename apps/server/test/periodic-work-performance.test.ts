@@ -13,7 +13,7 @@ import { MemberQueueWorker } from '../src/runtime/member-queue';
 import { createDomainHarness, OWNER } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';
-import { StructuralPatterns } from '../src/services/operator/structural-patterns';
+import { StructuralPatterns } from '../src/services/coordination/structural-patterns';
 import { conflict } from '../src/kernel';
 import * as kernel from '../src/kernel';
 import { TIMELINE_SQL } from '../src/db/timeline';

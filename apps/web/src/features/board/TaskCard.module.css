@@ -26,20 +26,20 @@
  * The cards no longer sit by what they wait for (PM-118), so what waits for a person, or is blocked,
  * is told by a stripe on the card's edge.
  */
-.card[data-phase='needs_you']:not(.selected, .compact, .fileTarget),
-.card[data-phase='stuck']:not(.selected, .compact, .fileTarget) {
+.card[data-phase='needs_you']:not(.selected, .fileTarget),
+.card[data-phase='stuck']:not(.selected, .fileTarget) {
   box-shadow:
     var(--shadow-xs),
     inset 3px 0 0 var(--c-needs);
 }
-.card[data-phase='blocked']:not(.selected, .compact, .fileTarget) {
+.card[data-phase='blocked']:not(.selected, .fileTarget) {
   box-shadow:
     var(--shadow-xs),
     inset 3px 0 0 var(--c-blocked);
 }
 
 /* A card a person can start now (PM-1079): the green stripe and the ▶ mark tell it from the waiting ones. */
-.card[data-startable]:not(.selected, .compact, .fileTarget) {
+.card[data-startable]:not(.selected, .fileTarget) {
   box-shadow:
     var(--shadow-xs),
     inset 3px 0 0 var(--c-ok);
@@ -69,17 +69,6 @@
   font-weight: 800;
   line-height: 1.3;
   overflow-wrap: anywhere;
-}
-
-.compact {
-  padding: 9px 12px;
-  gap: 5px;
-  border-radius: var(--radius-xl);
-}
-
-.compact .title {
-  font-size: var(--text-lg);
-  line-height: 1.25;
 }
 
 /* The first line says which card this is, how far it has come and whose it is. */
@@ -253,12 +242,6 @@
   font-size: var(--text-xs);
 }
 
-.compact .status {
-  padding-top: 0;
-  border-top: 0;
-  font-size: var(--text-sm);
-}
-
 .statusText {
   flex-grow: 1;
   min-width: 0;
@@ -376,24 +359,6 @@
   to {
     background-position: -200% 0;
   }
-}
-
-/* On the phone a small square at the right of the card instead. */
-.hasThumbnail {
-  position: relative;
-  padding-right: 66px;
-}
-
-.thumbnail {
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  width: 40px;
-  height: 40px;
-  margin: 0;
-  transform: translateY(-50%);
-  border: 1px solid var(--c-line);
-  border-radius: var(--radius-sm);
 }
 
 /* Files on their way to this card. */

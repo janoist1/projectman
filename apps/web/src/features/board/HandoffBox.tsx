@@ -18,7 +18,7 @@ import {
 } from '../../lib/handoff';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
-import { isLiveSession } from '../../lib/sessions';
+import { isLiveSession } from '@projectman/shared';
 import { useNow } from '../../lib/useNow';
 import styles from './SignalBox.module.css';
 

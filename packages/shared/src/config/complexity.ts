@@ -4,12 +4,11 @@ import type { DutyId } from '../domain/duty';
 import type { Actor } from '../domain/event';
 import { memberDuties, stageDuty, stageOwners } from './duties';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
+import { teamSettingOf } from './team-settings';
 
-/** The duties that may set complexity points when the project does not say (today's rule, PM-1097). */
-export const DEFAULT_COMPLEXITY_SETTERS: readonly DutyId[] = ['requirements_analysis', 'task_breakdown'];
-
+/** The duties that may set complexity points (PM-1097). */
 export function complexitySettersOf(config: Pick<ProjectConfig, 'team'>): readonly DutyId[] {
-  return config.team.complexitySetters ?? DEFAULT_COMPLEXITY_SETTERS;
+  return teamSettingOf(config, 'complexitySetters');
 }
 
 /** A project owner always may; any other member needs a duty in `team.complexitySetters`. */
@@ -47,7 +46,7 @@ export function tempMaxPointsOf(config: Pick<ProjectConfig, 'team'>): Complexity
  * and a person's own Claude (`kind: 'human'`) name anyone freely.
  */
 export function assigneeFitApplies(config: Pick<ProjectConfig, 'team'>, actor: Pick<Actor, 'kind'>): boolean {
-  return actor.kind === 'ai' && config.team.assigneeFit === 'automatic_and_ai';
+  return actor.kind === 'ai' && teamSettingOf(config, 'assigneeFit') === 'automatic_and_ai';
 }
 
 export function complexityLimitOf(

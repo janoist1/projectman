@@ -18,11 +18,12 @@ const SECOND_KEY = { id: 'ikey_handoff_2', prefix: 'pmi_handoff2' };
 const HOUR = 60 * 60 * 1000;
 const SUPER_ACTOR: ConnectedActor = connectedActorOf('owner', { id: KEY.id, prefix: KEY.prefix });
 
-// The Operator asks (no token); the integrator executes (with the owner's token). Fictional commands only.
+// The integrator starts them with the owner's token. Fictional commands only.
 const PAUSE: NewSuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
-const RETIRE: NewSuperCommand = { kind: 'operate', operation: { op: 'member_retire', handle: 'dev-1' } };
+const RESUME: NewSuperCommand = { kind: 'operate', operation: { op: 'project_resume' } };
+const RETIRE: NewSuperCommand ={ kind: 'operate', operation: { op: 'member_retire', handle: 'dev-1' } };
 
-describe('durable super-mode handoff (PM-762)', () => {
+describe('super-mode operations (PM-762, PM-764)', () => {
   let h: DomainHarness;
   let clock: Date;
   const created = new Set<string>();
@@ -69,7 +70,6 @@ describe('durable super-mode handoff (PM-762)', () => {
     opts: {
       secret?: string;
       key?: typeof KEY;
-      requestId?: string;
       afterResolve?: () => void;
       requestOrigin?: 'owner' | 'member';
     } = {},
@@ -84,7 +84,7 @@ describe('durable super-mode handoff (PM-762)', () => {
       principal,
     );
     return h.domain.superOperator.run(
-      { principal, email: OWNER.email, requestId: opts.requestId ?? randomUUID(), projectKey: 'AR' },
+      { principal, email: OWNER.email, requestId: randomUUID(), projectKey: 'AR' },
       () => {
         const { requestOrigin } = opts;
         const context = integratorExecution();
@@ -106,36 +106,11 @@ describe('durable super-mode handoff (PM-762)', () => {
     );
   };
 
-  const request = (
+  const operate = (
     command: NewSuperCommand,
-    extra: Partial<{
-      requestId: string;
-      reason: string;
-      expectedConfigVersion: string;
-      taskKey: string;
-    }> = {},
-  ) =>
-    h.domain.superHandoffs.request(
-      'AR',
-      { kind: 'ai', handle: 'operator' },
-      {
-        reason: 'A fictional reason',
-        command,
-        requestId: randomUUID(),
-        ...extra,
-      },
-    );
-
-  const execute = (
-    handoffId: string,
-    requestId: string,
-    opts: {
-      secret?: string;
-      key?: typeof KEY;
-      afterResolve?: () => void;
-      requestOrigin?: 'owner' | 'member';
-    } = {},
-  ) => asIntegrator((access) => h.domain.superHandoffs.execute('AR', handoffId, requestId, access), opts);
+    requestId: string = randomUUID(),
+    opts: Parameters<typeof asIntegrator>[1] = {},
+  ) => asIntegrator((access) => h.domain.superHandoffs.operate('AR', { requestId, command }, access), opts);
 
   const answerAsOwner = (itemId: string, optionId: 'yes' | 'no') =>
     h.domain.inbox.resolve('AR', itemId, { optionId }, { handle: 'owner', access: 'owner' });
@@ -149,137 +124,66 @@ describe('durable super-mode handoff (PM-762)', () => {
     h.domain.superHandoffs.registerExecutor('operate', executor);
   };
 
-  const stored = (id: string) => h.domain.superHandoffs.handoff('AR', id);
+  const stored = (id: string) => h.domain.superHandoffs.operation('AR', id);
 
-  describe('recording a handoff', () => {
-    it('persists with no integrator running and needs no token', async () => {
-      await boot();
-      const handoff = await request(PAUSE, { taskKey: undefined });
-      expect(handoff).toMatchObject({ state: 'pending', operationId: null, projectKey: 'AR' });
-      expect(handoff.requestedBy).toEqual({ kind: 'ai', handle: 'operator' });
-      expect(h.domain.superHandoffs.list('AR', { limit: 50 }).map((x) => x.id)).toEqual([handoff.id]);
-      expect(h.repos.timeline.list('AR').some((e) => e.type === 'super_handoff_changed')).toBe(true);
-    });
-
-    it('is the same handoff for the same request id and content, a conflict for other content', async () => {
-      await boot();
-      const requestId = randomUUID();
-      const first = await request(PAUSE, { requestId });
-      const again = await request(PAUSE, { requestId });
-      expect(again.id).toBe(first.id);
-      expect(h.domain.superHandoffs.list('AR', { limit: 50 })).toHaveLength(1);
-      await expect(
-        request({ kind: 'operate', operation: { op: 'project_resume' } }, { requestId }),
-      ).rejects.toMatchObject({
-        code: 'super_request_conflict',
-        status: 409,
-      });
-      await expect(request(PAUSE, { requestId, reason: 'Another fictional reason' })).rejects.toMatchObject({
-        code: 'super_request_conflict',
-      });
-    });
-
-    it('survives a restart and still waits for an integrator', async () => {
-      await boot({ persistent: true });
-      const handoff = await request(PAUSE);
-      h = await restartDomainHarness(h, { now: () => clock });
-      expect(h.domain.superHandoffs.handoff('AR', handoff.id)).toMatchObject({ state: 'pending' });
-    });
-
-    it('lists by state and gives nothing of another project', async () => {
-      await boot();
-      const handoff = await request(PAUSE);
-      expect(h.domain.superHandoffs.list('AR', { state: 'pending', limit: 10 })).toHaveLength(1);
-      expect(h.domain.superHandoffs.list('AR', { state: 'succeeded', limit: 10 })).toHaveLength(0);
-      expect(() => h.domain.superHandoffs.handoff('ZZ', handoff.id)).toThrow(
-        expect.objectContaining({ status: 404 }),
-      );
-    });
-  });
-
-  describe('executing without an owner-reserved effect', () => {
+  describe('without an owner-reserved effect', () => {
     it('runs on the integrator`s own power and is idempotent on the request id', async () => {
       await boot();
       withExecutors();
-      const handoff = await request(PAUSE);
       const requestId = randomUUID();
-      const operation = await execute(handoff.id, requestId);
+      const operation = await operate(PAUSE, requestId);
       expect(operation).toMatchObject({
         state: 'succeeded',
-        handoffId: handoff.id,
+        handoffId: null,
         requestId,
         ownerQuestionId: null,
       });
-      expect(stored(handoff.id)).toMatchObject({ state: 'succeeded', operationId: operation.id });
       expect(calls).toHaveLength(1);
       expect(calls[0]!.command).toEqual(PAUSE);
       // The same request again is the same result, never a second run.
-      const again = await execute(handoff.id, requestId);
-      expect(again.id).toBe(operation.id);
+      expect((await operate(PAUSE, requestId)).id).toBe(operation.id);
       expect(calls).toHaveLength(1);
-      // A finished handoff takes no new request id.
-      await expect(execute(handoff.id, randomUUID())).rejects.toMatchObject({ code: 'super_handoff_closed' });
+      expect(h.repos.timeline.list('AR').some((e) => e.type === 'super_operation_changed')).toBe(true);
     });
 
-    it('refuses a request id that belongs to another handoff', async () => {
+    it('refuses another command under a used request id', async () => {
       await boot();
       withExecutors();
-      const first = await request(PAUSE);
-      const second = await request({ kind: 'operate', operation: { op: 'project_resume' } });
       const requestId = randomUUID();
-      await execute(first.id, requestId);
-      await expect(execute(second.id, requestId)).rejects.toMatchObject({ code: 'super_request_conflict' });
+      await operate(PAUSE, requestId);
+      await expect(operate(RESUME, requestId)).rejects.toMatchObject({
+        code: 'super_request_conflict',
+        status: 409,
+      });
       expect(calls).toHaveLength(1);
-      expect(stored(second.id).state).toBe('pending');
     });
 
     it('is refused without the owner`s super token and without a bound access', async () => {
       await boot();
       withExecutors();
-      const handoff = await request(PAUSE);
       const bare = { projectKey: 'AR', handle: 'owner', access: 'owner', member: {} } as ProjectAccess;
-      await expect(
-        h.domain.superHandoffs.execute('AR', handoff.id, randomUUID(), bare),
-      ).rejects.toMatchObject({ code: 'integrator_not_allowed' });
+      const input = { requestId: randomUUID(), command: PAUSE };
+      await expect(h.domain.superHandoffs.operate('AR', input, bare)).rejects.toMatchObject({
+        code: 'integrator_not_allowed',
+      });
       await expect(
         asIntegrator((access) =>
-          h.domain.superHandoffs.execute('AR', handoff.id, randomUUID(), {
-            ...access,
-            superActor: undefined,
-          }),
+          h.domain.superHandoffs.operate('AR', input, { ...access, superActor: undefined }),
         ),
       ).rejects.toMatchObject({ code: 'integrator_not_allowed' });
       expect(calls).toHaveLength(0);
-      expect(stored(handoff.id).state).toBe('pending');
-    });
-
-    it('reads a legacy administration handoff and refuses to execute it', async () => {
-      await boot();
-      const handoff = await request({ kind: 'task_create', request: { title: 'Legacy fixture' } });
-      const command = { kind: 'administration', request: { retiredShape: true } };
-      h.repos.db
-        .prepare('UPDATE super_handoffs SET command = ? WHERE id = ?')
-        .run(JSON.stringify(command), handoff.id);
-      expect(h.domain.superHandoffs.handoff('AR', handoff.id).command).toEqual(command);
-      await expect(execute(handoff.id, randomUUID())).rejects.toMatchObject({
-        code: 'administration_unavailable',
-      });
-      expect(stored(handoff.id).state).toBe('pending');
     });
 
     it('refuses what it cannot classify, and runs nothing (fail closed)', async () => {
       await boot();
       withExecutors();
-      const unknownMember = await request({
-        kind: 'operate',
-        operation: { op: 'member_update', handle: 'ghost', changes: { effort: 'high' } },
-      });
-      await expect(execute(unknownMember.id, randomUUID())).rejects.toMatchObject({
-        code: 'integrator_not_allowed',
-        status: 403,
-      });
+      await expect(
+        operate({
+          kind: 'operate',
+          operation: { op: 'member_update', handle: 'ghost', changes: { effort: 'high' } },
+        }),
+      ).rejects.toMatchObject({ code: 'integrator_not_allowed', status: 403 });
       expect(calls).toHaveLength(0);
-      expect(stored(unknownMember.id)).toMatchObject({ state: 'pending', operationId: null });
     });
 
     it('records a refusal of the executor as failed and anything else as unknown', async () => {
@@ -287,78 +191,37 @@ describe('durable super-mode handoff (PM-762)', () => {
       withExecutors(async () => {
         throw new DomainError('administration_failed', 'refused', { status: 409 });
       });
-      const refused = await request(PAUSE);
-      const failed = await execute(refused.id, randomUUID());
-      expect(failed).toMatchObject({ state: 'failed', errorCode: 'administration_failed' });
-      expect(stored(refused.id).state).toBe('failed');
+      expect(await operate(PAUSE)).toMatchObject({ state: 'failed', errorCode: 'administration_failed' });
 
       withExecutors(async () => {
         throw new Error('boom');
       });
-      const broken = await request({ kind: 'operate', operation: { op: 'project_resume' } });
-      const unknown = await execute(broken.id, randomUUID());
-      expect(unknown).toMatchObject({ state: 'unknown', errorCode: 'operation_unknown' });
-      expect(stored(broken.id).state).toBe('unknown');
+      const requestId = randomUUID();
+      expect(await operate(RESUME, requestId)).toMatchObject({
+        state: 'unknown',
+        errorCode: 'operation_unknown',
+      });
       // What may have had an effect is never run again by itself.
-      await expect(execute(broken.id, randomUUID())).rejects.toMatchObject({ code: 'super_handoff_closed' });
-    });
-
-    it('refuses the handoff when the configuration changed since it was made', async () => {
-      await boot();
       withExecutors();
-      const seen = (await h.domain.projects.load('AR')).version;
-      const stale = await request(PAUSE, { expectedConfigVersion: seen });
-      await h.domain.projects.patch(
-        'AR',
-        { baseVersion: seen, project: { name: 'Fictional renamed project' } },
-        {
-          actor: OWNER_ACTOR,
-          author: { ...OWNER },
-        },
-      );
-      await expect(execute(stale.id, randomUUID())).rejects.toMatchObject({
-        code: 'super_operation_stale',
-        status: 409,
-      });
+      expect((await operate(RESUME, requestId)).state).toBe('unknown');
       expect(calls).toHaveLength(0);
-      expect(stored(stale.id).state).toBe('pending');
-    });
-
-    it('lets two consumers race: only one runs it, the other is told it is busy', async () => {
-      await boot();
-      let release: () => void = () => undefined;
-      const gate = new Promise<void>((resolve) => (release = resolve));
-      withExecutors(async (job) => {
-        calls.push(job);
-        await gate;
-      });
-      const handoff = await request(PAUSE);
-      const first = execute(handoff.id, randomUUID());
-      await flush();
-      await expect(execute(handoff.id, randomUUID())).rejects.toMatchObject({ code: 'super_handoff_busy' });
-      expect(stored(handoff.id).state).toBe('running');
-      release();
-      expect((await first).state).toBe('succeeded');
-      expect(calls).toHaveLength(1);
     });
   });
 
-  describe('executing an owner-reserved effect', () => {
+  describe('an owner-reserved effect', () => {
     const waiting = async () => {
       withExecutors();
-      const handoff = await request(RETIRE);
       const requestId = randomUUID();
-      const operation = await execute(handoff.id, requestId);
-      return { handoff, requestId, operation };
+      const operation = await operate(RETIRE, requestId);
+      return { requestId, operation };
     };
 
     it('opens a question for the owner and runs nothing before the owner`s yes', async () => {
       await boot();
-      const { handoff, operation } = await waiting();
+      const { operation } = await waiting();
       expect(operation).toMatchObject({ state: 'waiting_owner' });
       expect(operation.ownerQuestionId).toBeTruthy();
       expect(calls).toHaveLength(0);
-      expect(stored(handoff.id)).toMatchObject({ state: 'waiting_owner', operationId: operation.id });
       const question = h.domain.inbox.get('AR', operation.ownerQuestionId!);
       expect(question).toMatchObject({ kind: 'question', state: 'open', assignees: ['owner'] });
       expect(question.payload).toMatchObject({
@@ -387,8 +250,7 @@ describe('durable super-mode handoff (PM-762)', () => {
       it('waits for the owner when a member`s request would make a role hold an approval', async () => {
         await boot();
         withExecutors();
-        const handoff = await request(GIVE_DEVELOPERS_REVIEW);
-        const operation = await execute(handoff.id, randomUUID(), { requestOrigin: 'member' });
+        const operation = await operate(GIVE_DEVELOPERS_REVIEW, randomUUID(), { requestOrigin: 'member' });
         expect(operation).toMatchObject({ state: 'waiting_owner' });
         expect(calls).toHaveLength(0);
       });
@@ -396,8 +258,7 @@ describe('durable super-mode handoff (PM-762)', () => {
       it('runs it on the owner`s own request', async () => {
         await boot();
         withExecutors();
-        const handoff = await request(GIVE_DEVELOPERS_REVIEW);
-        const operation = await execute(handoff.id, randomUUID(), { requestOrigin: 'owner' });
+        const operation = await operate(GIVE_DEVELOPERS_REVIEW, randomUUID(), { requestOrigin: 'owner' });
         expect(operation).toMatchObject({ state: 'succeeded' });
         expect(calls).toHaveLength(1);
       });
@@ -405,7 +266,7 @@ describe('durable super-mode handoff (PM-762)', () => {
 
     it('runs after the owner`s own yes, the same request id, and lets the reserved effect pass only then', async () => {
       await boot();
-      const { handoff, requestId, operation } = await waiting();
+      const { requestId, operation } = await waiting();
       const config = await h.domain.projects.config('AR');
       const mutation = {
         projectKey: 'AR',
@@ -418,7 +279,7 @@ describe('durable super-mode handoff (PM-762)', () => {
       });
 
       await answerAsOwner(operation.ownerQuestionId!, 'yes');
-      expect(h.domain.superHandoffs.operation('AR', operation.id).state).toBe('pending');
+      expect(stored(operation.id).state).toBe('pending');
       expect(calls).toHaveLength(0);
 
       let inside = false;
@@ -431,32 +292,49 @@ describe('durable super-mode handoff (PM-762)', () => {
         ).rejects.toMatchObject({ code: 'owner_approval_required' });
         inside = true;
       });
-      const done = await execute(handoff.id, requestId);
+      const done = await operate(RETIRE, requestId);
       expect(done).toMatchObject({ id: operation.id, state: 'succeeded' });
       expect(inside).toBe(true);
       expect(calls).toHaveLength(1);
-      expect(stored(handoff.id).state).toBe('succeeded');
       await expect(h.domain.superHandoffs.authorizer.assertAllowed(mutation)).rejects.toMatchObject({
         code: 'owner_approval_required',
       });
       // Repeating the request is the same result and no second run.
-      expect((await execute(handoff.id, requestId)).id).toBe(operation.id);
+      expect((await operate(RETIRE, requestId)).id).toBe(operation.id);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('lets two clients resuming at once run it only once', async () => {
+      await boot();
+      const { requestId, operation } = await waiting();
+      await answerAsOwner(operation.ownerQuestionId!, 'yes');
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      withExecutors(async (job) => {
+        calls.push(job);
+        await gate;
+      });
+      const first = operate(RETIRE, requestId);
+      const second = operate(RETIRE, requestId).catch((error: unknown) => error);
+      await flush();
+      release();
+      expect((await first).state).toBe('succeeded');
+      await second;
       expect(calls).toHaveLength(1);
     });
 
     it('carries the approver on the step that runs after the owner`s yes, and only then', async () => {
       await boot();
-      const { handoff, requestId, operation } = await waiting();
+      const { requestId, operation } = await waiting();
       await answerAsOwner(operation.ownerQuestionId!, 'yes');
-      await execute(handoff.id, requestId);
+      await operate(RETIRE, requestId);
       expect(calls).toHaveLength(1);
       expect(calls[0]!.access.superActor).toMatchObject({
         through: { holder: 'owner' },
         approvedBy: 'owner',
       });
 
-      const direct = await request(PAUSE);
-      await execute(direct.id, randomUUID());
+      await operate(PAUSE);
       expect(calls).toHaveLength(2);
       expect(calls[1]!.access.superActor?.through?.holder).toBe('owner');
       expect(calls[1]!.access.superActor?.approvedBy).toBeUndefined();
@@ -478,101 +356,79 @@ describe('durable super-mode handoff (PM-762)', () => {
       ).rejects.toMatchObject({ code: 'owner_approval_required' });
       await expect(resolve({ handle: 'dev-1', access: 'developer' })).rejects.toBeInstanceOf(DomainError);
       expect(h.domain.inbox.get('AR', id).state).toBe('open');
-      expect(h.domain.superHandoffs.operation('AR', operation.id).state).toBe('waiting_owner');
+      expect(stored(operation.id).state).toBe('waiting_owner');
     });
 
     it('cancels on the owner`s no and frees nothing to run', async () => {
       await boot();
-      const { handoff, requestId, operation } = await waiting();
+      const { requestId, operation } = await waiting();
       await answerAsOwner(operation.ownerQuestionId!, 'no');
-      expect(h.domain.superHandoffs.operation('AR', operation.id)).toMatchObject({
-        state: 'cancelled',
-        errorCode: 'owner_declined',
-      });
-      expect(stored(handoff.id).state).toBe('cancelled');
-      expect((await execute(handoff.id, requestId)).state).toBe('cancelled');
-      await expect(execute(handoff.id, randomUUID())).rejects.toMatchObject({ code: 'super_handoff_closed' });
+      expect(stored(operation.id)).toMatchObject({ state: 'cancelled', errorCode: 'owner_declined' });
+      expect((await operate(RETIRE, requestId)).state).toBe('cancelled');
       expect(calls).toHaveLength(0);
     });
 
-    it('does not let a second request id start while the first waits for the owner', async () => {
+    it('expires after 24 hours: the question lapses and a new request id asks again', async () => {
       await boot();
-      const { handoff } = await waiting();
-      await expect(execute(handoff.id, randomUUID())).rejects.toMatchObject({ code: 'super_handoff_busy' });
-    });
-
-    it('expires after 24 hours: the question lapses and the handoff can start again', async () => {
-      await boot();
-      const { handoff, operation } = await waiting();
+      const { operation } = await waiting();
       clock = new Date(clock.getTime() + 24 * HOUR + 1000);
       // An answer that arrives after the deadline, before anything swept, is refused.
       await expect(answerAsOwner(operation.ownerQuestionId!, 'yes')).rejects.toMatchObject({
         code: 'super_operation_expired',
       });
-      expect(h.domain.superHandoffs.list('AR', { limit: 10 })).toHaveLength(1);
-      expect(h.domain.superHandoffs.operation('AR', operation.id)).toMatchObject({
+      h.domain.superHandoffs.sweep();
+      expect(stored(operation.id)).toMatchObject({
         state: 'cancelled',
         errorCode: 'super_operation_expired',
       });
       expect(h.domain.inbox.get('AR', operation.ownerQuestionId!).state).toBe('expired');
-      expect(stored(handoff.id)).toMatchObject({ state: 'pending', operationId: null });
       // The owner's late yes cannot revive it.
       await expect(answerAsOwner(operation.ownerQuestionId!, 'yes')).rejects.toMatchObject({
         code: 'inbox_item_closed',
       });
-      // A new request id starts a fresh operation and a fresh question.
-      const next = await execute(handoff.id, randomUUID());
+      const next = await operate(RETIRE);
       expect(next).toMatchObject({ state: 'waiting_owner' });
       expect(next.id).not.toBe(operation.id);
     });
 
     it('refuses the yes when the configuration changed after the owner was asked', async () => {
       await boot();
-      const { handoff, requestId, operation } = await waiting();
+      const { requestId, operation } = await waiting();
       await answerAsOwner(operation.ownerQuestionId!, 'yes');
       const version = (await h.domain.projects.load('AR')).version;
       await h.domain.projects.patch(
         'AR',
         { baseVersion: version, project: { name: 'Fictional renamed project' } },
-        {
-          actor: OWNER_ACTOR,
-          author: { ...OWNER },
-        },
+        { actor: OWNER_ACTOR, author: { ...OWNER } },
       );
       withExecutors();
-      await expect(execute(handoff.id, requestId)).rejects.toMatchObject({
+      await expect(operate(RETIRE, requestId)).rejects.toMatchObject({
         code: 'super_operation_stale',
         status: 409,
       });
       expect(calls).toHaveLength(0);
-      expect(h.domain.superHandoffs.operation('AR', operation.id)).toMatchObject({
-        state: 'cancelled',
-        errorCode: 'super_operation_stale',
-      });
-      expect(stored(handoff.id)).toMatchObject({ state: 'pending', operationId: null });
+      expect(stored(operation.id)).toMatchObject({ state: 'cancelled', errorCode: 'super_operation_stale' });
     });
 
     it('refuses to start when the token was revoked, and a new token cannot use the old yes', async () => {
       await boot();
-      const { handoff, requestId, operation } = await waiting();
+      const { requestId, operation } = await waiting();
       await answerAsOwner(operation.ownerQuestionId!, 'yes');
       // Revoked after the request was authenticated, before the start: the service checks the key again.
       withExecutors();
       await expect(
-        execute(handoff.id, requestId, {
+        operate(RETIRE, requestId, {
           afterResolve: () => h.repos.integratorKeys.revokeById('user-1', KEY.id, clock.toISOString()),
         }),
       ).rejects.toMatchObject({ code: 'integrator_key_invalid' });
       expect(calls).toHaveLength(0);
-      expect(h.domain.superHandoffs.operation('AR', operation.id).state).toBe('pending');
+      expect(stored(operation.id).state).toBe('pending');
       // Another token, even with the same request id, is not the one the owner agreed to.
-      await expect(
-        execute(handoff.id, requestId, { secret: SECOND_SECRET, key: SECOND_KEY }),
-      ).rejects.toMatchObject({
-        code: 'super_operation_stale',
+      expect(await operate(RETIRE, requestId, { secret: SECOND_SECRET, key: SECOND_KEY })).toMatchObject({
+        state: 'waiting_owner',
       });
       expect(calls).toHaveLength(0);
-      expect(stored(handoff.id)).toMatchObject({ state: 'pending', operationId: null });
+      expect(stored(operation.id).state).toBe('pending');
     });
   });
 
@@ -585,24 +441,22 @@ describe('durable super-mode handoff (PM-762)', () => {
         started();
         await new Promise<void>(() => undefined);
       });
-      const running = await request(PAUSE);
-      void execute(running.id, randomUUID()).catch(() => undefined);
+      const requestId = randomUUID();
+      void operate(PAUSE, requestId).catch(() => undefined);
       await hasStarted;
-      expect(stored(running.id).state).toBe('running');
+      const running = h.repos.superHandoffs.operationByRequest('AR', KEY.id, requestId)!;
+      expect(running.state).toBe('running');
 
       withExecutors();
-      const owner = await request(RETIRE);
-      const waitingOp = await execute(owner.id, randomUUID());
+      const waitingOp = await operate(RETIRE);
       expect(waitingOp.state).toBe('waiting_owner');
 
       h = await restartDomainHarness(h, { now: () => clock });
-      expect(h.domain.superHandoffs.handoff('AR', running.id).state).toBe('unknown');
-      const op = h.repos.superHandoffs.operationsOfHandoff('AR', running.id)[0]!;
-      expect(op).toMatchObject({ state: 'unknown', errorCode: 'operation_unknown' });
-      expect(h.domain.superHandoffs.handoff('AR', owner.id).state).toBe('waiting_owner');
+      expect(stored(running.id)).toMatchObject({ state: 'unknown', errorCode: 'operation_unknown' });
+      expect(stored(waitingOp.id).state).toBe('waiting_owner');
 
       withExecutors();
-      await expect(execute(running.id, randomUUID())).rejects.toMatchObject({ code: 'super_handoff_closed' });
+      expect((await operate(PAUSE, requestId)).state).toBe('unknown');
       expect(calls).toHaveLength(0);
     });
   });
@@ -745,8 +599,7 @@ describe('durable super-mode handoff (PM-762)', () => {
     it('cannot answer the owner`s question about a super operation, whatever its purpose says', async () => {
       await boot();
       withExecutors();
-      const handoff = await request(RETIRE);
-      const operation = await execute(handoff.id, randomUUID());
+      const operation = await operate(RETIRE);
       await expect(
         asIntegrator(() =>
           h.domain.inbox.resolve(
@@ -763,8 +616,7 @@ describe('durable super-mode handoff (PM-762)', () => {
   it('exposes the operation record without secrets', async () => {
     await boot();
     withExecutors();
-    const handoff = await request(PAUSE);
-    const operation: SuperOperation = await execute(handoff.id, randomUUID());
+    const operation: SuperOperation = await operate(PAUSE);
     expect(JSON.stringify(operation)).not.toContain(SECRET);
     expect(Object.keys(operation).sort()).toEqual(
       [

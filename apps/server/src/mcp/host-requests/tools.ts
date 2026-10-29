@@ -11,7 +11,9 @@ export const HOST_REQUEST_TOOL_GROUP: TeamToolGroup = {
       audience: { capabilities: ['host_requests'] },
       readOnly: false,
       description:
-        'Open a request to the host of this projectman instance. Use it only when the owners need a right or a feature that only the instance host can grant. Ask the owners first (ask_human) and open the request only with their agreement. The host sees only the title and the text, never a card, a message or anything else of the project, so never put secrets, passwords, keys or client data in them. The answer comes back to you as a system message and to the owners as an inbox alert. At most five requests may be open at once.',
+        "Ask this instance's host for a right or feature only the host can grant, and only after the owners " +
+        'agreed (ask_human). The host sees only the title and the text: no secrets, keys or client data. The ' +
+        'answer comes as a system message, to the owners as an alert. At most five open at once.',
       input: {
         title: HostRequestTitle,
         body: HostRequestBody,

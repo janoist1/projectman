@@ -124,18 +124,23 @@ import {
   OperatorPreferences,
   OperatorRequests,
   OperatorSteps,
-} from './services/operator';
-import { LoopTriages, OperatorSignals, StructuralReviews, wireOperatorSignals } from './services/operator';
+} from './services/coordination';
+import {
+  LoopTriages,
+  OperatorSignals,
+  StructuralReviews,
+  wireOperatorSignals,
+} from './services/coordination';
 import { QuestionScreening } from './core/inbox';
-import { ProjectManagerChannels } from './services/operator';
-import { ProjectState } from './services/operator';
-import { PmReplyRelay } from './services/operator';
+import { ProjectManagerChannels } from './services/coordination';
+import { ProjectState } from './services/coordination';
+import { PmReplyRelay } from './services/coordination';
 import { CardQuestions } from './core/inbox';
 import { createDomainContext, defaultTemplateRegistry, isoNow } from './core/base';
 import type { DomainContext, TemplateRegistry } from './core/base';
 import { createEventBus } from './core/base';
 import { GithubSync } from './services/github';
-import { OperatorActions, OperatorApprovals } from './services/operator';
+import { OperatorActions, OperatorApprovals } from './services/coordination';
 import { FixLimitWatch } from './runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from './services/full-tests';
 import { outputTail, withGithubActions } from './full-test';
@@ -2625,7 +2630,6 @@ export function createDomain(opts: DomainOptions) {
         docWrites,
         humanQuestions,
         structuralReviews,
-        superHandoffs,
         superOperations,
         inbox,
         history,

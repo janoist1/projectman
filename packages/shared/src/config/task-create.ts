@@ -1,12 +1,11 @@
 import { hasAccess } from '../domain/member';
 import type { HumanAccess } from '../domain/member';
 import type { ProjectConfig, TaskCreateAccess } from './schema';
+import { teamSettingOf } from './team-settings';
 
-/** The lowest human access that may open a new card when the project does not say (today's rule, PM-1100). */
-export const DEFAULT_TASK_CREATE_ACCESS: TaskCreateAccess = 'developer';
-
+/** The lowest human access that may open a new card (PM-1100). */
 export function taskCreateAccessOf(config: Pick<ProjectConfig, 'team'>): TaskCreateAccess {
-  return config.team.taskCreateAccess ?? DEFAULT_TASK_CREATE_ACCESS;
+  return teamSettingOf(config, 'taskCreateAccess');
 }
 
 /**

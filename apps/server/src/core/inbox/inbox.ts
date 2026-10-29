@@ -25,6 +25,7 @@ import {
   ResolveIntegratorTodoRequest as IntegratorTodoRequestSchema,
   ScreeningTodo as ScreeningTodoSchema,
   approvalRefusal,
+  canResolveInboxItem,
   canSeeInboxItem,
   DELEGATED_INPUT_LIMIT,
   PERMISSION_LEAD_CAP_MS,
@@ -88,7 +89,12 @@ import type {
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { fixLimitDeciders, ownerHandles, RETIRED_OPERATOR_HANDLE } from '@projectman/shared';
+import {
+  fixLimitDeciders,
+  ownerHandles,
+  RETIRED_OPERATOR_HANDLE,
+  TEAM_SETTING_POLICY,
+} from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
@@ -1070,10 +1076,8 @@ export class InboxService {
       const refusal = approvalRefusal(config, gate.label, by.handle, task);
       if (refusal) throw forbidden(refusal, APPROVAL_REFUSALS[refusal]);
     }
-    const isAssignee = item.assignees.includes(by.handle);
-    if (!isAssignee && !(item.kind !== 'decision' && item.kind !== 'release' && by.access === 'owner')) {
+    if (!canResolveInboxItem(by, item))
       throw forbidden('not_an_assignee', 'only the assignees may resolve this item');
-    }
     const note = req.note?.trim() ? req.note.trim() : null;
     if (
       item.kind === 'question' &&
@@ -1390,8 +1394,9 @@ export class InboxService {
   private deliveredDeadline(item: InboxItem, deliveredAt: string): string {
     return deliveredLeadDeadline({
       deliveredAt,
-      leadTimeoutSeconds:
-        this.projects.cachedConfig(item.projectKey)?.team.boundary?.leadTimeoutSeconds ?? 120,
+      leadTimeoutSeconds: (
+        this.projects.cachedConfig(item.projectKey)?.team.boundary ?? TEAM_SETTING_POLICY.boundary.default
+      ).leadTimeoutSeconds,
       capAt: new Date(Date.parse(item.createdAt) + PERMISSION_LEAD_CAP_MS).toISOString(),
     });
   }

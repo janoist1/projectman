@@ -7,6 +7,7 @@ import { CardRoundKind, absorbedSendBacks, classifyCardRoundEvent, countCardRoun
 import type { DutyId } from './duty';
 import { Actor, timelineNoteExcerpt } from './event';
 import type { TimelineEvent, TimelineEventData } from './event';
+import { MAX_FIX_EXTRA_ROUNDS } from './fix-extra-rounds';
 
 /**
  * The upper limit on a card's fix rounds (PM-262), shared by the server and the web's fake backend. A fix
@@ -15,13 +16,6 @@ import type { TimelineEvent, TimelineEventData } from './event';
  * When they reach the limit the next round does not go to the implementer by itself: the lead developer
  * decides, and a person when the lead cannot or when it goes on after the lead.
  */
-
-/**
- * The most extra rounds ("one more round") the lead developer may hand out within one count (PM-714): after
- * that, every time the card reaches the limit a person decides. A fixed rule, not a project setting. People
- * may allow more; the stored count is never cut to this value.
- */
-export const MAX_FIX_EXTRA_ROUNDS = 3;
 
 /** The extra rounds still left for the lead developer to give, given the `extraRounds` handed out so far. */
 export function remainingFixExtraRounds(extraRounds: number): number {
@@ -47,8 +41,8 @@ export const FixLimitAssessment = z.object({
 export type FixLimitAssessment = z.infer<typeof FixLimitAssessment>;
 
 /** The duty of the lead developer who decides first, and the duty the lead also has to hold. */
-export const FIX_LIMIT_DECISION_DUTY: DutyId = 'technical_direction';
-export const FIX_LIMIT_LEAD_DUTY: DutyId = 'code_review';
+const FIX_LIMIT_DECISION_DUTY: DutyId = 'technical_direction';
+const FIX_LIMIT_LEAD_DUTY: DutyId = 'code_review';
 
 /** The rounds counted on a card. */
 export interface FixRounds {

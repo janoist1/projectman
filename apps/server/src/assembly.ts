@@ -1288,8 +1288,8 @@ export function createDomain(opts: DomainOptions) {
     target: opts.releaseTarget ?? null,
     appVersion: () => opts.appVersion ?? 'dev',
     appTag: opts.appTag ?? (async () => null),
-    // The instance's own repository is on the machine the server runs on.
-    engineId: () => LOCAL_ENGINE_ID,
+    // The repository is on the project's engine (a cloud server has none of its own: `eng_…`).
+    engineId: (projectKey) => engines.projectEngine(projectKey) ?? LOCAL_ENGINE_ID,
   });
   const releasePublications = new ReleasePublishService({
     ctx,

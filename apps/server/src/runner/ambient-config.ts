@@ -25,6 +25,7 @@ export const CODEX_OVERRIDING_ROOTS: ReadonlySet<string> = new Set([
   'default_permissions',
   'permissions',
   'hooks',
+  'project_root_markers',
   'mcp_servers',
   'profile',
   'profiles',
@@ -46,6 +47,16 @@ export const CODEX_SANDBOX_ROOTS: ReadonlySet<string> = new Set([
   'permissions',
   'profile',
   'profiles',
+]);
+
+/**
+ * What a Codex start refuses beyond the sandbox roots (PM-1169): the owner's own hooks run outside
+ * the sandbox, and `project_root_markers` moves where Codex loads project layers from.
+ */
+export const CODEX_START_ROOTS: ReadonlySet<string> = new Set([
+  ...CODEX_SANDBOX_ROOTS,
+  'hooks',
+  'project_root_markers',
 ]);
 
 /** Read a file if present, confined to regular files when a root is supplied. */
@@ -216,7 +227,39 @@ function defaultLocations(env: NodeJS.ProcessEnv): Required<AmbientConfigLocatio
       '/etc/codex/requirements.toml',
     ],
     codexUser: path.join(env.CODEX_HOME || path.join(home, '.codex'), 'config.toml'),
+    codexPresenceRefused: [
+      '/etc/codex/hooks.json',
+      // macOS MDM-managed Codex preferences (`com.openai.codex`); other systems have none.
+      ...(process.platform === 'darwin'
+        ? [
+            '/Library/Managed Preferences/com.openai.codex.plist',
+            path.join('/Library/Managed Preferences', os.userInfo().username, 'com.openai.codex.plist'),
+          ]
+        : []),
+    ],
   };
+}
+
+/**
+ * Files whose presence alone refuses the start (hooks, MDM preferences): the content is never
+ * read, an unreadable one refuses too. Includes the user's `hooks.json` beside their config.
+ */
+async function presenceIssues(where: Required<AmbientConfigLocations>): Promise<AmbientIssue[]> {
+  const issues: AmbientIssue[] = [];
+  const files = [path.join(path.dirname(where.codexUser), 'hooks.json'), ...where.codexPresenceRefused];
+  for (const file of files) {
+    try {
+      await lstat(file);
+      issues.push({
+        file,
+        keys: [file.endsWith('.plist') ? '(managed preferences)' : '(hooks file)'],
+      });
+    } catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+        issues.push({ file, keys: ['(unreadable)'] });
+    }
+  }
+  return issues;
 }
 
 /** Only names are returned; a local profile must not compete with any loaded sandbox settings. */
@@ -229,7 +272,8 @@ export async function inspectCodexSandboxConfig(input: {
   const issues: Array<AmbientIssue | null> = [];
   for (const file of where.codexManaged) issues.push(await codexConfigIssue(file, true));
   for (const file of [where.codexUser, path.join(input.cwd, '.codex', 'config.toml')])
-    issues.push(await codexConfigIssue(file, false, undefined, CODEX_SANDBOX_ROOTS));
+    issues.push(await codexConfigIssue(file, false, undefined, CODEX_START_ROOTS));
+  issues.push(...(await presenceIssues(where)));
   return issues.filter((issue): issue is AmbientIssue => issue !== null);
 }
 
@@ -293,14 +337,6 @@ export async function inspectAmbientConfig(input: {
       confineTo: input.confineTo,
     })),
   );
-  for (const hookFile of [path.join(path.dirname(where.codexUser), 'hooks.json')]) {
-    try {
-      await lstat(hookFile);
-      issues.push({ file: hookFile, keys: ['(hooks file)'] });
-    } catch (error) {
-      if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
-        issues.push({ file: hookFile, keys: ['(unreadable)'] });
-    }
-  }
+  issues.push(...(await presenceIssues(where)));
   return issues.filter((issue): issue is AmbientIssue => issue !== null);
 }

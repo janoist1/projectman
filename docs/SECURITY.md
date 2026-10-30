@@ -971,8 +971,14 @@ unchanged. A later link-count check cannot detect a link removed after a malicio
 The native sandbox's link rejection remains unverified on macOS and Linux. This possibility is not covered
 by the owner's acceptance of the two lock risks above.
 The profile semantics (a nested `read` under a `write` root) must be checked
-in that live Codex session. macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
-checks; administrator-managed configuration through that channel remains a follow-up (PM-375).
+in that live Codex session. Hooks and MDM (PM-1169, closing PM-49 and PM-375): Codex runs the owner's own
+hooks outside the sandbox, and macOS MDM-managed `com.openai.codex` preferences outrank our `-c` overrides.
+Neither can be switched off and verified, so the Codex and NanoGPT starts refuse (fail closed, deferrable,
+`sandbox_config` / `nanogpt_setup_incomplete`) when the user's or the project's `config.toml` sets `hooks` or
+`project_root_markers`, or when a `hooks.json` exists beside the user's config or at `/etc/codex/hooks.json`, or
+on macOS a `com.openai.codex.plist` exists in `/Library/Managed Preferences` or in the user's folder below it.
+Files are checked by presence only (never read; an unreadable one refuses too) and the error names files and
+keys, never values.
 
 **Residual risk (PM-355, outbound network, accepted by the owner).** The member's "Outbound
 network" setting is on by default for every AI member (decision 41). With it on, a member's

@@ -623,6 +623,12 @@ export interface AmbientConfigLocations {
   codexManaged?: string[];
   /** Codex's user configuration (default: `$CODEX_HOME/config.toml`, else `~/.codex/config.toml`). */
   codexUser?: string;
+  /**
+   * Files whose mere presence refuses a Codex start (PM-1169): they are never read (default:
+   * `/etc/codex/hooks.json`, and on macOS the two `com.openai.codex.plist` MDM preference files).
+   * The user's `hooks.json` beside `codexUser` is checked as well.
+   */
+  codexPresenceRefused?: string[];
 }
 
 /**

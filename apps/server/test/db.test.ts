@@ -953,6 +953,7 @@ describe('database', () => {
       email: 'Owner@Example.com',
       passwordHash: 'h',
       createdAt: now,
+      language: 'hu',
     });
     expect(repos.users.findByEmail('owner@example.com')?.id).toBe('usr_1');
     repos.authSessions.insert({

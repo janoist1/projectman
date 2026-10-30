@@ -393,12 +393,19 @@ export const IntegratorKeyAuditPage = z.object({
 });
 export type IntegratorKeyAuditPage = z.infer<typeof IntegratorKeyAuditPage>;
 
+/** The system language of an account (PM-1168): the web interface, and the push, ntfy and login mail it receives. */
+export const UiLanguage = z.enum(['en', 'hu']);
+export type UiLanguage = z.infer<typeof UiLanguage>;
+export const DEFAULT_UI_LANGUAGE: UiLanguage = 'en';
+
 export const SetupRequest = z.object({
   name: z.string().min(1),
   email: z.string().min(3),
   password: z.string().min(8),
   /** The one-time code the cloud server logs at start (PM-317); only a non-local request needs it. */
   setupCode: z.string().optional(),
+  /** The language chosen on the page before login; the new account's system language. */
+  language: UiLanguage.optional(),
 });
 export type SetupRequest = z.infer<typeof SetupRequest>;
 
@@ -416,8 +423,8 @@ const NewAccountName = z.string().trim().min(1).max(100);
 
 /** Asks for a code by the address, or by an invitation token (the code goes to the invited address). */
 export const EmailLoginCodeRequest = z.union([
-  z.object({ email: LoginEmail }).strict(),
-  z.object({ inviteToken: InviteToken }).strict(),
+  z.object({ email: LoginEmail, language: UiLanguage.optional() }).strict(),
+  z.object({ inviteToken: InviteToken, language: UiLanguage.optional() }).strict(),
 ]);
 export type EmailLoginCodeRequest = z.infer<typeof EmailLoginCodeRequest>;
 
@@ -430,8 +437,22 @@ export type EmailLoginCodeRequested = z.infer<typeof EmailLoginCodeRequested>;
 
 /** `name` is needed only for a new account whose invitation has no display name. */
 export const EmailLoginVerifyRequest = z.union([
-  z.object({ email: LoginEmail, code: LoginCode, name: NewAccountName.optional() }).strict(),
-  z.object({ inviteToken: InviteToken, code: LoginCode, name: NewAccountName.optional() }).strict(),
+  z
+    .object({
+      email: LoginEmail,
+      code: LoginCode,
+      name: NewAccountName.optional(),
+      language: UiLanguage.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      inviteToken: InviteToken,
+      code: LoginCode,
+      name: NewAccountName.optional(),
+      language: UiLanguage.optional(),
+    })
+    .strict(),
 ]);
 export type EmailLoginVerifyRequest = z.infer<typeof EmailLoginVerifyRequest>;
 
@@ -457,6 +478,8 @@ export const Me = z.object({
   userId: z.string(),
   name: z.string(),
   email: z.string(),
+  /** The account's system language (PM-1168). */
+  language: UiLanguage,
   /** Member handle of this user per project key. */
   handles: z.record(z.string(), MemberHandle),
   projects: z
@@ -480,6 +503,9 @@ export const SetupStatus = z.object({
   publicBoard: z.boolean().optional(),
 });
 export type SetupStatus = z.infer<typeof SetupStatus>;
+
+export const SetLanguageRequest = z.object({ language: UiLanguage }).strict();
+export type SetLanguageRequest = z.infer<typeof SetLanguageRequest>;
 
 /* ---------- providers ---------- */
 
@@ -1543,6 +1569,7 @@ export type OwnerAccountsView = z.infer<typeof OwnerAccountsView>;
 export const AcceptInviteRequest = z.object({
   name: SetupRequest.shape.name.trim().min(1).optional(),
   password: SetupRequest.shape.password.optional(),
+  language: UiLanguage.optional(),
 });
 export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequest>;
 

@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import type { IncomingHttpHeaders, Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { hu } from '@projectman/templates';
+import { getLocale } from '@projectman/templates';
 import { EMAIL_CODE_DELIVERY_FAILED, EmailCodeDeliveryError } from '../../contracts';
 import { createSesEmailCodeMailer } from './index';
 
@@ -64,7 +64,7 @@ function mailer(extra: { sessionToken?: string; region?: string } = {}) {
 
 describe('the SES e-mail code mailer', () => {
   it('sends one SendEmail request with the sender, the recipient and the code in the Hungarian text', async () => {
-    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT });
+    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language: 'hu' });
     expect(requests).toHaveLength(1);
     const request = requests[0]!;
     expect(request.method).toBe('POST');
@@ -81,20 +81,41 @@ describe('the SES e-mail code mailer', () => {
     expect(body.Content.Simple.Body.Text.Charset).toBe('UTF-8');
   });
 
-  it('chooses the template by the purpose of the code', async () => {
-    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, purpose: 'password' });
-    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, purpose: 'login' });
-    const subjects = requests.map((r) => JSON.parse(r.body).Content.Simple.Subject.Data);
-    expect(subjects).toEqual([hu.passwordResetCode.subject, hu.emailLoginCode.subject]);
-    const text: string = JSON.parse(requests[0]!.body).Content.Simple.Body.Text.Data;
-    expect(text).toContain(CODE);
-  });
+  it.each([
+    ['hu', '19:42', 'CEST'],
+    ['en', '5:42', 'UTC'],
+  ] as const)(
+    'writes the %s text with the time in that language’s zone and names the zone (PM-1177)',
+    async (language, time, zone) => {
+      await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language });
+      const content = JSON.parse(requests[0]!.body).Content.Simple;
+      expect(content.Subject.Data).toBe(getLocale(language).emailLoginCode.subject);
+      const text: string = content.Body.Text.Data;
+      expect(text).toContain(CODE);
+      expect(text).toContain(time);
+      expect(text).toContain(zone);
+    },
+  );
+
+  it.each(['hu', 'en'] as const)(
+    'chooses the template by the purpose of the code, in the %s language',
+    async (language) => {
+      await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language, purpose: 'password' });
+      await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language, purpose: 'login' });
+      const subjects = requests.map((r) => JSON.parse(r.body).Content.Simple.Subject.Data);
+      const locale = getLocale(language);
+      expect(subjects).toEqual([locale.passwordResetCode.subject, locale.emailLoginCode.subject]);
+      const text: string = JSON.parse(requests[0]!.body).Content.Simple.Body.Text.Data;
+      expect(text).toContain(CODE);
+    },
+  );
 
   it('signs for the region with the explicit keys and the session token', async () => {
     await mailer({ sessionToken: 'explicit-session-token' }).send({
       to: TO,
       code: CODE,
       expiresAt: EXPIRES_AT,
+      language: 'hu',
     });
     const headers = requests[0]!.headers;
     expect(headers.authorization).toContain(`Credential=${KEYS.accessKeyId}/`);
@@ -103,7 +124,7 @@ describe('the SES e-mail code mailer', () => {
   });
 
   it('sends no session token when none is given', async () => {
-    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT });
+    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language: 'hu' });
     expect(requests[0]!.headers['x-amz-security-token']).toBeUndefined();
   });
 
@@ -113,7 +134,7 @@ describe('the SES e-mail code mailer', () => {
     vi.stubEnv('AWS_SESSION_TOKEN', 'ambient-session-token');
     vi.stubEnv('AWS_PROFILE', 'ambient-profile');
     vi.stubEnv('AWS_REGION', 'ap-southeast-2');
-    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT });
+    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language: 'hu' });
     const headers = requests[0]!.headers;
     expect(headers.authorization).toContain(`Credential=${KEYS.accessKeyId}/`);
     expect(headers.authorization).toContain('/eu-central-1/ses/');
@@ -127,7 +148,7 @@ describe('the SES e-mail code mailer', () => {
       body: { message: `Email address is not verified: ${TO} ${CODE} ${KEYS.secretAccessKey}` },
     };
     const error = await mailer()
-      .send({ to: TO, code: CODE, expiresAt: EXPIRES_AT })
+      .send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language: 'hu' })
       .then(
         () => null,
         (caught: unknown) => caught,
@@ -154,7 +175,9 @@ describe('the SES e-mail code mailer', () => {
     ['NotFoundException', 404, 'unavailable'],
   ] as const)('maps %s (HTTP %i) to the reason %s without keeping its text', async (type, status, reason) => {
     answer = { status, type, body: { message: `${TO} ${CODE}` } };
-    await expect(mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT })).rejects.toMatchObject({
+    await expect(
+      mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language: 'hu' }),
+    ).rejects.toMatchObject({
       name: 'EmailCodeDeliveryError',
       code: 'email_code_delivery_failed',
       reason,
@@ -164,9 +187,9 @@ describe('the SES e-mail code mailer', () => {
   it('turns an unreachable endpoint into the same error', async () => {
     await new Promise<void>((done) => server.close(() => done()));
     server = createServer();
-    await expect(mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT })).rejects.toBeInstanceOf(
-      EmailCodeDeliveryError,
-    );
+    await expect(
+      mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language: 'hu' }),
+    ).rejects.toBeInstanceOf(EmailCodeDeliveryError);
   }, 20_000);
 
   it('logs nothing: neither the address nor the code reach the console or the standard streams', async () => {
@@ -177,10 +200,10 @@ describe('the SES e-mail code mailer', () => {
       vi.spyOn(console, 'error'),
       vi.spyOn(console, 'debug'),
     ];
-    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT });
+    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language: 'hu' });
     answer = { status: 400, type: 'MessageRejected', body: { message: TO } };
     await mailer()
-      .send({ to: TO, code: CODE, expiresAt: EXPIRES_AT })
+      .send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language: 'hu' })
       .catch(() => undefined);
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
   });
@@ -193,19 +216,19 @@ describe('the SES e-mail code mailer', () => {
       'no-at-sign',
       '',
     ])
-      await expect(mailer().send({ to, code: CODE, expiresAt: EXPIRES_AT })).rejects.toBeInstanceOf(
-        TypeError,
-      );
+      await expect(
+        mailer().send({ to, code: CODE, expiresAt: EXPIRES_AT, language: 'hu' }),
+      ).rejects.toBeInstanceOf(TypeError);
     expect(requests).toHaveLength(0);
   });
 
   it('refuses an empty code and an expiry that is not a date, before any request', async () => {
-    await expect(mailer().send({ to: TO, code: '', expiresAt: EXPIRES_AT })).rejects.toBeInstanceOf(
-      TypeError,
-    );
-    await expect(mailer().send({ to: TO, code: CODE, expiresAt: 'tomorrow-ish' })).rejects.toBeInstanceOf(
-      TypeError,
-    );
+    await expect(
+      mailer().send({ to: TO, code: '', expiresAt: EXPIRES_AT, language: 'hu' }),
+    ).rejects.toBeInstanceOf(TypeError);
+    await expect(
+      mailer().send({ to: TO, code: CODE, expiresAt: 'tomorrow-ish', language: 'hu' }),
+    ).rejects.toBeInstanceOf(TypeError);
     expect(requests).toHaveLength(0);
   });
 

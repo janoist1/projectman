@@ -336,6 +336,8 @@ export async function createProject(h: HarnessBase, cookie: string, key = 'AR'):
         name: key === 'AR' ? 'acme' : key.toLowerCase(),
         workspacePath: h.workspace,
         templateId: 'test',
+        // The harness owner is English (the default of a new account); the tests' projects stay Hungarian.
+        language: 'hu',
         repos: [{ name: 'web', path: '.', github: 'acme/web' }],
       },
     }),
@@ -470,6 +472,7 @@ export async function addHumanAndLogin(app: FastifyInstance, human: HumanLogin):
     email,
     passwordHash: repos.users.findByEmail(OWNER_LOGIN.email)!.passwordHash,
     createdAt: new Date().toISOString(),
+    language: 'hu',
   });
   const projectKey = human.projectKey === undefined ? 'AR' : human.projectKey;
   if (projectKey) {

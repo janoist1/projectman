@@ -135,7 +135,7 @@ export class OwnerInvitationService {
         throw invalid('invalid_request', 'invalid invitation acceptance body');
       let user = existing;
       if (!user) {
-        const input = AcceptInviteRequest.required().safeParse(body ?? {});
+        const input = AcceptInviteRequest.required({ name: true, password: true }).safeParse(body ?? {});
         if (!input.success)
           throw invalid('invalid_request', 'name and a password of at least eight characters are required');
         user = await this.accounts.prepareUser({ ...input.data, email: invite.email });

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { instanceOriginOf, ntfyServerOf } from '@projectman/shared';
+import { DEFAULT_UI_LANGUAGE, instanceOriginOf, ntfyServerOf } from '@projectman/shared';
 import type { NtfyChannelView, NtfyOverview, SaveNtfyChannelRequest } from '@projectman/shared';
-import { hu } from '@projectman/templates';
+import { getLocale } from '@projectman/templates';
 import type { FastifyBaseLogger } from 'fastify';
 import type { NtfySendOutcome, NtfyTransport, PhoneChannel, PhoneMessage } from '../../contracts';
 import { ntfyChannelView } from '../../db';
@@ -108,7 +108,8 @@ export function createNtfyService(opts: NtfyOptions) {
       if (time - (lastTest.get(userId) ?? -Infinity) < 5000)
         throw new DomainError('web_push_test_too_soon', 'Wait before testing again', { status: 429 });
       lastTest.set(userId, time);
-      await send(row, { ...hu.webPush.ntfy.test, urgent: false });
+      const language = opts.repos.users.get(userId)?.language ?? DEFAULT_UI_LANGUAGE;
+      await send(row, { ...getLocale(language).webPush.ntfy.test, urgent: false });
       for (const [id, at] of lastTest) if (time - at >= 5000) lastTest.delete(id);
       return view(userId);
     },

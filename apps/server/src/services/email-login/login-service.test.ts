@@ -26,6 +26,7 @@ describe('purpose-bound e-mail codes (PM-946)', () => {
     clientProjects: 1,
     openClientInvites: 0,
     inviteDisplayName: null,
+    language: null as 'hu' | 'en' | null,
   };
   let repos: Repositories;
   let service: EmailLoginService;
@@ -75,6 +76,15 @@ describe('purpose-bound e-mail codes (PM-946)', () => {
     standing = account;
     await request('password');
     expect(sent.map((s) => s.purpose)).toEqual(['login', 'password']);
+  });
+
+  it('mails the password code in the language of the account, and the default when it has none', async () => {
+    standing = { ...account, language: 'hu' };
+    await request('password');
+    now = new Date(now.getTime() + 2 * 60_000);
+    standing = account;
+    await request('password');
+    expect(sent.map((s) => s.language)).toEqual(['hu', 'en']);
   });
 
   it('redeems a code only for the purpose it was made for', async () => {

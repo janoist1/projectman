@@ -139,6 +139,7 @@ describe('question screening while the PM’s machine is offline', () => {
         email: 't@example.test',
         passwordHash: '',
         createdAt: START.toISOString(),
+        language: 'hu',
       });
     if (!repos.engines.get(REMOTE))
       repos.engines.create({

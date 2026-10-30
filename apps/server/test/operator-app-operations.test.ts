@@ -53,6 +53,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       email: OWNER.email,
       passwordHash: 'unused-test-hash',
       createdAt: NOW,
+      language: 'hu',
     });
     const { session } = await h.domain.sessions.ensureSession('AR', member, { type: 'general' });
     ctx = { projectKey: 'AR', member, sessionId: session.id, taskKey: null };

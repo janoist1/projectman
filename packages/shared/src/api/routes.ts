@@ -93,6 +93,8 @@ export const routes = {
   passwordReset: () => '/api/auth/password/reset',
   logout: () => '/api/auth/logout',
   me: () => '/api/me',
+  /** PUT (a logged-in user, not an integrator key): saves the account's system language (`SetLanguageRequest`); 200 `Me` (PM-1177). */
+  myLanguage: () => '/api/auth/language',
 
   projects: () => '/api/projects',
   board: (key: string) => `/api/projects/${key}/board`,

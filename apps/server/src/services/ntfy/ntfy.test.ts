@@ -28,6 +28,7 @@ describe('ntfy channel', () => {
     name: 'Owner',
     passwordHash: null,
     createdAt: '2026-10-01T00:00:00Z',
+    language: 'hu' as const,
   };
   const config = testTemplate.build({
     key: 'AR',

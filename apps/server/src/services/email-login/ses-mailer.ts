@@ -1,5 +1,6 @@
 import type { SESv2Client } from '@aws-sdk/client-sesv2';
-import { hu } from '@projectman/templates';
+import { getLocale } from '@projectman/templates';
+import type { TemplateLocale } from '@projectman/templates';
 import { EmailCodeDeliveryError } from '../../contracts';
 import type { EmailCodeDeliveryReason, EmailCodeMailInput, EmailCodeMailer } from '../../contracts';
 
@@ -45,14 +46,21 @@ function reasonOf(error: unknown): EmailCodeDeliveryReason {
   return REASONS[name] ?? 'unavailable';
 }
 
-/** `2026. 10. 14. 19:42`: the moment in the Hungarian locale's time zone, because the mail is Hungarian. */
-function validUntil(expiresAt: string): string {
+/**
+ * The moment in the mail language's format and time zone, with the zone named (the English locale's zone is UTC,
+ * which the reader cannot guess): `Oct 14, 2026, 5:42 PM UTC`.
+ */
+function validUntil(expiresAt: string, locale: TemplateLocale): string {
   const moment = new Date(expiresAt);
   if (Number.isNaN(moment.getTime())) throw new TypeError('expiresAt must be an ISO date-time');
-  return new Intl.DateTimeFormat('hu-HU', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: hu.timezone,
+  return new Intl.DateTimeFormat(locale.language, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+    timeZone: locale.timezone,
   }).format(moment);
 }
 
@@ -77,7 +85,8 @@ export function createSesEmailCodeMailer(options: SesEmailCodeMailerOptions): Em
       if (!input.code) throw new TypeError('the code is empty');
       const { SESv2Client, SendEmailCommand } = await (ses ??= import('@aws-sdk/client-sesv2'));
       client ??= new SESv2Client(clientOptions);
-      const text = input.purpose === 'password' ? hu.passwordResetCode : hu.emailLoginCode;
+      const locale = getLocale(input.language);
+      const text = input.purpose === 'password' ? locale.passwordResetCode : locale.emailLoginCode;
       const command = new SendEmailCommand({
         FromEmailAddress: options.from,
         Destination: { ToAddresses: [input.to] },
@@ -86,7 +95,7 @@ export function createSesEmailCodeMailer(options: SesEmailCodeMailerOptions): Em
             Subject: { Data: text.subject, Charset: 'UTF-8' },
             Body: {
               Text: {
-                Data: text.text({ code: input.code, validUntil: validUntil(input.expiresAt) }),
+                Data: text.text({ code: input.code, validUntil: validUntil(input.expiresAt, locale) }),
                 Charset: 'UTF-8',
               },
             },

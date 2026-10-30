@@ -232,7 +232,11 @@ describe('engine process', () => {
         const heavyLockDir = path.join(base, 'heavy', 'lock');
         const built = await build({ sessionFoldersDir, sessionTmpDir, claudeTmpBase, heavyLockDir });
         const options = factory.mock.calls[0]![0];
-        expect(options.setupOf('PM', 'projectman')).toEqual({ kind: 'npm_ci', timeoutMs: 600_000 });
+        expect(options.setupOf('PM', 'projectman')).toEqual({
+          kind: 'npm_ci',
+          timeoutMs: 600_000,
+          implicit: false,
+        });
         expect(options.setupOf('PM', 'other')).toBeNull();
         expect(options.heavyLockDir).toBe(heavyLockDir);
         expect(options.worktreesRoot).toBe(path.join(home, 'worktrees'));

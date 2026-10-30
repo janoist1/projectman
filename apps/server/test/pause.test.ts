@@ -382,6 +382,7 @@ describe('pause of the team', () => {
           email: 'owner@example.com',
           passwordHash: 'unused-test-hash',
           createdAt: new Date().toISOString(),
+          language: 'hu',
         });
         await h.domain.pauses.resume(
           PROJECT,

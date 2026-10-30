@@ -21,7 +21,7 @@ const SUPER_ACTOR: ConnectedActor = connectedActorOf('owner', { id: KEY.id, pref
 // The integrator starts them with the owner's token. Fictional commands only.
 const PAUSE: NewSuperCommand = { kind: 'operate', operation: { op: 'project_pause' } };
 const RESUME: NewSuperCommand = { kind: 'operate', operation: { op: 'project_resume' } };
-const RETIRE: NewSuperCommand ={ kind: 'operate', operation: { op: 'member_retire', handle: 'dev-1' } };
+const RETIRE: NewSuperCommand = { kind: 'operate', operation: { op: 'member_retire', handle: 'dev-1' } };
 
 describe('super-mode operations (PM-762, PM-764)', () => {
   let h: DomainHarness;
@@ -45,6 +45,7 @@ describe('super-mode operations (PM-762, PM-764)', () => {
         email: OWNER.email,
         passwordHash: 'unused-test-hash',
         createdAt: clock.toISOString(),
+        language: 'hu',
       };
       h.repos.users.insert(user);
     }

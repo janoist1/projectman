@@ -192,6 +192,7 @@ describe('requests to the host', () => {
         email: 'other@example.test',
         passwordHash: repos.users.list()[0]!.passwordHash,
         createdAt: new Date().toISOString(),
+        language: 'hu',
       });
       const login = await inject(h.app, 'POST', '/api/auth/login', null, {
         email: 'other@example.test',

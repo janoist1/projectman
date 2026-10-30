@@ -52,10 +52,11 @@ export function createEmailLoginDirectory(deps: {
         clientProjects,
         openClientInvites: open.length,
         inviteDisplayName: open.find((invite) => invite.displayName?.trim())?.displayName?.trim() ?? null,
+        language: user?.language ?? null,
       };
     },
     inviteEmail: (token) => invitations.openClientInviteEmail(token),
-    acceptOpenClientInvites: (email, newAccountName) =>
-      invitations.acceptOpenClientInvites(email.trim().toLowerCase(), newAccountName),
+    acceptOpenClientInvites: (email, newAccountName, language) =>
+      invitations.acceptOpenClientInvites(email.trim().toLowerCase(), newAccountName, language),
   };
 }

@@ -1,21 +1,35 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
-import { canHoldIntegratorKey, integratorKeyCoversProject, isOwnerAccount } from '@projectman/shared';
+import {
+  canHoldIntegratorKey,
+  DEFAULT_UI_LANGUAGE,
+  integratorKeyCoversProject,
+  isOwnerAccount,
+} from '@projectman/shared';
 import type {
   CreateIntegratorAccessKeyRequest,
   IntegratorChannel,
   IntegratorKeyAuditQuery,
+  UiLanguage,
 } from '@projectman/shared';
 import type { IntegratorPrincipal } from '../contracts';
 import type { Repositories, UserRecord } from '../db';
-import { conflict, DomainError, forbidden } from '../kernel';
+import { conflict, DomainError, forbidden, notFound } from '../kernel';
 import { newId } from '../kernel';
 
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
+  language: UiLanguage;
 }
+
+const authUserOf = (user: UserRecord): AuthUser => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  language: user.language,
+});
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Argon2id (algorithm 2): 19 MiB, two iterations, one lane. */
@@ -247,7 +261,12 @@ export class AuthService {
   }
 
   /** First-run setup: creates the owner account; refused once any user exists. */
-  async createFirstUser(input: { name: string; email: string; password: string }): Promise<UserRecord> {
+  async createFirstUser(input: {
+    name: string;
+    email: string;
+    password: string;
+    language?: UiLanguage;
+  }): Promise<UserRecord> {
     if (!this.needsSetup()) throw conflict('already_set_up', 'the owner account already exists');
     const passwordHash = await hash(input.password, PASSWORD_OPTIONS);
     const user: UserRecord = {
@@ -256,6 +275,7 @@ export class AuthService {
       email: input.email.trim(),
       passwordHash,
       createdAt: this.now().toISOString(),
+      language: input.language ?? DEFAULT_UI_LANGUAGE,
     };
     this.repos.transaction(() => {
       if (!this.needsSetup()) throw conflict('already_set_up', 'the owner account already exists');
@@ -265,13 +285,19 @@ export class AuthService {
   }
 
   /** Prepares a new colleague account; it is persisted only after the config commit succeeds. */
-  async prepareUser(input: { name: string; email: string; password: string }): Promise<UserRecord> {
+  async prepareUser(input: {
+    name: string;
+    email: string;
+    password: string;
+    language?: UiLanguage;
+  }): Promise<UserRecord> {
     return {
       id: newId('usr'),
       name: input.name.trim(),
       email: input.email.trim().toLowerCase(),
       passwordHash: await hash(input.password, PASSWORD_OPTIONS),
       createdAt: this.now().toISOString(),
+      language: input.language ?? DEFAULT_UI_LANGUAGE,
     };
   }
 
@@ -292,13 +318,14 @@ export class AuthService {
    * Prepares a passwordless account for an invited client (PM-670); like `prepareUser` it is persisted
    * only after the config commit succeeds. It can never log in with a password or hold an integrator key.
    */
-  preparePasswordlessUser(input: { name: string; email: string }): UserRecord {
+  preparePasswordlessUser(input: { name: string; email: string; language?: UiLanguage }): UserRecord {
     return {
       id: newId('usr'),
       name: input.name.trim(),
       email: input.email.trim().toLowerCase(),
       passwordHash: null,
       createdAt: this.now().toISOString(),
+      language: input.language ?? DEFAULT_UI_LANGUAGE,
     };
   }
 
@@ -317,7 +344,15 @@ export class AuthService {
   /** The account with this id, or null. */
   user(id: string): AuthUser | null {
     const user = this.repos.users.get(id);
-    return user ? { id: user.id, name: user.name, email: user.email } : null;
+    return user ? authUserOf(user) : null;
+  }
+
+  /** Saves the account's system language (PM-1168) and gives the account back. */
+  setLanguage(userId: string, language: UiLanguage): AuthUser {
+    this.repos.users.setLanguage(userId, language);
+    const user = this.user(userId);
+    if (!user) throw notFound('user', userId);
+    return user;
   }
 
   /** Whether the account can log in with a password (a passwordless account cannot). */
@@ -355,7 +390,7 @@ export class AuthService {
     if (now.getTime() - Date.parse(session.lastSeenAt) > TOUCH_INTERVAL_MS) {
       this.repos.authSessions.touch(id, now.toISOString());
     }
-    return { id: user.id, name: user.name, email: user.email };
+    return authUserOf(user);
   }
 
   revoke(token: string): void {

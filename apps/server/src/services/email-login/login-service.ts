@@ -1,4 +1,5 @@
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
+import { DEFAULT_UI_LANGUAGE } from '@projectman/shared';
 import type {
   EmailLoginCodeRequest,
   EmailLoginVerifyRequest,
@@ -153,7 +154,11 @@ export function createEmailLoginService(deps: {
     if (!email) return;
     const address = normalizeAddress(email);
     const standing = await directory.standing(address);
-    if (purpose === 'password' ? !hasClientAccount(standing) : !standing.eligible) return;
+    if (!standing.eligible || (purpose === 'password' && !hasClientAccount(standing))) return;
+    // The existing account's language wins; a first login has none yet, so the page's choice, else the default.
+    // A password code always goes to an existing account, so the request carries no language.
+    const language =
+      standing.language ?? ('language' in input ? input.language : undefined) ?? DEFAULT_UI_LANGUAGE;
     const hash = addressHash(address);
     const subject = `addr:${hash}`;
     const at = now();
@@ -179,7 +184,7 @@ export function createEmailLoginService(deps: {
     });
     repo.addEvent('send', subject, at.toISOString());
     try {
-      await mailer.send({ to: address, code, expiresAt, purpose });
+      await mailer.send({ to: address, code, language, expiresAt, purpose });
     } catch (err) {
       // Only the code and the coarse reason: the error object carries the address.
       const reason = (err as { reason?: unknown } | null)?.reason;
@@ -266,7 +271,7 @@ export function createEmailLoginService(deps: {
         if (before.userId === null && !name)
           throw invalid('email_login_name_required', 'a name is needed for the new account');
         if (!repo.consume(stored.id, at)) throw invalidCode();
-        const { accepted } = await directory.acceptOpenClientInvites(address, name);
+        const { accepted } = await directory.acceptOpenClientInvites(address, name, input.language);
         const after = await directory.standing(address);
         if (!after.eligible || after.userId === null || after.clientProjects < 1) throw noAccess();
         logger.info({ accepted }, 'client logged in with an e-mail code');

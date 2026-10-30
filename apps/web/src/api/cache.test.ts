@@ -137,6 +137,7 @@ describe('applyServerEvent', () => {
     const client = seed();
     client.setQueryData<Me>(queryKeys.me, {
       ...mockUser,
+      language: 'hu',
       instanceOwner: true,
       handles: { [KEY]: 'owner' },
       projects: [],

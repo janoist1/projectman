@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PUSH_SETTINGS, PushPayload } from '@projectman/shared';
 import type { InboxItem, PushSettings } from '@projectman/shared';
+import { getLocale } from '@projectman/templates';
 import { createRepositories } from '../../db';
 import { PresenceService } from '../../core/members';
 import { openMigratedMemoryDatabase } from '../../../test/helpers/database-seed';
@@ -29,6 +30,7 @@ describe('web push service', () => {
     name: 'Owner',
     passwordHash: null,
     createdAt: '2026-10-01T00:00:00Z',
+    language: 'hu' as const,
   };
   const config = testTemplate.build({
     key: 'AR',
@@ -207,6 +209,29 @@ describe('web push service', () => {
       input('desktop').endpoint,
       input('phone').endpoint,
     ]);
+  });
+  it('words each recipient’s push in that account’s own language (PM-1177)', async () => {
+    const colleague = { ...user, id: 'colleague', email: 'colleague@example.com', language: 'en' as const };
+    repos.users.insert(colleague);
+    const both = structuredClone(config);
+    both.team.members.push({
+      kind: 'human',
+      handle: 'colleague',
+      displayName: 'Colleague',
+      access: 'owner',
+      roles: [],
+      email: colleague.email,
+    });
+    service = build({ config: async () => both });
+    subscribe('hungarian');
+    service.subscribe(colleague.id, input('english'), 'Chrome/141.0 (Macintosh)', 'https://project.example');
+    await service.onItem({ ...item(), assignees: ['owner', 'colleague'] });
+    const titleAt = (endpoint: string) =>
+      PushPayload.parse(JSON.parse(transport.calls.find((call) => call.endpoint === endpoint)!.payload))
+        .title;
+    expect(transport.calls).toHaveLength(2);
+    expect(titleAt(input('hungarian').endpoint)).toBe(getLocale('hu').webPush.title.question);
+    expect(titleAt(input('english').endpoint)).toBe(getLocale('en').webPush.title.question);
   });
   it('rechecks recipient access before sending', async () => {
     subscribe();

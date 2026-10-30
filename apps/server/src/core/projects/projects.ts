@@ -36,6 +36,7 @@ import type {
   BoundActor,
   OperatorOperation,
   OperatorApprovalWaiverRequest,
+  UiLanguage,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../../config';
 import type { ConfigStore, WorkspaceState } from '../../contracts';
@@ -182,6 +183,8 @@ export interface ProjectCreator {
   userId: string;
   isHostOwner: boolean;
   isOwnerAccount: boolean;
+  /** The creator's system language: the team language of a project created without one (PM-1177). */
+  language?: UiLanguage;
 }
 
 /** Internal callers (the host's own setup, tests) create as the host owner. */
@@ -336,14 +339,14 @@ export class ProjectService {
    * The configuration a create would save: the template's, with the request's name, workspace,
    * repositories and card mover. Reads no disk and changes nothing.
    */
-  buildConfig(req: CreateProjectRequest, creator: Author): ProjectConfig {
+  buildConfig(req: CreateProjectRequest, creator: Author, creatorLanguage?: UiLanguage): ProjectConfig {
     const template = this.templates.get(req.templateId ?? 'starter');
     if (!template) throw invalid('unknown_template', `unknown template: ${req.templateId}`);
     const built = template.build({
       key: req.key,
       name: req.name,
       workspacePath: req.workspacePath,
-      language: req.language ?? DEFAULT_PROJECT_LANGUAGE,
+      language: req.language ?? creatorLanguage ?? DEFAULT_PROJECT_LANGUAGE,
       provider: req.provider,
       owner: { handle: OWNER_HANDLE, displayName: creator.name, email: creator.email },
       cardMover: cardMoverOfRequest(req.cardMover),
@@ -382,7 +385,7 @@ export class ProjectService {
       if (this.has(req.key) || (await this.configStore.list()).includes(req.key)) {
         throw conflict('project_exists', `project ${req.key} already exists`);
       }
-      const config = this.buildConfig(req, creator);
+      const config = this.buildConfig(req, creator, rights.language);
       const engineId = this.engines.chooseForNewProject({ ...rights, engineId: req.engineId });
       if (
         !isAbsolute(req.workspacePath) ||

@@ -327,6 +327,18 @@ describe('configuration PATCH', () => {
     expect((await patch(payload)).json<ConfigView>().config.team.taskCreateAccess).toBe('client');
   });
 
+  it('leaves the owner topics to an owner (PM-1190)', async () => {
+    const adminCookie = await memberLogin('admin');
+    const current = await view();
+    const payload = { baseVersion: current.version, ownerDecisionTopics: [{ id: 'cost' }] };
+    const refused = await patch(payload, adminCookie);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.code).toBe('owner_only');
+    expect((await patch(payload)).json<ConfigView>().config.team.ownerDecisionTopics).toEqual([
+      { id: 'cost' },
+    ]);
+  });
+
   it('lets admins edit limits but protects approvals on every stage and gate removal', async () => {
     const adminCookie = await memberLogin('admin');
     let current = await view();

@@ -501,9 +501,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           .describe(
             'answered: a fact you found (needs answer; the member may ask a person again). forwarded: another ' +
               'AI member’s work, a technical choice to the notice’s technicalDecider (needs forward_to). moot: ' +
-              'obsolete, also after it went to the people. decision: only an owner decision, as asked. todo: an ' +
-              'owner or integrator step (needs todo). Fields another outcome needs are refused ' +
-              '(invalid_outcome_fields).',
+              'obsolete, also after it went to the people. decision: only an owner decision under an owner ' +
+              'topic, as asked (needs owner_topic). todo: an owner or integrator step (needs todo). Fields ' +
+              'another outcome needs are refused (invalid_outcome_fields).',
           ),
         note: z
           .string()
@@ -529,11 +529,21 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
             recipient: z
               .enum(['owner', 'integrator'])
               .describe(
-                'Who performs the step. Integrator only for external technical work; decisions and approvals belong to the owner. Independently reconsider the proposed recipient; explain changes in note.',
+                'Who performs the step. Integrator for technical and machine work; owner only for a step under an owner topic (needs owner_topic). Independently reconsider the proposed recipient; explain changes in note.',
               ),
           })
           .optional()
           .describe('The exact step for a person; only with todo.'),
+        owner_topic: z
+          .string()
+          .trim()
+          .min(1)
+          .max(40)
+          .optional()
+          .describe(
+            "The id of the project's owner topic (role guide) the decision or the owner's todo falls under; " +
+              'an approval question needs none. Only with decision, or todo for the owner.',
+          ),
       },
       check(args, issue) {
         if ((args.outcome === 'answered') !== (args.answer !== undefined))
@@ -544,6 +554,15 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           issue('todo', 'todo goes with the outcome todo, and only with it.');
         if (args.feedback_id !== undefined && args.outcome !== 'todo')
           issue('feedback_id', 'invalid_outcome_fields: feedback_id goes only with todo.');
+        if (
+          args.owner_topic !== undefined &&
+          args.outcome !== 'decision' &&
+          (args.outcome !== 'todo' || args.todo?.recipient === 'integrator')
+        )
+          issue(
+            'owner_topic',
+            'invalid_outcome_fields: owner_topic goes only with decision, or with todo for the owner.',
+          );
       },
       async run({ ctx, args, handler }) {
         const result = await handler.screenQuestion(ctx, {
@@ -554,6 +573,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
           ...(args.todo ? { todo: args.todo } : {}),
           ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
+          ...(args.owner_topic !== undefined ? { ownerTopic: args.owner_topic } : {}),
         });
         return JSON.stringify(
           result.forwardedTo

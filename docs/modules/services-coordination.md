@@ -270,7 +270,13 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   `action` message with origin `question_forward` to the recipient, which wakes it without a card role, and an
   `info` message to the asker); `moot` cancels it (`operator_moot`); `decision` and `todo` release it to the
   people (`InboxService.releaseScreened`; a todo's options become Done and Cannot do it, and Cannot do it needs
-  a reason). Every outcome writes a `question_screened` timeline event. The fallback gives the question to the
+  a reason). A `decision` and a todo for the owner need `owner_topic`, one of the project's owner topics
+  (`team.ownerDecisionTopics`, owner-only, default the five built-in topics of `packages/shared` `owner-topics.ts`;
+  PM-1190); the refusal (`owner_topic_required`, `owner_topic_unknown`) lists the valid topics and leaves the
+  question in screening. An approval question records `approval` without one; the fallback and an integrator todo
+  need none. The PM's own `ask_human` question and a re-ask need one too, unless they are information or an
+  approval. The topic is recorded in `payload.ownerTopic` and in `question_asked`/`question_screened`.
+  Every outcome writes a `question_screened` timeline event. The fallback gives the question to the
   people: at once (`unavailable`: no Operator, AI off, the Operator on leave, the team paused, admission defers
   the start or it throws) or when `until` passes (`timeout`, `QuestionScreening.sweep`, a 30-second timer and a
   startup sweep); `screen_question` then answers `question_not_screening`, except `moot`. An asker may ask a

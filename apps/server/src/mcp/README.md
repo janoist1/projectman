@@ -239,14 +239,18 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   card route. A withdrawn primary still represents the others, and combining never adds screening time.
   `answered`, `forwarded` and `todo` screening outcomes refuse groups; `decision` opens the representative,
   while `moot` closes just the named original membership. Linked items never fall back separately.
-- `screen_question { item_id, outcome, note, answer?, forward_to?, todo?, feedback_id? }` (PM-558, PM-707, PM-562) is the PM's tool for
+- `screen_question { item_id, outcome, note, answer?, forward_to?, todo?, feedback_id?, owner_topic? }` (PM-558, PM-707, PM-562) is the PM's tool for
   the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
   `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`
   `{ what, where, expected }`); `note` is always required, a field the outcome does not take is refused
   (`invalid_outcome_fields`). Only the selected PM, not in guest conversations, no open request needed; a question
   no longer in screening answers `question_not_screening` (moot still works). `ask_human` answers
   `{ screening: true }` for a screened question and takes `reask_of` + `reask_reason` (together) to ask a settled
-  question again unscreened (`reask_not_allowed` otherwise). Optional `feedback_id` is accepted only for
+  question again unscreened (`reask_not_allowed` otherwise). `owner_topic` (PM-1190) goes only with `decision` or
+  a todo for the owner, which need one of the project's owner topics (`owner_topic_required`,
+  `owner_topic_unknown`); an approval question records `approval` without one. `ask_human` takes `owner_topic` only
+  for the PM's own question and a re-ask (`owner_topic_not_allowed` otherwise), which need it unless they are
+  information or an approval; the external bearer `ask_human` has no such field. Optional `feedback_id` is accepted only for
   `todo` and must identify existing system feedback in the same project (`invalid_outcome_fields` otherwise).
   The reference is stored atomically in the screening payload and `question_screened` event. Recording failure
   must not delay a todo or its fallback: omit the reference in that case. Handler method: `screenQuestion(ctx, { itemId,

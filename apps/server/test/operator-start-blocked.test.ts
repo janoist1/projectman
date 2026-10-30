@@ -49,6 +49,7 @@ async function askAbout(signalId: string): Promise<string> {
   const { inboxItemId } = await h.domain.teamTools.askHuman(pm, {
     question: 'What now?',
     options: ['Yes', 'No'],
+    ownerTopic: 'risk_acceptance',
     signalId,
   });
   return inboxItemId;
@@ -126,6 +127,7 @@ describe('start_blocked signal', () => {
     const { inboxItemId } = await h.domain.teamTools.askHuman(pm, {
       question: 'Which repository?',
       options: ['web', 'api'],
+      ownerTopic: 'product_direction',
       signalId: signal!.id,
     });
     const asked = h.domain.inbox.get('AR', inboxItemId);

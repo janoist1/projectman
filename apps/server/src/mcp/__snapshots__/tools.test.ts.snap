@@ -103,6 +103,12 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "minItems": 1,
           "type": "array",
         },
+        "owner_topic": {
+          "description": "Only the project manager's own decision question or a re-ask: the id of the project's owner topic it falls under (role guide); refused without one (owner_topic_required).",
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string",
+        },
         "question": {
           "description": "One clear question. The answerer is usually no specialist and often on a phone: name the decision in one plain sentence in everyday words, then only the context needed to choose. Never ask for an approval label: an answer sets none, the app asks the label holders itself.",
           "maxLength": 4000,
@@ -2325,6 +2331,33 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                           },
                         ],
                       },
+                      "ownerDecisionTopics": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "hint": {
+                              "maxLength": 300,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            "id": {
+                              "pattern": "^[a-z][a-z0-9_]{0,39}$",
+                              "type": "string",
+                            },
+                            "label": {
+                              "maxLength": 60,
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "id",
+                          ],
+                          "type": "object",
+                        },
+                        "maxItems": 12,
+                        "type": "array",
+                      },
                       "pipeline": {
                         "properties": {
                           "columns": {
@@ -4220,7 +4253,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "outcome": {
-          "description": "answered: a fact you found (needs answer; the member may ask a person again). forwarded: another AI member’s work, a technical choice to the notice’s technicalDecider (needs forward_to). moot: obsolete, also after it went to the people. decision: only an owner decision, as asked. todo: an owner or integrator step (needs todo). Fields another outcome needs are refused (invalid_outcome_fields).",
+          "description": "answered: a fact you found (needs answer; the member may ask a person again). forwarded: another AI member’s work, a technical choice to the notice’s technicalDecider (needs forward_to). moot: obsolete, also after it went to the people. decision: only an owner decision under an owner topic, as asked (needs owner_topic). todo: an owner or integrator step (needs todo). Fields another outcome needs are refused (invalid_outcome_fields).",
           "enum": [
             "answered",
             "forwarded",
@@ -4228,6 +4261,12 @@ exports[`team tool definitions > preserves the public tool definitions across mo
             "decision",
             "todo",
           ],
+          "type": "string",
+        },
+        "owner_topic": {
+          "description": "The id of the project's owner topic (role guide) the decision or the owner's todo falls under; an approval question needs none. Only with decision, or todo for the owner.",
+          "maxLength": 40,
+          "minLength": 1,
           "type": "string",
         },
         "todo": {
@@ -4241,7 +4280,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "string",
             },
             "recipient": {
-              "description": "Who performs the step. Integrator only for external technical work; decisions and approvals belong to the owner. Independently reconsider the proposed recipient; explain changes in note.",
+              "description": "Who performs the step. Integrator for technical and machine work; owner only for a step under an owner topic (needs owner_topic). Independently reconsider the proposed recipient; explain changes in note.",
               "enum": [
                 "owner",
                 "integrator",

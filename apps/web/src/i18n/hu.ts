@@ -1786,6 +1786,8 @@ export const hu = {
       question_group_incompatible: 'Ezek a kérdések nem vonhatók közös döntésbe.',
       invalid_outcome_fields: 'A kimenethez hiányzik vagy fölösleges egy mező.',
       reask_not_allowed: 'Ezt a kérdést nem lehet szűrés nélkül újra feltenni.',
+      owner_topic_required: 'Tulajdonosi döntést csak tulajdonosi témával lehet kérni.',
+      owner_topic_unknown: 'Ez a tulajdonosi téma nincs a projekt listájában.',
       invalid_credentials: 'Hibás e-mail cím vagy jelszó.',
       integrator_key_invalid:
         'A Claude Code-kulcsot visszavonták, vagy lejárt. A tulajdonos a Beállításokban adhat újat.',

@@ -1782,7 +1782,7 @@ describe('system prompt', () => {
       for (const text of [
         'a "question screening" notice',
         'call screen_question for every question in the notice, always with a note.',
-        'Always choose decision for an approval, a release, human access, a cost or fee, a change of scope or deadline',
+        'owner_topic',
         "start or move nothing on the board, change no settings, and never decide in the owner's name.",
       ])
         expect(pm.guide.role).toContain(text);
@@ -1890,7 +1890,7 @@ describe('system prompt', () => {
             level === 'report' ? 'On a signal you never merge' : 'Apart from the step a signal names',
           );
           expect(operator).toContain(
-            'When a stalled, silent, outage, nobody or start_blocked signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human.',
+            'When a stalled, silent, outage, nobody or start_blocked signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and its owner_topic.',
           );
           expect(operator).not.toContain('always goes to the owners');
           expect(operator).toContain('at most one message per wake-up');
@@ -2824,6 +2824,18 @@ describe('expected steps', () => {
     expect(guide()).not.toContain('despite_prerequisites');
     project.team.prerequisiteOverride = 'people_and_project_manager';
     expect(guide()).toContain('despite_prerequisites');
+  });
+
+  it("lists the project's owner topics in the project manager's guide (PM-1190)", () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    const guide = () => builder.build(input({ project, handle: 'pm' })).guide.role!;
+    expect(guide()).toContain('`product_direction`');
+    project.team.ownerDecisionTopics = [{ id: 'hiring', label: 'Felvétel', hint: 'who joins the team' }];
+    expect(guide()).toContain('`hiring` (Felvétel): who joins the team');
+    expect(guide()).not.toContain('`product_direction`');
+    project.team.ownerDecisionTopics = [];
+    expect(guide()).toContain('The project lists no owner topics');
   });
 
   it('tells a member holding the prioritization duty that it may set a priority, when the setting allows it (PM-1096)', () => {

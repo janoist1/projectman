@@ -839,7 +839,7 @@ export const en = {
     limitDefault: '5 points (default)',
     limitUnlimited: '13 points – any size',
     tempLimit:
-      'As a stand-in they can get cards of up to {points} points; the project’s Limits section sets this.',
+      'As a stand-in they can get cards of up to {points|# point|# points}; the project’s Limits section sets this.',
     emailEnabled: 'Allow email correspondence',
     emailEnabledHint:
       'They can write to people who ask for email under Settings › Email, and they receive the replies.',
@@ -951,7 +951,7 @@ export const en = {
     },
     roster: 'Members',
     limit: 'max. {limit} pts',
-    limitTitle: 'Automatically gets cards of up to {limit} points.',
+    limitTitle: 'Automatically gets cards of up to {limit|# point|# points}.',
     limitUnlimited: 'Can get a card of any size.',
     contactChip: 'Contact',
     columns: {
@@ -1631,7 +1631,7 @@ export const en = {
       subject: 'Waiting for a suitable developer: {key}',
       body: 'Card {key} has been waiting for {minutes} min: {names} can’t take it right now.{reason}',
       bodyPoints:
-        'Card {key} has been waiting for {minutes} min: it is {points} points, and nobody whose limit covers it ({names}) is free right now.{reason}',
+        'Card {key} has been waiting for {minutes} min: it is {points|# point|# points}, and nobody whose limit covers it ({names}) is free right now.{reason}',
       reason: ' Reason for the points: “{reason}”',
       consequence: {
         wait_for_senior:
@@ -2382,6 +2382,61 @@ export const en = {
       title: 'This project has no project manager yet.',
       hint: 'Until it has one, the owner takes care of the project’s affairs.',
       team: 'Team',
+    },
+    weekly: {
+      entry: 'Weekly questions',
+      entryHint: '{weeks|# week|# weeks} · questions and integrator answers',
+      back: 'Back to the conversation',
+      title: 'Weekly questions',
+      intro: 'Questions that came to you and the answers that came through the integrator.',
+      range: 'Last {weeks|# week|# weeks} · {range}',
+      timezone: 'Weeks start on Monday · {timezone}',
+      week: 'Week',
+      weekNumber: 'Week {week}',
+      current: 'In progress',
+      total: 'Came to you',
+      viaIntegrator: 'Through the integrator',
+      updated: 'Updated: {date}',
+      refresh: 'Refresh',
+      refreshing: 'Refreshing…',
+      refreshed: 'The weekly figures are up to date.',
+      loading: 'Loading the weekly figures…',
+      failed: 'The weekly figures can’t be loaded right now.',
+      retry: 'Try again',
+      stale: 'The refresh didn’t work. You’re seeing the data loaded earlier.',
+      denied: 'Only the project’s owner can see the weekly figures, signed in with their own login.',
+      empty:
+        'In the last {weeks|# week|# weeks}, no questions came to you and no integrator to-dos were started.',
+      firstUse:
+        'The figures are made automatically from the questions. Earlier questions count too; where no topic was recorded, “Unknown topic” is shown.',
+      emptyWeek: 'No questions came to you this week.',
+      answeredByOwner: 'Answered by an owner',
+      open: 'Still open',
+      answerHint:
+        'The answers that came through the integrator are taken from the questions that came to you.',
+      byRoute: 'How did it reach you?',
+      byTopic: 'On what topic?',
+      integratorTodos: 'Integrator to-dos',
+      integratorTodosHint:
+        'A separate figure: the number of to-dos sent to the integrator, not of its answers. It isn’t added to the questions that came to you.',
+      method: 'How do we count?',
+      methodWeeks:
+        'The week in progress and the previous {previous|# week|# weeks} are shown, in the project’s time zone. A question belongs to the week of its screening date; if it wasn’t screened, to the week it was created.',
+      methodAnswers:
+        'The answers and the open questions show the current state of the weekly questions, so the figures of earlier weeks can change too. An answer that came through the integrator doesn’t mean the integrator made the owner’s decision.',
+      methodTopics:
+        'The route and the topic are two separate breakdowns of the same weekly question count. Old questions without a topic count too.',
+      unknownTopic: 'Unknown topic',
+      routes: {
+        decision: 'Screened decision',
+        owner_todo: 'Owner to-do',
+        integrator_fallback: 'The integrator couldn’t take it over',
+        integrator_escalated: 'The integrator passed it on',
+        screening_fallback: 'Screening wasn’t available or timed out',
+        project_manager: 'The project manager’s own question',
+        reask: 'Asked again',
+        unscreened: 'Not screened',
+      },
     },
     steps: {
       label: 'Steps',

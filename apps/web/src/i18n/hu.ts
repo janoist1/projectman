@@ -2910,6 +2910,7 @@ export const hu = {
           review_step: 'Átnézés',
           work: 'Munka',
           start: 'Indítás',
+          senior_wait: 'Alkalmas fejlesztőre vár',
         },
       },
       pause: {

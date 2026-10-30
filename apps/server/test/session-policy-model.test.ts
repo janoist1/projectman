@@ -22,7 +22,12 @@ const source = '/fictional/source';
 const copy = '/fictional/reviews/round-1';
 const sharedGit = '/fictional/repo/.git';
 
-function policy(role: string, placement: SessionPolicy['placement'], permissionMode = 'acceptEdits') {
+function policy(
+  role: string,
+  placement: SessionPolicy['placement'],
+  permissionMode = 'acceptEdits',
+  outboundNetwork?: boolean,
+) {
   return buildSessionPolicy({
     config: testConfig(),
     role,
@@ -30,9 +35,16 @@ function policy(role: string, placement: SessionPolicy['placement'], permissionM
     placement,
     permissionMode,
     protectedPaths: ['/fictional/live', '/fictional/other-task', sharedGit],
+    ...(outboundNetwork === undefined ? {} : { outboundNetwork }),
   });
 }
-const development = () => policy('developer', { kind: 'task_worktree', path: source, gitDir: sharedGit });
+const development = (outboundNetwork?: boolean) =>
+  policy(
+    'developer',
+    { kind: 'task_worktree', path: source, gitDir: sharedGit },
+    'acceptEdits',
+    outboundNetwork,
+  );
 const review = () =>
   policy('code_review', {
     kind: 'review_copy',
@@ -191,7 +203,8 @@ describe('provider-neutral session policy', () => {
   it.each(['codex', 'nanogpt'] as const)(
     'renders the member cache and development data for %s sandboxed commands',
     (provider) => {
-      const p = development();
+      // A file-rule test: the closed network keeps the profile independent of the machine's platform.
+      const p = development(false);
       const memberDir = '/fictional/app/member-caches/PM/dev';
       const sandbox = sessionSandbox(p, { userHome: '/fictional/user', memberDir })!;
       expect(sandbox.portable?.readBoundary).toBeUndefined();

@@ -38,6 +38,8 @@ const REQUIRED_PATHS = [
   'apps/server/dist/index.js',
   'scripts/engine/cli.js',
 ];
+/** What is unpacked of the pinned Node archive; only `bin/node` goes into the package (`assemble`). */
+const NODE_ARCHIVE_MEMBERS = ['bin/node', 'bin/npm', 'lib/node_modules/npm'];
 const OPTIONAL_PATHS = ['apps/server/node_modules'];
 const SERVICE_TEMPLATE = /^com\.projectman\.engine.*\.plist$/;
 /** Where the build steps may write inside the checkout, besides the package trees. */
@@ -76,7 +78,11 @@ function assertTargetFree(target: string): void {
     throw refused(`the package directory ${target} already exists and is not empty`);
 }
 
-/** The pinned Node, downloaded and extracted to `<nodeDir>/bin/node`; an archive that differs from its hash is refused. */
+/**
+ * The pinned Node, downloaded and extracted to `<nodeDir>/bin/node`, with the npm that comes in its archive
+ * (`bin/npm`, `lib/node_modules/npm`): the sandboxed steps use that npm, not the machine's, whose place on the
+ * PATH the sandbox may close (a hosted runner's toolcache). An archive that differs from its hash is refused.
+ */
 async function fetchNode(
   deps: EnginePackageDeps,
   pin: NodePin,
@@ -101,7 +107,7 @@ async function fetchNode(
       '-C',
       nodeDir,
       '--strip-components=1',
-      `node-v${pin.version}-darwin-arm64/bin/node`,
+      ...NODE_ARCHIVE_MEMBERS.map((member) => `node-v${pin.version}-darwin-arm64/${member}`),
     ],
     { signal },
   );
@@ -110,6 +116,13 @@ async function fetchNode(
   const binary = path.join(nodeDir, 'bin/node');
   if (!fs.lstatSync(binary, { throwIfNoEntry: false })?.isFile())
     throw new CloudError('the Node archive holds no bin/node');
+  if (
+    !fs.lstatSync(path.join(nodeDir, 'bin/npm'), { throwIfNoEntry: false }) ||
+    !fs
+      .lstatSync(path.join(nodeDir, 'lib/node_modules/npm/bin/npm-cli.js'), { throwIfNoEntry: false })
+      ?.isFile()
+  )
+    throw new CloudError('the Node archive holds no npm');
   fs.chmodSync(binary, 0o755);
 }
 

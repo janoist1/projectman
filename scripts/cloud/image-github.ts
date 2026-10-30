@@ -7,11 +7,12 @@ import { CloudError, refused } from './errors';
 import type { HostSession } from './host';
 import {
   artifactDownloadUrl,
-  cloudImageArtifact,
-  locateCloudImageRun,
+  computeJobArtifact,
+  locateComputeJobRun,
   verifyAttestation,
-  type CloudImageRun,
-} from './image-fetch';
+  type ComputeJobRun,
+} from './compute-job-run';
+import { CLOUD_IMAGE_JOB } from './image-fetch';
 import { bundleSchema, checked, selectedImage, type ReceivedImage } from './images';
 import { githubRepoOf } from './github';
 
@@ -30,7 +31,7 @@ const stagedSchema = z.strictObject({
 
 /** A run of the cloud image job and its live artifact, found before the machine is touched. */
 export interface GithubImage {
-  run: CloudImageRun;
+  run: ComputeJobRun;
   artifact: { id: number; name: string; bytes: number };
 }
 
@@ -43,12 +44,13 @@ export async function locateGithubImage(
   context: CloudContext,
   input: { sha: string; run?: number },
 ): Promise<GithubImage> {
-  const run = await locateCloudImageRun(context, {
+  const run = await locateComputeJobRun(context, {
     root: context.deps.repoRoot,
     ref: input.sha,
+    job: CLOUD_IMAGE_JOB,
     ...(input.run === undefined ? {} : { run: input.run }),
   });
-  return { run, artifact: await cloudImageArtifact(context, run) };
+  return { run, artifact: await computeJobArtifact(context, run) };
 }
 
 /** The attested `manifest.json` that the machine returned must describe the image of `sha`. */

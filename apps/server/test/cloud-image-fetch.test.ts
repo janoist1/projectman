@@ -8,14 +8,15 @@ import type { CloudContext } from '../../../scripts/cloud/context';
 import type { CloudDeps, RunResult } from '../../../scripts/cloud/deps';
 import { CloudError } from '../../../scripts/cloud/errors';
 import {
-  CLOUD_IMAGE_JOB,
   artifactDownloadUrl,
-  cloudImageArtifact,
-  cloudImageLaunchCommand,
-  runImageFetch,
-  type CloudImageRun,
-  type ImageFetchContext,
-} from '../../../scripts/cloud/image-fetch';
+  computeJobArtifact,
+  computeJobLaunchCommand,
+  locateComputeJobRun,
+  type ComputeJobContext,
+  type ComputeJobRun,
+} from '../../../scripts/cloud/compute-job-run';
+import { CLOUD_IMAGE_JOB, runImageFetch } from '../../../scripts/cloud/image-fetch';
+import { ENGINE_APP_JOB } from '../../../scripts/engine-app/job';
 import { selectedImage } from '../../../scripts/cloud/images';
 import { Report } from '../../../scripts/cloud/report';
 import { ComputeJobId, ComputeJobOutputPath } from '@projectman/shared';
@@ -153,7 +154,7 @@ async function fakeRun(command: string, args: string[]): Promise<RunResult> {
   return { code: 1, stdout: '', stderr: 'unexpected gh call' };
 }
 
-function context(): ImageFetchContext {
+function context(): ComputeJobContext {
   return {
     deps: {
       run: fakeRun,
@@ -269,7 +270,7 @@ describe('image-fetch', () => {
     const error = await fetchImage().catch((caught: unknown) => caught);
     expect(error).toMatchObject({ exitCode: 2 });
     const message = (error as Error).message;
-    expect(message).toContain(cloudImageLaunchCommand(REPO, 'main', REF, new Date(clock)));
+    expect(message).toContain(computeJobLaunchCommand(CLOUD_IMAGE_JOB, REPO, 'main', REF, new Date(clock)));
     expect(message).toContain(`-f commit=${REF} -f runs_on=${CLOUD_IMAGE_JOB.runsOn}`);
     // Without --bootstrap the builder does not know linux/arm64 yet (the first run, 40971861471, failed so).
     expect(CLOUD_IMAGE_JOB.command).toContain(
@@ -357,7 +358,7 @@ describe('image-fetch', () => {
 });
 
 describe('the artifact of a run and its download link (PM-1154)', () => {
-  const run: CloudImageRun = {
+  const run: ComputeJobRun = {
     repo: REPO,
     branch: 'main',
     id: RUN,
@@ -400,7 +401,7 @@ describe('the artifact of a run and its download link (PM-1154)', () => {
 
   it('finds the one live artifact of the run', async () => {
     const { context } = artifactContext([artifact(), artifact({ id: 78, name: 'other' })]);
-    await expect(cloudImageArtifact(context as never, run)).resolves.toEqual({
+    await expect(computeJobArtifact(context as never, run)).resolves.toEqual({
       id: 77,
       name: `projectman-job-${RUN_ID}`,
       bytes: 460_000_000,
@@ -413,7 +414,7 @@ describe('the artifact of a run and its download link (PM-1154)', () => {
     ['two live artifacts', [artifact(), artifact({ id: 78 })], 'more than one'],
   ])('refuses %s', async (_name, artifacts, message) => {
     const { context } = artifactContext(artifacts);
-    await expect(cloudImageArtifact(context as never, run)).rejects.toMatchObject({
+    await expect(computeJobArtifact(context as never, run)).rejects.toMatchObject({
       exitCode: 2,
       message: expect.stringContaining(message),
     });
@@ -474,8 +475,45 @@ describe('configless commands', () => {
   });
 });
 
-it('keeps the cloud image job inside the shared patterns', () => {
-  expect(ComputeJobId.safeParse(CLOUD_IMAGE_JOB.job).success).toBe(true);
-  for (const output of CLOUD_IMAGE_JOB.outputs)
-    expect(ComputeJobOutputPath.safeParse(output).success).toBe(true);
+describe('the run finder of a compute job (PM-1156)', () => {
+  const jobs = [CLOUD_IMAGE_JOB, ENGINE_APP_JOB];
+  const other = (job: (typeof jobs)[number]) => (job === CLOUD_IMAGE_JOB ? ENGINE_APP_JOB : CLOUD_IMAGE_JOB);
+  const titleOf = (job: (typeof jobs)[number]) => `projectman-job ${job.id} ${REF} ${RUN_ID}`;
+  const locate = (job: (typeof jobs)[number], run?: number) =>
+    locateComputeJobRun(context(), {
+      root: path.join(directory, 'repo'),
+      ref: REF,
+      job,
+      ...(run === undefined ? {} : { run }),
+    });
+
+  it.each(jobs)('finds its own run of $id', async (job) => {
+    world.listed = [
+      { databaseId: RUN, displayTitle: titleOf(job), status: 'completed', createdAt: '2026-10-29T12:00:00Z' },
+    ];
+    world.runStates = [completed({ display_title: titleOf(job) })];
+    await expect(locate(job)).resolves.toMatchObject({ id: RUN, runId: RUN_ID });
+  });
+
+  it.each(jobs)('does not take the run of the other job instead of $id', async (job) => {
+    world.listed = [
+      {
+        databaseId: RUN,
+        displayTitle: titleOf(other(job)),
+        status: 'completed',
+        createdAt: '2026-10-29T12:00:00Z',
+      },
+    ];
+    world.runStates = [completed({ display_title: titleOf(other(job)) })];
+    await expect(locate(job)).rejects.toMatchObject({
+      exitCode: 2,
+      message: expect.stringContaining(`-f job=${job.id} `),
+    });
+    await expect(locate(job, RUN)).rejects.toMatchObject({ exitCode: 2 });
+  });
+
+  it.each(jobs)('keeps $id inside the shared patterns', (job) => {
+    expect(ComputeJobId.safeParse(job.id).success).toBe(true);
+    for (const output of job.outputs) expect(ComputeJobOutputPath.safeParse(output).success).toBe(true);
+  });
 });

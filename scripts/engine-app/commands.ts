@@ -2,10 +2,14 @@ import path from 'node:path';
 import { CloudError, badUsage } from '../cloud/errors';
 import type { EnginePackageRequest } from './package';
 import type { EngineAppBuildRequest } from './build';
-import { RELEASE_TAG_PATTERN } from '@projectman/shared';
+import { ComputeJobCommit, RELEASE_TAG_PATTERN } from '@projectman/shared';
+import { runNumber } from '../cloud/compute-job-run';
+import type { EngineAppFetchRequest } from './fetch';
 
+const FETCH_USAGE =
+  'usage: npm run engine-app -- fetch --commit <sha> --out <new directory> [--run <number>] [--dry-run] [--open]';
 const USAGE =
-  'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>] | build --package <dir> --out <dir> [--ad-hoc | --identity <name> --team-id <id> --notary-profile <name>] | publish --tag <tag> --config <absolute-file>';
+  'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>] | build --package <dir> --out <dir> [--ad-hoc | --identity <name> --team-id <id> --notary-profile <name>] | publish --tag <tag> --config <absolute-file> | fetch --commit <sha> --out <new directory> [--run <number>] [--dry-run] [--open]';
 
 export interface EngineAppCliDeps {
   /** The remote the commit is fetched from when `--repo` is absent: `origin` of the source checkout. */
@@ -15,6 +19,8 @@ export interface EngineAppCliDeps {
   build(request: EnginePackageRequest): Promise<{ root: string }>;
   buildApp?(request: EngineAppBuildRequest): Promise<{ root: string }>;
   publish?(request: { tag: string; config?: string; repositoryUrl: string }): Promise<void>;
+  /** Downloads the GitHub-built app; returns its path (with `dryRun`, the address of the run). */
+  fetch?(request: EngineAppFetchRequest): Promise<string>;
   out(text: string): void;
   err(text: string): void;
 }
@@ -49,6 +55,33 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
       if (!repositoryUrl) throw badUsage('the source checkout has no origin remote');
       await deps.publish({ tag, config, repositoryUrl });
       deps.out(`published engine app for ${tag}`);
+      return 0;
+    }
+    if (command === 'fetch') {
+      const allowed = new Set(['--commit', '--out', '--run']);
+      const seen = new Set<string>();
+      for (let index = 0; index < args.length; index++) {
+        const key = args[index]!;
+        if (seen.has(key)) throw badUsage(FETCH_USAGE);
+        seen.add(key);
+        if (key === '--dry-run' || key === '--open') continue;
+        if (!allowed.has(key) || !args[index + 1] || args[index + 1]!.startsWith('--'))
+          throw badUsage(FETCH_USAGE);
+        index++;
+      }
+      const commit = option(args, '--commit');
+      const out = option(args, '--out');
+      const run = option(args, '--run');
+      if (!commit || !ComputeJobCommit.safeParse(commit).success || !out || !deps.fetch)
+        throw badUsage(FETCH_USAGE);
+      const app = await deps.fetch({
+        commit,
+        out: path.resolve(deps.cwd, out),
+        ...(run === undefined ? {} : { run: runNumber('engine-app fetch', run) }),
+        dryRun: args.includes('--dry-run'),
+        open: args.includes('--open'),
+      });
+      deps.out(app);
       return 0;
     }
     if (command === 'build') {

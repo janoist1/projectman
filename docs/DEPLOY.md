@@ -40,6 +40,74 @@ with `--ad-hoc`. Node receives JIT and unsigned executable memory entitlements i
 signed release builds keep hardened runtime and library validation enabled. Verify real Node/native module
 execution and Gatekeeper on the owner's first signed release (PM-1123) before distribution.
 
+### On GitHub (PM-1156)
+
+The same two steps can run as the compute job `engine-app` (PM-1144/1147/1148, the general
+`projectman-job.yml` workflow) on a GitHub `macos-15` runner, ad-hoc signed until there is a Developer ID. The
+Mac then builds nothing: it downloads and verifies the result. The values are in `ENGINE_APP_JOB`
+(`scripts/engine-app/job.ts`):
+
+| Input             | Value                                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `job`             | `engine-app`                                                                                                                                                                                                                                           |
+| `runs_on`         | `macos-15`                                                                                                                                                                                                                                             |
+| `node`            | `22`                                                                                                                                                                                                                                                   |
+| `timeout_minutes` | `60`                                                                                                                                                                                                                                                   |
+| `outputs`         | `app/projectman-motor.json app/projectman-motor.zip app/projectman-motor.dmg`                                                                                                                                                                          |
+| `command`         | `npm ci && npm run engine-app -- package --commit "$PROJECTMAN_JOB_COMMIT" --out "$RUNNER_TEMP/engine-package" && npm run engine-app -- build --package "$RUNNER_TEMP/engine-package/$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/app" --ad-hoc` |
+
+The engine starts a job only when the owner has registered it by hand, with exactly these values: in the
+engine's `engine.json`, in the `computeJobs` of the repository entry (`repos[].computeJobs`), and on the hub with a
+`repoComputeJobs` patch (`computeJobs` of the repository, which needs a `github` owner/name):
+
+```json
+"computeJobs": [
+  {
+    "id": "engine-app",
+    "runsOn": "macos-15",
+    "node": "22",
+    "timeoutMinutes": 60,
+    "outputs": ["app/projectman-motor.json", "app/projectman-motor.zip", "app/projectman-motor.dmg"],
+    "command": "npm ci && npm run engine-app -- package --commit \"$PROJECTMAN_JOB_COMMIT\" --out \"$RUNNER_TEMP/engine-package\" && npm run engine-app -- build --package \"$RUNNER_TEMP/engine-package/$PROJECTMAN_JOB_COMMIT\" --out \"$PROJECTMAN_JOB_OUT/app\" --ad-hoc"
+  }
+]
+```
+
+Start it for a commit of the default branch (the workflow runs only those) either with the team tool,
+`run_compute_job job=engine-app commit=<SHA40>`, or by hand with the `gh workflow run` line that
+`engine-app fetch` prints when it finds no run. Then, on the Mac the app goes to:
+
+```sh
+npm run engine-app -- fetch --commit <SHA40> --out /path/to/new-directory [--run <number>] [--dry-run] [--open]
+```
+
+`fetch` never starts a run. It finds or follows the newest `engine-app` run of the commit (or the given `--run`),
+checks where it ran (workflow, event, default branch, result, title) and the attestation of all three files against
+the workflow's exact identity and this run, then the manifest (commit, sha256, size of the zip and the dmg),
+unpacks the app with `ditto`, runs `codesign --verify --deep --strict` and compares the `engine-package.json`
+inside the app with the commit. Any failure removes the output directory. On success it leaves `projectman motor.app`
+and the three files, and prints the app's path as its last line. It needs `gh` logged in with read access to the
+repository's Actions (gh 2.49 or newer for `gh attestation`), `ditto` and `codesign`; the artifact lives 7 days.
+`--dry-run` stops at the run's address.
+
+**Installing is opening the new app, not a bare `service switch --to`.** The menu bar app that is still installed
+decides by `SwitchPolicy.candidate` only whether the packaged version and the running one differ; after a manual
+`service switch --to` it would switch the idle engine back to its own version by itself. The new app, once
+opened (`--open`, or `open "<out>/projectman motor.app"`), copies itself into `/Applications` and stops the old
+one; its own release switch (`Installer.switchEngine`) stages the package in `engine/versions/<version>`, runs
+`service switch --to`, moves `current` and cleans up. An idle engine switches at once; with work running the menu
+offers "Update now…". The `gh` and `ditto` downloads carry no quarantine attribute, so the ad-hoc app starts; the
+LuLu firewall still asks to allow each new engine version's `bin/node` until the app is signed. The Team ID is
+empty, so the updater is off.
+
+**Measuring (PM-1157).** Compare before (local `package` then `build --ad-hoc` on the Mac, about 3.5 minutes,
+with `npm ci` and Spotlight indexing loading the machine) and after (GitHub), both from the start to the app
+running: for the local path, the two commands' wall time and the load average (`uptime`) during them; for GitHub,
+the run's queue and run time from `get_compute_job` (or the run page), plus the `fetch --open` time on the Mac until
+the new version runs. Keep the GitHub path only if the Mac's time and load fall enough to be worth the queue wait.
+If a Developer ID comes later, the same job signs and notarizes and attaches the files as release assets, and the
+self-update takes them from there.
+
 ## GitHub attribution
 
 Optionally set `githubLogin: acme-developer` on a human or AI member in

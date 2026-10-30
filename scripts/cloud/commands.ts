@@ -20,7 +20,8 @@ import {
   runStop,
 } from './machine';
 import { Report } from './report';
-import { runImageFetch, type ImageFetchContext } from './image-fetch';
+import type { ComputeJobContext } from './compute-job-run';
+import { runImageFetch } from './image-fetch';
 import { imagePreflight } from './image-github';
 import { runImageBuild, type ImageBuildContext } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
@@ -153,7 +154,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     flags: ['dry-run'],
     values: ['ref', 'out', 'run'],
     required: ['ref', 'out'],
-    run: (context: ImageFetchContext, invocation) =>
+    run: (context: ComputeJobContext, invocation) =>
       runImageFetch(context, {
         ref: invocation.values.ref!,
         output: invocation.values.out!,

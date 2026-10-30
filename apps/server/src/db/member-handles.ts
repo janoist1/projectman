@@ -48,6 +48,7 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'releases', columns: ['proposed_by', 'decided_by'] },
   { table: 'release_publications', columns: ['published_by'] },
   { table: 'doc_writes', columns: ['author', 'requested_by'] },
+  { table: 'compute_job_runs', columns: ['requested_by'] },
   { table: 'feedback_marks', columns: ['author', 'handed_to'] },
   {
     table: 'feedback_events',

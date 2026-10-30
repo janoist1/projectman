@@ -1,6 +1,7 @@
 import { existsSync, realpathSync, statSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { AgentProvider } from '@projectman/shared';
 import {
   assertHomeNotInUse,
   cloudOrigin,
@@ -74,6 +75,7 @@ const USAGE = `usage:
   npm run engine -- status [--json]   (--json: one line, the state for other programs; exit 0 in every state)
   npm run engine -- logs [--lines N] [--json]   (the end of the service's output and error logs; N up to ${LOG_LINES_MAX})
   npm run engine -- keep-awake on|off   (keep the Mac awake while work runs; takes effect when the engine restarts)
+  npm run engine -- providers <list,of,providers>|all|none   (the providers this engine starts sessions for; takes effect when the engine restarts)
   npm run engine -- start
   npm run engine -- service install|uninstall|status|start|stop|restart   (macOS LaunchAgent: the engine starts at login and restarts)
   npm run engine -- service install [--path <PATH>]
@@ -155,6 +157,12 @@ function age(from: string, now: number): string {
   return `${Math.round(seconds / 3600)}h`;
 }
 
+/** PM-1187: the providers a new engine starts sessions for; Gemini's commands run without an OS sandbox. */
+const DEFAULT_ALLOWED_PROVIDERS: AgentProvider[] = ['claude', 'codex', 'nanogpt'];
+
+const providersText = (allowed: readonly AgentProvider[] | undefined): string =>
+  allowed === undefined ? 'all' : allowed.length === 0 ? 'none' : allowed.join(', ');
+
 /** PM-1086: the keep-awake state and the running work in one line; an older engine's file has neither. */
 function keepAwakeLine(status: EngineStatus, alive: boolean, now: number): string {
   const { keepAwake, work } = status;
@@ -219,6 +227,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         const linkHeadersFile = headersFlag
           ? absoluteFile(headersFlag, io.cwd, 'The link headers file')
           : previous?.linkHeadersFile;
+        const allowedProviders = previous ? previous.allowedProviders : DEFAULT_ALLOWED_PROVIDERS;
         const config = EngineConfig.parse({
           schemaVersion: 1,
           cloudUrl: cloud,
@@ -231,6 +240,8 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           repos: previous?.repos ?? [],
           maxPermissionMode: previous?.maxPermissionMode ?? 'auto',
           allowRemoteTerminalInput: previous?.allowRemoteTerminalInput ?? true,
+          // PM-1187: a new engine leaves Gemini out; a re-run keeps what was there, a missing list too.
+          ...(allowedProviders ? { allowedProviders } : {}),
         });
         writeSecretFile(config.keyFile ?? files.key, `${key}\n`);
         saveEngineConfig(home, config);
@@ -368,6 +379,8 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           `sessions: ${status.running.length}${status.running.map((s) => `\n  ${s.sessionId} ${s.state}`).join('')}`,
         );
         io.out(keepAwakeLine(status, alive, now));
+        if (existsSync(files.config))
+          io.out(`providers: ${providersText(loadEngineConfig(home).allowedProviders)}`);
         return alive && status.connection === 'connected' ? 0 : 1;
       }
       case 'logs': {
@@ -395,6 +408,29 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           EngineConfig.parse({ ...config, keepAwake: sub === 'on' ? 'while_working' : 'off' }),
         );
         io.out(`keep awake while working: ${sub}. It takes effect when the engine is restarted.`);
+        return 0;
+      }
+      case 'providers': {
+        if (sub === undefined || rest.length > 0)
+          throw new UsageError('providers <list,of,providers>|all|none');
+        const config = loadEngineConfig(home);
+        const { allowedProviders: _previous, ...others } = config;
+        let allowed: AgentProvider[] | undefined;
+        if (sub === 'none') allowed = [];
+        else if (sub !== 'all') {
+          allowed = [];
+          for (const name of sub.split(',')) {
+            const provider = AgentProvider.safeParse(name);
+            if (!provider.success)
+              throw new UsageError(`unknown provider "${name}" (${AgentProvider.options.join(', ')})`);
+            if (!allowed.includes(provider.data)) allowed.push(provider.data);
+          }
+        }
+        saveEngineConfig(
+          home,
+          EngineConfig.parse({ ...others, ...(allowed ? { allowedProviders: allowed } : {}) }),
+        );
+        io.out(`allowed providers: ${providersText(allowed)}. It takes effect when the engine is restarted.`);
         return 0;
       }
       case 'start': {
@@ -491,7 +527,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       }
       default:
         throw new UsageError(
-          'commands: init, project set, repo add, repo remove, nanogpt-key, status, logs, keep-awake, start, service, move-work-root',
+          'commands: init, project set, repo add, repo remove, nanogpt-key, status, logs, keep-awake, providers, start, service, move-work-root',
         );
     }
   } catch (error) {

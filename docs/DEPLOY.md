@@ -242,6 +242,18 @@ on battery with the lid closed sleeps anyway). `npm run engine -- status` shows 
 runs. To turn it off (or on again): `npm run engine -- keep-awake off|on`; it takes effect when the engine
 is restarted.
 
+## The providers an engine starts sessions for (PM-1187)
+
+`engine.json` may list the providers the engine starts sessions for (`allowedProviders`). `npm run engine -- init`
+writes `claude, codex, nanogpt` on a new engine (no Gemini: its commands run without an OS sandbox) and keeps the
+previous value, a missing one too, with `--force`. Change it with
+`npm run engine -- providers claude,codex|all|none`; `all` removes the list (every provider, the engine from
+before this change), `none` starts no session. It takes effect when the engine is restarted, and
+`npm run engine -- status` shows it. A start for another provider fails with `session_start_failed` and the
+engine's message. A Codex or NanoGPT writer in the `default` mode does not start either on an engine (it needs
+`acceptEdits` or `auto`). **Deploy the hub before the engine:** the hub closes the link on an error code it does
+not know (`provider_not_allowed`, `permission_mode_too_low`).
+
 ## Controlling the engine service (PM-1087)
 
 `service install [--path <PATH>]` uses the calling shell's PATH by default. The app passes

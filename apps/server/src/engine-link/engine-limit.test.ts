@@ -437,6 +437,53 @@ describe('engine local limit', () => {
       );
     });
 
+    describe('the provider list and the Codex modes (PM-1187)', () => {
+      it('refuses a provider that is not in the list, and takes a missing provider for Claude', async () => {
+        const limited = make({ allowedProviders: ['codex'] });
+        await refused(limited, 'session.start', start({ provider: 'gemini' }), 'provider_not_allowed');
+        await refused(limited, 'session.start', start({ provider: undefined }), 'provider_not_allowed');
+        await expect(limited.check('session.start', worktreeStart('codex') as never)).resolves.toBeDefined();
+      });
+
+      it('starts any provider while the list is absent', async () => {
+        await expect(
+          make().check('session.start', start({ provider: 'gemini' }) as never),
+        ).resolves.toBeDefined();
+      });
+
+      it('starts no session with an empty list', async () => {
+        await refused(make({ allowedProviders: [] }), 'session.start', start(), 'provider_not_allowed');
+      });
+
+      const codexStart = (access: 'task_worktree' | 'read_only', provider: 'codex' | 'nanogpt' = 'codex') => {
+        const input = worktreeStart(provider);
+        return {
+          ...input,
+          policy: {
+            ...input.policy,
+            access,
+            permissions: { ...input.policy.permissions, approval: 'on-request' },
+          },
+        };
+      };
+
+      it.each(['codex', 'nanogpt'] as const)(
+        'refuses a %s writer in the default mode: its sandbox is read-only and it asks',
+        async (provider) => {
+          await refused(
+            make(),
+            'session.start',
+            codexStart('task_worktree', provider),
+            'permission_mode_too_low',
+          );
+        },
+      );
+
+      it('starts a Codex reading placement with the same mode', async () => {
+        await expect(make().check('session.start', codexStart('read_only') as never)).resolves.toBeDefined();
+      });
+    });
+
     describe('the paths of a policy', () => {
       const gitDir = () => path.join(repo, '.git');
       const taskWorktree = (overrides: Record<string, unknown> = {}) => ({

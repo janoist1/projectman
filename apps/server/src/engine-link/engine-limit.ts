@@ -8,6 +8,7 @@ import {
   isReleaseTagName,
   placementReadsOnly,
   SessionReadBoundary,
+  usesCodexCli,
   type ProjectConfig,
 } from '@projectman/shared';
 import type { AgentSandbox, EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
@@ -309,6 +310,10 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     [M in EngineMethod]: (params: MethodParams<M>) => MethodParams<M> | Promise<MethodParams<M>>;
   }> = {
     'session.start': (spec) => {
+      // PM-1187: a missing provider means Claude, as in the sandbox branch below.
+      const provider = spec.provider ?? 'claude';
+      if (config.allowedProviders && !config.allowedProviders.includes(provider))
+        refuse('provider_not_allowed', `The ${provider} provider is not allowed on this engine`);
       const extra = sandboxRoots();
       const readable = readRoots();
       inside(spec.cwd, 'The working directory');
@@ -356,11 +361,24 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         }
       }
       let sandbox = spec.sandbox;
-      if (
-        placementReadsOnly(policy.access, { mode: policy.reviewCopyMode, enforcement: policy.enforcement }) &&
-        sandbox?.portable?.readBoundary === undefined
-      )
+      const readsOnly = placementReadsOnly(policy.access, {
+        mode: policy.reviewCopyMode,
+        enforcement: policy.enforcement,
+      });
+      if (readsOnly && sandbox?.portable?.readBoundary === undefined)
         refuse('invalid_params', 'A reading session needs a read boundary on this engine');
+      // PM-1187: this engine refuses every Codex approval outside the sandbox, so a writer in a `default` mode
+      // (read-only sandbox, approval on request) could never edit: it does not start.
+      if (
+        usesCodexCli(provider) &&
+        !readsOnly &&
+        policy.permissions.sandbox === 'read-only' &&
+        policy.permissions.approval === 'on-request'
+      )
+        refuse(
+          'permission_mode_too_low',
+          'A Codex session that writes needs the acceptEdits or auto mode on this engine',
+        );
       // A reading session's boundary (PM-425) is checked for every provider: the sandbox's list is the
       // one the policy's copy is replaced with, and no transcript of any session is ever readable.
       let readerDenied: string[] = [];

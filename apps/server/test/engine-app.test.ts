@@ -897,6 +897,21 @@ describe('engine process', () => {
   });
 
   describe('engine guard (PM-1176)', () => {
+    it('audits an escalation refusal with its code only (PM-1187)', async () => {
+      await startEngine();
+      await cloud.connected();
+      fake.options()!.engineGuard!.refused({ sessionId: 's1', member: 'dev', code: 'escalation_refused' });
+      await engine!.close();
+      const records = readFileSync(path.join(home, 'logs', 'engine-audit.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((record) => record.method === 'tool.guard');
+      expect(records).toEqual([
+        expect.objectContaining({ sessionId: 's1', outcome: 'refused', code: 'escalation_refused' }),
+      ]);
+    });
+
     it('audits a refusal with its code only, and tells the cloud it was the engine guard', async () => {
       await startEngine();
       await cloud.connected();
@@ -991,6 +1006,26 @@ describe('engine process', () => {
         }),
       );
       for (const record of records) expect(typeof record.at).toBe('string');
+    });
+
+    it('refuses a provider outside the list, audits it without a path, and starts nothing (PM-1187)', async () => {
+      saveEngineConfig(home, { ...loadEngineConfig(home), allowedProviders: ['claude'] });
+      await startEngine();
+      const { call } = await cloud.connected();
+      await expect(
+        call('session.start', startSpec({ sessionId: 's-gemini', provider: 'gemini' })),
+      ).rejects.toMatchObject({ code: 'provider_not_allowed' });
+      expect(fake.runner.started).toHaveLength(0);
+      await engine!.close();
+      const records = readFileSync(path.join(home, 'logs', 'engine-audit.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((record) => record.method === 'session.start');
+      expect(records).toEqual([
+        expect.objectContaining({ sessionId: 's-gemini', outcome: 'refused', code: 'provider_not_allowed' }),
+      ]);
+      expect(Object.keys(records[0]!)).not.toEqual(expect.arrayContaining(['path', 'input']));
     });
 
     it('records a request refused before any handler (an unknown method or invalid parameters)', async () => {

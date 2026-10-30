@@ -186,6 +186,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
       sessionPermissionRules: false,
       readiness: 'screen',
       mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.codex,
+      sandboxEscalation: true,
     },
     timing: CODEX_TIMING,
     inputTools: CODEX_INPUT_TOOLS,

@@ -47,6 +47,16 @@ describe('engine configuration', () => {
     expect(() => base({ keepAwake: 'always' })).toThrow();
   });
 
+  it('keeps the optional provider list, an empty one too, and refuses an unknown provider (PM-1187)', () => {
+    saveEngineConfig(dir, base());
+    expect(loadEngineConfig(dir).allowedProviders).toBeUndefined();
+    saveEngineConfig(dir, base({ allowedProviders: ['claude', 'codex'] }));
+    expect(loadEngineConfig(dir).allowedProviders).toEqual(['claude', 'codex']);
+    saveEngineConfig(dir, base({ allowedProviders: [] }));
+    expect(loadEngineConfig(dir).allowedProviders).toEqual([]);
+    expect(() => base({ allowedProviders: ['grok' as never] })).toThrow();
+  });
+
   it('refuses a file that is not JSON, or that has a field it does not know', () => {
     writeFileSync(path.join(dir, 'engine.json'), '{nope');
     expect(() => loadEngineConfig(dir)).toThrowError(expect.objectContaining({ code: 'config_invalid' }));

@@ -12,7 +12,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import { ComputeJobDefinitions, SelectablePermissionMode } from '@projectman/shared';
+import { AgentProvider, ComputeJobDefinitions, SelectablePermissionMode } from '@projectman/shared';
 import { isLoopbackHostname, isWithin } from '../kernel/pure';
 import { readInstanceMarker } from '../instance';
 
@@ -78,6 +78,11 @@ export const EngineConfig = z.strictObject({
   allowRemoteTerminalInput: z.boolean().default(true),
   /** PM-1086: keep the machine awake while work runs (macOS); absent: `while_working`. */
   keepAwake: z.enum(['while_working', 'off']).optional(),
+  /**
+   * PM-1187: the providers this engine starts sessions for. Absent: every provider (today's engine); an empty
+   * list: the engine only merges and starts no session. A `session.start` for another provider is refused.
+   */
+  allowedProviders: z.array(AgentProvider).optional(),
 });
 export type EngineConfig = z.infer<typeof EngineConfig>;
 

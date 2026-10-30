@@ -170,6 +170,14 @@ export function SettingsPage() {
     config.data?.config.project.name ?? me.projects.find((p) => p.key === key)?.name,
   );
   useEffect(() => {
+    // The topic editor opens and focuses its own field for a configuration problem link.
+    if (
+      section === 'team' &&
+      new URLSearchParams(location.search).get('field')?.startsWith('ownerDecisionTopics')
+    ) {
+      previousSection.current = section;
+      return;
+    }
     main.current?.closest('main')?.scrollTo?.(0, 0);
     if (wide && location.state?.settingsIssueTarget && section) {
       main.current?.querySelector<HTMLElement>(`#settings-${section}`)?.focus();
@@ -194,6 +202,7 @@ export function SettingsPage() {
     Boolean(config.data),
     location.state?.settingsIssueTarget,
     location.state?.settingsReturn,
+    location.search,
   ]);
 
   if (isSettingsSection(legacy))

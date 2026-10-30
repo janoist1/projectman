@@ -435,3 +435,40 @@ details[open] > .foldSummary .chevron {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
 }
+.ownerTopicForm {
+  padding: 16px;
+  margin-top: 12px;
+  border: 1px solid var(--c-line);
+  border-radius: 8px;
+  background: var(--c-subtle);
+  display: grid;
+  gap: 12px;
+  animation: ownerTopicEnter 140ms ease-out;
+}
+
+.ownerTopics .dutyHolders {
+  color: var(--c-ink-3);
+}
+.ownerTopicRow {
+  cursor: default;
+}
+.ownerTopicRow .dutyText {
+  flex: 1;
+}
+
+@keyframes ownerTopicEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ownerTopicForm {
+    animation: none;
+  }
+}

@@ -1,5 +1,6 @@
 import { h, render } from 'preact';
 import { createController } from './controller';
+import { setWidgetLanguage, widgetLanguage } from './i18n';
 import type { Controller } from './controller';
 import { HOST_ATTRIBUTE } from './screenshot';
 import { App } from './ui/App';
@@ -44,6 +45,8 @@ function applyStyles(shadow: ShadowRoot, css: string): void {
 export function mountWidget(options: MountOptions): Mounted {
   const { win } = options;
   const doc = win.document;
+  const language = widgetLanguage(doc.documentElement.lang, win.navigator.language);
+  setWidgetLanguage(language);
   const host = doc.createElement('div');
   host.setAttribute(HOST_ATTRIBUTE, '');
   host.setAttribute('style', paletteVariables());
@@ -51,6 +54,7 @@ export function mountWidget(options: MountOptions): Mounted {
   applyStyles(shadow, options.css);
   const root = doc.createElement('div');
   root.className = 'w';
+  root.setAttribute('lang', language);
   shadow.append(root);
   // Under <html>, not <body>: a positioned body would shift the pins' document coordinates.
   doc.documentElement.append(host);

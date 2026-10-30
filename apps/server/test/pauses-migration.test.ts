@@ -7,6 +7,7 @@ const pause = {
   id: 'pau_1',
   scope: 'project' as const,
   projectKey: 'AR',
+  engineId: null,
   kind: 'manual' as const,
   source: 'app' as const,
   reason: null,
@@ -42,6 +43,45 @@ describe('pauses migration (PM-219)', () => {
       expect(pauses.get('pau_1')?.resumedAt).toBe('2026-10-03T09:00:00.000Z');
       pauses.insert({ ...pause, id: 'pau_3' });
       expect(pauses.findOpen('project', 'AR')?.id).toBe('pau_3');
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps the pauses of a database from before the engine scope and lets an engine's shutdown pause in (PM-1159)", () => {
+    const db = new Database(':memory:');
+    try {
+      for (const migration of migrations.filter((item) => item.version <= 135)) db.exec(migration.sql);
+      db.pragma('user_version = 135');
+      db.exec(
+        `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
+         INSERT INTO pauses (id, scope, project_key, kind, source, reason, requested_by, requested_at, force_after_ms)
+           VALUES ('pau_1', 'project', 'AR', 'manual', 'app', NULL, NULL, '2026-10-03T08:00:00.000Z', 300000);`,
+      );
+      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+      const { pauses } = createRepositories(db);
+      expect(pauses.findOpen('project', 'AR')?.id).toBe('pau_1');
+      expect(pauses.get('pau_1')).toMatchObject({ scope: 'project', engineId: null });
+
+      const engine = {
+        ...pause,
+        id: 'pau_e',
+        scope: 'engine' as const,
+        projectKey: null,
+        engineId: 'eng_aaaaaaaaaaaa' as never,
+        kind: 'shutdown' as const,
+        source: 'system' as const,
+      };
+      pauses.insert(engine);
+      // The team's views do not see it; the engine finds it.
+      expect(pauses.open().map((p) => p.id)).toEqual(['pau_1']);
+      expect(pauses.findOpenEngine('eng_aaaaaaaaaaaa' as never)?.id).toBe('pau_e');
+      // One open pause per engine, and only a system shutdown pause names one.
+      expect(() => pauses.insert({ ...engine, id: 'pau_e2' })).toThrow();
+      expect(() => pauses.insert({ ...engine, id: 'pau_e3', engineId: null })).toThrow();
+      expect(() =>
+        pauses.insert({ ...engine, id: 'pau_e4', engineId: 'eng_bbbbbbbbbbbb' as never, kind: 'manual' }),
+      ).toThrow();
     } finally {
       db.close();
     }

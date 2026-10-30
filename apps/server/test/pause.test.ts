@@ -231,6 +231,7 @@ describe('pause of the team', () => {
       id: 'pau-race',
       scope: 'project',
       projectKey: 'AR',
+      engineId: null,
       kind: 'manual',
       source: 'system',
       reason: null,

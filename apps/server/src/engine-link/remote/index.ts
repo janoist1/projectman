@@ -11,6 +11,7 @@ import type {
 } from '../../contracts';
 import { conflict } from '../../kernel';
 import type { EngineLinks } from '../index';
+import { EngineRpcError } from '../rpc';
 import { createAttachmentMaterializer } from './attachments';
 import { createRemoteGithub } from './github';
 import { registerCloudHandlers } from './handlers';
@@ -43,6 +44,10 @@ export interface CloudDomain {
       reported: ReadonlySet<string>,
       starting: (sessionId: string) => boolean,
     ): Promise<void>;
+  };
+  pauses: {
+    pauseEngineForShutdown(engineId: EngineId, waitMs: number): Promise<{ held: number; left: number }>;
+    resumeEngine(engineId: EngineId): Promise<void>;
   };
   providerKeys?: { onChange(listener: () => void): () => void } | null;
 }
@@ -137,7 +142,18 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
       new Set(hello.running.map((info) => info.sessionId)),
       (sessionId) => runner.isStarting(sessionId),
     );
+    // Only now: a process the reconcile ended is not running, so what the engine's pause held starts again (PM-1159).
+    await bound.domain.pauses.resumeEngine(id);
   });
+
+  /** The engine stops: its pause is recorded here, and its sessions stop at a safe point. */
+  const pauseEngine: Parameters<typeof registerCloudHandlers>[0]['pauseEngine'] = async (
+    engineId,
+    waitMs,
+  ) => {
+    if (!bound) throw new EngineRpcError('internal', 'The server is still starting');
+    return bound.domain.pauses.pauseEngineForShutdown(engineId, waitMs);
+  };
 
   /** One team-tools request of an engine's session, run through the MCP routes of this very server. */
   const relayMcp: Parameters<typeof registerCloudHandlers>[0]['relayMcp'] = async (engineId, request) => {
@@ -196,6 +212,7 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
         nanogptKey,
         projectOf: options.recordedProject,
         relayMcp,
+        pauseEngine,
         logger,
       });
       return {

@@ -27,6 +27,11 @@ interface CloudHandlerOptions {
     engineId: EngineId,
     request: { token: string; contentType: string; accept: string; body: string },
   ) => Promise<{ status: number; contentType: string; body: string }>;
+  /**
+   * Pauses the engine's sessions for its shutdown and waits for them to stop (PM-1159). Bound once the domain exists;
+   * throws while the server is still starting, which the engine answers by pausing its sessions itself.
+   */
+  pauseEngine: (engineId: EngineId, waitMs: number) => Promise<{ held: number; left: number }>;
   logger: FastifyBaseLogger;
 }
 
@@ -127,4 +132,6 @@ export function registerCloudHandlers(options: CloudHandlerOptions): void {
   });
 
   hub.handle('mcp.relay', (engineId, params) => options.relayMcp(engineId, params));
+
+  hub.handle('engine.pause_for_shutdown', (engineId, { waitMs }) => options.pauseEngine(engineId, waitMs));
 }

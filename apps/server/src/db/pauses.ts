@@ -1,13 +1,21 @@
-import type { PauseKind, PausePoint, PauseScopeKind, PauseSource } from '@projectman/shared';
+import type { EngineId, PauseKind, PausePoint, PauseScopeKind, PauseSource } from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 
-/** A pause of the instance or of one project (PM-219), as stored. */
+/** A pause the team sees: of the instance or of one project. */
+export type TeamPauseRecord = PauseRecord & { scope: PauseScopeKind };
+
+/**
+ * A pause of the instance, of one project (PM-219) or of one engine (PM-1159), as stored. The engine's is the pause
+ * it makes before it stops: always a system `shutdown` pause, and not part of what the team sees.
+ */
 export interface PauseRecord {
   id: string;
-  scope: PauseScopeKind;
-  /** Null for a pause of the instance. */
+  scope: PauseScopeKind | 'engine';
+  /** Null for a pause of the instance or of an engine. */
   projectKey: string | null;
+  /** Set for a pause of an engine only. */
+  engineId: EngineId | null;
   kind: PauseKind;
   source: PauseSource;
   reason: string | null;
@@ -42,8 +50,9 @@ type SessionPausePatch = Partial<
 
 interface PauseRow {
   id: string;
-  scope: PauseScopeKind;
+  scope: PauseRecord['scope'];
   project_key: string | null;
+  engine_id: string | null;
   kind: PauseKind;
   source: PauseSource;
   reason: string | null;
@@ -71,6 +80,7 @@ const toPause = (r: PauseRow): PauseRecord => ({
   id: r.id,
   scope: r.scope,
   projectKey: r.project_key,
+  engineId: r.engine_id,
   kind: r.kind,
   source: r.source,
   reason: r.reason,
@@ -107,13 +117,25 @@ const COLUMNS: Record<keyof SessionPausePatch, string> = {
 export function createPauseRepository(db: Db) {
   const statements = {
     insert: db.prepare(
-      `INSERT INTO pauses (id, scope, project_key, kind, source, reason, requested_by, requested_at, force_after_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO pauses (id, scope, project_key, engine_id, kind, source, reason, requested_by, requested_at,
+         force_after_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     get: db.prepare('SELECT * FROM pauses WHERE id = ?'),
-    open: db.prepare('SELECT * FROM pauses WHERE resumed_at IS NULL ORDER BY requested_at, id'),
+    open: db.prepare(
+      `SELECT * FROM pauses WHERE resumed_at IS NULL AND scope != 'engine' ORDER BY requested_at, id`,
+    ),
     findOpen: db.prepare(
       `SELECT * FROM pauses WHERE resumed_at IS NULL AND scope = ? AND COALESCE(project_key, '') = ?`,
+    ),
+    findOpenEngine: db.prepare(
+      `SELECT * FROM pauses WHERE resumed_at IS NULL AND scope = 'engine' AND engine_id = ?`,
+    ),
+    openSessionsOfPause: db.prepare(
+      'SELECT * FROM session_pauses WHERE pause_id = ? AND resumed_at IS NULL ORDER BY since, session_id',
+    ),
+    movePauseSession: db.prepare(
+      'UPDATE session_pauses SET pause_id = ? WHERE session_id = ? AND resumed_at IS NULL',
     ),
     setForceAfter: db.prepare('UPDATE pauses SET force_after_ms = ? WHERE id = ?'),
     close: db.prepare('UPDATE pauses SET resumed_at = ?, resumed_by = ? WHERE id = ? AND resumed_at IS NULL'),
@@ -126,8 +148,14 @@ export function createPauseRepository(db: Db) {
     openSessions: db.prepare(
       'SELECT * FROM session_pauses WHERE resumed_at IS NULL ORDER BY since, session_id',
     ),
+    // The sessions the team's pauses hold: the ones an engine's pause holds are that pause's alone.
+    openTeamSessions: db.prepare(
+      `SELECT sp.* FROM session_pauses sp JOIN pauses p ON p.id = sp.pause_id
+       WHERE sp.resumed_at IS NULL AND p.scope != 'engine' ORDER BY sp.since, sp.session_id`,
+    ),
     openSessionsOfProject: db.prepare(
-      'SELECT * FROM session_pauses WHERE project_key = ? AND resumed_at IS NULL ORDER BY since, session_id',
+      `SELECT sp.* FROM session_pauses sp JOIN pauses p ON p.id = sp.pause_id
+       WHERE sp.project_key = ? AND sp.resumed_at IS NULL AND p.scope != 'engine' ORDER BY sp.since, sp.session_id`,
     ),
     closeSession: db.prepare(
       'UPDATE session_pauses SET resumed_at = ? WHERE session_id = ? AND resumed_at IS NULL',
@@ -141,6 +169,7 @@ export function createPauseRepository(db: Db) {
         record.id,
         record.scope,
         record.projectKey,
+        record.engineId,
         record.kind,
         record.source,
         record.reason,
@@ -153,14 +182,27 @@ export function createPauseRepository(db: Db) {
       const row = statements.get.get(id) as PauseRow | undefined;
       return row ? toPause(row) : null;
     },
-    /** The pauses not resumed yet, oldest first. */
-    open(): PauseRecord[] {
-      return (statements.open.all() as PauseRow[]).map(toPause);
+    /** The pauses of the team (the instance's and the projects') not resumed yet, oldest first; never an engine's. */
+    open(): TeamPauseRecord[] {
+      return (statements.open.all() as PauseRow[]).map(toPause) as TeamPauseRecord[];
     },
     /** The open pause of a scope (`projectKey` null for the instance). */
-    findOpen(scope: PauseScopeKind, projectKey: string | null): PauseRecord | null {
+    findOpen(scope: PauseScopeKind, projectKey: string | null): TeamPauseRecord | null {
       const row = statements.findOpen.get(scope, projectKey ?? '') as PauseRow | undefined;
+      return row ? (toPause(row) as TeamPauseRecord) : null;
+    },
+    /** The open pause the engine made before it stopped (PM-1159). */
+    findOpenEngine(engineId: EngineId): PauseRecord | null {
+      const row = statements.findOpenEngine.get(engineId) as PauseRow | undefined;
       return row ? toPause(row) : null;
+    },
+    /** The open rows a pause holds (the first pause to catch a session holds it). */
+    openSessionsOfPause(pauseId: string): SessionPauseRecord[] {
+      return (statements.openSessionsOfPause.all(pauseId) as SessionPauseRow[]).map(toSessionPause);
+    },
+    /** The session's open row passes to another pause (a shutdown pause to the pause of the session's engine). */
+    movePauseSession(sessionId: string, pauseId: string): void {
+      statements.movePauseSession.run(pauseId, sessionId);
     },
     setForceAfter(id: string, forceAfterMs: number): void {
       statements.setForceAfter.run(forceAfterMs, id);
@@ -189,6 +231,10 @@ export function createPauseRepository(db: Db) {
     },
     openSessions(): SessionPauseRecord[] {
       return (statements.openSessions.all() as SessionPauseRow[]).map(toSessionPause);
+    },
+    /** The open rows the team's pauses hold, not an engine's. */
+    openTeamSessions(): SessionPauseRecord[] {
+      return (statements.openTeamSessions.all() as SessionPauseRow[]).map(toSessionPause);
     },
     openSessionsOfProject(projectKey: string): SessionPauseRecord[] {
       return (statements.openSessionsOfProject.all(projectKey) as SessionPauseRow[]).map(toSessionPause);

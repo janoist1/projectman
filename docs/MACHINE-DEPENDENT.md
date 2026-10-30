@@ -921,6 +921,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     With the engine offline, the last received text remains searchable with a stale indication; it is not claimed
     current (owner, 2026-10-18). Database history remains searchable independently of document refresh failures.
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
+  - Engine shutdown pause (PM-1159): the hub's database holds it, as an `engine`-scope pause (`pauses.engine_id`) and its
+    rows; the engine only runs `session.pause`/`session.force_pause` for it and calls `engine.pause_for_shutdown`
+    (engine → hub) before it stops. The hub resumes it when the engine connects (after `reconcileEngine`); on a hub
+    restart a session of an engine that is not connected yet is handed to that engine's pause. Which sessions hold a
+    heavy command comes from `EngineHost.heavyRunSessions` (the engine's heavy-run queue folder). Nothing else crosses.
   - Offline machine and the question screening (PM-708): the durable queue, the timer and the
     delivery receipt all run on the server. A screened question that waits for the PM's engine stays
     in the inbox with `payload.screening.queue` (`engine_offline`); it raises no owner alert, no
@@ -971,6 +976,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `PROJECTMAN_MODE=engine` (`npm run engine -- start`) runs the machine-dependent parts on the Mac
   beside the CLIs and connects outward to the cloud's `/engine/link` with its machine key. There is
   no database, no `/api`, no web app and no control socket; only `index.ts` reads the environment.
+  Stopping (PM-1159): `pauseForShutdown` asks the cloud first (`engine.pause_for_shutdown`, engine → cloud), which
+  records the pause and resumes it at the engine's next connection; the engine pauses its sessions itself only when the
+  cloud cannot take the call (`link_down`, `unknown_method` from an older cloud, timeout), and then nothing is recorded.
   Files, all under the engine's home (`PROJECTMAN_HOME`, default `~/.projectman`): `engine.json`
   (cloud address, engine id, project workspaces, registered repos with their full-test command and the
   optional `mergeBranch` (the one branch the cloud may merge into and push; absent: every `merge.*` call
@@ -2208,6 +2216,11 @@ assumption or remote-engine RPC.
   markers and database use. Deployment scripts using the control client need access to that
   host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API. The socket's system-wide
   pause right is unchanged; the app's instance pause (`POST /api/pause`) is the host owner's (PM-1058).
+  An engine's own shutdown pause (PM-1159) is a third scope, `engine` (`pauses.engine_id`; kind `shutdown`, source
+  `system`, one open per engine), kept in the hub's database and invisible to the team's views and gates; the
+  engine runs only the session-level calls for it, so it works the same on a remote engine. A hub restart hands the
+  sessions of an engine that has not connected yet to that pause (nothing starts on an unreachable engine), and the
+  engine's next connection resumes it.
   `publish_release` (PM-968, `services/releases/publications.ts`; the durable row is `release_publications`):
   the tag is made and pushed on the engine that holds the repository (`merge.remote_tags` lists the tags of the base's
   upstream, `merge.push_tag` makes an annotated tag on a commit and pushes it, never forced, `--no-verify`; checked in

@@ -668,6 +668,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     });
     // The remote parts that need the domain, and what the engine's settings view counts.
     remote?.bind(domain, app);
+    // A revoked engine never connects to resume the pause it made before it stopped (PM-1159).
+    engineRegistry?.onRevoke((id) => domain.pauses.endEnginePause(id));
     engineRegistry?.useCounters((id) => domain.engineCounters(id));
     // The registry writes its own journal entries in its transactions; the long polls wait on this wake.
     engineRegistry?.useJournalWake((projectKey) => domain.changes.notify(projectKey));

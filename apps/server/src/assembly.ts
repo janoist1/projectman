@@ -1088,6 +1088,7 @@ export function createDomain(opts: DomainOptions) {
     sessions,
     admission,
     runner: runnerModule.runner,
+    engines,
     delivery,
     messaging,
     messageRouter,

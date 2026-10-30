@@ -77,7 +77,11 @@ describe('cloud mode remote parts', () => {
   let remote: CloudRemote;
   let spool: string;
   let sessionEngines: Map<string, string>;
-  let domain: CloudDomain & { reconciled: Array<{ engine: string; reported: string[] }> };
+  let domain: CloudDomain & {
+    reconciled: Array<{ engine: string; reported: string[] }>;
+    /** The calls on the sessions and the pause service in order: `reconcile:<engine>`, `resume:<engine>`, `pause:<engine>:<waitMs>`. */
+    calls: string[];
+  };
   let app: FastifyInstance;
   let broker: PermissionBroker;
   let nanogptKey: string | null;
@@ -99,12 +103,23 @@ describe('cloud mode remote parts', () => {
     });
     domain = {
       reconciled: [],
+      calls: [],
       sessions: {
         resolveToken: (token) =>
           token === 'tok-abc' ? { sessionId: 's1', projectKey: 'AR', member: 'dev', taskKey: null } : null,
         engineOf: (sessionId) => (sessionEngines.get(sessionId) ?? 'eng_other') as never,
         async reconcileEngine(engine, reported) {
+          domain.calls.push(`reconcile:${engine}`);
           domain.reconciled.push({ engine, reported: [...reported] });
+        },
+      },
+      pauses: {
+        async pauseEngineForShutdown(engine, waitMs) {
+          domain.calls.push(`pause:${engine}:${waitMs}`);
+          return { held: 2, left: 0 };
+        },
+        async resumeEngine(engine) {
+          domain.calls.push(`resume:${engine}`);
         },
       },
     };
@@ -683,6 +698,21 @@ describe('cloud mode remote parts', () => {
       await online('eng_a', { running: [running('s1')] });
       expect(remote.runner.isRunning('s1')).toBe(true);
       expect(domain.reconciled.at(-1)).toEqual({ engine: 'eng_a', reported: ['s1'] });
+    });
+
+    it('resumes the sessions the engine paused for its shutdown only after the reconcile (PM-1159)', async () => {
+      await online('eng_a');
+      await vi.waitFor(() => expect(domain.calls).toContain('resume:eng_a'));
+      expect(domain.calls.indexOf('resume:eng_a')).toBeGreaterThan(domain.calls.indexOf('reconcile:eng_a'));
+    });
+
+    it('records the pause an engine asks for before its shutdown (PM-1159)', async () => {
+      const engine = await online('eng_a');
+      await expect(engine.call('engine.pause_for_shutdown', { waitMs: 30_000 })).resolves.toEqual({
+        held: 2,
+        left: 0,
+      });
+      expect(domain.calls).toContain('pause:eng_a:30000');
     });
 
     it('does not let an engine take over a session of another engine by reporting it in its hello', async () => {

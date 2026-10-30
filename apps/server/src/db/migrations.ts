@@ -3,6 +3,7 @@ import {
   V92_CHANGE_TRIGGER_TABLES,
   V130_CHANGE_TRIGGER_TABLES,
   V100_REBUILT_TRIGGER_TABLES,
+  V136_REBUILT_TRIGGER_TABLES,
   changeTriggerSql,
   changeTriggersSql,
 } from './change-triggers';
@@ -2722,5 +2723,59 @@ migrations.push({
     server_url TEXT NOT NULL, topic TEXT NOT NULL, origin TEXT, enabled INTEGER NOT NULL DEFAULT 1,
     last_sent_at TEXT, last_result TEXT CHECK (last_result IN ('ok','failed')), last_failure TEXT,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`,
+});
+migrations.push({
+  version: 136,
+  name: 'engine shutdown pauses',
+  // PM-1159: the hub records the pause an engine makes before it stops: a third scope, `engine`, with the engine
+  // id. Such a pause is always a system `shutdown` pause and names no project; at most one is open per engine.
+  // The scope CHECK grows, so both tables are rebuilt as in version 100 (the child first, then the parent), and
+  // their change triggers (version 81) are created again. Every row is kept as it is.
+  sql: `CREATE TABLE pauses_next (
+      id             TEXT NOT NULL PRIMARY KEY,
+      scope          TEXT NOT NULL CHECK (scope IN ('instance', 'project', 'engine')),
+      project_key    TEXT REFERENCES projects(key),
+      engine_id      TEXT,
+      kind           TEXT NOT NULL CHECK (kind IN ('manual', 'shutdown')),
+      source         TEXT NOT NULL CHECK (source IN ('app', 'control', 'system')),
+      reason         TEXT,
+      requested_by   TEXT REFERENCES users(id),
+      requested_at   TEXT NOT NULL,
+      force_after_ms INTEGER NOT NULL,
+      resumed_at     TEXT,
+      resumed_by     TEXT,
+      CHECK (scope = 'engine' OR (scope = 'instance') = (project_key IS NULL)),
+      CHECK ((scope = 'engine') = (engine_id IS NOT NULL)),
+      CHECK (scope != 'engine' OR (project_key IS NULL AND kind = 'shutdown' AND source = 'system'))
+    );
+    CREATE TABLE session_pauses_next (
+      session_id    TEXT NOT NULL REFERENCES sessions(id),
+      pause_id      TEXT NOT NULL REFERENCES pauses_next(id),
+      project_key   TEXT NOT NULL REFERENCES projects(key),
+      since         TEXT NOT NULL,
+      point         TEXT,
+      tool          TEXT,
+      waiting_for   TEXT,
+      paused_at     TEXT,
+      needs_restart INTEGER NOT NULL DEFAULT 0,
+      resumed_at    TEXT
+    );
+    INSERT INTO pauses_next (id, scope, project_key, engine_id, kind, source, reason, requested_by, requested_at,
+        force_after_ms, resumed_at, resumed_by)
+      SELECT id, scope, project_key, NULL, kind, source, reason, requested_by, requested_at, force_after_ms,
+        resumed_at, resumed_by FROM pauses;
+    INSERT INTO session_pauses_next (session_id, pause_id, project_key, since, point, tool, waiting_for, paused_at,
+        needs_restart, resumed_at)
+      SELECT session_id, pause_id, project_key, since, point, tool, waiting_for, paused_at, needs_restart,
+        resumed_at FROM session_pauses;
+    DROP TABLE session_pauses;
+    DROP TABLE pauses;
+    ALTER TABLE pauses_next RENAME TO pauses;
+    ALTER TABLE session_pauses_next RENAME TO session_pauses;
+    CREATE UNIQUE INDEX pauses_open ON pauses(scope, COALESCE(project_key, engine_id, '')) WHERE resumed_at IS NULL;
+    CREATE UNIQUE INDEX session_pauses_open ON session_pauses(session_id) WHERE resumed_at IS NULL;
+    CREATE INDEX session_pauses_project ON session_pauses(project_key, resumed_at);
+    CREATE INDEX session_pauses_pause ON session_pauses(pause_id, resumed_at);
+    ${V136_REBUILT_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

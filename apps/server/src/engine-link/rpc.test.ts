@@ -6,41 +6,34 @@ import { methods } from './methods';
 import { testConfig } from '../../test/helpers/test-template';
 
 describe('engine RPC', () => {
-  it('coalesces concurrent retries and preserves results over reconnection for five minutes', async () => {
+  it.each([
+    { name: 'foreign project', taskKeys: ['BR-1'] },
+    { name: 'malformed key', taskKeys: ['--all'] },
+    { name: 'oversized batch', taskKeys: Array.from({ length: 101 }, (_, n) => `AR-${n + 1}`) },
+  ])('refuses snapshot removal with $name before dispatch', ({ taskKeys }) => {
+    const project = testConfig();
+    expect(
+      methods['workspace.removeTaskSnapshots'].params.safeParse([
+        { project, repoName: project.project.repos[0]!.name, taskKeys },
+      ]).success,
+    ).toBe(false);
+  });
+  it('does not keep a result after sending it', async () => {
     const state = createRpcState();
-    let at = 0;
     const sent: Frame[] = [];
-    const make = () =>
-      createEngineRpc({ side: 'cloud', state, now: () => at, send: (data) => sent.push(decodeFrame(data)) });
-    const rpc = make();
-    let finish!: (value: null) => void;
-    const handler = vi.fn(
-      () =>
-        new Promise<null>((resolve) => {
-          finish = resolve;
-        }),
-    );
+    const rpc = createEngineRpc({ side: 'cloud', state, send: (data) => sent.push(decodeFrame(data)) });
+    const handler = vi.fn(() => null);
     rpc.handle('permission.cancel', handler);
     const frame = { t: 'req', id: 'same', method: 'permission.cancel', params: { reqId: 'x' } } as const;
-    const first = rpc.receive(frame);
-    const retry = rpc.receive(frame);
-    expect(handler).toHaveBeenCalledTimes(1);
-    finish(null);
-    await Promise.all([first, retry]);
-    expect(sent[0]).toEqual(sent[1]);
+    await rpc.receive(frame);
+    await rpc.receive(frame);
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(sent).toHaveLength(2);
+    expect(state).not.toHaveProperty('results');
     rpc.close();
-    const next = make();
-    const secondHandler = vi.fn(() => null);
-    next.handle('permission.cancel', secondHandler);
-    await next.receive(frame);
-    expect(secondHandler).not.toHaveBeenCalled();
-    at = 300_001;
-    await next.receive(frame);
-    expect(secondHandler).toHaveBeenCalledTimes(1);
-    next.close();
   });
 
-  it('never caches secret responses and preserves explicit secret refusals', async () => {
+  it('preserves explicit secret refusals', async () => {
     const state = createRpcState();
     const sent: Frame[] = [];
     const rpc = createEngineRpc({ side: 'cloud', state, send: (data) => sent.push(decodeFrame(data)) });
@@ -57,7 +50,6 @@ describe('engine RPC', () => {
     await rpc.receive(frame);
     await rpc.receive(frame);
     expect(handler).toHaveBeenCalledTimes(2);
-    expect(state.results.size).toBe(0);
     expect(sent[0]).toMatchObject({
       ok: false,
       error: { code: 'secret_not_allowed', message: 'Session is not starting' },
@@ -65,7 +57,6 @@ describe('engine RPC', () => {
     rpc.handle('secret.nanogpt_key', () => ({ key: 'fictional-key' }));
     await rpc.receive(frame);
     await rpc.receive(frame);
-    expect(state.results.size).toBe(0);
     expect(sent[2]).toMatchObject({ ok: true, result: { key: 'fictional-key' } });
     rpc.close();
   });

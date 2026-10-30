@@ -25,7 +25,6 @@ import {
 import type { TaskState } from '../../lib/taskState';
 import { prChip, stageRows } from './cardModel';
 import { LabelChip } from '../../components/LabelChip';
-import { FocusMark } from '../focus/FocusMark';
 import { NextLine } from './NextLine';
 import styles from './TaskCard.module.css';
 
@@ -36,8 +35,6 @@ interface TaskCardProps {
   pipeline: PipelineIndex;
   to: string;
   selected?: boolean;
-  /** Phone list: no checks, stage name next to the status. */
-  compact?: boolean;
   /** The project's label definitions (names, colours, meanings). */
   labels?: readonly LabelView[];
   /** Where the small preview of the card's first image is (its cover); none: the card has no image. */
@@ -97,15 +94,15 @@ function HandoffMark({
 }
 
 /**
- * The card's first image: a low strip over the whole card (a small thumbnail on the phone). The place
+^ * The card's first image: a low strip over the whole card. The place
  * is fixed from the start, so the card does not jump when the image arrives; an image that does not
  * load leaves no trace.
  */
-function CardCover({ src, thumbnail }: { src: string; thumbnail: boolean }) {
+function CardCover({ src }: { src: string }) {
   const [state, setState] = useState<'loading' | 'loaded' | 'failed'>('loading');
   if (state === 'failed') return null;
   return (
-    <span className={clsx(styles.cover, thumbnail && styles.thumbnail)} data-state={state} aria-hidden="true">
+    <span className={styles.cover} data-state={state} aria-hidden="true">
       <img
         src={src}
         alt=""
@@ -125,7 +122,6 @@ export function TaskCard({
   pipeline,
   to,
   selected = false,
-  compact = false,
   subtasks = [],
   labels = [],
   coverSrc = null,
@@ -136,11 +132,10 @@ export function TaskCard({
   myHandle = null,
 }: TaskCardProps) {
   const pr = prChip(task);
-  const rows = compact ? [] : stageRows(task, pipeline);
-  const stage = pipeline.stageById.get(task.stageId);
+  const rows = stageRows(task, pipeline);
   // A label the status line already names ("● Válaszra vár") is not a chip as well; the drawer lists them all.
   const chipLabels = task.labels.filter((label) => !state.holdingLabels?.includes(label));
-  const showMeta = !compact && (pr !== null || chipLabels.length > 0);
+  const showMeta = pr !== null || chipLabels.length > 0;
   // Said by the status line already when the card stands on it: never twice on one card.
   const prerequisite = state.prerequisite?.key && !state.prerequisite.inLabel ? state.prerequisite : null;
   const workerRows = cardWorkerRows(state);
@@ -148,13 +143,7 @@ export function TaskCard({
     <Link
       to={to}
       draggable={false}
-      className={clsx(
-        styles.card,
-        selected && styles.selected,
-        compact && styles.compact,
-        compact && coverSrc && styles.hasThumbnail,
-        fileState && styles.fileTarget,
-      )}
+      className={clsx(styles.card, selected && styles.selected, fileState && styles.fileTarget)}
       aria-current={selected ? 'true' : undefined}
       aria-describedby={reorderHelpId}
       aria-keyshortcuts={reorderHelpId ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
@@ -162,10 +151,9 @@ export function TaskCard({
       data-startable={state.startable ? '' : undefined}
       data-file={fileState ?? undefined}
     >
-      {coverSrc ? <CardCover key={coverSrc} src={coverSrc} thumbnail={compact} /> : null}
+      {coverSrc ? <CardCover key={coverSrc} src={coverSrc} /> : null}
       <span className={styles.head}>
         <span className={styles.key}>{task.key}</span>
-        <FocusMark taskKey={task.key} />
         {task.priority && task.status !== 'done' && task.status !== 'cancelled' ? (
           <span title={t('priority.markLabel', { level: t(`priority.levels.${task.priority}`) })}>
             <PriorityMark priority={task.priority} />
@@ -342,11 +330,7 @@ export function TaskCard({
             {state.label}
           </span>
         )}
-        {compact ? (
-          <span className={styles.age}>{stage?.name}</span>
-        ) : state.phase !== 'done' ? (
-          <span className={styles.age}>{formatAge(state.since)}</span>
-        ) : null}
+        {state.phase !== 'done' ? <span className={styles.age}>{formatAge(state.since)}</span> : null}
       </span>
       {fileState ? (
         <span className={styles.dropBar}>

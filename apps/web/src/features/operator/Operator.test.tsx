@@ -1117,6 +1117,7 @@ describe('a signal the Operator raised', () => {
       'merge_blocked',
       'unreleased',
       'ready_waiting',
+      'obligation_overdue',
     ] as const;
     const withoutCard = ['outage', 'unreleased', 'ready_waiting'];
     project.backend.operatorSignals = kinds.map((kind) =>

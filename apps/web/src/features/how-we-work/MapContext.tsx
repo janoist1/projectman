@@ -9,6 +9,8 @@ export interface MapView {
   projectKey: string;
   map: TeamMap;
   config: ProjectConfig;
+  /** The version the configuration was read at: a change is saved on top of it. */
+  version: string;
   labels: LabelView[];
   /** Only an admin sees the links to the settings. */
   canEdit: boolean;

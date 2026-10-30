@@ -1,10 +1,22 @@
-import type { TimelineEvent } from '@projectman/shared';
+import type { TimelineEvent, TimelineEventType } from '@projectman/shared';
 import { numberedRef } from './links';
 import { relationPhrase } from './relations';
 import { formatTimestamp, oneLine, PLAIN_STYLE, type TextStyle } from './text';
 
 /** Maximum length of a data value shown for an event type without its own wording. */
 const FIELD_LIMIT = 80;
+
+export const BRIEF_TIMELINE_LIMIT = 15;
+/** Events that say little about the task itself. */
+export const QUIET_TIMELINE_EVENTS: readonly TimelineEventType[] = [
+  'session_started',
+  'session_ended',
+  'session_permission_changed',
+  'permission_requested',
+  'permission_resolved',
+  'permission_refused',
+  'permission_escalated',
+];
 
 /**
  * What a team message line says when the message is for the reader and has not been typed into its
@@ -83,6 +95,23 @@ export function describeEvent(
         ...(removed.length > 0 ? [`labels removed: ${removed.join(', ')}`] : []),
       ];
       return parts.length > 0 ? parts.join('; ') : 'changed the labels';
+    }
+    case 'acceptance_item_changed': {
+      const verbs: Record<string, string> = {
+        add: 'added the acceptance item',
+        edit: 'edited the acceptance item',
+        remove: 'removed the acceptance item',
+        done: 'marked the acceptance item done',
+        not_needed: 'marked the acceptance item not needed',
+        move: 'moved the acceptance item',
+        reopen: 'reopened the acceptance item',
+        confirm: 'confirmed the acceptance item',
+        moved_in: 'received the acceptance item',
+      };
+      const change = text('change') ?? '';
+      const where = text('taskKey') ? ` ${change === 'moved_in' ? 'from' : 'to'} ${text('taskKey')}` : '';
+      const note = text('note') ? ` — ${text('note')}` : '';
+      return `${verbs[change] ?? 'changed the acceptance item'} ${text('itemId') ?? '?'} "${text('text') ?? ''}"${where}${note}`;
     }
     case 'task_check_changed':
       // Checks were replaced by labels; events recorded before that stay in the timeline.
@@ -173,6 +202,8 @@ export function describeEvent(
         : 'handed the integrator todo to the owner: it was not resolved within 24 hours';
     case 'obligation_woken':
       return `reminded ${member('responsible', 'the responsible')} once about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}): no action in ${text('minutes') ?? '?'} minutes`;
+    case 'obligation_pm_told':
+      return `told the project manager about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}) of ${member('responsible', 'the responsible')}: still no action after the reminder`;
     case 'obligation_handed_over':
       return `gave the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}) of ${member('responsible', 'the responsible')} to the ${text('recipient') ?? 'owner'} as a todo${text('recipientRefusal') ? ` (the integrator is not available: ${text('recipientRefusal')})` : ''}: still no action after the reminder`;
     case 'question_answered':

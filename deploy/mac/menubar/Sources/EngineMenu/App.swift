@@ -18,11 +18,27 @@ final class AppState: ObservableObject {
     @Published var action: EngineAction?
     @Published var logs: Logs?
     @Published var logError: String?
-    var model: MenuModel { MenuModel.make(fetch: fetch, action: action, now: Date()) }
+    @Published var overlay: MenuOverlay?
+    /// The app's own update (j, k).
+    @Published var update: AppUpdateStatus = .idle
+    /// The label of the release this app is switching the engine to (l, while it runs the engine CLI).
+    @Published var switching: String?
+    /// The engine package in this app's bundle; nil without one (a development build).
+    var bundled: BundledPackage?
+    /// Targets whose switch failed in this session: the app does not retry them by itself.
+    var failedTargets = Set<String>()
+    private let identity = Updates.identity
+    var model: MenuModel {
+        let offer = fetch.snapshot.flatMap { SwitchPolicy.menuOffer($0, bundled: bundled, failed: failedTargets) }
+        let context = UpdateContext(app: update, canSelfUpdate: identity.canSelfUpdate, canDownload: identity.latestReleaseURL != nil,
+                                    switching: switching, offer: offer)
+        return MenuModel.make(fetch: fetch, action: action, now: Date(), overlay: overlay, update: context)
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     let state = AppState()
+    let flow = SetupFlow()
     private var status: NSStatusItem!
     private let menu = NSMenu()
     private var window: NSWindow?
@@ -36,14 +52,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var actionDeadline: Date?
     private var commandRunning = false
     private var pendingAction: EngineAction?
+    private var maintenance: Maintenance!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard isPlaced() else { return }
         if let id = Bundle.main.bundleIdentifier {
             for other in NSRunningApplication.runningApplications(withBundleIdentifier: id) where other.processIdentifier != ProcessInfo.processInfo.processIdentifier { other.terminate() }
         }
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         menu.delegate = self; menu.autoenablesItems = false; status.menu = menu
+        flow.onChange = { [weak self] in
+            guard let self else { return }
+            self.state.overlay = self.flow.overlay; self.render()
+        }
+        flow.onEngineChanged = { [weak self] in self?.refresh() }
+        maintenance = Maintenance(state: state, idle: { [weak self] in
+            guard let self else { return false }
+            return !self.flow.busy && self.state.overlay == nil && self.state.action == nil && !self.commandRunning
+        }, changed: { [weak self] in self?.render(); self?.refresh() })
+        let mode = SetupFlow.mode()
+        if mode == .installed { startInstalled() }
+        maintenance.start()
         render(); refresh()
+        if mode == .offer { flow.offer() }
+    }
+    /// At every start of an installed engine: `current` follows the service's plist root, the app's own login item is
+    /// registered, and the PM-1088 app goes without a window. A failed removal is logged and retried at the next start.
+    private func startInstalled() {
+        guard BundledEngine.isAvailable else { return }
+        DispatchQueue.global(qos: .utility).async {
+            if let location = try? EngineLocator.locate() {
+                do { try EngineLayout(userHome: Machine.home).follow(serviceRoot: location.root) }
+                catch { NSLog("projectman motor: could not follow the service root: %@", String(describing: error)) }
+            }
+            let legacy = Machine.legacy
+            if legacy.isPresent {
+                do { try legacy.remove() } catch { NSLog("projectman motor: could not remove the old menu bar app: %@", String(describing: error)) }
+            }
+            DispatchQueue.main.async { LoginItems.registerApp() }
+        }
+    }
+    /// q: the downloaded app runs from /Applications or ~/Applications, not from a disk image or a translocated copy.
+    private func isPlaced() -> Bool {
+        guard BundledEngine.isAvailable else { return true }
+        let placement = AppPlacement(userHome: Machine.home, copy: Installer.dittoCopy(runner: SystemProcess.runner))
+        let bundle = Bundle.main.bundleURL
+        if placement.isPlaced(bundle, translocated: false) { return true }
+        let alert = NSAlert()
+        alert.messageText = L10n.text(.moveTitle); alert.informativeText = L10n.text(.moveBody)
+        alert.addButton(withTitle: L10n.text(.move))
+        let cancel = alert.addButton(withTitle: L10n.text(.quit)); cancel.keyEquivalent = "\u{1b}"
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { NSApp.terminate(nil); return false }
+        switch placement.place(bundle, translocated: false) {
+        case .inPlace: return true
+        case .moved(let target):
+            let configuration = NSWorkspace.OpenConfiguration(); configuration.createsNewApplicationInstance = true
+            NSWorkspace.shared.openApplication(at: target, configuration: configuration) { _, _ in
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
+        case .failed:
+            let failed = NSAlert(); failed.alertStyle = .warning
+            failed.messageText = L10n.text(.moveFailedTitle); failed.informativeText = L10n.text(.moveFailedBody)
+            failed.addButton(withTitle: L10n.text(.quit))
+            failed.runModal(); NSApp.terminate(nil)
+        }
+        return false
+    }
+    /// Opening the running app again (Finder, Dock, `open`) shows the details window, so the app stays reachable
+    /// when its menu bar icon is hidden (for example behind the notch).
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard status != nil else { return true }
+        openWindow()
+        return true
     }
     func menuWillOpen(_ menu: NSMenu) { menuOpen = true; refresh() }
     func menuDidClose(_ menu: NSMenu) { menuOpen = false; scheduleRefresh() }
@@ -51,7 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func scheduleRefresh() {
         timer?.invalidate()
         guard !commandRunning, !fetching else { return }
-        let interval: TimeInterval = state.action != nil ? 2 : (state.model.active || menuOpen || window != nil ? 15 : 60)
+        let interval: TimeInterval = state.action != nil || state.switching != nil ? 2 : (flow.isWatching ? 5 : (menuOpen || window != nil ? 15 : 60))
         let remaining = max(0.1, interval - Date().timeIntervalSince(lastFetch))
         timer = Timer(timeInterval: remaining, repeats: false) { [weak self] _ in self?.refresh() }
         RunLoop.main.add(timer!, forMode: .common)
@@ -72,18 +153,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         RunLoop.main.add(animation!, forMode: .common)
     }
     private func refresh() {
-        guard !fetching, !commandRunning else { return }
+        guard !fetching, !commandRunning, !flow.busy else { return }
         timer?.invalidate()
         fetching = true; lastFetch = Date()
         let includeLogs = window != nil
+        let awaitingSetup = flow.awaiting != nil
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let fetch: Fetch
-            do {
-                let result = try EngineClient.run(["status", "--json"], timeout: 20)
-                fetch = result.status == 0 ? Fetch.decode(result.out) : .unavailable(result.error)
-            } catch { fetch = .unavailable(String(describing: error)) }
+            let mode = SetupFlow.mode()
+            if mode == .offer && !awaitingSetup {
+                // Nothing is installed: h, not a status of an engine that does not exist.
+                fetch = .notInstalled
+            } else {
+                do {
+                    let result = try EngineClient.run(["status", "--json"], timeout: 20)
+                    fetch = result.status == 0 ? Fetch.decode(result.out) : .unavailable(result.error)
+                } catch { fetch = .unavailable(String(describing: error)) }
+            }
             var logs: Logs?, logError: String?
-            if includeLogs {
+            if includeLogs && fetch.snapshot != nil {
                 do {
                     let result = try EngineClient.run(["logs", "--json", "--lines", "50"], timeout: 20)
                     if result.status == 0 { logs = try JSONDecoder().decode(Logs.self, from: result.out) }
@@ -103,6 +191,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 }
                 self.render()
                 self.scheduleRefresh()
+                self.flow.observe(fetch, mode: mode)
+                self.maintenance.observe(fetch)
                 if let pending = self.pendingAction {
                     self.pendingAction = nil; self.act(pending)
                 }
@@ -120,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         status.button?.setAccessibilityLabel(accessibility); status.button?.toolTip = accessibility
         menu.removeAllItems()
         let heading = NSMenuItem(title: model.header.text, action: nil, keyEquivalent: "")
-        let color: NSColor = model.icon == .running ? .systemGreen : model.icon == .noCloud ? .systemYellow : model.icon == .warning ? .systemRed : .systemGray
+        let color: NSColor = model.icon == .running ? .systemGreen : model.icon == .noCloud ? .systemYellow : model.icon == .warning ? .systemRed : model.icon == .caution ? .systemOrange : .systemGray
         let headingText = NSMutableAttributedString(string: "● " + model.header.text, attributes: [.font: NSFont.boldSystemFont(ofSize: 13)])
         headingText.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: 1))
         heading.attributedTitle = headingText; heading.isEnabled = false
@@ -164,15 +254,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         case .details: openWindow()
         case .cloud:
             if let origin = state.fetch.snapshot?.engine?.cloudOrigin, let url = URL(string: origin), let scheme = url.scheme, ["https", "http"].contains(scheme) { NSWorkspace.shared.open(url) }
-        case .copyInstall: copyText("npm run engine -- service install")
-        case .copyUpdate: copyText("npm run engine -- app install")
+        case .install: flow.offer()
+        case .showInstall: flow.showInstall()
+        case .openLoginItems: flow.openLoginItems()
         case .start: act(.start)
         case .stop: act(.stop)
         case .restart: act(.restart)
+        case .retryUpdate: maintenance.retryUpdate()
+        case .copyUpdateError: maintenance.copyUpdateError()
+        case .downloadManually: maintenance.openDownloadPage()
+        case .updateNow, .retrySwitch: maintenance.switchNow()
+        case .copySwitchError: maintenance.copySwitchError()
         }
     }
     private func act(_ action: EngineAction) {
-        guard state.action == nil else { return }
+        guard state.action == nil, state.switching == nil else { return }
         if fetching { pendingAction = action; return }
         guard let snapshot = state.fetch.snapshot, snapshot.service.installed else { return }
         if action == .start && snapshot.overall != "stopped" { return }
@@ -218,7 +314,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if window == nil {
             let created = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 620), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             created.title = L10n.text(.appTitle); created.minSize = NSSize(width: 400, height: 440)
-            created.contentView = NSHostingView(rootView: DetailsView(state: state, retry: { [weak self] in self?.refresh() }))
+            let remove: () -> Void = { [weak self] in
+                guard let self else { return }
+                self.flow.confirmRemoval(working: self.state.fetch.snapshot?.work.total ?? 0)
+            }
+            created.contentView = NSHostingView(rootView: DetailsView(state: state, retry: { [weak self] in self?.refresh() }, remove: remove))
             created.isReleasedWhenClosed = false; created.delegate = self; created.center(); window = created
         }
         NSApp.activate(ignoringOtherApps: true); window?.makeKeyAndOrderFront(nil); refresh()

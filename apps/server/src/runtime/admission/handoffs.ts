@@ -76,7 +76,7 @@ export class HandoffService {
   private readonly projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
   private readonly tasks: Pick<TaskService, 'find' | 'get' | 'publish'>;
   private readonly sessions: SessionOrchestrator;
-  private readonly admission: Pick<Admission, 'exclusive' | 'check' | 'start' | 'attempt'>;
+  private readonly admission: Pick<Admission, 'exclusive' | 'check' | 'start' | 'attempt' | 'warm'>;
   private readonly runner: SessionRunner;
   private readonly messages: Pick<MessageService, 'waiting' | 'markRecipientForwarded'>;
   private readonly messaging: Pick<Messaging, 'send'>;
@@ -94,7 +94,7 @@ export class HandoffService {
     projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
     tasks: Pick<TaskService, 'find' | 'get' | 'publish'>;
     sessions: SessionOrchestrator;
-    admission: Pick<Admission, 'exclusive' | 'check' | 'start' | 'attempt'>;
+    admission: Pick<Admission, 'exclusive' | 'check' | 'start' | 'attempt' | 'warm'>;
     runner: SessionRunner;
     messages: Pick<MessageService, 'waiting' | 'markRecipientForwarded'>;
     messaging: Pick<Messaging, 'send'>;
@@ -457,7 +457,8 @@ export class HandoffService {
       deadlineAt: row.deadlineAt,
     });
     try {
-      await this.admission.exclusive(async () => {
+      await this.admission.warm(row.projectKey, row.from);
+      await this.admission.exclusive('handoff-start', async () => {
         await this.admission.check({ config, member, workItem, capacity: false });
         await this.sessions.ensureSession(row.projectKey, row.from, workItem, {
           messages: [instruction],

@@ -244,6 +244,15 @@ const COLUMNS: Record<
   engineId: 'engine_id',
 };
 
+/** The sessions of one member on one task, summed up by the database (PM-1120). */
+export interface TaskSessionActivity {
+  taskKey: string;
+  member: string;
+  startedAt: string;
+  lastActivityAt: string;
+  endedAt: string | null;
+}
+
 export function createSessionRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM sessions WHERE id = ?'),
@@ -278,6 +287,21 @@ export function createSessionRepository(db: Db) {
        ORDER BY started_at DESC, id DESC LIMIT 1`,
     ),
     list: db.prepare('SELECT * FROM sessions WHERE project_key = ? ORDER BY started_at, id'),
+    listLive: db.prepare(
+      `SELECT * FROM sessions WHERE project_key = ? AND state NOT IN ('exited', 'failed')
+       ORDER BY started_at, id`,
+    ),
+    listLiveByMember: db.prepare(
+      `SELECT * FROM sessions WHERE project_key = ? AND member = ? AND state NOT IN ('exited', 'failed')
+       ORDER BY started_at, id`,
+    ),
+    members: db.prepare('SELECT DISTINCT member FROM sessions WHERE project_key = ?'),
+    taskActivity: db.prepare(
+      `SELECT work_item_ref AS task_key, member, MAX(started_at) AS started_at,
+         MAX(last_activity_at) AS last_activity_at, MAX(ended_at) AS ended_at
+       FROM sessions WHERE project_key = ? AND work_item_type = 'task'
+       GROUP BY work_item_ref, member`,
+    ),
     listByMember: db.prepare(
       'SELECT * FROM sessions WHERE project_key = ? AND member = ? ORDER BY started_at, id',
     ),
@@ -390,6 +414,39 @@ export function createSessionRepository(db: Db) {
               ? statements.listByTask.all(projectKey, filter.taskKey)
               : statements.list.all(projectKey);
       return (rows as SessionRow[]).map(toSession);
+    },
+    /**
+     * The project's sessions that are not closed (not `exited` or `failed`), optionally one member's: the
+     * history of closed sessions is not read (PM-1120). They come without `usage` and `pause`: those are
+     * hydrated by `get`, `list` and the other reads that feed the API and the publish path.
+     */
+    listLive(projectKey: string, member?: string): Session[] {
+      const rows = member
+        ? statements.listLiveByMember.all(projectKey, member)
+        : statements.listLive.all(projectKey);
+      return (rows as SessionRow[]).map(baseSession);
+    },
+    /** Every member handle that ever had a session in the project. */
+    members(projectKey: string): string[] {
+      return (statements.members.all(projectKey) as Array<{ member: string }>).map((r) => r.member);
+    },
+    /** Per task and member: when their sessions on it started, were last active and ended (PM-1120). */
+    taskActivity(projectKey: string): TaskSessionActivity[] {
+      return (
+        statements.taskActivity.all(projectKey) as Array<{
+          task_key: string;
+          member: string;
+          started_at: string;
+          last_activity_at: string;
+          ended_at: string | null;
+        }>
+      ).map((r) => ({
+        taskKey: r.task_key,
+        member: r.member,
+        startedAt: r.started_at,
+        lastActivityAt: r.last_activity_at,
+        endedAt: r.ended_at,
+      }));
     },
     /** Sessions in any of the given states, across all projects. */
     listInStates(states: SessionState[]): Session[] {

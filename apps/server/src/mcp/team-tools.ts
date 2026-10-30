@@ -16,6 +16,7 @@ import type {
   FeedbackToolsHandler,
   GithubToolsHandler,
   ReleaseToolsHandler,
+  ComputeJobToolsHandler,
   OperatorToolsHandler,
   ProjectDocToolsHandler,
   SystemFeedbackToolsHandler,
@@ -26,10 +27,10 @@ import type {
   LocatedAttachmentForTool,
   MergeCheckList,
   MessageAttachmentReading,
-  ProposedRelease,
   PublishedRelease,
   PublishReleaseArgs,
-  ReleaseCheckResult,
+  ListComputeJobsArgs,
+  RunComputeJobArgs,
   ScreenshotRun,
   MemberStartResult,
   TakeScreenshotsInput,
@@ -107,6 +108,7 @@ export class TeamToolsService implements TeamToolsHandler {
     github: GithubToolsHandler;
     screenshots: ScreenshotToolsHandler;
     releases: ReleaseToolsHandler;
+    computeJobs: ComputeJobToolsHandler;
     operator: OperatorToolsHandler;
     projectDocs: ProjectDocToolsHandler;
     systemFeedback: SystemFeedbackToolsHandler;
@@ -125,12 +127,6 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async readHistorySource(ctx: ToolContext, args: Parameters<HistoryToolsHandler['readHistorySource']>[1]) {
     return this.tools.history.readHistorySource(ctx, args);
-  }
-  async getHistorySearchStats(
-    ctx: ToolContext,
-    args: Parameters<HistoryToolsHandler['getHistorySearchStats']>[1],
-  ) {
-    return this.tools.history.getHistorySearchStats(ctx, args);
   }
 
   async getOperatorDiagnostics(ctx: ToolContext, args: { taskKey: string; limit?: number }) {
@@ -177,6 +173,7 @@ export class TeamToolsService implements TeamToolsHandler {
       github: GithubToolsHandler;
       screenshots: ScreenshotToolsHandler;
       releases: ReleaseToolsHandler;
+      computeJobs: ComputeJobToolsHandler;
       operator: OperatorToolsHandler;
       projectDocs: ProjectDocToolsHandler;
       systemFeedback: SystemFeedbackToolsHandler;
@@ -358,19 +355,20 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.merges.listMergeChecks(ctx, args);
   }
 
-  async proposeRelease(
-    ctx: ToolContext,
-    args: { title: string; summary: string; commit?: string; preview?: boolean },
-  ): Promise<ProposedRelease> {
-    return this.tools.releases.proposeRelease(ctx, args);
-  }
-
   async publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease> {
     return this.tools.releases.publishRelease(ctx, args);
   }
 
-  async checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult> {
-    return this.tools.releases.checkRelease(ctx, args);
+  async runComputeJob(ctx: ToolContext, args: RunComputeJobArgs) {
+    return this.tools.computeJobs.runComputeJob(ctx, args);
+  }
+
+  async getComputeJob(ctx: ToolContext, args: { id: string }) {
+    return this.tools.computeJobs.getComputeJob(ctx, args);
+  }
+
+  async listComputeJobs(ctx: ToolContext, args: ListComputeJobsArgs) {
+    return this.tools.computeJobs.listComputeJobs(ctx, args);
   }
 
   async updateTask(
@@ -388,6 +386,7 @@ export class TeamToolsService implements TeamToolsHandler {
       themeKey?: string | null;
       priority?: TaskPriority | null;
       complexity?: ComplexityRequest;
+      despitePrerequisites?: boolean;
     },
   ): Promise<{ task: Task }> {
     return this.tools.tasks.updateTask(ctx, args);
@@ -463,6 +462,7 @@ export class TeamToolsService implements TeamToolsHandler {
     outcome: ScreeningOutcome;
     recipient?: QuestionRecipient;
     recipientRefusal?: QuestionRecipientRefusal;
+    forwardedTo?: string;
   }> {
     return this.tools.operator.screenQuestion(ctx, args);
   }
@@ -485,6 +485,9 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async cancelTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['cancelTask']>[1]) {
     return this.tools.operator.cancelTask(ctx, args);
+  }
+  async reopenTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['reopenTask']>[1]) {
+    return this.tools.operator.reopenTask(ctx, args);
   }
   async openIntegratorTodo(
     ctx: ToolContext,
@@ -512,14 +515,6 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async getOperation(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getOperation']>[1]) {
     return this.tools.operator.getOperation(ctx, args);
-  }
-
-  async getMachineStatus(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineStatus']>[1]) {
-    return this.tools.operator.getMachineStatus(ctx, args);
-  }
-
-  async getMachineLogs(ctx: ToolContext, args: Parameters<OperatorToolsHandler['getMachineLogs']>[1]) {
-    return this.tools.operator.getMachineLogs(ctx, args);
   }
 
   async readProjectDoc(

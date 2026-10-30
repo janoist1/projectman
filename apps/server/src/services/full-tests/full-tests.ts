@@ -18,13 +18,7 @@ import type {
   RepoConfig,
   Task,
 } from '@projectman/shared';
-import type {
-  EngineDirectory,
-  EngineHost,
-  FullTestResult,
-  FullTestSpec,
-  ReleaseWorkAdmission,
-} from '../../contracts';
+import type { EngineDirectory, EngineHost, FullTestResult, FullTestSpec } from '../../contracts';
 import type { FullTestRunRecord, ReviewPinRecord } from '../../db';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
@@ -109,8 +103,6 @@ interface FullTestRunsDeps {
 
   /** Builds the sandbox without depending on the session policy module. */
   runSandbox: FullTestRunSandbox;
-  /** The release gate (PM-752); absent: never held. */
-  work?: ReleaseWorkAdmission;
 }
 
 /**
@@ -386,7 +378,6 @@ export class FullTestRuns {
             }
           },
           logger: this.ctx.logger,
-          ...(this.deps.work ? { work: this.deps.work } : {}),
         }),
         this.scope,
       ),

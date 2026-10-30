@@ -2,7 +2,6 @@ import clsx from 'clsx';
 import { useQuery } from '@tanstack/react-query';
 import { ProjectContext } from '../../app/contexts';
 import { api } from '../../api/endpoints';
-import { useOperatorGrant } from '../../api/queries';
 import { Fragment, useContext, useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
@@ -14,7 +13,6 @@ import {
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   emailApprovalOf,
-  releaseApprovalOf,
   questionPayloadOf,
   OperatorHandoff as OperatorHandoffSchema,
 } from '@projectman/shared';
@@ -64,7 +62,7 @@ import styles from './InboxCard.module.css';
 import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
 import { EmailApprovalBody, EmailParkedBody, emailApprovalWords } from './EmailInbox';
-import { ReleaseAlertBody, ReleaseInboxActions, ReleaseInboxBody, isReleaseDown } from './ReleaseInbox';
+import { ReleaseAlertBody, ApprovalInboxActions, isReleaseDown } from './ReleaseInbox';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails, showInboxItem } from './Question';
 import { generalQuestionSources, QuestionSources, QuestionSourcesLine } from './QuestionSources';
@@ -224,11 +222,7 @@ export function InboxCard({
   const handoff = handoffResult.success ? handoffResult.data : null;
   const fromOperator = isOperatorInboxRequest(item);
   const repeatedCardLink = handoff?.reason === 'processing_failed' && cardHref === detailsHref;
-  const handoffGrant = useOperatorGrant(!!handoff);
-  const handoffPrimary =
-    handoff &&
-    ((handoff.reason === 'processing_failed' && !!cardHref) ||
-      (handoff.reason === 'no_grant' && handoffGrant.data?.canManage && !handoffGrant.data.active));
+  const handoffPrimary = handoff?.reason === 'processing_failed' && !!cardHref;
   const group = question?.group;
   const grouped = !!group?.sources && group.primaryItemId === item.id;
   const groupAskers = [...new Set(group?.sources?.map((source) => source.asker) ?? [])];
@@ -389,7 +383,6 @@ export function InboxCard({
   // The merge request and the alert of a stopped merge (PM-453) tell and act through the card's merge words.
   const mergeItem = item.kind === 'merge_request' || alertPayload?.alert === 'merge_blocked';
   // The proposed release of the instance (PM-492) and the alert of one that failed: both lead to the release card.
-  const releaseItem = releaseApprovalOf(item) !== null;
   const releaseAlert = alertPayload?.alert === 'release_failed' ? alertPayload : null;
   // An AI member's e-mail waiting for approval and a mail the channel set aside (PM-942).
   const emailItem = emailApprovalOf(item) !== null;
@@ -663,15 +656,12 @@ export function InboxCard({
         <OwnerCommandBody
           command={ownerCommand}
           payload={operationPayload}
-          projectKey={item.projectKey}
           loading={operation.isPending}
           failed={operation.isError}
           retry={() => void operation.refetch()}
         />
       ) : null}
-      {handoff ? (
-        <OperatorHandoff handoff={handoff} projectKey={item.projectKey} cardHref={cardHref} />
-      ) : null}
+      {handoff ? <OperatorHandoff handoff={handoff} cardHref={cardHref} /> : null}
       {questionBody && !handoff && !ownerCommand ? (
         <QuestionBody text={questionBody} mobile={mobile} />
       ) : null}
@@ -690,7 +680,6 @@ export function InboxCard({
       ) : null}
       {handOn ? <HandOnText item={item} members={members} myHandle={myHandle} pipeline={pipeline} /> : null}
       {mergeItem ? <MergeInboxBody item={item} /> : null}
-      {releaseItem ? <ReleaseInboxBody item={item} /> : null}
       {releaseAlert ? <ReleaseAlertBody alert={releaseAlert} /> : null}
       {emailItem ? <EmailApprovalBody item={item} /> : null}
       {emailParked ? <EmailParkedBody alert={emailParked} /> : null}
@@ -703,7 +692,6 @@ export function InboxCard({
       !handoff &&
       !ownerCommand &&
       !mergeItem &&
-      !releaseItem &&
       !releaseAlert &&
       !emailItem &&
       !emailParked &&
@@ -897,14 +885,14 @@ export function InboxCard({
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
       ) : null}
-      {assignedToOthers ? null : releaseItem || emailItem ? (
-        <ReleaseInboxActions
+      {assignedToOthers || item.kind === 'release' ? null : emailItem ? (
+        <ApprovalInboxActions
           item={item}
           size={buttonSize}
           pending={pending}
           detailsHref={detailsHref}
           onResolve={onResolve}
-          words={emailItem ? emailApprovalWords() : undefined}
+          words={emailApprovalWords()}
         />
       ) : mergeItem ? (
         <MergeInboxActions

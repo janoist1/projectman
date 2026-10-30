@@ -159,6 +159,15 @@ describe('who works on a card (PM-237)', () => {
     expect(state.worker).toBeNull();
   });
 
+  it('names a renamed member once, though the member index holds them under both handles (PM-1140)', () => {
+    const ctx = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: '2026-10-01T10:00:00.000Z' }]);
+    const renamed = { ...ctx.members.get('be-1')!, formerHandles: ['be-old'] };
+    const members = new Map(ctx.members).set('be-old', renamed).set('be-1', renamed);
+
+    const state = deriveTaskState(card('AC-20'), { ...ctx, members });
+    expect(state.workers.map((worker) => worker.sessionId)).toEqual(['ses_be-1']);
+  });
+
   it('names a developer in a work stage as working on it, with the session the command runs in', () => {
     const ctx = contextWith([{ handle: 'be-1', taskKey: 'AC-20', since: '2026-10-01T10:00:00.000Z' }]);
     const state = deriveTaskState(card('AC-20'), ctx);

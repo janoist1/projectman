@@ -11,7 +11,8 @@ import { FEEDBACK_TOOL_GROUP } from './feedback';
 import { GITHUB_TOOL_GROUP } from './github';
 import { SCREENSHOT_TOOL_GROUP } from './full-tests';
 import { RELEASE_TOOL_GROUP } from './releases';
-import { OPERATOR_TOOL_GROUP } from './operator';
+import { COMPUTE_JOB_TOOL_GROUP } from './compute-jobs';
+import { OPERATOR_TOOL_GROUP } from './project-manager';
 import { INBOX_TOOL_GROUP } from './inbox';
 import { MESSAGE_TOOL_GROUP } from './messages';
 import { EMAIL_CHANNEL_TOOL_GROUP } from './email-channel';
@@ -39,6 +40,7 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   GITHUB_TOOL_GROUP,
   SCREENSHOT_TOOL_GROUP,
   RELEASE_TOOL_GROUP,
+  COMPUTE_JOB_TOOL_GROUP,
   OPERATOR_TOOL_GROUP,
   PROJECT_DOC_TOOL_GROUP,
   SYSTEM_FEEDBACK_TOOL_GROUP,

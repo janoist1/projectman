@@ -37,10 +37,11 @@ describe('the defaults', () => {
         region: 'eu-west-1',
         availabilityZone: 'eu-west-1a',
         instanceName: 'projectman-cloud',
-        ec2: { ...EC2_CONFIG, architecture: 'x86_64' },
+        ec2: { ...EC2_CONFIG, architecture: 'arm64' },
         databaseBucket: 'acme-projectman-db',
         backupBucket: 'acme-projectman-backup',
       },
+      deployment: { imageSource: 'bundle', imageBundle: expect.stringMatching(/\/bundle$/) },
       repository: { url: 'https://github.com/janoist1/projectman.git' },
       cloudflare: {
         tokenFile: '/home/owner/.config/projectman/cloud/cloudflare-token',
@@ -135,14 +136,9 @@ describe('the validation', () => {
       ),
     ).toContain('cloudflare.integratorHostname');
   });
-  it('requires a bundle for ARM without requiring built files during config parsing', () => {
+  it('requires a bundle for the machine without requiring built files during config parsing', () => {
     const raw = config((value) => {
-      value.aws = {
-        ...value.aws,
-        compute: 'ec2',
-        profile: 'aroom',
-        ec2: { ...EC2_CONFIG, architecture: 'arm64' },
-      };
+      delete value.deployment;
     });
     expect(refusal(raw)).toContain('deployment.imageBundle');
     const withBundle = { ...(raw as object), deployment: { imageBundle: './not-built-yet' } };
@@ -152,6 +148,19 @@ describe('the validation', () => {
     expect(refusal({ ...withBundle, deployment: { imageBundle: ' ' } })).toContain('deployment.imageBundle');
     expect(refusal({ ...withBundle, deployment: { imageBundle: 'bundle', registry: 'refused' } })).toContain(
       'deployment',
+    );
+  });
+  it('takes the image from GitHub without a local bundle, and keeps the bundle source the default (PM-1154)', () => {
+    const raw = config((value) => {
+      delete value.deployment;
+    });
+    const github = parseConfig({ ...(raw as object), deployment: { imageSource: 'github' } }, HOME, '/c');
+    expect(github.deployment).toEqual({ imageSource: 'github' });
+    expect(refusal({ ...(raw as object), deployment: { imageSource: 'bundle' } })).toContain(
+      'deployment.imageBundle',
+    );
+    expect(refusal({ ...(raw as object), deployment: { imageSource: 'registry' } })).toContain(
+      'deployment.imageSource',
     );
   });
   it.each([undefined, 'i', ''])('refuses EC2 profile %s before any AWS call', async (profile) => {
@@ -176,7 +185,7 @@ describe('the validation', () => {
       }),
       HOME,
     );
-    expect(parsed.aws.ec2).toEqual({ ...EC2_CONFIG, architecture: 'x86_64' });
+    expect(parsed.aws.ec2).toEqual({ ...EC2_CONFIG, architecture: 'arm64' });
     expect(parsed.route53.profile).toBe('i');
     expect(
       parseConfig(
@@ -292,7 +301,7 @@ describe('the validation', () => {
     expect(refusal(config((value) => (value.releaseTarget = target)))).toContain('releaseTarget');
   });
 
-  it('takes an optional hybrid binding (PM-752) that needs a release target and a remote engine', () => {
+  it('takes an optional hybrid binding (PM-752) for compatibility', () => {
     const target = { projectKey: 'PM', repo: 'projectman' };
     const hybrid = { engineId: 'eng_abcdefghijkl', targetHash: 'a'.repeat(64) };
     expect(parseConfig(baseConfig(), HOME)).not.toHaveProperty('hybrid');
@@ -305,7 +314,12 @@ describe('the validation', () => {
         HOME,
       ).hybrid,
     ).toEqual(hybrid);
-    expect(refusal(config((value) => (value.hybrid = hybrid)))).toContain('hybrid: needs releaseTarget');
+    expect(
+      parseConfig(
+        config((value) => (value.hybrid = hybrid)),
+        HOME,
+      ).hybrid,
+    ).toEqual(hybrid);
     for (const bad of [
       { ...hybrid, engineId: 'local' },
       { ...hybrid, targetHash: 'abc' },

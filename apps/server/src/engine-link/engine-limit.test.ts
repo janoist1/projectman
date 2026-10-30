@@ -832,6 +832,24 @@ describe('engine local limit', () => {
         repos: [{ name: repoName, path: `/cloud/${repoName}${extra}` }],
       },
     });
+    it.each([
+      'worktree.listTaskWorktrees',
+      'workspace.listSnapshotTasks',
+      'workspace.removeTaskSnapshots',
+    ] as const)('binds %s to the registered repository', async (method) => {
+      const limit = make();
+      const [arg] = await limit.check(method, [
+        { project: projectConfig(), repoName: 'projectman', taskKeys: ['PM-1'] },
+      ] as never);
+      expect(arg.project.project.workspacePath).toBe(workspace);
+      expect(arg.project.project.repos[0]!.path).toBe(repo);
+      await refused(
+        limit,
+        method,
+        [{ project: projectConfig('other'), repoName: 'other', taskKeys: ['PM-1'] }],
+        'repo_not_registered',
+      );
+    });
     it('binds every merge-fix operation to the registered engine repository and rejects ref injection', async () => {
       const limit = make();
       for (const method of [
@@ -1190,6 +1208,84 @@ describe('engine local limit', () => {
       );
       await refused(limit, 'full_test.run', check({ cwd: repo }), 'invalid_params');
       await refused(limit, 'full_test.run', check({ requireHeavyLock: true }), 'invalid_params');
+    });
+
+    it('passes a GitHub Actions compute job on only from the merge branch, with its own command and no checkout (PM-1147)', async () => {
+      const githubJob = {
+        ref: { projectKey: 'PM', repo: 'projectman' },
+        repo: 'owner/projectman',
+        base: 'main',
+        workflow: 'projectman-job.yml',
+        job: 'cloud-image',
+        commit: 'a'.repeat(40),
+        command: 'npm run build',
+        runsOn: 'ubuntu-24.04-arm',
+        outputs: ['image.tar'],
+        timeoutMinutes: 30,
+      };
+      const job = (overrides: Record<string, unknown> = {}) =>
+        fullTest({
+          cwd: 'github-job:owner/projectman',
+          command: githubJob.command,
+          githubJob,
+          ...overrides,
+        });
+      const limit = make({
+        repos: [
+          {
+            project: 'PM',
+            repo: 'projectman',
+            path: repo,
+            fullTestCommand: 'npm test',
+            mergeBranch: 'main',
+            workspaceSetup: null,
+            computeJobs: [
+              {
+                id: 'cloud-image',
+                command: 'npm run build',
+                runsOn: 'ubuntu-24.04-arm' as const,
+                outputs: ['image.tar'],
+                timeoutMinutes: 30,
+              },
+            ],
+          },
+        ],
+      });
+      await expect(limit.check('full_test.run', job() as never)).resolves.toBeDefined();
+      await refused(
+        limit,
+        'full_test.run',
+        job({ githubJob: { ...githubJob, base: 'dev' } }),
+        'merge_not_allowed',
+      );
+      // A job the owner did not register, or one that differs from it in any value, is not run.
+      const notConfigured = (change: Record<string, unknown>) =>
+        refused(
+          limit,
+          'full_test.run',
+          job({ githubJob: { ...githubJob, ...change }, command: change.command ?? githubJob.command }),
+          'command_not_allowed',
+        );
+      await notConfigured({ job: 'other-job' });
+      await notConfigured({ command: 'npm run evil' });
+      await notConfigured({ outputs: ['image.tar', 'extra.bin'] });
+      await notConfigured({ runsOn: 'macos-15' });
+      await notConfigured({ timeoutMinutes: 360 });
+      await refused(
+        limit,
+        'full_test.run',
+        job({ githubJob: { ...githubJob, commit: 'main' } }),
+        'invalid_params',
+      );
+      await refused(
+        limit,
+        'full_test.run',
+        job({ githubJob: { ...githubJob, workflow: 'merge-check.yml' } }),
+        'invalid_params',
+      );
+      await refused(limit, 'full_test.run', job({ command: 'npm test' }), 'invalid_params');
+      await refused(limit, 'full_test.run', job({ cwd: repo }), 'invalid_params');
+      await refused(limit, 'full_test.run', job({ requireHeavyLock: true }), 'invalid_params');
     });
 
     it('keeps the engine’s key and configuration out of the test and screenshot sandboxes', async () => {

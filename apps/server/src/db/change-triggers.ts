@@ -65,7 +65,6 @@ const V81_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
     from: (row) => `tasks WHERE id = ${row}.task_id`,
   },
   ofProject('attachments', 'task', 'task_key'),
-  ofProject('project_focus_items', 'task', 'task_key'),
   ofProject('task_covers', 'task', 'task_key'),
   ofProject('task_fix_limits', 'task', 'task_key'),
   ofProject('task_hand_ons', 'task', 'task_key'),
@@ -133,15 +132,29 @@ export const V92_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   ofProject('merge_check_runs', 'operation', 'id', WRITES),
 ];
 
+/** Migration 130 (PM-1135): the acceptance items of a card; an item belongs to the card, like a link. */
+export const V130_CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
+  {
+    table: 'task_acceptance_items',
+    kind: 'task',
+    on: ALL,
+    project: () => 'project_key',
+    entity: () => 'key',
+    from: (row) => `tasks WHERE id = ${row}.task_id`,
+  },
+];
+
 /** Migration 100 (PM-885) rebuilds these two tables of migration 81, which drops their triggers: it creates them again. */
 export const V100_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CHANGE_TRIGGER_TABLES.filter(
   (entry) => entry.table === 'operator_requests' || entry.table === 'operator_steps',
 );
 
 export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
-  ...V81_CHANGE_TRIGGER_TABLES,
+  // Migration 131 (PM-1150) drops `senior_waits` with its triggers: the wait is an obligation row now.
+  ...V81_CHANGE_TRIGGER_TABLES.filter((entry) => entry.table !== 'senior_waits'),
   ...V83_CHANGE_TRIGGER_TABLES,
   ...V92_CHANGE_TRIGGER_TABLES,
+  ...V130_CHANGE_TRIGGER_TABLES,
 ];
 
 /**
@@ -216,6 +229,8 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   question_group_items: 'written with its group, which is journaled',
   release_deployment_requests: 'deploy controller bookkeeping; the release row is journaled',
   release_deployments: 'deploy controller bookkeeping; the release row is journaled',
+  compute_job_runs:
+    'run bookkeeping of a compute job; its end is a note on the card and the run is read by id',
   release_publications:
     'publish_release bookkeeping of a tag and a GitHub release; the repository and GitHub hold them',
   schedule_runs: 'scheduler bookkeeping',

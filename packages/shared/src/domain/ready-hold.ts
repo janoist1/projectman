@@ -3,16 +3,15 @@ import { EngineId } from './engine';
 import { MemberHandle } from './member';
 
 /** Why an otherwise ready card intentionally stays in its queue (PM-795). */
-export const ReadyHoldReason = z.enum([
+const ReadyHoldReason = z.enum([
   'ai_disabled',
   'team_paused',
   'ai_limit_reached',
   'engine_offline',
   'no_free_member',
   'senior_busy',
-  'focus_order',
 ]);
-export type ReadyHoldReason = z.infer<typeof ReadyHoldReason>;
+type ReadyHoldReason = z.infer<typeof ReadyHoldReason>;
 
 export const TaskReadyHold = z.object({
   reason: ReadyHoldReason,

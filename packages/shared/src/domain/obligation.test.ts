@@ -3,6 +3,7 @@ import {
   DEFAULT_OBLIGATION_MINUTES,
   PAUSING_REFUSALS,
   obligationMinutesOf,
+  obligationRungsOf,
   planObligation,
   type Obligation,
   type ObligationFacts,
@@ -23,6 +24,7 @@ const row = (patch: Partial<Obligation> = {}): Obligation => ({
   pausedSince: null,
   pauseReason: null,
   wokenAt: null,
+  pmToldAt: null,
   handedOverAt: null,
   inboxItemId: null,
   state: 'open',
@@ -98,9 +100,87 @@ describe('planObligation', () => {
     });
   });
 
-  test('the second expiry hands the step over', () => {
+  test('the second expiry tells the project manager', () => {
     const woken = row({ wokenAt: DUE, dueAt: '2026-10-01T11:00:00.000Z' });
-    expect(planObligation(woken, facts(), '2026-10-01T11:00:00.000Z', 30)).toEqual({ kind: 'hand_over' });
+    expect(planObligation(woken, facts(), '2026-10-01T11:00:00.000Z', 30)).toEqual({
+      kind: 'tell_pm',
+      dueAt: '2026-10-01T11:30:00.000Z',
+    });
+  });
+
+  test('the third expiry hands the step over', () => {
+    const told = row({
+      wokenAt: DUE,
+      pmToldAt: '2026-10-01T11:00:00.000Z',
+      dueAt: '2026-10-01T11:30:00.000Z',
+    });
+    expect(planObligation(told, facts(), '2026-10-01T11:30:00.000Z', 30)).toEqual({ kind: 'hand_over' });
+  });
+
+  test('a step without the wake rung hands over at the first expiry', () => {
+    expect(planObligation(row(), facts(), DUE, 30, ['hand_over'])).toEqual({ kind: 'hand_over' });
+  });
+
+  test('a step with no responsible tells the project manager first, then hands over a gap later', () => {
+    const rungs = ['tell_pm', 'hand_over'] as const;
+    expect(planObligation(row({ responsible: null }), facts(), DUE, 30, rungs)).toEqual({
+      kind: 'tell_pm',
+      dueAt: '2026-10-01T11:00:00.000Z',
+    });
+    const told = row({ responsible: null, pmToldAt: DUE, dueAt: '2026-10-01T11:00:00.000Z' });
+    expect(planObligation(told, facts(), '2026-10-01T11:00:00.000Z', 30, rungs)).toEqual({
+      kind: 'hand_over',
+    });
+  });
+
+  describe('a ladder without the project manager rung', () => {
+    const rungs = ['wake', 'hand_over'] as const;
+
+    test('the reminder leaves two gaps before the hand-over', () => {
+      expect(planObligation(row(), facts(), DUE, 30, rungs)).toEqual({
+        kind: 'wake',
+        dueAt: '2026-10-01T11:30:00.000Z',
+      });
+    });
+
+    test('the hand-over comes at three gaps from the start', () => {
+      const woken = row({ wokenAt: DUE, dueAt: '2026-10-01T11:30:00.000Z' });
+      expect(planObligation(woken, facts(), '2026-10-01T11:29:00.000Z', 30, rungs)).toEqual({ kind: 'none' });
+      expect(planObligation(woken, facts(), '2026-10-01T11:30:00.000Z', 30, rungs)).toEqual({
+        kind: 'hand_over',
+      });
+    });
+
+    test('the project manager dropping between the expiries extends the deadline to the reminder + 2N', () => {
+      // The reminder ran on the full ladder (next due after N); the project manager is gone at the second expiry.
+      const woken = row({ wokenAt: DUE, dueAt: '2026-10-01T11:00:00.000Z' });
+      expect(planObligation(woken, facts(), '2026-10-01T11:00:00.000Z', 30, rungs)).toEqual({
+        kind: 'extend',
+        dueAt: '2026-10-01T11:30:00.000Z',
+      });
+    });
+
+    test('a pause or activity counts the longer gap too', () => {
+      const woken = row({ wokenAt: DUE, dueAt: '2026-10-01T11:30:00.000Z' });
+      expect(
+        planObligation(
+          { ...woken, pausedSince: '2026-10-01T10:40:00.000Z', pauseReason: 'inbox' },
+          facts(),
+          '2026-10-01T12:00:00.000Z',
+          30,
+          rungs,
+        ),
+      ).toEqual({ kind: 'resume', dueAt: '2026-10-01T13:00:00.000Z' });
+      expect(
+        planObligation(
+          woken,
+          facts({ lastActivityAt: '2026-10-01T11:10:00.000Z' }),
+          '2026-10-01T11:31:00.000Z',
+          30,
+          rungs,
+        ),
+      ).toEqual({ kind: 'extend', dueAt: '2026-10-01T12:10:00.000Z' });
+    });
   });
 
   test('the number of minutes sets the deadline length', () => {
@@ -111,10 +191,39 @@ describe('planObligation', () => {
   });
 });
 
+describe('obligationRungsOf', () => {
+  const full = ['wake', 'tell_pm', 'hand_over'] as const;
+
+  test('keeps every rung when someone is responsible and a project manager can be told', () => {
+    expect(obligationRungsOf(full, { responsible: 'dev', projectManager: 'pm' })).toEqual([...full]);
+  });
+
+  test('drops the reminder when nobody is responsible', () => {
+    expect(obligationRungsOf(full, { responsible: null, projectManager: 'pm' })).toEqual([
+      'tell_pm',
+      'hand_over',
+    ]);
+  });
+
+  test('drops the word to the project manager when there is none', () => {
+    expect(obligationRungsOf(full, { responsible: 'dev', projectManager: null })).toEqual([
+      'wake',
+      'hand_over',
+    ]);
+  });
+
+  test('drops the word to the project manager when they are the responsible', () => {
+    expect(obligationRungsOf(full, { responsible: 'pm', projectManager: 'pm' })).toEqual([
+      'wake',
+      'hand_over',
+    ]);
+  });
+});
+
 describe('obligationMinutesOf', () => {
-  test('defaults to 30 minutes', () => {
-    expect(DEFAULT_OBLIGATION_MINUTES).toBe(30);
-    expect(obligationMinutesOf({})).toBe(30);
+  test('defaults to 20 minutes', () => {
+    expect(DEFAULT_OBLIGATION_MINUTES).toBe(20);
+    expect(obligationMinutesOf({})).toBe(20);
   });
 
   test('uses the configured value', () => {

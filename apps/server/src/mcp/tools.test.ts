@@ -1,12 +1,18 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
-import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, visibleTeamTools } from './server';
+import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, SERVER_INFO, visibleTeamTools } from './server';
 import { createFakeTeamToolsHandler, devContext, fullAudience } from './testing';
 import type { MemberAudience } from '../contracts';
 import { toolVisible, type ToolAudience } from './kit';
 import { TEAM_TOOL_GROUPS, TEAM_TOOL_NAMES, TEAM_TOOLS } from './tools';
+import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_DUTIES } from '@projectman/shared';
+
+/** A description says what the tool does and when; the rules behind it live in the guides (PM-1114). */
+const TOOL_DESCRIPTION_MAX = 300;
 
 const developerAudience: MemberAudience = {
   projectManager: false,
@@ -16,8 +22,6 @@ const developerAudience: MemberAudience = {
   hostRequests: false,
   duties: new Set(),
 };
-/** Tools nobody sees any more: they were the retired Operator's alone (decision 66). */
-const hiddenTools = TEAM_TOOLS.filter((tool) => tool.audience?.roles?.length === 0).map((tool) => tool.name);
 
 async function listToolsFor(audience: MemberAudience) {
   const app = Fastify();
@@ -41,6 +45,37 @@ async function listToolsFor(audience: MemberAudience) {
 }
 
 describe('tool audience', () => {
+  it.each(AI_BUILT_IN_ROLE_IDS)('keeps the %s tools/list within its byte budget', async (role) => {
+    const result = await listToolsFor({
+      ...developerAudience,
+      projectManager: role === 'project_manager',
+      merger: role === 'developer',
+      duties: new Set(BUILT_IN_ROLE_DUTIES[role]),
+    });
+    const bytes = Buffer.byteLength(JSON.stringify(result));
+    const budgets = {
+      project_manager: 108_000,
+      business_analyst: 40_000,
+      architect: 40_000,
+      designer: 40_000,
+      developer: 42_000,
+      lead_developer: 42_000,
+      code_review: 40_000,
+      security_review: 40_000,
+      qa: 40_000,
+      devops: 44_000,
+      communication: 40_000,
+      support: 40_000,
+      researcher: 40_000,
+      maintainer: 40_000,
+      coach: 40_000,
+      watchdog: 40_000,
+      content: 40_000,
+      translator: 40_000,
+      docs: 40_000,
+    };
+    expect(bytes).toBeLessThanOrEqual(budgets[role]);
+  });
   it.each([fullAudience, developerAudience, { ...developerAudience, projectManager: true }])(
     'registers exactly the tools listed by the context preview for %o',
     async (audience) => {
@@ -48,6 +83,41 @@ describe('tool audience', () => {
       expect(result.tools.map(({ name, title, description }) => ({ name, title, description }))).toEqual(
         visibleTeamTools(audience),
       );
+    },
+  );
+  // The memoized listing replaces the SDK's own; the SDK registration of the same tools is what it must equal.
+  it.each([fullAudience, developerAudience])(
+    'lists the tools exactly as the SDK would, also from the memo (%#)',
+    async (audience) => {
+      const reference = new McpServer(SERVER_INFO);
+      const visible = new Set(visibleTeamTools(audience).map((tool) => tool.name));
+      for (const tool of TEAM_TOOLS.filter((candidate) => visible.has(candidate.name)))
+        reference.registerTool(
+          tool.name,
+          {
+            title: tool.title,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+            annotations: tool.annotations,
+          },
+          () => ({ content: [] }),
+        );
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: 'reference-test', version: '1.0.0' });
+      await reference.connect(serverTransport);
+      await client.connect(clientTransport);
+      const fields = ({ name, title, description, inputSchema, annotations }: Tool) => ({
+        name,
+        title,
+        description,
+        inputSchema,
+        annotations,
+      });
+      const expected = (await client.listTools()).tools.map(fields);
+      await client.close();
+      await reference.close();
+      expect((await listToolsFor(audience)).tools.map(fields)).toEqual(expected);
+      expect((await listToolsFor(audience)).tools.map(fields)).toEqual(expected);
     },
   );
   it.each<{ audience: ToolAudience | undefined; member: MemberAudience; visible: boolean }>([
@@ -82,14 +152,11 @@ describe('tool audience', () => {
     expect(toolVisible(audience, member)).toBe(visible);
   });
 
-  it('lists every tool but the retired Operator ones for a full audience and hides restricted tools from a developer', async () => {
+  it('lists every tool for a full audience and hides restricted tools from a developer', async () => {
     const before = await listToolsFor(fullAudience);
     const after = await listToolsFor(developerAudience);
-    expect(hiddenTools.length).toBeGreaterThan(0);
-    expect(before.tools.map((tool) => tool.name).sort()).toEqual(
-      TEAM_TOOL_NAMES.filter((name) => !hiddenTools.includes(name)).sort(),
-    );
-    expect(after.tools.map((tool) => tool.name)).not.toContain('check_release');
+    expect(before.tools.map((tool) => tool.name).sort()).toEqual([...TEAM_TOOL_NAMES].sort());
+    expect(after.tools.map((tool) => tool.name)).not.toContain('operate');
     expect(after.tools.map((tool) => tool.name)).toContain('get_guide');
     console.info('tools/list JSON bytes', {
       before: Buffer.byteLength(JSON.stringify(before)),
@@ -123,7 +190,7 @@ describe('tool audience', () => {
       ...developerAudience,
       duties: new Set(holdsDuty ? ['deployment'] : []),
     });
-    for (const name of ['propose_release', 'publish_release']) {
+    for (const name of ['publish_release', 'run_compute_job', 'get_compute_job', 'list_compute_jobs']) {
       expect(result.tools.some((tool) => tool.name === name)).toBe(holdsDuty);
     }
   });
@@ -164,22 +231,22 @@ describe('tool audience', () => {
     {
       audience: { ...developerAudience, projectManager: true },
       present: 'operate',
-      absent: 'get_machine_logs',
+      absent: 'merge_task',
     },
     {
       audience: { ...developerAudience, projectManager: true },
       present: 'execute_operation',
-      absent: 'check_release',
+      absent: 'publish_release',
     },
     {
       audience: { ...developerAudience, projectManager: true },
       present: 'update_checklist',
-      absent: 'get_machine_status',
+      absent: 'send_email',
     },
     {
       audience: { ...developerAudience, projectManager: true },
       present: 'get_role_configuration',
-      absent: 'get_history_search_stats',
+      absent: 'ask_host',
     },
     {
       audience: { ...developerAudience, duties: new Set(['feedback_processing'] as const) },
@@ -218,6 +285,13 @@ describe('team tool registration', () => {
     expect([...names].sort()).toEqual([...TEAM_TOOL_NAMES].sort());
   });
 
+  it('keeps every description within the cap, so tools/list stays small', () => {
+    const long = TEAM_TOOLS.filter((tool) => tool.description.length > TOOL_DESCRIPTION_MAX).map(
+      (tool) => `${tool.name}: ${tool.description.length}`,
+    );
+    expect(long).toEqual([]);
+  });
+
   it('collects distinct nonempty module groups', () => {
     expect(new Set(TEAM_TOOL_GROUPS.map((group) => group.module)).size).toBe(TEAM_TOOL_GROUPS.length);
     for (const group of TEAM_TOOL_GROUPS) {
@@ -235,7 +309,7 @@ describe('team tool registration', () => {
       'services/email-channel': ['send_email', 'set_email_contact', 'list_email_contacts'],
       'services/github': ['link_pull_request'],
       'services/host-requests': ['ask_host', 'list_host_requests', 'withdraw_host_request'],
-      'services/operator': [
+      'services/coordination': [
         'get_role_configuration',
         'request_structural_review',
         'triage_loop',
@@ -250,8 +324,6 @@ describe('team tool registration', () => {
         'operate',
         'execute_operation',
         'get_operation',
-        'get_machine_status',
-        'get_machine_logs',
         'combine_questions',
         'screen_question',
         'dismiss_signal',
@@ -259,6 +331,7 @@ describe('team tool registration', () => {
         'start_task',
         'reassign_task',
         'cancel_task',
+        'reopen_task',
         'start_member',
       ],
       'services/feedback': [
@@ -276,7 +349,8 @@ describe('team tool registration', () => {
       'runtime/watchers': ['decide_fix_limit'],
       'runtime/sessions': ['get_guide', 'set_current_work'],
       'core/members': ['list_members', 'save_memory'],
-      'services/releases': ['propose_release', 'publish_release', 'check_release'],
+      'services/releases': ['publish_release'],
+      'services/compute-jobs': ['run_compute_job', 'get_compute_job', 'list_compute_jobs'],
       'core/tasks': ['list_tasks', 'get_task', 'update_task', 'create_task'],
       'core/attachments': [
         'list_attachments',
@@ -291,7 +365,7 @@ describe('team tool registration', () => {
         'list_decision_candidates',
         'mark_decision_candidates',
       ],
-      'services/history': ['search_history', 'read_history_source', 'get_history_search_stats'],
+      'services/history': ['search_history', 'read_history_source'],
       'services/merges': ['merge_task', 'prioritize_merge', 'list_merge_checks'],
       'services/full-tests': ['take_screenshots', 'get_screenshot_run'],
     });

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { ALWAYS_VALID_RULE_IDS, ProjectManagerLifecycleAction } from '@projectman/shared';
 import type { TeamRule, TeamRuleId } from '@projectman/shared';
 import { Icon } from '../../components/Icon';
 import type { IconName } from '../../components/Icon';
@@ -10,6 +11,7 @@ import { LabelButton, LabelLink, LabelLinks, ShowLink, StageLink, StageLinks } f
 import { EditLink } from './EditLink';
 import { useMapView, useShowProps } from './MapContext';
 import type { MapView } from './MapContext';
+import { RuleWhy, ruleReason } from './RuleWhy';
 import styles from './HowWeWork.module.css';
 
 type RuleOf<K extends TeamRuleId> = Extract<TeamRule, { id: K }>;
@@ -30,11 +32,7 @@ const RULE_TEXTS: { [K in TeamRuleId]: RuleText<RuleOf<K>> } = {
   new_card: {
     icon: 'plus',
     title: () => t('howWeWork.rules.new_card.title'),
-    line: (rule, { stageName }) =>
-      rich('howWeWork.rules.new_card.line', {
-        access: humanRoleName(rule.minimumAccess),
-        stage: stageName(rule.firstStageId),
-      }),
+    line: (rule) => rich('howWeWork.rules.new_card.line', { access: humanRoleName(rule.minimumAccess) }),
     panel: (rule, { map }) => (
       <>
         <p className={styles.lead}>
@@ -71,12 +69,7 @@ const RULE_TEXTS: { [K in TeamRuleId]: RuleText<RuleOf<K>> } = {
   gates_in_order: {
     icon: 'lock',
     title: () => t('howWeWork.rules.gates_in_order.title'),
-    line: (rule, { labels }) =>
-      rule.clearedOnMoveBack.length > 0
-        ? rich('howWeWork.rules.gates_in_order.lineCleared', {
-            labels: joinNames(rule.clearedOnMoveBack.map((id) => labelName(id, labels))),
-          })
-        : rich('howWeWork.rules.gates_in_order.line', {}),
+    line: () => rich('howWeWork.rules.gates_in_order.line', {}),
     panel: (rule, { map }) => (
       <>
         <p className={styles.lead}>{t('howWeWork.rules.gates_in_order.lead')}</p>
@@ -170,7 +163,6 @@ const RULE_TEXTS: { [K in TeamRuleId]: RuleText<RuleOf<K>> } = {
             </Item>
             <Item icon="check">{t('howWeWork.rules.fix_limit.limitNotBan')}</Item>
           </ul>
-          <EditLink hash="settings-limits">{t('howWeWork.rules.fix_limit.editLimits')}</EditLink>
         </>
       );
     },
@@ -233,7 +225,186 @@ const RULE_TEXTS: { [K in TeamRuleId]: RuleText<RuleOf<K>> } = {
       </p>
     ),
   },
+  start_order: {
+    icon: 'arrowUp',
+    title: () => t('howWeWork.rules.start_order.title'),
+    line: () => rich('howWeWork.rules.start_order.line', {}),
+    panel: (rule) => (
+      <>
+        <p className={styles.lead}>{t('howWeWork.rules.start_order.lead')}</p>
+        {rule.urgentPull ? (
+          <ul className={styles.dList}>
+            <Item icon="arrowRight">{t('howWeWork.rules.start_order.urgentPull')}</Item>
+          </ul>
+        ) : null}
+      </>
+    ),
+  },
+  priority_setters: {
+    icon: 'flag',
+    title: () => t('howWeWork.rules.priority_setters.title'),
+    line: (rule, { member }) =>
+      rule.members.length > 0
+        ? rich('howWeWork.rules.priority_setters.line', {
+            names: joinNames(memberNames(rule.members, member)),
+          })
+        : rich('howWeWork.rules.priority_setters.lineHumansOnly', {}),
+    panel: (rule, { member }) => (
+      <>
+        <p className={styles.lead}>
+          {t(
+            rule.members.length > 0
+              ? 'howWeWork.rules.priority_setters.lead'
+              : 'howWeWork.rules.priority_setters.leadHumansOnly',
+          )}
+        </p>
+        {rule.members.length > 0 ? <MemberLinks handles={rule.members} member={member} /> : null}
+      </>
+    ),
+  },
+  complexity_setters: {
+    icon: 'target',
+    title: () => t('howWeWork.rules.complexity_setters.title'),
+    line: (rule, { member }) =>
+      rich('howWeWork.rules.complexity_setters.line', {
+        names: joinNames(memberNames(rule.members, member)),
+      }),
+    panel: (rule, { member }) => (
+      <>
+        <p className={styles.lead}>{t('howWeWork.rules.complexity_setters.lead')}</p>
+        <MemberLinks handles={rule.members} member={member} />
+      </>
+    ),
+  },
+  assignee_fit: {
+    icon: 'check',
+    title: () => t('howWeWork.rules.assignee_fit.title'),
+    line: () => rich('howWeWork.rules.assignee_fit.line', {}),
+    panel: (rule) => (
+      <>
+        <p className={styles.lead}>{t('howWeWork.rules.assignee_fit.lead')}</p>
+        <ul className={styles.dList}>
+          <Item icon="user">{t('howWeWork.rules.assignee_fit.temp', { points: rule.tempMaxPoints })}</Item>
+        </ul>
+      </>
+    ),
+  },
+  acceptance: {
+    icon: 'taskList',
+    title: () => t('howWeWork.rules.acceptance.title'),
+    line: (rule, { stageName }) => {
+      const review = rule.reviewStageId ? stageName(rule.reviewStageId) : null;
+      const done = rule.doneStageId ? stageName(rule.doneStageId) : null;
+      if (review && done) return rich('howWeWork.rules.acceptance.lineBoth', { review, done });
+      return review
+        ? rich('howWeWork.rules.acceptance.lineReview', { review })
+        : rich('howWeWork.rules.acceptance.lineDone', { done: done ?? '' });
+    },
+    panel: (rule) => (
+      <>
+        <p className={styles.lead}>{t('howWeWork.rules.acceptance.lead')}</p>
+        <ul className={styles.dList}>
+          {rule.reviewStageId ? (
+            <Item icon="lock">
+              {rich('howWeWork.rules.acceptance.review', { stage: <StageLink id={rule.reviewStageId} /> })}
+            </Item>
+          ) : null}
+          {rule.doneStageId ? (
+            <Item icon="lock">
+              {rich('howWeWork.rules.acceptance.done', { stage: <StageLink id={rule.doneStageId} /> })}
+            </Item>
+          ) : null}
+        </ul>
+      </>
+    ),
+  },
+  project_manager_rights: {
+    icon: 'user',
+    title: () => t('howWeWork.rules.project_manager_rights.title'),
+    line: (rule) =>
+      rule.moves === 'start_only'
+        ? rich('howWeWork.rules.project_manager_rights.lineStartOnly', {})
+        : rich('howWeWork.rules.project_manager_rights.lineQueues', {}),
+    panel: (rule) => (
+      <>
+        <p className={styles.lead}>{t('howWeWork.rules.project_manager_rights.lead')}</p>
+        <ul className={styles.dList}>
+          <Item icon="arrowRight">
+            {t(
+              rule.moves === 'start_only'
+                ? 'howWeWork.rules.project_manager_rights.movesStartOnly'
+                : 'howWeWork.rules.project_manager_rights.movesQueues',
+            )}
+          </Item>
+          <Item icon="list">
+            {rule.lifecycle.length > 0
+              ? t('howWeWork.rules.project_manager_rights.lifecycle', {
+                  actions: joinNames(
+                    ProjectManagerLifecycleAction.options
+                      .filter((action) => rule.lifecycle.includes(action))
+                      .map((action) => t(`howWeWork.rules.project_manager_rights.actions.${action}`)),
+                  ),
+                })
+              : t('howWeWork.rules.project_manager_rights.lifecycleNone')}
+          </Item>
+          <Item icon="lock">
+            {t(
+              rule.prerequisiteOverride
+                ? 'howWeWork.rules.project_manager_rights.override'
+                : 'howWeWork.rules.project_manager_rights.noOverride',
+            )}
+          </Item>
+        </ul>
+      </>
+    ),
+  },
+  viewer_recipients: {
+    icon: 'mail',
+    title: () => t('howWeWork.rules.viewer_recipients.title'),
+    line: (rule) =>
+      rich(
+        rule.mode === 'contacts'
+          ? 'howWeWork.rules.viewer_recipients.lineContacts'
+          : 'howWeWork.rules.viewer_recipients.lineManager',
+        {},
+      ),
+    panel: (rule) => (
+      <p className={styles.lead}>
+        {t(
+          rule.mode === 'contacts'
+            ? 'howWeWork.rules.viewer_recipients.leadContacts'
+            : 'howWeWork.rules.viewer_recipients.leadManager',
+        )}
+      </p>
+    ),
+  },
 };
+
+/** The display names of the members with these handles, in the given order; a handle with no member is left out. */
+function memberNames(handles: readonly string[], member: MapView['member']): string[] {
+  return handles.flatMap((handle) => {
+    const config = member(handle);
+    return config ? [config.displayName] : [];
+  });
+}
+
+/** The members of a rule as links to their details. */
+function MemberLinks({ handles, member }: { handles: readonly string[]; member: MapView['member'] }) {
+  return (
+    <ul className={styles.dList}>
+      {handles.flatMap((handle) => {
+        const config = member(handle);
+        return config
+          ? [
+              <Item key={handle} icon="user">
+                <ShowLink target={{ kind: 'member', id: handle }}>{config.displayName}</ShowLink>
+              </Item>,
+            ]
+          : [];
+      })}
+    </ul>
+  );
+}
 
 function Item({ icon, needs = false, children }: { icon: IconName; needs?: boolean; children: ReactNode }) {
   return (
@@ -282,7 +453,13 @@ function RuleRow({ rule, view }: { rule: TeamRule; view: MapView }) {
       <span className={text.needs ? `${styles.ri} ${styles.riNeeds}` : styles.ri}>
         <Icon name={text.icon} size={16} />
       </span>
-      <span>{text.line(rule, view)}</span>
+      <span>
+        {text.line(rule, view)}
+        {ALWAYS_VALID_RULE_IDS.includes(rule.id) ? (
+          <span className={styles.always}>{t('howWeWork.rules.always')}</span>
+        ) : null}
+        <span className={styles.why}>{ruleReason(rule.id, view.config).text}</span>
+      </span>
       <span className={styles.chev}>
         <Icon name="chevronRight" size={16} />
       </span>
@@ -290,8 +467,32 @@ function RuleRow({ rule, view }: { rule: TeamRule; view: MapView }) {
   );
 }
 
-/** The details of one rule: its title and its panel body. */
+/** Where in the settings a rule is changed; a rule without an entry is part of the system and cannot be changed. */
+const EDIT_HASH: Partial<Record<TeamRuleId, string>> = {
+  new_card: 'settings-task-create-title',
+  priority_setters: 'settings-priority-title',
+  complexity_setters: 'settings-complexity-title',
+  assignee_fit: 'settings-assignee-fit-title',
+  acceptance: 'settings-pipeline',
+  project_manager_rights: 'settings-pm-moves-title',
+  fix_limit: 'settings-limits',
+  refinement: 'settings-pipeline',
+  waiting_answer: 'settings-labels',
+  viewer_recipients: 'settings-contacts-title',
+};
+
+/** The details of one rule: its title and its panel body, then why it lives and where it is changed. */
 export function rulePanel(rule: TeamRule, view: MapView): { title: string; body: ReactNode } {
   const text = ruleText(rule);
-  return { title: text.title(), body: text.panel(rule, view) };
+  const hash = EDIT_HASH[rule.id];
+  return {
+    title: text.title(),
+    body: (
+      <>
+        {text.panel(rule, view)}
+        <RuleWhy ruleId={rule.id} always={ALWAYS_VALID_RULE_IDS.includes(rule.id)} />
+        {hash ? <EditLink hash={hash}>{t('howWeWork.rules.editLink')}</EditLink> : null}
+      </>
+    ),
+  };
 }

@@ -36,11 +36,7 @@ export const routes = {
   operatorApprovalWaiver: (key: string) => `/api/projects/${key}/operator/approval-waiver`,
   /** GET the super mode's audit (`SuperAuditPage`, PM-757), newest first; the owner's own login only. */
   operatorSuperAudit: (key: string) => `/api/projects/${key}/operator-super/audit`,
-  /** GET the project's super-mode handoffs (`ListSuperHandoffsResponse`, PM-762); the integrator and the owner. */
-  superHandoffs: (key: string) => `/api/projects/${key}/operator-super/handoffs`,
-  superHandoff: (key: string, handoffId: string) =>
-    `/api/projects/${key}/operator-super/handoffs/${handoffId}`,
-  /** POST `SuperOperateRequest`: starts a command without a handoff; 202 `{operation}` (PM-764). */
+  /** POST `SuperOperateRequest`: starts a command; 202 `{operation}` (PM-764). */
   superOperations: (key: string) => `/api/projects/${key}/operator-super/operations`,
   /** GET `{operation, result}`: the operation and the administration result recorded for it, if any. */
   superOperation: (key: string, operationId: string) =>
@@ -72,9 +68,6 @@ export const routes = {
   integratorKeys: () => '/api/auth/integrator-keys',
   integratorAccessKey: (id: string) => `/api/auth/integrator-keys/${id}`,
   integratorKeyAudit: () => '/api/auth/integrator-keys/audit',
-  /** GET the state, POST grants, DELETE revokes the Operator's grant for machine operations (PM-881). */
-  operatorGrant: () => '/api/auth/operator-grant',
-  operatorGrantAudit: () => '/api/auth/operator-grant/audit',
   involvements: (key: string) => `/api/projects/${key}/involvements`,
   projectStructure: (key: string) => `/api/projects/${key}/structure`,
   /**
@@ -152,14 +145,6 @@ export const routes = {
   ownerInvite: (token: string) => `/api/owner-invites/${token}`,
   acceptOwnerInvite: (token: string) => `/api/owner-invites/${token}/accept`,
 
-  /** GET the project's focus (`ProjectFocusView`, PM-427); every member reads it, a client read-only. */
-  projectFocus: (key: string) => `/api/projects/${key}/focus`,
-  /** POST (`ProjectFocusAddRequest`): puts a theme or card into the focus. */
-  projectFocusItems: (key: string) => `/api/projects/${key}/focus/items`,
-  /** PATCH (`ProjectFocusMoveRequest`) moves an item; DELETE takes it out. */
-  projectFocusItem: (key: string, taskKey: string) => `/api/projects/${key}/focus/items/${taskKey}`,
-  /** GET (`?limit=`, 1 to 200, default 50): the project's `focus_changed` events (`ProjectFocusChanges`). */
-  projectFocusChanges: (key: string) => `/api/projects/${key}/focus/changes`,
   /** GET the project's pauses (`ProjectPauseView`); POST pauses it (`PauseRequest`), admin at least. */
   projectPause: (key: string) => `/api/projects/${key}/pause`,
   projectPauseResume: (key: string) => `/api/projects/${key}/pause/resume`,

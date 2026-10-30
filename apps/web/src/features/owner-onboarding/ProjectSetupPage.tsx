@@ -9,7 +9,9 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle } from '../../lib/hooks';
 import { AuthLayout } from '../auth/AuthLayout';
 import { CopyRow } from '../engines/CopyRow';
+import { EngineModeSwitch } from '../engines/EngineModeSwitch';
 import { projectSetCommand, repoAddCommand } from '../engines/engineView';
+import { useEngineMode } from '../engines/useEngineMode';
 import type { ProjectSetupState } from './welcomeState';
 import styles from './OwnerOnboarding.module.css';
 
@@ -27,6 +29,7 @@ export function ProjectSetupPage() {
   const me = useMe();
   const engines = useProjectEngines(projectKey, POLL_MS);
   const [typedFolder, setTypedFolder] = useState('');
+  const [mode] = useEngineMode();
   const name = me.data?.projects.find((project) => project.key === projectKey)?.name ?? projectKey;
   useDocumentTitle(t('ownerOnboarding.project.title', { name }));
   const folder = given.folder ?? typedFolder.trim();
@@ -60,8 +63,9 @@ export function ProjectSetupPage() {
             ) : null}
             {folder ? (
               <>
+                <EngineModeSwitch />
                 <CopyRow
-                  text={projectSetCommand(projectKey, folder)}
+                  text={projectSetCommand(projectKey, folder, mode)}
                   label={t('ownerOnboarding.project.commandAria')}
                 />
                 {(given.repos ?? []).length > 0 ? (
@@ -70,7 +74,7 @@ export function ProjectSetupPage() {
                     {(given.repos ?? []).map((repo) => (
                       <CopyRow
                         key={repo.name}
-                        text={repoAddCommand(projectKey, repo, folder)}
+                        text={repoAddCommand(projectKey, repo, folder, mode)}
                         label={t('ownerOnboarding.project.repoAria', { name: repo.name })}
                       />
                     ))}

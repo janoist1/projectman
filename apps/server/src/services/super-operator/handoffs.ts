@@ -23,13 +23,10 @@ import {
 import type {
   Actor,
   InboxItem,
-  ListSuperHandoffsQuery,
   OwnerReservedEffect,
   ProjectConfig,
-  RequestSuperOperationRequest,
   BoundActor,
   SuperCommand,
-  SuperHandoff,
   SuperOperation,
   SuperState,
 } from '@projectman/shared';
@@ -40,7 +37,7 @@ import type { InboxService } from '../../core/inbox';
 import type { ProjectAccess, MemberService } from '../../core/members';
 import type { ProjectService } from '../../core/projects';
 import type { SuperAuditService, TimelineService } from '../../core/timeline';
-import type { StoredSuperHandoff, StoredSuperOperation } from '../../db';
+import type { StoredSuperOperation } from '../../db';
 import {
   DomainError,
   SYSTEM_ACTOR,
@@ -52,6 +49,7 @@ import {
   invalid,
   newId,
   notFound,
+  unavailable,
 } from '../../kernel';
 import { isAppOperation } from './app';
 
@@ -64,7 +62,6 @@ const SUPER_OWNER_NO = 'no';
 
 /** What an executor gets: the command, who runs it and the exact state it was checked against. */
 export interface SuperExecutorJob {
-  handoff: SuperHandoff | null;
   operation: SuperOperation;
   command: SuperCommand;
   access: ProjectAccess;
@@ -89,7 +86,7 @@ interface SuperExecutorPending {
 }
 
 /** What a settler found out about a detached operation. */
-export type SuperSettlement =
+type SuperSettlement =
   | { state: 'running' }
   | {
       state: 'succeeded' | 'failed' | 'unknown';
@@ -111,14 +108,12 @@ export type SuperCommandSettler = (input: {
 /** Goes on with an in-app Operator's operation (its credential's key id is the Operator session) as the answering owner approved. */
 type AppResume = (operation: SuperOperation, keyId: string, ownerHandle: string) => Promise<SuperOperation>;
 
-/** What the service runs: a stored handoff, or a command the integrator starts directly. */
+/** What the service runs: a command the integrator starts. */
 interface Subject {
   projectKey: string;
   taskKey: string | null;
   command: SuperCommand;
   reason: string;
-  expectedConfigVersion: string | null;
-  handoff: StoredSuperHandoff | null;
 }
 
 /** What the authorizer of the mutations lets through while an operation runs: the effects the owner agreed to. */
@@ -127,20 +122,6 @@ interface Grant {
   operationId: string;
   effects: ReadonlySet<OwnerReservedEffect>;
 }
-
-const publicHandoff = (h: StoredSuperHandoff): SuperHandoff => ({
-  id: h.id,
-  projectKey: h.projectKey,
-  taskKey: h.taskKey,
-  requestedBy: h.requestedBy,
-  reason: h.reason,
-  command: h.command,
-  expectedConfigVersion: h.expectedConfigVersion,
-  state: h.state,
-  operationId: h.operationId,
-  createdAt: h.createdAt,
-  updatedAt: h.updatedAt,
-});
 
 const publicOperation = (o: StoredSuperOperation): SuperOperation => ({
   id: o.id,
@@ -167,32 +148,20 @@ const isTerminal = (state: SuperState) => SUPER_TERMINAL_STATES.includes(state);
 const isPending = (outcome: Awaited<ReturnType<SuperCommandExecutor>>): outcome is SuperExecutorPending =>
   typeof outcome === 'object' && outcome !== null && 'pending' in outcome && outcome.pending === true;
 
-const subjectOf = (handoff: StoredSuperHandoff): Subject => ({
-  projectKey: handoff.projectKey,
-  taskKey: handoff.taskKey,
-  command: handoff.command,
-  reason: handoff.reason,
-  expectedConfigVersion: handoff.expectedConfigVersion,
-  handoff,
-});
-
 /** The error code of an executor's failure when it is a plain identifier; every other error is an `internal_error`. */
 const codeOf = (error: unknown): string =>
   error instanceof DomainError && SUPER_AUDIT_NAME.test(error.code) ? error.code : 'internal_error';
 
 /**
- * The durable hand-over of work to the super-mode integrator, and the operations it starts (PM-762).
+ * The operations the super-mode integrator starts (PM-762, PM-764). A command with no owner-reserved effect
+ * runs on the integrator's own power. One with a reserved effect (deletion, security, cost) opens a question
+ * for the owner and waits: only the owner's own login answers it (the inbox refuses a token, a relay and
+ * anyone else), and only a `yes` for this exact command, this exact configuration version and this token lets
+ * the re-execution run it.
  *
- * - `request`: the base Operator records what it asks the integrator to do. This grants no right to execute
- *   and no approval; it needs no token and survives a restart and an offline integrator.
- * - `execute`: the integrator, with its own super token, starts the handoff's operation. A command with no
- *   owner-reserved effect runs on the integrator's own power. One with a reserved effect (deletion,
- *   security, cost) opens a question for the owner and waits: only the owner's own login answers it
- *   (the inbox refuses a token, a relay and anyone else), and only a `yes` for this exact command, this exact
- *   configuration version and this token lets the re-execution run it.
- *
- * Every state change is a compare-and-set (`db/super-handoffs`), so two clients racing on one handoff cannot
- * both run it; a restart marks what was running `unknown` and never runs it again by itself.
+ * Every state change is a compare-and-set (`db/super-handoffs`), so two clients racing on one operation cannot
+ * both run it; a restart marks what was running `unknown` and never runs it again by itself. The handoffs the
+ * retired base Operator recorded are no longer made; `move` still keeps an old one in step with its operation.
  */
 export class SuperHandoffService {
   private readonly ctx: DomainContext;
@@ -287,131 +256,16 @@ export class SuperHandoffService {
     else throw invalid('unknown_option', `unknown option: ${optionId}`);
   };
 
-  // --- the base Operator's side -------------------------------------------------------------------------
-
-  /** Records the hand-over. The same request id with the same content is the same handoff; other content is a conflict. */
-  async request(
-    projectKey: string,
-    requester: Actor,
-    input: RequestSuperOperationRequest,
-  ): Promise<SuperHandoff> {
-    if (input.taskKey && this.ctx.repos.tasks.get(input.taskKey)?.projectKey !== projectKey)
-      throw notFound('task', input.taskKey);
-    const content = superCommandHash(projectKey, input.command);
-    const requestHash = sha256({
-      taskKey: input.taskKey ?? null,
-      reason: input.reason,
-      command: input.command,
-      expectedConfigVersion: input.expectedConfigVersion ?? null,
-      content,
-    });
-    return this.ctx.unitOfWork(() => {
-      const repo = this.ctx.repos.superHandoffs;
-      const existing = repo.handoffByRequest(projectKey, input.requestId);
-      if (existing) {
-        if (existing.commandHash !== requestHash)
-          throw conflict('super_request_conflict', 'this request id was used for another handoff');
-        return publicHandoff(existing);
-      }
-      const at = isoNow(this.ctx);
-      const handoff: StoredSuperHandoff = {
-        id: newId('sho'),
-        projectKey,
-        taskKey: input.taskKey ?? null,
-        requestId: input.requestId,
-        requestedBy: requester,
-        reason: input.reason,
-        command: input.command,
-        commandHash: requestHash,
-        expectedConfigVersion: input.expectedConfigVersion ?? null,
-        state: 'pending',
-        operationId: null,
-        revision: 0,
-        createdAt: at,
-        updatedAt: at,
-      };
-      repo.insertHandoff(handoff);
-      this.timeline.append({
-        projectKey,
-        taskKey: handoff.taskKey,
-        actor: requester,
-        type: 'super_handoff_changed',
-        data: { handoffId: handoff.id, state: handoff.state },
-      });
-      return publicHandoff(handoff);
-    });
-  }
-
-  // --- reading ----------------------------------------------------------------------------------------
-
-  list(projectKey: string, query: ListSuperHandoffsQuery): SuperHandoff[] {
-    this.sweep();
-    return this.ctx.repos.superHandoffs
-      .listHandoffs(projectKey, { ...(query.state ? { state: query.state } : {}), limit: query.limit })
-      .map(publicHandoff);
-  }
-
-  handoff(projectKey: string, id: string): SuperHandoff {
-    return publicHandoff(this.handoffOf(projectKey, id));
-  }
-
   operation(projectKey: string, id: string): SuperOperation {
     const operation = this.ctx.repos.superHandoffs.operation(projectKey, id);
     if (!operation) throw notFound('super operation', id);
     return publicOperation(operation);
   }
 
-  // --- the integrator's side --------------------------------------------------------------------------
-
   /**
-   * Starts the handoff's operation, or resumes it after the owner's yes (the same request id). The operation is
-   * returned in the state it reached: `waiting_owner` when the owner must decide first, otherwise the result.
-   */
-  async execute(
-    projectKey: string,
-    handoffId: string,
-    requestId: string,
-    access: ProjectAccess,
-  ): Promise<SuperOperation> {
-    const scope = integratorExecution();
-    const actor = access.superActor;
-    if (!actor || !scope || scope.principal.mode !== 'super')
-      throw forbidden('integrator_not_allowed', 'only the integrator in super mode executes a handoff');
-    const keyId = scope.principal.keyId;
-    this.sweep();
-    const handoff = this.handoffOf(projectKey, handoffId);
-    await this.assertAppCommand(projectKey, handoff.command);
-    const repo = this.ctx.repos.superHandoffs;
-    const existing = repo.operationByRequest(projectKey, keyId, requestId);
-    if (existing) {
-      if (
-        existing.handoffId !== handoff.id ||
-        existing.commandHash !== superCommandHash(projectKey, handoff.command)
-      )
-        throw conflict('super_request_conflict', 'this request id was used for another operation');
-      if (existing.state !== 'pending') return publicOperation(existing);
-      return this.resume(existing, subjectOf(handoff), access, actor);
-    }
-    if (isTerminal(handoff.state))
-      throw conflict('super_handoff_closed', `the handoff is ${handoff.state}`, { state: handoff.state });
-    const open = handoff.operationId ? repo.operation(projectKey, handoff.operationId) : null;
-    if (open && !isTerminal(open.state)) {
-      if (open.state !== 'running' && open.keyId !== keyId)
-        return this.refuseStale(open, actor, 'the operation belongs to another token');
-      throw conflict('super_handoff_busy', 'the handoff already has an operation', {
-        operationId: open.id,
-        requestId: open.requestId,
-        state: open.state,
-      });
-    }
-    return this.start(subjectOf(handoff), keyId, requestId, access, actor);
-  }
-
-  /**
-   * Starts a command at once, with no handoff (PM-764): the integrator's own request, with the same checks, the
-   * same owner question for a reserved effect and the same executors as a handoff's operation. The same request
-   * id with the same command is the same operation (a re-POST after the owner's yes resumes it); another command
-   * under that id is a conflict.
+   * Starts a command (PM-764): the integrator's own request, with the owner question for a reserved effect and
+   * the registered executors. The same request id with the same command is the same operation (a re-POST after
+   * the owner's yes resumes it); another command under that id is a conflict.
    */
   async operate(
     projectKey: string,
@@ -436,8 +290,6 @@ export class SuperHandoffService {
       taskKey,
       command: input.command,
       reason: `Super operation: ${superOperationName(input.command)}`,
-      expectedConfigVersion: null,
-      handoff: null,
     };
     const existing = this.ctx.repos.superHandoffs.operationByRequest(projectKey, keyId, input.requestId);
     if (existing) {
@@ -519,31 +371,24 @@ export class SuperHandoffService {
     access: ProjectAccess,
     actor: BoundActor,
   ): Promise<SuperOperation> {
-    const { handoff } = subject;
     const loaded = await this.projects.load(subject.projectKey);
-    if (subject.expectedConfigVersion && subject.expectedConfigVersion !== loaded.version)
-      throw conflict('super_operation_stale', 'the configuration changed since the handoff was made');
     const executor = this.executorFor(subject.command);
     const effects = await this.effectsOf(subject, loaded.config, loaded.version);
-    const exec = this.execContext(subject.projectKey, actor, requestId, handoff?.id ?? null);
+    const exec = this.execContext(subject.projectKey, actor, requestId, null);
     const operation = this.audit.run(
       exec,
       'super_operation_start',
       () => {
         const repo = this.ctx.repos.superHandoffs;
         const at = isoNow(this.ctx);
-        const fresh = handoff ? repo.handoff(subject.projectKey, handoff.id) : null;
-        if (handoff && (!fresh || fresh.revision !== handoff.revision || fresh.state !== 'pending'))
-          throw conflict('super_handoff_busy', 'another client started the handoff first');
         const waiting = effects.length > 0;
-        const id = newId('sop');
         const stored: StoredSuperOperation = {
-          id,
+          id: newId('sop'),
           projectKey: subject.projectKey,
           taskKey: subject.taskKey,
           keyId,
           requestId,
-          handoffId: handoff?.id ?? null,
+          handoffId: null,
           command: subject.command,
           commandHash: superCommandHash(subject.projectKey, subject.command),
           expectedConfigVersion: loaded.version,
@@ -560,23 +405,7 @@ export class SuperHandoffService {
           stored.ownerQuestionId = this.openOwnerQuestion(subject, stored, loaded.config, effects, actor).id;
         }
         repo.insertOperation(stored);
-        if (
-          handoff &&
-          fresh &&
-          !repo.casHandoff(subject.projectKey, handoff.id, fresh.revision, {
-            state: stored.state,
-            operationId: id,
-            updatedAt: at,
-          })
-        )
-          throw conflict('super_handoff_busy', 'another client started the handoff first');
-        this.recordChange(
-          stored,
-          subject.taskKey,
-          attributedActor(access),
-          handoff?.id ?? null,
-          stored.state,
-        );
+        this.recordChange(stored, subject.taskKey, attributedActor(access), null, stored.state);
         return stored;
       },
       { taskKey: subject.taskKey },
@@ -592,6 +421,8 @@ export class SuperHandoffService {
     access: ProjectAccess,
     actor: BoundActor,
   ): Promise<SuperOperation> {
+    if (operation.command.kind === 'administration')
+      throw unavailable('administration_unavailable', 'The administration supervisor has been retired.');
     const loaded = await this.projects.load(operation.projectKey);
     const approver = this.approverOf(operation, loaded.config);
     if (!approver) return this.refuseStale(operation, actor, 'the owner has not approved this operation');
@@ -629,11 +460,7 @@ export class SuperHandoffService {
     loaded: { config: ProjectConfig; version: string },
     effects: ReadonlySet<OwnerReservedEffect>,
   ): Promise<SuperOperation> {
-    const handoff = operation.handoffId
-      ? this.ctx.repos.superHandoffs.handoff(operation.projectKey, operation.handoffId)
-      : null;
     const job: SuperExecutorJob = {
-      handoff: handoff ? publicHandoff(handoff) : null,
       operation: publicOperation(operation),
       command: operation.command,
       access,
@@ -703,6 +530,8 @@ export class SuperHandoffService {
     const repo = this.ctx.repos.superHandoffs;
     const operation = repo.operation(projectKey, operationId);
     if (!operation) throw notFound('super operation', operationId);
+    if (operation.command.kind === 'administration')
+      throw unavailable('administration_unavailable', 'The administration supervisor has been retired.');
     const settler = this.settlers.get(operation.command.kind);
     if (operation.state !== 'running' || !settler || this.starting.has(operation.id))
       return publicOperation(operation);
@@ -746,6 +575,8 @@ export class SuperHandoffService {
   // --- checks ---------------------------------------------------------------------------------------------
 
   private executorFor(command: SuperCommand): SuperCommandExecutor {
+    if (command.kind === 'administration')
+      throw unavailable('administration_unavailable', 'The administration supervisor has been retired.');
     const executor = this.executors.get(command.kind);
     if (!executor)
       throw new DomainError(
@@ -873,11 +704,7 @@ export class SuperHandoffService {
       title: subject.reason,
       payload: {
         question: subject.reason,
-        details:
-          `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}` +
-          (subject.command.kind === 'administration' && subject.command.request.kind === 'owner_command'
-            ? `\n\n\`\`\`json\n${JSON.stringify({ ...subject.command.request, cwd: subject.command.request.cwd ?? '<supervisor user home>' }, null, 2)}\n\`\`\`\n\nOutput redaction is best-effort. Output is returned to the Operator and its model provider; avoid commands that print secrets.`
-            : ''),
+        details: `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}`,
         options: [SUPER_OWNER_YES, SUPER_OWNER_NO],
         // Only the owner's own login answers it; the server forces this whatever the asker says.
         responsePurpose: 'owner_decision',
@@ -899,7 +726,7 @@ export class SuperHandoffService {
 
   /**
    * What the lapse of time and a restart do: a waiting question the owner did not answer in time is expired
-   * and its operation cancelled (the handoff can be started again); an operation that was running when the
+   * and its operation cancelled (a new request id starts it again); an operation that was running when the
    * server stopped may have had its effect, so it is marked `unknown` and never run again by itself.
    */
   sweep(): void {
@@ -1018,12 +845,6 @@ export class SuperHandoffService {
         type: 'super_handoff_changed',
         data: { handoffId, state: handoffState },
       });
-  }
-
-  private handoffOf(projectKey: string, id: string): StoredSuperHandoff {
-    const handoff = this.ctx.repos.superHandoffs.handoff(projectKey, id);
-    if (!handoff) throw notFound('super handoff', id);
-    return handoff;
   }
 
   private execContext(

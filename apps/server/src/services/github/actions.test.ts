@@ -111,6 +111,105 @@ describe('createGithubActionsClient', () => {
     ).resolves.toBeNull();
   });
 
+  it('finds the newest run whose display title matches exactly, with its start time', async () => {
+    const actions = await client({
+      [`GET repos/${REPO}/actions/workflows/projectman-job.yml/runs`]: {
+        json: {
+          workflow_runs: [
+            run({ id: 5, display_title: 'projectman-job cloud-image abc r1 extra' }),
+            run({
+              id: 6,
+              display_title: 'projectman-job cloud-image abc r1',
+              created_at: '2026-10-20T09:00:00Z',
+            }),
+            run({
+              id: 8,
+              display_title: 'projectman-job cloud-image abc r1',
+              created_at: '2026-10-20T11:00:00Z',
+              run_started_at: '2026-10-20T11:00:30Z',
+            }),
+            run({ id: 9, display_title: null }),
+          ],
+        },
+      },
+    });
+    const found = await actions.findRunByTitle(
+      REPO,
+      'projectman-job.yml',
+      { branch: 'main', displayTitle: 'projectman-job cloud-image abc r1' },
+      new AbortController().signal,
+    );
+    expect(found).toMatchObject({ id: 8, runStartedAt: '2026-10-20T11:00:30Z' });
+    const [call] = await fake.calls();
+    expect(call?.argv[1]).toContain('branch=main&event=workflow_dispatch');
+  });
+
+  it('gives null when no run has the title', async () => {
+    const actions = await client({
+      [`GET repos/${REPO}/actions/workflows/projectman-job.yml/runs`]: {
+        json: { workflow_runs: [run({ display_title: 'projectman-job cloud-image abc r2' })] },
+      },
+    });
+    await expect(
+      actions.findRunByTitle(
+        REPO,
+        'projectman-job.yml',
+        { branch: 'main', displayTitle: 'projectman-job cloud-image abc r1' },
+        new AbortController().signal,
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it('lists the artifacts of a run with their expiry', async () => {
+    const actions = await client({
+      [`GET repos/${REPO}/actions/runs/7/artifacts`]: {
+        json: {
+          artifacts: [
+            {
+              name: 'projectman-job-r1',
+              expired: false,
+              expires_at: '2026-10-27T10:00:00Z',
+              size_in_bytes: 42,
+            },
+            { name: 'old', expired: true, size_in_bytes: 1 },
+          ],
+        },
+      },
+    });
+    await expect(actions.listArtifacts(REPO, 7, new AbortController().signal)).resolves.toEqual([
+      { name: 'projectman-job-r1', expired: false, expiresAt: '2026-10-27T10:00:00Z', sizeBytes: 42 },
+      { name: 'old', expired: true, expiresAt: null, sizeBytes: 1 },
+    ]);
+  });
+
+  it('sums every billable total of the run timing', async () => {
+    const actions = await client({
+      [`GET repos/${REPO}/actions/runs/7/timing`]: {
+        json: {
+          run_duration_ms: 90_000,
+          billable: { UBUNTU: { total_ms: 60_000 }, MACOS: { total_ms: 30_000 } },
+        },
+      },
+    });
+    await expect(actions.runTiming(REPO, 7, new AbortController().signal)).resolves.toEqual({
+      runDurationMs: 90_000,
+      billableMs: 90_000,
+    });
+  });
+
+  it('gives a billable time of 0 for a public repository and null when GitHub says nothing', async () => {
+    const actions = await client({
+      [`GET repos/${REPO}/actions/runs/7/timing`]: { json: { run_duration_ms: 5, billable: {} } },
+      [`GET repos/${REPO}/actions/runs/8/timing`]: { json: {} },
+    });
+    const signal = new AbortController().signal;
+    await expect(actions.runTiming(REPO, 7, signal)).resolves.toEqual({ runDurationMs: 5, billableMs: 0 });
+    await expect(actions.runTiming(REPO, 8, signal)).resolves.toEqual({
+      runDurationMs: null,
+      billableMs: null,
+    });
+  });
+
   it('maps a run and its jobs, null status and conclusion included', async () => {
     const actions = await client({
       [`GET repos/${REPO}/actions/runs/7`]: { json: run({ status: 'in_progress', conclusion: null }) },

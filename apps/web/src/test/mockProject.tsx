@@ -73,6 +73,7 @@ export function mockProject(backend = new MockBackend()) {
     },
     can: {
       createTasks: true,
+      newCards: true,
       manageTeam: true,
       workInSessions: true,
       pauseTeam: true,

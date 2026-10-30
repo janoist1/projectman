@@ -9,9 +9,6 @@ import { AgentProvider, routes } from '@projectman/shared';
 import { APP_DEFAULTS, loopbackBaseUrl } from './app';
 import { serializeRequest } from './http';
 import type {
-  AdministrationCapability,
-  AdministrationPort,
-  AdministrationTarget,
   FullTestExecutor,
   GithubActionsClient,
   MachineGithubService,
@@ -23,7 +20,6 @@ import type {
   WorkspaceDependencyInstaller,
 } from './contracts';
 import { SESSION_CONFIG_DIR } from './contracts';
-import { createSocketClient } from './administration';
 import { createLocalEngine, resolveWorkRoots } from './engine-host';
 import {
   createEngineAudit,
@@ -51,7 +47,7 @@ import {
   createWorkspaceDependencyInstaller,
   defaultHeavyLockDir,
   readHeavyRunSessions,
-  withGithubActions,
+  withGithubRuns,
 } from './full-test';
 import { createCheckBranchGit, createKeepAwake, freeBytesOf, spawnKeepAwakeProcess } from './engine-host';
 import { nonLocalReason } from './kernel';
@@ -76,8 +72,7 @@ import {
 
 export const ENGINE_DEFAULT_PORT = 4801;
 const MAX_BODY_BYTES = 1024 * 1024;
-const HELLO_PROVIDER_WAIT_MS = 10_000;
-const ADMINISTRATION_HELLO_WAIT_MS = 3_000;
+const HELLO_PROVIDER_WAIT_MS = 2_500;
 const PENDING_INPUT_POLL_MS = 1000;
 const SHUTDOWN_PAUSE_CAP_MS = 20_000;
 const TOKEN = /^[A-Za-z0-9_-]{8,256}$/;
@@ -96,8 +91,6 @@ export interface EngineAppModules {
   createScreenshotExecutor?: (deps: { heavyLockDir: string }) => ScreenshotExecutor;
   createMachineProbe?: (deps: { runningPids: () => number[]; instanceTag: string }) => MachineProbe;
   createSocket?: LinkSocketFactory;
-  /** The client of this machine's administration supervisor (PM-763); tests supply a fake one. */
-  createAdministrationClient?: (socketPath: string) => AdministrationPort;
   fetch?: typeof fetch;
   random?: () => number;
   auditMaxBytes?: number;
@@ -129,8 +122,6 @@ export interface EngineAppOptions {
   sessionFoldersDir?: string;
   sessionTmpDir?: string;
   claudeTmpBase?: string;
-  /** The Unix socket of this machine's administration supervisor (PM-763); absent: no administration here. */
-  administrationSocket?: string;
   browsersDir?: string;
   heavyLockDir?: string;
   cloneDependencies?: boolean;
@@ -178,6 +169,28 @@ const rpcMethodOf = (body: string): string => {
   const method = RPC_METHOD.exec(body)?.[1];
   return method !== undefined && LOGGED_RPC_METHODS.has(method) ? method : 'other';
 };
+
+/**
+ * The two calls of a stateless team-tools endpoint that carry no information: `ping` is answered with an empty
+ * result and `notifications/initialized` with 202, as the SDK transport does. The engine answers them itself, so
+ * a handshake costs the link two hops (`initialize`, `tools/list`) instead of four. null: relay the call.
+ */
+function localMcpAnswer(body: string): { status: number; body?: string } | null {
+  if (!body.includes('"ping"') && !body.includes('"notifications/initialized"')) return null;
+  let message: unknown;
+  try {
+    message = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (typeof message !== 'object' || message === null || Array.isArray(message)) return null;
+  const { jsonrpc, method, id } = message as Record<string, unknown>;
+  if (jsonrpc !== '2.0') return null;
+  if (method === 'notifications/initialized' && id === undefined) return { status: 202 };
+  if (method === 'ping' && (typeof id === 'string' || typeof id === 'number'))
+    return { status: 200, body: JSON.stringify({ jsonrpc: '2.0', id, result: {} }) };
+  return null;
+}
 
 const headerText = (value: string | string[] | undefined, fallback: string): string => {
   const first = Array.isArray(value) ? value[0] : value;
@@ -255,6 +268,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     hello: () => hello(),
     register: (rpc) => handlers.register(rpc),
     onRefused: (request) => handlers.refusedBeforeHandler(request),
+    onWelcome: () => terminals.clear(),
     buffer,
     status,
     logger: log.child({ module: 'engine-link' }),
@@ -447,8 +461,9 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     {
       worktrees,
       memberWorkspaces,
-      // The merge check as a GitHub Actions workflow (PM-900) is run by this engine, with its own gh login.
-      fullTestExecutor: withGithubActions(
+      // The merge check (PM-900) and the compute jobs (PM-1147) as GitHub Actions workflows are run by this
+      // engine, with its own gh login.
+      fullTestExecutor: withGithubRuns(
         modules.createFullTestExecutor?.({
           heavyLockDir,
           worktreesRoot: roots.worktrees,
@@ -552,28 +567,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   for (const entry of resolved.repos)
     workspaceDependencies.refreshCheckout({ project: entry.project, repo: entry.repo, repoPath: entry.path });
   mkdirSync(exportDir, { recursive: true, mode: 0o700 });
-  const administration: { port: AdministrationPort; target: AdministrationTarget } | undefined =
-    options.administrationSocket
-      ? {
-          port: (modules.createAdministrationClient ?? ((socketPath) => createSocketClient({ socketPath })))(
-            options.administrationSocket,
-          ),
-          target: { kind: 'engine', id: resolved.engineId },
-        }
-      : undefined;
-  /** What this machine's supervisor says it can do now; none when it is absent, down or answers wrongly. */
-  async function administrationCapabilities(): Promise<AdministrationCapability[] | undefined> {
-    if (!administration) return undefined;
-    try {
-      const status = await Promise.race([
-        administration.port.status(administration.target),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), ADMINISTRATION_HELLO_WAIT_MS).unref()),
-      ]);
-      return status && status.online ? status.capabilities : undefined;
-    } catch {
-      return undefined;
-    }
-  }
+
   handlers = createEngineHandlers({
     limit,
     audit,
@@ -593,29 +587,30 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     terminals,
     exportDir,
     ...(ownNanogptKey ? {} : { nanogptStart }),
-    administration,
   });
 
   async function hello(): Promise<Omit<Hello, 't' | 'protocol' | 'nextSeq'>> {
     const paths = engine.paths();
-    const providers = await Promise.all(
-      AgentProvider.options.map(async (provider) => {
-        try {
-          const result = await Promise.race([
-            runner.providerStatus?.(provider) ?? Promise.resolve(null),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), HELLO_PROVIDER_WAIT_MS).unref()),
-          ]);
-          return {
-            provider,
-            available: result !== null && (result.cliVersion !== undefined || result.loggedIn === true),
-            version: result?.cliVersion ?? null,
-          };
-        } catch {
-          return { provider, available: false, version: null };
-        }
-      }),
-    );
-    const administrationAdvertised = await administrationCapabilities();
+    // Probe providers together, bounded well inside the cloud's hello timeout.
+    const [providers] = await Promise.all([
+      Promise.all(
+        AgentProvider.options.map(async (provider) => {
+          try {
+            const result = await Promise.race([
+              runner.providerStatus?.(provider) ?? Promise.resolve(null),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), HELLO_PROVIDER_WAIT_MS).unref()),
+            ]);
+            return {
+              provider,
+              available: result !== null && (result.cliVersion !== undefined || result.loggedIn === true),
+              version: result?.cliVersion ?? null,
+            };
+          } catch {
+            return { provider, available: false, version: null };
+          }
+        }),
+      ),
+    ]);
     return {
       version: options.version,
       hostname: os.hostname(),
@@ -646,7 +641,6 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       pid: process.pid,
       uid,
       bootId,
-      ...(administrationAdvertised ? { administration: administrationAdvertised } : {}),
       ...(nanogptKeyFile ? { nanogptKey: 'engine' as const } : {}),
     };
   }
@@ -725,6 +719,12 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
         // Only the method name is logged (never the token or the body): a Codex session without team
         // tools leaves no other trace of where its handshake stopped (PM-1072).
         const rpc = rpcMethodOf(body);
+        const local = localMcpAnswer(body);
+        if (local) {
+          reply.code(local.status);
+          if (local.body === undefined) return reply.send();
+          return reply.type('application/json').send(local.body);
+        }
         const startedAt = Date.now();
         try {
           const result = await client.call(

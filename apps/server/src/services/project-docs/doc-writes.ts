@@ -29,7 +29,6 @@ import type {
   DocWriteExternalRunner,
   EngineDirectory,
   HistoryMainMoved,
-  ReleaseWorkAdmission,
 } from '../../contracts';
 import type { DocWriteEdit, DocWritePatch, DocWriteRecord } from '../../db';
 import { isoNow } from '../../core/base';
@@ -94,8 +93,6 @@ type Deps = {
   merges: DocWriteSlotPeer;
   /** How long `request` waits for a write that runs at once (default `DOC_WRITE_WAIT_MS`). */
   waitMs?: number;
-  /** The release gate (PM-752); absent: never held. */
-  work?: ReleaseWorkAdmission;
   /** Runs after the published state commits; a failure must not affect the write. */
   onPublished?: (event: HistoryMainMoved) => void;
   /** Re-authorizes the writes made through the bearer MCP (PM-784); absent: they are refused. */
@@ -452,7 +449,6 @@ export class DocWrites {
           run: (row) => this.run(row),
           peer: this.deps.merges,
           stopped: () => this.stopped,
-          ...(this.deps.work ? { work: this.deps.work } : {}),
         }),
         this.scope,
       ),

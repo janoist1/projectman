@@ -126,6 +126,49 @@ describe('engine handlers', () => {
     ).toBe(false);
   });
 
+  it('carries a GitHub Actions compute job and its result fields over the RPC boundary (PM-1147)', () => {
+    const githubJob = {
+      ref: { projectKey: 'PM', repo: 'projectman' },
+      repo: 'acme/web',
+      base: 'main',
+      workflow: 'projectman-job.yml',
+      job: 'cloud-image',
+      commit: 'a'.repeat(40),
+      command: 'npm run build',
+      runsOn: 'ubuntu-24.04-arm',
+      outputs: ['image.tar'],
+      timeoutMinutes: 30,
+    };
+    const spec = { ...fullSpec('job', 'github-job:acme/web'), githubJob };
+    const params = methods['full_test.run'].params;
+    expect(params.safeParse({ spec }).success).toBe(true);
+    expect(params.safeParse({ spec: { ...spec, githubJob: { ...githubJob, other: true } } }).success).toBe(
+      false,
+    );
+    expect(params.safeParse({ spec: { ...spec, githubJob: { ...githubJob, outputs: [] } } }).success).toBe(
+      false,
+    );
+    expect(
+      params.safeParse({ spec: { ...spec, githubJob: { ...githubJob, runsOn: 'windows' } } }).success,
+    ).toBe(false);
+    const result = {
+      outcome: 'passed',
+      exitCode: 0,
+      durationMs: 1,
+      failedFiles: [],
+      outputTail: '',
+      outputs: [{ path: 'image.tar', sha256: 'b'.repeat(64), bytes: 10 }],
+      artifact: { name: 'projectman-job-job', expiresAt: null },
+      cost: { queuedMs: 1000, billableMs: 0 },
+    };
+    const resultSchema = methods['full_test.run'].result;
+    expect(resultSchema.safeParse(result).success).toBe(true);
+    expect(
+      resultSchema.safeParse({ ...result, outputs: [{ path: 'image.tar', sha256: 'short', bytes: 10 }] })
+        .success,
+    ).toBe(false);
+  });
+
   const registered = () => {
     const names: string[] = [];
     const rpc = {

@@ -73,13 +73,9 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
 
   it('refuses another owner’s key the host’s machine and instance knowledge, with the host grant active (PM-1063)', async () => {
     const { auth, repos } = h.app.projectman;
-    auth.grantOperator(repos.users.list()[0]!.id, 'until_revoked');
     const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
     const { secret } = auth.createIntegratorAccessKey(tenant.userId, { mode: 'super', expiresInDays: 7 });
-    const refused = [
-      await call(secret, 'get_machine_snapshot', { project_key: 'BR', target: { kind: 'hub' } }),
-      await call(secret, 'get_operator_instance_knowledge'),
-    ];
+    const refused = [await call(secret, 'get_operator_instance_knowledge')];
     for (const result of refused) expect(code(result)).toBe('host_only');
     expect(code(await call(key('super').secret, 'get_operator_instance_knowledge'))).toBeUndefined();
   });
@@ -402,21 +398,8 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
       expect(code(await call(key('read').secret, 'write_project_docs', args))).toBe('integrator_read_only');
     });
 
-    it('validates the release proposal and the review request', async () => {
+    it('validates the review request', async () => {
       const { secret } = key('super');
-      expect(
-        code(await call(secret, 'propose_release', { project_key: 'AR', title: '', summary: 'x' })),
-      ).toBe('invalid_request');
-      expect(
-        code(
-          await call(secret, 'propose_release', {
-            project_key: 'AR',
-            title: 'T',
-            summary: 'S',
-            commit: 'zz',
-          }),
-        ),
-      ).toBe('invalid_request');
       expect(
         code(await call(secret, 'request_structural_review', { project_key: 'AR', signal_id: 'x' })),
       ).toBe('invalid_request');
@@ -429,7 +412,7 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
           }),
         ),
       ).toMatch(/invalid_request|not_found|operator_signal_closed/);
-      for (const name of ['propose_release', 'request_structural_review']) {
+      for (const name of ['request_structural_review']) {
         expect(
           code(await call(key('read').secret, name, { project_key: 'AR', title: 'T', summary: 'S' })),
           name,

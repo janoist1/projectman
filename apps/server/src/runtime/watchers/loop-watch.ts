@@ -315,11 +315,7 @@ export class LoopWatch {
       lastMessageAt: loop.lastMessageAt,
       head,
       latestWorkAt: this.deps.timeline.latestWork(task.projectKey, task.key)?.createdAt ?? null,
-      evidenceIds: ctx.repos.timeline
-        .list(task.projectKey, { taskKey: task.key, limit: TALK_LIMIT })
-        .filter(isLoopTriageEvidence)
-        .slice(0, 20)
-        .map((event) => event.id),
+      evidenceIds: ctx.repos.timeline.loopEvidenceIds(task.projectKey, task.key, 20),
     };
     const result = await notices.report({ projectKey: task.projectKey, taskKey: task.key, facts });
     loop = { ...loop, triage: { ...triage, pendingSignalId: result.signalId } };

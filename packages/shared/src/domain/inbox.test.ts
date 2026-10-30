@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canResolveInboxItem,
   canSeeInboxItem,
   AnswerDelivery,
   gateRequestOf,
@@ -16,6 +17,7 @@ import {
   QuestionTodo,
   ScreeningOutcome,
   screeningDeadline,
+  seniorWaitAnswerOf,
   screeningFrozenRemainingMs,
   superDecisionRefusal,
   questionAttachmentsOf,
@@ -72,6 +74,51 @@ const request = {
   label: 'merge-ok',
   requestedBy: { kind: 'ai', handle: 'dev-1' },
 };
+
+describe('seniorWaitAnswerOf (PM-1150)', () => {
+  const asked = {
+    kind: 'decision' as const,
+    payload: {
+      seniorWait: {
+        taskKey: 'AR-1',
+        since: '2026-10-18T10:00:00.000Z',
+        minutes: 30,
+        seniors: ['dev-2'],
+        reason: null,
+      },
+    },
+  };
+  const answered = (optionId: string) => ({
+    ...asked,
+    resolution: { optionId, by: 'owner', at: '2026-10-18T11:00:00.000Z', note: null },
+  });
+
+  it('reads the owners’ choice from the resolution of the item', () => {
+    expect(seniorWaitAnswerOf(answered('wait_for_senior'))).toEqual({
+      decision: 'wait',
+      by: 'owner',
+      at: '2026-10-18T11:00:00.000Z',
+    });
+    expect(seniorWaitAnswerOf(answered('any_developer'))).toMatchObject({ decision: 'any' });
+  });
+
+  it('knows no answer for an open item, a closing rule or another item', () => {
+    expect(seniorWaitAnswerOf({ ...asked, resolution: null })).toBeNull();
+    expect(
+      seniorWaitAnswerOf({
+        ...asked,
+        resolution: {
+          optionId: 'ended',
+          rule: 'senior_wait_ended',
+          by: 'system',
+          at: '2026-10-18T11:00:00.000Z',
+          note: null,
+        },
+      }),
+    ).toBeNull();
+    expect(seniorWaitAnswerOf({ ...answered('any_developer'), payload: {} })).toBeNull();
+  });
+});
 
 describe('gateRequestOf', () => {
   it.each<[string, Record<string, unknown>, unknown]>([
@@ -137,6 +184,18 @@ describe('knowledge approval visibility', () => {
                 },
               ),
             ).toBe(via === undefined && ['owner', 'admin'].includes(access));
+  });
+});
+
+describe('canResolveInboxItem', () => {
+  it.each([
+    ['an assignee resolves a decision', 'decision', 'ann', 'developer', true],
+    ['the owner resolves an item of someone else', 'question', 'owner', 'owner', true],
+    ['the owner leaves a decision to its assignees', 'decision', 'owner', 'owner', false],
+    ['the owner leaves a release approval to its assignees', 'release', 'owner', 'owner', false],
+    ['another member may not', 'question', 'bob', 'admin', false],
+  ] as const)('%s', (_name, kind, handle, access, allowed) => {
+    expect(canResolveInboxItem({ handle, access }, { kind, assignees: ['ann'] })).toBe(allowed);
   });
 });
 

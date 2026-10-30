@@ -11,6 +11,7 @@ const script = fs
 const sha = 'b'.repeat(40);
 const old = 'a'.repeat(40);
 const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
+const stageLink = 'https://pipelines.example.test/artifact.zip?sig=SECRETSIGNATURE';
 const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 const classicStore = JSON.stringify({ Driver: 'overlay2', DriverStatus: [['Backing Filesystem', 'extfs']] });
 const containerdStore = JSON.stringify({
@@ -72,6 +73,7 @@ if (operation === 'sha256sum') {
  const input = args.length ? fs.readFileSync(args.at(-1)) : fs.readFileSync(0);
  console.log(crypto.createHash('sha256').update(input).digest('hex') + '  input');
 }
+if (operation === 'base64') process.stdout.write(fs.readFileSync(args.at(-1)).toString('base64'));
 `,
   );
   const actual = JSON.stringify([
@@ -114,6 +116,7 @@ if (operation === 'sha256sum') {
     fs.symlinkSync(file('config-target'), file('docker/daemon.json'));
   }
   if (bootstrap.configKind === 'directory') fs.mkdirSync(file('docker/daemon.json'));
+  const stageMax = scenario === 'zip-big' ? 100 : 100_000_000;
   const host = [
     script.replaceAll('/swapfile', file('swapfile')).replaceAll('/etc/fstab', file('fstab')),
     `STATE_DIR=${quote(directory)}`,
@@ -125,10 +128,21 @@ if (operation === 'sha256sum') {
     `UNIT_FILE=${quote(file('unit.service'))}`,
     `DOCKER_DIR=${quote(file('docker'))}`,
     `DOCKER_CONFIG=${quote(file('docker/daemon.json'))}`,
-    `uname() { echo ${['host', 'legacy-amd64'].includes(scenario) ? 'x86_64' : 'aarch64'}; }`,
+    `uname() { echo ${scenario === 'host' ? 'x86_64' : 'aarch64'}; }`,
     `flock() { echo "flock $*" >>${quote(log)}; }`,
     `stat() { ${quote(process.execPath)} ${quote(tool)} stat "$@"; }`,
     `sha256sum() { ${quote(process.execPath)} ${quote(tool)} sha256sum "$@"; }`,
+    `base64() { ${quote(process.execPath)} ${quote(tool)} base64 "$@"; }`,
+    `STAGE_ROOT=${quote(file('.stage'))}`,
+    // The fake download: records the argv and the standard input, then copies the prepared artifact.
+    `curl() {
+      echo "curl $*" >>${quote(log)}
+      cat >${quote(file('curl-stdin'))}
+      ${scenario === 'curl-fail' ? 'return 22' : ''}
+      local out=""
+      while [ "$#" -gt 0 ]; do [ "$1" = --output ] && out=$2; shift; done
+      cp ${quote(file('artifact.zip'))} "$out"
+    }`,
     `df() { echo ${scenario === 'disk' ? '1' : '99999999999'}; }`,
     `docker() {
       echo "docker $*" >>${quote(log)}
@@ -189,7 +203,16 @@ if (operation === 'sha256sum') {
           `receive_image ${sha} linux/arm64 ${archive.length} ${scenario === 'hash' ? '0'.repeat(64) : hash(archive)} ${scenario === 'config-id' ? `sha256:${'0'.repeat(64)}` : id} <${quote(file('image.tar'))}`,
         ]
       : []),
-    ...((!command.startsWith('bootstrap') && command !== 'receive') || command === 'bootstrap-deploy'
+    ...(command === 'stage' ? [`stage_image ${stageMax}`] : []),
+    ...(command === 'stage-receive'
+      ? [
+          `answer=$(stage_image ${stageMax})`,
+          'stage=$(jq -er .stage <<<"$answer")',
+          `receive_image ${sha} linux/arm64 ${archive.length} ${scenario === 'hash' ? '0'.repeat(64) : hash(archive)} ${id} "$stage"`,
+        ]
+      : []),
+    ...((!command.startsWith('bootstrap') && !command.startsWith('stage') && command !== 'receive') ||
+    command === 'bootstrap-deploy'
       ? [`start ${sha} ${sha} ${command === 'legacy' ? '' : id}`]
       : []),
   ].join('\n');
@@ -210,8 +233,19 @@ if (operation === 'sha256sum') {
   } else if (bootstrap.history !== undefined) fs.writeFileSync(file('deploy.json'), bootstrap.history);
   if (scenario === 'truncated') fs.writeFileSync(file('image.tar'), archive.subarray(0, 10));
   if (scenario === 'oversized') fs.appendFileSync(file('image.tar'), 'extra');
+  if (command.startsWith('stage')) {
+    // The artifact as GitHub serves it: a stored zip with the bundle directory.
+    const source = file('zip-source');
+    fs.mkdirSync(path.join(source, 'bundle'), { recursive: true });
+    fs.copyFileSync(file('image.tar'), path.join(source, 'bundle', 'linux-arm64.tar'));
+    fs.writeFileSync(path.join(source, 'bundle', 'manifest.json'), '{"fake":"manifest"}');
+    if (scenario === 'zip-extra') fs.writeFileSync(path.join(source, 'bundle', 'extra.txt'), 'x');
+    if (scenario === 'zip-missing') fs.rmSync(path.join(source, 'bundle', 'manifest.json'));
+    const zip = spawnSync('zip', ['-0', '-q', '-r', file('artifact.zip'), 'bundle'], { cwd: source });
+    expect(zip.status, zip.stderr?.toString()).toBe(0);
+  }
   const result = spawnSync('bash', ['-c', host], {
-    input: archive,
+    input: command.startsWith('stage') ? `${scenario === 'bad-link' ? 'http://x/y' : stageLink}\n` : archive,
     encoding: 'utf8',
   });
   return {
@@ -325,20 +359,6 @@ describe('the real host image protocol with fake Docker and portable coreutils',
       f.cleanup();
     }
   });
-  it('keeps legacy amd64 history and tag-based start compatible', () => {
-    const f = fixture('legacy-amd64', 'legacy');
-    try {
-      expect(f.result.status, f.result.stderr).toBe(0);
-      expect(fs.readFileSync(f.file('image.env'), 'utf8')).toBe(`IMAGE=projectman-cloud:${sha}\n`);
-      expect(JSON.parse(fs.readFileSync(f.file('deploy.json'), 'utf8')).current).toEqual({
-        sha,
-        ref: sha,
-        at: expect.any(String),
-      });
-    } finally {
-      f.cleanup();
-    }
-  });
   it.each(['legacy', 'inspect-id', 'inspect-os', 'inspect-arch', 'inspect-label', 'inspect-env'])(
     'does not stop the running unit for invalid pinned start %s',
     (scenario) => {
@@ -348,6 +368,81 @@ describe('the real host image protocol with fake Docker and portable coreutils',
         expect(f.calls).not.toContain('systemctl stop');
         expect(f.calls).not.toContain('systemctl start');
         expect(fs.existsSync(f.file('image.env'))).toBe(false);
+      } finally {
+        f.cleanup();
+      }
+    },
+  );
+});
+
+describe('the machine downloads the GitHub artifact itself (PM-1154)', () => {
+  const stages = (f: ReturnType<typeof fixture>) =>
+    fs.existsSync(f.file('.stage')) ? fs.readdirSync(f.file('.stage')) : [];
+
+  it('stages exactly the manifest and the archive, taking the link from stdin only', () => {
+    const f = fixture('ok', 'stage');
+    try {
+      expect(f.result.status, f.result.stderr).toBe(0);
+      const answer = JSON.parse(f.result.stdout);
+      expect(Buffer.from(answer.manifest, 'base64').toString()).toBe('{"fake":"manifest"}');
+      expect(stages(f)).toEqual([answer.stage]);
+      const staged = f.file(`.stage/${answer.stage}`);
+      expect(fs.readdirSync(staged).sort()).toEqual(['archive.tar', 'manifest.json']);
+      expect(fs.readFileSync(path.join(staged, 'archive.tar'))).toEqual(fs.readFileSync(f.file('image.tar')));
+      // The link reaches curl on its standard input; it is in no argument and no output.
+      expect(fs.readFileSync(f.file('curl-stdin'), 'utf8')).toContain(stageLink);
+      expect(f.calls).toContain('--proto =https');
+      expect(f.calls).not.toContain('SECRETSIGNATURE');
+      expect(f.result.stdout + f.result.stderr).not.toContain('SECRETSIGNATURE');
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  it.each([
+    ['bad-link', 1, 'invalid download link'],
+    ['curl-fail', 1, 'download failed'],
+    ['zip-big', 1, 'unexpected size'],
+    ['zip-extra', 3, 'exactly the bundle manifest and archive'],
+    ['zip-missing', 3, 'exactly the bundle manifest and archive'],
+  ])('refuses %s and leaves no stage behind', (scenario, code, message) => {
+    const f = fixture(scenario, 'stage');
+    try {
+      expect(f.result.status, f.result.stderr).toBe(code);
+      expect(f.result.stderr).toContain(message);
+      expect(f.result.stdout).toBe('');
+      expect(f.result.stderr).not.toContain('SECRETSIGNATURE');
+      expect(stages(f)).toEqual([]);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  it('imports from the stage with the same checks, consumes it and starts nothing', () => {
+    const f = fixture('ok', 'stage-receive');
+    try {
+      expect(f.result.status, f.result.stderr).toBe(0);
+      expect(f.result.stdout).toBe(
+        JSON.stringify({ imageId: f.id, platform: 'linux/arm64', revision: sha }) + '\n',
+      );
+      expect(f.calls).toContain('docker load --input');
+      expect(f.calls).not.toContain('systemctl');
+      expect(stages(f)).toEqual([]);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  it.each(['hash', 'tags', 'load'])(
+    'refuses a staged archive that fails %s and consumes the stage',
+    (scenario) => {
+      const f = fixture(scenario, 'stage-receive');
+      try {
+        expect(f.result.status).toBe(1);
+        expect(f.result.stdout).toBe('');
+        expect(f.calls).not.toContain('systemctl');
+        if (scenario !== 'load') expect(f.calls).not.toContain('docker load');
+        expect(stages(f)).toEqual([]);
       } finally {
         f.cleanup();
       }

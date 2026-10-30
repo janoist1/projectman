@@ -6,6 +6,7 @@ import type { MemberQueueLane } from './lane';
 interface SignalLaneSignals {
   owed(projectKey: string, member: string, signalId: string, followUpAt: string | null): boolean;
   holdsBack(projectKey: string, signalId: string): boolean;
+  heldBack(projectKey: string, signalIds: string[]): Map<string, 'interval' | 'unready'>;
   noticeText(projectKey: string, signalIds: string[]): string;
   markDelivered(projectKey: string, member: string, signalId: string, followUpAt: string | null): void;
   markStartRefused(itemId: string): void;
@@ -13,6 +14,9 @@ interface SignalLaneSignals {
 
 /** The hold code while the wake interval (or the structural window) keeps a signal from the coordinator. */
 const SIGNAL_INTERVAL_HOLD = 'hold_signal_interval';
+
+/** The hold code while the signal is not owed now though its line is due (its case is gone; the sweep settles it). */
+const SIGNAL_UNREADY_HOLD = 'hold_signal_unready';
 
 /** The signal an item is for, and the follow-up time that makes it a new item. */
 const signalOf = (item: StoredMemberQueueItem): { signalId: string; followUpAt: string | null } => {
@@ -45,6 +49,20 @@ export function signalLane(deps: { signals: SignalLaneSignals }): MemberQueueLan
     },
     hold: async (item) =>
       signals.holdsBack(item.projectKey, signalOf(item).signalId) ? SIGNAL_INTERVAL_HOLD : null,
+    // One reading for the whole queue (PM-1106): the wake lines and the signals' cases are not read per item.
+    holdAll: async (items) => {
+      // The driver works one member's queue of one project at a time.
+      const back = signals.heldBack(
+        items[0]!.projectKey,
+        items.map((item) => signalOf(item).signalId),
+      );
+      return new Map(
+        items.map((item) => {
+          const why = back.get(signalOf(item).signalId);
+          return [item.id, !why ? null : why === 'interval' ? SIGNAL_INTERVAL_HOLD : SIGNAL_UNREADY_HOLD];
+        }),
+      );
+    },
     // A start that fails for good keeps the item queued for the next attempt, marked for the loop triage. A closed
     // item would keep the signal from ever being queued again (the source key is unique over closed rows too).
     refused: async (item) => {

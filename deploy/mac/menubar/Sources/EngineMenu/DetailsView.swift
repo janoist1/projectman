@@ -5,6 +5,7 @@ import EngineMenuCore
 struct DetailsView: View {
     @ObservedObject var state: AppState
     let retry: () -> Void
+    let remove: () -> Void
     @State private var errors = false
     private var lines: [String] { (errors ? state.logs?.err : state.logs?.out) ?? [] }
     var body: some View {
@@ -14,7 +15,7 @@ struct DetailsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(state.fetch.snapshot?.engine?.name ?? L10n.text(.unnamed)).font(.headline)
                         HStack {
-                            Circle().fill(state.model.icon == .running ? Color(nsColor: .systemGreen) : state.model.icon == .noCloud ? Color(nsColor: .systemYellow) : state.model.icon == .warning ? Color(nsColor: .systemRed) : Color(nsColor: .systemGray)).frame(width: 8, height: 8).accessibilityHidden(true)
+                            Circle().fill(state.model.icon == .running ? Color(nsColor: .systemGreen) : state.model.icon == .noCloud ? Color(nsColor: .systemYellow) : state.model.icon == .warning ? Color(nsColor: .systemRed) : state.model.icon == .caution ? Color(nsColor: .systemOrange) : Color(nsColor: .systemGray)).frame(width: 8, height: 8).accessibilityHidden(true)
                             Text(state.model.header.text)
                         }
                         if let engine = state.fetch.snapshot?.engine {
@@ -62,6 +63,15 @@ struct DetailsView: View {
                                     }
                                 }
                             }
+                        }
+                    }
+                    // s0: only an engine the app installed can be removed here; a checkout's engine is the admin's.
+                    if snapshot.service.manager == "app" {
+                        HStack {
+                            Button(L10n.text(.removeEngine), action: remove)
+                                .foregroundColor(Color(nsColor: .systemRed))
+                                .disabled(state.overlay == .uninstalling)
+                            Spacer()
                         }
                     }
                 }

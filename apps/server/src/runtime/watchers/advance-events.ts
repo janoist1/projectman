@@ -9,7 +9,7 @@ import type { AutoAdvance } from './auto-advance';
 export function wireCardAdvance(deps: {
   events: DomainEvents;
   tasks: Pick<TaskService, 'find'>;
-  merges: { reconcile(projectKey: string, taskKey: string): Promise<void> };
+  merges: { reconcile(projectKey: string, taskKey: string): Promise<void>; pump(): void };
   autoAdvance: Pick<AutoAdvance, 'check'>;
   background: BackgroundTasks;
   logger: FastifyBaseLogger;
@@ -43,7 +43,13 @@ export function wireCardAdvance(deps: {
     );
   };
   events.on('task_labels_changed', ({ task }) => advanceCard(task));
-  events.on('task_stage_changed', (change) => advanceCard(change.task));
+  events.on('task_stage_changed', (change) => {
+    advanceCard(change.task);
+    // A queued merge waits for its open prerequisites; the last one closing frees it (no other merge may come).
+    if (change.task.status === 'done') merges.pump();
+  });
+  events.on('task_cancelled', () => merges.pump());
+  events.on('task_prerequisite_removed', () => merges.pump());
   const advanceSessionCard = (session: Session) =>
     advanceCard(
       session.workItem.type === 'task' ? tasks.find(session.projectKey, session.workItem.taskKey) : null,

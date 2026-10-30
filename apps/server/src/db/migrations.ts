@@ -1,6 +1,7 @@
 import {
   V83_CHANGE_TRIGGER_TABLES,
   V92_CHANGE_TRIGGER_TABLES,
+  V130_CHANGE_TRIGGER_TABLES,
   V100_REBUILT_TRIGGER_TABLES,
   changeTriggerSql,
   changeTriggersSql,
@@ -1530,7 +1531,7 @@ migrations.push({
   // PM-761: change signals scripts and the integrator can read again with a cursor. The journal starts
   // empty (no history is made up); triggers on the state tables write it in the changing transaction
   // (db/change-triggers.ts). `project_change_generation` is made once with the database; a restore from a
-  // snapshot must replace it (docs/ARCHITECTURE.md "Project change journal").
+  // snapshot must replace it (docs/modules/core-base.md "Project change journal").
   sql: `CREATE TABLE instance_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -2510,6 +2511,187 @@ migrations.push({
 });
 migrations.push({
   version: 124,
+  name: 'index the signal deliveries by kind',
+  // PM-1106: the wake lines read the latest delivery of a kind group (`MAX(delivered_at)`) and whether a
+  // structural signal was delivered lately, without reading the whole signal history. No column is added.
+  sql: `CREATE INDEX operator_signals_delivery ON operator_signals(project_key, kind, delivered_at);`,
+});
+migrations.push({
+  version: 125,
+  name: 'drop the removed project focus list',
+  // PM-1107: the project focus (PM-427) was removed. Its table was empty on the live instance; the index and the
+  // change-journal triggers go with it. The `focus_changed` timeline events stay (append-only) and keep rendering.
+  sql: `DROP TABLE IF EXISTS project_focus_items;`,
+});
+migrations.push({
+  version: 126,
+  name: 'index the open member queue items by source and the waiting ones',
+  // PM-1109: the open items of one source type and the queued items that wait for a code are read on every
+  // card view; both are served by a partial index over the few open rows instead of the whole queue history.
+  // The terms of the second index are the ones of the waiting read. No column is added.
+  sql: `CREATE INDEX member_queue_items_open_source ON member_queue_items(source_type)
+      WHERE state IN ('queued','processing');
+    CREATE INDEX member_queue_items_waiting ON member_queue_items(wait_at)
+      WHERE state = 'queued' AND wake = 1 AND wait_code IS NOT NULL;`,
+});
+migrations.push({
+  version: 127,
+  name: 'guard the history index triggers against updates that change nothing they index',
+  // PM-1128: `UPDATE OF title, body` fires whenever the column is in the SET list, even with the same value, and
+  // the upsert of a document whose date or path changed sets them all. The full text index was rewritten and the
+  // semantic revision raised without a new text. The triggers now fire only for a changed value. No column is added.
+  sql: `DROP TRIGGER history_documents_au;
+    CREATE TRIGGER history_documents_au AFTER UPDATE OF title, body ON history_documents
+    WHEN old.title IS NOT new.title OR old.body IS NOT new.body BEGIN
+      INSERT INTO history_fts(history_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+      INSERT INTO history_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+    END;
+    DROP TRIGGER history_semantic_dirty_au;
+    CREATE TRIGGER history_semantic_dirty_au AFTER UPDATE OF title, body, commit_sha ON history_documents
+    WHEN old.title IS NOT new.title OR old.body IS NOT new.body OR old.commit_sha IS NOT new.commit_sha BEGIN
+      INSERT INTO history_semantic_dirty (source_id) VALUES (new.source_id)
+      ON CONFLICT (source_id) DO UPDATE SET revision = revision + 1, attempts = 0, next_attempt_at = NULL;
+    END;`,
+});
+migrations.push({
+  version: 128,
+  name: 'index the live sessions of a member',
+  // PM-1120: the live-session reads (`listLive`) ask for a project's (and a member's) sessions that are not
+  // closed; the index lets them skip the history of closed ones. No column is added.
+  sql: `CREATE INDEX sessions_live ON sessions(project_key, member, state);`,
+});
+migrations.push({
+  version: 129,
+  name: 'close approvals of the retired release watchers',
+  // PM-1113: historical releases and timeline events stay readable; no approval may wait for a retired watcher.
+  sql: `UPDATE inbox_items SET state = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    WHERE kind = 'release' AND state = 'open';`,
+});
+migrations.push({
+  version: 130,
+  name: 'acceptance items of a card',
+  // PM-1135: the conditions of a card as items, each marked with its evidence and confirmed by the owner of the
+  // card's step. A card's items go with it (cascade); the change journal names the card when an item changes.
+  sql: `CREATE TABLE task_acceptance_items (
+      id           TEXT PRIMARY KEY,
+      task_id      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      position     INTEGER NOT NULL,
+      text         TEXT NOT NULL,
+      state        TEXT NOT NULL CHECK (state IN ('open', 'done', 'not_needed', 'moved')),
+      evidence     TEXT,
+      reason       TEXT,
+      moved_to     TEXT,
+      origin_task  TEXT,
+      origin_item  TEXT,
+      marked_by    TEXT,
+      marked_at    TEXT,
+      confirmed_by TEXT,
+      confirmed_at TEXT,
+      created_by   TEXT,
+      created_at   TEXT NOT NULL,
+      updated_at   TEXT NOT NULL
+    );
+    CREATE INDEX task_acceptance_items_task ON task_acceptance_items(task_id, position);
+    ${V130_CHANGE_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
+});
+migrations.push({
+  version: 131,
+  name: 'the Senior wait is an obligation',
+  // PM-1150: the wait of a scored card for a developer whose limit reaches its points (version 36) becomes the
+  // `senior_wait` kind of the obligation tracking. The obligations table is rebuilt as in version 90: the kind
+  // CHECK grows by 'senior_wait', `responsible` may be NULL (nobody holds the step), and the unique index reads
+  // a missing responsible as ''. Every open `senior_waits` row becomes an obligation row of the same step
+  // (subject `senior_busy@<since>`, due at `since` + the default 30 minutes; a question that was asked makes it
+  // 'handed_over' with the inbox item kept, and the owners' answer is in that item); the table, with its change
+  // triggers, goes. The ended rows were history only.
+  sql: `DROP INDEX obligations_unique;
+    DROP INDEX obligations_state;
+    ALTER TABLE obligations RENAME TO obligations_old;
+    CREATE TABLE obligations (
+      id              TEXT PRIMARY KEY,
+      project_key     TEXT NOT NULL,
+      task_key        TEXT NOT NULL,
+      kind            TEXT NOT NULL CHECK (kind IN ('merge','fix_limit','refinement_turn','review_step','work','start','senior_wait')),
+      responsible     TEXT,
+      subject         TEXT NOT NULL,
+      opened_at       TEXT NOT NULL,
+      due_at          TEXT NOT NULL,
+      paused_since    TEXT,
+      pause_reason    TEXT CHECK (pause_reason IN ('held','inbox','permission','start_refused')),
+      woken_at        TEXT,
+      handed_over_at  TEXT,
+      inbox_item_id   TEXT,
+      state           TEXT NOT NULL CHECK (state IN ('open','handed_over','fulfilled','cancelled')),
+      closed_at       TEXT,
+      updated_at      TEXT NOT NULL
+    );
+    INSERT INTO obligations SELECT id, project_key, task_key, kind, responsible, subject, opened_at, due_at, paused_since, pause_reason, woken_at, handed_over_at, inbox_item_id, state, closed_at, updated_at FROM obligations_old ORDER BY rowid;
+    DROP TABLE obligations_old;
+    CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, COALESCE(responsible, ''), subject);
+    CREATE INDEX obligations_state ON obligations(state);
+    INSERT INTO obligations (id, project_key, task_key, kind, responsible, subject, opened_at, due_at,
+        handed_over_at, inbox_item_id, state, updated_at)
+      SELECT 'obl_' || id, project_key, task_key, 'senior_wait', NULL, 'senior_busy@' || since, since,
+        strftime('%Y-%m-%dT%H:%M:%fZ', since, '+30 minutes'),
+        asked_at, inbox_item_id,
+        CASE WHEN asked_at IS NULL THEN 'open' ELSE 'handed_over' END,
+        COALESCE(asked_at, since)
+      FROM senior_waits WHERE ended_at IS NULL ORDER BY rowid;
+    DROP TABLE senior_waits;`,
+});
+migrations.push({
+  version: 132,
+  name: 'the stuck-card signals are one obligation rung',
+  // PM-1152: the obligation ladder gets a rung that tells the project manager (`pm_told_at`), delivered as the
+  // `obligation_overdue` operator signal. The four duplicate stall detectors (idle, merge_waiting, ready_waiting,
+  // refinement_stalled) and the owner alerts of the same stalls are retired. operator_signals is rebuilt like
+  // version 120 (the kind CHECK grows by 'obligation_overdue'; every row is carried over unchanged, the old kinds
+  // stay valid so closed rows and events keep rendering). Open rows of the retired kinds are not touched here:
+  // the signal sweep resolves them (`RETIRED_KINDS`), which also closes the questions asked about them, a
+  // step SQL cannot do. The open `work_stalled` and refinement 'stalled' alerts are cancelled: the obligation
+  // row of the stuck step watches it now. Obligation rows carry no data rewrite (`pm_told_at` is NULL).
+  sql: `ALTER TABLE obligations ADD COLUMN pm_told_at TEXT;
+    DROP INDEX operator_signals_open;
+    DROP INDEX operator_signals_delivery;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting','answer_stalled','process_cleanup_failed','refinement_stalled','loop_suspected','structural_pattern','milestone_closed','start_blocked','obligation_overdue')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,
+      follow_up_at TEXT, decision_note TEXT, delivered_to TEXT
+    );
+    INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to)
+      SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to FROM operator_signals_old ORDER BY rowid;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;
+    CREATE INDEX operator_signals_delivery ON operator_signals(project_key, kind, delivered_at);
+    UPDATE inbox_items SET state = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE kind = 'alert' AND state IN ('open','screening') AND (
+        json_extract(payload, '$.alert') = 'work_stalled'
+        OR (json_extract(payload, '$.alert') = 'refinement' AND json_extract(payload, '$.reason') = 'stalled'));`,
+});
+migrations.push({
+  version: 133,
+  name: 'compute job runs',
+  // PM-1148: one row per run of a repository's compute job (a GitHub Actions workflow run started through the
+  // `run_compute_job` team tool). A new table; no existing row is touched.
+  sql: `CREATE TABLE compute_job_runs (
+      id TEXT NOT NULL PRIMARY KEY, project_key TEXT NOT NULL REFERENCES projects(key),
+      repo TEXT NOT NULL, job_id TEXT NOT NULL, commit_sha TEXT NOT NULL,
+      runner TEXT NOT NULL CHECK (runner IN ('github_actions','engine')),
+      status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed','error','cancelled')),
+      reason TEXT, requested_by TEXT NOT NULL, task_key TEXT REFERENCES tasks(key),
+      created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT,
+      queued_ms INTEGER, duration_ms INTEGER, billable_ms INTEGER,
+      external_url TEXT, output_tail TEXT, outputs_json TEXT, artifact_name TEXT, artifact_expires_at TEXT
+    );
+    CREATE INDEX compute_job_runs_key ON compute_job_runs(project_key, repo, job_id, commit_sha);
+    CREATE INDEX compute_job_runs_status ON compute_job_runs(status);`,
+});
+migrations.push({
+  version: 134,
   name: 'ntfy phone notification channel',
   // PM-901: one personal ntfy channel per user next to web push. The topic is the secret of a public ntfy
   // server, so the server makes it up; `origin` is the instance address the link in a message points to.

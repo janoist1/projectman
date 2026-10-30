@@ -24,8 +24,6 @@ export function hasAccess(access: HumanAccess, minimum: HumanAccess): boolean {
   return ACCESS_RANK[access] >= ACCESS_RANK[minimum];
 }
 
-export const TASK_CREATE_MIN_ACCESS: HumanAccess = 'developer';
-
 /** Claude Code permission modes (passed to `claude --permission-mode`). */
 export const PermissionMode = z.enum(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);
 export type PermissionMode = z.infer<typeof PermissionMode>;

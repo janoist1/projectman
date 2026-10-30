@@ -270,7 +270,10 @@ function SearchBox({ phone = false }: { phone?: boolean }) {
         autoFocus={phone}
         onChange={(event) => setSearch(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') setSearch('');
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            setSearch('');
+          }
         }}
       />
       {search ? (
@@ -376,7 +379,7 @@ export function TopBar({
       <ChecklistIndicator />
       <OperatorButton variant="bar" />
       <InboxPill count={inboxCount} />
-      {can.createTasks ? (
+      {can.newCards ? (
         <Button
           variant="primary"
           icon="plus"
@@ -446,7 +449,7 @@ export function MobileHeader({
       <MachineIndicator phone />
       <ChecklistIndicator />
       <OperatorButton variant="phone" />
-      {can.createTasks ? (
+      {can.newCards ? (
         <Button
           variant="primary"
           size="md"

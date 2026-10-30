@@ -51,7 +51,7 @@ export const MERGE_TOOL_GROUP: TeamToolGroup = {
       audience: { roles: ['merger'] },
       readOnly: false,
       description:
-        "One merge runs at a time per repository, in the order the cards were requested; use this to make this card's queued merge go next, e.g. a fix that the queued cards' tests depend on. Only a merge that waits in the queue can move; the merge that runs now is not interrupted. The reason goes on the card's timeline: say who or what it unblocks. A merge already at the front is left as it is (moved: false).",
+        "Make this card's queued merge go next in its repository (one merge runs at a time, in request order), e.g. a fix the queued cards' tests depend on. The running merge is not interrupted; a merge already first is left as it is (moved: false).",
       input: {
         task_key: TaskKey,
         reason: z
@@ -59,7 +59,7 @@ export const MERGE_TOOL_GROUP: TeamToolGroup = {
           .trim()
           .min(1)
           .max(500)
-          .describe('Why this card goes first; it is shown on the timeline.'),
+          .describe('Why this card goes first: who or what it unblocks. It is shown on the timeline.'),
       },
       async run({ ctx, args, handler }) {
         const { moved } = await handler.prioritizeMerge(ctx, {
@@ -76,10 +76,9 @@ export const MERGE_TOOL_GROUP: TeamToolGroup = {
       title: 'List merge checks',
       readOnly: true,
       description:
-        "Read the project's recorded merge checks (the full check of a merge or of a merge train), newest first: " +
-        'the run time, the workers, the scope and each step with its time and result (a cached step is ' +
-        'marked, not timed). The queue wait is shown apart. Filter by card, outcome, kind or period; ' +
-        'get_task shows the latest checks of one card.',
+        "Read the project's recorded merge checks (of a merge or a merge train), newest first: run time, " +
+        'workers, scope and each step with its time and result; the queue wait apart. Filter by card, ' +
+        'outcome, kind or period; get_task shows the latest checks of one card.',
       input: {
         task_key: TaskKey.optional().describe('Only the checks that included this card.'),
         outcome: z

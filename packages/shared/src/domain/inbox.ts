@@ -5,12 +5,8 @@ import { BoardPlacement } from './board-order';
 import { ComplexityPoints } from './complexity';
 import { Actor } from './event';
 import { ExternalToolOrigin } from './external-tool-origin';
-import {
-  FixLimitAssessment,
-  FixLimitOptionId,
-  FixRoundHistoryEntry,
-  MAX_FIX_EXTRA_ROUNDS,
-} from './fix-limit';
+import { MAX_FIX_EXTRA_ROUNDS } from './fix-extra-rounds';
+import { FixLimitAssessment, FixLimitOptionId, FixRoundHistoryEntry } from './fix-limit';
 import { LabelId } from './label';
 import { OperatorHandoffReason } from './member-queue';
 import { MergeBlockReason, MergeFailure } from './merge';
@@ -274,6 +270,19 @@ export function canSeeInboxItem(
 }
 
 /**
+ * Whether a human may resolve the item: its assignees may, and the owner may resolve any other item except a
+ * decision and a release approval, which only their assignees answer. The one rule for the server and the
+ * web's fake (PM-1114).
+ */
+export function canResolveInboxItem(
+  viewer: TaskViewer,
+  item: Pick<InboxItem, 'kind' | 'assignees'>,
+): boolean {
+  if (item.assignees.includes(viewer.handle)) return true;
+  return item.kind !== 'decision' && item.kind !== 'release' && viewer.access === 'owner';
+}
+
+/**
  * `payload.gate` of a `decision` item: one approval a stage move waits for. A move that needs
  * several approvals opens one item per approval label; they share `requestId`.
  */
@@ -421,6 +430,24 @@ export const SENIOR_WAIT_OPTIONS: InboxOption[] = [
   { id: SENIOR_WAIT_OPTION_ANY, label: SENIOR_WAIT_OPTION_ANY, style: 'primary' },
 ];
 
+/**
+ * What a person answered to a Senior wait decision: `wait` on, or release the card to `any` developer.
+ * Null before an answer, for the system's own closing (`resolution.rule`) and for an item that is no such decision.
+ */
+export function seniorWaitAnswerOf(
+  item: Pick<InboxItem, 'kind' | 'payload' | 'resolution'>,
+): { decision: 'wait' | 'any'; by: string; at: string } | null {
+  const { resolution } = item;
+  if (!seniorWaitDecisionOf(item) || !resolution || resolution.rule) return null;
+  const decision =
+    resolution.optionId === SENIOR_WAIT_OPTION_WAIT
+      ? 'wait'
+      : resolution.optionId === SENIOR_WAIT_OPTION_ANY
+        ? 'any'
+        : null;
+  return decision ? { decision, by: resolution.by, at: resolution.at } : null;
+}
+
 /** The one option of an `alert` item: the owner has seen it. The web app translates the id. */
 export const ALERT_SEEN_OPTION: InboxOption = { id: 'seen', label: 'seen', style: 'primary' };
 
@@ -445,7 +472,7 @@ export type SessionTokensAlert = z.infer<typeof SessionTokensAlert>;
  * written to; `at` is when the alert was raised (ISO time), which decides when a later storm on the
  * card may raise the next one.
  */
-export const MessageBurstAlert = z.object({
+const MessageBurstAlert = z.object({
   alert: z.literal('message_burst'),
   taskKey: TaskKey,
   count: z.number().int().positive(),
@@ -453,7 +480,7 @@ export const MessageBurstAlert = z.object({
   members: z.array(MemberHandle),
   at: z.string(),
 });
-export type MessageBurstAlert = z.infer<typeof MessageBurstAlert>;
+type MessageBurstAlert = z.infer<typeof MessageBurstAlert>;
 
 /**
  * `session_input` (PM-199): a session has waited for input at its terminal for `minutes` minutes
@@ -551,7 +578,7 @@ export const HostRequestAnsweredAlert = z.object({
 export type HostRequestAnsweredAlert = z.infer<typeof HostRequestAnsweredAlert>;
 
 /** A provider quota stopped a session; the owners are told once per hold (PM-377). */
-export const ProviderRateLimitAlert = z.object({
+const ProviderRateLimitAlert = z.object({
   alert: z.literal('provider_rate_limited'),
   provider: AgentProvider,
   until: z.string().nullable(),
@@ -559,16 +586,16 @@ export const ProviderRateLimitAlert = z.object({
   message: z.string(),
   workItem: WorkItemRef,
 });
-export type ProviderRateLimitAlert = z.infer<typeof ProviderRateLimitAlert>;
+type ProviderRateLimitAlert = z.infer<typeof ProviderRateLimitAlert>;
 
-export const MergeBlockedAlert = z.object({
+const MergeBlockedAlert = z.object({
   alert: z.literal('merge_blocked'),
   taskKey: TaskKey,
   mergeId: z.string(),
   reason: MergeBlockReason,
   message: z.string(),
 });
-export type MergeBlockedAlert = z.infer<typeof MergeBlockedAlert>;
+type MergeBlockedAlert = z.infer<typeof MergeBlockedAlert>;
 export const WorkOutageAlert = z.object({
   alert: z.literal('work_outage'),
   outage: WorkOutage,
@@ -590,8 +617,11 @@ export const ReleaseFailedAlert = z.object({
 });
 export type ReleaseFailedAlert = z.infer<typeof ReleaseFailedAlert>;
 
-/** `work_stalled` (PM-1082): startable cards and free developers, and no developer started since `since`. One open alert per project. */
-export const WorkStalledAlert = z.object({
+/**
+ * `work_stalled` (PM-1082): startable cards and free developers, and no developer started since `since`.
+ * No new one opens (PM-1152: the obligation ladder watches a stuck card); old items still render.
+ */
+const WorkStalledAlert = z.object({
   alert: z.literal('work_stalled'),
   since: z.string().datetime(),
   cards: z.array(TaskKey).min(1),
@@ -604,7 +634,6 @@ export const WorkStalledAlert = z.object({
     }),
   ),
 });
-export type WorkStalledAlert = z.infer<typeof WorkStalledAlert>;
 
 export const AlertPayload = z.discriminatedUnion('alert', [
   EmailParkedAlert,
@@ -690,13 +719,13 @@ export const QUESTION_SCREENING_MS = QUESTION_SCREENING_MINUTES * 60_000;
  * The question waits for the machine its project manager runs on (PM-708): the human fallback clock is
  * frozen at `remainingMs` and starts again when the machine is back.
  */
-export const QuestionScreeningQueue = z.object({
+const QuestionScreeningQueue = z.object({
   reason: z.literal('engine_offline'),
   /** ISO: when the question was put on hold. */
   since: z.string().datetime(),
   remainingMs: z.number().int().min(0).max(QUESTION_SCREENING_MS),
 });
-export type QuestionScreeningQueue = z.infer<typeof QuestionScreeningQueue>;
+type QuestionScreeningQueue = z.infer<typeof QuestionScreeningQueue>;
 
 /** `payload.screening` of a question: the Operator looks at it first (PM-556). */
 export const QuestionScreening = z.object({
@@ -828,10 +857,6 @@ export const CombineQuestionsRequest = z.object({
   note: z.string().trim().min(1).max(2000),
 });
 export type CombineQuestionsRequest = z.infer<typeof CombineQuestionsRequest>;
-export interface CombineQuestionsResult {
-  primaryItemId: string;
-  linkedItemIds: string[];
-}
 
 /** Compatibility is structural; the PM must also establish that the decisions mean the same thing. */
 export function questionGroupCompatible(a: InboxItem, b: InboxItem): boolean {
@@ -921,7 +946,7 @@ export type SuperOperationQuestionPayload = z.infer<typeof SuperOperationQuestio
  * only. A question that asks for an approval label, or that the Operator made a todo of, is an owner's
  * action whatever its declared purpose, and so is one bound to a super operation.
  */
-export function isRelayableQuestion(
+function isRelayableQuestion(
   payload: Pick<
     QuestionPayload,
     'responsePurpose' | 'superOperation' | 'approvalLabel' | 'screening' | 'externalQuestion'
@@ -1080,21 +1105,38 @@ function hasIntegratorTodoOrigin(payload: InboxItem['payload']): boolean {
 }
 
 /**
- * Where a todo goes. The machine queue (`integrator`) takes it only from an asker with machine access
- * (`issuerAllowed`, decision 66); the refusals are checked in the order protected, no access, unavailable.
+ * Where a todo goes. The machine queue (`integrator`) takes it only from a member with machine access
+ * (`issuerAllowed`, decision 66): the one who classified the step as an integrator todo (the screening member
+ * for a screened question, the opener for its own todo). The refusals are checked in the order protected,
+ * no access, unavailable. When no integrator can take it for one of the last two reasons and the project has
+ * a technical decider (`decider`, PM-1139), the route is `decider`: the item is not opened for the owners,
+ * the question goes to that member. `decider` is never a `QuestionRecipient` and never lands in a payload.
  */
+export type TodoRoute =
+  | { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal }
+  | {
+      recipient: 'decider';
+      decider: string;
+      recipientRefusal: 'no_machine_access' | 'integrator_unavailable';
+    };
+
 export function selectTodoRecipient(
   item: InboxItem,
   requested: QuestionRecipient,
-  integratorAvailable: boolean,
-  issuerAllowed: boolean,
-): { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal } {
+  facts: { integratorAvailable: boolean; issuerAllowed: boolean; decider: string | null },
+): TodoRoute {
   if (requested === 'owner') return { recipient: 'owner' };
   if (hasProtectedQuestionPayload(item) || !questionPayloadOf(item) || 'group' in item.payload)
     return { recipient: 'owner', recipientRefusal: 'protected_question' };
-  if (!issuerAllowed) return { recipient: 'owner', recipientRefusal: 'no_machine_access' };
-  if (!integratorAvailable) return { recipient: 'owner', recipientRefusal: 'integrator_unavailable' };
-  return { recipient: 'integrator' };
+  const refused = !facts.issuerAllowed
+    ? 'no_machine_access'
+    : !facts.integratorAvailable
+      ? 'integrator_unavailable'
+      : null;
+  if (!refused) return { recipient: 'integrator' };
+  return facts.decider
+    ? { recipient: 'decider', decider: facts.decider, recipientRefusal: refused }
+    : { recipient: 'owner', recipientRefusal: refused };
 }
 
 /** State and authentication are checked by the operation, independently of durable addressing. */
@@ -1123,15 +1165,6 @@ export function wasIntegratorTodo(item: InboxItem): boolean {
   return item.kind === 'question' && !!questionPayloadOf(item)?.integratorOpenedAt;
 }
 
-/** Why a fix limit decision item went from the integrator to the owners (PM-714). */
-export const IntegratorEscalationReason = z.enum([
-  'integrator_timeout',
-  'integrator_passed_on',
-  // The Operator cannot process its queue any more (on leave, AI off, role gone): the item goes to the owners (PM-885).
-  'integrator_unavailable',
-]);
-export type IntegratorEscalationReason = z.infer<typeof IntegratorEscalationReason>;
-
 /**
  * The payload keys a fix limit decision item may carry to be delegated to the integrator (PM-714). An allow
  * list on purpose: a payload with any other key (an approval, a loop, a Senior wait, a structural review, a
@@ -1155,7 +1188,7 @@ const FIX_LIMIT_OPTION_IDS: readonly string[] = FixLimitOptionId.options;
  * and about the item's own card, whose payload has no key beyond the fix limit's and the addressing's, and
  * whose options are unique and all one of the three fix limit outcomes. Null, mixed or approval payloads fail.
  */
-export function isDelegableFixLimitDecision(
+function isDelegableFixLimitDecision(
   item: Pick<InboxItem, 'kind' | 'source' | 'taskKey' | 'payload' | 'options'>,
 ): boolean {
   if (item.kind !== 'decision' || item.source !== 'system') return false;

@@ -57,7 +57,7 @@ export function labelDefinition(
 }
 
 /** Label ids required by the gates of release stages (four eyes applies to them). */
-export function releaseGateLabels(config: Pick<ProjectConfig, 'pipeline'>): Set<string> {
+function releaseGateLabels(config: Pick<ProjectConfig, 'pipeline'>): Set<string> {
   return new Set(
     config.pipeline.stages
       .filter((stage) => stage.kind === 'release')

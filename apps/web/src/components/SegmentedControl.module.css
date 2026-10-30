@@ -85,6 +85,19 @@
   font-size: var(--text-sm);
 }
 
+.pills.sm .option {
+  height: 30px;
+  padding: 0 11px;
+  font-size: 12.5px;
+  border-radius: 15px;
+}
+
+@media (max-width: 767px) {
+  .pills.sm .option {
+    height: 40px;
+  }
+}
+
 .pills .option:hover {
   background: var(--c-subtle);
 }

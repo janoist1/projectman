@@ -1,17 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPERATOR_APP_CREDENTIAL_PREFIX } from '@projectman/shared';
-import type { SuperCommand } from '@projectman/shared';
+import type { NewSuperCommand } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { seedOperatorRequest } from './helpers/operator-session';
-import type { AdministrationPort, IntegratorPrincipal, ToolContext } from '../src/contracts';
+import type { IntegratorPrincipal, ToolContext } from '../src/contracts';
 import type { DomainContext } from '../src/core/base';
 import { TEAM_TOOLS } from '../src/mcp/tools';
 import { appRequestId, createOperatorAppSessions } from '../src/services/super-operator';
 
 const NOW = '2026-10-20T10:00:00.000Z';
 const REQUEST = 'opr_app_1';
-const TASK: SuperCommand = { kind: 'task_create', request: { title: 'Made by the Operator' } };
+const TASK: NewSuperCommand = { kind: 'task_create', request: { title: 'Made by the Operator' } };
 
 describe('the in-app Operator on the shared super-operation path (PM-888)', () => {
   let h: DomainHarness;
@@ -37,7 +37,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       openedAt: new Date().toISOString(),
     });
 
-  const boot = async (administration?: AdministrationPort, member = 'pm') => {
+  const boot = async (member = 'pm') => {
     h = await createDomainHarness({
       adjust: (config) => {
         if (member === 'pm') {
@@ -45,16 +45,6 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
           if (pm.kind === 'ai') pm.onLeave = false;
         }
       },
-      ...(administration
-        ? {
-            administration: {
-              hub: administration,
-              engines: { port: () => administration, ids: () => [] },
-              isEngineOnline: () => true,
-              builderEngine: () => null,
-            },
-          }
-        : {}),
     });
     userId = 'user-1';
     h.repos.users.insert({
@@ -69,7 +59,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
     openRequest(session.id);
   };
 
-  const execute = (requestKey: string, command: SuperCommand = TASK, as: ToolContext = ctx) =>
+  const execute = (requestKey: string, command: NewSuperCommand = TASK, as: ToolContext = ctx) =>
     h.domain.teamTools.executeOperation(as, { requestKey, command });
 
   describe('execute_operation', () => {
@@ -111,7 +101,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       await execute('card');
       h.repos.operatorRequests.close(REQUEST, NOW);
       openRequest(ctx.sessionId, 'opr_app_member', 'message', 'dev-1');
-      const label: SuperCommand = { kind: 'task_labels', taskKey: 'AR-1', request: { add: ['merge-ok'] } };
+      const label: NewSuperCommand = { kind: 'task_labels', taskKey: 'AR-1', request: { add: ['merge-ok'] } };
       await expect(execute('label', label)).rejects.toMatchObject({ code: 'forbidden' });
       expect(h.repos.tasks.get('AR-1')?.labels).not.toContain('merge-ok');
       h.repos.operatorRequests.close('opr_app_member', NOW);
@@ -183,7 +173,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
   });
 
   describe('the project manager app path', () => {
-    beforeEach(() => boot(undefined, 'pm'));
+    beforeEach(() => boot('pm'));
 
     it('executes and records a routine command as the PM', async () => {
       const { operation } = await execute('pm-create');
@@ -207,13 +197,9 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
     });
 
     it.each([
-      {
-        kind: 'administration',
-        request: { kind: 'restart', target: { kind: 'hub' }, expectedBootId: 'boot-1' },
-      },
       { kind: 'credential_revoke', keyId: 'ikey_victim' },
       { kind: 'workspace_release', scopeId: 'scp_0123456789abcdef', reason: 'Checked' },
-    ] satisfies SuperCommand[])('refuses a PM command of kind $kind', async (command) => {
+    ] satisfies NewSuperCommand[])('refuses a PM command of kind $kind', async (command) => {
       await expect(execute('pm-refused', command)).rejects.toMatchObject({
         code: 'forbidden',
         message: expect.stringContaining('command_not_for_project_manager'),

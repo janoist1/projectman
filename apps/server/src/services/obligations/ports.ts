@@ -38,6 +38,16 @@ export interface ObligationStartOffers {
   stateOf(projectKey: string, taskKey: string): 'offered' | 'paused' | 'ended' | null;
 }
 
+/**
+ * How the project manager learns that a step is overdue (the second rung): the coordination's operator
+ * signals, adapted by the assembly. `raise` writes the pending signal row (it joins the caller's transaction)
+ * and returns its id; `deliver` wakes the project manager with the pending signals.
+ */
+export interface ObligationPmNotices {
+  raise(input: { projectKey: string; taskKey: string; obligationId: string }): string;
+  deliver(projectKey: string): Promise<void>;
+}
+
 /** The runtime's existing fix-limit decision path, adapted by the assembly. */
 export interface ObligationFixLimit {
   timeOut(projectKey: string, taskKey: string, decider: string): Promise<{ decisionItemId: string } | null>;

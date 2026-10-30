@@ -149,6 +149,18 @@ export function checkLine(check: string, state: string): string {
   return t('timeline.events.task_check_changed', { check: name, state: label });
 }
 
+const ACCEPTANCE_CHANGES = [
+  'add',
+  'edit',
+  'remove',
+  'done',
+  'not_needed',
+  'move',
+  'moved_in',
+  'reopen',
+  'confirm',
+] as const;
+
 function labelsChanged(d: Record<string, unknown>, ctx: TimelineContext): string {
   const names = (key: string) =>
     ((d[key] as string[] | undefined) ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', ');
@@ -493,7 +505,12 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
               ? t('timeline.events.task_cancelled_reason', { reason: str(d.reason) })
               : t('timeline.events.task_cancelled'),
         );
-      if (d.action === 'reopened') return normal(t('timeline.events.task_reopened'));
+      if (d.action === 'reopened')
+        return normal(
+          d.reason
+            ? t('timeline.events.task_reopened_reason', { reason: str(d.reason) })
+            : t('timeline.events.task_reopened'),
+        );
       if (d.action === 'closed') return normal(t('timeline.events.theme_closed'));
       // Gate outcomes are recorded as task updates by the server.
       const request = record(d.gateRequest);
@@ -673,6 +690,16 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           ref: str(d.ref),
         }),
       );
+    case 'acceptance_item_changed': {
+      // An event of a change this web app does not know reads neutrally.
+      const change = (ACCEPTANCE_CHANGES as readonly string[]).includes(str(d.change))
+        ? (str(d.change) as (typeof ACCEPTANCE_CHANGES)[number])
+        : 'changed';
+      return normal(
+        t(`timeline.acceptanceItem.${change}`, { text: str(d.text), taskKey: str(d.taskKey) }) +
+          (str(d.note).trim() ? t('timeline.acceptanceItem.note', { note: str(d.note).trim() }) : ''),
+      );
+    }
     case 'task_theme_changed': {
       const themeKey = d.themeKey ? str(d.themeKey) : '';
       const previous = d.previous ? str(d.previous) : '';
@@ -955,6 +982,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'member_queue_item_closed':
       return normal(t('timeline.events.member_queue_item_closed'));
     case 'obligation_woken':
+    case 'obligation_pm_told':
     case 'obligation_handed_over': {
       const kind = ObligationKind.safeParse(d.kind);
       return normal(
@@ -1014,6 +1042,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         case 'decision':
           return normal(t('timeline.events.question_screened_decision', { note }));
         case 'todo':
+          // A machine step no integrator could take went to the technical decider, not to the owners (PM-1139).
+          if (str(d.forwardedTo))
+            return normal(
+              t('timeline.events.question_screened_todo_decider', {
+                to: nameOf(str(d.forwardedTo), ctx.members, ctx.myHandle),
+                note,
+              }),
+            );
           if (d.recipient === 'integrator')
             return normal(t('timeline.events.question_screened_integrator', { note }));
           // Only a todo that was recorded as a missing feature (PM-472) says so.

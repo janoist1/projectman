@@ -63,6 +63,13 @@ describe('ConfigStore (customization repository)', () => {
     expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
   });
 
+  it('keeps the prerequisite override through a save and a load (PM-1099)', async () => {
+    const config = testConfig();
+    config.team.prerequisiteOverride = 'people_and_project_manager';
+    await store.save('AR', config, { author, message: 'Let the project manager override' });
+    expect((await store.load('AR')).config.team.prerequisiteOverride).toBe('people_and_project_manager');
+  });
+
   it.each([[['prioritization_duty']], [[]]])(
     'keeps the priority setters %j through a save and a load (PM-1096)',
     async (setters) => {
@@ -207,6 +214,19 @@ describe('ConfigStore (customization repository)', () => {
     expect(head.trim()).toBe('Owner Person <owner@example.com>|Create project AR');
   });
 
+  it.each([[['reopen']], [[]]] as const)(
+    'keeps the project manager lifecycle actions %j in team.yaml (PM-1098)',
+    async (actions) => {
+      const config = testConfig();
+      config.team.projectManagerLifecycle = [...actions];
+      await store.save('AR', config, { author, message: 'Create project AR' });
+      expect(readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8')).toContain(
+        'projectManagerLifecycle:',
+      );
+      expect((await store.load('AR')).config.team.projectManagerLifecycle).toEqual(actions);
+    },
+  );
+
   it.each([[['implementation']], [[]]] as const)(
     'keeps the complexity setters %j in team.yaml (PM-1097)',
     async (setters) => {
@@ -219,6 +239,13 @@ describe('ConfigStore (customization repository)', () => {
       expect((await store.load('AR')).config.team.complexitySetters).toEqual(setters);
     },
   );
+
+  it('keeps the task create access in team.yaml (PM-1100)', async () => {
+    const config = testConfig();
+    config.team.taskCreateAccess = 'client';
+    await store.save('AR', config, { author, message: 'Create project AR' });
+    expect((await store.load('AR')).config.team.taskCreateAccess).toBe('client');
+  });
 
   it('keeps custom roles and human roles in team.yaml and loads files written before them', async () => {
     const config = testConfig();
@@ -803,13 +830,19 @@ describe('ConfigStore: configurations that predate a rule', () => {
     expect(release).toMatchObject({
       kind: 'release',
       duty: 'deployment',
-      gate: { conditions: [{ type: 'has_label', label: 'release-approved' }] },
+      // The acceptance gate (PM-1135) comes with the migration; it is no approval.
+      gate: {
+        conditions: [
+          { type: 'has_label', label: 'release-approved' },
+          { type: 'lacks_label', label: 'acceptance-unconfirmed' },
+        ],
+      },
     });
     const approval = labelDefinition(config, 'release-approved')!;
     expect(approval.setBy).toEqual(releaseApproval);
     expect(isReleaseApprovalLabel(approval)).toBe(true);
     expect(labelHolders(config, approval)).toEqual(['owner']);
-    for (const condition of release.gate!.conditions)
+    for (const condition of release.gate!.conditions.filter((c) => c.type === 'has_label'))
       expect(releaseGateAccepts(labelDefinition(config, condition.label)!)).toBe(true);
     expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
     // Nothing had to be narrowed or tolerated, and the file is as it was.

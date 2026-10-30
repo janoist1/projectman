@@ -2,10 +2,8 @@ import {
   ProjectConfig,
   BUILT_IN_ROLE_DUTIES,
   defaultMerger,
-  DEFAULT_PRIORITY_SETTERS,
-  DEFAULT_PROJECT_MANAGER_MOVES,
-  DEFAULT_VIEWER_RECIPIENTS,
   isProjectManager,
+  storedTeamDefaults,
   type AiBuiltInRoleId,
   type BoardColumn,
   type BoardColumnColor,
@@ -26,7 +24,7 @@ import {
   type TemplateMemberKey,
 } from '../locales';
 import { defaultMemberHandle, defaultMemberName, uniqueHandle } from '../members';
-import { standardLabelsFor } from '../labels';
+import { standardLabelsFor, withAcceptanceGates } from '../labels';
 import { projectManagerMember } from '../project-manager';
 import { newAiMember } from '../roles';
 import type { BuildTemplateInput, ProjectTemplate, TemplateChecklistItem } from '../types';
@@ -160,7 +158,9 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
       };
     },
 
-    finish(pipeline, limits = DEFAULT_LIMITS) {
+    finish(drafted, limits = DEFAULT_LIMITS) {
+      // Every pipeline holds back open and unconfirmed acceptance items (PM-1135).
+      const pipeline = { ...drafted, stages: withAcceptanceGates(drafted.stages) };
       // Every project has a project manager (PM-429), whether or not the template hired one.
       if (!members.some(isProjectManager)) {
         members.push(
@@ -187,10 +187,8 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           members,
           roles: [],
           limits,
-          cardMover: input.cardMover ?? { kind: 'worker' },
-          projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
-          prioritySetters: [...DEFAULT_PRIORITY_SETTERS],
-          viewerRecipients: DEFAULT_VIEWER_RECIPIENTS,
+          ...storedTeamDefaults(),
+          ...(input.cardMover ? { cardMover: input.cardMover } : {}),
         },
         pipeline: {
           ...pipeline,

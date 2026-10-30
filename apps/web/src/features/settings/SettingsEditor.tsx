@@ -1,6 +1,13 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { complexitySettersOf, PrioritySetter, prioritySettersOf } from '@projectman/shared';
+import {
+  complexitySettersOf,
+  PrioritySetter,
+  prioritySettersOf,
+  ProjectManagerLifecycleAction,
+  projectManagerLifecycleOf,
+  taskCreateAccessOf,
+} from '@projectman/shared';
 import type { ProjectConfig, PatchConfigRequest, Pipeline } from '@projectman/shared';
 import { usePatchConfig } from '../../api/queries';
 import { isApiError } from '../../api/client';
@@ -94,6 +101,17 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.projectManagerMoves !== saved.team.projectManagerMoves
       ? draft.team.projectManagerMoves
       : undefined;
+  // The lifecycle actions go as the whole list when it differs from the saved one (PM-1098); [] is a value.
+  const lifecycleOf = (config: ProjectConfig) => {
+    const chosen = projectManagerLifecycleOf(config);
+    return ProjectManagerLifecycleAction.options.filter((action) => chosen.includes(action));
+  };
+  const projectManagerLifecycle = lifecycleOf(draft);
+  const lifecycleChanged = JSON.stringify(projectManagerLifecycle) !== JSON.stringify(lifecycleOf(saved));
+  const prerequisiteOverride =
+    draft.team.prerequisiteOverride !== saved.team.prerequisiteOverride
+      ? draft.team.prerequisiteOverride
+      : undefined;
   // The priority setters go as the whole list when it changed, [] too; compared in the options' order.
   const settersOf = (config: ProjectConfig) => {
     const chosen = prioritySettersOf(config);
@@ -103,9 +121,17 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
   const prioritySettersChanged = JSON.stringify(prioritySetters) !== JSON.stringify(settersOf(saved));
   const viewerRecipients =
     draft.team.viewerRecipients !== saved.team.viewerRecipients ? draft.team.viewerRecipients : undefined;
+  // Who may open a new card goes only when it differs from the saved value (PM-1100); owner-only on the server.
+  const taskCreateAccess =
+    taskCreateAccessOf(draft) !== taskCreateAccessOf(saved) ? taskCreateAccessOf(draft) : undefined;
   // The complexity setters go as the whole list when it differs from the saved one (PM-1097); [] is a value.
   const complexitySetters = complexitySettersOf(draft);
   const complexityChanged = JSON.stringify(complexitySetters) !== JSON.stringify(complexitySettersOf(saved));
+  // The assignee-fit choice goes only when it differs from the saved one (PM-1137); a missing value is the default.
+  const assigneeFit =
+    (draft.team.assigneeFit ?? 'automatic') !== (saved.team.assigneeFit ?? 'automatic')
+      ? (draft.team.assigneeFit ?? 'automatic')
+      : undefined;
   // The contacts go as the whole list when it changed, an empty one too: a missing field keeps the stored list.
   const contacts = draft.team.contacts ?? [];
   const contactsChanged = JSON.stringify(contacts) !== JSON.stringify(saved.team.contacts ?? []);
@@ -114,11 +140,15 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     baseVersion,
     ...(merger ? { merger } : {}),
     ...(cardMover ? { cardMover } : {}),
+    ...(taskCreateAccess ? { taskCreateAccess } : {}),
     ...(projectManagerMoves ? { projectManagerMoves } : {}),
+    ...(lifecycleChanged ? { projectManagerLifecycle } : {}),
+    ...(prerequisiteOverride ? { prerequisiteOverride } : {}),
     ...(prioritySettersChanged ? { prioritySetters } : {}),
     ...(complexityChanged ? { complexitySetters: [...complexitySetters] } : {}),
     ...(contactsChanged ? { contacts } : {}),
     ...(viewerRecipients ? { viewerRecipients } : {}),
+    ...(assigneeFit ? { assigneeFit } : {}),
     ...(repoMerge.length ? { repoMerge } : {}),
     limits: {
       ...draft.team.limits,

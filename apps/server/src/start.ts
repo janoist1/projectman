@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HybridReleaseTarget } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseMode, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
 import type { RunMode } from './instance';
@@ -18,6 +17,7 @@ import {
   serverLogFile,
   startMemoryLog,
 } from './logging';
+import { statementCount } from './db';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './runtime/usage';
 import { createAppTagReader, resolveAppVersion, EngineConfigError } from './engine-link';
@@ -60,7 +60,7 @@ import { createSesEmailSender, parseEmailChannelEnv, scrubEmailChannelEnv } from
  *   PROJECTMAN_SHUTDOWN_PAUSE_MS (60000): how long stopping the server (SIGTERM, SIGINT) lets the
  *   sessions come to a safe point before it closes (PM-219); 0 turns the pause off. The service unit's
  *   TimeoutStopSec must exceed it by about 20 seconds.
- *   PROJECTMAN_HISTORY_SEMANTIC (on) and PROJECTMAN_HISTORY_MODEL_DIR (beside the bundle, or
+ *   PROJECTMAN_HISTORY_SEMANTIC (on; off in cloud mode) and PROJECTMAN_HISTORY_MODEL_DIR (beside the bundle, or
  *   apps/server/models/history): the local embedding of the history search (PM-767); `off`, or a missing
  *   model, leaves the word search alone.
  *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
@@ -76,10 +76,6 @@ import { createSesEmailSender, parseEmailChannelEnv, scrubEmailChannelEnv } from
  *   `/api`, only a loopback listener for the CLIs' hooks and team tools and one outbound link to the cloud.
  *   Its settings are `<home>/engine.json` (`npm run engine -- init`).
  *   PROJECTMAN_ENGINE_PORT (4801): the engine's loopback port (engine mode only).
- *   PROJECTMAN_ADMIN_SOCKET (unset): the absolute path of the Unix socket of this machine's administration
- *   supervisor (PM-763, docs/SECURITY.md "Administration adapter"). The hub uses it for its own restart, an
- *   engine for its own machine. Unset: this process has no administration; a path that is not absolute or is
- *   too long for a socket stops the start.
  *   PROJECTMAN_VERSION (unset): shared cloud/engine version; otherwise the installation git HEAD, then dev.
  *   PROJECTMAN_EMAIL_LOGIN_ENABLED (0): `1` turns the mailer of the one-time e-mail login code on (PM-669,
  *   docs/AWS.md); then PROJECTMAN_SES_REGION, PROJECTMAN_SES_FROM, PROJECTMAN_SES_ACCESS_KEY_ID and
@@ -133,34 +129,6 @@ interface ServerConfig {
   memoryLogSeconds: number;
 }
 
-/** `PROJECTMAN_RELEASE_TARGET`: `<project key>/<repository>`; anything else stops the start. */
-function parseReleaseTarget(value: string): { projectKey: string; repo: string } {
-  const [projectKey, repo, ...rest] = value.split('/');
-  if (!projectKey || !repo || rest.length > 0)
-    throw new Error(`invalid PROJECTMAN_RELEASE_TARGET: ${value} (<project key>/<repository>)`);
-  return { projectKey, repo };
-}
-
-/**
- * `PROJECTMAN_RELEASE_ENGINE_ID` and `PROJECTMAN_RELEASE_TARGET_HASH` (PM-752): the remote engine and the target of a
- * hybrid release. Both or neither, and only next to `PROJECTMAN_RELEASE_TARGET`; anything else stops the start.
- */
-function parseHybridReleaseTarget(env: NodeJS.ProcessEnv): HybridReleaseTarget | undefined {
-  const engineId = env.PROJECTMAN_RELEASE_ENGINE_ID?.trim();
-  const targetHash = env.PROJECTMAN_RELEASE_TARGET_HASH?.trim();
-  if (!engineId && !targetHash) return undefined;
-  if (!engineId || !targetHash)
-    throw new Error('PROJECTMAN_RELEASE_ENGINE_ID and PROJECTMAN_RELEASE_TARGET_HASH are set together');
-  if (!env.PROJECTMAN_RELEASE_TARGET?.trim())
-    throw new Error('the hybrid release needs PROJECTMAN_RELEASE_TARGET');
-  const parsed = HybridReleaseTarget.safeParse({ engineId, targetHash });
-  if (!parsed.success)
-    throw new Error(
-      'invalid PROJECTMAN_RELEASE_ENGINE_ID or PROJECTMAN_RELEASE_TARGET_HASH (a remote engine id and a SHA-256 hex digest)',
-    );
-  return parsed.data;
-}
-
 async function configFromEnv(
   env: NodeJS.ProcessEnv,
   engineMode: Exclude<RunMode, 'engine'>,
@@ -208,12 +176,6 @@ async function configFromEnv(
   const machineFixture = env.PROJECTMAN_MACHINE_FIXTURE
     ? parseMachineFixture(env.PROJECTMAN_MACHINE_FIXTURE)
     : undefined;
-  // The project and repository that are this instance itself (PM-491): `<project key>/<repository>`.
-  const releaseTarget = env.PROJECTMAN_RELEASE_TARGET?.trim()
-    ? parseReleaseTarget(env.PROJECTMAN_RELEASE_TARGET.trim())
-    : undefined;
-  const releaseHybrid = parseHybridReleaseTarget(env);
-  const administrationSocket = parseAdministrationSocket(env.PROJECTMAN_ADMIN_SOCKET);
   // The e-mail login mailer (PM-669): off unless switched on; a wrong or incomplete setting stops the start.
   const emailLogin = parseEmailLoginEnv(env);
   // The outgoing e-mail channel (PM-941): off unless switched on; a wrong setting stops the start.
@@ -242,9 +204,6 @@ async function configFromEnv(
         : {}),
       appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
       appTag: createAppTagReader(installDir, env.PROJECTMAN_VERSION),
-      ...(releaseTarget ? { releaseTarget } : {}),
-      ...(releaseHybrid ? { releaseHybrid } : {}),
-      ...(administrationSocket ? { administrationSocket } : {}),
       modules: machineFixture
         ? {
             createMachineProbe: (opts) => createFixtureProbe(machineFixture, opts),
@@ -295,18 +254,23 @@ async function configFromEnv(
       feedbackPublicUrl,
       feedbackWidgetFile: join(installDir, 'apps', 'feedback-widget', 'dist', 'widget.js'),
       shutdownPauseMs,
-      historySemantic: parseHistorySemantic(env),
+      historySemantic: parseHistorySemantic(env, engineMode),
     },
   };
 }
 
 /**
- * `PROJECTMAN_HISTORY_SEMANTIC` (on) and `PROJECTMAN_HISTORY_MODEL_DIR` (PM-767): the local embedding of the history.
- * `off` switches it off; otherwise it is on, and a build without the pinned model (beside the bundle in a build, in
- * `apps/server/models/history` from source) searches by the words and logs the search as `unavailable`.
+ * `PROJECTMAN_HISTORY_SEMANTIC` (on; off in cloud mode, PM-1105) and `PROJECTMAN_HISTORY_MODEL_DIR` (PM-767): the
+ * local embedding of the history. `off` switches it off; otherwise it is on, and a build without the pinned model
+ * (beside the bundle in a build, in `apps/server/models/history` from source) searches by the words and logs the
+ * search as `unavailable`. The cloud's heap and memory are sized without the worker's model, so there it starts
+ * only when the variable says `on` (docs/HYBRID.md "History semantic profile").
  */
-function parseHistorySemantic(env: NodeJS.ProcessEnv): { enabled: boolean; modelDirectory: string } {
-  const flag = env.PROJECTMAN_HISTORY_SEMANTIC || 'on';
+export function parseHistorySemantic(
+  env: NodeJS.ProcessEnv,
+  mode: RunMode,
+): { enabled: boolean; modelDirectory: string } {
+  const flag = env.PROJECTMAN_HISTORY_SEMANTIC || (mode === 'cloud' ? 'off' : 'on');
   if (flag !== 'on' && flag !== 'off')
     throw new Error(`invalid PROJECTMAN_HISTORY_SEMANTIC: ${flag} (on or off)`);
   const candidates = env.PROJECTMAN_HISTORY_MODEL_DIR
@@ -317,15 +281,6 @@ function parseHistorySemantic(env: NodeJS.ProcessEnv): { enabled: boolean; model
       ];
   const found = candidates.find((dir) => existsSync(join(dir, 'manifest.json')));
   return { enabled: flag === 'on', modelDirectory: found ?? candidates[0]! };
-}
-
-/** `PROJECTMAN_ADMIN_SOCKET` (PM-763): an absolute socket path that fits a Unix socket address, or undefined. */
-function parseAdministrationSocket(value: string | undefined): string | undefined {
-  const socketPath = value?.trim();
-  if (!socketPath) return undefined;
-  if (!isAbsolute(socketPath) || socketPath.length > 103 || socketPath.includes('\0'))
-    throw new Error('invalid PROJECTMAN_ADMIN_SOCKET (an absolute path of at most 103 characters)');
-  return socketPath;
 }
 
 /**
@@ -378,7 +333,6 @@ async function engineMain(env: NodeJS.ProcessEnv): Promise<void> {
     }),
     ghBin: env.GH_BIN,
     ghHost: env.GH_HOST || undefined,
-    administrationSocket: parseAdministrationSocket(env.PROJECTMAN_ADMIN_SOCKET),
     logger: loggerOptions(env, home, 'engine'),
     shutdownPauseMs,
   });
@@ -472,6 +426,7 @@ export async function main(options: MainOptions = {}): Promise<void> {
     stopMemoryLog = startMemoryLog({
       intervalS: config.memoryLogSeconds,
       log: (fields) => app.log.info(fields, 'memory'),
+      statements: statementCount,
     });
   app.log.info({ home: config.app.home, webApp: config.app.webDistDir !== null }, 'projectman server ready');
   await options.afterStart?.({ app });

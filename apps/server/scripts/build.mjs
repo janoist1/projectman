@@ -10,8 +10,6 @@ const entries = {
   'dist/index.js': 'src/index.ts',
   // The embedding worker of the history search (PM-767): a Worker thread entry beside the server bundle.
   'dist/history-semantic-worker.js': 'src/history-semantic/worker.ts',
-  // The relay of the cloud's admin channel (PM-749): the container image carries all of apps/server/dist.
-  'dist/control/cli.js': 'src/control/cli.ts',
   // The release measurement's server (PM-910): the same server plus a loopback search listener; dist/index.js never loads it.
   'dist/history-semantic-profile.js': 'src/history-semantic-profile.ts',
 };

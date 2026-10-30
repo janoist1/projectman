@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  ComputeJobRunView,
   DutyId,
   FeedbackMarkDetail,
   MemberView,
@@ -186,6 +187,31 @@ function event(
   };
 }
 
+function fakeComputeJobRun(job: string, commit: string, id = 'job_fake'): ComputeJobRunView {
+  return {
+    id,
+    projectKey: 'FAKE',
+    repo: 'fake',
+    job,
+    commit,
+    runner: 'github_actions',
+    status: 'queued',
+    reason: null,
+    requestedBy: 'fake',
+    taskKey: null,
+    createdAt: '2026-10-30T10:00:00.000Z',
+    startedAt: null,
+    finishedAt: null,
+    queuedMs: null,
+    durationMs: null,
+    billableMs: null,
+    externalUrl: null,
+    outputTail: null,
+    outputs: [],
+    artifact: null,
+  };
+}
+
 export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
   const calls: RecordedCall[] = [];
   const failures = new Map<Method, Error | 'hang'>();
@@ -296,14 +322,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('listMergeChecks', ctx, args);
       return { runs: [], hasMore: false };
     },
-    async proposeRelease(ctx, args) {
-      await enter('proposeRelease', ctx, args);
-      const commit = args.commit ?? '0'.repeat(40);
-      const tasks = [{ key: 'FAKE-1', title: 'A merged card' }];
-      return args.preview
-        ? { commit, baseCommit: null, tasks }
-        : { releaseId: 'rel_fake', taskKey: 'FAKE-2', commit, baseCommit: null, tasks };
-    },
     async publishRelease(ctx, args) {
       await enter('publishRelease', ctx, args);
       const commit = args.commit ?? '0'.repeat(40);
@@ -317,17 +335,17 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
       };
     },
-    async checkRelease(ctx, args) {
-      await enter('checkRelease', ctx, args);
-      return {
-        candidate: {
-          commit: args.commit ?? '0'.repeat(40),
-          baseCommit: null,
-          tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
-        },
-        refusal: null,
-        proposers: ['devops'],
-      };
+    async runComputeJob(ctx, args) {
+      await enter('runComputeJob', ctx, args);
+      return fakeComputeJobRun(args.job, args.commit);
+    },
+    async getComputeJob(ctx, args) {
+      await enter('getComputeJob', ctx, args);
+      return fakeComputeJobRun('fake-job', '0'.repeat(40), args.id);
+    },
+    async listComputeJobs(ctx, args) {
+      await enter('listComputeJobs', ctx, args);
+      return [];
     },
     async getRoleConfiguration(ctx, args) {
       await enter('getRoleConfiguration', ctx, args);
@@ -379,24 +397,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         result: null,
       };
     },
-    async getMachineStatus(ctx, args) {
-      await enter('getMachineStatus', ctx, args);
-      return {
-        status: {
-          target: args.target,
-          online: true,
-          version: null,
-          bootId: null,
-          capabilities: ['status'],
-          activeOperationId: null,
-        },
-        machine: null,
-      };
-    },
-    async getMachineLogs(ctx, args) {
-      await enter('getMachineLogs', ctx, args);
-      return { entries: [] };
-    },
     async startTask(ctx, args) {
       await enter('startTask', ctx, args);
       return { task_key: args.taskKey, session_id: null, hired: null, assignee: args.assignee ?? null };
@@ -444,21 +444,6 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         text: '',
       };
     },
-    async getHistorySearchStats(ctx, args) {
-      await enter('getHistorySearchStats', ctx, args);
-      return {
-        since: args.since ?? '2026-09-01T00:00:00.000Z',
-        until: args.until ?? '2026-10-01T00:00:00.000Z',
-        retainedSince: '2026-07-03T00:00:00.000Z',
-        totalSearches: 0,
-        failedSearches: 0,
-        byMember: [],
-        zeroResultCount: 0,
-        zeroResultRate: 0,
-        zeroResults: [],
-        nextCursor: null,
-      };
-    },
     async writeProjectDocs(ctx, args) {
       await enter('writeProjectDocs', ctx, args);
       return { write_id: 'dw_fake', state: 'running' };
@@ -502,6 +487,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async cancelTask(ctx, args) {
       await enter('cancelTask', ctx, args);
       return { task_key: args.taskKey, status: 'cancelled' };
+    },
+    async reopenTask(ctx, args) {
+      await enter('reopenTask', ctx, args);
+      return { task_key: args.taskKey, status: 'active' };
     },
     async openIntegratorTodo(ctx, args) {
       await enter('openIntegratorTodo', ctx, args);

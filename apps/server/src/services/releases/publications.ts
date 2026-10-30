@@ -1,5 +1,11 @@
-import { dutyMembers, isReleaseTagName, RELEASE_TAG_PATTERN, releaseTagName } from '@projectman/shared';
-import type { EngineId, ProjectConfig, TaskKey } from '@projectman/shared';
+import {
+  dutyMembers,
+  isReleaseTagName,
+  PROJECTMAN_RELEASES_URL,
+  RELEASE_TAG_PATTERN,
+  releaseTagName,
+} from '@projectman/shared';
+import type { EngineId, ProjectConfig, ServerVersionView, TaskKey } from '@projectman/shared';
 import { MergeError } from '../../contracts';
 import type { BranchMerger, EngineDirectory, GithubService, PublishedRelease } from '../../contracts';
 import { isoNow } from '../../core/base';
@@ -28,6 +34,8 @@ export interface PublishReleaseInput {
 
 type Deps = {
   ctx: DomainContext;
+  appVersion: () => string;
+  appTag: () => Promise<string | null>;
   projects: ProjectService;
   engines: EngineDirectory;
   /** The GitHub access of the machine that runs `gh` (on the cloud server: the default engine). */
@@ -38,7 +46,7 @@ type Deps = {
 
 /**
  * `publish_release` (PM-968): the member with the deployment duty tags a merged commit and makes its public
- * GitHub release. No approval and no deployment; the project's own deploy and `propose_release` are separate.
+ * GitHub release. No approval and no deployment; deployment is an owner-requested cloud CLI operation.
  * The tag is made on the engine that holds the repository, the release on the engine of `gh`. A publication
  * is recorded when the tag is on the remote and completed when the release exists, so a call repeated after
  * an interruption goes on from where it stopped.
@@ -49,6 +57,28 @@ export class ReleasePublishService {
 
   constructor(deps: Deps) {
     this.deps = deps;
+  }
+
+  /** The running build, including tags recorded before the watcher was retired. */
+  async runningVersion(): Promise<ServerVersionView> {
+    const version = this.deps.appVersion();
+    const commit = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(version) ? version : null;
+    let tag: string | null = null;
+    try {
+      const { releasePublications, releases } = this.deps.ctx.repos;
+      tag =
+        (commit && (releasePublications.tagOfCommit(commit) ?? releases.tagOfCommit(commit))) ||
+        (await this.deps.appTag());
+    } catch {
+      // A missing tag must not hide the running version.
+    }
+    let latestReleaseTag: string | null = null;
+    try {
+      latestReleaseTag = this.deps.ctx.repos.releasePublications.latestTagUnder(PROJECTMAN_RELEASES_URL);
+    } catch {
+      // The download link is a convenience; it must not hide the running version either.
+    }
+    return { version, commit, tag, latestReleaseTag };
   }
 
   /** What `publish` would do, with nothing recorded and nothing sent. */

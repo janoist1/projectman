@@ -44,8 +44,7 @@ describe('intentional ready waits', () => {
       }),
       projects,
       tasks: h.domain.tasks,
-      focus: h.domain.projectFocus,
-      seniorWaits: h.domain.seniorWaits,
+      seniorDecisions: h.domain.seniorDecisions,
       admission: h.domain.admission,
       messaging: h.domain.messaging,
       waits: h.domain.taskWaits,
@@ -139,7 +138,7 @@ describe('intentional ready waits', () => {
     await settle();
     expect(hold(senior.key)).toMatchObject({ reason: 'senior_busy', seniors: ['dev-2'] });
     expect(hold(first.key)).toBeUndefined();
-    expect(hold(second.key)).toMatchObject({ reason: 'focus_order' });
+    expect(hold(second.key)).toMatchObject({ reason: 'no_free_member' });
     expect(h.runner.started).toHaveLength(0);
     await h.domain.tasks.cancel('AR', second.key, { reason: 'Scope changed' }, OWNER_ACTOR);
     expect(hold(second.key)).toBeUndefined();

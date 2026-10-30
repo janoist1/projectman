@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ComputeJobDefinitions } from '../domain/compute-job';
 import { FeedbackConfig } from '../domain/feedback';
 import { normalizeFeedbackOrigin } from '../domain/feedback-origin';
 import { LabelColor, LabelDefinition, LabelId } from '../domain/label';
@@ -6,8 +7,11 @@ import { Pipeline } from '../domain/pipeline';
 import { BuiltInRoleId, RoleBundle } from '../domain/role';
 import { RepoDocs } from './project-docs';
 import { OperatorWatch } from './operator-watch';
+import { RULE_REASON_MAX, TEAM_RULE_IDS } from './team-rule-ids';
+import type { RuleReasons } from './schema';
 import {
   AutoCompactWindowTokens,
+  HeavyChecks,
   ContactHandles,
   MaxConcurrentAi,
   ProjectConfig,
@@ -19,10 +23,10 @@ import {
 const tempWorkersSchema = TeamLimits.shape.tempWorkers.removeDefault();
 
 /** A repository's full test as an edit sets it (PM-538): the whole object, the command trimmed, unknown keys refused. */
-export const ReviewTestPatch = ReviewTestConfig.extend({
+const ReviewTestPatch = ReviewTestConfig.extend({
   command: z.string().trim().min(1).max(500),
 }).strict();
-export type ReviewTestPatch = z.infer<typeof ReviewTestPatch>;
+type ReviewTestPatch = z.infer<typeof ReviewTestPatch>;
 
 /** PATCH fields deliberately omit defaults so partial edits retain existing values. */
 export const PatchConfigRequest = z
@@ -68,11 +72,23 @@ export const PatchConfigRequest = z
     releaseFourEyes: z.boolean().optional(),
     operatorWatch: OperatorWatch.nullable().optional(),
     cardMover: ProjectConfig.shape.team.shape.cardMover,
+    /** The lowest human access that may open a new card (PM-1100). Owner-only (`task_create_access`). */
+    taskCreateAccess: ProjectConfig.shape.team.shape.taskCreateAccess,
     projectManagerMoves: ProjectConfig.shape.team.shape.projectManagerMoves,
+    /** The lifecycle actions the PM may take on its own (PM-1098): the whole list replaces the saved one, [] too. */
+    projectManagerLifecycle: ProjectConfig.shape.team.shape.projectManagerLifecycle,
+    /** Who may override an open prerequisite (PM-1099). */
+    prerequisiteOverride: ProjectConfig.shape.team.shape.prerequisiteOverride,
     /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
     prioritySetters: ProjectConfig.shape.team.shape.prioritySetters,
     /** The duties whose holders may set complexity points (PM-1097): the whole list replaces the saved one, [] leaves the owners. */
     complexitySetters: ProjectConfig.shape.team.shape.complexitySetters,
+    /** Whether an AI member's named assignee has to fit the card (PM-1136). */
+    assigneeFit: ProjectConfig.shape.team.shape.assigneeFit,
+    /** The reasons of rules (PM-1137), merged into the saved ones per rule; null removes a rule's reason. */
+    ruleReasons: z
+      .partialRecord(z.enum(TEAM_RULE_IDS), z.string().trim().min(1).max(RULE_REASON_MAX).nullable())
+      .optional(),
     merger: ProjectConfig.shape.team.shape.merger,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
@@ -88,6 +104,11 @@ export const PatchConfigRequest = z
       .array(z.object({ repo: z.string(), docs: RepoDocs.nullable() }).strict())
       .max(20)
       .optional(),
+    /** Repository-specific prompt conventions; null removes the setting (PM-1112). */
+    repoHeavyChecks: z
+      .array(z.object({ repo: z.string(), heavyChecks: HeavyChecks.nullable() }).strict())
+      .max(20)
+      .optional(),
     /** Per repository: the full test the server runs (`reviewTest`, PM-538); null removes it. Owner-only (`review_test`). */
     repoReviewTest: z
       .array(z.object({ repo: z.string(), reviewTest: ReviewTestPatch.nullable() }).strict())
@@ -96,6 +117,11 @@ export const PatchConfigRequest = z
     /** Per repository: whether the full test runs only at the merge (`fullTestAtMerge`, PM-386); null removes it. Owner-only (`review_test`). */
     repoFullTestAtMerge: z
       .array(z.object({ repo: z.string(), fullTestAtMerge: z.boolean().nullable() }).strict())
+      .max(20)
+      .optional(),
+    /** Per repository: the compute jobs the hub may start (`computeJobs`, PM-1148); a list replaces the whole list, null removes it. Owner-only (`compute_jobs`). */
+    repoComputeJobs: z
+      .array(z.strictObject({ repo: z.string(), computeJobs: ComputeJobDefinitions.nullable() }))
       .max(20)
       .optional(),
     boundary: ProjectConfig.shape.team.shape.boundary,
@@ -112,26 +138,26 @@ export const PatchConfigRequest = z
 export type PatchConfigRequest = z.infer<typeof PatchConfigRequest>;
 
 /** Operator edits replace or explicitly reset only the named built-in roles. */
-export const OperatorRoleOverridesPatch = z.partialRecord(BuiltInRoleId, RoleBundle.nullable());
-export type OperatorRoleOverridesPatch = z.infer<typeof OperatorRoleOverridesPatch>;
+const OperatorRoleOverridesPatch = z.partialRecord(BuiltInRoleId, RoleBundle.nullable());
+type OperatorRoleOverridesPatch = z.infer<typeof OperatorRoleOverridesPatch>;
 
 /**
  * Operator edits of one pipeline label (PM-880): only the name, color and meaning are editable, and the
  * label's other fields (who may set it, gates, clearing rules) stay as they are. `null` removes the color
  * or the meaning. A label without a definition gets one; its name then defaults to its id.
  */
-export const OperatorLabelPatch = z
+const OperatorLabelPatch = z
   .object({
     name: LabelDefinition.shape.name.optional(),
     color: LabelColor.nullable().optional(),
     meaning: LabelDefinition.shape.meaning.unwrap().nullable().optional(),
   })
   .strict();
-export type OperatorLabelPatch = z.infer<typeof OperatorLabelPatch>;
+type OperatorLabelPatch = z.infer<typeof OperatorLabelPatch>;
 
 /** Keyed by label id; the other labels, stages and columns of the pipeline stay unchanged. */
-export const OperatorLabelsPatch = z.record(LabelId, OperatorLabelPatch);
-export type OperatorLabelsPatch = z.infer<typeof OperatorLabelsPatch>;
+const OperatorLabelsPatch = z.record(LabelId, OperatorLabelPatch);
+type OperatorLabelsPatch = z.infer<typeof OperatorLabelsPatch>;
 
 export const OperatorConfigPatch = PatchConfigRequest.omit({ baseVersion: true, message: true }).extend({
   roleOverrides: OperatorRoleOverridesPatch.optional(),
@@ -184,8 +210,8 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
 }
 
 /**
- * The first repository of `repoMerge`, `repoDocs`, `repoReviewTest` or `repoFullTestAtMerge` (in this order)
- * that the configuration does not know (the edit answers `unknown_repo`); null: none.
+ * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoReviewTest`, `repoFullTestAtMerge` or
+ * `repoComputeJobs` (in this order) that the configuration does not know (the edit answers `unknown_repo`); null: none.
  */
 export function unknownPatchRepo(
   config: Pick<ProjectConfig, 'project'>,
@@ -195,10 +221,25 @@ export function unknownPatchRepo(
   return (
     patch.repoMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoDocs?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoHeavyChecks?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoReviewTest?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoFullTestAtMerge?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoComputeJobs?.find((entry) => !known.has(entry.repo))?.repo ??
     null
   );
+}
+
+/** The saved reasons with the patch's applied per rule (null removes one); undefined when none is left. */
+function ruleReasonsAfter(
+  saved: RuleReasons | undefined,
+  changes: PatchConfigRequest['ruleReasons'],
+): RuleReasons | undefined {
+  const merged: RuleReasons = { ...saved };
+  for (const [id, reason] of Object.entries(changes ?? {}) as [keyof RuleReasons, string | null][]) {
+    if (reason === null) delete merged[id];
+    else merged[id] = reason;
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
@@ -218,14 +259,19 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   else if (warnAboveSessionTokens !== undefined) limits.warnAboveSessionTokens = warnAboveSessionTokens;
   if (autoCompactWindowTokens === null) delete limits.autoCompactWindowTokens;
   else if (autoCompactWindowTokens !== undefined) limits.autoCompactWindowTokens = autoCompactWindowTokens;
+  const ruleReasons = ruleReasonsAfter(config.team.ruleReasons, patch.ruleReasons);
   // The last entry for a repository wins.
   const repoMerge = patch.repoMerge && new Map(patch.repoMerge.map((e) => [e.repo, e.requireMerge] as const));
   const repoDocs = patch.repoDocs && new Map(patch.repoDocs.map((e) => [e.repo, e.docs] as const));
+  const repoHeavyChecks =
+    patch.repoHeavyChecks && new Map(patch.repoHeavyChecks.map((e) => [e.repo, e.heavyChecks] as const));
   const repoReviewTest =
     patch.repoReviewTest && new Map(patch.repoReviewTest.map((e) => [e.repo, e.reviewTest] as const));
   const repoFullTestAtMerge =
     patch.repoFullTestAtMerge &&
     new Map(patch.repoFullTestAtMerge.map((e) => [e.repo, e.fullTestAtMerge] as const));
+  const repoComputeJobs =
+    patch.repoComputeJobs && new Map(patch.repoComputeJobs.map((e) => [e.repo, e.computeJobs] as const));
   const feedback = patch.feedback
     ? {
         surfaces: (patch.feedback.surfaces ?? config.project.feedback?.surfaces ?? []).map((surface) => ({
@@ -243,7 +289,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.email ? { email: patch.email } : {}),
       ...(feedback ? { feedback } : {}),
       repos:
-        repoMerge || repoDocs || repoReviewTest || repoFullTestAtMerge
+        repoMerge || repoDocs || repoHeavyChecks || repoReviewTest || repoFullTestAtMerge || repoComputeJobs
           ? config.project.repos.map((repo) => {
               let changed = repo;
               const merge = repoMerge?.get(repo.name);
@@ -252,6 +298,11 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
                 changed = merge === null ? rest : { ...rest, requireMerge: merge };
               }
               const docs = repoDocs?.get(repo.name);
+              const heavyChecks = repoHeavyChecks?.get(repo.name);
+              if (heavyChecks !== undefined) {
+                const { heavyChecks: _previous, ...rest } = changed;
+                changed = heavyChecks === null ? rest : { ...rest, heavyChecks };
+              }
               if (docs !== undefined) {
                 const { docs: _previous, ...rest } = changed;
                 changed = docs === null ? rest : { ...rest, docs };
@@ -266,6 +317,11 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
                 const { fullTestAtMerge: _previous, ...rest } = changed;
                 changed = fullTestAtMerge === null ? rest : { ...rest, fullTestAtMerge };
               }
+              const computeJobs = repoComputeJobs?.get(repo.name);
+              if (computeJobs !== undefined) {
+                const { computeJobs: _previous, ...rest } = changed;
+                changed = computeJobs === null ? rest : { ...rest, computeJobs };
+              }
               return changed;
             })
           : config.project.repos,
@@ -273,9 +329,18 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
     team: {
       ...team,
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
+      ...(patch.taskCreateAccess !== undefined ? { taskCreateAccess: patch.taskCreateAccess } : {}),
       ...(patch.projectManagerMoves !== undefined ? { projectManagerMoves: patch.projectManagerMoves } : {}),
+      ...(patch.projectManagerLifecycle !== undefined
+        ? { projectManagerLifecycle: patch.projectManagerLifecycle }
+        : {}),
+      ...(patch.prerequisiteOverride !== undefined
+        ? { prerequisiteOverride: patch.prerequisiteOverride }
+        : {}),
       ...(patch.prioritySetters !== undefined ? { prioritySetters: patch.prioritySetters } : {}),
       ...(patch.complexitySetters !== undefined ? { complexitySetters: patch.complexitySetters } : {}),
+      ...(patch.assigneeFit !== undefined ? { assigneeFit: patch.assigneeFit } : {}),
+      ...(patch.ruleReasons !== undefined ? { ruleReasons } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),

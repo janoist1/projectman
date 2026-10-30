@@ -14,6 +14,9 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const WORKFLOW_NAME = /^[\w.-]{1,100}$/;
 const RUNS_PER_PAGE = 10;
 const JOBS_PER_PAGE = 100;
+/** A general workflow's runs on the default branch are many; the wanted one is among the newest. */
+const TITLE_RUNS_PER_PAGE = 30;
+const ARTIFACTS_PER_PAGE = 100;
 
 const RunSchema = z.object({
   id: z.number().int().positive(),
@@ -23,8 +26,24 @@ const RunSchema = z.object({
   head_branch: z.string().nullish(),
   html_url: z.string(),
   created_at: z.string(),
+  run_started_at: z.string().nullish(),
+  display_title: z.string().nullish(),
 });
 const RunsSchema = z.object({ workflow_runs: z.array(RunSchema) });
+const ArtifactsSchema = z.object({
+  artifacts: z.array(
+    z.object({
+      name: z.string(),
+      expired: z.boolean(),
+      expires_at: z.string().nullish(),
+      size_in_bytes: z.number().int().nonnegative(),
+    }),
+  ),
+});
+const TimingSchema = z.object({
+  run_duration_ms: z.number().nonnegative().nullish(),
+  billable: z.record(z.string(), z.object({ total_ms: z.number().nonnegative() })).nullish(),
+});
 const StepSchema = z.object({
   name: z.string(),
   status: z.string().nullish(),
@@ -54,6 +73,7 @@ function toRunInfo(run: GhRun): WorkflowRunInfo {
     headBranch: run.head_branch ?? '',
     htmlUrl: run.html_url,
     createdAt: run.created_at,
+    ...(run.run_started_at ? { runStartedAt: run.run_started_at } : {}),
   };
 }
 
@@ -155,11 +175,53 @@ export function createGithubActionsClient(
       return found ? toRunInfo(found) : null;
     },
 
+    async findRunByTitle(repo, workflow, input, signal) {
+      assertTarget(repo, workflow);
+      if (!isValidBranch(input.branch))
+        throw new GithubError('invalid_argument', `invalid branch "${input.branch}"`);
+      const query = `branch=${encodeURIComponent(input.branch)}&event=workflow_dispatch&per_page=${TITLE_RUNS_PER_PAGE}`;
+      const stdout = await run(['api', `repos/${repo}/actions/workflows/${workflow}/runs?${query}`], {
+        signal,
+      });
+      const found = parse(RunsSchema, stdout, 'gh api workflow runs')
+        .workflow_runs.filter((item) => item.display_title === input.displayTitle)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+      return found ? toRunInfo(found) : null;
+    },
+
     async getRun(repo, runId, signal) {
       assertTarget(repo);
       assertId(runId, 'run');
       const stdout = await run(['api', `repos/${repo}/actions/runs/${runId}`], { signal });
       return toRunInfo(parse(RunSchema, stdout, 'gh api workflow run'));
+    },
+
+    async listArtifacts(repo, runId, signal) {
+      assertTarget(repo);
+      assertId(runId, 'run');
+      const stdout = await run(
+        ['api', `repos/${repo}/actions/runs/${runId}/artifacts?per_page=${ARTIFACTS_PER_PAGE}`],
+        { signal },
+      );
+      return parse(ArtifactsSchema, stdout, 'gh api run artifacts').artifacts.map((artifact) => ({
+        name: artifact.name,
+        expired: artifact.expired,
+        expiresAt: artifact.expires_at ?? null,
+        sizeBytes: artifact.size_in_bytes,
+      }));
+    },
+
+    async runTiming(repo, runId, signal) {
+      assertTarget(repo);
+      assertId(runId, 'run');
+      const stdout = await run(['api', `repos/${repo}/actions/runs/${runId}/timing`], { signal });
+      const timing = parse(TimingSchema, stdout, 'gh api run timing');
+      return {
+        runDurationMs: timing.run_duration_ms ?? null,
+        billableMs: timing.billable
+          ? Object.values(timing.billable).reduce((sum, entry) => sum + entry.total_ms, 0)
+          : null,
+      };
     },
 
     async listJobs(repo, runId, signal) {

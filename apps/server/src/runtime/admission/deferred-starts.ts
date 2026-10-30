@@ -175,9 +175,10 @@ export interface QueueWait {
 
 /** What the member queue's wake-ups wait for: they carry the wait on the queue item, not a deferral. */
 interface QueueWaitReader {
-  ofTask(task: Task): TaskStartWaiting[];
   all(): QueueWait[];
 }
+
+const cardKey = (projectKey: string, taskKey: string | null) => `${projectKey}\0${taskKey}`;
 
 /** The wait of a queued item as a card shows it; null for a code no start waits for (a hold, an unknown one). */
 export function queueItemWaiting(item: StoredMemberQueueItem): TaskStartWaiting | null {
@@ -218,7 +219,8 @@ export class DeferredStarts {
   private rebuild: ((spec: StartSpec) => AutomaticStart | null) | undefined;
   /** The keys of the starts under a new attempt, with the card each belongs to (none if the deferral was gone). */
   private readonly inFlight = new Map<string, { projectKey: string; taskKey: string | null } | null>();
-  private listing = false;
+  /** While many cards are read: the queued waits of every project, by card, loaded once. */
+  private waitsByCard: Map<string, TaskStartWaiting[]> | undefined;
 
   /** `store`: where the deferrals are kept besides memory (none: only in memory). */
   constructor(store?: DeferredStartStore, queue?: StartQueue) {
@@ -232,7 +234,7 @@ export class DeferredStarts {
    * settles, so that a restart in the middle of one does not lose the start.
    */
   take(key: string): DeferredStart | undefined {
-    const entry = this.entries.get(key) ?? this.list().find((entry) => entry.start.key === key);
+    const entry = this.entries.get(key) ?? this.fromQueue(key);
     this.entries.delete(key);
     this.inFlight.set(
       key,
@@ -292,24 +294,19 @@ export class DeferredStarts {
     return this.entries.get(entry.start.key) === entry;
   }
 
-  /** The deferrals, oldest first. */
+  /** The deferrals the store keeps, oldest first. A queue-held start is in it too: `restore` and `keep` put it here. */
   list(): DeferredStart[] {
-    const entries = new Map(this.entries);
-    // Rebuilding reads task views, whose startWaiting in turn reads this list.
-    if (this.listing) return [...entries.values()];
-    this.listing = true;
-    try {
-      for (const record of this.queue?.records() ?? []) {
-        if (entries.has(record.key) || this.inFlight.has(record.key)) continue;
-        const spec = StartSpec.safeParse(record.spec);
-        const waiting = TaskStartWaiting.safeParse(record.waiting);
-        const start = spec.success ? this.rebuild?.(spec.data) : null;
-        if (start && waiting.success) entries.set(record.key, { start, waiting: waiting.data });
-      }
-    } finally {
-      this.listing = false;
-    }
-    return [...entries.values()];
+    return [...this.entries.values()];
+  }
+
+  /** A start only its queue item holds (it was not kept here), rebuilt from the item. */
+  private fromQueue(key: string): DeferredStart | undefined {
+    const record = this.queue?.records().find((record) => record.key === key);
+    if (!record || this.inFlight.has(key)) return undefined;
+    const spec = StartSpec.safeParse(record.spec);
+    const waiting = TaskStartWaiting.safeParse(record.waiting);
+    const start = spec.success ? this.rebuild?.(spec.data) : null;
+    return start && waiting.success ? { start, waiting: waiting.data } : undefined;
   }
 
   /** Whether a kept deferral of the project names the member: a handle rename waits until none does (PM-1025). */
@@ -331,13 +328,39 @@ export class DeferredStarts {
     return this.queueWaitReader?.all() ?? [];
   }
 
+  /**
+   * Runs a synchronous read of many cards with the queued waits loaded once, grouped by card: the cards
+   * then do not each scan the member queue.
+   */
+  reading<T>(read: () => T): T {
+    if (this.waitsByCard || !this.queueWaitReader) return read();
+    const byCard = new Map<string, TaskStartWaiting[]>();
+    for (const wait of this.queueWaits()) {
+      const key = cardKey(wait.projectKey, wait.taskKey);
+      byCard.set(key, [...(byCard.get(key) ?? []), wait.waiting]);
+    }
+    this.waitsByCard = byCard;
+    try {
+      return read();
+    } finally {
+      this.waitsByCard = undefined;
+    }
+  }
+
+  private queuedWaitsOf(task: Task): TaskStartWaiting[] {
+    if (this.waitsByCard) return this.waitsByCard.get(cardKey(task.projectKey, task.key)) ?? [];
+    return this.queueWaits()
+      .filter((wait) => wait.projectKey === task.projectKey && wait.taskKey === task.key)
+      .map((wait) => wait.waiting);
+  }
+
   /** Why AI work on the task waits: its earliest deferral that still applies or its earliest queued wake-up that waits, if any. */
   waitingFor(task: Task): TaskStartWaiting | undefined {
     const waiting = [
       ...this.forTask(task)
         .filter((entry) => entry.start.stillValid(task) && !this.held(entry.start))
         .map((entry) => entry.waiting),
-      ...(this.queueWaitReader?.ofTask(task) ?? []),
+      ...this.queuedWaitsOf(task),
     ].sort((a, b) => a.since.localeCompare(b.since))[0];
     if (waiting?.reason !== 'member_at_capacity' || !waiting.member) return waiting;
     // What holds the member's places is read now, never stored: it shows the present situation (PM-297).

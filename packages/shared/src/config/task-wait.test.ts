@@ -144,7 +144,7 @@ const handles = (result: ReturnType<typeof wait>) => result?.next.map((member) =
 
 it('shows an intentional ready hold with its own start time, leaving ordinary ready unchanged', () => {
   const task = card({ stageId: 'ready', assignee: null, labels: ['scope-ok'] });
-  const hold = { reason: 'focus_order' as const, since: NOW };
+  const hold = { reason: 'no_free_member' as const, since: NOW };
   expect(wait({ ...task, readyHold: hold })).toMatchObject({
     reason: 'ready',
     hold,
@@ -165,7 +165,7 @@ it('waits for the member asked to start a startable card (PM-804), and a hold wi
     toStageId: 'dev',
     next: [{ handle: 'pm' }],
   });
-  const readyHold = { reason: 'focus_order' as const, since: NOW };
+  const readyHold = { reason: 'no_free_member' as const, since: NOW };
   expect(wait({ ...task, startOffer, readyHold })).toMatchObject({
     reason: 'ready',
     hold: readyHold,

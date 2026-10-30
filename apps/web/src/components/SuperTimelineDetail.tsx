@@ -13,7 +13,7 @@ import { Fold } from './Fold';
 import { ErrorBanner } from './ErrorBanner';
 import { Chip } from './Chip';
 
-/** The event keeps only ids and state. Owner-only DTO reads supply the reason and links. */
+/** The event keeps only ids and state. The owner-only operation read supplies the command and its result. */
 export function SuperTimelineDetail({
   event,
   events,
@@ -26,36 +26,26 @@ export function SuperTimelineDetail({
   const project = useContext(ProjectContext);
   const allowed = project?.isOwner === true;
   const operationId = typeof event.data.operationId === 'string' ? event.data.operationId : '';
-  const handoffId = typeof event.data.handoffId === 'string' ? event.data.handoffId : '';
-  const handoffs = useQuery({
-    queryKey: ['project', event.projectKey, 'super-handoffs', 'detail', handoffId],
-    queryFn: () => api.superHandoff(event.projectKey, handoffId),
-    enabled: allowed && !!handoffId,
-  });
   const operation = useQuery({
     queryKey: ['project', event.projectKey, 'super-operation', operationId],
     queryFn: () => api.superOperation(event.projectKey, operationId),
     enabled: allowed && !!operationId,
   });
-  const handoff = handoffs.data?.handoff;
   const op = operation.data?.operation;
   const result = operation.data?.result;
-  const ownerCommand = op?.command.kind === 'administration' && op.command.request.kind === 'owner_command';
+  const ownerCommand =
+    op?.command.kind === 'administration' &&
+    typeof op.command.request === 'object' &&
+    op.command.request !== null &&
+    'kind' in op.command.request &&
+    op.command.request.kind === 'owner_command';
   const state = SuperState.safeParse(event.data.state);
   const source = op?.handoffId
     ? events.find((item) => item.type === 'super_handoff_changed' && item.data.handoffId === op.handoffId)
     : undefined;
   return (
     <span>
-      {!handoff && !op ? <span>{fallback} </span> : null}
-      {handoff ? (
-        <span>
-          {t('superMode.handedOff', {
-            operation: t(`superMode.commands.${handoff.command.kind}`),
-            reason: handoff.reason,
-          })}{' '}
-        </span>
-      ) : null}
+      {!op ? <span>{fallback} </span> : null}
       {op ? (
         <span>
           {ownerCommand
@@ -77,25 +67,11 @@ export function SuperTimelineDetail({
           {' '}
           <Link to={`#timeline-${source.id}`}>{t('superMode.handoff')}</Link>
         </>
-      ) : op?.handoffId ? (
-        <>
-          {' '}
-          <Link to={`/p/${event.projectKey}/sessions?by=super#handoff-${op.handoffId}`}>
-            {t('superMode.handoff')}
-          </Link>
-        </>
       ) : null}
-      {handoffs.isError || operation.isError ? (
+      {operation.isError ? (
         <span role="alert">
           {t('superMode.detailError')}{' '}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              if (handoffId) void handoffs.refetch();
-              if (operationId) void operation.refetch();
-            }}
-          >
+          <Button variant="ghost" size="sm" onClick={() => void operation.refetch()}>
             {t('app.retry')}
           </Button>
         </span>

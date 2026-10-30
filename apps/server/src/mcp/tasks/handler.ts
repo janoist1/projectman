@@ -1,16 +1,11 @@
-import {
-  effectiveRepo,
-  isOpenTask,
-  isTheme,
-  needsRepoChoice,
-  TaskStatus as TaskStatusSchema,
-} from '@projectman/shared';
+import { effectiveRepo, isTheme, needsRepoChoice, TaskStatus as TaskStatusSchema } from '@projectman/shared';
 import type {
   OperatorAction,
   ProjectConfig,
   Task,
   TaskKind,
   TaskPriority,
+  AcceptanceChange,
   AddRelationRef,
   ComplexityRequest,
   RelationsChange,
@@ -30,7 +25,6 @@ import type { CardQuestions } from '../../core/inbox';
 import { DomainError } from '../../kernel';
 import { visibleTaskDetail, visibleTimelineEvent } from '../../core/projects';
 import type { Viewer } from '../../core/projects';
-import type { ProjectFocusService } from '../../core/tasks';
 import type { SessionCloser } from '../../runtime/sessions';
 import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { TaskService, TaskWaits } from '../../core/tasks';
@@ -48,13 +42,12 @@ export class TaskTools implements TaskToolsHandler {
   private readonly ctx: DomainContext;
   private readonly tasks: Pick<
     TaskService,
-    'list' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
+    'listQuery' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
   >;
   private readonly timeline: Pick<TimelineService, 'get'>;
   private readonly attachments: Pick<AttachmentOperations, 'list'>;
   private readonly sessions: Pick<SessionOrchestrator, 'cardWorkers' | 'cardWorkersFor'>;
   private readonly cardQuestions: Pick<CardQuestions, 'list'>;
-  private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
   private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly closer: Pick<SessionCloser, 'workReturned'>;
   constructor(deps: {
@@ -62,13 +55,12 @@ export class TaskTools implements TaskToolsHandler {
     ctx: DomainContext;
     tasks: Pick<
       TaskService,
-      'list' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
+      'listQuery' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
     >;
     timeline: Pick<TimelineService, 'get'>;
     attachments: Pick<AttachmentOperations, 'list'>;
     sessions: Pick<SessionOrchestrator, 'cardWorkers' | 'cardWorkersFor'>;
     cardQuestions: Pick<CardQuestions, 'list'>;
-    projectFocus: Pick<ProjectFocusService, 'places'>;
     taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
     closer: Pick<SessionCloser, 'workReturned'>;
   }) {
@@ -79,7 +71,6 @@ export class TaskTools implements TaskToolsHandler {
     this.attachments = deps.attachments;
     this.sessions = deps.sessions;
     this.cardQuestions = deps.cardQuestions;
-    this.projectFocus = deps.projectFocus;
     this.taskWaits = deps.taskWaits;
     this.closer = deps.closer;
   }
@@ -95,18 +86,14 @@ export class TaskTools implements TaskToolsHandler {
         throw new TeamToolError('invalid', 'limit must be an integer between 1 and 200.');
       }
       const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
-      const places = this.projectFocus.places(ctx.projectKey);
-      const cards = this.tasks
-        .list(ctx.projectKey)
-        .filter(
-          (task) =>
-            (status === 'open' ? isOpenTask(task) : task.status === status) &&
-            // A theme is in no stage (it carries the first one's id because the field is required).
-            (args.stage === undefined || (!isTheme(task) && task.stageId === args.stage)) &&
-            (assignee === undefined || task.assignee === assignee),
-        )
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key))
-        .slice(0, limit);
+      // The status, stage (a theme is in no stage), assignee and limit are applied in SQL.
+      const cards = this.tasks.listQuery(ctx.projectKey, {
+        kind: 'listed',
+        status,
+        ...(args.stage !== undefined ? { stageId: args.stage } : {}),
+        ...(assignee !== undefined ? { assignee } : {}),
+        limit,
+      });
       const waits = this.taskWaits.of(config, cards);
       return cards.map(
         ({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority, complexity }) => {
@@ -122,7 +109,6 @@ export class TaskTools implements TaskToolsHandler {
             ...(kind === 'theme' ? { kind } : {}),
             ...(complexity ? { complexity: complexity.points } : {}),
             ...(priority !== null ? { priority } : {}),
-            ...(places.has(key) ? { focus: places.get(key) } : {}),
             ...(wait ? { waitsFor: taskWaitShort(wait) } : {}),
           };
         },
@@ -154,6 +140,8 @@ export class TaskTools implements TaskToolsHandler {
       themeKey?: string | null;
       priority?: TaskPriority | null;
       complexity?: ComplexityRequest;
+      despitePrerequisites?: boolean;
+      acceptance?: AcceptanceChange[];
     },
   ): Promise<{ task: Task }> {
     return this.calls.guard(async () => {
@@ -188,6 +176,7 @@ export class TaskTools implements TaskToolsHandler {
       kind?: TaskKind;
       themeKey?: string;
       complexity?: ComplexityRequest;
+      acceptance?: string[];
     },
   ): Promise<{ task: Task }> {
     return this.calls.guard(async () => {
@@ -212,6 +201,7 @@ export class TaskTools implements TaskToolsHandler {
               ...(args.kind ? { kind: args.kind } : {}),
               ...(args.themeKey ? { themeKey: args.themeKey } : {}),
               ...(args.complexity ? { complexity: args.complexity } : {}),
+              ...(args.acceptance?.length ? { acceptance: args.acceptance } : {}),
             },
             aiActor(ctx.member),
             { sessionId: ctx.sessionId },
@@ -257,7 +247,6 @@ export class TaskTools implements TaskToolsHandler {
     const themeCard = detail.task.themeKey ? this.tasks.find(ctx.projectKey, detail.task.themeKey) : null;
     const theme = isTheme(detail.task) ? this.tasks.themeOf(ctx.projectKey, taskKey) : null;
     const cardWorkers = this.sessions.cardWorkersFor(config, detail.task, ctx.member);
-    const focus = this.projectFocus.places(ctx.projectKey).get(taskKey);
     const wait = this.taskWaits.ofCard(config, detail.task);
     const mergeChecks = this.ctx.repos.mergeCheckRuns.list({
       projectKey: ctx.projectKey,
@@ -269,7 +258,6 @@ export class TaskTools implements TaskToolsHandler {
       ...(mergeChecks.length > 0 ? { mergeChecks } : {}),
       ...(wait ? { wait } : {}),
       effectiveRepo: effectiveRepo(config, detail.task),
-      ...(focus ? { focus } : {}),
       repoChoiceNeeded: needsRepoChoice(config, detail.task),
       relations: this.tasks.relationsOf(ctx.projectKey, taskKey),
       ...(themeCard
@@ -341,6 +329,8 @@ export class TaskTools implements TaskToolsHandler {
           ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
           ...(args.priority !== undefined ? { priority: args.priority } : {}),
           ...(args.complexity ? { complexity: args.complexity } : {}),
+          ...(args.despitePrerequisites ? { despitePrerequisites: true } : {}),
+          ...(args.acceptance?.length ? { acceptance: args.acceptance } : {}),
           addLabels: args.addLabels,
           removeLabels: args.removeLabels,
           note: args.note,

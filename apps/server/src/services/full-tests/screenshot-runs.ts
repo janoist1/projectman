@@ -1,10 +1,8 @@
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { OPEN_RELEASE_WORK_ADMISSION, TeamToolError } from '../../contracts';
+import { TeamToolError } from '../../contracts';
 import type {
   EngineHost,
-  ReleaseWorkAdmission,
-  ReleaseWorkPermit,
   ScenarioRefusal,
   ScreenshotExecutor,
   ScreenshotFailure,
@@ -53,8 +51,6 @@ interface ScreenshotRunsDeps {
   /** Default `SCREENSHOT_RUN_TIMEOUT_MS`. */
   runTimeoutMs?: number;
   now?: () => number;
-  /** The release gate (PM-752); absent: never held. */
-  work?: ReleaseWorkAdmission;
 }
 
 interface Run {
@@ -76,7 +72,6 @@ interface Run {
   over: Promise<void>;
   settle: () => void;
   /** The release gate's reservation (PM-752); freed when the run is over. */
-  permit?: ReleaseWorkPermit;
 }
 
 /**
@@ -128,18 +123,6 @@ export class ScreenshotRuns {
       );
     // The run is registered before the first await, so a parallel call of the session sees it as active.
     const run = this.register(ctx, scope);
-    // A hybrid release's maintenance fence (PM-752): no run starts while the program is being switched.
-    const permit = (this.deps.work ?? OPEN_RELEASE_WORK_ADMISSION).tryAcquire('screenshot', run.id);
-    if (!permit) {
-      this.runs.delete(run.id);
-      run.ending = true;
-      run.settle();
-      throw new TeamToolError(
-        'forbidden',
-        'The program is being updated: no screenshot run starts now. Try again in a few minutes.',
-      );
-    }
-    run.permit = permit;
     let scenario: string;
     try {
       const resolved = await disk.resolveScenario(
@@ -155,7 +138,6 @@ export class ScreenshotRuns {
     } catch (err) {
       this.runs.delete(run.id);
       run.ending = true;
-      run.permit?.release();
       run.settle();
       throw err;
     }
@@ -273,7 +255,6 @@ export class ScreenshotRuns {
       run.output = this.deps.outputTail(result.output, OUTPUT_TAIL_CHARS);
       if (result.failure) run.failure = result.failure;
       run.status = result.failure ? 'failed' : 'done';
-      run.permit?.release();
       run.settle();
     };
     // A stopped run's folder is going away: nothing to list.

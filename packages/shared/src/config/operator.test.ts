@@ -251,6 +251,7 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['project manager moves', (n) => (n.team.projectManagerMoves = 'start_only')],
     ['priority setters', (n) => (n.team.prioritySetters = [])],
     ['complexity setters', (n) => (n.team.complexitySetters = ['implementation'])],
+    ['project manager lifecycle', (n) => (n.team.projectManagerLifecycle = ['reopen'])],
     ['display name', (n) => (ai(n, 'writer').displayName = 'Author')],
     ['specialty', (n) => (ai(n, 'writer').specialty = 'Documentation')],
     ['provider', (n) => (ai(n, 'writer').provider = 'codex')],
@@ -344,6 +345,7 @@ describe('approval waiver eligibility (PM-691)', () => {
       (n) => (n.project.repos[0]!.reviewTest = { command: 'npm test', maxWorkers: 2, timeoutMinutes: 15 }),
     ],
     ['merger', (n) => (n.team.merger = { kind: 'developer' })],
+    ['prerequisite override', (n) => (n.team.prerequisiteOverride = 'people_and_project_manager')],
     ['boundary', (n) => (n.team.boundary = { enabled: true, leadTimeoutSeconds: 120 })],
     ['operator watch', (n) => (n.team.operatorWatch = 'drive')],
     ['waiver switch', (n) => (n.team.operatorApprovalWaiver = true)],
@@ -777,23 +779,28 @@ describe('operatorConfigVerdict', () => {
     expect(() => patch('unknown')).toThrow();
   });
 
-  it.each(OPERATOR_WATCH_LEVELS)('requires approval for a team watch field set to %s', (level) => {
+  it.each(OPERATOR_WATCH_LEVELS)('decides a team watch field set to %s by its effective level', (level) => {
     const previous = config();
     const next = structuredClone(previous);
     next.team.operatorWatch = level;
-    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
-      level: 'approval',
-      changes: [
-        {
-          area: 'project',
-          target: null,
-          field: 'operatorWatch',
-          before: null,
-          after: level,
-          level: 'approval',
-        },
-      ],
-    });
+    // Restating the default level is no change.
+    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject(
+      level === 'report'
+        ? { level: 'now', changes: [] }
+        : {
+            level: 'approval',
+            changes: [
+              {
+                area: 'project',
+                target: null,
+                field: 'operatorWatch',
+                before: 'report',
+                after: level,
+                level: 'approval',
+              },
+            ],
+          },
+    );
     expect(ownerOnlyChanges(previous, next)).toEqual(level === 'report' ? [] : ['operator_watch']);
     expect(integratorConfigRefusal(previous, next)).toBe(level === 'report' ? null : 'owner_settings');
     const cleared = structuredClone(next);

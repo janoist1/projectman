@@ -1,22 +1,15 @@
 import type { SessionMessages } from '../runtime/delivery';
-import type { ReleaseService } from '../services/releases';
+import type { ReleasePublishService } from '../services/releases';
 import type { AuthDomain } from '../auth';
 import type { WebPushService } from '../services/web-push';
 import type { NtfyService } from '../services/ntfy';
 import type { HostRequestsService } from '../services/host-requests';
-import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../services/super-operator';
+import type { SuperOperations, SuperHandoffService, SuperOperator } from '../services/super-operator';
 import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
 import type { ChangeJournal } from '../core/base';
 import type { AttachmentService, MessageAttachmentService } from '../core/attachments';
-import type {
-  BoardService,
-  CardMeasure,
-  InvolvementService,
-  ProjectFocusService,
-  TaskService,
-  TaskWaits,
-} from '../core/tasks';
+import type { BoardService, CardMeasure, InvolvementService, TaskService, TaskWaits } from '../core/tasks';
 import type { ProjectService, RoleService, ChecklistService } from '../core/projects';
 import type {
   InvitationService,
@@ -42,17 +35,17 @@ import type {
   OperatorPreferences,
   OperatorSignals,
   ProjectManagerChannels,
-} from '../services/operator';
+} from '../services/coordination';
 
 export interface ApiDomain extends AuthDomain {
   readonly checklist: ChecklistService;
-  readonly releases: ReleaseService;
+  readonly releasePublications: ReleasePublishService;
   readonly webPush: WebPushService;
   readonly ntfy: NtfyService;
   readonly hostRequests: HostRequestsService;
   readonly superOperator: SuperOperator;
   readonly superHandoffs: SuperHandoffService;
-  readonly superAdministration: SuperAdministration;
+  readonly superOperations: SuperOperations;
   readonly structure: StructureService;
   readonly attachments: AttachmentService;
   readonly board: BoardService;
@@ -80,7 +73,6 @@ export interface ApiDomain extends AuthDomain {
   readonly outages: WorkOutages;
   readonly pauses: PauseService;
   readonly profiles: MemberProfiles;
-  readonly projectFocus: ProjectFocusService;
   readonly projectManagerChannels: ProjectManagerChannels;
   readonly projects: ProjectService;
   readonly providerKeys: ProviderKeys | null;

@@ -5,23 +5,20 @@ import type { Task, TimelineEvent } from '@projectman/shared';
  * it names: there is no "every card" default, and history that is closed and not named is never read.
  *
  * - `keys`: exactly these cards, closed ones too.
- * - `focus`: these focus roots (closed ones too) and the open cards open roots cover (`projectFocusPlaces`):
- *   a card root's subtasks; a theme root's cards and their subtasks, with the theme read from the parent.
- * - `pull`: the active, unassigned `task` cards of this stage that are urgent or in `focusedKeys`.
+ * - `pull`: the active, unassigned `task` cards of this stage that are urgent.
  * - `queue`: all active `task` cards of this stage, assigned ones too (PM-879).
  * - `children`: the direct subtasks of these cards (open ones, closed too with `includeClosed`).
  * - `open`: every card that is not done or cancelled, themes included.
- * - `closed-worktrees`: done or cancelled `task` cards closed at or before `closedBefore` (a UTC ISO time),
- *   a page of at most `limit` (1-500, default 100) by number, after `afterSeq` (default 0).
+ * - `listed`: the `list_tasks` page: the cards with this status (`open`: not done or cancelled, themes
+ *   included), optionally of one stage (`task` cards only) and one assignee, the newest change first, at most `limit`.
  */
 export type TaskSchedulingQuery =
   | { kind: 'keys'; keys: readonly string[] }
-  | { kind: 'focus'; keys: readonly string[] }
-  | { kind: 'pull'; stageId: string; focusedKeys: readonly string[] }
+  | { kind: 'pull'; stageId: string }
   | { kind: 'queue'; stageId: string }
   | { kind: 'children'; parentKeys: readonly string[]; includeClosed?: boolean }
   | { kind: 'open' }
-  | { kind: 'closed-worktrees'; closedBefore: string; afterSeq?: number; limit?: number };
+  | { kind: 'listed'; status: Task['status'] | 'open'; stageId?: string; assignee?: string; limit: number };
 
 /**
  * The stored cards of one project a scheduling query selects, once each, in ascending number order, with

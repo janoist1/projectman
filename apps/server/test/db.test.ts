@@ -30,6 +30,12 @@ describe('legacy task check migration', () => {
     db.exec('ALTER TABLE projects ADD COLUMN created_by TEXT');
     // And for migration 122 (PM-1064): the handle rename prepares an update of its table.
     db.exec('CREATE TABLE host_requests (opened_by TEXT, project_key TEXT)');
+    // And for migration 130 (PM-1135): the acceptance repository prepares its statements.
+    db.exec(migrations.find((item) => item.version === 130)!.sql);
+    // And for migration 132 (PM-1152): the obligation repository prepares its `pm_told_at` update.
+    db.exec('ALTER TABLE obligations ADD COLUMN pm_told_at TEXT');
+    // And for migration 133 (PM-1148): the compute job run repository prepares its statements.
+    db.exec(migrations.find((item) => item.version === 133)!.sql);
     const repos = createRepositories(db);
     repos.projects.insert({
       key: 'AR',
@@ -42,6 +48,9 @@ describe('legacy task check migration', () => {
     repos.tasks.insert(sampleTask({ labels }));
     db.prepare('UPDATE tasks SET checks = ? WHERE key = ?').run(checks, 'AR-1');
     db.exec('DROP TABLE host_requests');
+    db.exec('DROP TABLE task_acceptance_items');
+    db.exec('DROP TABLE compute_job_runs');
+    db.exec('ALTER TABLE obligations DROP COLUMN pm_told_at');
     db.exec('ALTER TABLE team_messages DROP COLUMN location');
     db.exec('ALTER TABLE team_messages DROP COLUMN places');
     db.exec('ALTER TABLE projects DROP COLUMN created_by');
@@ -129,11 +138,16 @@ it('preserves queue rows and indexes while adding checklist notices', () => {
       `INSERT INTO member_queue_items (id, project_key, member, kind, source_type, source_id, place, queued_at)
       VALUES ('new', 'AR', 'dev-1', 'checklist', 'checklist', 'onboarding', '{"type":"general"}', ?)`,
     ).run(now);
-    expect(
-      db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'member_queue_items_%'")
-        .all(),
-    ).toHaveLength(3);
+    const indexes = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'member_queue_items_%'")
+      .all();
+    expect(indexes).toEqual(
+      expect.arrayContaining([
+        { name: 'member_queue_items_member' },
+        { name: 'member_queue_items_place' },
+        { name: 'member_queue_items_closed' },
+      ]),
+    );
   } finally {
     db.close();
   }

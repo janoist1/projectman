@@ -102,8 +102,6 @@ describe('the command line', { timeout: 60_000 }, () => {
     expect(verify.stdout).toContain('OK');
     const status = run('instance', 'status', '--home', home);
     expect(status.stdout).toContain('standby');
-    const inventory = run('inventory', '--home', home);
-    expect(inventory.stdout).toContain('Inventory of');
   });
 
   it('exits 1 on a refusal and 2 on wrong usage, and never prints the secret', () => {
@@ -113,22 +111,11 @@ describe('the command line', { timeout: 60_000 }, () => {
     expect(broken.status).toBe(1);
     expect(broken.stdout).toContain('secret_missing');
     expect(broken.stdout + broken.stderr).not.toContain(secret);
-    const refused = run(
-      'hybrid',
-      'package',
-      '--home',
-      home,
-      '--out',
-      join(src.root, 'again'),
-      '--engine-name',
-      'Mac',
-      '--cloud',
-      'https://example.com',
-    );
-    expect(refused.status).toBe(1);
-    expect(refused.stderr).toContain('REFUSED');
     expect(run('verify').status).toBe(2);
     expect(run('nonsense').status).toBe(2);
+    // The one-off cutover commands are retired (PM-1116).
+    expect(run('inventory', '--home', home).status).toBe(2);
+    expect(run('hybrid', 'package', '--home', home).status).toBe(2);
     expect(run('instance', 'activate', '--home', home).status).toBe(1);
   });
 

@@ -1,10 +1,4 @@
-import type {
-  HistorySearchResult,
-  HistorySearchStats,
-  HistorySourceRead,
-  HistoryStatsInput,
-  HistoryViewer,
-} from '@projectman/shared';
+import type { HistorySearchResult, HistorySourceRead, HistoryViewer } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type {
   HistoryService,
@@ -15,8 +9,6 @@ import type {
 import { DomainError } from '../../kernel';
 import type { ToolCaller } from '../caller';
 
-const STATS_FORBIDDEN = 'history_stats_forbidden';
-
 /** A refusal of the history tools in words the agent reads: the error code first (`code: message`). */
 function historyToolError(err: unknown): unknown {
   if (err instanceof DomainError)
@@ -26,8 +18,6 @@ function historyToolError(err: unknown): unknown {
     );
   return err;
 }
-
-const statsForbidden = (why: string) => new TeamToolError('forbidden', `${STATS_FORBIDDEN}: ${why}`);
 
 export class HistoryTools implements HistoryToolsHandler {
   private readonly calls: ToolCaller;
@@ -84,13 +74,5 @@ export class HistoryTools implements HistoryToolsHandler {
     } catch (err) {
       throw historyToolError(err);
     }
-  }
-
-  /**
-   * The private statistics (PM-787) were for the Operator alone. With no Operator (decision 66, PM-1076) no
-   * member holds the tool, so every call is the same `history_stats_forbidden`.
-   */
-  async getHistorySearchStats(_ctx: ToolContext, _args: HistoryStatsInput): Promise<HistorySearchStats> {
-    throw statsForbidden('this request may not read the search statistics');
   }
 }

@@ -1,9 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { compareBoardOrder, isTheme } from '@projectman/shared';
 import type { RankedCard, Task } from '@projectman/shared';
 import { useBoard, useConfig, useEngineStatus, useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
-import type { PipelineIndex } from '../../lib/pipeline';
+import type { MemberIndex } from '../../lib/members';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import type { TaskState, TaskStateContext } from '../../lib/taskState';
 import { engineNameMap } from '../engines/engineView';
@@ -38,18 +38,24 @@ export function sortColumnEntries(entries: BoardEntry[], chronological: boolean)
 }
 
 /**
- * The phone list's group: the finished ones by closing time; the others with the later column first
- * (the card nearest to done), each column in its stored order. There is no manual ordering on a phone.
+ * What of the members the card states read: everything but the activity text, which changes with every
+ * tool call and says nothing about a card (PM-1109).
  */
-export function sortGroupEntries(entries: BoardEntry[], pipeline: PipelineIndex): BoardEntry[] {
-  const columnOf = (entry: BoardEntry) => {
-    const column = pipeline.columnOfStage.get(entry.task.stageId);
-    return column ? pipeline.columns.indexOf(column) : -1;
-  };
-  return [...entries].sort((a, b) => {
-    if (a.state.phase === 'done' && b.state.phase === 'done') return byClosing(a, b);
-    return columnOf(b) - columnOf(a) || byRank(a, b);
-  });
+function memberFingerprint(members: MemberIndex): string {
+  return JSON.stringify(
+    [...members.values()].map(({ activity: _activity, taskWork, ...rest }) => ({
+      ...rest,
+      taskWork: taskWork?.map(({ activity: _taskActivity, ...work }) => work),
+    })),
+  );
+}
+
+/** The member index, replaced only when a member changed in a way the card states can show. */
+function useStableMembers(members: MemberIndex): MemberIndex {
+  const fingerprint = memberFingerprint(members);
+  const kept = useRef<{ fingerprint: string; members: MemberIndex } | null>(null);
+  if (kept.current?.fingerprint !== fingerprint) kept.current = { fingerprint, members };
+  return kept.current.members;
 }
 
 /** Board data plus the derived state of every task, shared by the board, the phone list and the drawer. */
@@ -59,7 +65,8 @@ export function useBoardModel() {
   const inbox = useInbox(key);
   // The shared start rule reads the team and the pipeline; the state line is the same for every viewer who gets them.
   const config = useConfig(key, can.readConfig).data?.config;
-  const { members, pipeline } = useProjectIndexes(key);
+  const { members: indexed, pipeline } = useProjectIndexes(key);
+  const members = useStableMembers(indexed);
   const tasks = board.data?.tasks;
   const labels = board.data?.labels;
   const items = inbox.data?.items;

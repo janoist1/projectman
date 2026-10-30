@@ -4,6 +4,7 @@ import { prioritySetterMembers } from '../config/priority';
 import type { ProjectConfig } from '../config/schema';
 import { TaskComplexity } from './complexity';
 import { EngineId } from './engine';
+import { MAX_FIX_EXTRA_ROUNDS } from './fix-extra-rounds';
 import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { TaskHandoff, TaskHandoffRef } from './handoff';
@@ -235,8 +236,7 @@ export const TaskFixLimit = z.object({
   /** The extra rounds given since the count began, also above the limit people allowed (PM-714). */
   extraRounds: z.number().int().nonnegative().optional(),
   remainingExtraRounds: z.number().int().nonnegative().optional(),
-  /** `MAX_FIX_EXTRA_ROUNDS` of `domain/fix-limit`, which this file cannot import. */
-  extraRoundLimit: z.literal(3).optional(),
+  extraRoundLimit: z.literal(MAX_FIX_EXTRA_ROUNDS).optional(),
   /** `lead` and `replan`: the AI member who decides. */
   decider: MemberHandle.nullable(),
   /** `owner`: the people who decide. */

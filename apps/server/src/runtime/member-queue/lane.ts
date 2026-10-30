@@ -32,6 +32,11 @@ export interface MemberQueueLane {
   stillOwed(item: StoredMemberQueueItem): boolean;
   /** A code while something holds the item back (it is neither delivered nor woken for), else null. */
   hold(item: StoredMemberQueueItem): Promise<string | null>;
+  /**
+   * `hold` for a whole run of the member's queue at once, by item id; absent: `hold` per item. A lane whose
+   * hold reads shared state answers all its items from one reading, so the cost does not grow with the queue.
+   */
+  holdAll?(items: StoredMemberQueueItem[]): Promise<Map<string, string | null>>;
   /** Whether the item wakes the member now; absent: the stored flag. */
   wakes?(item: StoredMemberQueueItem, config: ProjectConfig): boolean;
   /** Where the item goes now that its place is gone: another place, `closed` (cancelled), or null (it stays). */
@@ -76,7 +81,9 @@ export interface MemberQueueDriver {
   /** Works the member's queue through; idempotent, one run at a time per member. */
   ensure(projectKey: string, member: string, options?: { deliver?: boolean; net?: boolean }): Promise<void>;
   /** `ensure` for every member that has an open item: the net under every event that could be lost. */
-  sweep(options?: { respectPause?: boolean }): Promise<void>;
+  sweep(): Promise<void>;
+  /** `ensure` for the members that have a queued item waiting for a place, a limit or a hold: what an event retries. */
+  retryWaiting(): Promise<void>;
   register(lane: MemberQueueLane): void;
   /** The member was renamed (PM-1025): forgets what the driver remembers under the old handle. */
   memberRenamed(projectKey: string, from: string): void;

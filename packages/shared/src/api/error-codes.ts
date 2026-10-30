@@ -113,6 +113,8 @@ export const ERROR_CODES = [
   // 409: a start while the member is being renamed
   'member_renaming',
   'project_manager_move_refused',
+  // 403: the PM took a lifecycle action the project settings do not list (PM-1098)
+  'project_manager_lifecycle_refused',
   'builtin_role',
   'role_id_mismatch',
   'already_member',
@@ -179,6 +181,9 @@ export const ERROR_CODES = [
   'complexity_limit_not_developer',
   'specialty_labels_not_developer',
   'self_review_forbidden',
+  // Acceptance items of a card (PM-1135)
+  'acceptance_item_not_found',
+  'acceptance_item_refused',
   'release_four_eyes',
   // The handed-over work has uncommitted changes (PM-183)
   'handover_uncommitted',
@@ -248,6 +253,9 @@ export const ERROR_CODES = [
   // A card recommended for the Senior while every Senior is busy (PM-348): only the automatic start
   // gets it, and waits; a person's Start is answered with the waiting card instead.
   'senior_busy',
+  // The AI member's named assignee exceeds the card's complexity limit or misses its specialty
+  // (`team.assigneeFit`, PM-1136); details: member, reason, points, limit.
+  'assignee_unfit',
   'no_work_stage',
   'not_stage_owner',
   'member_not_scheduled',
@@ -284,14 +292,6 @@ export const ERROR_CODES = [
   // the caller is not the member the card is being handed over from.
   'task_handoff_open',
   'handoff_not_open',
-  // The project's focus (PM-427): only a person who owns the project or prioritizes sets it; the item is
-  // already in it, is not in it, the list is full, or the theme or card is closed.
-  'focus_humans_only',
-  'focus_not_allowed',
-  'focus_item_exists',
-  'focus_item_unknown',
-  'focus_full',
-  'focus_task_closed',
   // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
   // request of the owner; a tool it never calls.
   'operator_owner_only',
@@ -340,6 +340,11 @@ export const ERROR_CODES = [
   'release_already_published',
   'release_tag_taken',
   'release_publish_failed',
+  // The team tool `run_compute_job` (PM-1148): the repository has no such job, two jobs run already, the commit
+  // is not on the repository's GitHub default branch.
+  'compute_job_unknown',
+  'compute_job_busy',
+  'compute_job_commit_unpublished',
   // The hybrid release's durable deployment (PM-752): another attempt or a different request holds the
   // slot, the target or the engine is not the configured one, a foreign pause is open, the work is not
   // drained, the deployment waits for a person's recovery, the protocol is not available for this

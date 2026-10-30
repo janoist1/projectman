@@ -5,9 +5,8 @@
     ".": {
       "entry": [
         "scripts/**/cli.ts",
-        "scripts/administration/builder.ts",
-        "scripts/administration/supervisor.ts",
         "scripts/*.mjs",
+        "scripts/engine-app/bundle-cli.mjs",
         "scripts/scenarios/*.mjs",
         "deploy/cloud/*.mjs",
         "scripts/lib/*guard*.mjs",
@@ -19,7 +18,6 @@
     "apps/server": {
       "entry": [
         "src/index.ts",
-        "src/control/cli.ts",
         "src/history-semantic-profile.ts",
         "src/history-semantic-profile-control.ts",
         "scripts/*.mjs",
@@ -36,7 +34,7 @@
     "apps/feedback-widget": {
       "entry": ["src/main.ts", "vite.dev.config.ts", "shots/*.mjs"]
     },
-    "packages/shared": {},
+    "packages/shared": { "includeEntryExports": true },
     "packages/templates": {}
   }
 }

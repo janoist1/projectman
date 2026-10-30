@@ -22,24 +22,42 @@ export interface RunningSweeps {
 
 class SweepRoundFailed extends Data.TaggedError('SweepRoundFailed')<{ cause: unknown }> {}
 
-function settle(sweep: Sweep): Promise<void> {
+/** A round slower than this is reported: the log then shows which periodic round costs the most (PM-1120). */
+const SLOW_SWEEP_MS = 50;
+
+export interface SweepOptions {
+  /** Called when a round took longer than `SLOW_SWEEP_MS`, with its name and its length in milliseconds. */
+  readonly onSlow?: (name: string, ms: number) => void;
+  /** The clock in milliseconds (default `performance.now`). */
+  readonly clock?: () => number;
+}
+
+function settle(sweep: Sweep, options: SweepOptions): Promise<void> {
+  const clock = options.clock ?? (() => performance.now());
+  const startedAt = clock();
   let started: Promise<void>;
   try {
     started = sweep.run();
   } catch (err) {
     started = Promise.reject(err);
   }
-  return started.catch(sweep.onError);
+  return started.catch(sweep.onError).finally(() => {
+    const ms = clock() - startedAt;
+    if (ms > SLOW_SWEEP_MS) options.onSlow?.(sweep.name, Math.round(ms));
+  });
 }
 
-const makeSweeps = (sweeps: readonly Sweep[]): Effect.Effect<void, never, Scope.Scope> =>
+const makeSweeps = (
+  sweeps: readonly Sweep[],
+  options: SweepOptions,
+): Effect.Effect<void, never, Scope.Scope> =>
   Effect.gen(function* () {
     // Scope closes in reverse order: stop ticks before waiting for rounds (PM-613).
     const rounds = yield* FiberMap.make<string>();
     const tickers = yield* FiberSet.make();
     for (const sweep of sweeps) {
       const round = abortable(
-        () => settle(sweep),
+        () => settle(sweep, options),
         (cause) => new SweepRoundFailed({ cause }),
       ).pipe(Effect.ignore);
       const tick = FiberMap.run(rounds, sweep.name, round, { onlyIfMissing: true }).pipe(Effect.asVoid);
@@ -52,14 +70,14 @@ const makeSweeps = (sweeps: readonly Sweep[]): Effect.Effect<void, never, Scope.
   });
 
 /** Starts nothing if the list contains a duplicate name. */
-export function startSweeps(sweeps: readonly Sweep[]): RunningSweeps {
+export function startSweeps(sweeps: readonly Sweep[], options: SweepOptions = {}): RunningSweeps {
   const names = new Set<string>();
   for (const sweep of sweeps) {
     if (names.has(sweep.name)) throw new Error(`sweep "${sweep.name}" is listed twice`);
     names.add(sweep.name);
   }
   const scope = Scope.makeUnsafe();
-  runFork(Scope.provide(makeSweeps(sweeps), scope));
+  runFork(Scope.provide(makeSweeps(sweeps, options), scope));
   let stopping: Promise<void> | undefined;
   return {
     stop: () => (stopping ??= runPromise(Scope.close(scope, Exit.void))),

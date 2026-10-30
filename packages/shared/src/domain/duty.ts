@@ -35,7 +35,7 @@ export const DutyId = z.enum(DUTY_IDS);
 export type DutyId = z.infer<typeof DutyId>;
 /** Duty groups in display order (the duties matrix shows one section per group). */
 export const DUTY_GROUPS = ['direction', 'delivery', 'quality', 'release', 'communication', 'team'] as const;
-export type DutyGroup = (typeof DUTY_GROUPS)[number];
+type DutyGroup = (typeof DUTY_GROUPS)[number];
 export interface DutyDefinition {
   id: DutyId;
   group: DutyGroup;
@@ -52,7 +52,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Gates and release approvals remain human-only. A team message may hand you a permission request of another member (a tool call its CLI asks about): read its exact content and answer it with decide_permission_request, always with a reason. Never decide your own request; late decisions are refused. Allow only a routine step that plainly belongs to the task, deny what plainly does not, and escalate the rest to a person. Always escalate: spending money; new accounts, tokens or secrets; a lasting widening of what the host reaches; the live system, a release, publishing or main; a request you cannot read completely or fully understand; your own requests. A request that is cut off or unclear is never allowed.',
+      "Gates and release approvals remain human-only. A team message may hand you a permission request of another member (a tool call its CLI asks about): read its exact content and answer it with decide_permission_request, always with a reason. Never decide your own request; late decisions are refused. Allow only a routine step that plainly belongs to the task, deny what plainly does not, and escalate the rest to a person. Always escalate: spending money; new accounts, tokens or secrets; a lasting widening of what the host reaches; the live system, a release, publishing or main; a request you cannot read completely or fully understand; your own requests. A request that is cut off or unclear is never allowed. The PM may forward to you a member's technical question meant for the owner, or a machine step no integrator can take: then you decide and answer the asker with send_message. Ask the owner with ask_human only about an owner matter (cost, direction, scope, approval, access).",
     toolPolicy: 'read_only',
     meetings: [],
     events: [],
@@ -116,7 +116,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Read the code and propose technical plans with risks and tradeoffs; escalate major decisions to a human. When a developer asks a structural question the plan does not cover, answer briefly and quickly with send_message, and record the decision as a note on the task. When a card changes a contract (a schema or type in packages/shared, an API endpoint, a timeline event, an error code, a configuration field), the plan gives its exact shape: fields with their types, function signatures, the endpoint and its response, error codes, default values. The developer must not guess or decide a structure; anything the plan leaves out, the developer asks about. A small card that touches no contract needs no such detail.',
+      'Read the code and propose technical plans with risks and tradeoffs; escalate major decisions to a human. When a developer asks a structural question the plan does not cover, answer briefly and quickly with send_message, and record the decision as a note on the task. When a card changes a contract between modules or with clients (a shared schema or type, an API endpoint, a timeline event, an error code, a configuration field), the plan gives its exact shape: fields with their types, function signatures, the endpoint and its response, error codes, default values. The developer must not guess or decide a structure; anything the plan leaves out, the developer asks about. A small card that touches no contract needs no such detail.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],
@@ -192,7 +192,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'quality',
     holders: 'both',
     prompt:
-      'Review diffs for correctness, errors and missing tests. Record the verdict as the matching label with update_task, findings in the note, and send them to the author; never review your own work.',
+      'Check that the change does what its card asks: every acceptance point is met or explicitly moved to a linked card; then that the code is correct, tested and consistent. Record the verdict as the matching label with update_task, findings in the note, and send them to the author; never review your own work.',
     toolPolicy: 'read_only',
     meetings: [],
     events: ['task_stage_changed'],
@@ -214,7 +214,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'quality',
     holders: 'both',
     prompt:
-      'Test expected behavior and risky paths in a test environment. Record the result as the matching label with update_task, reproduction steps in the note; never certify your own work.',
+      'Test every acceptance point of the card and the risky paths as a user would, in a test environment. Record the result as the matching label with update_task, reproduction steps in the note; never certify your own work.',
     toolPolicy: 'read_only',
     meetings: [],
     events: ['task_stage_changed'],

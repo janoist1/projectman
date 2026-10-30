@@ -24,7 +24,7 @@ export const TaskRelationKind = z.enum([
 export type TaskRelationKind = z.infer<typeof TaskRelationKind>;
 
 /** The kinds in the order a card lists them. */
-export const TASK_RELATION_KINDS: readonly TaskRelationKind[] = TaskRelationKind.options;
+const TASK_RELATION_KINDS: readonly TaskRelationKind[] = TaskRelationKind.options;
 
 /** The kinds that are stored on the card that sets them: the forward ones, which may be added. */
 export const AddableRelationKind = z.enum(['part_of', 'prerequisite', 'related', 'duplicate_of']);
@@ -42,7 +42,7 @@ export const THEME_REFUSED_KINDS: readonly AddableRelationKind[] = ['part_of', '
  * changes (a prerequisite, either way), or another card was closed as this card's duplicate, so its
  * content may belong here. The `duplicate_of` side is no check: that card is closed by it.
  */
-export const ANALYST_CHECK_RELATIONS: readonly TaskRelationKind[] = [
+const ANALYST_CHECK_RELATIONS: readonly TaskRelationKind[] = [
   'prerequisite',
   'prerequisite_of',
   'duplicated_by',
@@ -57,7 +57,7 @@ export function relationAsksAnalyst(kind: TaskRelationKind): boolean {
 export const RELATION_LINK_KINDS = ['prerequisite', 'related', 'duplicate_of'] as const;
 export type RelationLinkKind = (typeof RELATION_LINK_KINDS)[number];
 
-export function isRelationLinkKind(kind: string): kind is RelationLinkKind {
+function isRelationLinkKind(kind: string): kind is RelationLinkKind {
   return (RELATION_LINK_KINDS as readonly string[]).includes(kind);
 }
 
@@ -66,8 +66,8 @@ export function isCardLink(link: Pick<TaskLink, 'kind'>): boolean {
   return isRelationLinkKind(link.kind);
 }
 
-export const RelationRef = z.object({ kind: TaskRelationKind, key: TaskKey });
-export type RelationRef = z.infer<typeof RelationRef>;
+const RelationRef = z.object({ kind: TaskRelationKind, key: TaskKey });
+type RelationRef = z.infer<typeof RelationRef>;
 
 export const AddRelationRef = z.object({ kind: AddableRelationKind, key: TaskKey });
 export type AddRelationRef = z.infer<typeof AddRelationRef>;
@@ -152,7 +152,7 @@ export function openPrerequisites(
 }
 
 /** Why a relation may not be stored: codes of the shared error list. */
-export type RelationRefusalCode =
+type RelationRefusalCode =
   | SubtaskParentRefusal
   | 'relation_self'
   | 'relation_target_not_found'
@@ -312,7 +312,7 @@ export function duplicateMarkRefusal(input: {
   /** The kind of the card's stage; undefined when the stage is not in the pipeline. */
   stageKind: StageKind | undefined;
   hasLiveSession: boolean;
-  /** The actor is a human of admin or owner access: who may cancel a card (`TaskService.cancel`). */
+  /** The actor may cancel the card: `lifecycleAllowed(config, actor, 'cancel')` (`TaskService.cancel`). */
   mayCancel: boolean;
 }): 'duplicate_not_allowed' | null {
   if (!isOpenTask(input.task)) return null;
@@ -329,7 +329,7 @@ export type RelationStep =
   | { type: 'duplicate_close'; original: string };
 
 /** A relation change that is refused: the rule that refuses it, and the card it is about. */
-export type RelationPlanRefusal =
+type RelationPlanRefusal =
   | { refusal: RelationRefusal; key: string }
   | { refusal: { code: 'relation_not_found'; kind: TaskRelationKind }; key: string }
   | { refusal: { code: 'duplicate_not_allowed' }; key: string };

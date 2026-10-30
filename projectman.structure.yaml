@@ -229,6 +229,12 @@ modules:
     summary: A teljes tesztek és a képernyőkép-futtatások vezénylése.
     paths:
       - apps/server/src/services/full-tests/
+  - id: services/compute-jobs
+    area: service
+    name: Gépi feladatok
+    summary: A projekt gépi feladatainak indítása a GitHubon, futásrekorddal és a kártyára írt jegyzettel.
+    paths:
+      - apps/server/src/services/compute-jobs/
   - id: services/releases
     area: service
     name: Kiadások
@@ -307,12 +313,12 @@ modules:
     summary: A kártyák, jegyzetek, lezárt kérdések, üzenetek és dokumentumok tartós keresőindexe.
     paths:
       - apps/server/src/services/history/
-  - id: services/operator
+  - id: services/coordination
     area: service
-    name: Operátor
-    summary: Operátori műveletek, jelzések, kérések és projektkezelés.
+    name: Koordináció
+    summary: A projektmenedzser koordinációja, jelzések, kérések és projektkezelés.
     paths:
-      - apps/server/src/services/operator/
+      - apps/server/src/services/coordination/
 
   # Server: engine
   - id: runner
@@ -345,12 +351,6 @@ modules:
     summary: Gépmérések és a folyamatok elemzése.
     paths:
       - apps/server/src/machine/
-  - id: administration
-    area: engine
-    name: Védett felügyelő
-    summary: A hub és a motor saját gépének védett, típusos felügyelete külön felügyelő folyamaton keresztül.
-    paths:
-      - apps/server/src/administration/
   - id: engine-link
     area: engine
     name: Motorkapocs
@@ -447,12 +447,6 @@ modules:
     summary: A beérkezett visszajelzések nézete.
     paths:
       - apps/web/src/features/feedback/
-  - id: web/focus
-    area: ui
-    name: Fókusz
-    summary: A projekt fókusza – sáv, panel, jelölés és szűrő a táblán.
-    paths:
-      - apps/web/src/features/focus/
   - id: web/how-we-work
     area: ui
     name: Így dolgozunk

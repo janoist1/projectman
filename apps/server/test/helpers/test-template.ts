@@ -1,10 +1,6 @@
-import {
-  DEFAULT_PRIORITY_SETTERS,
-  DEFAULT_PROJECT_MANAGER_MOVES,
-  DEFAULT_VIEWER_RECIPIENTS,
-  ProjectConfig,
-} from '@projectman/shared';
+import { ProjectConfig, storedTeamDefaults } from '@projectman/shared';
 import type { ProjectConfigInput } from '@projectman/shared';
+import { migrateAcceptanceGates } from '@projectman/templates';
 import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates';
 
 /**
@@ -13,7 +9,15 @@ import type { BuildTemplateInput, ProjectTemplate } from '@projectman/templates'
  *   -> merge (gate: labels code-review-ok + merge-ok, an owner approval)
  *   -> release (gate: labels pr-merged + release-ok, a release approval the owner may give) -> done
  */
+/**
+ * The test project as a current configuration: with the acceptance gates and labels the config migration
+ * adds (PM-1135), so that a saved and loaded configuration equals it.
+ */
 function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
+  return migrateAcceptanceGates(plainConfigInput(input));
+}
+
+function plainConfigInput(input: BuildTemplateInput): ProjectConfigInput {
   return {
     schemaVersion: 1,
     project: {
@@ -25,12 +29,9 @@ function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
       templateId: 'test',
     },
     team: {
-      cardMover: input.cardMover ?? { kind: 'worker' },
-      projectManagerMoves: DEFAULT_PROJECT_MANAGER_MOVES,
-      prioritySetters: [...DEFAULT_PRIORITY_SETTERS],
-      viewerRecipients: DEFAULT_VIEWER_RECIPIENTS,
-      // Stored explicitly, as the migration writes it (PM-1097).
-      complexitySetters: ['requirements_analysis', 'task_breakdown'],
+      // Stored explicitly, as the migration writes them.
+      ...storedTeamDefaults(),
+      ...(input.cardMover ? { cardMover: input.cardMover } : {}),
       // Stored explicitly, as the migration writes it; the developer, so that tests may drop the review stage.
       merger: input.merger ?? { kind: 'developer' },
       members: [

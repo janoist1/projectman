@@ -8,6 +8,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   effortForProvider,
   hasPlanUsage,
+  isLiveSession,
   mergeTokenUsage,
   PROJECT_MANAGER_ROLE,
   roleBundle,
@@ -49,7 +50,7 @@ import { errorMessage } from '../../lib/errors';
 import { capacityFrom } from '../../lib/capacity';
 import { inboxHeading } from '../../lib/inbox';
 import { canRenameMember, memberStatusView, renamedTo } from '../../lib/members';
-import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
+import { closureTexts, sessionClosure } from '../../lib/sessions';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
 import { describeCron } from '../../lib/schedules';
@@ -78,15 +79,18 @@ function workName(session: Session): string {
     : t(`pause.progress.work.${session.workItem.type}`);
 }
 
+/** How many of a session's last chat items the profile shows (and asks for). */
+const PEEK_ITEMS = 8;
+
 function SessionPeek({ sessionId }: { sessionId: string }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
-  const detail = useSessionDetail(key, sessionId);
+  const detail = useSessionDetail(key, sessionId, PEEK_ITEMS);
   if (detail.error) return <ErrorState compact error={detail.error} />;
   if (!detail.data) return <LoadingState compact />;
   return (
     <ChatView
-      items={detail.data.chat.slice(-8)}
+      items={detail.data.chat.slice(-PEEK_ITEMS)}
       members={members}
       myHandle={myHandle}
       sessionMember={detail.data.session.member}

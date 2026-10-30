@@ -33,7 +33,10 @@ export function issueTarget(path: string, config: ProjectConfig): IssueTarget | 
   if (starts('team.contacts')) return { section: 'team', field: 'contacts' };
   if (starts('team.merger')) return { section: 'team', field: 'merger' };
   if (starts('team.cardMover')) return { section: 'team', field: 'cardMover' };
+  if (starts('team.taskCreateAccess')) return { section: 'team', field: 'taskCreateAccess' };
+  if (starts('team.prerequisiteOverride')) return { section: 'team', field: 'prerequisiteOverride' };
   if (starts('team.prioritySetters')) return { section: 'team', field: 'prioritySetters' };
+  if (starts('team.projectManagerLifecycle')) return { section: 'team', field: 'projectManagerLifecycle' };
   if (starts('team.complexitySetters')) return { section: 'team', field: 'complexitySetters' };
   if (starts('team')) return { section: 'duties' };
   if (starts('project.repos')) return { section: 'repos' };

@@ -24,6 +24,9 @@ export function createOperatorSignalRepository(db: Db) {
   const listOpen = db.prepare(
     `SELECT ${columns} FROM operator_signals WHERE project_key = ? AND resolved_at IS NULL ORDER BY raised_at, rowid`,
   );
+  const listSince = db.prepare(
+    `SELECT ${columns} FROM operator_signals WHERE project_key = ? AND raised_at >= ? ORDER BY raised_at, rowid`,
+  );
   const openByCase = db.prepare(`SELECT ${columns} FROM operator_signals
     WHERE project_key = ? AND case_key = ? AND resolved_at IS NULL`);
   return {
@@ -63,6 +66,35 @@ export function createOperatorSignalRepository(db: Db) {
     },
     listOpen(projectKey: string): OperatorSignalRecord[] {
       return (listOpen.all(projectKey) as Row[]).map(record);
+    },
+    /** The signals raised at or after `since` (ISO time), oldest first. */
+    listSince(projectKey: string, since: string): OperatorSignalRecord[] {
+      return (listSince.all(projectKey, since) as Row[]).map(record);
+    },
+    /** The latest delivery among the signals of these kinds (`except`: of all other kinds); null: none was delivered. */
+    lastDeliveredAt(
+      projectKey: string,
+      kinds: readonly OperatorSignalKind[],
+      scope: 'only' | 'except',
+    ): string | null {
+      const marks = kinds.map(() => '?').join(', ');
+      const row = db
+        .prepare(
+          `SELECT MAX(delivered_at) AS at FROM operator_signals
+          WHERE project_key = ? AND kind ${scope === 'only' ? 'IN' : 'NOT IN'} (${marks})`,
+        )
+        .get(projectKey, ...kinds) as { at: string | null };
+      return row.at;
+    },
+    /** Whether a signal of these kinds was delivered after `since`. */
+    deliveredAfter(projectKey: string, kinds: readonly OperatorSignalKind[], since: string): boolean {
+      const marks = kinds.map(() => '?').join(', ');
+      return !!db
+        .prepare(
+          `SELECT 1 FROM operator_signals
+          WHERE project_key = ? AND kind IN (${marks}) AND delivered_at > ? LIMIT 1`,
+        )
+        .get(projectKey, ...kinds, since);
     },
     insert(signal: OperatorSignalRecord): void {
       db.prepare(

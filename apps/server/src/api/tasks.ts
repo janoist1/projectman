@@ -3,16 +3,18 @@ import { z } from 'zod';
 import {
   BoardMoveRequest,
   canCommentOnTask,
+  canCreateTasks,
   ChangeTaskLabelsRequest,
   MAX_CLOSED_CARDS_DAYS,
   CreateTaskCommentRequest,
   CancelTaskRequest,
   CloseThemeRequest,
   CreateTaskRequest,
+  createsInFirstStageOnly,
   ReopenTaskRequest,
   routes,
   StartTaskRequest,
-  TASK_CREATE_MIN_ACCESS,
+  taskCreateAccessOf,
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type {
@@ -46,7 +48,8 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
       (id) => domain.messages.get(id),
     );
     const wait = domain.taskWaits.ofCard(await domain.projects.config(key), detail.task, access.handle);
-    return wait ? { ...detail, wait } : detail;
+    const steps = domain.taskWaits.stepsOf(detail.task, access);
+    return { ...detail, ...(wait ? { wait } : {}), ...(steps ? { steps } : {}) };
   };
   app.get<ProjectParams>(routes.tasks(':key'), async (request): Promise<Task[]> => {
     const access = await requireAccess(domain, request, request.params.key);
@@ -54,10 +57,21 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
   });
 
   app.post<ProjectParams>(routes.tasks(':key'), async (request, reply) => {
-    const access = await requireAccess(domain, request, request.params.key, {
-      minimum: TASK_CREATE_MIN_ACCESS,
-    });
+    const access = await requireAccess(domain, request, request.params.key);
+    const config = await domain.projects.config(request.params.key);
+    if (!canCreateTasks(config, access.access))
+      throw forbidden(
+        'insufficient_access',
+        `requires ${taskCreateAccessOf(config)} access to create a card`,
+      );
     const body = parseBody(CreateTaskRequest, request.body);
+    // A client's card is triaged by the owners: later stages are for developers (PM-1100).
+    if (
+      body.stageId !== undefined &&
+      body.stageId !== config.pipeline.stages[0]?.id &&
+      createsInFirstStageOnly(access.access)
+    )
+      throw forbidden('insufficient_access', 'a client opens cards in the first stage only');
     const task = await domain.tasks.create(request.params.key, body, actorOf(access));
     return reply.code(201).send(task);
   });

@@ -30,7 +30,7 @@ import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { splitQuestion } from '../../lib/inbox';
-import { actorLabel, nameOf, namesOf } from '../../lib/members';
+import { actorLabel, distinctMembers, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { useDismiss, useIsMobile } from '../../lib/hooks';
 import { InboxCard } from '../inbox/InboxCard';
@@ -239,7 +239,7 @@ export function TaskThread({
       contacts.canWriteTo(handle)
     );
   };
-  const candidates = [...members.values()].filter(
+  const candidates = distinctMembers(members).filter(
     (member) => member.handle !== myHandle && canReceive(member.handle),
   );
   const computed = cardThreadRecipients({

@@ -15,12 +15,18 @@ import {
   hasAccess,
   isDeveloper,
   mergerOf,
+  prerequisiteOverrideOf,
   PrioritySetter,
   prioritySetterCandidates,
   prioritySetterMembers,
   prioritySettersOf,
+  ProjectManagerLifecycleAction,
+  projectManagerLifecycleOf,
   projectManagerMovesOf,
   projectManagerOf,
+  projectManagersOf,
+  TaskCreateAccess,
+  taskCreateAccessOf,
   viewerRecipientsOf,
   writableRecipientHandles,
 } from '@projectman/shared';
@@ -195,6 +201,103 @@ function ProjectManagerMovesControls({ config }: { config: ProjectConfig }) {
   );
 }
 
+/** The lifecycle actions the project manager may take on its own as lines, for those who may not change them. */
+function lifecycleValue(config: ProjectConfig): string[] {
+  const chosen = projectManagerLifecycleOf(config);
+  return ProjectManagerLifecycleAction.options
+    .filter((action) => chosen.includes(action))
+    .map((action) => t(`settings.team.projectManagerLifecycle.${action}`));
+}
+
+/** What the project manager may do to a card's life on its own (PM-1098): a tick per action. Saves as it changes. */
+function ProjectManagerLifecycleControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const chosen = projectManagerLifecycleOf(shown);
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-describedby={helpId}
+    >
+      <legend className={shared.setterLegend}>{t('settings.team.projectManagerLifecycle.question')}</legend>
+      {ProjectManagerLifecycleAction.options.map((action) => (
+        <label key={action} className={shared.contactRow}>
+          <input
+            type="checkbox"
+            checked={chosen.includes(action)}
+            onChange={(event) =>
+              commit((draft) => {
+                const on = projectManagerLifecycleOf(draft);
+                draft.team.projectManagerLifecycle = ProjectManagerLifecycleAction.options.filter((id) =>
+                  id === action ? event.target.checked : on.includes(id),
+                );
+              })
+            }
+          />
+          <span className={shared.dutyText}>
+            <span>{t(`settings.team.projectManagerLifecycle.${action}`)}</span>
+            <span className={shared.dutyHolders}>
+              {t(`settings.team.projectManagerLifecycle.${action}Note`)}
+            </span>
+          </span>
+        </label>
+      ))}
+      {projectManagerOf(shown) === null ? (
+        <p className={shared.muted}>{t('settings.team.projectManagerLifecycle.noProjectManager')}</p>
+      ) : chosen.length === 0 ? (
+        <p className={shared.muted}>{t('settings.team.projectManagerLifecycle.adminsOnly')}</p>
+      ) : null}
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
+/**
+ * Whether the project manager may start a card despite an open prerequisite (PM-1099): one tick, with the
+ * member it reaches now. Saves as it changes.
+ */
+function PrerequisiteOverrideControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const noteId = useId();
+  const allowed = prerequisiteOverrideOf(shown) === 'people_and_project_manager';
+  const names = projectManagersOf(shown).map((member) => member.displayName);
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-describedby={helpId}
+    >
+      <legend className={shared.setterLegend}>{t('settings.team.prerequisiteOverride.question')}</legend>
+      <div>
+        <label className={shared.contactRow}>
+          <input
+            type="checkbox"
+            checked={allowed}
+            aria-describedby={noteId}
+            onChange={(event) =>
+              commit((draft) => {
+                draft.team.prerequisiteOverride = event.target.checked
+                  ? 'people_and_project_manager'
+                  : 'people';
+              })
+            }
+          />
+          <span>{t('settings.team.prerequisiteOverride.project_manager')}</span>
+        </label>
+        <p id={noteId} className={`${shared.muted} ${shared.setterNote}`}>
+          {names.length
+            ? t('settings.team.prerequisiteOverride.covers', { names: names.join(', ') })
+            : t('settings.team.prerequisiteOverride.noProjectManager')}
+        </p>
+      </div>
+      {allowed ? null : <p className={shared.muted}>{t('settings.team.prerequisiteOverride.humansOnly')}</p>}
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
 /** The names of the AI members a priority source covers now, in team order. */
 function setterNames(config: ProjectConfig, setter: PrioritySetter): string[] {
   return prioritySetterCandidates(config, setter).map((member) => member.displayName);
@@ -264,6 +367,84 @@ function PriorityControls({ config, helpId }: { config: ProjectConfig; helpId: s
         );
       })}
       {chosen.length === 0 ? <p className={shared.muted}>{t('settings.team.priority.humansOnly')}</p> : null}
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
+/** Whether the AI members' explicit assignments also have to fit the complexity limit (PM-1137). Saves as it changes. */
+function AssigneeFitControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const noteId = useId();
+  return (
+    <fieldset
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-describedby={helpId}
+    >
+      <label className={`${shared.contactRow} ${shared.choiceRow}`}>
+        <input
+          type="checkbox"
+          checked={shown.team.assigneeFit === 'automatic_and_ai'}
+          aria-describedby={noteId}
+          onChange={(event) =>
+            commit((draft) => {
+              draft.team.assigneeFit = event.target.checked ? 'automatic_and_ai' : 'automatic';
+            })
+          }
+        />
+        <span className={shared.dutyText}>
+          <span>{t('settings.team.assigneeFit.question')}</span>
+          <span id={noteId} className={shared.dutyHolders}>
+            {t('settings.team.assigneeFit.note')}
+          </span>
+        </span>
+      </label>
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
+/** The first stage's name: where a client's new card starts (PM-1100). */
+function firstStageName(config: ProjectConfig): string {
+  return config.pipeline.stages[0]?.name ?? '';
+}
+
+/** Who may open a new card: four radios, each listing the roles it lets in, saved at once (PM-1100). */
+function TaskCreateControls({ config }: { config: ProjectConfig }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const chosen = taskCreateAccessOf(shown);
+  const noteId = useId();
+  return (
+    <fieldset className={shared.controls} disabled={locked || saving} aria-busy={saving}>
+      <legend className={shared.setterLegend}>{t('settings.team.taskCreate.question')}</legend>
+      <div className={shared.choiceList}>
+        {TaskCreateAccess.options.map((access) => (
+          <label key={access} className={`${shared.contactRow} ${shared.choiceRow}`}>
+            <input
+              type="radio"
+              name="task-create-access"
+              value={access}
+              checked={chosen === access}
+              aria-describedby={access === 'client' ? noteId : undefined}
+              onChange={() =>
+                commit((draft) => {
+                  draft.team.taskCreateAccess = access;
+                })
+              }
+            />
+            <span className={shared.dutyText}>
+              <span>{t(`settings.team.taskCreate.options.${access}`)}</span>
+              {access === 'client' ? (
+                <span id={noteId} className={shared.dutyHolders}>
+                  {t('settings.team.taskCreate.clientNote', { stage: firstStageName(shown) })}
+                </span>
+              ) : null}
+            </span>
+          </label>
+        ))}
+      </div>
       {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
     </fieldset>
   );
@@ -595,9 +776,12 @@ function ContactControls({ config }: { config: ProjectConfig }) {
  * merges the approved work into the main branch (PM-453).
  */
 export function TeamSection({ config }: { config: ProjectConfig }) {
-  const { key, can } = useProject();
+  const { key, can, isOwner } = useProject();
   const roles = useRoles(key);
   const priorityHelpId = useId();
+  const assigneeFitHelpId = useId();
+  const lifecycleHelpId = useId();
+  const prerequisiteHelpId = useId();
   return (
     <SettingsSection id="settings-team" title={t('settings.sections.team')}>
       <ul className={shared.members}>
@@ -622,6 +806,34 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
       <p className={shared.muted}>
         <Link to={`/p/${key}/team`}>{t('settings.team.manage')}</Link>
       </p>
+      <section aria-labelledby="settings-task-create-title">
+        <h3 id="settings-task-create-title" className={shared.groupTitle}>
+          {t('settings.team.taskCreate.title')}
+        </h3>
+        <div className={shared.controls}>
+          <p className={shared.help}>{t('settings.team.taskCreate.help')}</p>
+          {isOwner ? (
+            <TaskCreateControls config={config} />
+          ) : (
+            <>
+              <dl className={shared.facts}>
+                <div>
+                  <dt>{t('settings.team.taskCreate.question')}</dt>
+                  <dd>{t(`settings.team.taskCreate.options.${taskCreateAccessOf(config)}`)}</dd>
+                </div>
+              </dl>
+              {taskCreateAccessOf(config) === 'client' ? (
+                <p className={shared.help}>
+                  {t('settings.team.taskCreate.clientNote', { stage: firstStageName(config) })}
+                </p>
+              ) : null}
+              {can.manageTeam ? (
+                <p className={shared.help}>{t('settings.team.taskCreate.ownerOnly')}</p>
+              ) : null}
+            </>
+          )}
+        </div>
+      </section>
       <section aria-labelledby="settings-mover-title">
         <h3 id="settings-mover-title" className={shared.groupTitle}>
           {t('settings.team.mover.label')}
@@ -657,6 +869,53 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
             </div>
           </dl>
         )}
+      </section>
+      <section aria-labelledby="settings-prerequisite-override-title">
+        <h3 id="settings-prerequisite-override-title" className={shared.groupTitle}>
+          {t('settings.team.prerequisiteOverride.title')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={prerequisiteHelpId} className={shared.help}>
+            {t('settings.team.prerequisiteOverride.help')}
+          </p>
+          {can.manageTeam ? (
+            <PrerequisiteOverrideControls config={config} helpId={prerequisiteHelpId} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.prerequisiteOverride.readOnlyLabel')}</dt>
+                <dd>{t(`settings.team.prerequisiteOverride.value.${prerequisiteOverrideOf(config)}`)}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
+      </section>
+      <section aria-labelledby="settings-pm-lifecycle-title">
+        <h3 id="settings-pm-lifecycle-title" className={shared.groupTitle}>
+          {t('settings.team.projectManagerLifecycle.label')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={lifecycleHelpId} className={shared.help}>
+            {t('settings.team.projectManagerLifecycle.help')}
+          </p>
+          {can.manageTeam ? (
+            <ProjectManagerLifecycleControls config={config} helpId={lifecycleHelpId} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.projectManagerLifecycle.question')}</dt>
+                <dd className={shared.summaryBlock}>
+                  {lifecycleValue(config).map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                  {projectManagerLifecycleOf(config).length === 0 ? (
+                    <p>{t('settings.team.projectManagerLifecycle.none')}</p>
+                  ) : null}
+                </dd>
+              </div>
+            </dl>
+          )}
+        </div>
       </section>
       <section aria-labelledby="settings-priority-title">
         <h3 id="settings-priority-title" className={shared.groupTitle}>
@@ -695,6 +954,30 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
             </dl>
           </div>
         )}
+      </section>
+      <section aria-labelledby="settings-assignee-fit-title">
+        <h3 id="settings-assignee-fit-title" className={shared.groupTitle}>
+          {t('settings.team.assigneeFit.label')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={assigneeFitHelpId} className={shared.help}>
+            {t('settings.team.assigneeFit.help')}
+          </p>
+          {can.manageTeam ? (
+            <AssigneeFitControls config={config} helpId={assigneeFitHelpId} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.assigneeFit.readOnlyLabel')}</dt>
+                <dd>
+                  {config.team.assigneeFit === 'automatic_and_ai'
+                    ? t('settings.team.assigneeFit.value.automaticAndAi')
+                    : t('settings.team.assigneeFit.value.automatic')}
+                </dd>
+              </div>
+            </dl>
+          )}
+        </div>
       </section>
       <section aria-labelledby="settings-merger-title">
         <h3 id="settings-merger-title" className={shared.groupTitle}>

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AdministrationCommandSchema, OwnerCommandText } from './administration';
+import { OwnerCommandText } from './administration';
 import { Actor } from '../domain/event';
 import { MemberHandle } from '../domain/member';
 import { TaskKey } from '../domain/task';
@@ -18,21 +18,19 @@ import {
 } from './dto';
 
 /**
- * The durable hand-over of an owner-reserved or too-large piece of work from the base Operator to the
- * super-mode integrator (PM-762). Handing over grants no right to execute and no approval: it only records
- * what was asked, by whom and why, so that the integrator can pick it up later, even after a restart.
+ * The super mode's commands and operations (PM-762, PM-764). The handoffs the retired base Operator recorded
+ * (`SuperHandoff`) are no longer made; their rows and timeline events stay readable.
  */
 
-export const SUPER_REASON_MAX = 2000;
+const SUPER_REASON_MAX = 2000;
 
-/** The closed, versioned set of commands a handoff and its operation can carry. */
-export const SuperCommand = z.discriminatedUnion('kind', [
+/** The closed, versioned set of commands a new operation can carry. */
+export const NewSuperCommand = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('operate'), operation: OperatorOperation }),
   z.strictObject({ kind: z.literal('member_update'), handle: MemberHandle, request: UpdateMemberRequest }),
   z.strictObject({ kind: z.literal('invite_create'), request: CreateInviteRequest }),
   z.strictObject({ kind: z.literal('merge'), taskKey: TaskKey, request: StartMergeRequest }),
   z.strictObject({ kind: z.literal('merge_order'), ...OrderMergeQueueRequest.shape }),
-  z.strictObject({ kind: z.literal('administration'), request: AdministrationCommandSchema }),
   z.strictObject({ kind: z.literal('task_create'), request: CreateTaskRequest }),
   z.strictObject({ kind: z.literal('task_update'), taskKey: TaskKey, request: UpdateTaskRequest }),
   z.strictObject({ kind: z.literal('task_labels'), taskKey: TaskKey, request: ChangeTaskLabelsRequest }),
@@ -51,9 +49,15 @@ export const SuperCommand = z.discriminatedUnion('kind', [
     reason: OwnerCommandText.trim().min(1).max(SUPER_REASON_MAX),
   }),
 ]);
+/** Stored operations from the retired supervisor remain readable, never executable. */
+export type NewSuperCommand = z.infer<typeof NewSuperCommand>;
+export const SuperCommand = z.discriminatedUnion('kind', [
+  ...NewSuperCommand.options,
+  z.strictObject({ kind: z.literal('administration'), request: z.unknown() }),
+]);
 export type SuperCommand = z.infer<typeof SuperCommand>;
 
-export const SUPER_STATES = [
+const SUPER_STATES = [
   'pending',
   'waiting_owner',
   'running',
@@ -67,7 +71,6 @@ export type SuperState = z.infer<typeof SuperState>;
 
 /** A state nothing moves on from by itself: the record is finished (`unknown` waits for a human to look). */
 export const SUPER_TERMINAL_STATES: readonly SuperState[] = ['succeeded', 'failed', 'cancelled', 'unknown'];
-export const SUPER_OPEN_STATES: readonly SuperState[] = ['pending', 'waiting_owner', 'running'];
 
 export const SuperHandoff = z.strictObject({
   id: z.string(),
@@ -84,10 +87,6 @@ export const SuperHandoff = z.strictObject({
 });
 export type SuperHandoff = z.infer<typeof SuperHandoff>;
 
-/** Direct read of a handoff, including records outside the bounded list (PM-766). */
-export const SuperHandoffDetail = z.strictObject({ handoff: SuperHandoff });
-export type SuperHandoffDetail = z.infer<typeof SuperHandoffDetail>;
-
 export const SuperOperation = z.strictObject({
   id: z.string(),
   projectKey: z.string(),
@@ -103,34 +102,8 @@ export const SuperOperation = z.strictObject({
 });
 export type SuperOperation = z.infer<typeof SuperOperation>;
 
-/** The hand-over from the base Operator (the retired MCP `request_super_operation`; old handoffs stay readable). */
-export const RequestSuperOperationRequest = z.strictObject({
-  taskKey: TaskKey.optional(),
-  reason: z.string().trim().min(1).max(SUPER_REASON_MAX),
-  command: SuperCommand,
-  expectedConfigVersion: z.string().min(1).optional(),
-  requestId: z.uuid(),
-});
-export type RequestSuperOperationRequest = z.infer<typeof RequestSuperOperationRequest>;
-
-export const SUPER_HANDOFF_LIST_LIMIT_MAX = 100;
-export const ListSuperHandoffsQuery = z.strictObject({
-  state: SuperState.optional(),
-  limit: z.coerce.number().int().min(1).max(SUPER_HANDOFF_LIST_LIMIT_MAX).default(50),
-});
-export type ListSuperHandoffsQuery = z.infer<typeof ListSuperHandoffsQuery>;
-
-export const ListSuperHandoffsResponse = z.strictObject({ handoffs: z.array(SuperHandoff) });
-export type ListSuperHandoffsResponse = z.infer<typeof ListSuperHandoffsResponse>;
-
-export const ExecuteSuperHandoffRequest = z.strictObject({ requestId: z.uuid() });
-export type ExecuteSuperHandoffRequest = z.infer<typeof ExecuteSuperHandoffRequest>;
-
-export const ExecuteSuperHandoffResponse = z.strictObject({ operation: SuperOperation });
-export type ExecuteSuperHandoffResponse = z.infer<typeof ExecuteSuperHandoffResponse>;
-
 /** Answers an open, simple information question for the owner (PM-762); it is not an owner decision. */
-export const RELAY_ANSWER_MAX = 20_000;
+const RELAY_ANSWER_MAX = 20_000;
 export const RelayOwnerAnswerRequest = z.strictObject({
   answer: z.string().trim().min(1).max(RELAY_ANSWER_MAX),
 });

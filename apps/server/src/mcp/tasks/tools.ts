@@ -7,7 +7,7 @@ import {
   TaskRelationKind,
   TaskStatus,
 } from '@projectman/shared';
-import type { ComplexityRequest, MemberView, Task } from '@projectman/shared';
+import type { AcceptanceChange, ComplexityRequest, MemberView, Task } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import type { ListTasksInput, TaskSummary, TaskToolDetail, TaskToolsHandler } from '../../contracts';
@@ -58,13 +58,66 @@ const ADDED_RELATIONS_HELP =
   'part_of: this card is a one-level subtask of the other (same project); prerequisite: this card can ' +
   'only be done after the other (order cards with this, not with a "Dependencies" text); related: the ' +
   'cards belong together, nothing more; duplicate_of: this card duplicates the other and is closed ' +
-  'pointing at it (only a card that has not started: waiting in a queue stage, no session; otherwise an ' +
-  'admin or the owner marks it). Point at the original, never at another duplicate.';
+  'pointing at it (only a card that has not started: waiting in a queue stage, no session; otherwise ' +
+  'whoever may cancel it marks it: an admin, the owner, or the project manager when the project settings allow it). Point at the original, never at another duplicate.';
 
 const addedRelationInput = z.object({
   kind: AddableRelationKind,
   task_key: taskKeyInput.describe('The other card, in this project.'),
 });
+
+const acceptanceTextInput = z.string().trim().min(1).max(500);
+
+const acceptanceChangeInput = z.object({
+  op: z.enum(['add', 'edit', 'remove', 'done', 'not_needed', 'move', 'reopen', 'confirm']),
+  item_id: z.string().trim().min(1).max(40).optional().describe('The acc_… id from get_task; not for add.'),
+  text: acceptanceTextInput.optional().describe('add, edit: the condition.'),
+  evidence: z
+    .string()
+    .trim()
+    .min(1)
+    .max(2000)
+    .optional()
+    .describe('done: how it is met (the commit, the test, the file, the observed behavior).'),
+  reason: z.string().trim().min(1).max(1000).optional().describe('not_needed: why it does not apply.'),
+  task_key: taskKeyInput.optional().describe('move: the open card that takes the item over.'),
+  note: z.string().trim().min(1).max(1000).optional().describe('reopen: what does not hold.'),
+});
+
+const ACCEPTANCE_HELP =
+  'Changes of the acceptance items (the conditions of "done") in order, all or nothing with the rest of ' +
+  'the call. add (text); edit (item_id, text; an open item); remove (item_id); done (item_id, evidence) and ' +
+  'not_needed (item_id, reason) and move (item_id, task_key: the item goes to that card as an open one): ' +
+  'the assignee or a person marks them; reopen (item_id, note): the assignee or the owner of the current ' +
+  'step sets an item open again; confirm (item_id): the owner of the current step, never the one who ' +
+  'marked it nor the assignee. Item ids are in get_task.';
+
+/** The MCP shape of one acceptance change as the shared one; a missing field is an invalid call. */
+function acceptanceChanges(items: z.infer<typeof acceptanceChangeInput>[] | undefined): AcceptanceChange[] {
+  const field = <T>(item: z.infer<typeof acceptanceChangeInput>, value: T | undefined, name: string): T => {
+    if (value === undefined) throw new TeamToolError('invalid', `acceptance ${item.op} needs ${name}.`);
+    return value;
+  };
+  return (items ?? []).map((item): AcceptanceChange => {
+    if (item.op === 'add') return { op: 'add', text: field(item, item.text, 'text') };
+    const itemId = field(item, item.item_id, 'item_id');
+    switch (item.op) {
+      case 'edit':
+        return { op: 'edit', itemId, text: field(item, item.text, 'text') };
+      case 'done':
+        return { op: 'done', itemId, evidence: field(item, item.evidence, 'evidence') };
+      case 'not_needed':
+        return { op: 'not_needed', itemId, reason: field(item, item.reason, 'reason') };
+      case 'move':
+        return { op: 'move', itemId, taskKey: field(item, item.task_key, 'task_key') };
+      case 'reopen':
+        return { op: 'reopen', itemId, ...(item.note ? { note: item.note } : {}) };
+      case 'remove':
+      case 'confirm':
+        return { op: item.op, itemId };
+    }
+  });
+}
 
 /**
  * The runs below serve the member tools and the bearer endpoint alike (PM-760): they depend on the handler
@@ -114,6 +167,8 @@ interface UpdateTaskArgs {
   remove_relations?: { kind: TaskRelationKind; task_key: string }[] | undefined;
   theme_key?: string | null | undefined;
   priority?: TaskPriority | null | undefined;
+  despite_prerequisites?: boolean | undefined;
+  acceptance?: z.infer<typeof acceptanceChangeInput>[] | undefined;
 }
 
 async function runUpdateTask<C>({
@@ -141,6 +196,7 @@ async function runUpdateTask<C>({
     add_relations: addRelations,
     remove_relations: removeRelations,
     theme_key: themeKey,
+    despite_prerequisites: despitePrerequisites,
   } = args;
   const complexity = complexityArg(args);
   if (
@@ -155,14 +211,16 @@ async function runUpdateTask<C>({
     !description &&
     repo === undefined &&
     !addRelations?.length &&
-    !removeRelations?.length
+    !removeRelations?.length &&
+    !args.acceptance?.length
   ) {
     throw new TeamToolError(
       'invalid',
       'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-        'add_relations, remove_relations, theme_key, priority and/or complexity.',
+        'add_relations, remove_relations, theme_key, priority, complexity and/or acceptance.',
     );
   }
+  const acceptance = acceptanceChanges(args.acceptance);
   const relations = {
     add: (addRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
     remove: (removeRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
@@ -180,6 +238,8 @@ async function runUpdateTask<C>({
     ...(themeKey !== undefined ? { themeKey } : {}),
     ...(priority !== undefined ? { priority } : {}),
     ...(complexity ? { complexity } : {}),
+    ...(despitePrerequisites ? { despitePrerequisites } : {}),
+    ...(acceptance.length ? { acceptance } : {}),
   });
   const moverName =
     task.handOn && stageId
@@ -210,6 +270,7 @@ interface CreateTaskArgs {
   description?: string | undefined;
   labels?: string[] | undefined;
   relations?: { kind: AddableRelationKind; task_key: string }[] | undefined;
+  acceptance?: string[] | undefined;
 }
 
 async function runCreateTask<C>({
@@ -233,6 +294,7 @@ async function runCreateTask<C>({
     ...(args.theme_key ? { themeKey: args.theme_key } : {}),
     ...(args.description ? { description: args.description } : {}),
     ...(args.labels ? { labels: unique(args.labels) } : {}),
+    ...(args.acceptance?.length ? { acceptance: args.acceptance } : {}),
   });
   return formatTaskCreated(task, complexity !== undefined);
 }
@@ -246,8 +308,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       description:
         'Read the project board as a compact list, newest update first. Defaults to open tasks ' +
         '(active, waiting or blocked). Filter by status, stage or assignee; use get_task for details. A ' +
-        'theme is marked kind "theme"; it is in no stage, so a stage filter leaves themes out. A card in ' +
-        'the project focus carries its place as "focus" (position, and via: the theme or card that covers it).',
+        'theme is marked kind "theme"; it is in no stage, so a stage filter leaves themes out.',
       input: {
         status: z.union([z.literal('open'), TaskStatus]).default('open'),
         stage: StageId.optional(),
@@ -262,13 +323,9 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       title: 'Get a task',
       readOnly: true,
       description:
-        'Get a task: title, description, stage, status, assignee, labels, links (pull requests, branches), ' +
-        'its relations to other cards, its place in the project focus, its theme (a theme shows its cards ' +
-        'and progress), its parent, subtasks, attachments (open one with read_attachment) and recent ' +
-        'timeline. The description is shown whole up to ' +
-        `${MAX_DESCRIPTION_CHARS} characters; a longer one is shown in parts, and the result says how to ` +
-        'read the rest. A long timeline note, question or answer is cut; with event_id (named on the cut ' +
-        'line) the call returns that one text whole instead of the task.',
+        'Get a task: description, stage, status, assignee, labels, links, relations, theme (with its cards), ' +
+        'parent, subtasks, attachments (open with read_attachment) and recent timeline. A long description ' +
+        'comes in parts and a long timeline text is cut; the result says how to read the rest.',
       input: {
         task_key: taskKeyInput,
         event_id: z
@@ -293,10 +350,9 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       title: 'Update a task',
       readOnly: false,
       description:
-        'Record progress on a task: labels, a note, the title or description, the repository, relations, ' +
-        'theme, priority, complexity and/or a move to another stage. One call is all or nothing: a refused ' +
-        'label or a blocked stage gate records nothing. A move that needs a human approval records the rest ' +
-        'and waits for the approval.',
+        'Record progress on a task: labels, a note, title, description, repository, relations, theme, ' +
+        'priority, complexity, acceptance items and/or a stage move. All or nothing: a refused label or a ' +
+        'blocked gate records nothing. A move that needs a human approval records the rest and waits for it.',
       refused: DEVELOPER_LEVEL_REFUSED,
       input: {
         task_key: taskKeyInput,
@@ -375,6 +431,15 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .describe(
             "The card priority; null clears it. People may set it; an AI member only when the project's priority setting allows it.",
           ),
+        despite_prerequisites: z
+          .boolean()
+          .optional()
+          .describe(
+            'Move into the work stage despite an open prerequisite. Honored only for a person, or for the ' +
+              'project manager when the project settings allow it (team.prerequisiteOverride); otherwise the ' +
+              "card's work start waits for its prerequisites.",
+          ),
+        acceptance: z.array(acceptanceChangeInput).max(20).optional().describe(ACCEPTANCE_HELP),
       },
       external: { access: 'write', run: runUpdateTask },
       run: runUpdateTask,
@@ -392,11 +457,9 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
       title: 'Create a task',
       readOnly: false,
       description:
-        'Create a new task, for example a card for a bug you found, one part of a request you split, or ' +
-        'follow-up work. It starts unassigned in the first stage, where humans prioritise it; it does not ' +
-        'start any work. Give it a self-contained description. If it came from another task, note the new ' +
-        'key there with update_task. kind "theme" creates a theme instead: a card that groups other cards ' +
-        '(an epic), open or closed, in no stage, with no assignee and no work.',
+        'Create a task (a bug you found, a part of a split request, follow-up work). It starts unassigned in ' +
+        'the first stage and starts no work. Make the description self-contained; if it came from another ' +
+        'task, note the new key there with update_task. kind "theme" creates a theme (an epic).',
       input: {
         kind: z
           .enum(['task', 'theme'])
@@ -430,6 +493,14 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .describe(
             'Relations of the new card to other cards, as add_relations of update_task. One refused ' +
               'relation refuses the creation.',
+          ),
+        acceptance: z
+          .array(acceptanceTextInput)
+          .max(40)
+          .optional()
+          .describe(
+            'The acceptance conditions of the card, one per item: each checkable on its own, so the assignee ' +
+              'can mark it done with evidence and the reviewer confirm it.',
           ),
         complexity: complexityInput,
         complexity_reason: complexityReasonInput,

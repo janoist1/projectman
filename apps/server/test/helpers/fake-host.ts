@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { CloudDeps, PipeEnd, RunOptions, RunResult } from '../../../../scripts/cloud/deps';
+import { archiveDigest } from '../../../../scripts/cloud/images';
 import { CloudWorld } from './fake-aws';
 
 /**
@@ -16,13 +16,14 @@ export const REPO_ROOT = path.resolve(fileURLToPath(new URL('../../../../', impo
 export const SHA_OLD = 'a'.repeat(40);
 export const SHA_NEW = 'b'.repeat(40);
 export const SHA_NEWEST = 'c'.repeat(40);
+export const IMAGE_ID = `sha256:${'1'.repeat(64)}`;
 
 interface DeployEntry {
   sha: string;
   ref: string;
   at: string;
   imageId?: string;
-  platform?: 'linux/amd64' | 'linux/arm64';
+  platform?: 'linux/arm64';
 }
 
 interface DeployState {
@@ -76,19 +77,22 @@ class FakeMachine {
   bootstrapped = 0;
   unitText: string | null = null;
   envText: string | null = null;
-  built: { sha: string; url: string }[] = [];
-  imported = new Map<string, { imageId: string; platform: 'linux/amd64' | 'linux/arm64' }>();
+  imported = new Map<string, { imageId: string; platform: 'linux/arm64' }>();
   deploy: DeployState | null = null;
   running = false;
   runningSha: string | null = null;
   dataEmpty = true;
-  receivedData: string | null = null;
-  receivedDatabase: Buffer | null = null;
   // What a test can set.
   unhealthyShas = new Set<string>();
   /** How many status polls answer `starting` after a start. */
   startingPolls = 1;
   failures = new Map<string, RunResult>();
+  /** What `stage-image` received on its standard input, and the stage it left (consumed by `receive-image`). */
+  stagedLinks: string[] = [];
+  staged: string | null = null;
+  readonly stageId = 'e'.repeat(32);
+  /** The `manifest.json` text that `stage-image` answers with. */
+  stageManifest = '';
   rehearsalOutput = 'checking the replica\nREHEARSAL PASSED\n';
   rehearsalCode = 0;
   logText = 'line one\nline two\n';
@@ -104,11 +108,6 @@ class FakeMachine {
     crossOriginStatus: 403,
   };
 
-  /** What the control socket answers a relayed request (`release-control`, PM-749); one line, or anything a test sets. */
-  controlAnswer: RunResult = { code: 0, stdout: '{"ok":true,"pause":null}\n', stderr: '' };
-  /** The inputs the relay received, as they arrived. */
-  controlInputs: (string | undefined)[] = [];
-
   private pollsSinceStart = 0;
 
   private readonly now: () => string;
@@ -123,9 +122,10 @@ class FakeMachine {
 
   /** The machine had `sha` deployed and healthy before the test starts. */
   preload(sha: string, ref: string, previous?: { sha: string; ref: string }): void {
+    const image = { imageId: IMAGE_ID, platform: 'linux/arm64' as const };
     this.deploy = {
-      current: { sha, ref, at: '2026-10-01T10:00:00Z' },
-      previous: previous ? { ...previous, at: '2026-09-20T10:00:00Z' } : null,
+      current: { sha, ref, at: '2026-10-01T10:00:00Z', ...image },
+      previous: previous ? { ...previous, at: '2026-09-20T10:00:00Z', ...image } : null,
       lastStoppedAt: null,
     };
     this.running = true;
@@ -152,12 +152,24 @@ class FakeMachine {
       case 'receive-env':
         this.envText = input ?? null;
         return done();
-      case 'build':
-        this.built.push({ sha: args[0]!, url: args[1]! });
-        return done('building\n');
+      case 'stage-image': {
+        // The GitHub artifact: the machine downloads it from the link on stdin and answers with the manifest.
+        this.stagedLinks.push(input ?? '');
+        this.staged = this.stageId;
+        return done(
+          JSON.stringify({
+            stage: this.stageId,
+            manifest: Buffer.from(this.stageManifest).toString('base64'),
+          }) + '\n',
+        );
+      }
       case 'receive-image': {
-        const [sha, platform, , , imageId] = args;
-        this.imported.set(sha!, { imageId: imageId!, platform: platform as 'linux/amd64' | 'linux/arm64' });
+        const [sha, platform, , , imageId, stage] = args;
+        if (stage !== undefined) {
+          if (stage !== this.staged) return refuse('the stage is missing');
+          this.staged = null;
+        }
+        this.imported.set(sha!, { imageId: imageId!, platform: platform as 'linux/arm64' });
         return done(JSON.stringify({ imageId, platform, revision: sha }) + '\n');
       }
       case 'start': {
@@ -224,21 +236,6 @@ class FakeMachine {
         return done(
           JSON.stringify({ container: this.running ? 'running' : 'stopped', dataEmpty: this.dataEmpty }),
         );
-      case 'seed-digest':
-        if (this.running) return refuse('the board is running');
-        if (!this.receivedDatabase) return refuse('no database');
-        return done(
-          JSON.stringify({
-            databaseSha256: createHash('sha256').update(this.receivedDatabase).digest('hex'),
-            databaseBytes: this.receivedDatabase.length,
-          }) + '\n',
-        );
-      case 'receive-data':
-        if (this.running) return refuse('the board is running');
-        if (!this.dataEmpty) return refuse('the data directory is not empty');
-        this.receivedData = input ?? 'tar stream';
-        this.dataEmpty = false;
-        return done();
       case 'send-data':
         if (this.running) return refuse('the board is running');
         return done('tar stream');
@@ -248,11 +245,6 @@ class FakeMachine {
       case 'public-check':
         if (!this.running) return refuse('the board is not running');
         return done(JSON.stringify(this.publicCheck));
-      case 'release-control':
-        if (args.length > 0) return refuse('release-control takes no arguments');
-        if (!this.running) return refuse('the board is not running');
-        this.controlInputs.push(input);
-        return this.controlAnswer;
       default:
         return { code: 2, stdout: '', stderr: `host.sh: unknown subcommand ${subcommand}\n` };
     }
@@ -292,7 +284,27 @@ export class HostWorld extends CloudWorld {
     const world = new this();
     world.writeConfig();
     world.writeEnv();
+    world.writeBundle();
     return world;
+  }
+
+  /** The arm64 image bundle of `sha` in `bundleDir` (what the default configuration points at). */
+  writeBundle(sha = SHA_NEW): string {
+    const directory = this.bundleDir;
+    mkdirSync(directory, { recursive: true });
+    const archive = 'linux-arm64.tar';
+    writeFileSync(path.join(directory, archive), 'fake arm64 archive');
+    const image = {
+      platform: 'linux/arm64',
+      archive,
+      ...archiveDigest(path.join(directory, archive)),
+      imageId: IMAGE_ID,
+    };
+    writeFileSync(
+      path.join(directory, 'manifest.json'),
+      JSON.stringify({ version: 1, sourceSha: sha, images: [image] }),
+    );
+    return directory;
   }
 
   /** The tail of `cloud.env` that `aws` made (values are made up). */
@@ -413,14 +425,6 @@ export class HostWorld extends CloudWorld {
     this.pipes.push({ from, to });
     if (this.pipeCode !== 0) return { code: this.pipeCode, stdout: '', stderr: 'tar: broken\n' };
     if (from.command === 'cat' && to.command === 'ssh') return this.ssh(to.args, {});
-    if (from.command === 'tar' && to.command === 'ssh') {
-      this.machine.receivedDatabase = readFileSync(path.join(optionValue(from.args, '-C')!, 'db.sqlite'));
-      const result = await this.ssh(to.args, {
-        input: `tar ${from.args.join(' ')}`,
-        ...(to.signal ? { signal: to.signal } : {}),
-      });
-      return result;
-    }
     if (from.command === 'ssh' && to.command === 'tar') {
       const result = await this.ssh(from.args, from.signal ? { signal: from.signal } : {});
       if (result.code !== 0) return result;

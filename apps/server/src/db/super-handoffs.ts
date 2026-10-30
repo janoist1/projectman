@@ -112,29 +112,13 @@ interface SuperOperationPatch {
 const OPEN = `('pending', 'waiting_owner', 'running')`;
 
 /**
- * The durable hand-over of work to the super-mode integrator and the operations started from it (PM-762).
+ * The super-mode operations (PM-762) and the handoff rows the retired base Operator recorded.
  * Every state change is a compare-and-set on `revision`: of two writers racing from the same state exactly one
  * wins, the other sees `false` and re-reads. Nothing here decides what a state means.
  */
 export function createSuperHandoffRepository(db: Db) {
   const st = {
-    insertHandoff: db.prepare(
-      `INSERT INTO super_handoffs
-         (id, project_key, task_key, request_id, requested_by, reason, command, command_hash,
-          expected_config_version, state, operation_id, revision, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ),
     handoff: db.prepare('SELECT * FROM super_handoffs WHERE project_key = ? AND id = ?'),
-    handoffByRequest: db.prepare('SELECT * FROM super_handoffs WHERE project_key = ? AND request_id = ?'),
-    handoffsOfState: db.prepare(
-      `SELECT * FROM super_handoffs WHERE project_key = ? AND state = ? ORDER BY created_at, rowid LIMIT ?`,
-    ),
-    handoffsOpen: db.prepare(
-      `SELECT * FROM super_handoffs WHERE project_key = ? AND state IN ${OPEN} ORDER BY created_at, rowid LIMIT ?`,
-    ),
-    handoffsOpenEverywhere: db.prepare(
-      `SELECT * FROM super_handoffs WHERE state IN ${OPEN} ORDER BY created_at, rowid`,
-    ),
     casHandoff: db.prepare(
       `UPDATE super_handoffs
          SET state = ?, operation_id = CASE WHEN ? THEN ? ELSE operation_id END, updated_at = ?, revision = revision + 1
@@ -149,9 +133,6 @@ export function createSuperHandoffRepository(db: Db) {
     operation: db.prepare('SELECT * FROM super_operations WHERE project_key = ? AND id = ?'),
     operationByRequest: db.prepare(
       'SELECT * FROM super_operations WHERE project_key = ? AND key_id = ? AND request_id = ?',
-    ),
-    operationsOfHandoff: db.prepare(
-      'SELECT * FROM super_operations WHERE project_key = ? AND handoff_id = ? ORDER BY created_at, rowid',
     ),
     operationsOfProject: db.prepare(
       'SELECT * FROM super_operations WHERE project_key = ? ORDER BY created_at DESC, rowid DESC LIMIT ?',
@@ -176,43 +157,10 @@ export function createSuperHandoffRepository(db: Db) {
   };
   const flag = (value: unknown) => (value === undefined ? 0 : 1);
   return {
-    insertHandoff(h: StoredSuperHandoff): void {
-      st.insertHandoff.run(
-        h.id,
-        h.projectKey,
-        h.taskKey,
-        h.requestId,
-        JSON.stringify(h.requestedBy),
-        h.reason,
-        JSON.stringify(h.command),
-        h.commandHash,
-        h.expectedConfigVersion,
-        h.state,
-        h.operationId,
-        h.revision,
-        h.createdAt,
-        h.updatedAt,
-      );
-    },
+    /** An old handoff row (no new ones are recorded); its operation still keeps it in step. */
     handoff(projectKey: string, id: string): StoredSuperHandoff | null {
       const row = st.handoff.get(projectKey, id) as HandoffRow | undefined;
       return row ? toHandoff(row) : null;
-    },
-    handoffByRequest(projectKey: string, requestId: string): StoredSuperHandoff | null {
-      const row = st.handoffByRequest.get(projectKey, requestId) as HandoffRow | undefined;
-      return row ? toHandoff(row) : null;
-    },
-    /** One state, or (omitted) every state that is not finished; oldest first. */
-    listHandoffs(projectKey: string, opts: { state?: SuperState; limit: number }): StoredSuperHandoff[] {
-      const rows = (
-        opts.state
-          ? st.handoffsOfState.all(projectKey, opts.state, opts.limit)
-          : st.handoffsOpen.all(projectKey, opts.limit)
-      ) as HandoffRow[];
-      return rows.map(toHandoff);
-    },
-    openHandoffs(): StoredSuperHandoff[] {
-      return (st.handoffsOpenEverywhere.all() as HandoffRow[]).map(toHandoff);
     },
     /** Moves the handoff when it is still at `revision`; false: someone else moved it first. */
     casHandoff(projectKey: string, id: string, revision: number, patch: SuperHandoffPatch): boolean {
@@ -255,9 +203,6 @@ export function createSuperHandoffRepository(db: Db) {
     operationByRequest(projectKey: string, keyId: string, requestId: string): StoredSuperOperation | null {
       const row = st.operationByRequest.get(projectKey, keyId, requestId) as OperationRow | undefined;
       return row ? toOperation(row) : null;
-    },
-    operationsOfHandoff(projectKey: string, handoffId: string): StoredSuperOperation[] {
-      return (st.operationsOfHandoff.all(projectKey, handoffId) as OperationRow[]).map(toOperation);
     },
     /** The project's operations, newest first, optionally of one card. */
     listOperations(projectKey: string, opts: { taskKey?: string; limit: number }): StoredSuperOperation[] {

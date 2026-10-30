@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   OPERATOR_ANSWER_STALL_GRACE_MS,
   OPERATOR_ANSWER_STALL_WAKE_MS,
-  OPERATOR_IDLE_MINUTES,
   OPERATOR_SIGNAL_ROUND_FROM,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEPS,
@@ -19,6 +18,7 @@ import {
 } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { openOverdueObligation } from './helpers/overdue-obligation';
 
 /** PM-694: the answer that reached the assignee and was followed by no work, raised by the sweep and only reported (no step). */
 let h: DomainHarness;
@@ -644,36 +644,35 @@ describe('the wake budget', () => {
 
   it('does not let this kind use the fifteen-minute line of the others, nor the others its minute', async () => {
     await setup('drive');
-    // One card stands idle from the start, one stalls late: the stall wakes before the idle signal rises.
-    const idleCard = await develop('dev-2');
-    minutes(OPERATOR_IDLE_MINUTES - 3);
     const stalledCard = await develop();
     message(stalledCard);
     seconds(GRACE);
     await sweep();
     expect(kindsWoken()).toEqual(['answer_stalled']);
-    // The idle signal rises a minute after it and wakes at once: the stall used none of its fifteen minutes.
+    // An overdue-obligation signal rises a minute after it and wakes at once: the stall used none of its fifteen minutes.
     minutes(1);
+    const overdueCard = await develop('dev-2');
+    openOverdueObligation(h, overdueCard, { at: now });
     await sweep();
-    expect(open('idle').map((s) => s.taskKey)).toContain(idleCard.key);
-    expect(kindsWoken()).toEqual(['answer_stalled', 'idle']);
+    expect(open('obligation_overdue').map((s) => s.taskKey)).toContain(overdueCard.key);
+    expect(kindsWoken()).toEqual(['answer_stalled', 'obligation_overdue']);
   });
 
   it('keeps the fifteen-minute limit of the other kinds', async () => {
     await setup('drive');
     const first = await develop('dev-2');
+    openOverdueObligation(h, first, { at: now });
+    await sweep();
+    expect(kindsWoken()).toEqual(['obligation_overdue']);
+    // The second card’s signal rises five minutes after the first wake-up: it waits for the end of the fifteen.
     minutes(5);
     const second = await develop('dev-1');
-    minutes(OPERATOR_IDLE_MINUTES - 5);
+    openOverdueObligation(h, second, { at: now });
     await sweep();
-    expect(kindsWoken()).toEqual(['idle']);
-    // The second card stands idle five minutes after the first wake-up: it waits for the end of the fifteen.
-    minutes(5);
-    await sweep();
-    expect(open('idle').map((s) => s.taskKey)).toEqual([first.key, second.key]);
-    expect(kindsWoken()).toEqual(['idle']);
+    expect(open('obligation_overdue').map((s) => s.taskKey)).toEqual([first.key, second.key]);
+    expect(kindsWoken()).toEqual(['obligation_overdue']);
     minutes(OPERATOR_SIGNAL_WAKE_INTERVAL_MS / 60_000 - 5);
     await sweep();
-    expect(kindsWoken()).toEqual(['idle', 'idle']);
+    expect(kindsWoken()).toEqual(['obligation_overdue', 'obligation_overdue']);
   });
 });

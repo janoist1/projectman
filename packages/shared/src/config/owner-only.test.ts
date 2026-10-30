@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approvalPolicyChanged, ownerOnlyChanges } from './owner-only';
+import { ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
 import { ProjectConfig } from './schema';
 
@@ -300,5 +300,12 @@ describe('ownerOnlyChanges', () => {
     expect(changed((c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2' }))).not.toContain(
       'machine_access',
     );
+  });
+
+  it('requires an owner to change who may open a new card (PM-1100)', () => {
+    expect(changed((c) => void (c.team.taskCreateAccess = 'client'))).toContain('task_create_access');
+  });
+  it('leaves restating the default new card access to an admin', () => {
+    expect(changed((c) => void (c.team.taskCreateAccess = 'developer'))).toEqual([]);
   });
 });

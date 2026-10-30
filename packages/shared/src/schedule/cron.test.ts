@@ -32,8 +32,13 @@ describe('five-field cron', () => {
     '10-5 * * * *',
     '1,,2 * * * *',
     'x * * * *',
+    '0 0 31 2 *',
+    '0 0 30,31 2 *',
   ])('rejects malformed expression %s', (cron) => {
     expect(() => parseCron(cron)).toThrow();
+  });
+  it('keeps an impossible month day when the weekday matches alone (OR)', () => {
+    expect(nextCronRun('0 0 31 2 1', new Date('2026-02-01Z'), 'UTC')).toBe('2026-02-02T00:00:00.000Z');
   });
   it('skips the nonexistent Budapest spring hour', () => {
     expect(matches('30 2 * * *', '2026-03-29T00:30:00Z')).toBe(false);

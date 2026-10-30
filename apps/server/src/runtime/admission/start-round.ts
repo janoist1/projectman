@@ -6,6 +6,8 @@ import {
   isHandleOnLeave,
   isOpenTask,
   memberOf,
+  machineAccessOf,
+  projectManagerMovesOf,
   planStarts,
   projectManagerOf,
   pullSourceStage,
@@ -15,7 +17,6 @@ import {
   tempMaxPointsOf,
 } from '@projectman/shared';
 import type {
-  FocusPlace,
   ProjectConfig,
   StartPlanEntry,
   Stage,
@@ -29,9 +30,9 @@ import type { DomainContext } from '../../core/base';
 import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import { startContext } from '../../core/tasks';
-import type { ProjectFocusService, TaskService, TaskWaits } from '../../core/tasks';
+import type { TaskService, TaskWaits } from '../../core/tasks';
 import type { Admission, StartRounding } from './admission';
-import type { SeniorWaits } from './senior-waits';
+import type { SeniorDecisions } from './senior-decisions';
 import { DomainError } from '../../kernel';
 
 interface ProjectRound {
@@ -63,8 +64,7 @@ interface StartRoundDeps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'config'>;
   tasks: Pick<TaskService, 'readSchedulingTasks'>;
-  focus: Pick<ProjectFocusService, 'covered'>;
-  seniorWaits: Pick<SeniorWaits, 'decisionFor'>;
+  seniorDecisions: Pick<SeniorDecisions, 'decisionFor'>;
   admission: Pick<
     Admission,
     'freeDevelopers' | 'startFrame' | 'engineOffline' | 'check' | 'canReplaceAssignee'
@@ -74,7 +74,7 @@ interface StartRoundDeps {
 }
 
 /**
- * Computes intentional queue waits after the focus pull, and asks the card mover to start the cards that can
+ * Computes intentional queue waits after the urgent pull, and asks the card mover to start the cards that can
  * start now (PM-804): one `start` obligation per card, then one action message per card or collecting card.
  * The round never starts a card itself (decision 3 of PM-427); the obligation tracking reminds the mover.
  */
@@ -240,7 +240,7 @@ export class StartRound implements StartRounding {
   }
 
   private async forProject(key: string): Promise<void> {
-    const { ctx, projects, tasks, focus, seniorWaits, admission } = this.deps;
+    const { ctx, projects, tasks, seniorDecisions, admission } = this.deps;
     const config = await projects.config(key).catch(() => null);
     const source = config && pullSourceStage(config);
     const development = config && developmentStage(config);
@@ -263,7 +263,8 @@ export class StartRound implements StartRounding {
       frame: null,
       holds: new Map(),
       wanted: new Set(),
-      offers: new Map(live.map((row) => [row.taskKey, { to: row.responsible, since: row.openedAt }])),
+      // An offer to start a card always has the card mover it is made to.
+      offers: new Map(live.map((row) => [row.taskKey, { to: row.responsible!, since: row.openedAt }])),
       refusals: new Map(),
     };
     const frame = (hold: TaskReadyHold) => {
@@ -305,10 +306,9 @@ export class StartRound implements StartRounding {
     );
     const anyDecided = new Set(
       cards
-        .filter((card) => seniorWaits.decisionFor(key, card.key)?.decision === 'any')
+        .filter((card) => seniorDecisions.decisionFor(key, card.key)?.decision === 'any')
         .map((card) => card.key),
     );
-    const places = focus.covered(key).places;
     // An assigned card whose assignee's provider is on hold and who has not begun it goes to another member (PM-1051).
     const reassignableTaskKeys = new Set(
       cards
@@ -322,9 +322,11 @@ export class StartRound implements StartRounding {
         )
         .map((card) => card.key),
     );
+    // The cards with their parents and themes: a priority they carry ranks the card (`effectivePriority`).
+    const context = startContext(tasks, key, cards);
     const plan = planStarts({
       cards,
-      places,
+      tasks: context,
       free,
       developers,
       anyDecided,
@@ -366,7 +368,7 @@ export class StartRound implements StartRounding {
           );
       }
     }
-    await this.offer({ config, state, cards, plan, places, toStageId: development.id });
+    await this.offer({ config, state, cards, context, plan, toStageId: development.id });
   }
 
   /** The cards without an open offer that the plan offers now: the obligation opens, then the message goes. */
@@ -374,11 +376,12 @@ export class StartRound implements StartRounding {
     config: ProjectConfig;
     state: ProjectRound;
     cards: readonly Task[];
+    /** The cards with their parents and themes, for the start order. */
+    context: readonly Task[];
     plan: ReadonlyMap<string, StartPlanEntry>;
-    places: ReadonlyMap<string, FocusPlace>;
     toStageId: string;
   }): Promise<void> {
-    const { config, state, cards, plan, places, toStageId } = round;
+    const { config, state, cards, context, plan, toStageId } = round;
     const { ctx, tasks, messaging } = this.deps;
     const projectKey = config.project.key;
     const recipient = cardMoverHandle(config) ?? projectManagerOf(config)?.handle;
@@ -393,7 +396,7 @@ export class StartRound implements StartRounding {
           !state.offers.has(card.key) &&
           !state.refusals.has(card.key),
       )
-      .sort((a, b) => compareStartOrder(a, b, places));
+      .sort((a, b) => compareStartOrder(a, b, context));
     if (fresh.length === 0) return;
     // The parts of a collecting card go together, the other cards alone, in the order of their first card.
     // An assigned card is started with start_task, not moved (a move starts nobody), so it has its own message.
@@ -453,6 +456,12 @@ export class StartRound implements StartRounding {
                 : [],
               toStageId,
               backStageId,
+              holdBack:
+                projectManagerMovesOf(config) === 'queues_and_start'
+                  ? 'move'
+                  : machineAccessOf(memberOf(config, recipient)!)
+                    ? 'integrator'
+                    : 'ask',
               ...(group[0]!.assignee ? { assigned: true } : {}),
             }),
           },

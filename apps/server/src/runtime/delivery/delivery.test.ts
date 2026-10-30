@@ -151,6 +151,32 @@ describe('message delivery under the TestClock', () => {
       expect(call[1]).toContain('[E-mail reply from owner to your e-mail "Re: Plan"');
     expect(typeInto).toHaveBeenCalledTimes(2);
   });
+  it('reads the card history once for a batch of the messages that waited on the card', async () => {
+    const { deps, typeInto, control, waiting } = setup();
+    control.typeInto = 'ok';
+    const roundEvents = vi.fn(() => []);
+    const task = {
+      key: 'AR-1',
+      projectKey: 'AR',
+      stageId: 'dev',
+      status: 'active',
+      assignee: 'dev',
+      labels: [],
+    };
+    Object.assign(deps.ctx.repos, { tasks: { get: () => task }, timeline: { roundEvents } });
+    deps.projects.config = async () => ({ ...config, pipeline: { stages: [] } }) as unknown as ProjectConfig;
+    for (let i = 0; i < 30; i += 1)
+      waiting.set(`m${i}`, { ...messageOf(`m${i}`), kind: 'info', taskKey: 'AR-1' } as TeamMessage);
+    const onCard = { ...session, workItem: { type: 'task', taskKey: 'AR-1' } } as Session;
+    await run(deps, (delivery) =>
+      Effect.gen(function* () {
+        yield* delivery.deliverWaiting(onCard);
+        yield* settled;
+      }),
+    );
+    expect(splitTeamMessageBatch(typeInto.mock.calls[0]![1])?.items).toHaveLength(30);
+    expect(roundEvents).toHaveBeenCalledTimes(1);
+  });
   it('retries after 10, 40, 100, 220 and 520 seconds, then logs once and stops', async () => {
     const { deps, typeInto, logger, add } = setup();
     add('m1');

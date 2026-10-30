@@ -15,10 +15,9 @@ export type { EngineRecord } from './engines';
 import { createProjectEngineRepository } from './project-engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createIntegratorKeyAuditRepository } from './integrator-key-audit';
-import { createOperatorGrantRepository } from './operator-grants';
 import { createSuperAuditRepository } from './super-audit';
 import { createSuperHandoffRepository } from './super-handoffs';
-export type { StoredSuperHandoff, StoredSuperOperation } from './super-handoffs';
+export type { StoredSuperOperation } from './super-handoffs';
 import { createFeedbackRepository } from './feedback';
 import { createSystemFeedbackRepository } from './system-feedback';
 export type { SystemFeedbackItemRecord } from './system-feedback';
@@ -33,6 +32,7 @@ export { HISTORY_INDEX_VERSION, historyDocumentEntityId, historySourceId } from 
 export type { HistoryDirtyRow, HistoryDocStateRow, HistoryDocumentRow } from './history';
 export { createHistorySemanticRepository, historyContentHash, historyFullText } from './history-semantic';
 import { createHistorySearchRepository } from './history-searches';
+import { createComputeJobRunRepository } from './compute-job-runs';
 import { createFullTestRunRepository } from './full-test-runs';
 import { createMergeCheckRunRepository } from './merge-check-runs';
 import { createEmailLoginRepository } from './email-login';
@@ -66,9 +66,7 @@ import { createOperatorRequestRepository } from './operator-requests';
 import { createOperatorSignalRepository } from './operator-signals';
 export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
-import { createProjectFocusRepository } from './project-focus';
 import { createProjectChangeEventRepository } from './project-change-events';
-import { createReleaseDeploymentRepository } from './release-deployments';
 import { createReleasePublicationRepository } from './release-publications';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
@@ -79,10 +77,10 @@ export { mergeState, mergedState } from './task-merges';
 export type { MergeRecord } from './task-merges';
 import { createScheduleRepository } from './schedules';
 import { createObligationRepository } from './obligations';
-import { createSeniorWaitRepository } from './senior-waits';
 import { createSessionRepository } from './sessions';
 import { createSessionCleanupRepository } from './session-cleanups';
 export type { SessionCleanupFailure } from './session-cleanups';
+import { createTaskAcceptanceRepository } from './task-acceptance';
 import { createTaskCoverRepository } from './task-covers';
 import { createTaskFixLimitRepository } from './fix-limits';
 import { createTaskHandoffRepository } from './task-handoffs';
@@ -93,7 +91,7 @@ import { createTimelineRepository } from './timeline';
 import { createTokenUsageRepository } from './token-usage';
 import { createAuthSessionRepository, createUserRepository } from './users';
 
-export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion } from './database';
+export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion, statementCount } from './database';
 export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord } from './attachments';
@@ -108,7 +106,6 @@ export type { FullTestRunRecord } from './full-test-runs';
 export type { MergeCheckRunQuery, MergeCheckRunStart } from './merge-check-runs';
 export type { TaskLoopRecord } from './task-loops';
 export type { TaskHandoffRow } from './task-handoffs';
-export type { SeniorWaitEndReason, SeniorWaitRecord } from './senior-waits';
 export type { UserRecord } from './users';
 export type { ProjectRecord } from './projects';
 export type { TaskPatch } from './tasks';
@@ -126,7 +123,6 @@ export function createRepositories(db: Db) {
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
     integratorKeyAudit: createIntegratorKeyAuditRepository(db),
-    operatorGrants: createOperatorGrantRepository(db),
     superAudit: createSuperAuditRepository(db),
     superHandoffs: createSuperHandoffRepository(db),
     invitations: createInvitationRepository(db),
@@ -148,21 +144,20 @@ export function createRepositories(db: Db) {
     taskMerges: createTaskMergeRepository(db),
     mergeTrains: createMergeTrainRepository(db),
     releases: createReleaseRepository(db),
-    releaseDeployments: createReleaseDeploymentRepository(db),
     releasePublications: createReleasePublicationRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),
+    taskAcceptance: createTaskAcceptanceRepository(db),
     taskLoops: createTaskLoopRepository(db),
     taskFixLimits: createTaskFixLimitRepository(db),
     taskHandoffs: createTaskHandoffRepository(db),
-    projectFocus: createProjectFocusRepository(db),
     projectChanges: createProjectChangeEventRepository(db),
     operatorRequests: createOperatorRequestRepository(db),
     operatorSignals: createOperatorSignalRepository(db),
-    seniorWaits: createSeniorWaitRepository(db),
     obligations: createObligationRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),
+    computeJobRuns: createComputeJobRunRepository(db),
     mergeCheckRuns: createMergeCheckRunRepository(db),
     docWrites: createDocWriteRepository(db),
     decisionOffers: createDecisionOfferRepository(db),

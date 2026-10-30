@@ -1,4 +1,11 @@
-import { complexityText, isCardLink, isTheme, QUESTION_SCREENING_MINUTES } from '@projectman/shared';
+import {
+  complexityText,
+  DEFAULT_AGENT_PROVIDER,
+  isCardLink,
+  isTheme,
+  modelForProvider,
+  QUESTION_SCREENING_MINUTES,
+} from '@projectman/shared';
 import type {
   Attachment,
   MemberView,
@@ -11,6 +18,7 @@ import type {
   StaleReason,
 } from '@projectman/shared';
 import {
+  acceptanceLines,
   cardQuestionLines,
   stateText,
   describeAttachment,
@@ -18,7 +26,6 @@ import {
   describeRepo,
   describeTaskWait,
   describeTheme,
-  focusPlaceText,
   themeCardLines,
   themeProgressText,
   themeState,
@@ -49,7 +56,6 @@ import type {
   ProjectStateReport,
   MessageStateReport,
   WakeStart,
-  ReleaseCheckResult,
   ReleaseStateReport,
 } from '../contracts';
 import { MESSAGE_IMAGE_MAX_SIDE } from '../contracts';
@@ -229,17 +235,6 @@ function releaseLines(release: ReleaseStateReport | null): string[] {
   ];
 }
 
-/** check_release: either the refusal propose_release would give, or the candidate; nothing was recorded. */
-export function formatReleaseCheck(check: ReleaseCheckResult): string {
-  const proposers = check.proposers.join(', ') || 'none';
-  if (check.refusal)
-    return `Release check: would be refused — ${check.refusal.code}: ${check.refusal.message}. Proposers (deployment duty): ${proposers}. Nothing was recorded.`;
-  const candidate = check.candidate;
-  if (!candidate) return 'Release check: no result. Nothing was recorded.';
-  const cards = candidate.tasks.map((task) => `${task.key} ${oneLine(task.title, 120)}`).join('; ');
-  return `Release check passed: commit ${candidate.commit}, base ${candidate.baseCommit ?? 'unknown'}, ${candidate.tasks.length} cards (${cards}); proposers: ${proposers}. Nothing was recorded.`;
-}
-
 function signalLine(signal: OperatorSignal): string {
   const explanations: Record<OperatorSignal['kind'], string> = {
     structural_pattern:
@@ -254,15 +249,19 @@ function signalLine(signal: OperatorSignal): string {
     nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',
     silent: 'The working session has been silent too long.',
-    idle: 'The card has an AI holder, but no work has run on it for a while.',
-    merge_waiting: 'The merge was requested, but the merger has not started it.',
+    obligation_overdue:
+      'A step stood open past its reminder and the responsible did not act (subject: the obligation; facts say who, since when and when it goes to a person). Check the card first; take the step in step if it has one, close an intermediate or resolved case with dismiss_signal and a note.',
+    idle: 'Retired kind (an old signal): the card had an AI holder, but no work ran on it for a while.',
+    merge_waiting:
+      'Retired kind (an old signal): the merge was requested, but the merger had not started it.',
     merge_blocked: 'The merge stopped on a conflict, a failed check or a block.',
     unreleased: 'Work merged on the default branch has waited a long time for a release.',
-    ready_waiting: 'Startable cards (subject) wait while a developer has free capacity.',
+    ready_waiting:
+      'Retired kind (an old signal): startable cards (subject) waited while a developer had free capacity.',
     answer_stalled:
       'An answer or request reached the assignee (subject: the message), but no work followed; report only, it has no step.',
     refinement_stalled:
-      "A member's refinement turn ended without its label (subject: the label); report only, it has no step. Check the card first; close an intermediate or resolved case with dismiss_signal.",
+      "Retired kind (an old signal): a member's refinement turn ended without its label (subject: the label).",
     start_blocked:
       "A card's start waits for a repository choice or a stuck member workspace (subject: the reason; facts say who waits and what to do). It closes itself when the reason ends; a decision question about it carries this signal_id.",
   };
@@ -282,9 +281,14 @@ export function formatMembers(members: MemberView[], self: string): string {
     const specialty = m.specialtyLabels?.length
       ? `; automatic assignment requires a label: ${m.specialtyLabels.join(', ')}`
       : '';
+    // Developers: the largest card they take and the model they run on, so a named assignee can be checked.
+    const limit =
+      m.complexityLimit !== undefined
+        ? `; complexity limit: ${m.complexityLimit} points; model: ${m.provider ?? DEFAULT_AGENT_PROVIDER}/${modelForProvider(m.provider ?? DEFAULT_AGENT_PROVIDER, m.model)}`
+        : '';
     const status = m.activity ? `${m.status}: ${oneLine(m.activity, 80)}` : m.status;
     const tasks = m.currentTaskKeys.length > 0 ? ` · tasks: ${m.currentTaskKeys.join(', ')}` : '';
-    return `- ${who} — ${m.displayName} · ${role}${specialty} · ${status}${tasks}`;
+    return `- ${who} — ${m.displayName} · ${role}${limit}${specialty} · ${status}${tasks}`;
   });
   return [`Team (${members.length} members, address them by handle):`, ...lines].join('\n');
 }
@@ -396,7 +400,6 @@ export function formatTaskDetail(
       : taskStatusLine(task),
     ...(!theme ? [`Repo: ${repo} · Priority: ${task.priority ?? 'none'}`] : []),
     ...(detail.wait ? [`Waiting: ${describeTaskWait(detail.wait)}`] : []),
-    ...(detail.focus ? [`Focus: ${focusPlaceText(detail.focus)}`] : []),
     ...(task.complexity ? [`Complexity: ${complexityText(task.complexity)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,
@@ -434,6 +437,7 @@ export function formatTaskDetail(
     (r) => !(r.kind === 'part_of' && detail.parent) && !(r.kind === 'has_part' && detail.subtasks?.length),
   );
   if (relations.length > 0) lines.push('', 'Relations:', ...relationLines(relations));
+  if (detail.acceptance?.length) lines.push('', ...acceptanceLines(detail.acceptance));
   if (detail.attachments) lines.push('', ...attachmentLines(task.key, detail.attachments));
   // Who works on the card now and who else has a session on it (PM-249).
   const working = new Set(detail.workingSessionIds ?? []);

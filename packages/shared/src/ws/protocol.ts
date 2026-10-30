@@ -7,7 +7,6 @@ import { InboxItem } from '../domain/inbox';
 import { AgentProvider, MemberHandle, MemberStatus } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { ProjectPauseView } from '../domain/pause';
-import { ProjectFocus } from '../domain/project-focus';
 import { Session } from '../domain/session';
 import { Task, TaskKey } from '../domain/task';
 
@@ -21,8 +20,6 @@ export const ServerEvent = z.discriminatedUnion('type', [
     engine: EngineStatusView,
     projectKey: z.string().optional(),
   }),
-  /** The Operator's grant for machine operations was given, replaced or revoked (PM-881); not project-bound. */
-  z.object({ type: z.literal('operator_grant_changed') }),
   /** A member's queue changed (PM-894): an item came, was taken or was closed; refetch the queue. */
   z.object({ type: z.literal('member_queue_changed'), projectKey: z.string(), member: MemberHandle }),
   z.object({ type: z.literal('hello'), serverTime: z.string() }),
@@ -75,8 +72,6 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('config_changed'), projectKey: z.string(), version: z.string() }),
   /** A task's attachments changed (after the commit); clients read the list again. No more than the key. */
   z.object({ type: z.literal('task_attachments_changed'), projectKey: z.string(), taskKey: TaskKey }),
-  /** The project's focus changed (PM-427); internal members only. */
-  z.object({ type: z.literal('project_focus_changed'), projectKey: z.string(), focus: ProjectFocus }),
   /** A feedback mark changed (PM-506): every human member, a client included, refetches. It names no card. */
   z.object({ type: z.literal('feedback_changed'), projectKey: z.string(), markId: z.string() }),
   /** System feedback changed (PM-472); `projectKey` null: the forwarding setting changed. Names no text. */

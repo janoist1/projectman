@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { questionPayloadOf, QUESTION_SCREENING_MINUTES, turnStalled } from '@projectman/shared';
+import { questionPayloadOf, QUESTION_SCREENING_MINUTES } from '@projectman/shared';
 import type { InboxItem, ProjectConfig, TeamMessage } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { canSeeInboxItem } from '../src/core/projects';
@@ -231,14 +231,6 @@ describe('a question the project manager screens: the foundations', () => {
       screen(id);
       const state = await h.domain.projectState.task('AR', 'AR-1');
       expect(state.openQuestions.map((q) => q.id)).toEqual([id]);
-    });
-
-    it('does not let the card refinement stall while the asking member waits', async () => {
-      const id = await ask();
-      screen(id);
-      const config = await h.domain.projects.config('AR');
-      const items = h.domain.inbox.list('AR', { taskKey: 'AR-1' });
-      expect(turnStalled(items, config)).toBe(false);
     });
 
     it('is on no one’s list while screened: the card waits for it as its member working', async () => {

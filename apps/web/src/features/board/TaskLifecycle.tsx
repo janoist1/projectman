@@ -14,7 +14,7 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { fallbackReasonText, otherProviderSuffix } from '../../lib/handoff';
 import type { MemberIndex } from '../../lib/members';
-import { nameOf } from '../../lib/members';
+import { distinctMembers, nameOf } from '../../lib/members';
 import { isTaskClosed } from '../../lib/taskState';
 import drawer from './drawer.module.css';
 import styles from './TaskLifecycle.module.css';
@@ -174,7 +174,7 @@ export function TaskAssigneeSelect({
         onChange={(event) => save(event.target.value)}
       >
         <option value="">{t('taskLifecycle.nobody')}</option>
-        {[...members.values()]
+        {distinctMembers(members)
           .filter((member) => member.status !== 'retired' || member.handle === task.assignee)
           .map((member) => (
             <option

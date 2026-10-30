@@ -3,6 +3,7 @@ export function createTaskService(deps: ConstructorParameters<typeof TaskService
 }
 
 import type {
+  AcceptanceChange,
   Actor,
   AgentProvider,
   BoardMoveRequest,
@@ -18,6 +19,7 @@ import type {
   InboxItem,
   MemberHandle,
   ProjectConfig,
+  ProjectManagerLifecycleAction,
   Session,
   Task,
   TaskReadyHold,
@@ -44,9 +46,11 @@ import {
   memberOf,
   partsClosedWaiver,
   priorityRefusal,
+  projectManagerMayLifecycle,
   repoOf,
   subtaskParentRefusal,
   timelineNoteExcerpt,
+  workStageOf,
 } from '@projectman/shared';
 import type {
   GateEvaluation,
@@ -61,7 +65,14 @@ import type { TaskPatch } from '../../db';
 import { requireHuman } from '../members';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
-import { conflict, forbidden, invalid, projectManagerMoveRefused, themeRefused } from '../../kernel';
+import {
+  conflict,
+  forbidden,
+  invalid,
+  projectManagerLifecycleRefused,
+  projectManagerMoveRefused,
+  themeRefused,
+} from '../../kernel';
 import type { AddedRelation } from '../base';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
@@ -74,8 +85,11 @@ import {
   authorizeSuperMutation,
   assertOwnApproval,
 } from '../../kernel';
+import { TaskAcceptance } from './acceptance';
 import { BoardOrder } from './board-order';
 import { BoardGroupMove } from './group-move';
+import { assertAssigneeFits } from './assignee-fit';
+import { seniorWaitDecisionFor } from './senior-decision';
 import { planComplexity } from './complexity';
 import type { ComplexityChange } from './complexity';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
@@ -152,6 +166,8 @@ interface TaskUpdate {
   /** A person moves the card into the work stage despite open prerequisites (PM-204). */
   despitePrerequisites?: boolean;
   complexity?: ComplexityRequest;
+  /** Operations on the acceptance items (PM-1135): in order, before the labels and the move. */
+  acceptance?: AcceptanceChange[];
 }
 
 /**
@@ -180,6 +196,7 @@ export class TaskService implements TaskSchedulingReader {
   private readonly order: BoardOrder;
   private readonly group: BoardGroupMove;
   private readonly cardRelations: TaskRelations;
+  private readonly acceptance: TaskAcceptance;
   private readonly themes: TaskThemes;
   private readonly pullRequests: PullRequestRecords;
   private readonly handoff: ((input: HandoffTrigger) => HandoffStart | null) | undefined;
@@ -232,6 +249,7 @@ export class TaskService implements TaskSchedulingReader {
       cancel: (task, actor, duplicate, sessionId, effects) =>
         this.closeAsCancelled(task, actor, duplicate, sessionId, effects),
     });
+    this.acceptance = new TaskAcceptance(this.store, this.labels, this.cardRelations);
     this.pullRequests = new PullRequestRecords({
       ...deps,
       find: (projectKey, taskKey) => this.store.find(projectKey, taskKey),
@@ -241,6 +259,16 @@ export class TaskService implements TaskSchedulingReader {
 
   list(projectKey: string): Task[] {
     return this.store.list(projectKey);
+  }
+
+  /** The cards a scheduling query selects, as `get` shows them (why their start waits, their merge). */
+  listQuery(projectKey: string, query: TaskSchedulingQuery): Task[] {
+    return this.store.listQuery(projectKey, query);
+  }
+
+  /** How many cards the project has that are not cancelled, without reading them. */
+  countNotCancelled(projectKey: string): number {
+    return this.ctx.repos.tasks.countNotCancelled(projectKey);
   }
 
   /**
@@ -299,6 +327,7 @@ export class TaskService implements TaskSchedulingReader {
     const task = this.get(projectKey, taskKey);
     return {
       task,
+      acceptance: this.acceptance.of(task),
       parent: task.parentKey ? this.find(projectKey, task.parentKey) : null,
       subtasks: this.ctx.repos.tasks.children(projectKey, taskKey).map((child) => this.store.view(child)),
       pullRequests: this.pullRequests.forTask(task),
@@ -419,6 +448,7 @@ export class TaskService implements TaskSchedulingReader {
       });
       opts.onCreated?.(task);
       if (complexity) this.recordComplexity(task, complexity, actor, opts.sessionId ?? null, effects);
+      if (req.acceptance?.length) this.acceptance.create(config, task, req.acceptance, actor, effects);
       const added: AddedRelation[] = [];
       if (task.parentKey) {
         this.recordParentChange(task, null, actor, opts.sessionId);
@@ -440,8 +470,8 @@ export class TaskService implements TaskSchedulingReader {
         return related;
       }
       this.announceRelations(projectKey, actor, added, effects);
-      // A subtask shows its parent's theme, which only a read tells.
-      const stored = task.parentKey ? this.store.get(projectKey, task.key) : task;
+      // A subtask shows its parent's theme, and the items put system labels on the card: only a read tells.
+      const stored = task.parentKey || req.acceptance?.length ? this.store.get(projectKey, task.key) : task;
       this.publish(stored);
       return stored;
     });
@@ -465,7 +495,7 @@ export class TaskService implements TaskSchedulingReader {
   ): Promise<Task & { handoffStart?: HandoffStart }> {
     const config =
       change.assignee !== undefined
-        ? await this.requireLifecycleAccess(projectKey, actor, { coordinator: true })
+        ? await this.requireLifecycleAccess(projectKey, actor, 'assign')
         : await this.projects.config(projectKey);
     assertIntegratorAccess(config, 'write', actor);
     const effects: Effect[] = [];
@@ -474,12 +504,16 @@ export class TaskService implements TaskSchedulingReader {
     let prepared: PreparedMove = { handover: null, mergeChecked: false };
     if (change.stageId !== undefined) {
       const current = this.get(projectKey, taskKey);
-      const wanted = change.labels
+      const labelled = change.labels
         ? unique(change.labels.map((label) => label.trim()).filter(Boolean))
         : unique([
             ...current.labels.filter((label) => !change.removeLabels?.includes(label)),
             ...(change.addLabels ?? []),
           ]);
+      // The system labels of the acceptance items are on the card too once this change is in.
+      const wanted = change.acceptance?.length
+        ? this.acceptance.labelsAfter(config, current, change.acceptance, actor, labelled)
+        : labelled;
       prepared = await this.moves.prepareMove(
         config,
         {
@@ -601,6 +635,11 @@ export class TaskService implements TaskSchedulingReader {
     return task;
   }
 
+  /** The owners released the card to any developer (see `seniorWaitDecisionFor`). */
+  private anyDecided(task: Task): boolean {
+    return seniorWaitDecisionFor(this.ctx, task.projectKey, task.key)?.decision === 'any';
+  }
+
   private inColumn(config: ProjectConfig, task: Task, columnId: string): boolean {
     return boardColumnOf(config.pipeline.stages.find((stage) => stage.id === task.stageId)) === columnId;
   }
@@ -635,8 +674,6 @@ export class TaskService implements TaskSchedulingReader {
         throw themeRefused(task.key, 'have an assignee');
       if (change.repo !== undefined && change.repo !== null)
         throw themeRefused(task.key, 'have a repository');
-      if (change.priority !== undefined && change.priority !== null)
-        throw themeRefused(task.key, 'have a priority');
     }
     // Validate the whole change against the task as it will be.
     const patch: TaskPatch = {};
@@ -726,6 +763,20 @@ export class TaskService implements TaskSchedulingReader {
             target.provider ?? DEFAULT_AGENT_PROVIDER,
             target.handle,
           );
+        // An AI actor's choice has to fit the card's complexity limit and specialty when the project asks (PM-1136).
+        // Outside the work stage (a card in the queue) the work stage is the one the card will start in, so the
+        // assignee kept by `start_task` cannot get round the limit. The stored points and labels count: a change of
+        // them in the same call is not taken into account.
+        const workStage = workStageOf(config, { stageId: change.stageId ?? task.stageId });
+        if (change.assignee !== null && workStage)
+          assertAssigneeFits({
+            config,
+            actor,
+            task: { complexity: task.complexity, labels: task.labels },
+            workStage,
+            member: change.assignee,
+            anyDecided: this.anyDecided(task),
+          });
         patch.assignee = change.assignee;
       }
     }
@@ -746,15 +797,32 @@ export class TaskService implements TaskSchedulingReader {
       complexity: patch.complexity === null ? undefined : (patch.complexity ?? task.complexity),
     };
     const labels = planLabelsOrThrow(config, prospectiveTask, labelChange, actor, note);
+    // The acceptance operations run before the gates are read: the labels they call for count (PM-1135).
+    const acceptancePlan = change.acceptance?.length
+      ? this.acceptance.plan(config, task, change.acceptance, actor)
+      : null;
+    const acceptanceLabels = acceptancePlan
+      ? TaskAcceptance.withDelta(
+          labels.labels,
+          this.acceptance.labelDelta(config, labels.labels, acceptancePlan.items),
+        )
+      : labels.labels;
     const moving = change.stageId !== undefined && change.stageId !== task.stageId;
     if (moving) {
       if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
       // Checked before anything is written, so a refused move leaves the rest of the change unrecorded (PM-433).
       const moveRefusal = actorMoveRefusal(config, actor, task.stageId, change.stageId!);
       if (moveRefusal) throw projectManagerMoveRefused();
-      const prospective = { ...prospectiveTask, labels: labels.labels };
+      const prospective = { ...prospectiveTask, labels: acceptanceLabels };
       const target = requireStage(config, change.stageId!);
-      this.moves.assertProjectManagerWorkEntry(config, prospective, target, actor);
+      this.moves.assertProjectManagerWorkEntry(
+        config,
+        prospective,
+        target,
+        actor,
+        false,
+        change.despitePrerequisites === true,
+      );
       // A collecting card whose subtasks are all closed goes to the done stage without the gates (PM-647).
       const waived = partsClosedWaiver(
         config,
@@ -850,6 +918,11 @@ export class TaskService implements TaskSchedulingReader {
       // A subtask of the card shows the card's theme, so a change of theme is news to them and to both themes.
       if (shownBefore !== shownAfter) this.themes.publishAround(next, [shownBefore, shownAfter]);
     }
+    if (acceptancePlan) {
+      this.acceptance.write(config, next, acceptancePlan, actor, sessionId, effects);
+      next = this.get(task.projectKey, task.key);
+      this.publish(next);
+    }
     if (relationPlan && relationPlan.steps.length > 0)
       next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects, added);
     this.announceRelations(task.projectKey, actor, added, effects);
@@ -942,7 +1015,7 @@ export class TaskService implements TaskSchedulingReader {
 
   /** Closes the task and stops its sessions while preserving assignment, stage and files. */
   async cancel(projectKey: string, taskKey: string, req: CancelTaskRequest, actor: Actor): Promise<Task> {
-    await this.requireLifecycleAccess(projectKey, actor, { coordinator: true });
+    await this.requireLifecycleAccess(projectKey, actor, 'cancel');
     const effects: Effect[] = [];
     const next = this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
@@ -1034,11 +1107,18 @@ export class TaskService implements TaskSchedulingReader {
 
   /**
    * Reopens in the same stage, with no assignee; starting work remains explicit. A theme is reopened by
-   * a person of developer access, any other card by an admin.
+   * a person of developer access, any other card by an admin or, when the project settings allow it, the
+   * selected PM (PM-1098). `reason` goes on the timeline.
    */
-  async reopen(projectKey: string, taskKey: string, actor: Actor): Promise<Task> {
-    const config = await this.projects.config(projectKey);
-    requireHuman(config, actor, isTheme(this.get(projectKey, taskKey)) ? 'developer' : 'admin');
+  async reopen(
+    projectKey: string,
+    taskKey: string,
+    actor: Actor,
+    opts: { reason?: string } = {},
+  ): Promise<Task> {
+    if (isTheme(this.get(projectKey, taskKey)))
+      requireHuman(await this.projects.config(projectKey), actor, 'developer');
+    else await this.requireLifecycleAccess(projectKey, actor, 'reopen');
     return this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
       if (task.status !== 'cancelled') {
@@ -1059,6 +1139,7 @@ export class TaskService implements TaskSchedulingReader {
           fields: ['status', 'closedAt', 'assignee'],
           action: 'reopened',
           previousAssignee: task.assignee,
+          ...(opts.reason ? { reason: opts.reason } : {}),
         },
       });
       this.publish(next);
@@ -1066,14 +1147,20 @@ export class TaskService implements TaskSchedulingReader {
     });
   }
 
-  /** An admin; with `coordinator` also the selected PM acting directly (PM-1040: reassign and cancel). */
+  /**
+   * An admin; the selected PM acting directly only when the project settings list the action (PM-1040,
+   * PM-1098).
+   */
   private async requireLifecycleAccess(
     projectKey: string,
     actor: Actor,
-    opts: { coordinator?: boolean } = {},
+    action: ProjectManagerLifecycleAction,
   ): Promise<ProjectConfig> {
     const config = await this.projects.config(projectKey);
-    if (opts.coordinator && isCoordinationActor(config, actor)) return config;
+    if (isCoordinationActor(config, actor)) {
+      if (projectManagerMayLifecycle(config, actor, action)) return config;
+      throw projectManagerLifecycleRefused(action);
+    }
     requireHuman(config, actor, 'admin');
     return config;
   }
@@ -1156,14 +1243,10 @@ export class TaskService implements TaskSchedulingReader {
       handoff?: HandoffReason;
     } = {},
   ): Task {
-    let previous: string | null = null;
-    let changed = false;
-    const assigned = this.ctx.unitOfWork(() => {
+    return this.ctx.unitOfWork(() => {
       const task = this.get(projectKey, taskKey);
       if (task.assignee === assignee) return task;
       if (isTheme(task)) throw themeRefused(taskKey, 'have an assignee');
-      previous = task.assignee;
-      changed = true;
       const next = this.store.write(task, { assignee, updatedAt: isoNow(this.ctx) });
       this.timeline.append({
         projectKey,
@@ -1174,11 +1257,13 @@ export class TaskService implements TaskSchedulingReader {
       });
       if (handoff) this.handoff?.({ task: next, previous: task.assignee, actor, reason: handoff });
       this.publish(next);
+      // Told once the change is durable: inside a larger unit of work, after its commit. Only the listeners
+      // that run before the first asynchronous one are done when the outermost unit returns.
+      this.ctx.afterCommit(
+        () => void this.ctx.events.emit('task_assigned', { task: next, previous: task.assignee, actor }),
+      );
       return next;
     });
-    // Only the listeners that run before the first asynchronous one are done when this returns.
-    if (changed) void this.ctx.events.emit('task_assigned', { task: assigned, previous, actor });
-    return assigned;
   }
 
   addLink(

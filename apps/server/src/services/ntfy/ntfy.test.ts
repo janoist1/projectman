@@ -13,7 +13,7 @@ import { capturingLogger } from '../../../test/helpers/fakes';
 import { testTemplate } from '../../../test/helpers/test-template';
 import { createWebPushService } from '../web-push';
 import { createNtfyService } from './index';
-import { isPrivateAddress, ntfyOutcomeOf } from './transport';
+import { createNtfyTransport, createPublicLookup, isPrivateAddress, ntfyOutcomeOf } from './transport';
 
 describe('ntfy channel', () => {
   let home: string;
@@ -185,6 +185,8 @@ describe('ntfy transport helpers', () => {
     'fd00::1',
     'fe80::1',
     '::ffff:10.0.0.1',
+    '64:ff9b::a00:1',
+    '2002:a00:1::1',
   ])('treats %s as a private address', (address) => expect(isPrivateAddress(address)).toBe(true));
   it.each(['8.8.8.8', '172.32.0.1', '2606:4700::1111'])('lets the public address %s through', (address) =>
     expect(isPrivateAddress(address)).toBe(false),
@@ -200,4 +202,40 @@ describe('ntfy transport helpers', () => {
   ] as const)('maps status %s and code %s', (status, code, outcome) =>
     expect(ntfyOutcomeOf(status, code)).toEqual(outcome),
   );
+  it('refuses a host that resolves to a private address before any connection is made', async () => {
+    let resolved = 0;
+    const transport = createNtfyTransport((_host, _options, callback) => {
+      resolved += 1;
+      callback(null, [{ address: '10.0.0.5', family: 4 }]);
+    });
+    const outcome = await transport.send({
+      server: 'https://ntfy.example.org',
+      topic: 'secret-topic',
+      title: 'Projectman',
+      message: 'New item',
+      priority: 'high',
+      timeoutMs: 2000,
+    });
+    expect(resolved).toBe(1);
+    expect(outcome).toEqual({ result: 'failed', failure: 'rejected' });
+  });
+  it('refuses when any answer of a multi-address host is private', () => {
+    const lookup = createPublicLookup((_host, _options, callback) =>
+      callback(null, [
+        { address: '8.8.8.8', family: 4 },
+        { address: '127.0.0.1', family: 4 },
+      ]),
+    );
+    let refused: unknown;
+    lookup('ntfy.example.org', { all: true }, (error) => (refused = error));
+    expect(refused).toMatchObject({ code: 'EACCES' });
+  });
+  it('hands a public answer to the connection', () => {
+    const lookup = createPublicLookup((_host, _options, callback) =>
+      callback(null, [{ address: '8.8.8.8', family: 4 }]),
+    );
+    let answer: unknown;
+    lookup('ntfy.example.org', {}, (_error, address) => (answer = address));
+    expect(answer).toBe('8.8.8.8');
+  });
 });

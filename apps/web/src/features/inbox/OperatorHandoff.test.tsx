@@ -52,36 +52,12 @@ it.each<OperatorHandoff['reason']>(['owner_reserved', 'no_typed_operation', 'no_
     expect(screen.getByText('Already checked the state').closest('details')?.open).toBe(false);
     fireEvent.click(screen.getByText(t('inbox.handedOff.detail')));
     expect(screen.getByText('Already checked the state')).toBeTruthy();
-    if (reason === 'no_grant')
-      expect(
-        (await screen.findByRole('link', { name: t('inbox.handedOff.grant') })).getAttribute('href'),
-      ).toBe('/p/AC/settings/integrator#operator-grant');
     if (reason === 'processing_failed')
       expect(
         screen.getAllByRole('link').filter((link) => link.getAttribute('href') === '/p/AC/tasks/AC-21'),
       ).toHaveLength(1);
   },
 );
-
-it('replaces the grant action with a note when access has since been granted', async () => {
-  const project = mockProject();
-  project.backend.operatorGrant.active = true;
-  const entry = plainLanguageQuestion({
-    payload: {
-      question: 'Work',
-      operatorHandoff: {
-        queueItemId: 'q',
-        reason: 'no_grant',
-        action: 'Work',
-        detail: null,
-        operationId: null,
-      },
-    },
-  });
-  project.render(<InboxCard item={entry} members={new Map()} myHandle="owner" onResolve={vi.fn()} />);
-  expect(await screen.findByText(t('inbox.handedOff.nowGranted'))).toBeTruthy();
-  expect(screen.queryByRole('link', { name: t('inbox.handedOff.grant') })).toBeNull();
-});
 
 function commandFixture() {
   const project = mockProject();

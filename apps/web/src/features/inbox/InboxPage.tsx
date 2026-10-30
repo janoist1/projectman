@@ -16,7 +16,7 @@ import {
   wasIntegratorInboxItem,
 } from '@projectman/shared';
 import type { InboxItem, SuperOperationDetail } from '@projectman/shared';
-import { useBoard, useConfig, useInbox, useResolveInbox } from '../../api/queries';
+import { useBoard, useConfig, useInbox, useInboxHistory, useResolveInbox } from '../../api/queries';
 import { ActorName } from '../../components/ActorName';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
@@ -48,6 +48,7 @@ import {
   resolutionMark,
   resolutionNote,
   resolverName,
+  withHistory,
 } from '../../lib/inbox';
 import type { DisplayKind, ResolutionMark } from '../../lib/inbox';
 import { isApiError } from '../../api/client';
@@ -221,7 +222,10 @@ export function InboxPage() {
   const [filter, setFilter] = useState<KindFilter>('all');
   useDocumentTitle(t('inbox.title'), board.data?.project.name);
 
-  const items = inbox.data?.items;
+  const history = useInboxHistory(key);
+  const openList = inbox.data?.items;
+  const historyList = history.data?.items;
+  const items = useMemo(() => withHistory(openList, historyList), [openList, historyList]);
   const { hash, search, pathname } = useLocation();
   const navigate = useNavigate();
   useEffect(() => {

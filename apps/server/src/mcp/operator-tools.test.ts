@@ -4,6 +4,7 @@ import type { Actor } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from '../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../test/helpers/domain-harness';
 import { settle } from '../../test/helpers/fakes';
+import { openOverdueObligation } from '../../test/helpers/overdue-obligation';
 import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
@@ -169,9 +170,7 @@ describe('Operator MCP tools', () => {
     '%s describes and forwards the parallel-work confirmation',
     async (name) => {
       const tool = TEAM_TOOLS.find((t) => t.name === name)!;
-      expect(tool.description).toContain(
-        'If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended.',
-      );
+      expect(tool.inputSchema.shape.despite_workers?.description).toBeDefined();
       const handler = createFakeTeamToolsHandler();
       const input =
         name === 'send_message'
@@ -506,9 +505,8 @@ describe('dismiss_signal authorization and domain errors', () => {
 
   it('dismisses without an owner request and hides the record-only note from the DTO', async () => {
     const card = await h.domain.tasks.create('AR', { title: 'Parked' }, { kind: 'human', handle: 'owner' });
-    h.repos.tasks.update(card.id, { stageId: 'ready', status: 'active' });
-    await h.domain.operatorSignals.sweep('AR');
-    const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'ready_waiting')!;
+    const { signalId } = openOverdueObligation(h, card, { at: new Date() });
+    const signal = h.repos.operatorSignals.get(signalId)!;
     h.repos.operatorSignals.delivered([signal.id], new Date().toISOString(), 'pm');
     expect(h.repos.operatorRequests.latest('AR', 1)).toEqual([]);
     await expect(
@@ -530,8 +528,8 @@ describe('dismiss_signal authorization and domain errors', () => {
     ).rejects.toMatchObject({ code: 'invalid', message: 'the PM may not dismiss this signal kind' });
     const ready = h.domain.operatorSignals.raise({
       projectKey: 'AR',
-      kind: 'ready_waiting',
-      caseKey: 'ready_waiting:missing',
+      kind: 'obligation_overdue',
+      caseKey: 'obligation_overdue:missing',
     });
     await expect(
       h.domain.teamTools.dismissSignal(operator, { signalId: ready.id, note: 'Note' }),
@@ -602,6 +600,18 @@ describe('reassign_task and cancel_task (PM-1040)', () => {
     ])
       await expect(call).rejects.toMatchObject({ message: expect.stringContaining('project_manager_only') });
     expect(h.domain.tasks.get('AR', card.key)).toMatchObject({ assignee: null, status: 'active' });
+  });
+
+  it('checks the PM internal conversation for reopen_task, as for the other card tools (PM-1098)', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Card' }, OWNER_ACTOR);
+    await h.domain.tasks.cancel('AR', card.key, {}, OWNER_ACTOR);
+    await expect(
+      h.domain.teamTools.reopenTask(
+        { ...pm, sessionId: 'ses_not_the_pm_conversation' },
+        { taskKey: card.key, reason: 'Mine' },
+      ),
+    ).rejects.toMatchObject({ message: expect.stringContaining('project_manager_only') });
+    expect(h.domain.tasks.get('AR', card.key).status).toBe('cancelled');
   });
 
   it('keeps the service refusing another AI member, the PM through an integrator, and keeps the admin path', async () => {

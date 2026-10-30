@@ -139,6 +139,24 @@ describe('the start offer to the project manager', () => {
     expect(wait?.hold).toBeUndefined();
   });
 
+  it.each([
+    ['queues_and_start', false, 'yourself'],
+    ['start_only', true, 'integrator todo'],
+    ['start_only', false, 'ask_human'],
+  ] as const)('routes owner holds with moves %s and machine access %s', async (moves, access, expected) => {
+    await harness((config) => {
+      config.team.projectManagerMoves = moves;
+      const pm = config.team.members.find((member) => member.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.machineAccess = access;
+    });
+    await create('Owner hold route');
+    await settle();
+    expect(offers()).toHaveLength(1);
+    const hold = offers()[0]!.body.split("If the owner's comment")[1]!;
+    expect(hold).toContain(expected);
+    expect(hold).toContain('backlog');
+  });
+
   describe('a collector', () => {
     it.each(['done', 'cancelled'] as const)('never offers a collector with only %s parts', async (status) => {
       await harness();
@@ -166,7 +184,7 @@ describe('the start offer to the project manager', () => {
       const row = startRows(collector)[0]!;
       minutes(6);
       await sweep();
-      minutes(6);
+      minutes(10);
       await sweep();
       expect(todos()[0]?.state).toBe('open');
       await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, { userId: null, source: 'system' });
@@ -279,7 +297,7 @@ describe('the start offer to the project manager', () => {
   });
 
   describe('an assigned card in the work stage that nobody started (PM-879)', () => {
-    /** A card the owner moved forward with its assignee: going forward starts nothing (PM-119). */
+    /** A card the owner moved forward with its existing assignee; its hand-over keeps that assignment. */
     const waitingInWork = async (title: string, assignee = 'dev-1') => {
       const key = await idea(title);
       h.domain.tasks.assign('AR', key, assignee, OWNER_ACTOR);
@@ -308,7 +326,7 @@ describe('the start offer to the project manager', () => {
       expect(stateOf(row)).toBe('fulfilled');
     });
 
-    it('is not offered while its assignee is busy, and keeps its assignee from other cards', async () => {
+    it('starts the deferred hand-over when its assignee becomes free without offering another card', async () => {
       await harness();
       const busy = await busyDevelopers();
       const key = await waitingInWork('Moved forward');
@@ -318,7 +336,12 @@ describe('the start offer to the project manager', () => {
       const own = busy.find((card) => task(card).assignee === 'dev-1')!;
       await h.domain.tasks.cancel('AR', own, { reason: 'Fictional.' }, OWNER_ACTOR);
       await settle();
-      expect(startText(key)).toHaveLength(1);
+      const sessions = h.domain.sessions
+        .listLive('AR', 'dev-1')
+        .filter((session) => session.workItem.type === 'task' && session.workItem.taskKey === key);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.startCause).toMatchObject({ kind: 'hand_over' });
+      expect(startText(key)).toEqual([]);
       expect(startText(other)).toEqual([]);
     });
   });
@@ -444,19 +467,14 @@ describe('the start offer to the project manager', () => {
     });
   });
 
-  describe('urgent and focus cards', () => {
+  describe('urgent cards', () => {
     it('are not offered: the pull starts them', async () => {
       await harness();
       const hot = await create('Urgent card', { priority: 'urgent' });
-      const focused = await idea('Focus card');
-      await h.domain.projectFocus.add('AR', focused, OWNER_ACTOR);
-      await h.domain.tasks.moveToStage('AR', focused, 'ready', OWNER_ACTOR);
       await settle();
       await vi.waitFor(() => expect(task(hot).assignee).not.toBeNull());
-      await vi.waitFor(() => expect(task(focused).assignee).not.toBeNull());
       expect(offers()).toEqual([]);
       expect(startRows(hot)).toEqual([]);
-      expect(startRows(focused)).toEqual([]);
     });
 
     it('fulfil an open offer when the card turns urgent and the pull starts it', async () => {
@@ -474,7 +492,7 @@ describe('the start offer to the project manager', () => {
     });
   });
 
-  it('does not pull a non-urgent card outside the focus', async () => {
+  it('does not pull a non-urgent card', async () => {
     await harness();
     const key = await create('Plain card');
     await settle();
@@ -508,7 +526,7 @@ describe('the start offer to the project manager', () => {
   });
 
   describe('the clock', () => {
-    it('wakes the pm once after N minutes and hands a todo to the integrator after 2N', async () => {
+    it('wakes the pm once after N minutes and hands a todo to the integrator after 3N, with no word to the pm', async () => {
       await harness((c) => {
         c.team.limits.obligationMinutes = 10;
       });
@@ -525,9 +543,14 @@ describe('the start offer to the project manager', () => {
       expect(reminders()[0]).toMatchObject({ from: null, member: 'pm', kind: 'start', wake: true });
       expect(reminders()[0]!.text).toContain(key);
       expect(todos()).toEqual([]);
+      // The pm is the responsible: there is nobody else to tell, so the gap to the hand-over is 2N.
+      minutes(10);
+      await sweep();
+      expect(todos()).toEqual([]);
       minutes(10);
       await sweep();
       expect(todos()).toHaveLength(1);
+      expect(startRows(key)[0]!.pmToldAt).toBeNull();
       expect(questionPayloadOf(todos()[0]!)).toMatchObject({
         recipient: 'integrator',
         obligation: { kind: 'start', responsible: 'pm' },

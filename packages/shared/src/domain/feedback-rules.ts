@@ -4,7 +4,6 @@ import type { FeedbackCardRef, FeedbackOutcome, FeedbackStatus } from './feedbac
 import type { Task } from './task';
 
 export { feedbackOriginRefusal, normalizeFeedbackOrigin } from './feedback-origin';
-export type { FeedbackOriginRefusal } from './feedback-origin';
 
 /**
  * Whether the member decides marks: they hold the `feedback_processing` duty, or they are a human

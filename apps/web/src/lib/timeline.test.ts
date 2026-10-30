@@ -302,8 +302,16 @@ describe('the reason of a reassignment on the timeline (PM-1040)', () => {
 });
 
 describe('open-step reminders on the timeline (PM-806)', () => {
-  const row = (type: 'obligation_woken' | 'obligation_handed_over', data: Record<string, unknown>) =>
-    describeEvent({ ...creation, actor: { kind: 'system', handle: null }, type, data }, context).text;
+  const row = (
+    type: 'obligation_woken' | 'obligation_pm_told' | 'obligation_handed_over',
+    data: Record<string, unknown>,
+  ) => describeEvent({ ...creation, actor: { kind: 'system', handle: null }, type, data }, context).text;
+
+  it('shows the word to the project manager (PM-1152)', () => {
+    expect(row('obligation_pm_told', { kind: 'merge', responsible: 'dev-1', minutes: 20 })).toBe(
+      t('timeline.events.obligation_pm_told', { responsible: 'dev-1', step: 'beolvasztás', minutes: 20 }),
+    );
+  });
 
   it('names the responsible, the step and the minutes', () => {
     const data = { kind: 'merge', responsible: 'dev-1', minutes: 30 };
@@ -372,6 +380,16 @@ describe('card relations on the timeline (PM-192)', () => {
 
   it('shows a kind this build does not know as it is', () => {
     expect(relation('task_relation_added', 'blocks', 'AC-5')).toBe('Kapcsolat hozzáadva: blocks · AC-5');
+  });
+
+  it('says why a card was reopened, and keeps the reasonless events as they were (PM-1098)', () => {
+    const reopened = (data: Record<string, unknown>) =>
+      describeEvent({ ...creation, type: 'task_updated', data: { action: 'reopened', ...data } }, context)
+        .text;
+    expect(reopened({ reason: 'Needed again' })).toBe(
+      t('timeline.events.task_reopened_reason', { reason: 'Needed again' }),
+    );
+    expect(reopened({})).toBe(t('timeline.events.task_reopened'));
   });
 
   it('says that a card was closed as a duplicate, and keeps the old events as they were', () => {
@@ -960,6 +978,13 @@ describe('the rows of a question the Operator screens (PM-556)', () => {
         question: 'Which font?',
         reason: 'It needs a person',
       }),
+    );
+  });
+
+  it('names the technical decider when a machine step went to them instead of the owners', () => {
+    const base = { inboxItemId: 'inb_1', asker, note: 'No integrator.', outcome: 'todo' };
+    expect(row('question_screened', { ...base, forwardedTo: 'dev-2' })).toBe(
+      t('timeline.events.question_screened_todo_decider', { to: 'dev-2', note: base.note }),
     );
   });
 

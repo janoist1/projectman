@@ -1,9 +1,14 @@
 import { createHash } from 'node:crypto';
-import { OPERATOR_APP_CREDENTIAL_PREFIX, appRequestOrigin, coordinationMemberOf } from '@projectman/shared';
+import {
+  OPERATOR_APP_CREDENTIAL_PREFIX,
+  appRequestOrigin,
+  coordinationMemberOf,
+  isLiveSessionState,
+} from '@projectman/shared';
 import type {
   HumanMemberConfig,
   ProjectConfig,
-  SuperCommand,
+  NewSuperCommand,
   SuperOperation,
   SuperOperationDetail,
 } from '@projectman/shared';
@@ -15,8 +20,8 @@ import type {
 import type { DomainContext } from '../../core/base';
 import { projectAccessFor } from '../../core/members';
 import type { ProjectService } from '../../core/projects';
-import { forbidden } from '../../kernel';
-import type { SuperAdministration } from './facade';
+import { forbidden, unavailable } from '../../kernel';
+import type { SuperOperations } from './facade';
 import type { SuperOperator } from './index';
 
 /**
@@ -58,7 +63,7 @@ export function createOperatorAppSessions(deps: {
     active(principal) {
       if (principal.source !== 'app') return false;
       const session = deps.ctx.repos.sessions.get(principal.keyId);
-      if (!session || session.state === 'exited' || session.state === 'failed') return false;
+      if (!session || !isLiveSessionState(session.state)) return false;
       const config = deps.projects.cachedConfig(session.projectKey);
       return (
         !!config &&
@@ -176,7 +181,7 @@ export function createOperatorAppCredentials(deps: {
 interface AppOperationInput {
   requestId: string;
   taskKey?: string | undefined;
-  command: SuperCommand;
+  command: NewSuperCommand;
 }
 
 /**
@@ -188,7 +193,7 @@ export function createOperatorAppOperations(deps: {
   ctx: DomainContext;
   credentials: OperatorAppCredentials;
   superOperator: Pick<SuperOperator, 'access' | 'execute'>;
-  superAdministration: Pick<SuperAdministration, 'operate' | 'operation'>;
+  superOperations: Pick<SuperOperations, 'operate' | 'operation'>;
   projects: Pick<ProjectService, 'config'>;
 }) {
   const run = async (
@@ -208,7 +213,7 @@ export function createOperatorAppOperations(deps: {
       context,
       { projectKey, ...(input.taskKey ? { taskKey: input.taskKey } : {}), operation: 'execute_operation' },
       () =>
-        deps.superAdministration.operate(
+        deps.superOperations.operate(
           projectKey,
           {
             requestId: input.requestId,
@@ -230,6 +235,8 @@ export function createOperatorAppOperations(deps: {
     },
     /** Goes on with an operation the owner said yes to; the same call as the first one, now under the owner's yes. */
     async resume(operation: SuperOperation, keyId: string, ownerHandle: string): Promise<SuperOperation> {
+      if (operation.command.kind === 'administration')
+        throw unavailable('administration_unavailable', 'The administration supervisor has been retired.');
       const config = await deps.projects.config(operation.projectKey);
       const session = deps.ctx.repos.sessions.get(keyId);
       if (!session || session.projectKey !== operation.projectKey)
@@ -246,7 +253,7 @@ export function createOperatorAppOperations(deps: {
     },
     /** The operation and its recorded result (a running one is settled first). */
     read(projectKey: string, operationId: string): Promise<SuperOperationDetail> {
-      return deps.superAdministration.operation(projectKey, operationId);
+      return deps.superOperations.operation(projectKey, operationId);
     },
   };
 }

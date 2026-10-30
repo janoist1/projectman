@@ -40,11 +40,11 @@ describe('card priority', () => {
     expect(h.domain.tasks.get('AR', 'AR-1')).toMatchObject({ title: 'Checkout', priority: null });
   });
 
-  it('refuses priority on a theme', async () => {
+  it('lets a theme have a priority (PM-1136)', async () => {
     const theme = await h.domain.tasks.create('AR', { title: 'Theme', kind: 'theme' }, OWNER_ACTOR);
-    await expect(
-      h.domain.tasks.update('AR', theme.key, { priority: 'urgent' }, OWNER_ACTOR),
-    ).rejects.toMatchObject({ code: 'task_is_theme' });
+    expect(await h.domain.tasks.update('AR', theme.key, { priority: 'urgent' }, OWNER_ACTOR)).toMatchObject({
+      priority: 'urgent',
+    });
   });
 
   it('allows a change during a live session and on closed cards', async () => {

@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import type { ConfigChangeRow } from '../config/operator';
 import type { OperatorKnowledgeChange } from './operator-knowledge';
+import type { AcceptanceChange } from './acceptance';
 import type { ComplexityPoints } from './complexity';
+import type { ItemState } from './item-state';
 import type { FixLimitAssessment } from './fix-limit';
 import type { FullTestErrorReason } from './full-test';
 import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
@@ -76,6 +78,7 @@ export const TimelineEventType = z.enum([
   'task_senior_wait',
   'task_check_changed',
   'task_labels_changed',
+  'acceptance_item_changed',
   'task_link_added',
   'task_relation_added',
   'task_relation_removed',
@@ -134,6 +137,7 @@ export const TimelineEventType = z.enum([
   'obligation_woken',
   'member_queue_item_closed',
   'obligation_handed_over',
+  'obligation_pm_told',
   'workspace_released',
   'host_request_opened',
   'host_request_answered',
@@ -318,6 +322,19 @@ export interface TimelineEventData {
     removed: string[];
     reason?: LabelChangeReason;
     resultCommit?: string;
+  };
+  /**
+   * An acceptance item of the card changed (PM-1135): `change` is the operation, `moved_in` an item that came
+   * from another card. `state` is the item's state after it; `taskKey` the card an item moved to (`move`) or
+   * came from (`moved_in`). `note` is the reason of a `reopen`.
+   */
+  acceptance_item_changed: {
+    itemId: string;
+    change: AcceptanceChange['op'] | 'moved_in';
+    text: string;
+    state: ItemState;
+    taskKey?: string;
+    note?: string;
   };
   task_link_added: { kind: string; ref: string; repo?: string };
   /**
@@ -511,6 +528,16 @@ export interface TimelineEventData {
     openedAt: string;
     minutes: number;
   };
+  /** The step stayed open after the reminder, so the system told the project manager once (PM-1152, actor system); `signalId` is the `obligation_overdue` signal. */
+  obligation_pm_told: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle | null;
+    subject: string;
+    openedAt: string;
+    minutes: number;
+    signalId: string;
+  };
   /** An automatic start no longer applies, or failed for a reason retrying cannot clear (PM-927). */
   member_queue_item_closed: {
     itemId: string;
@@ -680,7 +707,8 @@ export interface TimelineEventData {
     changes: ConfigChangeRow[];
   };
   /**
-   * The project's focus changed (PM-427; the actor is the person who set it). Places are 1-based: a
+   * Historical (PM-427, removed with the project focus in PM-1107): kept so the stored events keep
+   * rendering. The project's focus changed (the actor is the person who set it). Places are 1-based: a
    * removed item has `position` null, an added one `previous` null. `added` and `removed` are recorded on
    * the item's own card or theme (`taskKey`); `moved` has no card and shows in the project's changes only.
    * `title` is the item's title when it was written.
@@ -703,8 +731,9 @@ export interface PartsClosed {
 }
 
 /**
- * Why a card was pulled into a stage ahead of its turn (PM-427): `urgent` it is urgent; `focus` the
- * project's focus put it there; `key` and `title` are the focus item that covers the card, `position` its place.
+ * Why a card was pulled into a stage ahead of its turn (PM-436): `urgent` it is urgent. `focus` is
+ * historical (the project focus was removed in PM-1107) and only stored events carry it: the project's focus
+ * put the card there; `key` and `title` are the focus item that covers the card, `position` its place.
  */
 export type StagePull =
   { reason: 'urgent' } | { reason: 'focus'; position: number; key: string; title: string };

@@ -65,11 +65,6 @@ describe('the command line', () => {
     expect(world.keys()).toEqual([]);
   });
 
-  it('needs every option of the watcher', async () => {
-    expect(await run('watch', '--root', world.root)).toBe(2);
-    expect(world.output).toContain('watch needs');
-  });
-
   it('runs config-check on the home it is given', async () => {
     expect(await run('config-check', '--home', home)).toBe(2);
     expect(world.output).toContain(path.join(home, 'customization'));

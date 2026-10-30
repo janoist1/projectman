@@ -129,7 +129,98 @@ function task(taskKey: string, title: string, repoName = 'app') {
   return { project, repoName, taskKey, title };
 }
 
+const SHARED_SETTING_KEYS = ['core.useReplaceRefs', 'gc.packRefs', 'maintenance.pack-refs.enabled'];
+
+async function sharedSettings(repo: string): Promise<Record<string, string>> {
+  const values: Record<string, string> = {};
+  for (const key of SHARED_SETTING_KEYS) {
+    values[key] = await git('-C', repo, 'config', '--local', '--get', key).catch(() => '(unset)');
+  }
+  return values;
+}
+
+const ALL_FALSE = Object.fromEntries(SHARED_SETTING_KEYS.map((key) => [key, 'false']));
+
+describe('shared repository settings', { timeout: 30_000 }, () => {
+  it('sets them on a new task worktree, rewrites only what changed and leaves a settled repository alone', async () => {
+    const infos: string[] = [];
+    const { logger } = testLogger();
+    const manager = createWorktreeManager({
+      rootDir,
+      logger: { ...logger, info: (_obj: unknown, msg?: string) => infos.push(msg ?? '') } as typeof logger,
+    });
+    await manager.ensureForTask(task('AR-1', 'Change greeting'));
+    expect(await sharedSettings(clone)).toEqual(ALL_FALSE);
+    expect(infos.filter((m) => m === 'set shared repository git setting')).toHaveLength(3);
+    await git('-C', clone, 'config', '--local', 'core.useReplaceRefs', 'true');
+    await manager.ensureForTask(task('AR-1', 'Change greeting'));
+    expect(await sharedSettings(clone)).toEqual(ALL_FALSE);
+    expect(infos.filter((m) => m === 'set shared repository git setting')).toHaveLength(4);
+    await manager.ensureForTask(task('AR-1', 'Change greeting'));
+    expect(infos.filter((m) => m === 'set shared repository git setting')).toHaveLength(4);
+  });
+
+  it('sets them on a merge-fix checkout, new and reused', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const key = { project, repoName: 'app', taskKey: 'AR-1' };
+    const commit = await git('-C', clone, 'rev-parse', 'HEAD');
+    await manager.ensureMergeFix({ ...key, commit });
+    expect(await sharedSettings(clone)).toEqual(ALL_FALSE);
+    await git('-C', clone, 'config', '--local', 'gc.packRefs', 'true');
+    await manager.ensureMergeFix({ ...key, commit });
+    expect(await sharedSettings(clone)).toEqual(ALL_FALSE);
+  });
+
+  it('shows the real main again after a packed replace ref is switched off', async () => {
+    const mainCommit = await git('-C', clone, 'rev-parse', 'main');
+    const subject = await git('-C', clone, 'log', '-1', '--format=%s', 'main');
+    const other = await git(
+      '-C',
+      clone,
+      'commit-tree',
+      `${mainCommit}^{tree}`,
+      '-p',
+      mainCommit,
+      '-m',
+      'other',
+    );
+    await git('-C', clone, 'replace', mainCommit, other);
+    await git('-C', clone, 'pack-refs', '--all');
+    expect(await readFile(path.join(clone, '.git', 'packed-refs'), 'utf8')).toContain(
+      `refs/replace/${mainCommit}`,
+    );
+    expect(await git('-C', clone, 'log', '-1', '--format=%s', 'main')).toBe('other');
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    await manager.ensureForTask(task('AR-1', 'Change greeting'));
+    expect(await git('-C', clone, 'log', '-1', '--format=%s', 'main')).toBe(subject);
+  });
+
+  it('fails closed without creating the worktree when a setting cannot be written', async () => {
+    await writeFile(path.join(clone, '.git', 'config.lock'), '');
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    await expect(manager.ensureForTask(task('AR-1', 'Change greeting'))).rejects.toThrow(/config/);
+    expect(await exists(path.join(rootDir, 'AR', 'AR-1-app'))).toBe(false);
+  });
+});
+
 describe('worktree manager', { timeout: 30_000 }, () => {
+  it('lists only existing task worktrees in the managed directory, including detached ones', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const own = await manager.ensureForTask(task('AR-60', 'Own worktree'));
+    await git('-C', own.path, 'checkout', '--detach', '--quiet');
+    await git('-C', clone, 'worktree', 'add', '--quiet', '--detach', path.join(base, 'AR-61-app'));
+    const prunable = await manager.ensureForTask(task('AR-62', 'Prunable worktree'));
+    await rm(prunable.path, { recursive: true, force: true });
+    await manager.ensureMergeFix({
+      project,
+      repoName: 'app',
+      taskKey: 'AR-63',
+      commit: await git('-C', clone, 'rev-parse', 'HEAD'),
+    });
+    expect(await manager.listTaskWorktrees({ project, repoName: 'app' })).toEqual([
+      { taskKey: 'AR-60', path: own.path },
+    ]);
+  });
   it('resolves a real conflict in a separate pinned fix worktree and removes only that checkout and branch', async () => {
     const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
     const work = await manager.ensureForTask(task('AR-1', 'Change greeting'));
@@ -667,6 +758,19 @@ describe.skipIf(!hasApfsTemporaryFilesystem)(
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it.each(['no_lockfile', 'not_ignored'] as const)('caches %s until its retry deadline', async (reason) => {
+      await commitPackage();
+      if (reason === 'no_lockfile') await git('-C', clone, 'rm', 'package-lock.json');
+      else await writeFile(path.join(clone, '.gitignore'), '');
+      await git('-C', clone, 'add', '.');
+      await git('-C', clone, 'commit', '--quiet', '-m', 'Remove dependency clone prerequisite');
+      const { logger, records } = capturingLogger();
+      const manager = createWorktreeManager({ rootDir, logger, cloneDependencies: true });
+      const info = await manager.ensureForTask(task('AR-52', 'Skipped dependencies'));
+      expect(await manager.refreshDependencies(info.path)).toEqual({ status: 'skipped', reason });
+      expect(records.filter((entry) => entry.msg === 'dependency refresh retry deferred')).toHaveLength(1);
     });
 
     it('retries immediately when the target lock mtime changes and serializes concurrent calls', async () => {

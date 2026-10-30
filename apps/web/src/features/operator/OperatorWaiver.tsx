@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { teamSettingOf } from '@projectman/shared';
 import type { ConfigView } from '@projectman/shared';
 import { api } from '../../api/endpoints';
 import { isApiError } from '../../api/client';
@@ -59,7 +60,7 @@ export function OperatorWaiver({
   const control = useRef<HTMLInputElement>(null);
   const title = useId();
   const description = useId();
-  const enabled = config.config.team.operatorApprovalWaiver ?? false;
+  const enabled = teamSettingOf(config.config, 'operatorApprovalWaiver');
   useEffect(() => {
     if (!confirm) return;
     const frame = requestAnimationFrame(() => cancel.current?.focus());

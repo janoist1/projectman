@@ -246,6 +246,25 @@ function reviewBeforeHandover(c: StepContext, target: Stage | null): string[] {
 }
 
 /**
+ * The builder's part of the acceptance items (PM-1135): mark each open one with its evidence before the
+ * hand-over (the gate of the next stage holds back a card with an open item). Nothing for a card without.
+ */
+function markAcceptance(input: ContextPackInput): string[] {
+  if (!(input.acceptance ?? []).some((item) => item.state === 'open')) return [];
+  return [
+    'Before you hand over, mark every open acceptance item of the card with update_task acceptance (item ids are in the brief and in get_task): `done` with evidence (the commit, the test, the observed behavior), `not_needed` with the reason, or `move` to another open card. Never leave one open, and never confirm your own marks: the owner of the next step confirms them.',
+  ];
+}
+
+/** The reviewer's part of the acceptance items (PM-1135): confirm each one that holds, reopen the rest. */
+function confirmAcceptance(input: ContextPackInput): string[] {
+  if (!(input.acceptance ?? []).some((item) => item.state === 'open' || item.confirmedBy === null)) return [];
+  return [
+    'Confirm the acceptance items one by one with update_task acceptance `confirm` (item ids are in the brief and in get_task), each against its evidence and the handed-over commit; set the ones that do not hold open again with `reopen` and a note saying what is missing. The gate in front of the end of the pipeline holds back a card with an unconfirmed item. You cannot confirm what you marked yourself.',
+  ];
+}
+
+/**
  * Duties that change files: in the queue or the work stage the member builds the change and opens
  * a pull request (`work` says what building means for the duty); later the assignee fixes what
  * teammates report. In a local-only repository there is no pull request: the member commits on the
@@ -273,6 +292,7 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
             ? `Commit the work on the task's own branch. ${cardBranchMergeRule(mergeRepo.defaultBranch)}`
             : 'Commit, push, open a pull request and attach it with link_pull_request.',
         ...reviewBeforeHandover(c, target),
+        ...markAcceptance(input),
         handover(input, target, localOnly ? LOCAL_ONLY_FACTS : undefined),
       ];
     }
@@ -397,7 +417,7 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
     fullTestLine(input.project, task) === null
       ? [
           `Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step owns the full check before merge'}. Run only targeted tests if needed for this review.`,
-          'Verify that the developer recorded the local hand-over checks required by the repository, including `npm run dead-code` if that script is available; ask for missing checks before approving.',
+          'Verify that the developer recorded the local hand-over checks the repository requires; ask for missing checks before approving.',
         ]
       : []),
     ...(pin
@@ -410,6 +430,7 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
       : localOnly
         ? reviewBranch(localOnly, task.key)
         : 'Review the pull requests linked to the task; do not edit, commit or push.',
+    ...confirmAcceptance(input),
     recordResult(input, duty, 'a one-line summary of the findings'),
     `Send "Blocking" / "Not blocking" findings with file:line to ${author} with send_message; review again when they report a fix.`,
     // After a review a local-only branch is merged by the owner and nobody else.
@@ -440,7 +461,8 @@ function preparing(askedStep: string, steps: string[] | ((c: StepContext) => str
 function requirementsWork(): string[] {
   return [
     'Read the request with get_task; ask with ask_human about anything unclear before work starts.',
-    'Rewrite the description with update_task: the goal, the expected behaviour and numbered acceptance criteria; keep the original request quoted at the end.',
+    'Rewrite the description with update_task: the goal and the expected behaviour; keep the original request quoted at the end.',
+    'Write the acceptance criteria as acceptance items, each checkable on its own: update_task with acceptance `add` (create_task takes an acceptance list). The assignee marks them with evidence and the reviewer confirms them.',
     'If the request holds several independent pieces of work, create one task per piece with create_task and note the split on this task.',
   ];
 }
@@ -463,7 +485,7 @@ function technicalWork(c: StepContext): string[] {
 function partSteps({ input, task, localOnly }: StepContext): string[] {
   const unit = localOnly ? 'branch' : 'pull request';
   const config = input.project;
-  const split = `If the work is bigger than one ${unit}, split it into parts with create_task, each with ${code('parent_key')} set to this task, and give their order as ${code('prerequisite')} relations (add_relations), not as text.`;
+  const split = `If the work is bigger than one ${unit}, split it into parts with create_task, each with ${code('parent_key')} set to this task, and give their order as ${code('prerequisite')} relations (add_relations), not as text. Give each part its own acceptance conditions as items (create_task ${code('acceptance')}).`;
   const target = partReadyStage(config);
   const refine = labelDefinition(config, REFINE_LABEL);
   const first = config.pipeline.stages[0];
@@ -498,12 +520,9 @@ function developerTests(input: ContextPackInput, task: Task): string {
   return input.serverFullTest && reviewTest
     ? `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: the server runs ${code(reviewTest.command)} once on the commit you hand over, PTY tests included, and sends the task back if it fails.`
     : testsAtMerge(input, task)
-      ? `While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Also run the repository's fast local hand-over checks, including \`npm run dead-code\` from the repository root if that script is available; record results on the card and fix new findings without automatically extending the baseline. When adding a merge check that can run quickly locally, update the developer hand-over checklist in the same change. Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step runs the full check once before the task enters the default branch'}.`
+      ? `While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Also run the repository's fast local hand-over checks and record the results on the card. Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step runs the full check once before the task enters the default branch'}.`
       : "While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.";
 }
-
-const INSTALL_DEPENDENCIES =
-  'Install the dependencies only if they are missing from your working directory: they are often in place already.';
 
 /**
  * What finishing the current stage looks like for each duty with concrete steps. A member gets the
@@ -514,10 +533,10 @@ const INSTALL_DEPENDENCIES =
 const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
   implementation: building((where, tests) => [
     'Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
-    `${INSTALL_DEPENDENCIES} Implement the change ${where}. ${tests}`,
+    `Implement the change ${where}. ${tests}`,
   ]),
   maintenance: building((where, tests) => [
-    `${INSTALL_DEPENDENCIES} Make the maintenance change the task describes ${where}, small and focused. ${tests}`,
+    `Make the maintenance change the task describes ${where}, small and focused. ${tests}`,
   ]),
   docs: building((where) => [`Update the documentation the task affects ${where}.`]),
   content: building((where) => [
@@ -566,7 +585,7 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
     if (s.ownsStage) return ownerSteps(input, s);
     return [
       'Do the deployment or operations work you were asked for and report to the sender with send_message. Production changes need an approved human decision.',
-      'If you are asked to prepare a release of this instance: call propose_release with preview: true to see the commit and the cards, write a short English summary of the cards with their keys, then call propose_release with the title and the summary. Your session ends with that call; an owner approves and the release watcher deploys. Never tag, push or touch the live instance yourself.',
+      'If you are asked to publish a release: call publish_release with preview: true, then publish_release with a short English summary and the card keys. Publishing creates a git tag and GitHub release; deployment is the owner-requested cloud deploy command.',
       'If you are asked for a release of a repository (a git tag and a GitHub release): call publish_release with preview: true to see the tag, the commit and the cards, write a short English summary with the card keys, then call publish_release with the summary. It only tags and publishes; it deploys nothing. If it ends with release_publish_failed after the tag was pushed, call it again to finish.',
     ];
   },

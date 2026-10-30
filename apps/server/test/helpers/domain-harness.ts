@@ -88,6 +88,7 @@ export async function createDomainHarness(
     scheduleTimer?: ScheduleTimer;
     handOffRetryMs?: number;
     memberQueueSweepMs?: number;
+    retryDebounceMs?: number;
     /** True: the Operator screens AI members' questions first (PM-558); default false in tests. */
     screenQuestions?: boolean;
     doneTurnLimitMs?: number;
@@ -162,11 +163,7 @@ export async function createDomainHarness(
     machineEngine?: DomainOptions['machineEngine'];
     merger?: BranchMerger | null;
     /** The project and repository that are the instance itself (PM-491); absent: releases are off. */
-    releaseTarget?: { projectKey: string; repo: string };
     /** The hybrid release binding and the engines' facts (PM-752); absent: the single-target release only. */
-    releaseHybrid?: DomainOptions['releaseHybrid'];
-    /** The protected administration adapter (PM-764); absent: the domain has none. */
-    administration?: DomainOptions['administration'];
     /** Whether an integrator can take todos (PM-806); absent: none can, so every todo goes to the owners. */
     integratorTodoAccess?: DomainOptions['integratorTodoAccess'];
     /** The commit the server runs (PM-491); default `dev`. */
@@ -247,7 +244,6 @@ export async function createDomainHarness(
         }
       : {}),
     integratorCredentials: auth,
-    operatorGrants: auth.operatorGrantGate,
     ...(opts.engines
       ? { engines: opts.engines }
       : opts.merger !== undefined
@@ -271,10 +267,7 @@ export async function createDomainHarness(
         : {}),
     engineName: opts.engineName,
     machineEngine: opts.machineEngine,
-    ...(opts.releaseTarget ? { releaseTarget: opts.releaseTarget } : {}),
-    ...(opts.releaseHybrid ? { releaseHybrid: opts.releaseHybrid } : {}),
     ...(opts.appTag ? { appTag: opts.appTag } : {}),
-    ...(opts.administration ? { administration: opts.administration } : {}),
     // Read when asked, so that a test can restart "the server" on another commit (`setAppVersion`).
     get appVersion() {
       return runningVersion.value;
@@ -327,8 +320,6 @@ export async function createDomainHarness(
     reviewWatchMs: 3_600_000,
     // Likewise the loop watch's sweep: tests call `domain.loopWatch.sweep()`.
     loopWatchMs: 3_600_000,
-    // Tests call `domain.seniorWaits.sweep()` after moving the clock.
-    seniorWaitMs: 3_600_000,
     // Likewise the disk check and the worktree sweep: tests call `domain.disk` and `domain.worktreeSweep`.
     diskCheckMs: 3_600_000,
     worktreeSweepMs: 3_600_000,
@@ -342,6 +333,8 @@ export async function createDomainHarness(
     obligationSweepMs: 3_600_000,
     // And the member queue's sweep: tests call `domain.memberQueueDriver.sweep()` after changing a limit.
     memberQueueSweepMs: opts.memberQueueSweepMs ?? 3_600_000,
+    // The events' retry runs at once in tests; the debounce has its own test.
+    retryDebounceMs: opts.retryDebounceMs ?? 0,
     ...(opts.integratorTodoAccess ? { integratorTodoAccess: opts.integratorTodoAccess } : {}),
     freeDiskBytes: opts.freeDiskBytes,
     heavyRunSessions: opts.heavyRunSessions,

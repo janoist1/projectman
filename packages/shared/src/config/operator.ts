@@ -20,6 +20,13 @@ import { ownerReservedEffect } from './super-mutation';
 import { machineAccessOf } from './machine-access';
 import { approverOf, outboundNetworkOf } from './permission-level';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
+import {
+  effectiveTeamSettings,
+  TEAM_SETTING_KEYS,
+  TEAM_SETTING_POLICY,
+  teamSettingValue,
+} from './team-settings';
+import type { WaiverFields } from './team-settings';
 
 export {
   RETIRED_OPERATOR_HANDLE,
@@ -39,7 +46,7 @@ export const OperatorLevel = z.enum(['now', 'approval', 'never']);
 export type OperatorLevel = z.infer<typeof OperatorLevel>;
 
 /** The part of the configuration a changed field belongs to. */
-export const ConfigChangeArea = z.enum([
+const ConfigChangeArea = z.enum([
   'project',
   'member',
   'role',
@@ -51,7 +58,7 @@ export const ConfigChangeArea = z.enum([
   'boundary',
   'release',
 ]);
-export type ConfigChangeArea = z.infer<typeof ConfigChangeArea>;
+type ConfigChangeArea = z.infer<typeof ConfigChangeArea>;
 
 /**
  * One changed field. `target` names what changed inside the area: a member's handle, a role, stage,
@@ -107,7 +114,9 @@ export function hasOperatorWaiverField(input: unknown): boolean {
 }
 
 export function operatorWaiverChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
-  return (previous.team.operatorApprovalWaiver ?? false) !== (next.team.operatorApprovalWaiver ?? false);
+  return (
+    teamSettingValue(previous, 'operatorApprovalWaiver') !== teamSettingValue(next, 'operatorApprovalWaiver')
+  );
 }
 
 /** An AI member's fields the Operator changes without approval, on any member but itself. */
@@ -224,6 +233,7 @@ function highestLevel(changes: readonly ConfigChangeRow[]): OperatorLevel {
 const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
   email_send_policy: 'member',
   machine_access: 'member',
+  task_create_access: 'member',
   locations: 'project',
   admin_or_account: 'member',
   approval_policy: 'gate',
@@ -231,6 +241,7 @@ const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
   owners: 'member',
   permissions: 'member',
   review_test: 'repos',
+  compute_jobs: 'repos',
   operator_watch: 'project',
   operator_approval_waiver: 'project',
 };
@@ -486,8 +497,8 @@ function teamRows(previous: ProjectConfig, next: ProjectConfig): ConfigChangeRow
     ...fieldRows(
       'project',
       null,
-      { ...previous.team, operatorApprovalWaiver: previous.team.operatorApprovalWaiver ?? false },
-      { ...next.team, operatorApprovalWaiver: next.team.operatorApprovalWaiver ?? false },
+      effectiveTeamSettings(previous),
+      effectiveTeamSettings(next),
       () => 'approval',
       known,
     ),
@@ -515,8 +526,6 @@ function newMemberPermissionRows(member: AiMemberConfig): ConfigChangeRow[] {
   );
 }
 
-type WaiverFields = { readonly [field: string]: true | WaiverFields };
-
 const WAIVER_PROTECTED_DUTIES: readonly DutyId[] = [
   'boundary_authorization',
   'release_approval',
@@ -529,6 +538,13 @@ const WAIVER_PROTECTED_DUTIES: readonly DutyId[] = [
 
 /** Explicit allow lists: adding a schema field does not silently widen the waiver. */
 const WAIVER_PROJECT: WaiverFields = { name: true, language: true, timezone: true, templateId: true };
+/** The team settings as `TEAM_SETTING_POLICY` classifies them; the `entries` ones are checked below. */
+const WAIVER_TEAM: WaiverFields = Object.fromEntries(
+  TEAM_SETTING_KEYS.flatMap((key) => {
+    const waiver = TEAM_SETTING_POLICY[key].waiver;
+    return waiver === false ? [] : [[key, waiver === 'entries' ? true : waiver]];
+  }),
+);
 const WAIVER_MEMBER: WaiverFields = {
   kind: true,
   handle: true,
@@ -708,20 +724,7 @@ function approvalWaivable(
   return (
     fieldsWaivable(previous, next, { project: true, team: true, pipeline: true }) &&
     fieldsWaivable(previous.project, next.project, WAIVER_PROJECT) &&
-    fieldsWaivable(
-      { ...previous.team, operatorApprovalWaiver: previous.team.operatorApprovalWaiver ?? false },
-      { ...next.team, operatorApprovalWaiver: next.team.operatorApprovalWaiver ?? false },
-      {
-        members: true,
-        roles: true,
-        roleOverrides: true,
-        limits: true,
-        cardMover: { kind: true, handle: true },
-        projectManagerMoves: true,
-        prioritySetters: true,
-        complexitySetters: true,
-      },
-    ) &&
+    fieldsWaivable(effectiveTeamSettings(previous), effectiveTeamSettings(next), WAIVER_TEAM) &&
     fieldsWaivable(previous.team.limits, next.team.limits, WAIVER_LIMITS) &&
     listWaivable(previous.team.members, next.team.members, (m) => m.handle, waivableMember) &&
     listWaivable(

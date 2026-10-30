@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import type { OperatorSignalKind } from '../api/dto';
 import type { ProjectConfig } from './schema';
+import { teamSettingOf } from './team-settings';
 
 export const OPERATOR_WATCH_LEVELS = ['report', 'unblock', 'drive'] as const;
 export const OperatorWatch = z.enum(OPERATOR_WATCH_LEVELS);
 export type OperatorWatch = z.infer<typeof OperatorWatch>;
-export const DEFAULT_OPERATOR_WATCH: OperatorWatch = 'report';
 
-export const COORDINATOR_ONLY_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
+const COORDINATOR_ONLY_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
   'structural_pattern',
   'milestone_closed',
 ];
@@ -17,14 +17,13 @@ export function isCoordinatorOnlySignal(kind: OperatorSignalKind): boolean {
 
 /** The signal kinds the coordinator may close as needing nothing instead of presenting them. */
 export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
-  'ready_waiting',
-  'refinement_stalled',
+  'obligation_overdue',
   ...COORDINATOR_ONLY_SIGNAL_KINDS,
 ];
 
 /** How much the coordinator does on its own on a system signal (PM-545); absent means report. */
 export function operatorWatchOf(config: Pick<ProjectConfig, 'team'>): OperatorWatch {
-  return config.team.operatorWatch ?? DEFAULT_OPERATOR_WATCH;
+  return teamSettingOf(config, 'operatorWatch');
 }
 
 /** How many own steps the coordinator may take on one signal at each level. */
@@ -36,16 +35,8 @@ export const OPERATOR_SIGNAL_STEP_GAP_MINUTES = 30;
  */
 export const OPERATOR_SIGNAL_STEP_KINDS: Record<OperatorWatch, readonly OperatorSignalKind[]> = {
   report: [],
-  unblock: ['idle', 'merge_waiting', 'merge_blocked', 'answer_stalled', 'start_blocked'],
-  drive: [
-    'idle',
-    'merge_waiting',
-    'merge_blocked',
-    'unreleased',
-    'ready_waiting',
-    'answer_stalled',
-    'start_blocked',
-  ],
+  unblock: ['obligation_overdue', 'merge_blocked', 'answer_stalled', 'start_blocked'],
+  drive: ['obligation_overdue', 'merge_blocked', 'unreleased', 'answer_stalled', 'start_blocked'],
 };
 /**
  * The signal kinds whose wake-ups go on the project's fast line (PM-694): at most one wake-up per

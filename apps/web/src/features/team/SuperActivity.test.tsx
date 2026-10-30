@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
-import type { SuperHandoff, SuperOperationAudit } from '@projectman/shared';
+import type { SuperOperationAudit } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
@@ -36,7 +36,6 @@ it('filters and paginates the audit by prefix without fetching involvements', as
   expect(screen.getAllByText(new RegExp(t('superMode.operations.member.update'))).length).toBe(50);
   expect(screen.getByRole('heading', { name: t('superMode.operationsTitle') })).toBeTruthy();
   expect(screen.queryByText(/hidden.operation/)).toBeNull();
-  expect(document.querySelector('a[href="/p/AC/sessions?by=super#handoff-handoff"]')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: t('superMode.more') }));
   await waitFor(() =>
     expect(
@@ -47,28 +46,8 @@ it('filters and paginates the audit by prefix without fetching involvements', as
   expect(project.requests.some((request) => request.path.includes('/involvements'))).toBe(false);
 });
 
-it('shows pending handoffs, owner questions and unknown outcomes', async () => {
+it('shows unknown outcomes', async () => {
   const project = mockProject();
-  const handoff: SuperHandoff = {
-    id: 'h1',
-    projectKey: 'AC',
-    taskKey: 'AC-21',
-    requestedBy: { kind: 'ai', handle: 'operator' },
-    reason: 'Owner decision needed',
-    command: {
-      kind: 'merge_order',
-      repo: 'projectman',
-      taskKeys: [],
-      expectedRevision: 0,
-      reason: 'Queue order',
-    },
-    expectedConfigVersion: null,
-    state: 'waiting_owner',
-    operationId: 'o1',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  project.backend.superHandoffs = [handoff];
   project.backend.superAudits = [
     {
       id: 'unknown',
@@ -77,33 +56,15 @@ it('shows pending handoffs, owner questions and unknown outcomes', async () => {
       prefix: 'pmi_test',
       operatorMode: 'super',
       requestId: 'req_unknown',
-      handoffId: 'h1',
+      handoffId: null,
       operation: 'merge',
       outcome: 'unknown',
       errorCode: null,
-      createdAt: handoff.createdAt,
-    },
-  ];
-  project.backend.superOperations = [
-    {
-      id: 'o1',
-      projectKey: 'AC',
-      taskKey: 'AC-21',
-      handoffId: 'h1',
-      state: 'waiting_owner',
-      requestId: '00000000-0000-4000-8000-000000000000',
-      command: handoff.command,
-      ownerQuestionId: 'q1',
-      errorCode: null,
-      createdAt: handoff.createdAt,
-      updatedAt: handoff.updatedAt,
+      createdAt: new Date().toISOString(),
     },
   ];
   project.render(<InvolvementsPage />, '/p/AC/sessions?by=super');
-  expect(await screen.findByText(/Owner decision needed/)).toBeTruthy();
   expect(await screen.findByText(t('superMode.outcomes.unknown'))).toBeTruthy();
-  await waitFor(() => expect(document.querySelector('a[href="/p/AC/inbox#inbox-item-q1"]')).toBeTruthy());
-  expect(screen.queryByRole('button', { name: /execute/i })).toBeNull();
 });
 
 it('does not read owner-only audit as a non-owner', () => {
@@ -120,36 +81,4 @@ it('uses project-wide empty copy without a credential filter', async () => {
   project.render(<InvolvementsPage />, '/p/AC/sessions?by=super');
   expect(await screen.findByText(t('superMode.emptyAll'))).toBeTruthy();
   expect(screen.queryByText(t('superMode.empty'))).toBeNull();
-});
-
-it('loads an audit-linked handoff even after it leaves the bounded list', async () => {
-  const project = mockProject();
-  const at = new Date().toISOString();
-  const old: SuperHandoff = {
-    id: 'old',
-    projectKey: 'AC',
-    taskKey: 'AC-21',
-    requestedBy: { kind: 'ai', handle: 'operator' },
-    reason: 'Old handoff reason',
-    command: {
-      kind: 'merge_order',
-      repo: 'webshop',
-      taskKeys: [],
-      expectedRevision: 0,
-      reason: 'Queue maintenance',
-    },
-    expectedConfigVersion: null,
-    state: 'pending',
-    operationId: null,
-    createdAt: at,
-    updatedAt: at,
-  };
-  project.backend.superHandoffs = [
-    ...Array.from({ length: 51 }, (_, i) => ({ ...old, id: `recent_${i}`, reason: 'Recent handoff' })),
-    old,
-  ];
-  project.render(<InvolvementsPage />, '/p/AC/sessions?by=super#handoff-old');
-  expect(await screen.findByText(/Old handoff reason/)).toBeTruthy();
-  expect(project.requests.some((request) => request.path.endsWith('/handoffs/old'))).toBe(true);
-  expect(document.activeElement?.id).toBe('handoff-old');
 });

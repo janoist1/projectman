@@ -47,6 +47,9 @@ const SCOPES: Scopes = {
   'worktree.findMergeFix': { project: ([args]) => inConfig(args) },
   'worktree.removeMergeFix': { project: ([args]) => inConfig(args) },
   'worktree.listMergeFixes': { project: ([args]) => inConfig(args) },
+  'worktree.listTaskWorktrees': { project: ([args]) => inConfig(args) },
+  'workspace.listSnapshotTasks': { project: ([args]) => inConfig(args) },
+  'workspace.removeTaskSnapshots': { project: ([args]) => inConfig(args) },
   'worktree.find': { project: ([args]) => inConfig(args) },
   'worktree.status': 'open',
   'worktree.remove': 'open',
@@ -70,7 +73,8 @@ const SCOPES: Scopes = {
   'github.unwatch': 'open',
   // Only the merge check names its project; a diagnostics run on the host's machine carries no ref.
   'full_test.run': {
-    project: ({ spec }) => (spec.npmCi ?? spec.regenerate ?? spec.githubActions)?.ref.projectKey,
+    project: ({ spec }) =>
+      (spec.npmCi ?? spec.regenerate ?? spec.githubActions ?? spec.githubJob)?.ref.projectKey,
   },
   'full_test.attach': 'open',
   'full_test.report': 'open',
@@ -113,11 +117,6 @@ const SCOPES: Scopes = {
   'machine.processes': 'host',
   'machine.env_values': 'host',
   'machine.signal': 'host',
-  'admin.status': 'host',
-  'admin.logs': 'host',
-  'admin.machine': 'host',
-  'admin.submit': 'host',
-  'admin.inspect': 'host',
   'permission.decide': 'open',
   'permission.cancel': 'open',
   'permission.forward_question': 'open',

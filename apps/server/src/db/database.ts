@@ -3,12 +3,41 @@ import { LATEST_SCHEMA_VERSION, migrations, SESSION_PROVIDER_REPAIR } from './mi
 
 export type Db = Database.Database;
 
+let statementsRun = 0;
+
+/**
+ * How many prepared statements the runtime connections ran since the process started (PM-1120): the memory log
+ * prints the difference between two lines, so a busy period shows up next to its event loop delay.
+ */
+export function statementCount(): number {
+  return statementsRun;
+}
+
+type Counted = Record<'run' | 'get' | 'all' | 'iterate', (...args: unknown[]) => unknown>;
+
+/** Makes every statement the connection prepares count each run. */
+function countStatements(db: Db): void {
+  const prepare = db.prepare.bind(db) as (source: string) => Counted;
+  db.prepare = ((source: string) => {
+    const statement = prepare(source);
+    for (const method of ['run', 'get', 'all', 'iterate'] as const) {
+      const original = statement[method].bind(statement);
+      statement[method] = (...args) => {
+        statementsRun += 1;
+        return original(...args);
+      };
+    }
+    return statement;
+  }) as Db['prepare'];
+}
+
 /**
  * Opens (or creates) the runtime database and applies pending migrations.
  * Pass ":memory:" for an in-memory database (tests).
  */
 export function openDatabase(path: string): Db {
   const db = new Database(path);
+  countStatements(db);
   if (path !== ':memory:') db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');

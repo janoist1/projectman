@@ -25,6 +25,9 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
   afterEach(() => h?.cleanup());
 
   const minutes = (n: number) => void (clock = new Date(clock.getTime() + n * 60_000));
+  /** Just past the first expiry (20 minutes), and a step later past the hand-over, which comes two gaps after the reminder. */
+  const FIRST_EXPIRY = 21;
+  const HAND_OVER = 41;
   const roomy = (c: ProjectConfig) => {
     c.team.limits.maxConcurrentAi = 10;
   };
@@ -96,9 +99,9 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     await requestMerge(key);
     await sweep();
     expect(rows(key)).toMatchObject([{ kind: 'merge', responsible: 'cr', subject: `mrg_${key}` }]);
-    expect(rows(key)[0]!.dueAt).toBe('2026-10-19T10:30:00.000Z');
+    expect(rows(key)[0]!.dueAt).toBe('2026-10-19T10:20:00.000Z');
 
-    minutes(29);
+    minutes(19);
     await sweep();
     expect(reminders(key)).toHaveLength(0);
 
@@ -109,11 +112,12 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     expect(events('obligation_woken')).toHaveLength(1);
     expect(events('obligation_woken')[0]).toMatchObject({
       actor: { kind: 'system' },
-      data: { kind: 'merge', responsible: 'cr', subject: `mrg_${key}`, minutes: 30 },
+      data: { kind: 'merge', responsible: 'cr', subject: `mrg_${key}`, minutes: 20 },
     });
     expect(todos()).toHaveLength(0);
 
-    minutes(31);
+    // The project manager is on leave in this harness: there is no word to them, so the hand-over comes two gaps later.
+    minutes(HAND_OVER);
     await sweep();
     expect(todos()).toHaveLength(1);
     const todo = todos()[0]!;
@@ -143,7 +147,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     await requestMerge(key);
     const labels = h.domain.tasks.get('AR', key).labels;
     const stage = h.domain.tasks.get('AR', key).stageId;
-    for (const n of [31, 31, 60]) {
+    for (const n of [FIRST_EXPIRY, HAND_OVER, 60]) {
       minutes(n);
       await sweep();
     }
@@ -157,7 +161,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     integrator.available = false;
     const key = await create();
     await requestMerge(key);
-    for (const n of [31, 31]) {
+    for (const n of [FIRST_EXPIRY, HAND_OVER]) {
       minutes(n);
       await sweep();
     }
@@ -289,7 +293,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     await harness();
     const key = await create();
     await requestMerge(key);
-    for (const n of [31, 31]) {
+    for (const n of [FIRST_EXPIRY, HAND_OVER]) {
       minutes(n);
       await sweep();
     }
@@ -311,7 +315,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     integrator.available = false;
     const key = await create();
     await requestMerge(key);
-    for (const n of [31, 31]) {
+    for (const n of [FIRST_EXPIRY, HAND_OVER]) {
       minutes(n);
       await sweep();
     }
@@ -373,8 +377,8 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         { handle: 'owner', access: 'owner' },
       );
       await sweep();
-      expect(rows(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T12:40:00.000Z' });
-      minutes(29);
+      expect(rows(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T12:30:00.000Z' });
+      minutes(19);
       await sweep();
       expect(reminders(key)).toHaveLength(0);
       minutes(2);
@@ -417,7 +421,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       expect(todos()).toHaveLength(0);
       await h.domain.tasks.changeLabels('AR', key, { remove: ['waiting'] }, OWNER_ACTOR);
       await sweep();
-      expect(rows(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T12:40:00.000Z' });
+      expect(rows(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T12:30:00.000Z' });
     });
 
     it('does not count the time the responsible’s engine is offline', async () => {
@@ -461,7 +465,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         expect(todos()).toHaveLength(0);
         engines.online = true;
         await sweep();
-        expect(rows(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T14:10:00.000Z' });
+        expect(rows(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T14:00:00.000Z' });
         expect(reminders(key)).toHaveLength(0);
       } finally {
         await h?.cleanup();
@@ -480,14 +484,21 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       }
     await flush();
   };
-  const oneReminderOneTodo = async (key: string, responsible: string) => {
-    minutes(31);
+  /** With a project manager who can be told, the step is told to them between the reminder and the hand-over. */
+  const oneReminderOneTodo = async (key: string, responsible: string, pmIsTold = false) => {
+    minutes(FIRST_EXPIRY);
     await sweep();
     expect(reminders(key)).toHaveLength(1);
     expect(reminders(key)[0]).toMatchObject({ from: null, member: responsible, kind: 'start' });
     expect(todos()).toHaveLength(0);
     await endTurns(key);
-    minutes(31);
+    if (pmIsTold) {
+      minutes(FIRST_EXPIRY);
+      await sweep();
+      expect(rows(key)[0]).toMatchObject({ pmToldAt: expect.any(String), handedOverAt: null });
+      expect(todos()).toHaveLength(0);
+      minutes(FIRST_EXPIRY);
+    } else minutes(HAND_OVER);
     await sweep();
     expect(todos()).toHaveLength(1);
     expect(questionPayloadOf(todos()[0]!)).toMatchObject({ recipient: 'integrator' });
@@ -576,10 +587,10 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
 
     it('cancels the row and the todo when the card goes back', async () => {
       const key = await openWork();
-      minutes(31);
+      minutes(FIRST_EXPIRY);
       await sweep();
       await endTurns(key);
-      minutes(31);
+      minutes(HAND_OVER);
       await sweep();
       const todo = todos()[0]!;
       await h.domain.tasks.moveToStage('AR', key, 'backlog', OWNER_ACTOR);
@@ -642,7 +653,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await stopSessions();
       await sweep();
       expect(rows(key)).toMatchObject([{ kind: 'refinement_turn', responsible: 'ana' }]);
-      await oneReminderOneTodo(key, 'ana');
+      await oneReminderOneTodo(key, 'ana', true);
     });
 
     it('is fulfilled when the label is set in time', async () => {
@@ -840,10 +851,10 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     it('is cancelled when the card goes back, and a new entry is a new step with a new clock', async () => {
       const key = await inReview();
       const first = review(key)[0]!;
-      minutes(31);
+      minutes(FIRST_EXPIRY);
       await sweep();
       await endTurns(key);
-      minutes(31);
+      minutes(HAND_OVER);
       await sweep();
       const todo = todos()[0]!;
       await movedBack(key);
@@ -944,8 +955,8 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         expect(reminders(key)).toHaveLength(0);
         await h.domain.tasks.changeLabels('AR', key, { remove: ['waiting'] }, OWNER_ACTOR);
         await sweep();
-        expect(review(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T14:40:00.000Z' });
-        minutes(29);
+        expect(review(key)[0]).toMatchObject({ pausedSince: null, dueAt: '2026-10-19T14:30:00.000Z' });
+        minutes(19);
         await sweep();
         expect(reminders(key)).toHaveLength(0);
         minutes(2);
@@ -1074,7 +1085,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await endTurns(key);
       await stopSessions();
       await sweep();
-      minutes(31);
+      minutes(FIRST_EXPIRY);
       await sweep();
       await sweep();
       expect(reminders(key)).toHaveLength(1);
@@ -1082,7 +1093,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
       expect(reminders(key)).toHaveLength(1);
       await endTurns(key);
-      minutes(31);
+      minutes(HAND_OVER);
       await sweep();
       await sweep();
       expect(todos()).toHaveLength(1);
@@ -1097,6 +1108,88 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     });
   });
 
+  /** PM-1152: between the reminder and the hand-over the step is told to the project manager, in one signal row. */
+  describe('the word to the project manager', () => {
+    const withPm = (c: ProjectConfig) => {
+      roomy(c);
+      const pm = c.team.members.find((m) => m.handle === 'pm')!;
+      if (pm.kind === 'ai') pm.onLeave = false;
+    };
+    const overdueSignals = () =>
+      h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'obligation_overdue');
+    const signalSweep = async () => {
+      await h.domain.operatorSignals.sweep('AR');
+      await flush();
+    };
+    /** A card in development whose developer's session ended without a result, past the reminder. */
+    const workAfterReminder = async () => {
+      await harness(withPm);
+      const key = await create();
+      await h.domain.tasks.moveToStage('AR', key, 'development', OWNER_ACTOR);
+      await flush();
+      await stopSessions();
+      await sweep();
+      minutes(FIRST_EXPIRY);
+      await sweep();
+      await endTurns(key);
+      return key;
+    };
+
+    it('tells the project manager once at the second expiry, then hands the work over at the third', async () => {
+      const key = await workAfterReminder();
+      expect(overdueSignals()).toEqual([]);
+      minutes(FIRST_EXPIRY);
+      await sweep();
+      await sweep();
+      expect(rows(key)[0]).toMatchObject({
+        state: 'open',
+        pmToldAt: clock.toISOString(),
+        handedOverAt: null,
+      });
+      expect(overdueSignals()).toMatchObject([{ taskKey: key, subject: rows(key)[0]!.id, resolvedAt: null }]);
+      expect(events('obligation_pm_told')).toHaveLength(1);
+      expect(todos()).toHaveLength(0);
+
+      minutes(FIRST_EXPIRY);
+      await sweep();
+      expect(todos()).toHaveLength(1);
+      expect(rows(key)).toMatchObject([{ state: 'handed_over' }]);
+      await signalSweep();
+      expect(overdueSignals()).toMatchObject([{ resolvedAt: expect.any(String) }]);
+      expect(reminders(key)).toHaveLength(1);
+    });
+
+    it('closes the signal row when the step is done after the project manager was told', async () => {
+      const key = await workAfterReminder();
+      minutes(FIRST_EXPIRY);
+      await sweep();
+      expect(overdueSignals()).toMatchObject([{ resolvedAt: null }]);
+      await h.domain.tasks.moveToStage('AR', key, 'code_review', OWNER_ACTOR);
+      await flush();
+      await sweep();
+      await signalSweep();
+      expect(overdueSignals()).toMatchObject([{ resolvedAt: expect.any(String) }]);
+      expect(todos()).toHaveLength(0);
+    });
+
+    it('hands a step with no project manager to tell over at three gaps from its start', async () => {
+      await harness();
+      const key = await create();
+      await requestMerge(key);
+      await sweep();
+      minutes(FIRST_EXPIRY);
+      await sweep();
+      minutes(FIRST_EXPIRY);
+      await sweep();
+      expect(todos()).toHaveLength(0);
+      expect(overdueSignals()).toEqual([]);
+      minutes(20);
+      await sweep();
+      expect(todos()).toHaveLength(1);
+      expect(rows(key)[0]!.pmToldAt).toBeNull();
+    });
+  });
+
   describe('after a restart', () => {
     it('sends no second reminder and opens no second todo', async () => {
       await harness(roomy, true);
@@ -1106,7 +1199,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       // The developer's session ends without a result; the step stays open.
       for (const session of h.domain.sessions.list('AR')) await h.domain.sessions.stop('AR', session.id);
       await sweep();
-      minutes(31);
+      minutes(FIRST_EXPIRY);
       await sweep();
       expect(rows(key)).toMatchObject([{ kind: 'work', responsible: 'dev-1' }]);
       expect(reminders(key)).toHaveLength(1);
@@ -1115,7 +1208,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await restart();
       await sweep();
       expect(reminders(key)).toHaveLength(1);
-      minutes(31);
+      minutes(HAND_OVER);
       await sweep();
       expect(todos()).toHaveLength(1);
       await restart();
@@ -1132,7 +1225,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await harness();
       const key = await create();
       await requestMerge(key);
-      for (const n of [31, 31]) {
+      for (const n of [FIRST_EXPIRY, HAND_OVER]) {
         minutes(n);
         await sweep();
       }

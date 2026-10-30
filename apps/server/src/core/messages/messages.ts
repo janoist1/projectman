@@ -373,12 +373,15 @@ export class MessageService {
   /**
    * The member's conversations with the other members, the most recently active first: the peers
    * each message falls to by `threadPeersOf`, each with its latest message and unread count. It
-   * counts over every message of the member, not over a page of them.
+   * counts over every message of the member, not over a page of them. The member's own unread count comes
+   * from the same pass, so no second scan of the receipts is needed.
    */
-  threads(projectKey: string, handle: string): TeamThread[] {
+  threads(projectKey: string, handle: string): { threads: TeamThread[]; unreadCount: number } {
     const threads = new Map<string, { lastId: string; unreadCount: number }>();
+    let unreadCount = 0;
     for (const summary of this.ctx.repos.messages.involving(projectKey, handle)) {
       const unread = isUnreadBy(summary, handle) ? 1 : 0;
+      unreadCount += unread;
       for (const peer of threadPeersOf(summary, handle)) {
         const thread = threads.get(peer);
         // Most recent last: re-inserting moves a conversation to the end of the iteration order.
@@ -386,11 +389,14 @@ export class MessageService {
         threads.set(peer, { lastId: summary.id, unreadCount: (thread?.unreadCount ?? 0) + unread });
       }
     }
-    return [...threads].reverse().map(([peer, { lastId, unreadCount }]) => ({
-      peer,
-      lastMessage: this.ctx.repos.messages.get(lastId)!,
+    return {
+      threads: [...threads].reverse().map(([peer, thread]) => ({
+        peer,
+        lastMessage: this.ctx.repos.messages.get(thread.lastId)!,
+        unreadCount: thread.unreadCount,
+      })),
       unreadCount,
-    }));
+    };
   }
 
   private applyRead(before: TeamMessage, handle: string, humanRecipients: string[]): TeamMessage {

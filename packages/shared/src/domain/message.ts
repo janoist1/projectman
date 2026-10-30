@@ -39,13 +39,13 @@ export const TeamMessageAnswer = z.object({
 });
 export type TeamMessageAnswer = z.infer<typeof TeamMessageAnswer>;
 
-export const RelayedReply = z.object({
+const RelayedReply = z.object({
   /** The project manager's session the text was read from. */
   sessionId: z.string(),
   /** The person's message it answers. */
   inReplyTo: z.string(),
 });
-export type RelayedReply = z.infer<typeof RelayedReply>;
+type RelayedReply = z.infer<typeof RelayedReply>;
 
 export const MessageKind = z.enum(['action', 'info']);
 export type MessageKind = z.infer<typeof MessageKind>;

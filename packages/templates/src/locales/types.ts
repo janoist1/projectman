@@ -75,6 +75,8 @@ export type StandardLabelId =
   | 'client-accepted'
   | 'client-changes'
   | 'pr-merged'
+  | 'acceptance-open'
+  | 'acceptance-unconfirmed'
   | 'merge-approved'
   | 'release-approved'
   | 'waiting-answer'

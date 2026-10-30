@@ -21,3 +21,7 @@ apps/server/models/history/
 .claude/worktrees/
 deploy/mac/menubar/.build/
 deploy/mac/menubar/.swiftpm/
+.node_modules.pm-*
+# the bundled engine CLI, built by `node scripts/engine-app/bundle-cli.mjs` (PM-1121)
+scripts/engine/cli.js
+scripts/engine/cli.js.map

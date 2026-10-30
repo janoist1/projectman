@@ -13,7 +13,7 @@ import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../../core/base';
 import { runPromise } from '../../kernel';
 import type { MessageService } from '../../core/messages';
-import { senderResultLabelFor, staleReasonFor } from '../../core/messages';
+import { roundEventsOnce, senderResultLabelFor, staleReasonFor } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import { MAX_FIRST_INPUT_CHARS, MESSAGE_SEPARATOR } from '../sessions';
 import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
@@ -102,6 +102,26 @@ interface HeldNotice {
 /** Pauses before a message the session did not take is typed again (PM-571); the last one repeats no more. */
 const RETRY_DELAYS_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
 
+/** How long the header of a message batch waits for the commit of the card's branch (PM-1108): a slow engine leaves it out. */
+const HEAD_WAIT_MS = 3_000;
+
+/** The head the read finds within `HEAD_WAIT_MS`, else null (a late or failed read is dropped). */
+function withinHeadWait<T>(read: Promise<T | null>): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), HEAD_WAIT_MS);
+    read.then(
+      (head) => {
+        clearTimeout(timer);
+        resolve(head);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+
 function recipientKey(projectKey: string, handle: string, workItem: WorkItemRef): string {
   const wi = encodeWorkItem(workItem);
   return `${projectKey}:${handle}:${wi.type}:${wi.ref}`;
@@ -157,6 +177,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         if (!config || session.workItem.type !== 'task') return;
         const task: Task | null = ctx.repos.tasks.get(session.workItem.taskKey);
         if (!task || task.assignee !== session.member) return;
+        const roundEvents = roundEventsOnce(ctx);
         const fromReviewer = (message: TeamMessage) => {
           const sender = memberOf(config, message.from);
           return (
@@ -164,7 +185,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
             (message.kind ?? 'action') === 'action' &&
             message.taskKey === task.key &&
             memberDuties(config, sender).some((duty) => REVIEW_DUTIES.includes(duty)) &&
-            staleReasonFor(ctx, config, message, session.member) === null
+            staleReasonFor(ctx, config, message, session.member, roundEvents) === null
           );
         };
         if (!batchMessages.some(fromReviewer)) return;
@@ -345,7 +366,9 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         const config = yield* Effect.promise(() => projects.config(projectKey));
         const taskKey = workItem.type === 'task' ? workItem.taskKey : null;
         const source = taskKey ? ctx.repos.tasks.get(taskKey) : null;
-        const head = source ? yield* Effect.promise(() => sessions.sourceHead(config, source)) : null;
+        const head = source
+          ? yield* Effect.promise(() => withinHeadWait(sessions.sourceHead(config, source)))
+          : null;
         const task = taskKey ? ctx.repos.tasks.get(taskKey) : null;
         const stage = task ? stageOf(config, task.stageId) : null;
         const card = task
@@ -356,34 +379,34 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
               labels: task.labels,
             }
           : null;
-        const batch: TeamMessage[] = [];
+        // Each message's facts are read once, and the card's history once for the whole batch (PM-1105):
+        // a send-back wakes the assignee with everything that waited during the review.
+        const roundEvents = roundEventsOnce(ctx);
+        const entryOf = (m: TeamMessage) => ({
+          from: m.from,
+          via: m.via,
+          actor: m.actor,
+          taskKey: m.taskKey,
+          body: m.body,
+          attachments: m.attachments,
+          email: m.email,
+          location: m.location,
+          kind: m.kind ?? 'action',
+          sentAt: m.createdAt,
+          version: m.version,
+          stale: staleReasonFor(ctx, config, m, handle, roundEvents) ?? undefined,
+          staleDetail: senderResultLabelFor(ctx, config, m, handle, roundEvents) ?? stage?.name,
+        });
+        const entries: ReturnType<typeof entryOf>[] = [];
         let text = '';
         for (const message of waiting) {
-          const next = [...batch, message];
-          const candidate = formatTeamMessageBatch(
-            taskKey,
-            card,
-            next.map((m) => ({
-              from: m.from,
-              via: m.via,
-              actor: m.actor,
-              taskKey: m.taskKey,
-              body: m.body,
-              attachments: m.attachments,
-              email: m.email,
-              location: m.location,
-              kind: m.kind ?? 'action',
-              sentAt: m.createdAt,
-              version: m.version,
-              stale: staleReasonFor(ctx, config, m, handle) ?? undefined,
-              staleDetail: senderResultLabelFor(ctx, config, m, handle) ?? stage?.name,
-            })),
-          );
+          const entry = entryOf(message);
+          const candidate = formatTeamMessageBatch(taskKey, card, [...entries, entry]);
           if (candidate.length + MESSAGE_SEPARATOR.length > MAX_FIRST_INPUT_CHARS) break;
-          batch.push(message);
+          entries.push(entry);
           text = candidate;
         }
-        return { text, messages: batch };
+        return { text, messages: waiting.slice(0, entries.length) };
       });
 
     /** Claims one snapshot of waiting messages and types it as a single input at idle. */

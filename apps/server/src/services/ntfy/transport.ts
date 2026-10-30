@@ -33,25 +33,37 @@ export function isPrivateAddress(address: string): boolean {
       /^f[cd]/.test(lower) ||
       /^fe[89ab]/.test(lower) ||
       lower.startsWith('ff') ||
-      lower.startsWith('::ffff:')
+      lower.startsWith('::ffff:') ||
+      // NAT64 (64:ff9b::/96) and 6to4 (2002::/16) embed an IPv4 address that may be a private one.
+      lower.startsWith('64:ff9b:') ||
+      lower.startsWith('2002:')
     );
   }
   return true;
 }
-/** Resolves the host and refuses a private answer, so the connection itself never reaches an internal address. */
-function publicLookup(
+/** The resolver the transport asks for the addresses of a host (`dns.lookup` in production). */
+export type NtfyResolver = (
   hostname: string,
-  options: { all?: boolean; family?: number },
-  callback: (error: Error | null, address?: string | LookupAddress[], family?: number) => void,
-): void {
-  const all: LookupAllOptions = { ...options, all: true };
-  dnsLookup(hostname, all, (error, addresses) => {
-    if (error) return callback(error);
-    if (!addresses.length || addresses.some((a) => isPrivateAddress(a.address)))
-      return callback(Object.assign(new Error('Address refused'), { code: 'EACCES' }));
-    if (options.all) return callback(null, addresses);
-    callback(null, addresses[0]!.address, addresses[0]!.family);
-  });
+  options: LookupAllOptions,
+  callback: (error: Error | null, addresses: LookupAddress[]) => void,
+) => void;
+
+/** Resolves the host and refuses a private answer, so the connection itself never reaches an internal address. */
+export function createPublicLookup(resolve: NtfyResolver = dnsLookup as NtfyResolver) {
+  return (
+    hostname: string,
+    options: { all?: boolean; family?: number },
+    callback: (error: Error | null, address?: string | LookupAddress[], family?: number) => void,
+  ): void => {
+    const all: LookupAllOptions = { ...options, all: true };
+    resolve(hostname, all, (error, addresses) => {
+      if (error) return callback(error);
+      if (!addresses.length || addresses.some((a) => isPrivateAddress(a.address)))
+        return callback(Object.assign(new Error('Address refused'), { code: 'EACCES' }));
+      if (options.all) return callback(null, addresses);
+      callback(null, addresses[0]!.address, addresses[0]!.family);
+    });
+  };
 }
 /** Converts an HTTP status or network error without retaining the topic, the address or the body. */
 export function ntfyOutcomeOf(status: number | undefined, code?: string): NtfySendOutcome {
@@ -74,9 +86,10 @@ export function ntfyOutcomeOf(status: number | undefined, code?: string): NtfySe
 }
 /**
  * Publishes with ntfy's JSON API (UTF-8 text, and the topic stays out of the URL). Redirects are not followed
- * and the answer is not read.
+ * and the answer is not read: the connection is closed as soon as the status is known.
  */
-export function createNtfyTransport(): NtfyTransport {
+export function createNtfyTransport(resolve?: NtfyResolver): NtfyTransport {
+  const publicLookup = createPublicLookup(resolve);
   return {
     send(input: NtfySendInput): Promise<NtfySendOutcome> {
       const server = ntfyServerOf(input.server);
@@ -104,8 +117,10 @@ export function createNtfyTransport(): NtfyTransport {
             headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
           },
           (res) => {
-            res.resume();
             finish(ntfyOutcomeOf(res.statusCode));
+            // A server that keeps sending must not hold the connection: the body is never read.
+            res.destroy();
+            req.destroy();
           },
         );
         const timer = setTimeout(() => {

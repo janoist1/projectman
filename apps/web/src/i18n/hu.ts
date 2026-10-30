@@ -228,73 +228,6 @@ export const hu = {
     general: 'Általános beszélgetés',
     scheduled: 'Ütemezett futás',
   },
-  operatorGrant: {
-    title: 'Operátor jogosítványa',
-    intro:
-      'Egy Operátor van. A super jogosítvánnyal a zárt környezeten kívül is dolgozhat: a gépeden, típusos és naplózott műveletekkel, a saját nevén. A projekt ügyeit ettől függetlenül a projektmenedzser viszi.',
-    heading: 'Super jogosítvány',
-    active: 'Megadva',
-    inactive: 'Nincs megadva',
-    inactiveHint: 'Az Operátor a saját jogain dolgozik. Ami a gépen futna, azt átadja neked.',
-    ownerOnly:
-      'A super jogosítványt csak a tulajdonos adhatja meg és vonhatja vissza, a saját bejelentkezésével.',
-    granted: 'Megadtad',
-    expires: 'Érvényes',
-    used: 'Utoljára használta',
-    unused: 'Még nem használta.',
-    untilRevoked: 'amíg vissza nem vonod',
-    until: '{time}-ig',
-    chip: 'Super jogosítvány · {expiry}',
-    todayChip: 'ma {time}-ig',
-    today: 'Ma {time}-kor lejár. Utána az Operátor a gépen futó műveleteket neked adja át.',
-    grant: 'Megadás…',
-    extend: 'Meghosszabbítás…',
-    revoke: 'Visszavonás…',
-    grantTitle: 'Super jogosítványt adsz az Operátornak?',
-    extendTitle: 'Meghosszabbítod a super jogosítványt?',
-    revokeTitle: 'Visszavonod a super jogosítványt?',
-    grantBody:
-      'A gépeden kiadást, újraindítást, tesztet, állapotlekérdezést és folyamat-takarítást végezhet, típusosan és naplózva. Parancsot a gépeden csak parancsonként, a te igeneddel futtat.',
-    grantReserved: 'Törlés, biztonság, fizetős költség és engedélydöntés a tiéd marad.',
-    reserved:
-      'Tag, kulcs, projekt és repó törlése; belépés és biztonsági beállítások; fizetős költség; külső műveletek és parancs-engedélyek.',
-    reservedTitle: 'Ami a tiéd marad',
-    revokeBody:
-      'Azonnal érvényes, a Claude Code-kulccsal is. A folyamatban lévő gépi művelet befejeződik, újat nem indít; a következőt neked adja át. A sor feldolgozása megy tovább a saját jogain, a kulcs megmarad.',
-    duration: 'Meddig?',
-    durations: { until_revoked: 'Amíg vissza nem vonom', '12h': '12 órára', '7d': '7 napra' },
-    submit: 'Megadom',
-    extendSubmit: 'Meghosszabbítom',
-    revokeSubmit: 'Visszavonom',
-    grantedToast: 'Super jogosítvány megadva.',
-    revokedToast: 'Super jogosítvány visszavonva.',
-    alreadyInactive: 'A jogosítvány már nem élt.',
-    error: 'Nem sikerült betölteni a jogosítványt.',
-    capabilities: 'Mit tehet vele?',
-    capabilitiesBody: 'Mindent, amit te az appban, a jóváhagyásokkal együtt, Operátorként naplózva.',
-    commandPolicy:
-      'Parancsot a gépeden csak akkor futtat, ha azt az egy parancsot jóváhagyod. A Postafiókban látod a pontos parancsot, a gépet, a mappát, az időkorlátot és az okát. Korábbi igen és ez a jogosítvány nem pótolja.',
-    operations: {
-      deploy: 'Kiadás (deploy)',
-      restart: 'Újraindítás',
-      full_test: 'Teljes teszt',
-      image_build: 'Image-build',
-      status: 'Szolgáltatás állapota',
-      machine: 'Gépállapot: terhelés, memória, folyamatok',
-      logs: 'Naplók olvasása, szűrve',
-      process_cleanup: 'Beragadt munkamenet, tesztfolyamat leállítása',
-      owner_command: 'Parancs a gépeden, parancsonként a te igeneddel',
-    },
-    clientTitle: 'Claude Code a gépeden',
-    clientInactive:
-      'A super jogosítvány nincs megadva, ezért a kulccsal most csak a super nélküli műveletek érhetők el.',
-    audit: 'Napló',
-    auditEmpty: 'Még nincs bejegyzés.',
-    auditGranted: 'Super jogosítvány megadva · {expiry} · {by}',
-    auditExtended: 'Super jogosítvány meghosszabbítva · {expiry} · {by}',
-    auditRevoked: 'Super jogosítvány visszavonva · {by}',
-    auditExpired: 'Super jogosítvány lejárt',
-  },
   ownerCommand: {
     operation: 'Parancs a gépeden',
     hub: 'Központi gép (hub)',
@@ -317,13 +250,15 @@ export const hu = {
     approved: 'Jóváhagytad, a parancs fut.',
     refused: 'Elutasítottad, a parancs nem fut.',
     error: 'Nem sikerült betölteni a parancsot.',
-    noGrant: 'A super jogosítvány most nincs megadva, ezért az igen után sem fut le. Előbb add meg.',
     exit: 'Kilépési kód {n} · {time}',
     stdout: 'stdout',
     stderr: 'stderr',
     truncated: 'A kimenet le van vágva (64 KB).',
   },
   integratorKey: {
+    title: 'Claude Code a gépeden',
+    audit: 'Napló',
+    auditEmpty: 'Még nincs bejegyzés.',
     auditActions: { created: 'Létrehozva', revoked: 'Visszavonva' },
     modes: { super: 'Operátor jogosítványával', read: 'Csak olvasás', legacy: 'Régi kulcs' },
     purpose: 'Mire kell?',
@@ -447,7 +382,6 @@ export const hu = {
     avatar: 'Operátor, super jogosítvánnyal',
     credentialLead: 'Claude Code-ból · kulcs',
     activity: 'Mit tett az Operátor super jogosítvánnyal?',
-    handoffsTitle: 'Átadások',
     operationsTitle: 'Műveletek',
     emptyAll: 'Az Operátor még nem tett semmit super jogosítvánnyal.',
     operations: {
@@ -465,7 +399,6 @@ export const hu = {
     empty: 'Ezzel a kulccsal még nem történt semmi.',
     more: 'Továbbiak betöltése',
     handoff: '↑ az átadás',
-    handedOff: 'Az Operátor gépi munkát adott át: {operation}. Ok: {reason}',
     executed: 'végrehajtotta az átadást: {operation}',
     operation: 'Super művelet: {operation}',
     unknownHint: 'Nézd meg a naplót, mielőtt újra próbálod.',
@@ -565,21 +498,6 @@ export const hu = {
     engineOfflineTitle: 'A motor most nem elérhető, a gépe nem látszik.',
     engineOfflineBody: 'Amint csatlakozik, a kijelző magától frissül.',
     engineOfflineSince: 'Utoljára {ago} jelentkezett. ',
-    /** The Operator's machine grant (PM-1042): the row at the bottom of the panel, for the instance owner. */
-    grant: {
-      on: 'Az Operátor super jogosítványa: megadva, {expiry}.',
-      onHint: 'A gépen futó műveleteket maga végzi.',
-      off: 'Az Operátor super jogosítványa: nincs megadva.',
-      offHint: 'Ami a gépen futna, azt átadja neked.',
-      manage: 'Kezelés',
-      give: 'Megadás…',
-      unknown: 'A jogosítvány állapota most nem látszik.',
-      chip: 'super',
-      dot: 'Operátor super jogosítvánnyal',
-      untilRevoked: 'visszavonásig',
-      untilToday: 'ma {time}-ig',
-      untilDate: '{date} {time}-ig',
-    },
   },
   /** Hybrid mode (PM-316): the AI engine's state, and the engines in the settings. */
   engines: {
@@ -675,8 +593,17 @@ export const hu = {
     commandTitle: 'Beállító parancs: {name}',
     commandIntro:
       'Futtasd a gépen, a projectman mappájában. A parancs bekéri a létrehozáskor kapott kulcsot.',
+    commandIntroApp:
+      'Futtasd a gépen, a Terminálban. A parancs bekéri a létrehozáskor kapott kulcsot, utána az app magától elindítja a motort.',
     commandKeyGone:
       'A kulcsot itt nem mutatjuk újra. Ha elveszett, vond vissza ezt a motort, és hozz létre újat.',
+    /** How the engine is installed: the motor app (default) or a projectman checkout. */
+    mode: {
+      label: 'Telepítés:',
+      aria: 'Telepítés módja',
+      app: 'Motor-app (Mac)',
+      checkout: 'Checkout (fejlesztői)',
+    },
     /** The revoke confirmation. */
     revokeTitle: 'Visszavonod: {name}?',
     revokeBody:
@@ -934,6 +861,22 @@ export const hu = {
       manualService: '4. Indítsd el, és maradjon is futva',
       manualServiceAria: 'Az indító parancs',
       manualLinux: 'Linuxon: {command}.',
+      /** The motor app's install (the default mode); it has no checkout and starts the engine itself. */
+      appDownload: '1. Töltsd le és nyisd meg a motor-appot',
+      appDownloadButton: 'Motor-app letöltése (.dmg)',
+      appDownloadAria: 'A motor-app letöltése (projectman-motor.dmg)',
+      appDownloadHint:
+        'Első indításkor a „Motor telepítése” gombbal felteszi a motort. Apple Silicon Mac és macOS 13 vagy újabb kell; Linuxon válaszd a checkoutot.',
+      appNoRelease: '1. Telepítsd a motor-appot',
+      appNoReleaseBody: 'Letöltési link még nincs, mert nincs közzétett kiadás. A telepítés lépései:',
+      appNoReleaseLink: 'Telepítési leírás',
+      appService: '4. Az indítás magától megy',
+      appServiceHint:
+        'Az app elindítja a motort, amint a bekötés kész. Ha a macOS kéri, kapcsold be a „projectman motor” háttérelemet.',
+      assistantDownloadDocs: 'a leírás szerint: {url}',
+      /** The assistant's text in app mode; the key and the access values are never in it. */
+      assistantInstructionApp:
+        'Segíts bekötni ezt a gépet a projectmanbe ({origin}). Futtasd sorban, és minden lépés után mondd el röviden, mi történt:\n1. Nézd meg, megvan-e ez a fájl: {shim}. Ha nincs, kérd meg, hogy töltse le és nyissa meg a motor-appot ({download}), kattintson a „Motor telepítése” gombra, és szóljon, ha kész.\n2. Nézd meg, megvan-e a {file} (600-as joggal). Ha nincs, kérd meg, hogy hozza létre a gazdától kapott két értékkel, ilyen tartalommal: {sample} Az értékeket ne kérd el és ne írd ki.\n3. Kérd meg, hogy másolja ki a gép kulcsát a projectman oldaláról, és szóljon. Utána futtasd: {init} A kulcsot soha ne írd ki és ne mentsd máshová.\n4. A motort az app magától elindítja. Néhány másodperc múlva nézd meg: {status}. Ha a macOS jóváhagyást kér a háttérelemhez, kérd meg, hogy kapcsolja be.\n5. Nézd meg, telepítve és belépve van-e a claude (és ha van, a codex). Ha nincs belépve, indítsd el a belépést; a jelszót én írom be.\nHa valami nem sikerül, állj meg, és mondd el, mi a hiba.',
       details: 'Részletes leírás',
       newKey: 'Elveszett a kulcs? Új kulcs',
       newKeyTitle: 'Új kulcs: {name}',
@@ -1485,6 +1428,18 @@ export const hu = {
     handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
     /** `member_session_live` with what holds the member named (PM-1026). */
     memberSessionLive: 'Most nem nevezhető át, mert {reason}. Próbáld újra, ha végzett.',
+    /** Why an acceptance change is refused (`acceptance_item_refused.details.reason`, PM-1137). */
+    acceptanceRefusal: {
+      card_closed: 'A lezárt kártya tételei már nem változtathatók.',
+      too_many: 'Legfeljebb 40 tétel lehet.',
+      not_open: 'Csak nyitott tétel szerkeszthető.',
+      remove_after_start: 'Indulás után nem törölhető: jelöld „Nem kell”-nek vagy helyezd át.',
+      not_marker: 'Ezt a tételt a kártya felelőse jelölheti.',
+      not_settled: 'Megerősíteni csak a kész vagy „nem kell” tételt lehet.',
+      not_confirmer: 'A megerősítést a kártya jelenlegi lépésének gazdája végzi.',
+      own_work: 'Saját jelölést nem erősíthetsz meg.',
+      move_target: 'Ide nem helyezhető át: válassz másik, nyitott kártyát (téma nem lehet).',
+    },
     memberSessionLiveReason: {
       session: 'éppen dolgozik egy munkamenetben',
       workspace: 'a munkaterülete még foglalt egy kártyához',
@@ -1634,6 +1589,9 @@ export const hu = {
         'Nem ment el az üzenet. A címzettek közül valaki már nem kaphat tőled üzenetet, ezért senki nem kapta meg. Válassz más címzettet.',
       owner_only: 'Ezt csak a tulajdonos teheti meg.',
       self_review_forbidden: 'A megvalósító és a PR szerzője nem ellenőrizheti a saját munkáját.',
+      acceptance_item_not_found: 'Nincs ilyen elfogadási tétel ezen a kártyán.',
+      acceptance_item_refused:
+        'Ezt a tételt most nem módosíthatod: a jelölést a felelős, a megerősítést a lépés gazdája végzi, és a jelölő vagy a felelős nem erősítheti meg a sajátját.',
       comment_required: 'Ehhez a címkéhez indoklás is kell: írd meg kommentben, miért.',
       label_not_allowed: 'Ezt a címkét nem teheted rá és nem veheted le: a címke szabályai nem engedik.',
       ai_approval_forbidden: 'Jóváhagyást csak ember adhat.',
@@ -1718,6 +1676,8 @@ export const hu = {
       docs_write_failed: 'A dokumentumok írása nem ment fel; az üzenet megnevezi az okot.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
+      project_manager_lifecycle_refused:
+        'A projekt beállításai ezt a kártyaműveletet nem engedik a Projektmenedzsernek.',
       builtin_role: 'A beépített szerep nem módosítható.',
       role_id_mismatch: 'A szerep azonosítója nem egyezik.',
       not_human_member: 'Ez nem emberi tag.',
@@ -1726,12 +1686,6 @@ export const hu = {
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
       priority_humans_only:
         'A prioritást csak ember és a projekt beállításában kijelölt AI-tagok állíthatják.',
-      focus_humans_only: 'A fókuszt csak ember állíthatja, AI-tag nem.',
-      focus_not_allowed: 'A fókuszt a tulajdonos vagy a prioritálás felelőse állíthatja.',
-      focus_item_exists: 'Ez már a fókuszban van.',
-      focus_item_unknown: 'Ez nincs a fókuszban.',
-      focus_full: 'A fókusz legfeljebb 20 elemű.',
-      focus_task_closed: 'Lezárt kártya vagy téma nem tehető a fókuszba.',
       repo_required: 'Válassz repót a feladathoz: nélküle az AI-fejlesztő nem indulhat el.',
       prerequisite_open: 'A feladat előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
@@ -1745,6 +1699,8 @@ export const hu = {
       unknown_column: 'Ilyen oszlop nincs a táblán.',
       no_free_member: 'Most nincs szabad fejlesztő.',
       senior_busy: 'A kártya alkalmas fejlesztőre vár.',
+      assignee_unfit:
+        'A megnevezett tag nem illik a kártyához: meghaladja a komplexitás-keretét, vagy más a szakterülete.',
       inbox_item_closed: 'Ezt már elintézték.',
       release_not_configured: 'Ez a példány nincs kiadásra beállítva.',
       release_open: 'Már van egy folyamatban lévő kiadás.',
@@ -1755,6 +1711,9 @@ export const hu = {
       release_already_published: 'Ezt a commitot már kiadták.',
       release_tag_taken: 'Ez a címke már egy másik commitra mutat.',
       release_publish_failed: 'A címke vagy a GitHub-kiadás nem készült el.',
+      compute_job_unknown: 'A repóhoz nincs ilyen gépi feladat beállítva.',
+      compute_job_busy: 'Már fut két gépi feladat; várj, amíg valamelyik befejeződik.',
+      compute_job_commit_unpublished: 'A commit nincs a GitHub alapágán.',
       release_deployment_conflict: 'A kiadás telepítését egy másik kísérlet vagy kérés tartja.',
       release_target_mismatch: 'A kiadás célja nem az, amire ez a példány be van kötve.',
       release_pause_conflict: 'A példányt egy másik szüneteltetés tartja.',
@@ -2054,6 +2013,8 @@ export const hu = {
     none: 'Nincs megadva',
     markLabel: 'Prioritás: {level}',
     saveFailed: 'Nem sikerült menteni a prioritást. Próbáld újra.',
+    /** Under a theme's priority (PM-1137). */
+    themeHelp: 'A téma kártyái legalább ezzel a prioritással sorolódnak.',
   },
   board: {
     title: 'Folyamat',
@@ -2351,7 +2312,6 @@ export const hu = {
         engine_offline: 'a gép nem csatlakozik',
         no_free_member: 'nincs szabad fejlesztő',
         senior_busy: 'Alkalmas fejlesztőre vár',
-        focus_order: 'előrébb álló kártya kapta a szabad fejlesztőt',
       },
       /** The bold part when it is not a person. */
       heads: {
@@ -2584,6 +2544,59 @@ export const hu = {
     placeholder: 'szöveg',
   },
   task: {
+    /** The acceptance items on the card (PM-1137). */
+    acceptance: {
+      title: 'Elfogadási feltételek',
+      progress: '{done}/{total} lezárva · {confirmed} megerősítve',
+      listLabel: 'Elfogadási tételek',
+      loading: 'Az elfogadási tételek betöltése…',
+      empty:
+        'Még nincs tétel. Írd be tételenként, mitől lesz kész a kártya: a kapu megvárja, hogy mind teljesüljön.',
+      state: { open: 'Nyitott', done: 'Kész', not_needed: 'Nem kell', moved: 'Áthelyezve' },
+      evidence: 'Bizonyíték: {text}',
+      notNeeded: 'Nem kell: {text}',
+      movedTo: 'Áthelyezve ide:',
+      origin: 'Átvéve innen:',
+      marked: '{name} jelölte · {when}',
+      confirmed: '{name} megerősítette · {when}',
+      unconfirmed: 'Megerősítésre vár',
+      more: 'Tétel műveletei',
+      actions: {
+        done: 'Kész…',
+        confirm: 'Megerősítem',
+        notNeeded: 'Nem kell…',
+        move: 'Áthelyezés másik kártyára…',
+        edit: 'Szerkesztés',
+        reopen: 'Újranyitás…',
+        remove: 'Törlés',
+      },
+      add: {
+        open: '＋ Tétel hozzáadása',
+        label: 'Új tétel',
+        placeholder: 'Mitől lesz kész a kártya?',
+        submit: 'Hozzáadás',
+        close: 'Bezár',
+      },
+      form: {
+        cancel: 'Mégse',
+        doneLabel: 'Bizonyíték',
+        donePlaceholder: 'commit, teszt, képernyőkép vagy fájl:sor',
+        doneHint: 'Egy jelölés törli a korábbi megerősítést.',
+        doneSubmit: 'Kész',
+        notNeededLabel: 'Miért nem kell?',
+        notNeededSubmit: 'Nem kell',
+        moveLabel: 'Melyik kártyára kerüljön?',
+        movePlaceholder: 'Válassz kártyát',
+        moveHint: 'Ott nyitott tételként jelenik meg, a két kártya összekapcsolódik.',
+        moveSubmit: 'Áthelyezés',
+        editLabel: 'A tétel szövege',
+        editSubmit: 'Mentés',
+        reopenLabel: 'Mi hiányzik? (nem kötelező)',
+        reopenSubmit: 'Újranyitás',
+        removeQuestion: 'Törlöd a tételt? Az idővonalon nyoma marad.',
+        removeSubmit: 'Törlés',
+      },
+    },
     /** "Miért áll?" in the drawer (PM-461): who acts next and what the card waits for. */
     whyBox: {
       title: 'Miért áll?',
@@ -2628,6 +2641,7 @@ export const hu = {
       card: 'Kártya',
       thread: 'Beszélgetés',
       attachments: 'Csatolmányok',
+      steps: 'Folyamat',
       timeline: 'Idővonal',
     },
     /** The card's conversation: every team message written about the card (PM-273). */
@@ -2915,6 +2929,71 @@ export const hu = {
     stageChip: '{stage} · {index}/{total}',
     timeline: 'Idővonal',
     timelineEmpty: 'Még nincs esemény.',
+    /** The card's Process view (PM-1151): what it waits for, what ran, what failed. */
+    steps: {
+      title: 'A kártya folyamata',
+      now: 'Most',
+      doneNow: 'Kész: a kártya végigfutott.',
+      since: '{time} óta',
+      nowMeta: '{stage} · {time} óta',
+      open: 'Nyitott lépések',
+      openEmpty: 'Most nincs nyitott rendszer-lépés.',
+      ran: 'Lefutott',
+      ranEmpty: 'Még nem futott le rendszer-lépés.',
+      ranCount: '{count} lépés',
+      ranFailed: '{count} hibás',
+      ranHanded: '{count} emberhez került',
+      earlier: 'Korábbiak · {count}',
+      toTimeline: 'Az idővonalon',
+      firstTitle: 'Ezen a kártyán még nem futott rendszer-lépés.',
+      firstBody:
+        'Itt látod majd, mire vár a kártya, kire és meddig, és mi futott le vagy hibázott: például az átnézés, a teljes teszt vagy a beolvasztás.',
+      loadFailed: 'Nem sikerült betölteni a kártya folyamatát.',
+      system: 'Rendszer',
+      wait: 'Vár',
+      forYou: 'Rád vár',
+      state: {
+        waiting: 'Vár',
+        running: 'Fut',
+        reminded: 'Emlékeztetve',
+        handed_over: 'Emberhez került',
+      },
+      outcome: {
+        ran: 'Lefutott',
+        failed: 'Hibázott',
+        handed_over: 'Emberhez került',
+      },
+      source: {
+        obligation: 'Határidős lépés',
+        queue: 'Tag sora',
+        start: 'Indítás',
+        inbox: 'Emberi tétel',
+      },
+      kinds: {
+        start: 'Indítás',
+        other: 'Lépés',
+        obligation: {
+          merge: 'Beolvasztás',
+          fix_limit: 'Döntés a javítási körök határáról',
+          refinement_turn: 'Kidolgozási kör',
+          review_step: 'Átnézés',
+          work: 'Munka',
+          start: 'Indítás',
+        },
+      },
+      pause: {
+        held: 'A határidő áll: tartó címke vagy blokkolt állapot',
+        inbox: 'A határidő áll: nyitott emberi tétel van a kártyán',
+        permission: 'A határidő áll: engedélyre vagy válaszra vár',
+        start_refused: 'A határidő áll: az indítást most nem lehet elvégezni',
+      },
+      meta: {
+        due: 'határidő {time}',
+        overdue: 'lejárt {ago}',
+        duePaused: 'a határidő áll',
+        attempt: '{count}. próbálkozás',
+      },
+    },
     description: 'Leírás',
     openSession: 'Munkamenet megnyitása',
     /** The commit handed over when the card entered a review or test stage (PM-183). */
@@ -3079,9 +3158,24 @@ export const hu = {
     /** One line per rule on the page, and the panel it opens (the rule's id is the key). */
     rules: {
       eyebrow: 'Szabály',
+      /** What the rows and panels share: the reason, its editor and the link to the setting (PM-1137). */
+      always: 'Mindig érvényes',
+      alwaysNote: 'A rendszer része, nem kapcsolható ki.',
+      editLink: 'Szabály szerkesztése a Beállításokban',
+      why: {
+        title: 'Miért?',
+        generalNote: 'Ez az általános indok; a csapat még nem írt sajátot.',
+        edit: 'Indok szerkesztése',
+        field: 'Miért él ez a szabály?',
+        hint: 'Egy mondat, legfeljebb 300 karakter. Ha üresen mented, az általános indok látszik.',
+        cancel: 'Mégse',
+        save: 'Mentés',
+        saved: 'Az indok mentve.',
+      },
       new_card: {
         title: 'Új kártya',
-        line: '**Kártyát felvehet** minden AI-tag és minden ember, akinek legalább „{access}” hozzáférése van. Az új kártya felelős nélkül az első lépésbe kerül: {stage}.',
+        why: 'Hogy ne vesszen el ötlet, és a kártya mindig ugyanonnan induljon.',
+        line: '**Kártyát felvehet** minden AI-tag és minden ember, akinek legalább „{access}” hozzáférése van.',
         lead: 'Kártyát felvehet minden AI-tag és minden ember, akinek legalább „{access}” hozzáférése van.',
         firstStage: 'Az új kártya felelős nélkül az első lépésbe kerül: {stage}.',
         refineLabel: 'Ha ki kell dolgozni, a {label} címke kerül rá, és {steps}.',
@@ -3091,29 +3185,30 @@ export const hu = {
       },
       gates_in_order: {
         title: 'Kapuk sorban',
-        line: '**Kaput nem lehet átugrani:** előre lépéskor a kártya minden közbenső lépés kapuján átmegy. Visszaléptetéskor csak abba a lépésbe kerül, ahová visszaküldik.',
-        lineCleared:
-          '**Kaput nem lehet átugrani:** előre lépéskor a kártya minden közbenső lépés kapuján átmegy. Visszaléptetéskor csak abba a lépésbe kerül, ahová visszaküldik, és lekerülnek róla: {labels}.',
+        why: 'Hogy egy lépés se maradjon ki, és a feltételek ne kerülhessenek meg.',
+        line: '**Kaput nem lehet átugrani:** előre lépéskor a kártya minden közbenső lépés kapuján átmegy.',
         lead: 'Előre lépéskor a kártya minden lépésbe belép, amelyet útközben érint, ezért mindegyik kapujának teljesülnie kell, a célét is beleértve. Visszaléptetéskor csak annak a lépésnek a kapuja számít, ahová visszaküldik.',
         cleared: 'Visszaléptetéskor lekerülnek róla:',
         moveBackBlocked: 'Visszaléptetni akkor is lehet, ha rajta van:',
       },
       approvals: {
         title: 'Jóváhagyások',
-        line: '**Jóváhagyó címkét csak ember tehet fel** ({labels}). A rendszer a Rád vár-ban kéri.',
+        why: 'Mert a döntés az emberé: az AI nem hagyhatja jóvá magát.',
+        line: '**Jóváhagyó címkét csak ember tehet fel** ({labels}).',
         lead: 'Ezeket a címkéket csak ember teheti fel. Ha egy kártya ezekre vár, a rendszer a Rád vár-ban kéri a döntést.',
       },
       self_review: {
         title: 'Saját munka',
+        why: 'Mert a saját hibánkat nehéz észrevenni: az átnézéshez másik szem kell.',
         line: '**Saját munkát senki nem hagy jóvá:** az átnézés eredményét nem teheti fel, aki a kártyán dolgozik.',
         lead: 'Az átnézések és tesztek eredményét nem teheti fel az, aki a kártyán dolgozik, vagy a pull requestjét írta.',
       },
       fix_limit: {
         title: 'Javítási körök',
+        why: 'Hogy egy kártya ne körözzön végtelenül javítás és átnézés között.',
         lineLead:
-          '**A javítási körök határa: {limit}.** Ha egy AI-tag kártyája eléri, a munka nem megy vissza magától a fejlesztőhöz: {lead} dönt (még egy kör, pontosabb terv vagy más fejlesztő), vagy továbbadja egy embernek (Rád vár).',
-        lineNoLead:
-          '**A javítási körök határa: {limit}.** Ha egy AI-tag kártyája eléri, a munka nem megy vissza magától a fejlesztőhöz: egy ember dönt (Rád vár).',
+          '**A javítási körök határa: {limit}:** ha egy AI-tag kártyája eléri, {lead} dönt, vagy továbbadja egy embernek.',
+        lineNoLead: '**A javítási körök határa: {limit}:** ha egy AI-tag kártyája eléri, egy ember dönt.',
         lead: 'A javítási körök határa: {limit}. Ezek számítanak egy körnek:',
         labelRow: '{label} felkerül: a munka visszamegy a fejlesztőhöz.',
         movedBack: 'A kártya egy későbbi lépésből visszalép a munkalépésbe ({stages}).',
@@ -3123,14 +3218,14 @@ export const hu = {
           'Ha egy AI-tag kártyája eléri, a munka nem megy vissza magától: egy ember dönt ({deciders}), a Rád vár-ban.',
         limitNotBan:
           'Ez határ, nem tiltás: döntés után jöhet még egy kör. Ha ember viszi a kártyát, a határ nem állítja meg.',
-        editLimits: 'Keretek a Beállításokban',
       },
       refinement: {
         title: 'Kidolgozás',
+        why: 'Hogy a fejlesztés ne kidolgozatlan kártyával induljon.',
         lineLabel:
           '**Kidolgozás:** a „{label}” kártyán a belépési feltételeket sorban teszik fel, egyszerre egy tag.',
         lineStages:
-          '**Kidolgozás itt: {stages}.** A belépési feltételeket sorban teszik fel, egyszerre egy tag.',
+          '**Kidolgozás itt: {stages}:** a belépési feltételeket sorban teszik fel, egyszerre egy tag.',
         leadLabel:
           'A „{label}” kártyát a fejlesztés előtt kidolgozzák. A lépések egymás után jönnek, egyszerre egy tag dolgozik rajta. Ha minden megvan, a rendszer leveszi a címkét, és a kártya indulhat.',
         leadStages:
@@ -3139,8 +3234,77 @@ export const hu = {
       },
       waiting_answer: {
         title: 'Kérdésnél megáll',
+        why: 'Hogy ne induljon tovább olyan munka, amelynek még nyitott kérdése van.',
         line: '**Kérdésnél megáll:** amíg egy kérdésre nincs válasz, a kártyán „{label}” áll, és nem lép tovább.',
         lead: 'Ha egy AI-tag kérdez egy embertől, a kérdés a Rád vár-ba kerül, a kártyára pedig {label} kerül. Amíg rajta van, a kártya nem lép tovább; a válasz után magától lekerül.',
+      },
+      start_order: {
+        title: 'Indulási sorrend',
+        why: 'Hogy a legfontosabb munka induljon először.',
+        line: '**Indulási sorrend:** előbb a sürgős, aztán a nagyobb prioritású (a téma prioritása is számít), végül a tábla sorrendje.',
+        lead: 'Amikor a rendszer kiválasztja, melyik kártya induljon, előbb a sürgőset veszi, aztán a nagyobb prioritásút, végül a táblán előrébb állót. A téma vagy a szülőkártya prioritása is számít.',
+        urgentPull:
+          'A szabad fejlesztő a sürgős kártyát az indulás előtti sorból magától kiveszi, nem várja meg a sorát.',
+      },
+      priority_setters: {
+        title: 'Prioritás állítása',
+        why: 'Hogy a sorrendet az döntse el, akinek rálátása van az egészre.',
+        line: '**Prioritást** az emberek és {names} állíthatnak.',
+        lineHumansOnly: '**Prioritást csak ember állít.**',
+        lead: 'A kártya prioritását az emberek mindig állíthatják, az AI-tagok közül pedig csak azok, akiket a beállítás megnevez.',
+        leadHumansOnly: 'A kártya prioritását csak ember állíthatja, AI-tag nem.',
+      },
+      complexity_setters: {
+        title: 'Komplexitás állítása',
+        why: 'Mert a pont dönti el, ki kapja a kártyát, ezért kevesen állíthatják.',
+        line: '**Komplexitás-pontot** csak {names} állíthat.',
+        lead: 'A pont dönti el, melyik fejlesztő kapja a kártyát, ezért csak ők állíthatják:',
+      },
+      assignee_fit: {
+        title: 'Kiosztás a keret szerint',
+        why: 'Hogy a kártya olyan fejlesztőhöz kerüljön, aki meg tudja csinálni.',
+        line: '**Az AI-tagok kiosztása illeszkedik a kerethez:** pontozott kártyát csak olyan fejlesztőnek adhatnak, akinek a kerete eléri a pontot, és a szakterülete is stimmel.',
+        lead: 'Ha egy AI-tag fejlesztőt jelöl ki, a fejlesztő komplexitás-keretének el kell érnie a kártya pontját, a szakterületének pedig illeszkednie kell. Ember továbbra is bárkinek kiadhatja.',
+        temp: 'Az ideiglenes munkaerő legfeljebb {points} pontos kártyát kaphat.',
+      },
+      acceptance: {
+        title: 'Elfogadási feltételek',
+        why: 'Hogy a kártya csak akkor haladjon, ha tényleg kész, amit kértek.',
+        lineBoth:
+          '**Elfogadási feltételek:** nyitott tétellel a kártya nem lép be ide: {review}; megerősítetlen tétellel nem zárható le: {done}.',
+        lineReview: '**Elfogadási feltételek:** nyitott tétellel a kártya nem lép be ide: {review}.',
+        lineDone: '**Elfogadási feltételek:** megerősítetlen tétellel a kártya nem zárható le: {done}.',
+        lead: 'A kártyán tételesen áll, mitől kész. Aki a tételt készre jelöli, bizonyítékot ad; a jelölést más erősíti meg.',
+        review: 'Nyitott tétellel nem léphet be ide: {stage}.',
+        done: 'Megerősítetlen tétellel nem léphet be ide: {stage}.',
+      },
+      project_manager_rights: {
+        title: 'A projektmenedzser jogai',
+        why: 'Hogy a projektmenedzser segíteni tudjon, de a tulajdonos döntései ne kerülhessenek meg.',
+        lineStartOnly:
+          '**A projektmenedzser a kártyákat csak elindíthatja,** a sorok között nem mozgathatja.',
+        lineQueues:
+          '**A projektmenedzser a sorok között is mozgathatja a kártyákat,** és el is indíthatja őket.',
+        lead: 'Amit a projektmenedzser a tulajdonos kérése nélkül, magától megtehet:',
+        movesStartOnly: 'A kártyákat csak elindíthatja.',
+        movesQueues: 'A kártyákat a sorok között is mozgathatja, és elindíthatja.',
+        lifecycle: 'Önállóan: {actions}.',
+        lifecycleNone: 'Kiosztást, megszakítást és újranyitást önállóan nem végezhet.',
+        override: 'Nyitott előfeltétel esetén is elindíthatja a kártyát.',
+        noOverride: 'Nyitott előfeltétel esetén nem indíthatja el a kártyát.',
+        actions: {
+          assign: 'felelőst jelölhet ki vagy cserélhet',
+          cancel: 'megszakíthat kártyát',
+          reopen: 'újranyithat megszakított kártyát',
+        },
+      },
+      viewer_recipients: {
+        title: 'Kinek írhat a betekintő',
+        why: 'Hogy a betekintő üzenete olyanhoz jusson, aki válaszolni tud rá.',
+        lineContacts: '**A betekintő** csak a projekt kapcsolattartóinak írhat.',
+        lineManager: '**A betekintő** csak a projektmenedzsernek írhat.',
+        leadContacts: 'A betekintő a projektet csak nézi, de üzenni tud: a kapcsolattartóknak.',
+        leadManager: 'A betekintő a projektet csak nézi, de üzenni tud: a projektmenedzsernek.',
       },
     },
     stage: {
@@ -3908,6 +4072,7 @@ export const hu = {
         milestone_closed: 'Lezárult szakasz',
         refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
         start_blocked: '{key}: az indítás csöndben vár',
+        obligation_overdue: '{key}: a lépés az emlékeztető után is áll',
       },
       bodies: {
         loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
@@ -3930,6 +4095,8 @@ export const hu = {
           'A kidolgozási kör véget ért, de a hozzá tartozó címke nincs a kártyán, és a tag nem dolgozik tovább.',
         start_blocked:
           'A kártya indítása repóválasztásra vagy beragadt munkaterületre vár. A PM megoldja, amit tag megoldhat; az ok megszűntével a jelzés magától lezárul.',
+        obligation_overdue:
+          'A felelős az emlékeztető után sem végezte el a lépést. A PM megvizsgálja; ha a lépés megtörtént vagy továbbkerült, a jelzés magától lezárul, különben a lépés az integrátorra száll.',
       },
     },
   },
@@ -4295,9 +4462,7 @@ export const hu = {
       chip: 'Az Operátor átadta',
       why: 'Miért te?',
       detail: 'Mit csinált eddig?',
-      grant: 'Super jogosítvány megadása…',
       openCard: 'Megnyitom a kártyát',
-      nowGranted: 'Azóta megadtad a jogosítványt. Ha az Operátor csinálja, írj neki.',
       legacy: 'Az Operátornak szólt, és hozzád került.',
       reasons: {
         owner_reserved: 'Ez a tiéd marad: törlés, biztonság, fizetős költség vagy engedélydöntés.',
@@ -4682,24 +4847,8 @@ export const hu = {
         'Ha írhat neki, nézd meg, kér-e e-mailt (Beállítások › E-mail) és kapcsolattartó-e (Beállítások › Csapat), aztán kérd meg, hogy küldje újra.',
     },
     release: {
-      title: 'Élesre mehet ez a kiadás?',
-      lead: 'Jóváhagyás után a rendszer pár percen belül élesíti ezt a verziót. Ha közben elakad, visszaáll a régire, és itt szól.',
-      version: 'Verzió:',
-      versionRange: '{base} helyett {commit}',
-      firstVersion: 'az előző élő verzió nem ismert',
-      compare: 'Változások a GitHubon',
-      commitLink: 'Commit a GitHubon',
+      title: 'Korábbi kiadás',
       newTab: '(új lapon nyílik)',
-      summary: 'Összefoglaló',
-      summaryHint: '· angolul, így kerül a GitHub release-be',
-      summaryMore: 'Teljes összefoglaló',
-      less: 'Kevesebb',
-      cards: 'Kártyák ({count})',
-      cardsMore: 'Még {count} kártya',
-      rejectLabel: 'Miért utasítod el?',
-      rejectOptional: '(nem kötelező)',
-      rejectPlaceholder: 'Pl. várjuk meg vele a PM-490-et.',
-      rejectCancel: 'Mégse',
     },
     handOn: {
       text: '{owner} végzett ebben a lépésben: {step}. A következő oszlop: {stage}.',
@@ -5026,6 +5175,7 @@ export const hu = {
     chat: {
       brief: 'Feladatleírás',
       empty: 'Még nincs üzenet ebben a munkamenetben.',
+      loadEarlier: 'Korábbiak',
       teamMessageIn: 'csapatüzenet',
       teamMessageOut: 'Csapatüzenet',
       toolGroup: 'Eszközhívások',
@@ -5227,69 +5377,6 @@ export const hu = {
     },
   },
 
-  /** The project's focus (PM-427 4/4): the strip, the panel, the marks, the filter and the card's row. */
-  focus: {
-    title: 'Fókusz',
-    intro:
-      'Amin most dolgozzon a csapat. A fókusz kártyái indulnak előbb, és a szabad fejlesztő magától megkapja a következő Indulhat kártyát.',
-    loading: 'Fókusz betöltése…',
-    loadFailed: 'A fókusz nem töltődött be.',
-    retry: 'Újra',
-    empty: 'Nincs fókusz: a kártyák a szokott sorrendben indulnak.',
-    setUp: 'Fókusz beállítása',
-    edit: 'Szerkesztés',
-    details: 'Részletek',
-    only: 'Csak a fókusz',
-    onlyEmpty: 'A fókuszban nincs nyitott kártya.',
-    onlyChip: 'Csak a fókusz',
-    chipsLabel: 'A fókusz elemei sorrendben',
-    chipClosed: '{title} (lezárva)',
-    chipClosedHidden: ', lezárva',
-    moreTitle: 'Még {count} elem a fókuszban',
-    open: 'Fókusz megnyitása: {count} elem',
-    itemCount: '· {count} elem',
-    viewerNote: 'A fókuszt a tulajdonos vagy a prioritálás felelőse állítja; te most csak nézed.',
-    saveFailed: 'Nem sikerült menteni, a lista visszaállt.',
-    addLabel: 'Téma vagy kártya hozzáadása',
-    searchPlaceholder: 'Keresés címre vagy kulcsra',
-    groupThemes: 'Témák',
-    groupCards: 'Kártyák',
-    noMatches: 'Nincs ilyen nyitott téma vagy kártya.',
-    alreadyIn: 'már a fókuszban ({position}.)',
-    kindTheme: 'Téma',
-    kindCard: 'Kártya',
-    themeProgress: '{done}/{total} kész',
-    themeReady: '{count} indulhat',
-    cardReady: 'indulhat',
-    itemClosed: 'Lezárva, már nem számít bele',
-    noThemeCards: 'Nincs fókuszkártyája',
-    listLabel: 'A fókusz elemei',
-    position: '{position}. hely: ',
-    moveUp: 'Feljebb: {title}',
-    moveDown: 'Lejjebb: {title}',
-    remove: 'Levétel a fókuszból: {title}',
-    removed: 'Levéve a fókuszból: {title}.',
-    undo: 'Visszavonás',
-    urgentNote: 'A Sürgős kártyák mindig a fókusz előtt jönnek, akkor is, ha nincsenek benne.',
-    changes: 'Változások',
-    changesEmpty: 'Még nincs változás.',
-    changesFailed: 'A változások nem töltődtek be.',
-    /** The mark on a card or a theme: the place, and what put it there. */
-    mark: 'Fókusz, {position}. hely',
-    markViaTheme: 'Fókusz, {position}. hely, a témáján át ({title})',
-    markViaCard: 'Fókusz, {position}. hely, a szülőkártyáján át ({key})',
-    /** The "Fókusz" row of the open card or theme. */
-    row: {
-      label: 'Fókusz',
-      place: '{position}. hely',
-      viaTheme: '{position}. hely, a témáján át ({title})',
-      viaCard: '{position}. hely, a szülőkártyáján át ({key})',
-      none: 'Nincs benne',
-      add: 'Fókuszba',
-      remove: 'Levétel',
-    },
-  },
-
   /** The release of the instance (PM-387, PM-492). */
   release: {
     /** The step of a deploy a release stopped in, as a noun phrase: "Itt akadt el: {step}". */
@@ -5322,6 +5409,7 @@ export const hu = {
       review_step: 'átnézési lépés',
       work: 'munka',
       start: 'indítás',
+      senior_wait: 'Senior-várakozás',
       step: 'lépés',
     },
     refinement: {
@@ -5346,6 +5434,22 @@ export const hu = {
       pr_merged: 'a PR beolvasztásakor',
       pr_updated: 'a PR frissülésekor',
       open_question: 'nyitott kérdés miatt',
+      acceptance: 'az elfogadási feltételek miatt',
+    },
+    /** An acceptance item changed (PM-1135): "Elfogadási feltétel kész: „szöveg”". */
+    acceptanceItem: {
+      add: 'Elfogadási feltétel felvéve: „{text}”',
+      edit: 'Elfogadási feltétel módosítva: „{text}”',
+      remove: 'Elfogadási feltétel törölve: „{text}”',
+      done: 'Elfogadási feltétel kész: „{text}”',
+      not_needed: 'Elfogadási feltétel nem kell: „{text}”',
+      move: 'Elfogadási feltétel áthelyezve ide: {taskKey} – „{text}”',
+      moved_in: 'Elfogadási feltétel átvéve innen: {taskKey} – „{text}”',
+      reopen: 'Elfogadási feltétel újra nyitva: „{text}”',
+      confirm: 'Elfogadási feltétel megerősítve: „{text}”',
+      /** An event of a change this web app does not know. */
+      changed: 'Elfogadási feltétel megváltozott: „{text}”',
+      note: ' – „{note}”',
     },
     relationAdded: 'Kapcsolat hozzáadva: {kind} · {ref}',
     relationRemoved: 'Kapcsolat törölve: {kind} · {ref}',
@@ -5404,6 +5508,7 @@ export const hu = {
       task_cancelled_reason: 'Megszakította a feladatot: {reason}',
       task_cancelled_duplicate: 'Lezárta duplikátumként: {original}',
       task_reopened: 'Újranyitotta a feladatot.',
+      task_reopened_reason: 'Újranyitotta a feladatot: {reason}',
       parts_left_told: 'Emlékeztető ment ide: {name}. A bontás után a kezdő lépésben maradt részek: {parts}.',
       parts_left_alerted:
         'A tulajdonos értesítve: az emlékeztető ({name}) után is a kezdő lépésben maradt részek: {parts}.',
@@ -5549,6 +5654,7 @@ export const hu = {
       question_screened_decision: 'Döntésként továbbengedte neked: {note}',
       question_screened_todo: 'Teendőként továbbengedte neked: {note}',
       question_screened_integrator: 'Teendőként az Operátor sorába tette: {note}',
+      question_screened_todo_decider: 'Gépi teendő, de integrátor nincs: {to} dönt róla. {note}',
       question_recipient_escalated:
         'Az Operátornak szóló teendő a tulajdonoshoz került: 24 óráig nem zárták le.',
       question_recipient_escalated_passed_on: 'Az Operátor a teendőt a tulajdonosnak adta tovább.{note}',
@@ -5562,6 +5668,8 @@ export const hu = {
         'Az Operátor a javítási körök határáról szóló döntést a tulajdonosnak adta tovább.{note}',
       obligation_woken:
         'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
+      obligation_pm_told:
+        'A projektmenedzser jelzést kapott: {responsible} a(z) {step} az emlékeztető után sem végezte el ({minutes} perces lépések).',
       member_queue_item_closed:
         'A várakozó indítás lezárult: az indítás oka megszűnt vagy az indítás nem teljesíthető.',
       obligation_handed_over:
@@ -6648,12 +6756,68 @@ export const hu = {
           with: 'A tulajdonos, valamint ezek a feladatkörök: {duties}',
         },
       },
+      /** Whether the AI members' explicit assignments also have to fit the complexity limit (PM-1137). */
+      assigneeFit: {
+        label: 'Kiosztás a keret szerint',
+        help: 'A rendszer magától mindig olyan fejlesztőt választ, akinek a kerete eléri a kártya pontját. Ez a kapcsoló azt dönti el, hogy az AI-tagok kifejezett kiosztására is ez érvényes-e.',
+        question: 'Az AI-tagok kiosztása is illeszkedjen a kerethez',
+        note: 'A projektmenedzser és a többi AI-tag sem adhat pontozott kártyát olyan fejlesztőnek, akinek a kerete kisebb, vagy más a szakterülete. Ember továbbra is bárkinek kiadhatja.',
+        readOnlyLabel: 'Az AI-tagok kiosztása',
+        value: {
+          automaticAndAi: 'Az AI-tagok kiosztása is illeszkedik',
+          automatic: 'Csak a rendszer választása illeszkedik',
+        },
+      },
+      /** Who may open a new card (PM-1100). */
+      taskCreate: {
+        title: 'Új kártya nyitása',
+        help: 'Az AI-tagok mindig nyithatnak kártyát, a betekintő soha.',
+        question: 'Ki nyithat új kártyát?',
+        options: {
+          owner: 'Csak a tulajdonos',
+          admin: 'Tulajdonos és admin',
+          developer: 'Tulajdonos, admin és fejlesztő',
+          client: 'Tulajdonos, admin, fejlesztő és megrendelő',
+        },
+        clientNote: 'A megrendelő kártyája mindig az első sorban indul: {stage}.',
+        ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+      },
       projectManagerMoves: {
         title: 'A Projektmenedzser mozgatási joga',
         label: 'Mit mozgathat önállóan?',
         help: 'A szakaszkapuk mindig érvényesek. Munkát csak az első utáni várakozó sorból indíthat.',
         queues_and_start: 'Várakozó sorok között mozgathat és munkát indíthat',
         start_only: 'Csak munkát indíthat',
+      },
+      /** What the project manager may do to a card's life on its own (PM-1098). */
+      projectManagerLifecycle: {
+        label: 'Kiosztás, megszakítás, újranyitás',
+        help: 'Admin és tulajdonos mindig megteheti. Ha a tulajdonos kéri, a Projektmenedzser az ő jogán jár el, ezt a beállítás nem köti.',
+        question: 'Mit tehet még önállóan a Projektmenedzser?',
+        assign: 'Felelőst jelölhet ki vagy cserélhet',
+        assignNote: 'A munka indítását a mozgatási jog szabja meg.',
+        cancel: 'Megszakíthat kártyát',
+        cancelNote: 'Elindult kártyát duplikátumnak is jelölhet.',
+        reopen: 'Újranyithat megszakított kártyát',
+        reopenNote: 'Felelős nélkül kerül vissza a szakaszába.',
+        adminsOnly: 'Most mindhármat csak admin vagy tulajdonos teheti meg.',
+        noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
+        none: 'Egyiket sem',
+      },
+      /** Who may start a card despite an open prerequisite (PM-1099). */
+      prerequisiteOverride: {
+        title: 'Nyitott előfeltétel felülbírálása',
+        help: 'Ember a figyelmeztetés után mindig elindíthat egy kártyát akkor is, ha az előfeltétele még nyitott. Más ilyenkor megvárja az előfeltétel lezárását.',
+        question: 'Ki indíthat még?',
+        project_manager: 'Projektmenedzser, kifejezett jelzéssel',
+        covers: 'Érintett tag: {names}',
+        noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
+        humansOnly: 'Most csak ember indíthat nyitott előfeltétellel.',
+        readOnlyLabel: 'Ki indíthat nyitott előfeltétellel?',
+        value: {
+          people: 'Csak ember',
+          people_and_project_manager: 'Ember és a Projektmenedzser, kifejezett jelzéssel',
+        },
       },
       /** Who besides people may set a card's priority (PM-1096). */
       priority: {
@@ -6853,6 +7017,7 @@ export const hu = {
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
       review_test_runner_github:
         'A GitHub Actions futtatóhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
+      compute_jobs_github: 'A gépi feladatokhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
     },
     problems: {
       count: '{n} hiba van a mentett beállításokban.',

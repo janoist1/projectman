@@ -4,7 +4,7 @@ import type { Actor, ServerEvent, TaskStatus } from '@projectman/shared';
 import { aiActor, humanActor } from '../src/kernel';
 import { LIVE_SESSION_STATES } from '../src/runtime/sessions';
 import type { StageChange } from '../src/core/tasks';
-import { TEAM_TOOLS, TEAM_TOOL_NAMES } from '../src/mcp/tools';
+import { TEAM_TOOLS } from '../src/mcp/tools';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -107,6 +107,17 @@ describe('task lifecycle', () => {
       data: { assignee, previous: 'dev-1' },
     });
     expect(events).toContainEqual({ type: 'task_upserted', projectKey: 'AR', task });
+  });
+
+  it('tells the listeners of an assignment inside a larger unit of work only after it committed', () => {
+    const inTransaction: boolean[] = [];
+    h.domain.ctx.events.on('task_assigned', () => void inTransaction.push(h.repos.db.inTransaction));
+
+    h.domain.tasks.handOverTasks('AR', [], OWNER_ACTOR);
+    h.domain.tasks.assign('AR', 'AR-1', 'dev-1', OWNER_ACTOR);
+    h.domain.tasks.handOverTasks('AR', ['dev-1'], OWNER_ACTOR, { 'dev-1': 'dev-2' });
+
+    expect(inTransaction).toEqual([false, false]);
   });
 
   it.each(LIVE_SESSION_STATES)(
@@ -289,9 +300,8 @@ describe('task lifecycle', () => {
     });
   });
 
-  it('gives cancel and reassign only to the project manager and rejects lifecycle fields in update_task', () => {
-    expect(TEAM_TOOL_NAMES).not.toContain('reopen_task');
-    for (const name of ['cancel_task', 'reassign_task'])
+  it('gives cancel, reassign and reopen only to the project manager and rejects lifecycle fields in update_task', () => {
+    for (const name of ['cancel_task', 'reassign_task', 'reopen_task'])
       expect(TEAM_TOOLS.find((t) => t.name === name)?.audience).toEqual({ roles: ['project_manager'] });
     const tool = TEAM_TOOLS.find((t) => t.name === 'update_task')!;
     for (const extra of [{ assignee: 'dev-2' }, { assignee: null }, { status: 'cancelled' }]) {

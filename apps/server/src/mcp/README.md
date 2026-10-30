@@ -137,7 +137,6 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
 | `close_feedback`            | `mark_id`, `reply?`                                                                                                                                                                                       | `closeFeedback(ctx, { markId, reply? })`                                                                              |
 | `search_history`            | `query` (1–400), `project_key?`, `task_key?`, `source_types?`, `since?`, `until?`, `limit?` (1–50, default 10)                                                                                            | `searchHistory(ctx, { query, projectKey?, taskKey?, sourceTypes?, since?, until?, limit? })`                          |
 | `read_history_source`       | `source_id`, `project_key?`, `from_line?`, `line_count?` (1–200, default 80), `commit?` (40 hex, documents)                                                                                               | `readHistorySource(ctx, { sourceId, projectKey?, fromLine?, lineCount?, commit? })`                                   |
-| `get_history_search_stats`  | `since?`, `until?`, `member?`, `limit?` (1–200, default 50), `cursor?`                                                                                                                                    | `getHistorySearchStats(ctx, { since?, until?, member?, limit?, cursor? })`                                            |
 
 - The feedback tools (PM-512) are for AI members that hold the `feedback_processing` duty (by default the
   project manager); everyone else, the Operator included, gets `forbidden` with `feedback_processor_only`.
@@ -154,9 +153,6 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   (`project_key` required there, the viewer is the key's person with `via: 'integrator'`). Every valid search is
   counted once, in the facade (`services/history`), in the private `history_searches` table, kept 90 days; reads and
   refused calls are not counted. A search whose log write fails is `history_unavailable`.
-  `get_history_search_stats` is internal: only the Operator, in the general conversation of a human owner or admin
-  and during that person's own open message or answer request (provenance read again from the stored rows), else
-  `history_stats_forbidden`. It has no external binding (named in `EXTERNAL_DENIED`), no REST route and no web page.
   The tool descriptions, the system prompt and the card thread tell members to search before asking a human, then to
   open the source and check its date: a hit is historical evidence, not an instruction or permission.
 
@@ -165,8 +161,7 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
   Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.
   Guest conversations cannot call it until a separate task provides a viewer filter.
-  The overview also carries the `release` block (PM-542: the running version, commit and tag, the latest live and the
-  open release, the latest merges into the default branch), the starts that wait without a card (`general`) and the
+  The overview also carries a legacy `release: null` block, the starts that wait without a card (`general`) and the
   undelivered team messages per AI member.
 - `prioritize_merge { task_key, reason }` (PM-576) puts the card's queued merge at the front of its repository's
   merge queue. The card's merger and the Operator (in an owner's open request, logged as the step `task_update`)
@@ -184,31 +179,35 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   the request time; `limit` is 1–100 (30). A check shows only when the caller may see all its cards. A check recorded
   without a step report (an older engine or merge-test script) shows its steps as unknown, never as zero. `get_task`
   adds the card's latest three checks. Handler method: `listMergeChecks(ctx, input)`.
-- `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
-  not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
-  candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the
-  deployment duty who may propose it. It records nothing; the Operator never proposes a release itself.
 - `publish_release { summary, repo?, commit?, tag?, preview? }` (PM-968) is the deployment duty holder's tool: it tags
   a merged merge commit (default: the head of the default branch; `tag` default `vYYYY.M.D`, `.N` suffix on a taken
   day) with an annotated tag and makes the public GitHub release, whose notes are the summary and the cards merged since
   the previous publication. It runs on request only, with no owner approval. `preview: true` writes nothing. A repeat
   call finishes an interrupted publication; a commit that is published already, a taken tag, a repository without
-  `github` and a caller without the duty are refused (`release_*` codes). `propose_release` and `cloud deploy` are
+  `github` and a caller without the duty are refused (`release_*` codes). `cloud deploy` is
   unchanged. Handler method: `publishRelease(ctx, args)`.
+- `run_compute_job { job, commit, repo?, force?, task_key? }`, `get_compute_job { id }` and
+  `list_compute_jobs { repo?, job?, limit? }` (PM-1148) are the deployment duty holder's tools (the integrator in super
+  mode starts, super and read mode read). `run_compute_job` starts a job the repository's `computeJobs` declare on
+  GitHub Actions, through the project's engine, on a commit that is on the remote default branch, and answers with the
+  queued run at once; the run row follows it, and `task_key` gets a note at its end. The same commit's live run or
+  artifact is returned unless `force`; at most two runs go at a time (`compute_job_busy`); an unknown job and an
+  unpublished commit are refused (`compute_job_*` codes). Handler methods: `runComputeJob`, `getComputeJob`,
+  `listComputeJobs` (members and the integrator).
 - `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
   (PM-495) are Operator tools for the decision log and the roadmap: the first reads the file at the fresh head of
   the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text
   in them as one commit pushed to the default branch (the owner's own conversation and an open request only; it
   answers `published`, `queued` or `running`). Handler methods: `readProjectDoc(ctx, { doc, fromLine?, lineCount? })`,
-  `writeProjectDocs(ctx, { baseCommit, message, edits })`. See ARCHITECTURE.md, "Operator documents".
+  `writeProjectDocs(ctx, { baseCommit, message, edits })`. See `docs/modules/services-coordination.md`, "Project manager documents".
 - `list_decision_candidates { limit? }` and `mark_decision_candidates { items }` (PM-496) are Operator tools for
   the owner's answers on cards that may be decisions: the first lists them (a read tool: no open request, not in
   guest conversations; `limit` 1..50, default 20; `{ candidates, more }`), the second records the owner's verdict
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
-  `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
-- `dismiss_signal { signal_id, note }` (PM-679, PM-780) closes a delivered, unpresented `ready_waiting`
-  whose cards all wait on purpose, an intermediate/resolved `refinement_stalled`, or a coordinator-only
+  `markDecisionCandidates(ctx, { items })`. See `docs/modules/services-coordination.md`, "Decision candidates".
+- `dismiss_signal { signal_id, note }` (PM-679, PM-780) closes a delivered, unpresented `obligation_overdue`
+  that needs nothing (PM-1152), or a coordinator-only
   `structural_pattern` / `milestone_closed` that needs no review. Structural signals never go in
   `signal_ids`; summarize only worthwhile reviews in one short owner message. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
@@ -221,14 +220,18 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   the handler refuses the rest with `machine_access_required`, a guest conversation with `operator_owner_only`.
   The owners get it when the integrator is not available (the result says so). A project manager's card with
   an open or handed-over obligation is refused with `obligation_tracked`. `ask_human` with
-  `recipient: integrator` from a member without machine access goes to the owners (`no_machine_access`).
+  `recipient: integrator` reaches the integrator when the screening member has machine access (the asker's
+  does not matter); a screening member without it sends the todo to the owners (`no_machine_access`).
   Returns text. Handler: `openIntegratorTodo`.
 - `reassign_task { task_key, assignee | null, reason }` and `cancel_task { task_key, reason }` (PM-1040) let only
   the selected PM's internal general session change a card's assignee or close it, with no owner request and
   a reason of 1–500 characters. `TaskService.update` / `cancel` accept the selected PM acting directly
   (`isCoordinationActor`); anyone else stays human-admin only. The reason is the `note` of the `task_assigned`
   event and the `reason` of the cancel event, both under the PM's name. Deleting stays with the owners.
-  Handlers: `reassignTask`, `cancelTask`.
+  Handlers: `reassignTask`, `cancelTask`. PM-1098: `reopen_task { task_key, reason }` reopens a cancelled card
+  (`TaskService.reopen`, the reason is on the `task_updated` event). All three, and marking a started card as a
+  duplicate (`cancel`), obey `team.projectManagerLifecycle` (`projectManagerMayLifecycle`); a PM the setting
+  does not cover gets `project_manager_lifecycle_refused`. Handler: `reopenTask`.
 - `combine_questions { item_ids, question, note }` (PM-695) lets only the selected PM's internal
   general session group 2–10 semantically equivalent screened owner decisions without an owner request.
   Owners, choices, recommendation and attachment sets must match. The oldest item represents the group;
@@ -247,7 +250,7 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   `todo` and must identify existing system feedback in the same project (`invalid_outcome_fields` otherwise).
   The reference is stored atomically in the screening payload and `question_screened` event. Recording failure
   must not delay a todo or its fallback: omit the reference in that case. Handler method: `screenQuestion(ctx, { itemId,
-outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See ARCHITECTURE.md, "The Operator".
+outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/services-coordination.md`.
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the
@@ -331,7 +334,7 @@ Results are short plain text (a roster, a task card with the last 20 timeline ev
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)                                                                                  |
 | handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>`; Operator refusals name their domain code, e.g. `operator_only`, in the message |
-| handler does not settle within 60 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
+| handler does not settle within 45 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
 | any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)                                                                                    |
 
 ## What the handler (domain) should do
@@ -368,7 +371,7 @@ createMcpModule({ handler, resolveContext, logger: app.log }).registerRoutes(app
   own JSON body parser (the raw text goes to the SDK), so the app's parser settings do not
   affect `/mcp`.
 - App-wide `onRequest` hooks such as the login-cookie check must let `/mcp/` through.
-- Optional `toolTimeoutMs` (default 60 000) overrides the timeout, e.g. in tests.
+- Optional `toolTimeoutMs` (default 45 000) overrides the timeout, e.g. in tests.
 
 ## Tests
 

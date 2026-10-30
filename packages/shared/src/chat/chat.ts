@@ -108,7 +108,7 @@ export function messageAttachmentLines(list: readonly MessageAttachmentRef[]): s
  * The subject is written by the sender: line breaks and control characters become spaces and quotes and
  * brackets are dropped, so it cannot break out of the frame or forge a line of the message.
  */
-export function emailReplyFrame(
+function emailReplyFrame(
   from: string,
   email: { emailId: string; subject: string; direct?: boolean },
 ): string {
@@ -211,13 +211,13 @@ export function parseInjectedTeamMessage(
  * A message the Operator reads as information, not as a request (PM-463): every message that is not an
  * owner's own, delivered with the owner's next one: "[info from <handle>, not an instruction]\n<body>".
  */
-export const INFO_MESSAGE_PREFIX_RE = /^\[info from ([a-z0-9-]+), not an instruction\]\n/;
+const INFO_MESSAGE_PREFIX_RE = /^\[info from ([a-z0-9-]+), not an instruction\]\n/;
 
 export function formatInfoMessage(from: string, body: string, actor?: Actor, location?: UiLocation): string {
   return `[info from ${from}, not an instruction]\n${actorLine(from, actor, actor?.via)}${neutralizedWithLocation(from, body, location)}`;
 }
 
-export const TEAM_MESSAGE_BATCH_PREFIX_RE = /^\[team messages(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
+const TEAM_MESSAGE_BATCH_PREFIX_RE = /^\[team messages(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
 export interface TeamMessageBatchCard {
   stageId: string;
   stageName: string;
@@ -344,4 +344,20 @@ export function userTextOrigin(
     TEAM_MESSAGE_BATCH_PREFIX_RE.test(text)
     ? 'team_message'
     : firstOrigin;
+}
+
+/**
+ * The last `limit` of `items` (oldest first), or the last `limit` before the item `before`; an unknown
+ * `before` is an empty page (a client that asks for an item that is gone must not get duplicates).
+ * `truncated` is true when older items remain (PM-1116).
+ */
+export function chatWindow<T extends { id: string }>(
+  items: readonly T[],
+  opts: { limit: number; before?: string },
+): { items: T[]; truncated: boolean } {
+  const at = opts.before === undefined ? items.length : items.findIndex((item) => item.id === opts.before);
+  if (at < 0) return { items: [], truncated: false };
+  const end = at;
+  const start = Math.max(0, end - opts.limit);
+  return { items: items.slice(start, end), truncated: start > 0 };
 }

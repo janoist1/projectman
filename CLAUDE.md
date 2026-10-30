@@ -1,6 +1,6 @@
 # projectman — working rules
 
-Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
+Read `docs/ARCHITECTURE.md` first (the overview; a module's details are in `docs/modules/`). Decisions and their reasons: `docs/DECISIONS.md`. What
 comes next and the owner's open questions: `docs/ROADMAP.md`. The lessons learned while
 building projectman are in `docs/LESSONS.md`, maintained by the project manager.
 `docs/DECISIONS.md` records the owner's decisions and `docs/ROADMAP.md` the plan. Only the
@@ -60,8 +60,8 @@ should confirm still goes to them as a question.
 These rules apply to every member, including Codex:
 
 - When adding or changing a machine-dependent part (local paths, processes, sockets,
-  accounts, OS features or a shared-host assumption), update the **Machine-dependent parts**
-  inventory in `docs/ARCHITECTURE.md` in the same change. Record what it does, its code
+  accounts, OS features or a shared-host assumption), update the machine-dependent
+  inventory in `docs/MACHINE-DEPENDENT.md` in the same change. Record what it does, its code
   location, the machine assumption, what a remote engine needs and the related task.
 - Every technical plan must answer **"Does this work on a remote engine?"** Refer to the
   affected inventory entries and state what must run on the engine, what must cross the
@@ -143,11 +143,15 @@ npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # 
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
 npx vitest run src/i18n/i18n.test.ts --configLoader runner  # in apps/web: after changing locale keys or their usage
 npx vitest run test/architecture  # in apps/server after adding, moving or renaming files; before hand-over too (no queue)
+npx vitest run test/web-get-contracts.test.ts --configLoader runner  # in apps/server after changing web GET responses or hot-read query costs
+npx vitest related test/helpers/app-harness.ts --run --configLoader runner  # in apps/server after changing the app harness, covering every harness consumer
+npx vitest related ../../scripts/merge-test/scope.ts --run --configLoader runner  # in apps/server after changing merge-test scope, including CLI selection
 npx vitest run test/merge-test-watchdog.test.ts --configLoader runner  # in apps/server after changing merge-test execution or reporting
+npx vitest run test/start-offer.test.ts test/golden-path-small-team.test.ts --configLoader runner  # in apps/server after changing admission wake-ups or start timing
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
 
-One heavy run goes at a time on the machine (PM-332, `docs/ARCHITECTURE.md` "Heavy-run
+One heavy run goes at a time on the machine (PM-332, `docs/modules/scripts.md` "Heavy-run
 queue"): the root `npm test`, `typecheck` and `shots` wait behind the other members' and the
 server's full test, and print who they wait for. Only Claude Code members run them in the
 background: Claude Code sends a completion notification. Codex, Gemini (agy) and NanoGPT
@@ -157,12 +161,14 @@ in the context pack. Gemini's native `command_status` follows a running command;
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
-before hand-over and in fix rounds. When changing the shared `ErrorCode` union, update
+before hand-over and in fix rounds. When removing a capability, also search tests for its
+retired tool names, inbox kinds and route or file paths, then run the matching boundary tests:
+HTTP calls and string fixtures are not covered by import-based related selection.
+When changing the shared `ErrorCode` union, update
 `errors.codes` in `apps/web/src/i18n/hu.ts`, run `npm run typecheck -w @projectman/web`, and
 run the web i18n test listed above. Also run `npm run dead-code` from the repository root
 before hand-over and in fix rounds; it is fast and does not queue. Fix new findings rather
-than extending the baseline. After adding a column to an existing table with `ALTER TABLE`, add it to the version-83
-rollback list in `apps/server/test/history-index.test.ts` and run that test in `apps/server`.
+than extending the baseline.
 After changing `apps/web/src/mocks`, run `npx vitest run src/mocks` in `apps/web`. After adding, moving or renaming files, also run
 `npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
 and does not queue. They never run the full suite. The merger (`team.merger`,
@@ -180,14 +186,12 @@ run: note on your card what did not run and why, and hand over; the merge test r
 Never run it another way, and do not ask anyone to run it outside your sandbox (PM-346, PM-656).
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
-owner's live instance is a separate checkout (`~/projectman-live`, port 4800, data in
-`~/.projectman`), updated only with the owner's approval. It runs under the `com.projectman.live`
-LaunchAgent (`npm run live -- install|status|uninstall`, `docs/DEPLOY.md`); after the owner approves
-a release in the app, the `com.projectman.live-watcher` agent builds, tests and switches it, with
-a rollback, then tags and publishes it. Never run a development
-build against `~/.projectman`: a database migrated by a newer build is refused by older ones.
-Open development instances at `http://127.0.0.1:5173`; the live instance's login cookie is on
-`localhost`.
+owner's live instance uses a cloud hub and a Mac engine, updated only on the owner's request:
+`npm run cloud -- deploy --ref <commit>`, then rebuild and reinstall the engine at the same commit
+(`docs/DEPLOY.md`). `publish_release` publishes on request after a preview; there is no release watcher.
+`npm run live -- install|status|uninstall` is retained only for single-mode disaster recovery.
+Never run a development build against `~/.projectman`: a database migrated by a newer build is
+refused by older ones. Open development instances at `http://127.0.0.1:5173`.
 
 ## Git
 

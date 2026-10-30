@@ -3,7 +3,7 @@ import { PushFailure, PushResult, plainHttpsUrl } from './web-push';
 
 /** The public ntfy server; the topic name is the only secret there, so the server makes the topic up. */
 export const DEFAULT_NTFY_SERVER = 'https://ntfy.sh';
-export const NTFY_RESULTS = PushResult.extract(['ok', 'failed']);
+const NTFY_RESULTS = PushResult.extract(['ok', 'failed']);
 export const NtfyChannelView = z.object({
   server: z.string(),
   topic: z.string(),

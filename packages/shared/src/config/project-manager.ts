@@ -5,12 +5,11 @@ import { cardMoverOf, isHandOnMove } from './card-mover';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
 import type { AiMemberConfig, MemberConfig, ProjectConfig, ProjectManagerMoves } from './schema';
-
-export const DEFAULT_PROJECT_MANAGER_MOVES: ProjectManagerMoves = 'queues_and_start';
+import { teamSettingOf } from './team-settings';
 
 /** What the PM may move independently; gates still apply on every move. */
 export function projectManagerMovesOf(config: Pick<ProjectConfig, 'team'>): ProjectManagerMoves {
-  return config.team.projectManagerMoves ?? DEFAULT_PROJECT_MANAGER_MOVES;
+  return teamSettingOf(config, 'projectManagerMoves');
 }
 
 /** The built-in role of the project manager every project requires (PM-429). */

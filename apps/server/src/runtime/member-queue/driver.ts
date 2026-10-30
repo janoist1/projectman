@@ -1,4 +1,4 @@
-import type { AiMemberConfig, ProjectConfig, Session, WorkItemRef } from '@projectman/shared';
+import type { AiMemberConfig, MemberConfig, ProjectConfig, Session, WorkItemRef } from '@projectman/shared';
 import type { WakeStart } from '../../contracts';
 import {
   MEMBER_QUEUE_MAX_ATTEMPTS,
@@ -27,7 +27,7 @@ interface MemberQueueDriverDeps {
     config(projectKey: string): Promise<ProjectConfig>;
   };
   queue: Pick<MemberQueue, 'publish' | 'closeStart'>;
-  admission: Pick<Admission, 'exclusive' | 'start'>;
+  admission: Pick<Admission, 'exclusive' | 'start' | 'warm'>;
   sessions: Pick<SessionOrchestrator, 'find' | 'findRunning' | 'isRunning' | 'close'>;
   /** Types a rendered item into the idle session; false: the session did not take it. */
   type(session: Session, item: StoredMemberQueueItem, text: string): Promise<boolean>;
@@ -47,6 +47,16 @@ interface Entry {
 
 /** What the last run did to start the member's session (the answer of `wake`). */
 type StartResult = Exclude<WakeStart, { state: 'starting' }>;
+
+/** A run of one member's queue, with what asked for it: the run that works the queue is the one that was asked. */
+interface Run {
+  started: boolean;
+  promise: Promise<void>;
+  /** At a turn boundary: the run types into the member's live sessions. */
+  boundary: boolean;
+  /** The sweep or a sender that waits for the start asked: no pause after a failed start, a net for the self-delivering lanes. */
+  net: boolean;
+}
 
 /** What one attempt to start a session came to: the code that refuses it, and whether the start itself failed. */
 interface StartAttempt {
@@ -73,6 +83,17 @@ const placeKeyOf = (member: AiMemberConfig, place: WorkItemRef): string => {
   return `${encoded.type}:${encoded.ref}`;
 };
 
+/** The key of what a run did to start the member's session at a place: the member's key, then the place's. */
+const resultKeyOf = (
+  projectKey: string,
+  handle: string,
+  member: MemberConfig | undefined,
+  place: WorkItemRef,
+): string => {
+  const encoded = encodeWorkItem(sessionWorkItemOf(member, place));
+  return `${projectKey}\n${handle}\n${encoded.type}:${encoded.ref}`;
+};
+
 /**
  * The member queue's driver (PM-925): whatever happens that could give a member something to do (an item
  * queued, a turn over, a hold lifted, a limit gone) comes here as `ensure`, and the member's queue is worked
@@ -85,7 +106,8 @@ export class MemberQueueWorker implements MemberQueueDriver {
   /** The lanes of each kind in the order they were registered: a lane that tells its items apart goes before the general one. */
   private readonly lanes = new Map<string, MemberQueueLane[]>();
   private readonly mutex = new KeyedMutex();
-  private readonly queuedRuns = new Map<string, { started: boolean; promise: Promise<void> }>();
+  private readonly queuedRuns = new Map<string, Run>();
+  /** What the last run did to start a session, by member and place (`resultKeyOf`): one member's places do not share it. */
   private readonly results = new Map<string, StartResult>();
   /**
    * The last start of a member that failed for a reason no wait overcomes. A start fails after it has made and
@@ -93,11 +115,8 @@ export class MemberQueueWorker implements MemberQueueDriver {
    * start try again at once, any other trigger within `FAILED_START_PAUSE_MS` does not.
    */
   private readonly failures = new Map<string, { at: number; code: string }>();
-  private readonly forced = new Set<string>();
   /** The items that went in with a session start whose first input was not typed yet. */
   private readonly awaitingFirstInput = new Set<string>();
-  /** The members whose next run is at a turn boundary: it types into their live sessions. */
-  private readonly boundaries = new Set<string>();
   private readonly quotaWaits = new Set<string>();
   private begun = false;
 
@@ -127,15 +146,20 @@ export class MemberQueueWorker implements MemberQueueDriver {
     options: { deliver?: boolean; net?: boolean } = {},
   ): Promise<void> {
     const key = `${projectKey}\n${member}`;
-    if (options.deliver !== false) this.boundaries.add(key);
-    if (options.net) this.forced.add(key);
+    const boundary = options.deliver !== false;
+    const net = options.net === true;
     const queued = this.queuedRuns.get(key);
-    if (queued && !queued.started) return queued.promise;
-    const run = { started: false, promise: Promise.resolve() };
+    // A run that has not begun takes what this call asks for; one that has begun has read its own already.
+    if (queued && !queued.started) {
+      queued.boundary ||= boundary;
+      queued.net ||= net;
+      return queued.promise;
+    }
+    const run: Run = { started: false, promise: Promise.resolve(), boundary, net };
     run.promise = this.mutex.run(key, async () => {
       run.started = true;
       try {
-        await this.work(projectKey, member);
+        await this.work(projectKey, member, run);
       } finally {
         const waiting = this.deps.ctx.repos.memberQueue
           .listOpen(projectKey, member)
@@ -168,35 +192,73 @@ export class MemberQueueWorker implements MemberQueueDriver {
   /** The queue items already carry the new handle; what the driver remembers of the old lane goes. */
   memberRenamed(projectKey: string, from: string): void {
     const key = `${projectKey}\n${from}`;
-    for (const memory of [this.results, this.failures]) memory.delete(key);
-    for (const memory of [this.forced, this.boundaries, this.quotaWaits]) memory.delete(key);
+    this.failures.delete(key);
+    this.quotaWaits.delete(key);
+    this.forgetResults(key);
   }
 
-  /** The timer's sweep tries a failed start again; a sweep an event asks for (`respectPause`) leaves it its pause. */
-  async sweep(options: { respectPause?: boolean } = {}): Promise<void> {
-    if (!this.begun) {
-      this.begun = true;
-      for (const lane of new Set([...this.lanes.values()].flat()))
-        await lane.started?.().catch((err: unknown) => {
-          this.deps.ctx.logger.warn({ err }, 'a member queue lane could not start');
-        });
-    }
+  /** What the member's runs did to start a session, at every place: a wake clears it to read only its own run's. */
+  private forgetResults(memberKey: string): void {
+    for (const resultKey of this.results.keys())
+      if (resultKey.startsWith(`${memberKey}\n`)) this.results.delete(resultKey);
+  }
+
+  /** The timer's sweep: every member with an open item, and a failed start is tried again at once. */
+  async sweep(): Promise<void> {
+    await this.begin();
+    const startedAt = Date.now();
+    const timings: Array<{ projectKey: string; member: string; ms: number }> = [];
     for (const { projectKey, member } of this.deps.ctx.repos.memberQueue.listOpenMembers()) {
-      if (!options.respectPause) this.forced.add(`${projectKey}\n${member}`);
-      await this.ensure(projectKey, member).catch((err: unknown) => {
-        this.deps.ctx.logger.warn({ err, projectKey, member }, 'working the member queue failed');
-      });
+      const memberStartedAt = Date.now();
+      await this.workOf(projectKey, member, true);
+      timings.push({ projectKey, member, ms: Date.now() - memberStartedAt });
     }
+    const ms = Date.now() - startedAt;
+    if (ms > 1000)
+      this.deps.ctx.logger.warn(
+        { ms, slowest: timings.sort((a, b) => b.ms - a.ms).slice(0, 5) },
+        'a member queue sweep was slow',
+      );
+  }
+
+  /**
+   * What freed a place, a limit or a hold tries again for the members that wait for one (an item that wakes
+   * and carries a wait code), not for every member with an open item: the timer's `sweep` is the one pass over
+   * them all. A member's failed start keeps its pause.
+   */
+  async retryWaiting(): Promise<void> {
+    await this.begin();
+    const members = new Map<string, { projectKey: string; member: string }>();
+    for (const { projectKey, member } of this.deps.ctx.repos.memberQueue.listWaiting())
+      members.set(`${projectKey}\n${member}`, { projectKey, member });
+    for (const { projectKey, member } of members.values()) await this.workOf(projectKey, member);
+  }
+
+  /** The lanes are told once that the driver looks at the queues for the first time. */
+  private async begin(): Promise<void> {
+    if (this.begun) return;
+    this.begun = true;
+    for (const lane of new Set([...this.lanes.values()].flat()))
+      await lane.started?.().catch((err: unknown) => {
+        this.deps.ctx.logger.warn({ err }, 'a member queue lane could not start');
+      });
+  }
+
+  private workOf(projectKey: string, member: string, net = false): Promise<void> {
+    return this.ensure(projectKey, member, { net }).catch((err: unknown) => {
+      this.deps.ctx.logger.warn({ err, projectKey, member }, 'working the member queue failed');
+    });
   }
 
   /** Works the queue, and says what became of the start of a session at `workItem`, for a sender that waits for it. */
   async wake(projectKey: string, member: string, workItem: WorkItemRef): Promise<WakeStart> {
-    this.results.delete(`${projectKey}\n${member}`);
-    this.forced.add(`${projectKey}\n${member}`);
-    await this.ensure(projectKey, member);
-    const result = this.results.get(`${projectKey}\n${member}`);
-    if (result) return result;
+    // Asked before anything is awaited: the run this wake gets is the first one after the sender's message.
+    this.forgetResults(`${projectKey}\n${member}`);
+    const run = this.ensure(projectKey, member, { net: true });
     const config = await this.deps.projects.config(projectKey);
+    await run;
+    const result = this.results.get(resultKeyOf(projectKey, member, memberOf(config, member), workItem));
+    if (result) return result;
     const session = this.deps.ctx.repos.sessions.findByWorkItem(
       projectKey,
       member,
@@ -211,6 +273,40 @@ export class MemberQueueWorker implements MemberQueueDriver {
     return this.lanes
       .get(item.kind)
       ?.find((lane) => (!lane.owns || lane.owns(item)) && lane.appliesTo?.(item, config) !== false);
+  }
+
+  /** The hold code of each item, by item id: a lane's `holdAll` answers its items together, else `hold` each. */
+  private async holdsOf(
+    owed: { item: StoredMemberQueueItem; lane: MemberQueueLane }[],
+  ): Promise<Map<string, string | null>> {
+    const holds = new Map<string, string | null>();
+    const unknown = (err: unknown, items: StoredMemberQueueItem[]) => {
+      this.deps.ctx.logger.warn(
+        { err, itemIds: items.map((item) => item.id) },
+        'a member queue hold could not be decided',
+      );
+      for (const item of items) holds.set(item.id, 'hold_unknown');
+    };
+    const lanes = new Set(owed.map((entry) => entry.lane));
+    for (const lane of lanes) {
+      const items = owed.filter((entry) => entry.lane === lane).map((entry) => entry.item);
+      if (lane.holdAll) {
+        try {
+          for (const [id, code] of await lane.holdAll(items)) holds.set(id, code);
+        } catch (err) {
+          unknown(err, items);
+        }
+        continue;
+      }
+      for (const item of items) {
+        try {
+          holds.set(item.id, await lane.hold(item));
+        } catch (err) {
+          unknown(err, [item]);
+        }
+      }
+    }
+    return holds;
   }
 
   private close(
@@ -231,7 +327,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
     });
   }
 
-  private async work(projectKey: string, member: string): Promise<void> {
+  private async work(projectKey: string, member: string, run: Run): Promise<void> {
     const { ctx } = this.deps;
     const config = await this.deps.projects.config(projectKey);
     const memberConfig = memberOf(config, member);
@@ -239,7 +335,20 @@ export class MemberQueueWorker implements MemberQueueDriver {
     const at = isoNow(ctx);
     let changed = await this.settleProcessing(config, member, at);
 
+    // A member who left the team (a rename moves the items to the new handle first) has no one to hand the items to.
+    if (!memberConfig) {
+      for (const item of repo.listOpenByUrgency(projectKey, member))
+        if (item.state === 'queued') {
+          this.close(item, 'cancelled', 'member_removed', at);
+          changed = true;
+        }
+      if (changed) this.deps.queue.publish(projectKey, member);
+      return;
+    }
+
     let entries: Entry[] = [];
+    const owed: { item: StoredMemberQueueItem; lane: MemberQueueLane; place: WorkItemRef; wakes: boolean }[] =
+      [];
     for (const item of repo.listOpenByUrgency(projectKey, member)) {
       const lane = this.laneOf(item, config);
       if (!lane || item.state !== 'queued' || this.awaitingFirstInput.has(item.id)) continue;
@@ -261,15 +370,21 @@ export class MemberQueueWorker implements MemberQueueDriver {
         place = relocated;
         changed = true;
       }
-      const held = await lane.hold(item).catch((err: unknown) => {
-        ctx.logger.warn({ err, itemId: item.id }, 'a member queue hold could not be decided');
-        return 'hold_unknown';
-      });
       const wakes = lane.wakes?.(item, config) ?? item.wake;
       if (wakes !== item.wake) repo.setWake(item.id, wakes);
-      entries.push({ item: { ...item, place, wake: wakes }, lane, place, held, wakes });
+      owed.push({ item, lane, place, wakes });
     }
-    if (memberConfig?.kind !== 'ai') {
+    // The holds of one lane are decided together when the lane can (PM-1106): once per run, not once per item.
+    const holds = await this.holdsOf(owed);
+    for (const { item, lane, place, wakes } of owed)
+      entries.push({
+        item: { ...item, place, wake: wakes },
+        lane,
+        place,
+        held: holds.get(item.id) ?? null,
+        wakes,
+      });
+    if (memberConfig.kind !== 'ai') {
       if (changed) this.deps.queue.publish(projectKey, member);
       return;
     }
@@ -318,8 +433,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
       );
 
     const memberKey = `${projectKey}\n${member}`;
-    const atBoundary = this.boundaries.delete(memberKey);
-    const net = this.forced.has(memberKey);
+    const { boundary: atBoundary, net } = run;
     for (const [key, group] of places) {
       const session = running.get(key);
       if (session && atBoundary)
@@ -339,8 +453,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
     // One session starts per run: a place whose start is refused lets the next place try (a refusal can be about
     // the place: the owner's conversation with the Operator is not held back by a guest's), the first start ends it.
     const failure = this.failures.get(memberKey);
-    const forced = this.forced.delete(memberKey);
-    const paused = !forced && !!failure && Date.now() - failure.at < FAILED_START_PAUSE_MS;
+    const paused = !net && !!failure && Date.now() - failure.at < FAILED_START_PAUSE_MS;
     const tried = new Set<string>();
     for (const first of waking) {
       const key = placeKeyOf(memberConfig, first.place);
@@ -500,7 +613,8 @@ export class MemberQueueWorker implements MemberQueueDriver {
     if (taken.length === 0) return false;
     const typed = await this.deps.type(session, taken[0]!, render(taken)).catch(() => false);
     if (!typed) {
-      if (claims) for (const item of taken) repo.requeue(item.id, at);
+      // A failed typing is no attempt of the item: only a session that ended with it (`settleProcessing`) counts.
+      if (claims) for (const item of taken) repo.release(item.id);
       return false;
     }
     this.deps.ctx.unitOfWork(() => {
@@ -557,29 +671,36 @@ export class MemberQueueWorker implements MemberQueueDriver {
   ): Promise<StartAttempt> {
     const { ctx, admission } = this.deps;
     const repo = ctx.repos.memberQueue;
-    const resultKey = `${first.item.projectKey}\n${member.handle}`;
+    const resultKey = resultKeyOf(first.item.projectKey, member.handle, member, first.place);
     const lane = first.lane;
-    const entries = lane.oneAtATime ? [first] : batch.filter((e) => e.lane === lane || !e.lane.oneAtATime);
+    // Only what the first input carries goes with the start: an item whose lane renders nothing (a message) is
+    // delivered by its lane at a turn boundary, and stays queued until then.
+    const entries = (
+      lane.oneAtATime ? [first] : batch.filter((e) => e.lane === lane || !e.lane.oneAtATime)
+    ).filter((e) => e.lane === lane || e.lane.renderBatch || e.lane.render(e.item) !== null);
     const items = entries.map((e) => e.item);
     // The place as the member's session has it: the project manager has one conversation.
     const place = sessionWorkItemOf(member, first.place);
-    const run = (messages: string[]) =>
-      admission.start({
-        config,
-        member,
-        workItem: place,
-        messages,
-        cause: lane.cause(first.item),
-        ...memberQueueStartLimits(first.item.kind),
-      });
+    // The admission lock holds the decision and the process start only: the capacity counts running processes
+    // (PM-1108), and whatever a lane reads from an engine for the first input is done outside it.
+    const run = async (messages: string[]) => {
+      await admission.warm(config.project.key, member.handle);
+      return admission.exclusive('queue-start', () =>
+        admission.start({
+          config,
+          member,
+          workItem: place,
+          messages,
+          cause: lane.cause(first.item),
+          ...memberQueueStartLimits(first.item.kind),
+        }),
+      );
+    };
     // The first input of the session the start made: the items count as delivered only when it was typed.
     const started: { firstInput?: Promise<boolean>; sessionId?: string } = {};
     try {
-      await admission.exclusive(async () => {
-        if (lane.start) {
-          await lane.start({ config, member: member.handle, place, items, run });
-          return;
-        }
+      if (lane.start) await lane.start({ config, member: member.handle, place, items, run });
+      else {
         const texts: string[] = [];
         const batches = new Map<MemberQueueLane, StoredMemberQueueItem[]>();
         for (const e of entries) {
@@ -592,10 +713,11 @@ export class MemberQueueWorker implements MemberQueueDriver {
         }
         for (const [batchLane, batchItems] of batches) texts.push(batchLane.renderBatch!(batchItems));
         const result = await run(texts);
-        if (result.messagesSent === 0 && texts.length > 0) return;
-        started.firstInput = result.firstInput;
-        started.sessionId = result.session.id;
-      });
+        if (result.messagesSent !== 0 || texts.length === 0) {
+          started.firstInput = result.firstInput;
+          started.sessionId = result.session.id;
+        }
+      }
       // The run does not wait for the first input (it arrives with the session's process, or never, and a stop of
       // the instance would wait for it): the items are marked delivered when it was typed, and are left alone
       // until then; one that does not arrive keeps them queued for the sweep.

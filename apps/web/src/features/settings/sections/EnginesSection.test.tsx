@@ -403,9 +403,7 @@ describe('engines in the settings page', () => {
     project.context.me.hostOwner = false;
     project.render(<SettingsTestRoutes />, '/p/AC/settings');
     const nav = await screen.findByRole('navigation', { name: t('settings.nav.label') });
-    expect(
-      await within(nav).findByRole('link', { name: new RegExp(t('operatorGrant.clientTitle')) }),
-    ).toBeTruthy();
+    expect(await within(nav).findByRole('link', { name: new RegExp(t('integratorKey.title')) })).toBeTruthy();
     expect(within(nav).queryByRole('link', { name: new RegExp(t('settings.nav.integrator')) })).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
 # Role guide
 
 ## Testing
-Test expected behavior and risky paths in a test environment. Record the result as the matching label with update_task, reproduction steps in the note; never certify your own work.
+Test every acceptance point of the card and the risky paths as a user would, in a test environment. Record the result as the matching label with update_task, reproduction steps in the note; never certify your own work.

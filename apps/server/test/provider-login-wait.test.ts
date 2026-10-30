@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { alertPayloadOf } from '@projectman/shared';
 import type { AgentProvider, ProjectConfig, Session } from '@projectman/shared';
 import { StartSpec } from '../src/runtime/admission';
@@ -218,6 +218,16 @@ describe('a start while the provider is not logged in', () => {
         expect(h.runner.started).toHaveLength(started);
       },
     );
+
+    it('records an exit that left a reason but no auth error as a failure, not a lost login (PM-1108)', async () => {
+      const { session } = await setup();
+      h.runner.setState(session.id, 'failed', 'Rate limit reached');
+      await h.runner.stop(session.id);
+
+      await vi.waitFor(() => expect(h.domain.sessions.get('AR', session.id).state).toBe('failed'));
+      expect(h.domain.sessions.get('AR', session.id).lastStop).toMatchObject({ kind: 'failed' });
+      expect(resumes()).toEqual([]);
+    });
 
     it('asks for a fresh check of the provider login', async () => {
       const { state, session } = await setup();

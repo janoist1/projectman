@@ -46,7 +46,11 @@ describe('the heavy card: assignment, wait and the question', () => {
   const task = (key: string) => h.domain.tasks.get('AR', key);
   const waiting = (key: string) => task(key).startWaiting;
   const storedKeys = () => deferredStartRecords(h.repos).map((r) => r.key);
-  const waitRow = (key: string) => h.repos.seniorWaits.open('AR', key);
+  /** The wait is a `senior_wait` obligation: the sweep opens its row, asks after the wait limit and ends it. */
+  const sweep = () => h.domain.obligations.sweep();
+  const waitRow = (key: string) => h.repos.obligations.liveOfKind('AR', key, 'senior_wait');
+  /** What the owners decided, as the start reads it. */
+  const decision = (key: string) => h.domain.seniorDecisions.decisionFor('AR', key);
   const questions = () => h.domain.inbox.list('AR', { kind: 'decision' }).filter(seniorWaitDecisionOf);
   const waitEvents = (key: string) =>
     h.domain.timeline.list('AR', { taskKey: key }).filter((e) => e.type === 'task_senior_wait');
@@ -79,7 +83,7 @@ describe('the heavy card: assignment, wait and the question', () => {
     await move(key);
     await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
     minutes(31);
-    h.domain.seniorWaits.sweep();
+    await sweep();
     expect(questions()).toHaveLength(1);
     return { busy, key, item: questions()[0]! };
   };
@@ -124,7 +128,15 @@ describe('the heavy card: assignment, wait and the question', () => {
         false,
       );
       expect(storedKeys()).toEqual(['work-start:AR:AR-2']);
-      expect(waitRow(key)).toMatchObject({ since: clock.toISOString(), askedAt: null, decision: null });
+      await sweep();
+      expect(waitRow(key)).toMatchObject({
+        kind: 'senior_wait',
+        responsible: null,
+        openedAt: clock.toISOString(),
+        handedOverAt: null,
+        inboxItemId: null,
+      });
+      expect(decision(key)).toBeNull();
       expect(h.domain.tasks.list('AR').find((t) => t.key === key)?.startWaiting).toEqual(waiting(key));
     });
 
@@ -158,7 +170,8 @@ describe('the heavy card: assignment, wait and the question', () => {
       expect(h.runner.started).toHaveLength(1);
       // The move's own automatic start and the Start share one key: one wait is stored.
       expect(storedKeys()).toEqual([`work-start:AR:${key}`]);
-      expect(h.repos.seniorWaits.listOpen('AR')).toHaveLength(1);
+      await sweep();
+      expect(h.repos.obligations.listLive('AR').filter((row) => row.kind === 'senior_wait')).toHaveLength(1);
       await h.domain.workStarts.begin({
         task: task(key),
         from: 'backlog',
@@ -175,10 +188,12 @@ describe('the heavy card: assignment, wait and the question', () => {
       await move(key);
       await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
       const since = waiting(key)!.since;
+      await sweep();
       minutes(10);
       await h.domain.admission.retryDeferred();
       expect(waiting(key)).toMatchObject({ reason: 'senior_busy', since });
-      expect(waitRow(key)?.since).toBe(since);
+      await sweep();
+      expect(waitRow(key)?.openedAt).toBe(since);
     });
 
     it('gives an any card to the Senior only when no other developer is free', async () => {
@@ -224,8 +239,11 @@ describe('the heavy card: assignment, wait and the question', () => {
       const key = await create('Waits');
       await move(key);
       await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
+      await sweep();
+      expect(waitRow(key)).not.toBeNull();
       await h.domain.members.update('AR', 'dev-2', { complexityLimit: null }, by());
       await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
+      await sweep();
       expect(waitRow(key)).toBeNull();
       expect(phases(key)).toEqual(['no_senior']);
     });
@@ -236,9 +254,12 @@ describe('the heavy card: assignment, wait and the question', () => {
       const key = await create('Waits');
       await move(key);
       await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
+      await sweep();
+      expect(waitRow(key)).not.toBeNull();
       const result = await h.domain.taskStarts.start('AR', key, { assignee: 'dev-1', ...by() });
       expect(result.task.assignee).toBe('dev-1');
       await vi.waitFor(() => expect(h.runner.started).toHaveLength(2));
+      await sweep();
       expect(waitRow(key)).toBeNull();
       expect(storedKeys()).toEqual([]);
     });
@@ -252,14 +273,14 @@ describe('the heavy card: assignment, wait and the question', () => {
       await move(key);
       await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
       minutes(29);
-      h.domain.seniorWaits.sweep();
+      await sweep();
       expect(questions()).toHaveLength(0);
 
       minutes(2);
-      h.domain.seniorWaits.sweep();
-      h.domain.seniorWaits.sweep();
+      await sweep();
+      await sweep();
       minutes(120);
-      h.domain.seniorWaits.sweep();
+      await sweep();
       const [item, ...rest] = questions();
       expect(rest).toEqual([]);
       expect(item).toMatchObject({
@@ -285,8 +306,9 @@ describe('the heavy card: assignment, wait and the question', () => {
       const key = await create('Waits');
       await move(key);
       await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
+      await sweep();
       minutes(6);
-      h.domain.seniorWaits.sweep();
+      await sweep();
       expect(questions()).toHaveLength(1);
       expect(questions()[0]!.payload).toMatchObject({ seniorWait: { minutes: 5 } });
     });
@@ -299,9 +321,9 @@ describe('the heavy card: assignment, wait and the question', () => {
       await h.domain.admission.retryDeferred();
       expect(task(key).assignee).toBeNull();
       expect(waiting(key)).toMatchObject({ reason: 'senior_busy', waitDecidedBy: 'owner' });
-      expect(waitRow(key)).toMatchObject({ decision: 'wait', decidedBy: 'owner' });
+      expect(decision(key)).toEqual({ decision: 'wait', by: 'owner' });
       minutes(180);
-      h.domain.seniorWaits.sweep();
+      await sweep();
       expect(questions()).toHaveLength(1);
       expect(phases(key)).toEqual(['asked', 'decided']);
     });
@@ -310,11 +332,33 @@ describe('the heavy card: assignment, wait and the question', () => {
       await harness();
       const { key } = await askedCard();
       minutes(600);
-      h.domain.seniorWaits.sweep();
+      await sweep();
       await h.domain.admission.retryDeferred();
       expect(task(key).assignee).toBeNull();
       expect(waiting(key)).toMatchObject({ reason: 'senior_busy' });
       expect(questions()).toHaveLength(1);
+    });
+
+    it('keeps the step and its question while another hold hides the wait from the card', async () => {
+      await harness((c) => {
+        roomy(c);
+        c.pipeline.labels.push({ id: 'waiting-answer', name: 'Waiting', blocks: true, setBy: 'anyone' });
+      });
+      const { item, key } = await askedCard();
+      const row = waitRow(key);
+      h.domain.tasks.changeLabels('AR', key, { add: ['waiting-answer'] }, OWNER_ACTOR);
+      await flush();
+      expect(waiting(key)?.reason).not.toBe('senior_busy');
+      await sweep();
+      expect(waitRow(key)).toMatchObject({ id: row!.id, state: 'handed_over', inboxItemId: item.id });
+      expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+
+      h.domain.tasks.changeLabels('AR', key, { remove: ['waiting-answer'] }, OWNER_ACTOR);
+      await flush();
+      await sweep();
+      expect(waitRow(key)?.id).toBe(row!.id);
+      expect(questions()).toHaveLength(1);
+      expect(phases(key)).toEqual(['asked']);
     });
 
     it('gives the card to a free developer after "any developer"', async () => {
@@ -322,6 +366,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       const { item, key } = await askedCard();
       await answer(item.id, 'any_developer');
       await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
+      await sweep();
       expect(waitRow(key)).toBeNull();
       expect(storedKeys()).toEqual([]);
       expect(phases(key)).toEqual(['asked', 'decided']);
@@ -357,6 +402,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       const { busy, key, item } = await askedCard();
       await cancel(busy);
       await vi.waitFor(() => expect(task(key).assignee).toBe('dev-2'));
+      await sweep();
       expect(waitRow(key)).toBeNull();
       expect(h.domain.inbox.get('AR', item.id)).toMatchObject({
         state: 'resolved',
@@ -383,6 +429,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       await harness();
       const { key, item } = await askedCard();
       await h.domain.tasks.update('AR', key, { assignee: 'dev-1' }, OWNER_ACTOR);
+      await sweep();
       expect(waitRow(key)).toBeNull();
       expect(h.domain.inbox.get('AR', item.id)).toMatchObject({
         state: 'resolved',
@@ -394,6 +441,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       await harness();
       const { key, item } = await askedCard();
       await move(key, 'backlog');
+      await sweep();
       expect(waitRow(key)).toBeNull();
       // A move already cancels the decision requests of the card's earlier stage (`TaskMoves`).
       expect(h.domain.inbox.get('AR', item.id).state).toBe('cancelled');
@@ -404,6 +452,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       await harness();
       const { key, item } = await askedCard();
       await cancel(key);
+      await sweep();
       expect(waitRow(key)).toBeNull();
       expect(h.domain.inbox.get('AR', item.id)).toMatchObject({
         state: 'resolved',
@@ -415,6 +464,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       await harness();
       const { key, item } = await askedCard();
       await h.domain.tasks.update('AR', key, { complexity: { points: null } }, OWNER_ACTOR);
+      await sweep();
       expect(waitRow(key)).toBeNull();
       expect(h.domain.inbox.get('AR', item.id).resolution).toMatchObject({ rule: 'senior_wait_ended' });
       await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
@@ -425,6 +475,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       const { key } = await askedCard();
       await h.domain.tasks.update('AR', key, { complexity: { points: 5 } }, OWNER_ACTOR);
       await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
+      await sweep();
       expect(waitRow(key)).toBeNull();
     });
   });
@@ -437,7 +488,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       await move(key);
       await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
       minutes(31);
-      h.domain.seniorWaits.sweep();
+      await sweep();
       expect(questions()).toHaveLength(1);
       return { key, item: questions()[0]! };
     };
@@ -447,23 +498,25 @@ describe('the heavy card: assignment, wait and the question', () => {
       const { item, key } = await awayCard();
       await answer(item.id, 'wait_for_senior');
       await flush();
-      const since = waitRow(key)!.since;
+      const since = waitRow(key)!.openedAt;
 
       h = await restartDomainHarness(h, { now: () => clock });
-      expect(waitRow(key)).toMatchObject({ since, decision: 'wait', decidedBy: 'owner' });
+      expect(waitRow(key)).toMatchObject({ openedAt: since });
+      expect(decision(key)).toEqual({ decision: 'wait', by: 'owner' });
       // The restored start is retried at once: while it is, the card does not show it.
       await vi.waitFor(() =>
         expect(waiting(key)).toMatchObject({ reason: 'senior_busy', since, waitDecidedBy: 'owner' }),
       );
       expect(storedKeys()).toEqual([`work-start:AR:${key}`]);
       minutes(300);
-      h.domain.seniorWaits.sweep();
+      await sweep();
       expect(questions()).toHaveLength(1);
       expect(task(key).assignee).toBeNull();
 
       // The Senior comes back: it takes the card, and the wait is over.
       await h.domain.members.update('AR', 'dev-2', { onLeave: false }, by());
       await vi.waitFor(() => expect(task(key).assignee).toBe('dev-2'));
+      await sweep();
       expect(waitRow(key)).toBeNull();
     });
 
@@ -473,7 +526,7 @@ describe('the heavy card: assignment, wait and the question', () => {
       h = await restartDomainHarness(h, { now: () => clock });
       await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
       minutes(60);
-      h.domain.seniorWaits.sweep();
+      await sweep();
       expect(questions()).toHaveLength(1);
       expect(phases(key)).toEqual(['asked']);
     });

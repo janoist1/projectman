@@ -45,8 +45,8 @@ import { approvalHintOf, decisionToast, openItemIds, openItemsFor } from '../../
 import { closureTexts, sessionClosure, sessionStatus } from '../../lib/sessions';
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
-import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
-import { nameOf } from '../../lib/members';
+import { isPageEscape, useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
+import { distinctMembers, nameOf } from '../../lib/members';
 import { canStartRefinement } from '../../lib/refinement';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
@@ -67,10 +67,11 @@ import { useBoardModel } from './useBoardModel';
 import { useCanAttach, useUploadQueue } from './attachmentUploads';
 import { useFileDrop } from './useFileDrop';
 import { TaskAttachments } from './TaskAttachments';
+import { TaskSteps } from './TaskSteps';
 import { TaskTimeline } from './TimelineAttachment';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
-import { FocusRow } from '../focus/FocusRow';
+import { TaskAcceptance } from './TaskAcceptance';
 import { TaskProperties } from './TaskProperties';
 import { TaskThread } from './TaskThread';
 import { TaskRounds, TaskUsage } from './TaskUsage';
@@ -135,7 +136,7 @@ function StartPanel({
       },
     );
   const openKeys = openPrerequisiteKeys(task, tasks);
-  const developers = [...members.values()].filter((member) => {
+  const developers = distinctMembers(members).filter((member) => {
     const original = config?.team.members.find((entry) => entry.handle === member.handle);
     return (
       member.kind === 'ai' &&
@@ -233,7 +234,7 @@ function StartPanel({
 const WIDE_QUERY = '(min-width: 1104px)';
 
 /** The views of the open card (PM-487): the sub-paths of its route, `card` being none. */
-type CardView = 'card' | 'thread' | 'attachments' | 'timeline';
+type CardView = 'card' | 'thread' | 'attachments' | 'steps' | 'timeline';
 
 /**
  * The open card (PM-283): the quick view is the drawer on the right of the board, the large window (`?size=large`)
@@ -284,11 +285,12 @@ export function TaskDrawer() {
   const hasThread = Boolean(task && !isTheme(task) && entry);
   // The views of the open card (PM-487) are sub-paths of it; an unknown one, and a theme's `/thread`, is the card.
   // An older link to one event (`/tasks/KEY#timeline-<id>`, shared before the timeline had a view) opens the timeline.
+  // The Process view (PM-1151) is a card's, like the conversation: a theme has none.
   const view: CardView =
     subPath === 'attachments' || subPath === 'timeline'
       ? subPath
-      : subPath === 'thread' && hasThread
-        ? 'thread'
+      : (subPath === 'thread' || subPath === 'steps') && hasThread
+        ? subPath
         : !subPath && eventLink
           ? 'timeline'
           : 'card';
@@ -298,6 +300,8 @@ export function TaskDrawer() {
   // The same query (and so the same request) as the list of the Attachments view.
   const attachmentList = useAttachments(key, taskKey, Boolean(access && myHandle));
   const attachmentCount = attachmentList.data?.attachments.length ?? 0;
+  // The Process tab counts the open steps; none, or not read, shows no count.
+  const stepCount = detail.data?.steps?.length ?? 0;
   const cardScroll = useRef(0);
   const viewsRef = useRef<HTMLDivElement>(null);
   const switchView = (next: CardView) =>
@@ -328,9 +332,8 @@ export function TaskDrawer() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      // An open dialog or popover takes Escape for itself.
-      if (event.key === 'Escape' && !document.querySelector('dialog[open], [data-popover-open]'))
-        navigate(drawerBase.close);
+      // A dialog, a popover or a field takes Escape for itself: a draft in the card is not discarded by it.
+      if (isPageEscape(event)) navigate(drawerBase.close);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
@@ -610,12 +613,7 @@ export function TaskDrawer() {
         </div>
 
         {theme ? (
-          <>
-            <ThemeSummary task={task} tasks={cards} />
-            <section className={drawer.props}>
-              <FocusRow key={`focus:${task.key}`} task={task} />
-            </section>
-          </>
+          <ThemeSummary task={task} tasks={cards} />
         ) : (
           <TaskProperties
             task={task}
@@ -632,6 +630,15 @@ export function TaskDrawer() {
       <div key="content" className={styles.group} hidden={view !== 'card'}>
         <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
 
+        {theme ? null : (
+          <TaskAcceptance
+            key={`acceptance:${task.key}`}
+            task={task}
+            items={detail.data?.acceptance}
+            loading={detail.isPending}
+          />
+        )}
+
         {theme && model ? (
           <ThemeCards task={task} tasks={cards} pipeline={pipeline} byKey={model.byKey} />
         ) : null}
@@ -647,6 +654,36 @@ export function TaskDrawer() {
         />
       </div>
     );
+    // Only the open view is in the tree: it has no draft to keep, and its rows would repeat the card's texts.
+    const stepsView = hasThread ? (
+      <div key="steps" className={styles.group} hidden={view !== 'steps'}>
+        {view === 'steps' ? (
+          <section className={drawer.section}>
+            {/* The tab names the view: the title stays for the screen readers. */}
+            <h2 className={clsx(drawer.sectionTitle, 'visually-hidden')}>{t('task.steps.title')}</h2>
+            {detail.isPending ? (
+              <LoadingState compact />
+            ) : detail.isError ? (
+              <ErrorState
+                compact
+                error={detail.error}
+                message={t('task.steps.loadFailed')}
+                onRetry={() => void detail.refetch()}
+              />
+            ) : (
+              <TaskSteps
+                key={task.key}
+                task={task}
+                state={entry?.state}
+                steps={detail.data.steps}
+                events={detail.data.timeline}
+                ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
+              />
+            )}
+          </section>
+        ) : null}
+      </div>
+    ) : null;
     const timeline = (
       <div key="timeline" className={styles.group} hidden={view !== 'timeline'}>
         <section className={drawer.section}>
@@ -765,6 +802,15 @@ export function TaskDrawer() {
                 label: t('task.view.attachments'),
                 count: attachmentCount > 0 ? attachmentCount : undefined,
               },
+              ...(hasThread
+                ? [
+                    {
+                      value: 'steps' as const,
+                      label: t('task.view.steps'),
+                      count: stepCount > 0 ? stepCount : undefined,
+                    },
+                  ]
+                : []),
               { value: 'timeline', label: t('task.view.timeline') },
             ]}
           />
@@ -784,8 +830,8 @@ export function TaskDrawer() {
           {/* All views stay in the tree: what is typed in a hidden one (a message, a comment, a description) is kept. */}
           {[
             ...(twoColumns
-              ? [signals, content, attachments, timeline, more, side]
-              : [signals, side, content, attachments, timeline, more]),
+              ? [signals, content, attachments, stepsView, timeline, more, side]
+              : [signals, side, content, attachments, stepsView, timeline, more]),
             hasThread ? (
               <div key="thread" className={styles.thread} hidden={!thread}>
                 <TaskThread

@@ -22,6 +22,15 @@ export function hasMachineAccess(config: Pick<ProjectConfig, 'team'>, handle: st
 }
 
 /**
+ * The member who put a todo in the machine queue (decision 66): for a screened question the screening
+ * member, otherwise the item's source. The system as a screening member does not count (the todo the
+ * system opens itself keeps its asker).
+ */
+export function machineTodoIssuerOf(source: string, screenedBy?: string): string {
+  return screenedBy && screenedBy !== SYSTEM_ISSUER ? screenedBy : source;
+}
+
+/**
  * Whether `issuer` may put a machine todo in the owners' queue: the system (an obligation handover,
  * PM-806) or a member with machine access.
  * The system issuer counts only while no member has that handle: `system` is a valid handle, and a member

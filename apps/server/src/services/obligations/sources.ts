@@ -1,8 +1,11 @@
 import {
+  OBLIGATION_RUNGS,
   canAutomaticallyStartTask,
+  coordinationMemberOf,
   developmentStage,
   isOpenTask,
   memberOf,
+  obligationRungsOf,
   pullSourceStage,
   stageIndex,
   stageOf,
@@ -12,6 +15,7 @@ import {
 import type {
   Obligation,
   ObligationKind,
+  ObligationRung,
   ProjectConfig,
   QuestionTodo,
   Task,
@@ -33,10 +37,10 @@ export interface ProjectView {
   live: readonly Obligation[];
 }
 
-/** A step that is open now and has an AI responsible. */
+/** A step that is open now: it has an AI responsible, or none (a wait for the owners' decision). */
 export interface DerivedObligation {
   taskKey: string;
-  responsible: string;
+  responsible: string | null;
   subject: string;
   /** When the step began: the first deadline is `since` + N minutes. */
   since: string;
@@ -54,14 +58,25 @@ export interface ObligationSource {
   kind: ObligationKind;
   /** The source derives its steps whatever holds the card: a step it does not derive has ended, paused or not. */
   derivesWhilePaused?: boolean;
+  /** The rungs of the ladder the kind climbs (all of them when absent). */
+  rungs?: readonly ObligationRung[];
+  /** The kind's own N minutes for its deadline (the project's obligation minutes when absent). */
+  minutesOf?(config: ProjectConfig): number;
+  /** False: no hold on the card or the responsible stops the clock (true when absent). */
+  pausable?: boolean;
   /** The open steps of the project, or null when they cannot be read now (the rows then stay as they are). */
   derive(project: ProjectView): ReadonlyArray<DerivedObligation> | null;
   /** How a row that is not derived any more ended. */
   closedAs(row: Obligation, project: ProjectView): 'fulfilled' | 'cancelled';
-  /** The one reminder to the responsible (English; `waited` minutes since the step began, `minutes` is N). */
-  wakeText(row: Obligation, minutes: number, waited: number, project: ProjectView): string;
-  /** Transfer a decision instead of opening a todo; null means it already ended. */
-  handOver?(row: Obligation): Promise<{ decisionItemId: string } | null>;
+  /** The row has just been closed (its card is the project's view of it): what the end of the step has to say or close. */
+  onClosed?(row: Obligation, outcome: 'fulfilled' | 'cancelled', project: ProjectView): void;
+  /** The one reminder to the responsible (English; `waited` minutes since the step began, `minutes` is N). A kind without the `wake` rung has none. */
+  wakeText?(row: Obligation, minutes: number, waited: number, project: ProjectView): string;
+  /**
+   * Transfer a decision instead of opening a todo; null means it already ended, `'settled'` that the source
+   * has written the row and its own record of the hand-over.
+   */
+  handOver?(row: Obligation, project: ProjectView): Promise<{ decisionItemId: string } | 'settled' | null>;
   /** Whether the transferred step still waits for its new responsible. */
   keepsHandedOver?(row: Obligation, project: ProjectView): boolean;
   /** The integrator todo, after the second deadline. */
@@ -94,6 +109,9 @@ const isAi = (config: ProjectConfig, handle: string): boolean => memberOf(config
 
 const stageEntered = (task: Task): string => task.stageEnteredAt ?? task.updatedAt;
 
+/** The responsible of a row of a kind that always has one (every kind but `senior_wait`). */
+const responsibleOf = (row: Obligation): string => row.responsible ?? '';
+
 const latest = (times: readonly (string | null)[]): string | null =>
   times.reduce<string | null>((best, at) => (at && (!best || at > best) ? at : best), null);
 
@@ -120,6 +138,28 @@ const hasLive = (project: ProjectView, kind: ObligationKind, d: Omit<DerivedObli
 const ago = (minutes: number): string => `${minutes} minute${minutes === 1 ? '' : 's'}`;
 
 const askHuman = ' If you are stuck, ask a person with ask_human.';
+
+const FIX_LIMIT_RUNGS: readonly ObligationRung[] = ['wake', 'hand_over'];
+
+/**
+ * What the reminder says follows if nothing happens: the project manager is told after N minutes and the step
+ * goes to the integrator N minutes later; without the project manager rung it goes after 2N minutes (the gap
+ * rule of `planObligation`).
+ */
+function followUp(
+  row: Obligation,
+  minutes: number,
+  project: ProjectView,
+  rungs: readonly ObligationRung[] = OBLIGATION_RUNGS,
+): string {
+  const climbs = obligationRungsOf(rungs, {
+    responsible: row.responsible,
+    projectManager: coordinationMemberOf(project.config)?.handle ?? null,
+  });
+  return climbs.includes('tell_pm')
+    ? `If nothing happens in ${ago(minutes)}, the project manager is told, and after another ${ago(minutes)} the step goes to the integrator.`
+    : `If nothing happens in ${ago(2 * minutes)}, the step goes to the integrator.`;
+}
 
 function todoOf(
   row: Obligation,
@@ -156,10 +196,10 @@ function mergeSource(deps: SourceDeps): ObligationSource {
       return found;
     },
     closedAs: (row) => (deps.mergeState(row.subject) === 'merged' ? 'fulfilled' : 'cancelled'),
-    wakeText: (row, minutes, waited) =>
+    wakeText: (row, minutes, waited, project) =>
       `projectman reminder: the merge of ${row.taskKey} (${row.subject}) has waited ${ago(waited)} for you. ` +
       `Call merge_task for ${row.taskKey}, or send the card back with the reason if it cannot merge. ` +
-      `If nothing happens in ${ago(minutes)}, the step goes to the integrator.${askHuman}`,
+      `${followUp(row, minutes, project)}${askHuman}`,
     todo: (row, _minutes, waited) =>
       todoOf(
         row,
@@ -198,10 +238,10 @@ function refinementSource(deps: SourceDeps): ObligationSource {
       const task = project.tasks.get(row.taskKey);
       return !task || task.status === 'cancelled' ? 'cancelled' : 'fulfilled';
     },
-    wakeText: (row, minutes, waited) =>
+    wakeText: (row, minutes, waited, project) =>
       `projectman reminder: the refinement step of ${row.taskKey} (${labelOf(row)}) has waited ${ago(waited)} for you. ` +
       `Do it and set the label with update_task, or say with the reason why the card cannot be refined. ` +
-      `If nothing happens in ${ago(minutes)}, the step goes to the integrator.${askHuman}`,
+      `${followUp(row, minutes, project)}${askHuman}`,
     todo: (row, _minutes, waited) =>
       todoOf(
         row,
@@ -264,7 +304,7 @@ function reviewSource(deps: SourceDeps): ObligationSource {
       const { config } = project;
       const stage = stageOf(config, stageIdOf(row));
       if (!task || task.status === 'cancelled' || stage?.kind !== 'step') return 'cancelled';
-      if (!stageOwners(config, stage).includes(row.responsible)) return 'cancelled';
+      if (!stageOwners(config, stage).includes(responsibleOf(row))) return 'cancelled';
       const subjectIndex = stageIndex(config.pipeline, stage.id);
       const nowIndex = stageIndex(config.pipeline, task.stageId);
       if (nowIndex > subjectIndex) return 'fulfilled';
@@ -273,7 +313,7 @@ function reviewSource(deps: SourceDeps): ObligationSource {
       const since = row.subject.slice(row.subject.indexOf('@') + 1);
       if (stageEntered(task) !== since) return 'cancelled';
       if (deps.importedEntry(task.projectKey, task.key, since)) return 'cancelled';
-      const result = stepResult(config, task, row.responsible);
+      const result = stepResult(config, task, responsibleOf(row));
       if (!result) return 'cancelled';
       const done =
         result.gate.some((label) => task.labels.includes(label)) ||
@@ -283,7 +323,7 @@ function reviewSource(deps: SourceDeps): ObligationSource {
     wakeText: (row, minutes, waited, project) =>
       `projectman reminder: the ${stageNameOf(row, project)} step of ${row.taskKey} has waited ${ago(waited)} for you. ` +
       `Do it and set its result label with update_task (${resultsOf(row, project)}), or say with the reason why you cannot. ` +
-      `If nothing happens in ${ago(minutes)}, the step goes to the integrator.${askHuman}`,
+      `${followUp(row, minutes, project)}${askHuman}`,
     todo: (row, _minutes, waited, project) =>
       todoOf(
         row,
@@ -305,7 +345,7 @@ const stageNameOf = (row: Obligation, project: ProjectView): string =>
 /** The labels that end a review step for its responsible, as text (`a, b or c`). */
 function resultsOf(row: Obligation, project: ProjectView): string {
   const task = project.tasks.get(row.taskKey);
-  const labels = task ? (stepResult(project.config, task, row.responsible)?.results ?? []) : [];
+  const labels = task ? (stepResult(project.config, task, responsibleOf(row))?.results ?? []) : [];
   if (labels.length === 0) return 'the result label';
   return labels.length === 1 ? labels[0]! : `${labels.slice(0, -1).join(', ')} or ${labels.at(-1)}`;
 }
@@ -340,10 +380,10 @@ function workSource(deps: SourceDeps): ObligationSource {
       if (!task || task.assignee !== row.responsible) return 'cancelled';
       return closedByMove(row, project);
     },
-    wakeText: (row, minutes, waited) =>
+    wakeText: (row, minutes, waited, project) =>
       `projectman reminder: ${row.taskKey} has stood without your work for ${ago(waited)}. ` +
       `Continue the work, and when it is done hand it over, or say with the reason why you cannot. ` +
-      `If nothing happens in ${ago(minutes)}, the step goes to the integrator.${askHuman}`,
+      `${followUp(row, minutes, project)}${askHuman}`,
     todo: (row, _minutes, waited) =>
       todoOf(
         row,
@@ -362,6 +402,8 @@ function fixLimitSource(deps: SourceDeps): ObligationSource {
   };
   return {
     kind: 'fix_limit',
+    // The decision is the integrator's or the owners' own: the project manager is not told in between.
+    rungs: FIX_LIMIT_RUNGS,
     derive(project) {
       return deps.fixLimits.listHeld(project.config.project.key).flatMap((held) => {
         const task = project.tasks.get(held.taskKey);
@@ -404,13 +446,13 @@ function fixLimitSource(deps: SourceDeps): ObligationSource {
         return { decisionItemId: owner.inboxItemId };
       const held = deps.fixLimits.get(row.taskKey);
       if (!held || row.subject !== `${held.heldAt}:${held.holdPhase}`) return null;
-      return deps.fixLimit.timeOut(row.projectKey, row.taskKey, row.responsible);
+      return deps.fixLimit.timeOut(row.projectKey, row.taskKey, responsibleOf(row));
     },
     wakeText(row, minutes, waited) {
       const taskRounds = deps.roundsOf(row.projectKey, row.taskKey);
       return (
         `projectman reminder: ${row.taskKey} is held at the fix round limit (round ${taskRounds}) and waits for your decision for ${ago(waited)}. ` +
-        `Call decide_fix_limit for ${row.taskKey}. If nothing happens in ${ago(minutes)}, the decision goes to the integrator, or to the owners when no integrator is available.`
+        `Call decide_fix_limit for ${row.taskKey}. If nothing happens in ${ago(2 * minutes)}, the decision goes to the integrator, or to the owners when no integrator is available.`
       );
     },
   };
@@ -484,7 +526,7 @@ function startSource(deps: SourceDeps): ObligationSource {
         `projectman reminder: ${row.taskKey} has waited ${ago(waited)} to be started by you. ` +
         `Please ${startAction(row, project, toStageId)}, ` +
         `or open an integrator todo to move it back to ${backStageId} if the owner holds it. ` +
-        `If nothing happens in ${ago(minutes)}, the step goes to the integrator.`
+        followUp(row, minutes, project)
       );
     },
     todo: (row, _minutes, waited, project) => {

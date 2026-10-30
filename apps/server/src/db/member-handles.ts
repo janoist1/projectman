@@ -18,6 +18,11 @@ const PROJECT_TASKS = 'SELECT id FROM tasks WHERE project_key = @project';
 export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'tasks', columns: ['assignee', 'created_by'] },
   { table: 'task_links', columns: ['author'], scope: `task_id IN (${PROJECT_TASKS})` },
+  {
+    table: 'task_acceptance_items',
+    columns: ['marked_by', 'confirmed_by', 'created_by'],
+    scope: `task_id IN (${PROJECT_TASKS})`,
+  },
   { table: 'sessions', columns: ['member'] },
   { table: 'member_state', columns: ['handle'] },
   { table: 'schedule_runs', columns: ['member'] },
@@ -30,7 +35,6 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'task_covers', columns: ['set_by_handle'] },
   { table: 'task_loops', columns: ['notified', 'let_run_by'] },
   { table: 'task_fix_limits', columns: ['decider'] },
-  { table: 'senior_waits', columns: ['decided_by'] },
   { table: 'task_handoffs', columns: ['from_member', 'to_member'] },
   { table: 'task_hand_ons', columns: ['mover', 'requested_by'] },
   { table: 'operator_requests', columns: ['from_handle'] },
@@ -44,6 +48,7 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'releases', columns: ['proposed_by', 'decided_by'] },
   { table: 'release_publications', columns: ['published_by'] },
   { table: 'doc_writes', columns: ['author', 'requested_by'] },
+  { table: 'compute_job_runs', columns: ['requested_by'] },
   { table: 'feedback_marks', columns: ['author', 'handed_to'] },
   {
     table: 'feedback_events',
@@ -92,7 +97,6 @@ export const UNREWRITTEN_HANDLE_COLUMNS: Readonly<Record<string, string>> = {
   'sessions.cwd': 'a storage path under the member storage handle',
   'sessions.transcript_path': 'a storage path under the member storage handle',
   'operator_signals.case_key': 'identifies a recorded case, historical',
-  'project_focus_items.added_by': 'a JSON actor, historical',
   'invitations.invited_by': 'the human who invited; an AI member does not invite',
   'system_feedback_items.forwarded_by': 'an owner decides; an AI member does not',
   'system_feedback_items.dismissed_by': 'an owner decides; an AI member does not',

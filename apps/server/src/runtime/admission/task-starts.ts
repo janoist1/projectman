@@ -19,6 +19,7 @@ import {
   isOpenTask,
   isTheme,
   isCoordinatorSuperActor,
+  mayOverridePrerequisites,
   memberOf,
   projectRefines,
   reachingDevelopers,
@@ -46,12 +47,17 @@ import { conflict, DomainError, forbidden, invalid, notFound, themeRefused } fro
 import type { MemberService } from '../../core/members';
 import type { Author, ProjectService } from '../../core/projects';
 import type { SessionOrchestrator } from '../sessions';
-import { approvalRequestedError, gateBlockedError, prerequisiteCards } from '../../core/tasks';
+import {
+  approvalRequestedError,
+  assertAssigneeFits,
+  gateBlockedError,
+  prerequisiteCards,
+} from '../../core/tasks';
 import type { StageChange, TaskService, WorkEntryCheck } from '../../core/tasks';
 import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../kernel';
 import type { Admission } from './admission';
 import { assertPrerequisitesClosed } from './rules';
-import type { SeniorWaits } from './senior-waits';
+import type { SeniorDecisions } from './senior-decisions';
 
 interface StartTaskOptions {
   /** Explicit assignee; omitted = the current assignee, else a free developer, else a temp worker. */
@@ -170,6 +176,11 @@ function startsAsPerson(config: ProjectConfig, actor: Actor): boolean {
   return actor.kind === 'human' || isCoordinatorSuperActor(config, actor);
 }
 
+/** The start's `despitePrerequisites` flag as the move honors it (PM-1099): one value for every move it makes. */
+function despiteOf(config: ProjectConfig, opts: StartTaskOptions): boolean {
+  return opts.despitePrerequisites === true && mayOverridePrerequisites(config, opts.actor);
+}
+
 /**
  * Starts work on tasks: picks the developer (the explicit one, the current assignee, else the
  * least loaded free owner of the work stage), hires a temp worker when nobody is free and the
@@ -183,7 +194,7 @@ export class TaskStarts implements WorkEntryCheck {
   private readonly members: MemberService;
   private readonly sessions: SessionOrchestrator;
   private readonly admission: Admission;
-  private readonly seniorWaits: SeniorWaits;
+  private readonly seniorDecisions: SeniorDecisions;
   private labelWait: LabelWait | undefined;
   private seniorWait: SeniorWait | undefined;
   private fixLimit: FixLimitStart | undefined;
@@ -200,18 +211,24 @@ export class TaskStarts implements WorkEntryCheck {
     members: MemberService;
     sessions: SessionOrchestrator;
     admission: Admission;
-    seniorWaits: SeniorWaits;
+    seniorDecisions: SeniorDecisions;
   }) {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.members = deps.members;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
-    this.seniorWaits = deps.seniorWaits;
+    this.seniorDecisions = deps.seniorDecisions;
   }
 
   async start(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
-    const result = await this.admission.exclusive(() => this.startLocked(projectKey, taskKey, opts));
+    await this.admission.warm(
+      projectKey,
+      opts.assignee ?? this.tasks.find(projectKey, taskKey)?.assignee ?? undefined,
+    );
+    const result = await this.admission.exclusive('task-start', () =>
+      this.startLocked(projectKey, taskKey, opts),
+    );
     // The card is started: an automatic start of it that waited has nothing left to do.
     this.admission.discardStale(result.task);
     return result;
@@ -270,8 +287,8 @@ export class TaskStarts implements WorkEntryCheck {
       if (block) throw gateBlockedError(evaluateStart(task, config, workStage.id), block);
     }
     // Before the developer is chosen: nobody is picked, hired or assigned for a card that waits.
-    if (!(opts.despitePrerequisites && startsAsPerson(config, opts.actor)))
-      assertPrerequisitesClosed(task, prerequisiteCards(this.tasks, projectKey, task));
+    const despite = despiteOf(config, opts);
+    if (!despite) assertPrerequisitesClosed(task, prerequisiteCards(this.tasks, projectKey, task));
     // PM-248: the gate of the stage the card is in holds the Start too; a label only a person
     // sets there is no approval this Start can ask for, so it is refused before anyone is started.
     if (needsMove) refuseOwnStageApproval(task, evaluateStart(task, config, workStage.id));
@@ -302,6 +319,7 @@ export class TaskStarts implements WorkEntryCheck {
         opts.assignee,
         opts.excludeMembers ?? [],
         heldProviders,
+        opts.actor,
       );
       if (pick.kind === 'senior_busy')
         return this.waitForSenior(config, task, workStage, opts, needsMove, pick.seniors);
@@ -382,7 +400,7 @@ export class TaskStarts implements WorkEntryCheck {
       !!this.fixLimit?.humanStart(task, opts.actor);
     if (task.assignee !== member.handle) {
       // Said before the assignment, which ends a wait for a Senior as "assigned".
-      if (chosen.noneReaches) this.seniorWaits.noSenior(task);
+      if (chosen.noneReaches) this.seniorDecisions.noSenior(task);
       task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor, { handoff: 'auto_assign' });
       opts.onAssigned?.(member.handle);
     }
@@ -390,13 +408,10 @@ export class TaskStarts implements WorkEntryCheck {
       const key = `${projectKey}:${taskKey}`;
       this.moving.add(key);
       try {
-        const result = await this.tasks.moveToStage(
-          projectKey,
-          taskKey,
-          workStage.id,
-          opts.actor,
-          opts.pulled ? { pulled: opts.pulled } : {},
-        );
+        const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor, {
+          ...(opts.pulled ? { pulled: opts.pulled } : {}),
+          ...(despite ? { despitePrerequisites: true } : {}),
+        });
         if (!result.moved) throw approvalRequestedError(result.pendingApproval);
       } finally {
         this.moving.delete(key);
@@ -442,6 +457,7 @@ export class TaskStarts implements WorkEntryCheck {
     if (evaluation.approvals.length > 0) {
       const result = await this.tasks.moveToStage(task.projectKey, task.key, workStage.id, opts.actor, {
         viaStart: true,
+        ...(despiteOf(config, opts) ? { despitePrerequisites: true } : {}),
       });
       throw approvalRequestedError(result.pendingApproval);
     }
@@ -470,15 +486,15 @@ export class TaskStarts implements WorkEntryCheck {
     if (needsMove) {
       const result = await this.tasks.moveToStage(projectKey, task.key, workStage.id, opts.actor, {
         viaStart: true,
+        ...(despiteOf(config, opts) ? { despitePrerequisites: true } : {}),
       });
       if (!result.moved) throw approvalRequestedError(result.pendingApproval);
     }
     const current = this.tasks.get(projectKey, task.key);
     if (opts.stillWanted && !opts.stillWanted(current)) return { task: current, session: null, hired: null };
-    const decision = this.seniorWaits.decisionFor(projectKey, task.key);
+    const decision = this.seniorDecisions.decisionFor(projectKey, task.key);
     const waitDecidedBy = decision?.decision === 'wait' ? decision.by : undefined;
     if (opts.automatic) {
-      this.seniorWaits.open(task, seniors);
       throw conflict('senior_busy', `task ${task.key} waits for a developer whose limit reaches its points`, {
         seniors,
         waitDecidedBy,
@@ -494,7 +510,6 @@ export class TaskStarts implements WorkEntryCheck {
       waitDecidedBy,
       despitePrerequisites: opts.despitePrerequisites,
     });
-    this.seniorWaits.open(task, seniors);
     return {
       task: this.tasks.get(projectKey, task.key),
       session: null,
@@ -634,6 +649,7 @@ export class TaskStarts implements WorkEntryCheck {
     assignee: string | undefined,
     exclude: string[],
     heldProviders: ReadonlySet<AgentProvider> = new Set(),
+    actor?: Actor,
   ): ChosenMember | { kind: 'senior_busy'; seniors: string[] } {
     const projectKey = config.project.key;
     const eligible = stageOwners(config, stage).filter(
@@ -646,6 +662,16 @@ export class TaskStarts implements WorkEntryCheck {
       if (!member) throw notFound('member', assignee);
       if (!eligible.includes(member.handle))
         throw invalid('not_stage_owner', 'assignee must own the work stage');
+      // An AI member's explicit assignee has to fit the card when the project asks for it (PM-1136).
+      if (actor)
+        assertAssigneeFits({
+          config,
+          actor,
+          task,
+          workStage: stage,
+          member: member.handle,
+          anyDecided: this.seniorDecisions.decisionFor(projectKey, task.key)?.decision === 'any',
+        });
       return given(member);
     }
     // The current assignee keeps the card, unless its provider is on hold and the work has not begun (PM-1051).
@@ -692,7 +718,7 @@ export class TaskStarts implements WorkEntryCheck {
     const pick = chooseDeveloper({
       points,
       labels: task.labels,
-      anyDecided: this.seniorWaits.decisionFor(projectKey, task.key)?.decision === 'any',
+      anyDecided: this.seniorDecisions.decisionFor(projectKey, task.key)?.decision === 'any',
       reaching,
       free,
       tempMaxPoints: tempMaxPointsOf(config),

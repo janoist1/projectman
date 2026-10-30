@@ -12,8 +12,10 @@ import type { HybridPackageResult } from '../../../../scripts/migrate/hybrid';
 import { engineHome } from '../../../../scripts/migrate/instance';
 import { buildApp } from '../../src/app';
 import { createTemplateRegistry } from '../../src/core/base';
-import type { WorktreeManager } from '../../src/contracts';
+import type { FullTestSpec, McpModuleOptions, WorktreeManager } from '../../src/contracts';
+import { createMcpModule } from '../../src/mcp';
 import { buildEngineApp } from '../../src/engine-app';
+import { loadEngineConfig, saveEngineConfig } from '../../src/engine-link/engine-config';
 import type { EngineApp, EngineAppOptions } from '../../src/engine-app';
 import { freePort } from '../../src/runner/test-helpers';
 import { cookieOf, inject, OWNER_LOGIN } from './app-harness';
@@ -34,6 +36,8 @@ import { testTemplate } from './test-template';
 const CLOUD_VERSION = 'integration-version';
 /** The core count the engine's fake machine probe reports: it proves a machine display came from the engine. */
 export const ENGINE_CORES = 42;
+/** The one full test command a world's engine lets the cloud run (with `mergeBranch`). */
+export const MERGE_TEST_COMMAND = 'npm run merge-test';
 const AT = new Date('2026-10-09T10:00:00.000Z');
 
 export interface CloudEngineWorld {
@@ -54,12 +58,16 @@ export interface CloudEngineWorld {
   fake: FakeRunnerModule | null;
   /** Everything the cloud's own worktree manager was asked: the cloud must not touch a repository. */
   cloudWorktreeCalls: string[];
+  /** The full test specs the engine's stand-in executor was asked to run; each run passes. */
+  fullTestSpecs: FullTestSpec[];
   cookie: string;
   /**
    * The random number the engine's reconnect delay is taken from, 0 to 1: 0 reconnects in half the backoff
    * base (fast), 1 in the full base (a window of about a second in which the link is observably down).
    */
   reconnectJitter: number;
+  /** How long the cloud lets a team tool run before it answers with a timeout; null keeps the default. */
+  toolTimeoutMs: number | null;
   startCloud(): Promise<FastifyInstance>;
   stopCloud(): Promise<void>;
   startEngine(over?: Partial<EngineAppOptions>): Promise<EngineApp>;
@@ -85,6 +93,8 @@ function forbiddenWorktrees(calls: string[]): WorktreeManager {
 interface CloudEngineOptions {
   /** What the cloud reports as its own version (the engine reports the same unless it is changed). */
   version?: string;
+  /** The branch the engine lets the cloud merge into, for every repository (absent: no merge is allowed). */
+  mergeBranch?: string;
 }
 
 /** The stopped source home every world starts from: built once, put back for each world. */
@@ -108,6 +118,19 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
   chmodSync(cloudHome, 0o700);
   // The move is complete: the Mac's home works as the engine's from now on.
   engineHome(src.home, 'hybrid', AT);
+  if (options.mergeBranch !== undefined) {
+    // The owner's opt-in on the Mac (PM-451): the one branch the cloud may merge into.
+    const config = loadEngineConfig(src.home);
+    saveEngineConfig(src.home, {
+      ...config,
+      // The full test command is the one the engine runs for a merge check: the engine takes no other.
+      repos: config.repos.map((repo) => ({
+        ...repo,
+        mergeBranch: options.mergeBranch,
+        fullTestCommand: MERGE_TEST_COMMAND,
+      })),
+    });
+  }
 
   const world = { cloudWorktreeCalls: [] as string[] };
   const keyFile = join(src.home, 'engine.key');
@@ -127,8 +150,10 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
     engine: null,
     fake: null,
     cloudWorktreeCalls: world.cloudWorktreeCalls,
+    fullTestSpecs: [],
     cookie: '',
     reconnectJitter: 0,
+    toolTimeoutMs: null,
     async startCloud() {
       if (state.cloud) throw new Error('the cloud is running');
       const app = await buildApp({
@@ -149,6 +174,12 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
           memberMemory: new FakeMemoryStore(),
           worktrees: forbiddenWorktrees(world.cloudWorktreeCalls),
           templates: createTemplateRegistry([testTemplate]),
+          ...(state.toolTimeoutMs !== null
+            ? {
+                createMcpModule: (opts: McpModuleOptions) =>
+                  createMcpModule({ ...opts, toolTimeoutMs: state.toolTimeoutMs! }),
+              }
+            : {}),
         },
       });
       await app.listen({ host: '127.0.0.1', port: cloudPort });
@@ -187,8 +218,13 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
         modules: {
           createRunnerModule: (opts) => fake.create(opts),
           github: new FakeMachineGithub(),
-          createFullTestExecutor: () =>
-            ({ available: async () => ({ ok: true }), run: async () => ({}) }) as never,
+          createFullTestExecutor: () => ({
+            available: async () => ({ ok: true }),
+            run: async (spec) => {
+              state.fullTestSpecs.push(spec);
+              return { outcome: 'passed', exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+            },
+          }),
           createScreenshotExecutor: () => ({ run: async () => ({}) }) as never,
           createMachineProbe: () => ({
             machine: async () => ({

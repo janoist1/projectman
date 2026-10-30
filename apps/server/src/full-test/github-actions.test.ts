@@ -112,6 +112,9 @@ function setup(
   const actions = {
     dispatchWorkflow: vi.fn(async () => {}),
     findDispatchedRun: vi.fn(async () => run()),
+    findRunByTitle: vi.fn(async () => null),
+    listArtifacts: vi.fn(async () => []),
+    runTiming: vi.fn(async () => ({ runDurationMs: null, billableMs: null })),
     getRun: vi.fn(async () => completed('success')),
     listJobs: vi.fn(async () => [greenJob()]),
     jobLog: vi.fn(async () => ''),

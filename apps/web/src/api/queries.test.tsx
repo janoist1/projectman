@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from './client';
 import { mockProject } from '../test/mockProject';
 import { browserHash, browserSubscription, fakeBrowser, resetFakeBrowser } from '../test/pushBrowser';
-import { useBoard, useLogout } from './queries';
+import { useBoard, useCancelTask, useLogout, useReopenTask, useTaskDetail, useUpdateTask } from './queries';
 
 vi.mock('../lib/pushBrowser', async () => (await import('../test/pushBrowser')).pushBrowserModule);
 
@@ -36,6 +36,93 @@ describe('board usage subscription', () => {
     await vi.advanceTimersByTimeAsync(60_001);
     expect(project.requests.filter((request) => request.path.endsWith('/board'))).toHaveLength(1);
   });
+});
+
+function TitleProbe() {
+  const board = useBoard('AC');
+  const detail = useTaskDetail('AC', 'AC-21');
+  const update = useUpdateTask('AC');
+  return (
+    <>
+      <output>{board.data?.tasks.find((task) => task.key === 'AC-21')?.title}</output>
+      <button
+        type="button"
+        disabled={!detail.data}
+        onClick={() => update.mutate({ taskKey: 'AC-21', body: { title: 'Fictional new title' } })}
+      >
+        rename
+      </button>
+    </>
+  );
+}
+
+describe('task edit', () => {
+  it('sends one change and reads back only the task detail (PM-1109)', async () => {
+    const project = mockProject();
+    project.render(<TitleProbe />);
+    const rename = await screen.findByRole('button', { name: 'rename' });
+    await waitFor(() => expect((rename as HTMLButtonElement).disabled).toBe(false));
+    project.requests.length = 0;
+    fireEvent.click(rename);
+    await screen.findByText('Fictional new title');
+    await waitFor(() =>
+      expect(project.requests.filter((r) => r.method === 'GET').length).toBeLessThanOrEqual(1),
+    );
+    expect(project.requests.filter((r) => r.method === 'PATCH')).toHaveLength(1);
+    expect(project.requests.filter((r) => r.method === 'GET').map((r) => r.path)).not.toContainEqual(
+      expect.stringMatching(/\/board$/),
+    );
+  });
+});
+
+function LifecycleProbe() {
+  const board = useBoard('AC');
+  const detail = useTaskDetail('AC', 'AC-21');
+  const cancel = useCancelTask('AC');
+  const reopen = useReopenTask('AC');
+  return (
+    <>
+      <output>{board.data?.tasks.find((task) => task.key === 'AC-21')?.status}</output>
+      <button
+        type="button"
+        disabled={!detail.data}
+        onClick={() => cancel.mutate({ taskKey: 'AC-21', body: {} })}
+      >
+        cancel
+      </button>
+      <button type="button" disabled={!detail.data} onClick={() => reopen.mutate('AC-21')}>
+        reopen
+      </button>
+    </>
+  );
+}
+
+describe('task lifecycle', () => {
+  it.each(['cancel', 'reopen'])(
+    '%s reads back only the task detail, not the project (PM-1109)',
+    async (action) => {
+      const project = mockProject();
+      project.render(<LifecycleProbe />);
+      const cancel = await screen.findByRole('button', { name: 'cancel' });
+      await waitFor(() => expect((cancel as HTMLButtonElement).disabled).toBe(false));
+      if (action === 'reopen') {
+        fireEvent.click(cancel);
+        await screen.findByText('cancelled');
+        await waitFor(() =>
+          expect(project.requests.filter((r) => r.method === 'GET').length).toBeGreaterThan(0),
+        );
+      }
+      project.requests.length = 0;
+      fireEvent.click(screen.getByRole('button', { name: action }));
+      await waitFor(() => expect(project.requests.filter((r) => r.method === 'POST')).toHaveLength(1));
+      await waitFor(() =>
+        expect(project.requests.filter((r) => r.method === 'GET').length).toBeLessThanOrEqual(1),
+      );
+      expect(project.requests.filter((r) => r.method === 'GET').map((r) => r.path)).not.toContainEqual(
+        expect.stringMatching(/\/(board|project-manager)$/),
+      );
+    },
+  );
 });
 
 describe('logout', () => {

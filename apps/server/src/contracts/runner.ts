@@ -507,6 +507,13 @@ export interface TranscriptReader {
       confineTo?: string;
       /** The engine the transcript is on (PM-311); absent: `local`. The local reader ignores it. */
       engineId?: EngineId;
+      /**
+       * Only the last `limit` items (PM-1116), oldest first; all of them when absent. With `before`
+       * (an item id) the last `limit` items before that item; an unknown id is an empty page.
+       * A caller asks for one item more than it shows to learn whether older ones remain.
+       */
+      limit?: number;
+      before?: string;
     },
   ): Promise<ChatItem[]>;
   /**

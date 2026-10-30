@@ -12,8 +12,8 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import { SelectablePermissionMode } from '@projectman/shared';
-import { isLoopbackHostname, isWithin } from '../kernel';
+import { ComputeJobDefinitions, SelectablePermissionMode } from '@projectman/shared';
+import { isLoopbackHostname, isWithin } from '../kernel/pure';
 import { readInstanceMarker } from '../instance';
 
 /** `<PROJECTMAN_HOME>/engine.json`: what the engine process may serve and where the cloud is (PM-314). */
@@ -53,6 +53,11 @@ export const EngineConfig = z.strictObject({
       fullTestCommand: z.string().min(1).max(500).optional(),
       /** PM-1050: the one command that may make generated files again in a merge check checkout, with write access to the directories of its patterns. */
       regenerateCommand: z.string().min(1).max(500).optional(),
+      /**
+       * PM-1147: the compute jobs (GitHub Actions) this repository may run; the owner sets them by hand. A job
+       * request that is not one of these, value for value, is refused.
+       */
+      computeJobs: ComputeJobDefinitions.optional(),
       workspaceSetup: z
         .discriminatedUnion('kind', [
           z.strictObject({
@@ -250,6 +255,7 @@ export interface ResolvedEngineConfig extends Omit<EngineConfig, 'repos'> {
     path: string;
     fullTestCommand?: string;
     regenerateCommand?: string;
+    computeJobs?: ComputeJobDefinitions;
     workspaceSetup: { kind: 'npm_ci'; timeoutMs: number } | null;
     mergeBranch?: string;
   }>;

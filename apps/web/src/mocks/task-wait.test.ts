@@ -12,7 +12,7 @@ describe('mock task detail: why the card stands still (PM-460)', () => {
     task.status = 'active';
     task.labels = [];
     task.links = [];
-    task.readyHold = { reason: 'focus_order', since: '2026-10-18T10:00:00Z' };
+    task.readyHold = { reason: 'no_free_member', since: '2026-10-18T10:00:00Z' };
     const detail = TaskDetail.parse(backend.taskDetail(task));
     expect(detail.task.readyHold).toEqual(task.readyHold);
     expect(detail.wait).toMatchObject({ reason: 'ready', hold: task.readyHold });

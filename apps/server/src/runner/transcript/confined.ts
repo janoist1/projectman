@@ -3,7 +3,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { open, realpath, stat } from 'node:fs/promises';
 
 /** A transcript larger than this is not read whole (a worker could make a huge sparse file). */
-export const MAX_CONFINED_TRANSCRIPT_BYTES = 256 * 1024 * 1024;
+export const MAX_CONFINED_TRANSCRIPT_BYTES = 32 * 1024 * 1024;
 
 /**
  * Opens a file a worker controls (a transcript in its home, PM-140) without letting it lead the

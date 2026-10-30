@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { CONTROL_SOCKET_NAME, integratorSideAvailable } from '@projectman/shared';
-import type { HybridReleaseTarget, ReleaseEngineStatus } from '@projectman/shared';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
@@ -25,7 +24,7 @@ import { serializeRequest } from './http';
 import { createConfigStore, createOperatorKnowledgeStore } from './config';
 import type { GitConfigStore } from './config';
 import { startControlSocket } from './control';
-import type { ControlPause, ControlRelease, ControlSocket } from './control';
+import type { ControlPause, ControlSocket } from './control';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
   AttachmentStorage,
@@ -36,6 +35,7 @@ import type {
   ScreenshotExecutor,
   GithubActionsClient,
   GithubService,
+  EngineDirectory,
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
@@ -72,8 +72,6 @@ import { createRunnerModule } from './runner';
 import { createMachineProbe } from './machine';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
-import { createSocketClient } from './administration';
-import { unavailable } from './kernel';
 import { createCloudRemote, createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './engine-link';
 import type { EngineLinks } from './engine-link';
 import { EngineRegistry } from './runtime/sessions';
@@ -198,21 +196,6 @@ export interface BuildAppOptions {
   appVersion?: string;
   /** The release tag on the running build's commit (`createAppTagReader`, PM-542); absent: no tag known. */
   appTag?: () => Promise<string | null>;
-  /**
-   * The project and repository that are this instance itself (`PROJECTMAN_RELEASE_TARGET`, PM-491):
-   * its releases are proposed, approved and deployed. Absent: releases are off.
-   */
-  releaseTarget?: { projectKey: string; repo: string };
-  /**
-   * The remote engine and the target a hybrid release goes to (`PROJECTMAN_RELEASE_ENGINE_ID`,
-   * `PROJECTMAN_RELEASE_TARGET_HASH`, PM-752). Absent: the single-target release only.
-   */
-  releaseHybrid?: HybridReleaseTarget;
-  /**
-   * The Unix socket of the hub's own administration supervisor (`PROJECTMAN_ADMIN_SOCKET`, PM-763). Absent:
-   * the hub has no supervisor; the engines' supervisors are still reachable over their links.
-   */
-  administrationSocket?: string;
   /**
    * Delivers the one-time e-mail login code (PM-669). Absent: the e-mail login is off (PM-670).
    */
@@ -346,6 +329,8 @@ export interface BuildAppOptions {
 interface AppContext {
   engineRegistry?: EngineRegistry;
   engineLinks?: EngineLinks;
+  /** The cloud's view of its engines (cloud mode): what the domain reaches an engine's merger, executors and files by. */
+  engineDirectory?: EngineDirectory;
   home: string;
   /** Pauses the team before the server closes (`shutdownPauseMs`); nothing when that is 0 or this is a standby copy. */
   pauseForShutdown: () => Promise<void>;
@@ -508,12 +493,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         emailLogin: options.emailCodeMailer !== undefined,
       });
 
-    // The admin channel and the hybrid release read the engines' facts from the cloud registry; single mode has none (PM-749).
-    const releaseEngineStatuses = (): ReleaseEngineStatus[] =>
-      (engineRegistry?.list() ?? [])
-        .filter((engine) => !engine.revokedAt)
-        .map(({ id, online, version, lastSeenAt }) => ({ id, online, version, lastSeenAt }));
-    // The history's local embedding (PM-767): its own worker thread on its own connection of the database file.
+    // The history's local embedding: its own worker and database connection.
     const historySemantic = createHistorySemanticPort({
       databasePath: options.dbPath ?? join(home, 'db.sqlite'),
       modelDirectory: options.historySemantic?.modelDirectory ?? '',
@@ -528,7 +508,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       instanceOwner: (email) => auth.instanceOwner(email),
       integratorCredentials: auth,
       revokeIntegratorAccessKey: (userId, keyId) => auth.revokeIntegratorAccessKey(userId, keyId),
-      operatorGrants: auth.operatorGrantGate,
       // Integrator items wait for the owner's connected client while an owner has a live super key (PM-1045).
       integratorTodoAccess: {
         available: (config) =>
@@ -536,29 +515,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       },
       appVersion: options.appVersion ?? 'dev',
       ...(options.appTag ? { appTag: options.appTag } : {}),
-      ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),
-      ...(options.releaseHybrid
-        ? { releaseHybrid: { binding: options.releaseHybrid, engines: releaseEngineStatuses } }
-        : {}),
       engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
       ...(engineRegistry ? { engineRegistry } : {}),
-      ...(options.administrationSocket || remote
-        ? {
-            administration: {
-              hub: options.administrationSocket
-                ? createSocketClient({ socketPath: options.administrationSocket })
-                : null,
-              engines: remote?.administration ?? {
-                port: () => {
-                  throw unavailable('administration_unavailable', 'there are no engines');
-                },
-                ids: () => [],
-              },
-              isEngineOnline: (id) => engineRegistry?.isOnline(id) ?? false,
-              builderEngine: () => remote?.directory.hostEngine() ?? null,
-            },
-          }
-        : {}),
       nanogptKeyCheck: modules.nanogptKeyCheck,
       fullTestExecutor: remote
         ? undefined
@@ -707,7 +665,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       publicBoard: options.publicBoard === true,
       setupCode,
       emailLogin: domain.emailLogin,
-      onOperatorGrantChanged: () => domain.bus.publish({ type: 'operator_grant_changed' }),
     });
     // The remote parts that need the domain, and what the engine's settings view counts.
     remote?.bind(domain, app);
@@ -766,6 +723,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     app.decorate('projectman', {
       engineRegistry,
       engineLinks,
+      ...(remote ? { engineDirectory: remote.directory } : {}),
       home,
       pauseForShutdown: async () => {
         if (shutdownPauseMs <= 0 || standby) return;
@@ -802,15 +760,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           false,
         ).pause,
     };
-    // The release watcher (PM-493) reads the approved release and reports on the same socket.
-    const controlRelease: ControlRelease = {
-      ...(options.releaseHybrid ? { deploy: domain.releaseDeployments } : {}),
-      appVersion: () => domain.releases.appVersion(),
-      next: () => domain.releases.next(),
-      get: (releaseId) => domain.releases.getForControl(releaseId),
-      claim: (releaseId, previousCommit) => domain.releases.claim(releaseId, previousCommit),
-      report: (releaseId, report) => domain.releases.report(releaseId, report),
-    };
     let controlSocket: ControlSocket | undefined;
     app.addHook('onReady', async () => {
       await domain.start();
@@ -819,8 +768,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         controlSocket = await startControlSocket({
           path: join(home, CONTROL_SOCKET_NAME),
           pause: controlPause,
-          release: controlRelease,
-          engines: releaseEngineStatuses,
+          appVersion: () => options.appVersion ?? 'dev',
           log: log.child({ module: 'control' }),
         });
       }

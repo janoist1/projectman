@@ -28,6 +28,8 @@ export interface ModuleEntry {
   readonly paths: readonly string[];
   /** Other modules may import sealed modules only through their target/index.ts. */
   readonly sealed: boolean;
+  /** Public entry files relative to target; default ['index.ts']. Sealed modules are imported only through these. */
+  readonly entries?: readonly string[];
 }
 
 export interface DependencyException {
@@ -113,6 +115,7 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
     target: 'kernel',
     pass: 'move',
     sealed: true,
+    entries: ['index.ts', 'pure.ts'],
   },
   {
     id: 'agent-text',
@@ -201,6 +204,13 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
     sealed: true,
   },
   {
+    id: 'services/compute-jobs',
+    layer: 'service',
+    target: 'services/compute-jobs',
+    pass: 'split-tool',
+    sealed: true,
+  },
+  {
     id: 'services/releases',
     layer: 'service',
     target: 'services/releases',
@@ -271,9 +281,9 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
     sealed: true,
   },
   {
-    id: 'services/operator',
+    id: 'services/coordination',
     layer: 'service',
-    target: 'services/operator',
+    target: 'services/coordination',
     pass: 'split',
     sealed: true,
   },
@@ -310,13 +320,6 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
     layer: 'engine',
     target: 'machine',
     pass: 'split',
-    sealed: true,
-  },
-  {
-    id: 'administration',
-    layer: 'engine',
-    target: 'administration',
-    pass: 'none',
     sealed: true,
   },
   {

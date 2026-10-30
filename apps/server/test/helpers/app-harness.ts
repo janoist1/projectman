@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import type { ProjectTemplate } from '@projectman/templates';
-import { vi } from 'vitest';
+import { expect, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { HumanAccess, ProjectConfig } from '@projectman/shared';
 import { buildApp } from '../../src/app';
@@ -39,6 +39,8 @@ import { testTemplate } from './test-template';
 export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password: 'correct horse battery' };
 
 export interface AppHarnessOptions {
+  /** One message pattern per intentional error log; all other errors fail cleanup. */
+  expectedErrors?: RegExp[];
   nanogptKeyCheck?: AppModules['nanogptKeyCheck'];
   webDistDir?: string;
   now?: () => Date;
@@ -55,6 +57,7 @@ export interface AppHarnessOptions {
     | 'webPush'
     | 'webPushTransport'
     | 'ntfyTransport'
+    | 'wsHeartbeatMs'
     | 'doneCleanupDelayMs'
     | 'screenQuestions'
     | 'doneTurnLimitMs'
@@ -94,6 +97,7 @@ interface FakeCliOptions {
 }
 
 interface HarnessBase {
+  errors: { msg: string; [key: string]: unknown }[];
   app: FastifyInstance;
   /** PROJECTMAN_HOME, a temp directory that also holds the workspace. */
   home: string;
@@ -152,6 +156,7 @@ export async function createAppHarness(
   const memory = new FakeMemoryStore();
   const worktrees = new FakeWorktreeManager(join(home, 'worktrees'));
   const real = opts.real ?? {};
+  const errors: HarnessBase['errors'] = [];
   const modules: AppModules = {
     nanogptKeyCheck: opts.nanogptKeyCheck,
     createRunnerModule: (o) => runnerModule.create(o),
@@ -196,11 +201,12 @@ export async function createAppHarness(
   }
 
   const launch = async (extra: AppHarnessOptions['app'] = {}): Promise<FastifyInstance> => {
+    const configured = extra.logger ?? opts.app?.logger;
+    const loggerOptions = typeof configured === 'object' ? configured : {};
     const launched = await buildApp({
       home,
       now: opts.now,
       scheduleTimer: opts.scheduleTimer,
-      logger: false,
       webDistDir: opts.webDistDir ?? null,
       planUsageTtlMs: 0,
       doneCleanupDelayMs: 0,
@@ -214,6 +220,17 @@ export async function createAppHarness(
       claudeTmpRoots: [],
       ...opts.app,
       ...extra,
+      logger: {
+        ...loggerOptions,
+        level: loggerOptions.level ?? 'error',
+        stream: {
+          write(line: string) {
+            const entry = JSON.parse(line) as HarnessBase['errors'][number] & { level: number };
+            if (entry.level >= 50) errors.push(entry);
+            loggerOptions.stream?.write(line);
+          },
+        },
+      },
       ...(cli
         ? {
             claudeBin: FAKE_CLAUDE,
@@ -234,6 +251,7 @@ export async function createAppHarness(
   let app = await launch();
 
   const base: HarnessBase = {
+    errors,
     app,
     home,
     workspace,
@@ -254,6 +272,11 @@ export async function createAppHarness(
         rmSync(home, { recursive: true, force: true });
         if (cli) vi.unstubAllEnvs();
       }
+      expect(errors, 'unexpected app error logs').toEqual(
+        (opts.expectedErrors ?? []).map((pattern) =>
+          expect.objectContaining({ msg: expect.stringMatching(pattern) }),
+        ),
+      );
     },
   };
   if (!cli) return { ...base, runnerModule, runner: runnerModule.runner };

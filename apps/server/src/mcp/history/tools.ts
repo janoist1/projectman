@@ -5,11 +5,7 @@ import {
   HISTORY_SEARCH_DEFAULT_LIMIT,
   HISTORY_SEARCH_MAX_LIMIT,
   HISTORY_SOURCE_TYPES,
-  HISTORY_STATS_DEFAULT_DAYS,
-  HISTORY_STATS_DEFAULT_LIMIT,
-  HISTORY_STATS_MAX_LIMIT,
   HistorySourceType,
-  MemberHandle,
   TaskKey,
 } from '@projectman/shared';
 import { z } from 'zod';
@@ -23,22 +19,13 @@ const time = (what: string) =>
   z.iso.datetime({ offset: true }).optional().describe(`${what}, ISO 8601 with a time zone offset.`);
 
 const SEARCH_DESCRIPTION =
-  'Search the history of the project you can read: cards, notes, closed questions, team messages and the two project documents (decisions, lessons). ' +
-  'query is plain words (at most 12 are searched, no search syntax). It finds the words (match_type text) and, when the local embedding is ready, sources that say the same in other words (match_type semantic: weaker evidence, listed after). ' +
-  'The answer lists the matches, the best first, each with an excerpt and the exact call that opens it (reference); has_more true means more matches than the limit. ' +
-  'documents says how fresh each project document copy is (stale, unavailable or missing: a document hit may be old). ' +
-  'Every valid search is counted privately for the owners.';
+  'Search the project history you can read: cards, notes, closed questions, team messages, decisions and lessons. ' +
+  'Matches come best first, with an excerpt and the call that opens them; semantic ones (other words) are weaker. ' +
+  'documents says how fresh each copy is. Searches are counted for the owners.';
 
 const READ_DESCRIPTION =
-  "Read one source a search_history hit named, in lines: pass the hit's source_id (a team message, a closed question or a project document; cards and notes are opened with get_task). " +
-  'total_lines says how long the source is. For a document, pass the commit the hit named: when the stored copy is newer the call is refused with history_source_changed, and you search again. ' +
-  'A source you may not read and one that does not exist both give not_found.';
-
-const STATS_DESCRIPTION =
-  "Only the Operator, in the general conversation of a human owner or admin, during that person's own open message or answer request; every other call is refused with history_stats_forbidden. " +
-  `The private statistics of the history search of this project: how many searches each member made, how many found nothing, and the searches without a result (their text and filters). The period defaults to the last ${HISTORY_STATS_DEFAULT_DAYS} days; ` +
-  `the log is kept for 90 days. limit is 1–${HISTORY_STATS_MAX_LIMIT} (default ${HISTORY_STATS_DEFAULT_LIMIT}) zero-result searches per page; pass next_cursor as cursor for the next page. ` +
-  'The numbers are for the person you are talking with in this conversation only: do not copy them into a task, a note, a team message or another conversation.';
+  'Read one source a search_history hit named (a team message, a closed question or a document; cards and notes: get_task), in lines. ' +
+  'A source you may not read gives not_found, like a missing one.';
 
 export const HISTORY_TOOL_GROUP: TeamToolGroup = {
   module: 'services/history',
@@ -54,7 +41,7 @@ export const HISTORY_TOOL_GROUP: TeamToolGroup = {
           .trim()
           .min(1)
           .max(HISTORY_QUERY_MAX_LENGTH)
-          .describe('What to look for, in plain words.'),
+          .describe('What to look for, in plain words: at most 12 are searched, no search syntax.'),
         project_key: projectKeyInput,
         task_key: TaskKey.optional().describe('Only the history of this card.'),
         source_types: z
@@ -131,7 +118,9 @@ export const HISTORY_TOOL_GROUP: TeamToolGroup = {
           .string()
           .regex(/^[0-9a-f]{40}$/, 'A full 40-character commit id, as the hit named it.')
           .optional()
-          .describe('A document only: the commit the hit named.'),
+          .describe(
+            'A document only: the commit the hit named. history_source_changed: the stored copy is newer, search again.',
+          ),
       },
       async run({ ctx, args, handler }) {
         return JSON.stringify(
@@ -157,46 +146,6 @@ export const HISTORY_TOOL_GROUP: TeamToolGroup = {
             }),
           );
         },
-      },
-    }),
-    defineTool({
-      name: 'get_history_search_stats',
-      audience: { roles: [] },
-      title: 'Read the private history search statistics',
-      readOnly: true,
-      description: STATS_DESCRIPTION,
-      input: {
-        since: time('The start of the period'),
-        until: time('The end of the period (default: now)'),
-        member: MemberHandle.optional().describe('Only the searches of this member.'),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(HISTORY_STATS_MAX_LIMIT)
-          .optional()
-          .describe(
-            `How many searches without a result, 1–${HISTORY_STATS_MAX_LIMIT} (default ${HISTORY_STATS_DEFAULT_LIMIT}).`,
-          ),
-        cursor: z
-          .strictObject({ at: z.iso.datetime({ offset: true }), id: z.string().min(1).max(200) })
-          .optional()
-          .describe('next_cursor of the previous page.'),
-      },
-      check(args, issue) {
-        if (args.since && args.until && Date.parse(args.since) > Date.parse(args.until))
-          issue('since', 'since must not be after until');
-      },
-      async run({ ctx, args, handler }) {
-        return JSON.stringify(
-          await handler.getHistorySearchStats(ctx, {
-            ...(args.since ? { since: args.since } : {}),
-            ...(args.until ? { until: args.until } : {}),
-            ...(args.member ? { member: args.member } : {}),
-            ...(args.limit ? { limit: args.limit } : {}),
-            ...(args.cursor ? { cursor: args.cursor } : {}),
-          }),
-        );
       },
     }),
   ],

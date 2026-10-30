@@ -1,21 +1,17 @@
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  OPERATOR_IDLE_MINUTES,
-  OPERATOR_MERGE_WAIT_MINUTES,
-  OPERATOR_READY_WAITING_MINUTES,
-  OPERATOR_SIGNAL_ROUND_FROM,
-  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
-} from '@projectman/shared';
-import type { OperatorSignalKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
+import { OPERATOR_SIGNAL_ROUND_FROM, OPERATOR_SIGNAL_STEP_GAP_MINUTES } from '@projectman/shared';
+import type { ObligationKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
+
 import type { ToolContext } from '../src/contracts';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
 import type { MergeRecord } from '../src/db';
 import { migrations } from '../src/db/migrations';
-import { OperatorRequests } from '../src/services/operator';
+import { OperatorRequests } from '../src/services/coordination';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { openOverdueObligation } from './helpers/overdue-obligation';
 
 /** PM-545: the Operator's own steps on a system signal, without an owner's request. */
 let h: DomainHarness;
@@ -27,17 +23,14 @@ afterEach(async () => {
 const later = (minutes: number) => {
   now = new Date(now.getTime() + minutes * 60_000);
 };
-const open = (kind: OperatorSignalKind) =>
-  h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
 
 async function setup(
   level: OperatorWatch | undefined,
-  opts: { adjust?: (config: ProjectConfig) => void; target?: boolean; appVersion?: string } = {},
+  opts: { adjust?: (config: ProjectConfig) => void; appVersion?: string } = {},
 ) {
   now = new Date('2026-10-12T10:00:00Z');
   h = await createDomainHarness({
     now: () => now,
-    ...(opts.target ? { releaseTarget: { projectKey: 'AR', repo: 'web' } } : {}),
     ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
     adjust: (config) => {
       const pm = config.team.members.find((m) => m.handle === 'pm')!;
@@ -54,13 +47,22 @@ async function place(patch: Partial<Pick<Task, 'stageId' | 'status' | 'assignee'
   return h.repos.tasks.get(card.key)!;
 }
 
-/** An idle development card whose signal has been raised and delivered to the Operator. */
-async function idleCard() {
-  const card = await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
-  later(OPERATOR_IDLE_MINUTES);
-  await h.domain.operatorSignals.sweep('AR');
+/**
+ * A card with an open step of `responsible` that the PM has been told about (PM-1152): the obligation row stands
+ * at its second rung, and its `obligation_overdue` signal has been raised and delivered to the Operator.
+ */
+async function overdueCard(
+  opts: {
+    patch?: Partial<Pick<Task, 'stageId' | 'status' | 'assignee'>>;
+    kind?: ObligationKind;
+    responsible?: string;
+  } = {},
+) {
+  const card = await place(opts.patch ?? { stageId: 'development', status: 'active', assignee: 'dev-1' });
+  const { id, signalId } = openOverdueObligation(h, card, { at: now, ...opts });
+  await h.domain.operatorSignals.deliver('AR');
   await flush();
-  return { card, signal: open('idle')[0]! };
+  return { card, id, signal: h.repos.operatorSignals.get(signalId)! };
 }
 
 function mergeRow(taskKey: string, over: Partial<MergeRecord> = {}): MergeRecord {
@@ -84,14 +86,14 @@ function mergeRow(taskKey: string, over: Partial<MergeRecord> = {}): MergeRecord
   };
 }
 
-/** A merge card whose signal has been raised and delivered. */
-async function mergeCard(kind: 'merge_waiting' | 'merge_blocked') {
+/** A card with a blocked merge, whose signal has been raised and delivered. */
+async function blockedMergeCard() {
   const card = await place({ stageId: 'code_review', status: 'waiting' });
-  h.repos.taskMerges.save(mergeRow(card.key, kind === 'merge_blocked' ? { state: 'failed' } : {}));
-  later(OPERATOR_MERGE_WAIT_MINUTES);
+  h.repos.taskMerges.save(mergeRow(card.key, { state: 'failed' }));
   await h.domain.operatorSignals.sweep('AR');
   await flush();
-  return { card, signal: open(kind)[0]! };
+  const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'merge_blocked' && !s.resolvedAt)!;
+  return { card, signal };
 }
 
 const operator = async (): Promise<ToolContext> => ({
@@ -105,20 +107,12 @@ const roundSteps = () =>
     .latest('AR', 10)
     .filter((r) => r.source === 'signal')
     .flatMap((r) => h.repos.operatorRequests.steps(r.id));
-const startIdle = async (card: Task, signal: { id: string }, ctx?: ToolContext) =>
+const startAssignee = async (card: Task, signal: { id: string }, ctx?: ToolContext) =>
   h.domain.teamTools.startTask(ctx ?? (await operator()), { taskKey: card.key, signalId: signal.id });
-/** The started developer finishes a turn and sits idle on the card, so the idle case stands again after a while. */
-async function developerIdles(minutes: number) {
-  const session = await waitForSession(h.domain, { member: 'dev-1' });
-  h.runner.setState(session.id, 'working');
-  h.runner.setState(session.id, 'idle');
-  await flush();
-  later(minutes);
-}
 const startMerger = async (card: Task, signal: { id: string }, member = 'dev-1') =>
   h.domain.teamTools.startMember(await operator(), {
     member,
-    text: 'The merge waits for you.',
+    text: 'The step waits for you.',
     taskKey: card.key,
     signalId: signal.id,
   });
@@ -126,8 +120,8 @@ const startMerger = async (card: Task, signal: { id: string }, member = 'dev-1')
 describe('level report', () => {
   it('refuses a step on a signal like any write without an owner request', async () => {
     await setup('report');
-    const { card, signal } = await idleCard();
-    await expect(startIdle(card, signal)).rejects.toMatchObject({
+    const { card, signal } = await overdueCard();
+    await expect(startAssignee(card, signal)).rejects.toMatchObject({
       code: 'forbidden',
       message: expect.stringContaining('operator_no_request'),
     });
@@ -137,18 +131,18 @@ describe('level report', () => {
 
   it('is the default when the project sets no level', async () => {
     await setup(undefined);
-    const { card, signal } = await idleCard();
-    await expect(startIdle(card, signal)).rejects.toMatchObject({
+    const { card, signal } = await overdueCard();
+    await expect(startAssignee(card, signal)).rejects.toMatchObject({
       message: expect.stringContaining('operator_no_request'),
     });
   });
 });
 
 describe('level unblock', () => {
-  it('starts the idle card’s assignee, logs the step with the signal and schedules the follow-up', async () => {
+  it('starts the overdue work’s assignee, logs the step with the signal and schedules the follow-up', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
-    await startIdle(card, signal);
+    const { card, signal } = await overdueCard();
+    await startAssignee(card, signal);
     expect(h.domain.sessions.list('AR', { member: 'dev-1' })).toHaveLength(1);
     expect(roundSteps()).toMatchObject([
       { action: 'task_start', taskKey: card.key, status: 'done', signalId: signal.id },
@@ -162,8 +156,8 @@ describe('level unblock', () => {
 
   it('keeps the signal round out of every owner request lookup', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
-    await startIdle(card, signal);
+    const { card, signal } = await overdueCard();
+    await startAssignee(card, signal);
     const { sessionId } = await operator();
     expect(new OperatorRequests({ ctx: h.domain.ctx }).openFor(sessionId)).toBeNull();
     // The round authorizes nothing by itself: a write without a signal is still refused.
@@ -176,10 +170,10 @@ describe('level unblock', () => {
 
   it('refuses another card, another member, another tool and a signal kind that level does not cover', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
+    const { card, signal } = await overdueCard();
     const other = await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
     for (const call of [
-      () => startIdle(other, signal),
+      () => startAssignee(other, signal),
       () => startMerger(card, signal, 'dev-1'),
       async () =>
         h.domain.teamTools.startMember(await operator(), {
@@ -197,7 +191,7 @@ describe('level unblock', () => {
 
   it('refuses the start_task options next to a signal', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
+    const { card, signal } = await overdueCard();
     await expect(
       h.domain.teamTools.startTask(await operator(), {
         taskKey: card.key,
@@ -216,7 +210,7 @@ describe('level unblock', () => {
 
   it('stays closed to the tools that are never the Operator’s, signal or not', async () => {
     await setup('unblock');
-    const { card } = await idleCard();
+    await overdueCard();
     await expect(
       h.domain.teamTools.operate(await operator(), {
         title: 'Settings',
@@ -225,29 +219,45 @@ describe('level unblock', () => {
     ).rejects.toMatchObject({ code: 'forbidden' });
   });
 
-  it('allows one step: the second is refused with the budget, after the case holds again', async () => {
+  it('allows one step: the second is refused with the budget, even after the gap', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
-    await startIdle(card, signal);
-    await developerIdles(OPERATOR_IDLE_MINUTES + OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    await expect(startIdle(card, signal)).rejects.toMatchObject({
+    const { card, signal } = await overdueCard();
+    await startAssignee(card, signal);
+    later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    await expect(startAssignee(card, signal)).rejects.toMatchObject({
       code: 'forbidden',
       message: expect.stringContaining('operator_signal_budget'),
     });
     expect(roundSteps()).toHaveLength(1);
   });
 
-  it('reports the signal closed once its case has ended', async () => {
+  it.each(['fulfilled', 'cancelled'] as const)(
+    'reports the signal closed once its obligation is %s',
+    async (state) => {
+      await setup('unblock');
+      const { card, id, signal } = await overdueCard();
+      h.repos.obligations.close(id, state, now.toISOString());
+      await expect(startAssignee(card, signal)).rejects.toThrow('operator_signal_closed');
+      expect(roundSteps()).toEqual([]);
+    },
+  );
+
+  it('reports the signal closed once the obligation is handed over to the integrator', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
-    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: card.key });
-    await expect(startIdle(card, signal)).rejects.toThrow('operator_signal_closed');
-    expect(roundSteps()).toEqual([]);
+    const { card, id, signal } = await overdueCard();
+    h.repos.obligations.update(id, { handedOverAt: now.toISOString() }, now.toISOString());
+    h.repos.obligations.close(id, 'cancelled', now.toISOString());
+    await expect(startAssignee(card, signal)).rejects.toThrow('operator_signal_closed');
   });
 
-  it('starts the merger of a waiting merge through start_member on its card', async () => {
+  it('starts the responsible of a non-work step through start_member on its card', async () => {
     await setup('unblock');
-    const { card, signal } = await mergeCard('merge_waiting');
+    const { card, signal } = await overdueCard({
+      patch: { stageId: 'code_review', status: 'waiting' },
+      kind: 'merge',
+      responsible: 'dev-1',
+    });
+    h.repos.taskMerges.save(mergeRow(card.key));
     const result = await startMerger(card, signal);
     expect(result.recipient.handle).toBe('dev-1');
     expect(h.repos.messages.get(result.messageId)).toMatchObject({
@@ -262,7 +272,7 @@ describe('level unblock', () => {
 
   it('serves a blocked merge as well, and only its merger', async () => {
     await setup('unblock');
-    const { card, signal } = await mergeCard('merge_blocked');
+    const { card, signal } = await blockedMergeCard();
     await expect(startMerger(card, signal, 'dev-2')).rejects.toThrow('operator_no_request');
     await startMerger(card, signal);
     expect(roundSteps()).toHaveLength(1);
@@ -270,8 +280,8 @@ describe('level unblock', () => {
 
   it('lets one of two simultaneous calls on a signal through, the other waits for the step in progress', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
-    const results = await Promise.allSettled([startIdle(card, signal), startIdle(card, signal)]);
+    const { card, signal } = await overdueCard();
+    const results = await Promise.allSettled([startAssignee(card, signal), startAssignee(card, signal)]);
     expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
     const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
     expect(refused.reason).toMatchObject({ message: expect.stringContaining('operator_signal_budget') });
@@ -279,14 +289,14 @@ describe('level unblock', () => {
     expect(roundSteps()).toHaveLength(1);
   });
 
-  it('starts the owner of a step that holds the card with start_member on the card', async () => {
+  it('starts the owner of a review step with start_member on the card, not with start_task', async () => {
     await setup('unblock');
-    const card = await place({ stageId: 'code_review', status: 'waiting' });
-    later(OPERATOR_IDLE_MINUTES);
-    await h.domain.operatorSignals.sweep('AR');
-    await flush();
-    const signal = open('idle')[0]!;
-    await expect(startIdle(card, signal)).rejects.toThrow('operator_no_request');
+    const { card, signal } = await overdueCard({
+      patch: { stageId: 'code_review', status: 'waiting' },
+      kind: 'review_step',
+      responsible: 'cr',
+    });
+    await expect(startAssignee(card, signal)).rejects.toThrow('operator_no_request');
     const result = await startMerger(card, signal, 'cr');
     expect(result.recipient.handle).toBe('cr');
     expect(roundSteps()).toMatchObject([
@@ -296,7 +306,7 @@ describe('level unblock', () => {
 
   it('does not cover the board kinds that only drive covers', async () => {
     await setup('unblock');
-    const { card } = await idleCard();
+    const { card } = await overdueCard();
     const signal = h.domain.operatorSignals.raise({
       projectKey: 'AR',
       kind: 'unreleased',
@@ -311,12 +321,12 @@ describe('level unblock', () => {
 describe('level drive', () => {
   it('allows three steps on one signal, at least half an hour apart', async () => {
     await setup('drive');
-    const { card, signal } = await idleCard();
+    const { card, signal } = await overdueCard();
     const again = async () => {
-      await developerIdles(OPERATOR_IDLE_MINUTES + OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-      return startIdle(card, signal);
+      later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+      return startAssignee(card, signal);
     };
-    await startIdle(card, signal);
+    await startAssignee(card, signal);
     await again();
     await again();
     expect(roundSteps()).toHaveLength(3);
@@ -326,103 +336,14 @@ describe('level drive', () => {
     expect(roundSteps()).toHaveLength(3);
   });
 
-  it('takes the next step only once the idle case stands again', async () => {
+  it('takes the next step only after the gap', async () => {
     await setup('drive');
-    const { card, signal } = await idleCard();
-    await startIdle(card, signal);
-    // The idle time and the step gap are both half an hour, so the shared rule's `too_soon` has its own unit test.
-    await developerIdles(OPERATOR_IDLE_MINUTES - 1);
-    await expect(startIdle(card, signal)).rejects.toThrow('operator_signal_closed');
+    const { card, signal } = await overdueCard();
+    await startAssignee(card, signal);
+    later(OPERATOR_SIGNAL_STEP_GAP_MINUTES - 1);
+    await expect(startAssignee(card, signal)).rejects.toThrow('operator_signal_budget');
     later(1);
-    await expect(startIdle(card, signal)).resolves.toBeDefined();
-  });
-
-  it('starts the project manager for cards that stand ready, and nobody else', async () => {
-    await setup('drive', {
-      adjust: (config) => {
-        config.pipeline.stages.splice(1, 0, {
-          id: 'ready',
-          name: 'Ready',
-          kind: 'queue',
-          owners: ['owner'],
-          columnId: 'todo',
-        });
-        const pm = config.team.members.find((m) => m.handle === 'pm')!;
-        config.team.members.push({ ...pm, handle: 'pm-2', displayName: 'Second PM' });
-      },
-    });
-    await place({ stageId: 'ready', status: 'active' });
-    await h.domain.operatorSignals.sweep('AR');
-    later(OPERATOR_READY_WAITING_MINUTES);
-    await h.domain.operatorSignals.sweep('AR');
-    await flush();
-    const signal = open('ready_waiting')[0]!;
-    await expect(
-      h.domain.teamTools.startMember(await operator(), {
-        member: 'dev-1',
-        text: 'Take it.',
-        signalId: signal.id,
-      }),
-    ).rejects.toThrow('operator_no_request');
-    const result = await h.domain.teamTools.startMember(await operator(), {
-      member: 'pm-2',
-      text: 'Cards stand ready.',
-      signalId: signal.id,
-    });
-    expect(result.recipient.handle).toBe('pm-2');
-    expect(roundSteps()).toMatchObject([
-      { action: 'task_start', taskKey: null, member: 'pm-2', status: 'done', signalId: signal.id },
-    ]);
-  });
-
-  it('starts the deployment duty for work merged but not released', async () => {
-    const sha = (n: number) => n.toString(16).padStart(40, '0');
-    await setup('drive', {
-      target: true,
-      appVersion: sha(1),
-      adjust: (config) => {
-        const developer = config.team.members.find((m) => m.handle === 'dev-2')!;
-        config.team.members.push({
-          ...developer,
-          handle: 'ops',
-          displayName: 'Ops',
-          role: 'devops',
-        } as typeof developer);
-      },
-    });
-    for (const [index, at] of [
-      [1, '2026-10-01T00:00:00.000Z'],
-      [2, '2026-10-02T00:00:00.000Z'],
-    ] as const)
-      h.repos.taskMerges.save(
-        mergeRow(`AR-${index}`, {
-          id: `mrg_${index}`,
-          state: 'merged',
-          startedBy: 'dev-1',
-          startedAt: at,
-          mergeCommit: sha(index),
-          finishedAt: at,
-        }),
-      );
-    await h.domain.operatorSignals.sweep('AR');
-    await flush();
-    const signal = open('unreleased')[0]!;
-    await expect(
-      h.domain.teamTools.startMember(await operator(), {
-        member: 'dev-1',
-        text: 'Release.',
-        signalId: signal.id,
-      }),
-    ).rejects.toThrow('operator_no_request');
-    const result = await h.domain.teamTools.startMember(await operator(), {
-      member: 'ops',
-      text: 'Merged work is not live.',
-      signalId: signal.id,
-    });
-    expect(result.recipient.handle).toBe('ops');
-    expect(roundSteps()).toMatchObject([
-      { action: 'task_start', taskKey: null, member: 'ops', status: 'done', signalId: signal.id },
-    ]);
+    await expect(startAssignee(card, signal)).resolves.toBeDefined();
   });
 });
 
@@ -500,9 +421,9 @@ describe('migration 57', () => {
 describe('follow-up', () => {
   it('shows the signal to the Operator again when the case still stands after the gap', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
-    await startIdle(card, signal);
-    await developerIdles(OPERATOR_IDLE_MINUTES + OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    const { card, signal } = await overdueCard();
+    await startAssignee(card, signal);
+    later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
     const operatorSession = (await operator()).sessionId;
     h.runner.setState(operatorSession, 'working');
     h.runner.setState(operatorSession, 'idle');
@@ -521,11 +442,10 @@ describe('follow-up', () => {
 
   it('does not show a signal again whose case has ended', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
-    await startIdle(card, signal);
+    const { card, id, signal } = await overdueCard();
+    await startAssignee(card, signal);
     later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    // The started session was active just now, so the idle case does not hold.
-    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: card.key });
+    h.repos.obligations.close(id, 'fulfilled', now.toISOString());
     const delivered = h.repos.operatorSignals.get(signal.id)!.deliveredAt;
     await h.domain.operatorSignals.deliver('AR');
     expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({ deliveredAt: delivered });

@@ -37,6 +37,21 @@ it.each(['Wrong card', ''])('stops with an optional note %j', async (note) => {
   );
 });
 
+it('keeps a decided permission request in the chat although the live inbox lists only what has not ended (PM-1109)', async () => {
+  const project = mockProject();
+  const request = project.backend.inbox.find((item) => item.id === 'inb_perm_push')!;
+  project.backend.inbox.push({
+    ...request,
+    id: 'inb_perm_decided',
+    state: 'resolved',
+    resolution: { optionId: 'deny', by: 'system', at: new Date().toISOString(), note: null },
+  });
+  project.render(sessionRoute, '/sessions/ses_ac21_fe1');
+  const label = t('inbox.resolutions.automatic_deny');
+  expect(await screen.findByText((text) => text.startsWith(label))).toBeTruthy();
+  expect(project.requests.some((entry) => entry.path.endsWith('/inbox?state=active'))).toBe(true);
+});
+
 describe('session header task state', () => {
   it('keeps the stop reason after a failure and retries it with Enter', async () => {
     const project = mockProject();
@@ -251,6 +266,25 @@ describe('a message that did not go out', () => {
     await waitFor(() => expect(screen.queryByText(t('session.composer.failed'))).toBeNull());
     expect(screen.queryByRole('button', { name: t('session.composer.retry') })).toBeNull();
     expect(screen.getAllByText('Mehet a push?')).toHaveLength(1);
+  });
+});
+
+describe('a long chat (PM-1116)', () => {
+  it('shows the last items and loads the older ones on request', async () => {
+    const project = mockProject();
+    project.backend.chats['ses_ac21_fe1'] = Array.from({ length: 205 }, (_, index) => ({
+      id: `long-${index}`,
+      ts: '2026-10-01T10:00:00.000Z',
+      kind: 'assistant_text' as const,
+      text: `Fictional line ${index}`,
+    }));
+    project.render(sessionRoute, '/sessions/ses_ac21_fe1');
+    expect(await screen.findByText('Fictional line 204')).toBeTruthy();
+    expect(screen.queryByText('Fictional line 4')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: t('session.chat.loadEarlier') }));
+    expect(await screen.findByText('Fictional line 4')).toBeTruthy();
+    expect(project.requests.some((request) => request.path.includes('before=long-5'))).toBe(true);
+    expect(screen.queryByRole('button', { name: t('session.chat.loadEarlier') })).toBeNull();
   });
 });
 

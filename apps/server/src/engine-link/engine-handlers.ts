@@ -1,13 +1,10 @@
-import { createReadStream } from 'node:fs';
-import { mkdtemp, realpath, rm, stat } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { FastifyBaseLogger } from 'fastify';
 import { routes } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
 import type {
-  AdministrationPort,
-  AdministrationTarget,
   EngineHost,
   FullTestExecutor,
   FullTestResult,
@@ -19,8 +16,6 @@ import type {
   TranscriptReader,
 } from '../contracts';
 import { mergeCheckPath, WorkspaceFileRefusal } from '../contracts';
-import { conflict } from '../kernel';
-import { git } from '../worktree';
 import type { EngineAudit } from './engine-audit';
 import type { EngineLimit } from './engine-limit';
 import type { EngineTransfers } from './engine-transfer';
@@ -88,7 +83,7 @@ interface EngineHandlerDeps {
   emit: (event: EngineEvent) => void;
   /** Sessions whose terminal output the cloud asked for. */
   terminals: Set<string>;
-  /** Where the bundle of a branch is made before it is uploaded. */
+  /** Where a file of a session's working directory is staged before it is uploaded. */
   exportDir: string;
   /** A session started (PM-1087): the engine status remembers who runs it. Gets the spec the cloud sent. */
   onSessionStarted?: (spec: {
@@ -99,11 +94,6 @@ interface EngineHandlerDeps {
   }) => void;
   /** Runs a NanoGPT session start inside the scope in which the key may be fetched for that session. */
   nanogptStart?: <T>(sessionId: string, start: () => Promise<T>) => Promise<T>;
-  /**
-   * This machine's administration supervisor over its local socket (PM-763), with the one target this engine
-   * answers for. Absent: the `admin.*` methods are unknown here.
-   */
-  administration?: { port: AdministrationPort; target: AdministrationTarget };
 }
 
 type Handlers = {
@@ -145,16 +135,6 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
   const merger = () => {
     if (!engine.merger) throw new EngineRpcError('merge_not_allowed', 'This engine does not merge');
     return engine.merger;
-  };
-  const administration = () => {
-    if (!deps.administration) throw new EngineRpcError('unknown_method', 'This engine has no administration');
-    return deps.administration;
-  };
-  /** The hub names a target; this engine answers for its own machine only. */
-  const ownTarget = (target: AdministrationTarget) => {
-    const own = administration().target;
-    if (!(target.kind === 'engine' && own.kind === 'engine' && target.id === own.id))
-      throw conflict('administration_target_mismatch', 'This engine manages its own machine only');
   };
   const fullRuns = new Map<string, AbortController>();
   /** Settles when the run of a `full_test.run` has ended and its executor has cleaned up. */
@@ -203,7 +183,7 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     );
   };
 
-  const upload = (token: string, purpose: 'file' | 'transcript' | 'bundle', body: Buffer) =>
+  const upload = (token: string, purpose: 'file' | 'transcript', body: Buffer) =>
     transfers.upload(limit.token(token), purpose, { size: body.length, stream: () => Readable.from([body]) });
 
   const handlers: Handlers = {
@@ -306,6 +286,16 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     },
     async 'worktree.listMergeFixes'([arg]) {
       return engine.worktrees.listMergeFixes(arg);
+    },
+    async 'worktree.listTaskWorktrees'([arg]) {
+      return engine.worktrees.listTaskWorktrees(arg);
+    },
+    async 'workspace.listSnapshotTasks'([arg]) {
+      return memberWorkspaces().listSnapshotTasks(arg);
+    },
+    async 'workspace.removeTaskSnapshots'([arg]) {
+      await memberWorkspaces().removeTaskSnapshots(arg);
+      return null;
     },
     async 'worktree.find'([arg]) {
       return engine.worktrees.find(arg);
@@ -616,34 +606,6 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     },
     async 'machine.signal'({ pid, signal }) {
       return limit.signal(pid, signal);
-    },
-    async 'admin.status'({ target }) {
-      ownTarget(target);
-      return administration().port.status(target);
-    },
-    async 'admin.logs'({ target, ...options }) {
-      ownTarget(target);
-      return administration().port.logs(target, options);
-    },
-    async 'admin.machine'({ target }) {
-      ownTarget(target);
-      return administration().port.machine(target);
-    },
-    async 'admin.submit'(input) {
-      // Targeted commands name their machine; the deploy of a release is the hub's and never runs
-      // on an engine.
-      if (
-        input.command.kind === 'restart' ||
-        input.command.kind === 'process_cleanup' ||
-        input.command.kind === 'owner_command'
-      )
-        ownTarget(input.command.target);
-      if (input.command.kind === 'deploy')
-        throw conflict('administration_target_mismatch', 'A deployment is not an engine operation');
-      return administration().port.submit(input);
-    },
-    async 'admin.inspect'({ operationId }) {
-      return administration().port.inspect(operationId);
     },
   };
 

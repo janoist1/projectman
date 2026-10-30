@@ -229,7 +229,7 @@ describe('integrator fix limit decision', () => {
       await domain().obligations.sweep();
       await settle();
       await stop();
-      now = new Date(now.getTime() + 30 * 60_000);
+      now = new Date(now.getTime() + 40 * 60_000);
       await domain().obligations.sweep();
       const created = item(record()!.inboxItemId!);
       const row = repos()

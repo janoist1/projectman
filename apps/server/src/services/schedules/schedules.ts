@@ -179,7 +179,7 @@ export class ScheduleService {
     by?: Actor,
   ): Promise<ScheduleRun | null> {
     // Shares admission with task starts, including asynchronous usage/login checks.
-    const execution = this.deps.admission.exclusive(async () => {
+    const execution = this.deps.admission.exclusive('schedule-run', async () => {
       if (
         !this.active ||
         (automatic &&

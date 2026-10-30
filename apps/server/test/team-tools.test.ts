@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
 import type { TaskStatus, WorkItemRef } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
+import { statementCount } from '../src/db';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
 import { formatTaskDetail } from '../src/mcp/format';
 import type { ToolContext } from '../src/contracts';
@@ -444,6 +445,14 @@ describe('team tools', () => {
     expect((await toolError(h.domain.teamTools.getTask(dev, { taskKey: 'AR-99' }))).code).toBe('not_found');
   });
 
+  it('list_members shows the complexity limit of a developer and none for a person (PM-1136)', async () => {
+    const listMembers = TEAM_TOOLS.find((t) => t.name === 'list_members')!;
+    const out = toolOutputText(await listMembers.run({ ctx: dev, args: {}, handler: h.domain.teamTools }));
+    const line = (handle: string) => out.split('\n').find((l) => l.startsWith(`- ${handle}`))!;
+    expect(line('dev-2')).toContain('complexity limit');
+    expect(line('owner')).not.toContain('complexity limit');
+  });
+
   it('get_task shows a long note cut, and event_id returns the whole text (PM-191)', async () => {
     const reviewer: ToolContext = { ...dev, member: 'cr', sessionId: 'ses_cr' };
     const note = `Measured values:\n${'0123456789'.repeat(200)}`;
@@ -581,24 +590,45 @@ describe('team tools', () => {
     expect(await h.domain.teamTools.listTasks(dev, { limit: 200 })).toHaveLength(200);
   });
 
+  it('runs as many statements for the board and list_tasks with closed cards and closed queue rows as without (PM-1109)', async () => {
+    const statements = async () => {
+      const from = statementCount();
+      h.domain.tasks.list('AR');
+      await h.domain.teamTools.listTasks(dev, {});
+      return statementCount() - from;
+    };
+    const before = await statements();
+    for (let index = 0; index < 20; index += 1) {
+      const task = await h.domain.tasks.create('AR', { title: `Closed ${index}` }, OWNER_ACTOR);
+      h.repos.tasks.update(task.id, { status: 'done', closedAt: new Date().toISOString() });
+      h.repos.memberQueue.insert({
+        id: `queue-${index}`,
+        projectKey: 'AR',
+        member: 'dev-1',
+        kind: 'todo',
+        source: { type: 'inbox', id: `queue-${index}` },
+        place: { type: 'task', taskKey: task.key },
+        taskKey: task.key,
+        wake: false,
+        title: 'Fictional todo',
+        from: null,
+        queuedAt: new Date().toISOString(),
+      });
+      h.repos.memberQueue.closeBySource(
+        'AR',
+        { type: 'inbox', id: `queue-${index}` },
+        { state: 'done', reason: 'finished', at: new Date().toISOString() },
+      );
+    }
+    expect(await statements()).toBe(before);
+  });
+
   it('list_tasks includes named priority only on cards where it was set', async () => {
     const other = await h.domain.tasks.create('AR', { title: 'No priority' }, OWNER_ACTOR);
     await h.domain.tasks.update('AR', 'AR-1', { priority: 'high' }, OWNER_ACTOR);
     const result = await h.domain.teamTools.listTasks(dev, {});
     expect(result.find((task) => task.key === 'AR-1')).toMatchObject({ priority: 'high' });
     expect(result.find((task) => task.key === other.key)).not.toHaveProperty('priority');
-  });
-
-  it('list_tasks and get_task show the place in the project focus only on cards in it (PM-437)', async () => {
-    const other = await h.domain.tasks.create('AR', { title: 'Not in focus' }, OWNER_ACTOR);
-    await h.domain.projectFocus.add('AR', 'AR-1', OWNER_ACTOR);
-    const result = await h.domain.teamTools.listTasks(dev, {});
-    expect(result.find((task) => task.key === 'AR-1')).toMatchObject({ focus: { position: 1 } });
-    expect(result.find((task) => task.key === other.key)).not.toHaveProperty('focus');
-    expect(await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' })).toMatchObject({
-      focus: { position: 1 },
-    });
-    expect(await h.domain.teamTools.getTask(dev, { taskKey: other.key })).not.toHaveProperty('focus');
   });
 
   it('create_task puts an unassigned task into the first stage, attributed to the member', async () => {

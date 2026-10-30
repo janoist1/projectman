@@ -24,8 +24,8 @@ type WorkStartSpec = Extract<StartSpec, { kind: 'work_start' }>;
  * assigned itself, is started: a move, a closure, someone's assignment or the Start button ends the
  * wait. A missing repository is not waited for (`repo_required`; the card shows it, see `TaskStore`).
  * A card whose points only some developers' limit reaches waits for one the same way (`senior_busy`,
- * PM-348, PM-1001): the start is deferred while every such developer is busy, and `SeniorWaits` asks
- * the owners after the wait limit.
+ * PM-348, PM-1001): the start is deferred while every such developer is busy, and the
+ * `senior_wait` obligation asks the owners after the wait limit.
  */
 export class WorkStarts implements LabelWait, SeniorWait {
   private readonly projects: ProjectService;
@@ -149,8 +149,9 @@ export class WorkStarts implements LabelWait, SeniorWait {
     pulled: StagePull;
   }): Promise<boolean> {
     const { projectKey, taskKey, from, to, developer, pulled } = input;
+    await this.admission.warm(projectKey, developer);
     let assigned = false;
-    const done = await this.admission.exclusive(async () => {
+    const done = await this.admission.exclusive('work-start', async () => {
       try {
         return await this.starts.startLocked(projectKey, taskKey, {
           actor: SYSTEM_ACTOR,

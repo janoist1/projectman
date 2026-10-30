@@ -36,10 +36,10 @@ import {
   OPERATOR_SCREENING_TOOLS,
   OPERATOR_TOOL_ACTIONS,
   PM_CARD_TOOLS,
-} from '../services/operator';
-import type { CoordinationRequests, OperatorRequests, OperatorSteps } from '../services/operator';
+} from '../services/coordination';
+import type { CoordinationRequests, OperatorRequests, OperatorSteps } from '../services/coordination';
 import type { Viewer } from '../core/projects';
-import type { OperatorSignals } from '../services/operator';
+import type { OperatorSignals } from '../services/coordination';
 import type { ProjectService } from '../core/projects';
 import type { TaskService } from '../core/tasks';
 
@@ -122,6 +122,8 @@ export function toToolError(err: unknown): unknown {
   )
     return new TeamToolError('invalid', `${err.code}: ${err.message}`);
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
+  if (err.code === 'project_manager_lifecycle_refused')
+    return new TeamToolError('forbidden', `${err.code}: ${err.message}`);
   if (err.status === 403) return new TeamToolError('forbidden', err.message);
   if (err.code === 'gate_blocked' || err.code === 'approval_requested') {
     return new TeamToolError('gate_blocked', describeGateBlock(err));

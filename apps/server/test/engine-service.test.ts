@@ -31,6 +31,7 @@ import {
 import type { LaunchctlResult, ServiceOptions } from '../../../scripts/engine/service';
 import { BILLING_ENV_VARS } from '../src/runner/env';
 import { writeInstanceMarker } from '../src/instance';
+import { switchPaths } from '../../../scripts/engine/switch-state';
 
 /**
  * The engine as a LaunchAgent (PM-318): the file is rendered from the template with absolute paths and
@@ -58,7 +59,8 @@ describe('the plist template', () => {
     expect(plist).not.toMatch(/\{\{/);
     expect(plist).toContain('<string>com.projectman.engine</string>');
     expect(plist).toContain('<string>/opt/homebrew/bin/node</string>');
-    expect(plist).toContain('<string>/Users/me/projectman-live/apps/server/src/index.ts</string>');
+    expect(plist).toContain('<string>/Users/me/projectman-live/apps/server/dist/index.js</string>');
+    expect(plist).not.toContain('<string>tsx</string>');
     expect(plist).toMatch(/<key>PROJECTMAN_MODE<\/key>\s*<string>engine<\/string>/);
     expect(plist).toMatch(/<key>PROJECTMAN_HOME<\/key>\s*<string>\/Users\/me\/\.projectman<\/string>/);
     expect(plist).toMatch(/<key>PATH<\/key>\s*<string>\/opt\/homebrew\/bin:\/usr\/bin<\/string>/);
@@ -66,6 +68,9 @@ describe('the plist template', () => {
     expect(plist).toMatch(/<key>KeepAlive<\/key>\s*<true\/>/);
     // The shutdown pause (60 s + 20 s cap) must fit before launchd's SIGKILL.
     expect(plist).toMatch(/<key>ExitTimeOut<\/key>\s*<integer>100<\/integer>/);
+    expect(plist).toMatch(
+      /<key>AssociatedBundleIdentifiers<\/key>\s*<array>\s*<string>com.projectman.engine-app<\/string>/,
+    );
     expect(plist).toContain('<string>/Users/me/.projectman/logs/engine-service.out.log</string>');
   });
 
@@ -101,7 +106,7 @@ describe('service install, uninstall and status', () => {
 
   const options = (overrides: Partial<ServiceOptions> = {}): ServiceOptions => ({
     home: path.join(base, 'home'),
-    root: ROOT,
+    root: path.join(base, 'checkout'),
     nodePath: '/opt/homebrew/bin/node',
     pathEnv: '/opt/homebrew/bin:/usr/bin',
     agentsDir: path.join(base, 'LaunchAgents'),
@@ -112,13 +117,18 @@ describe('service install, uninstall and status', () => {
       return responses[args[0]!] ?? { status: 0, stdout: '', stderr: '' };
     },
     out: (text) => output.push(text),
-    sleep: (ms) => waits.push(ms),
+    sleep: async (ms) => void waits.push(ms),
     ...overrides,
   });
 
   beforeEach(() => {
     base = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'engine-service-')));
     mkdirSync(path.join(base, 'home'));
+    const checkout = path.join(base, 'checkout');
+    mkdirSync(path.join(checkout, path.dirname(PLIST_TEMPLATE)), { recursive: true });
+    writeFileSync(path.join(checkout, PLIST_TEMPLATE), TEMPLATE);
+    mkdirSync(path.join(checkout, 'apps/server/dist'), { recursive: true });
+    writeFileSync(path.join(checkout, 'apps/server/dist/index.js'), '');
     calls = [];
     responses = {};
     output = [];
@@ -126,14 +136,22 @@ describe('service install, uninstall and status', () => {
   });
   afterEach(() => rmSync(base, { recursive: true, force: true }));
 
-  it('writes the agent into LaunchAgents and loads it into the gui domain', () => {
-    installService(options());
+  it('refuses an unbuilt checkout before changing launchd', async () => {
+    rmSync(path.join(options().root, 'apps/server/dist/index.js'));
+    await expect(installService(options())).rejects.toThrow(/no built server/);
+    expect(calls).toEqual([]);
+    expect(existsSync(servicePaths(options()).plist)).toBe(false);
+  });
+
+  it('writes the agent into LaunchAgents and loads it into the gui domain', async () => {
+    await installService(options());
     const { plist, logOut } = servicePaths(options());
     expect(plist).toBe(path.join(base, 'LaunchAgents', 'com.projectman.engine.plist'));
     const text = readFileSync(plist, 'utf8');
     expect(text).toContain(`<string>${path.join(base, 'home')}</string>`);
-    expect(text).toContain(`<string>${ROOT}/apps/server/src/index.ts</string>`);
+    expect(text).toContain(`<string>${options().root}/apps/server/dist/index.js</string>`);
     expect(calls).toEqual([
+      ['print', 'gui/501/com.projectman.engine'],
       ['bootout', 'gui/501/com.projectman.engine'],
       ['bootstrap', 'gui/501', plist],
     ]);
@@ -142,16 +160,49 @@ describe('service install, uninstall and status', () => {
     expect(output.join('\n')).toContain(logOut);
   });
 
-  it('reports a failed bootstrap with launchctl’s own words, after a few tries on the busy error', () => {
+  it('waits for the old engine to leave, between the unload and the first bootstrap', async () => {
+    responses.print = { status: 0, stdout: '\tstate = running\n\tpid = 9\n', stderr: '' };
+    let checks = 0;
+    await installService(
+      options({
+        launchctl: (args) => {
+          calls.push(args);
+          return args[0] === 'print' && !calls.some((c) => c[0] === 'bootout')
+            ? responses.print!
+            : { status: args[0] === 'print' ? 113 : 0, stdout: '', stderr: '' };
+        },
+        isRunning: (pid) => {
+          expect(pid).toBe(9);
+          // The first bootstrap must come after the process has gone.
+          expect(calls.some((c) => c[0] === 'bootstrap')).toBe(false);
+          return (checks += 1) <= 3;
+        },
+      }),
+    );
+    expect(waits).toEqual([1000, 1000, 1000]);
+    expect(calls.map((c) => c[0])).toEqual(['print', 'bootout', 'bootstrap']);
+  });
+
+  it('does not load the job while the old engine stays, and says so', async () => {
+    responses.print = { status: 0, stdout: '\tstate = running\n\tpid = 9\n', stderr: '' };
+    await expect(installService(options({ isRunning: () => true }))).rejects.toThrow(
+      /did not leave within 100 s/,
+    );
+    expect(calls.some((c) => c[0] === 'bootstrap')).toBe(false);
+  });
+
+  it('reports a failed bootstrap with launchctl’s own words, after a few tries on the busy error', async () => {
     responses.bootstrap = { status: 5, stdout: '', stderr: 'Bootstrap failed: 5: Input/output error' };
-    expect(() => installService(options())).toThrow(/launchctl bootstrap failed \(5\).*Input\/output error/);
+    await expect(installService(options())).rejects.toThrow(
+      /launchctl bootstrap failed \(5\).*Input\/output error/,
+    );
     expect(calls.filter((c) => c[0] === 'bootstrap')).toHaveLength(5);
     expect(waits).toEqual([500, 500, 500, 500]);
   });
 
-  it('loads on a retry when launchd was still tearing down the old job', () => {
+  it('loads on a retry when launchd was still tearing down the old job', async () => {
     let attempts = 0;
-    installService(
+    await installService(
       options({
         launchctl: (args) => {
           calls.push(args);
@@ -165,13 +216,13 @@ describe('service install, uninstall and status', () => {
     expect(output.join('\n')).toContain('engine service installed');
   });
 
-  it('does not retry another failure', () => {
+  it('does not retry another failure', async () => {
     responses.bootstrap = { status: 113, stdout: '', stderr: 'Could not find specified service' };
-    expect(() => installService(options())).toThrow(/bootstrap failed \(113\)/);
+    await expect(installService(options())).rejects.toThrow(/bootstrap failed \(113\)/);
     expect(calls.filter((c) => c[0] === 'bootstrap')).toHaveLength(1);
   });
 
-  it('leaves the installing run’s node_modules/.bin folders out of the file’s PATH', () => {
+  it('leaves the installing run’s node_modules/.bin folders out of the file’s PATH', async () => {
     const pathEnv = [
       '/Users/me/projectman-live/node_modules/.bin',
       '/Users/me/node_modules/.bin',
@@ -179,36 +230,38 @@ describe('service install, uninstall and status', () => {
       '/usr/bin',
     ].join(':');
     expect(servicePathEnv(pathEnv)).toBe('/opt/homebrew/bin:/usr/bin');
-    installService(options({ pathEnv }));
+    await installService(options({ pathEnv }));
     const text = readFileSync(servicePaths(options()).plist, 'utf8');
     expect(text).toContain('<string>/opt/homebrew/bin:/usr/bin</string>');
     expect(text).not.toContain('.bin');
-    expect(() => installService(options({ pathEnv: '/x/node_modules/.bin' }))).toThrow(/PATH is empty/);
+    await expect(installService(options({ pathEnv: '/x/node_modules/.bin' }))).rejects.toThrow(
+      /PATH is empty/,
+    );
   });
 
-  it('is found for its home only', () => {
-    installService(options());
+  it('is found for its home only', async () => {
+    await installService(options());
     const agentsDir = path.join(base, 'LaunchAgents');
     expect(installedServiceFor(path.join(base, 'home'), agentsDir)).toBe(servicePaths(options()).plist);
     expect(installedServiceFor(path.join(base, 'other-home'), agentsDir)).toBeNull();
     expect(installedServiceFor(path.join(base, 'home'), path.join(base, 'no-agents'))).toBeNull();
   });
 
-  it('replaces its own file, but not the agent of another home', () => {
-    installService(options());
-    installService(options());
-    expect(() => installService(options({ home: path.join(base, 'other-home') }))).toThrow(
+  it('replaces its own file, but not the agent of another home', async () => {
+    await installService(options());
+    await installService(options());
+    await expect(installService(options({ home: path.join(base, 'other-home') }))).rejects.toThrow(
       /service for .*home is installed/,
     );
   });
 
-  it('refuses where there is no launchd', () => {
-    expect(() => installService(options({ platform: 'linux' }))).toThrow(/macOS LaunchAgent/);
+  it('refuses where there is no launchd', async () => {
+    await expect(installService(options({ platform: 'linux' }))).rejects.toThrow(/macOS LaunchAgent/);
     expect(calls).toEqual([]);
   });
 
-  it('unloads and removes the file, keeps the logs, and a second uninstall is no error', () => {
-    installService(options());
+  it('unloads and removes the file, keeps the logs, and a second uninstall is no error', async () => {
+    await installService(options());
     mkdirSync(path.join(base, 'home', 'logs'), { recursive: true });
     writeFileSync(servicePaths(options()).logOut, 'log\n');
     calls.length = 0;
@@ -221,8 +274,8 @@ describe('service install, uninstall and status', () => {
     expect(output.at(-1)).toBe('no engine service was installed');
   });
 
-  it('shows whether launchd runs it', () => {
-    installService(options());
+  it('shows whether launchd runs it', async () => {
+    await installService(options());
     responses.print = { status: 0, stdout: '\tstate = running\n\tpid = 4321\n', stderr: '' };
     expect(reportService(options())).toBe(true);
     expect(output.join('\n')).toContain('running (pid 4321)');
@@ -234,8 +287,8 @@ describe('service install, uninstall and status', () => {
   describe('start, stop and restart', () => {
     const verbs = () => calls.map((c) => c.join(' '));
     const plistFile = () => servicePaths(options()).plist;
-    const install = () => {
-      installService(options());
+    const install = async () => {
+      await installService(options());
       calls.length = 0;
     };
     const loaded = (state: 'running' | 'waiting') => {
@@ -249,16 +302,16 @@ describe('service install, uninstall and status', () => {
       responses.print = { status: 113, stdout: '', stderr: 'Could not find service' };
     };
 
-    it('start without a file is refused with the way out, and calls nothing to change', () => {
-      expect(() => startService(options())).toThrow(/service_not_installed|service install/);
+    it('start without a file is refused with the way out, and calls nothing to change', async () => {
+      await expect(startService(options())).rejects.toThrow(/service_not_installed|service install/);
       expect(verbs()).toEqual([]);
     });
 
-    it('start loads the file when launchd does not know the job, with the busy retry', () => {
-      install();
+    it('start loads the file when launchd does not know the job, with the busy retry', async () => {
+      await install();
       notLoaded();
       let attempts = 0;
-      startService(
+      await startService(
         options({
           launchctl: (args) => {
             calls.push(args);
@@ -273,26 +326,26 @@ describe('service install, uninstall and status', () => {
       expect(calls.some((c) => c[0] === 'kickstart')).toBe(false);
     });
 
-    it('start kicks a loaded job that is not running, and leaves a running one alone', () => {
-      install();
+    it('start kicks a loaded job that is not running, and leaves a running one alone', async () => {
+      await install();
       loaded('waiting');
-      startService(options());
+      await startService(options());
       expect(verbs()).toEqual([
         'print gui/501/com.projectman.engine',
         'kickstart gui/501/com.projectman.engine',
       ]);
       calls.length = 0;
       loaded('running');
-      startService(options());
+      await startService(options());
       expect(verbs()).toEqual(['print gui/501/com.projectman.engine']);
       expect(output.at(-1)).toContain('already running');
     });
 
-    it('stop unloads the job, keeps the file, and treats "not loaded" as done', () => {
-      install();
+    it('stop unloads the job, keeps the file, and treats "not loaded" as done', async () => {
+      await install();
       notLoaded();
       responses.bootout = { status: 3, stdout: '', stderr: 'No such process' };
-      stopService(options());
+      await stopService(options());
       expect(verbs()).toEqual([
         'print gui/501/com.projectman.engine',
         'bootout gui/501/com.projectman.engine',
@@ -301,8 +354,8 @@ describe('service install, uninstall and status', () => {
       expect(output.join('\n')).toContain('paused');
     });
 
-    it('stop waits for the pid it read before the bootout, though launchd forgets the job at once', () => {
-      install();
+    it('stop waits for the pid it read before the bootout, though launchd forgets the job at once', async () => {
+      await install();
       loaded('running');
       let checks = 0;
       const gone = options({
@@ -318,37 +371,39 @@ describe('service install, uninstall and status', () => {
           return (checks += 1) <= 3;
         },
       });
-      stopService(gone);
+      await stopService(gone);
       expect(waits).toEqual([1000, 1000, 1000]);
       expect(verbs().filter((v) => v.startsWith('print'))).toHaveLength(1);
     });
 
-    it('stop gives up after 100 s when the engine does not leave', () => {
-      install();
+    it('stop gives up after 100 s when the engine does not leave', async () => {
+      await install();
       loaded('running');
-      expect(() => stopService(options({ isRunning: () => true }))).toThrow(/did not leave within 100 s/);
+      await expect(stopService(options({ isRunning: () => true }))).rejects.toThrow(
+        /did not leave within 100 s/,
+      );
       expect(waits).toHaveLength(100);
     });
 
-    it('restart is kickstart -k, and starts a job launchd does not know', () => {
-      install();
+    it('restart is kickstart -k, and starts a job launchd does not know', async () => {
+      await install();
       loaded('running');
-      restartService(options());
+      await restartService(options());
       expect(verbs()).toEqual([
         'print gui/501/com.projectman.engine',
         'kickstart -k gui/501/com.projectman.engine',
       ]);
       calls.length = 0;
       notLoaded();
-      restartService(options());
+      await restartService(options());
       expect(verbs()).toEqual(['print gui/501/com.projectman.engine', `bootstrap gui/501 ${plistFile()}`]);
     });
 
-    it('touches nothing of the agent of another home', () => {
-      install();
+    it('touches nothing of the agent of another home', async () => {
+      await install();
       const other = options({ home: path.join(base, 'other-home') });
       for (const act of [startService, stopService, restartService])
-        expect(() => act(other)).toThrow(/service for .*home is installed/);
+        await expect(act(other)).rejects.toThrow(/service for .*home is installed/);
       expect(calls).toEqual([]);
     });
   });
@@ -373,7 +428,7 @@ describe('npm run engine -- service', () => {
       startEngine: async () => 0,
       isRunning: () => false,
       launchd: {
-        root: ROOT,
+        root: path.join(base, 'checkout'),
         nodePath: '/opt/homebrew/bin/node',
         agentsDir: path.join(base, 'LaunchAgents'),
         uid: 501,
@@ -389,6 +444,11 @@ describe('npm run engine -- service', () => {
 
   beforeEach(() => {
     base = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'engine-service-cli-')));
+    const checkout = path.join(base, 'checkout');
+    mkdirSync(path.join(checkout, path.dirname(PLIST_TEMPLATE)), { recursive: true });
+    writeFileSync(path.join(checkout, PLIST_TEMPLATE), TEMPLATE);
+    mkdirSync(path.join(checkout, 'apps/server/dist'), { recursive: true });
+    writeFileSync(path.join(checkout, 'apps/server/dist/index.js'), '');
     home = path.join(base, 'home');
     workspace = path.join(base, 'work');
     mkdirSync(workspace, { recursive: true });
@@ -437,7 +497,7 @@ describe('npm run engine -- service', () => {
     expect(plist).toContain('/opt/homebrew/bin:/usr/bin');
     expect(plist).not.toContain('sk-must-not-travel');
     expect(plist).not.toContain('ANTHROPIC_API_KEY');
-    expect(calls.map((c) => c[0])).toEqual(['bootout', 'bootstrap']);
+    expect(calls.map((c) => c[0])).toEqual(['print', 'bootout', 'bootstrap']);
   });
 
   it('reports the state with the exit status: 0 only when it runs', async () => {
@@ -446,4 +506,63 @@ describe('npm run engine -- service', () => {
     expect(await run('service', 'uninstall')).toBe(0);
     expect(await run('service', 'frobnicate')).toBe(2);
   });
+
+  it('installs with the explicit login shell PATH', async () => {
+    await configure();
+    expect(await run('service', 'install', '--path', '/login/bin:/usr/bin')).toBe(0);
+    expect(readFileSync(path.join(base, 'LaunchAgents', 'com.projectman.engine.plist'), 'utf8')).toContain(
+      '<string>/login/bin:/usr/bin</string>',
+    );
+  });
+
+  it('routes switch to the package-only service operation', async () => {
+    await configure();
+    expect(await run('service', 'install')).toBe(0);
+    calls.length = 0;
+    expect(await run('service', 'switch', '--to', path.join(base, 'checkout'))).toBe(1);
+    expect(err.join('\n')).toContain('REFUSED [switch_checkout_engine]');
+    expect(calls).toEqual([]);
+  });
+
+  it('routes switch --clear without requiring a configured or installed engine', async () => {
+    mkdirSync(home, { recursive: true });
+    const stateFile = switchPaths(home).state;
+    writeFileSync(
+      stateFile,
+      JSON.stringify({
+        schemaVersion: 1,
+        phase: 'rolled_back',
+        target: { version: 'new', tag: null },
+        previous: { version: 'old', tag: null },
+        startedAt: '2026-10-29T12:00:00Z',
+        updatedAt: '2026-10-29T12:00:00Z',
+        error: null,
+      }),
+    );
+    expect(await run('service', 'switch', '--clear')).toBe(0);
+    expect(existsSync(stateFile)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it.each(['start', 'stop', 'restart', 'uninstall', 'install'])(
+    'refuses %s while switching without changing launchd',
+    async (command) => {
+      await configure();
+      writeFileSync(
+        switchPaths(home).state,
+        JSON.stringify({
+          schemaVersion: 1,
+          phase: 'switching',
+          target: { version: 'new', tag: null },
+          previous: { version: 'old', tag: null },
+          startedAt: '2026-10-29T12:00:00Z',
+          updatedAt: '2026-10-29T12:00:00Z',
+          error: null,
+        }),
+      );
+      expect(await run('service', command)).toBe(1);
+      expect(err.join('\n')).toContain('REFUSED [switch_in_progress]');
+      expect(calls).toEqual([]);
+    },
+  );
 });

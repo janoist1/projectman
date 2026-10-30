@@ -3,6 +3,7 @@ export {
   notFound,
   forbidden,
   ownerLoginRequired,
+  projectManagerLifecycleRefused,
   projectManagerMoveRefused,
   invalid,
   conflict,
@@ -24,21 +25,14 @@ export {
   excerpt,
   sleep,
 } from './util';
-export { isWithin, isStrictlyWithin } from './paths';
+export * from './pure';
 export { BackgroundTasks } from './background';
 
 export { abortable, runFork, runPromise } from './effect';
 export { startSweeps } from './sweeps';
-export type { RunningSweeps, Sweep } from './sweeps';
+export type { RunningSweeps, Sweep, SweepOptions } from './sweeps';
 
 export { MergeCardLock } from './card-lock';
-export {
-  isLoopbackAddress,
-  isLoopbackHostname,
-  isLoopbackHostHeader,
-  isLoopbackOrigin,
-  nonLocalReason,
-} from './local-guard';
 export { isLocalRequest, clientAddress, ipRateLimitKey, requestProtocol, sameOrigin } from './local-request';
 export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from './attempt-limiter';
 export {

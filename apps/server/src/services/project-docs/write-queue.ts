@@ -1,7 +1,5 @@
 import { Data, Deferred, Effect, FiberMap } from 'effect';
 import type { Scope } from 'effect';
-import { OPEN_RELEASE_WORK_ADMISSION } from '../../contracts';
-import type { ReleaseWorkAdmission } from '../../contracts';
 import type { DocWriteRecord } from '../../db';
 import type { DomainContext } from '../../core/base';
 import { abortable, runFork } from '../../kernel';
@@ -15,8 +13,6 @@ export type DocWriteQueueDeps = {
   run(row: DocWriteRecord): Promise<void>;
   peer: Pick<DocWriteSlotPeer, 'busy' | 'pump'>;
   stopped: () => boolean;
-  /** The release gate (PM-752): a write starts only with a permit; absent: never held. */
-  work?: ReleaseWorkAdmission;
 };
 
 /** The write that runs in a repository's slot; done completes when its slot is free again. */
@@ -58,15 +54,11 @@ export const makeDocWriteQueue = (
       for (const row of deps.ctx.repos.docWrites.list('queued')) {
         const key = `${row.projectKey}:${row.repo}`;
         if (active.has(key) || deps.peer.busy(row.projectKey, row.repo)) continue;
-        // A hybrid release's maintenance fence (PM-752): the queued write waits until the fence is down.
-        const permit = (deps.work ?? OPEN_RELEASE_WORK_ADMISSION).tryAcquire('document_write', row.id);
-        if (!permit) continue;
         deps.start(row);
         const run: DocWriteRun = { row, done: Deferred.makeUnsafe<void>() };
         active.set(key, run);
         const fiber = yield* FiberMap.run(slots, key, program(run), { onlyIfMissing: true });
         fiber.addObserver(() => {
-          permit.release();
           active.delete(key);
           // A waiting write gets the free slot before the next merge.
           runFork(pump);

@@ -1,7 +1,13 @@
 import { z } from 'zod';
+import { TaskKey } from '@projectman/shared';
 import {
   AgentProvider,
+  COMPUTE_JOB_COMMAND_MAX,
+  COMPUTE_JOB_NODE_VERSION,
+  ComputeJobOutputPath,
   FullTestErrorReason,
+  GITHUB_REPO_PATTERN,
+  GithubJobRunner,
   HANDOFF_SUMMARY_MAX,
   HandoffSummary,
   MemoryPressure,
@@ -38,7 +44,6 @@ import type {
   EngineSessionFolders,
   WorkspaceFileRefusal,
 } from '../contracts';
-import { SocketParams, SocketValues } from '../administration';
 import { EngineStartSpec } from './session-schemas';
 import {
   EngineUploaded,
@@ -93,12 +98,27 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
     .strictObject({
       ref: mergeRef,
       mergeId: mergeText,
-      repo: text.max(100).regex(/^[\w.-]+\/[\w.-]+$/),
+      repo: text.max(100).regex(GITHUB_REPO_PATTERN),
       base: mergeText,
       commit: z.string().regex(/^[0-9a-f]{40}$/),
       workflow: text.max(100),
       files: z.array(text.max(500)).min(1).max(20).optional(),
       all: z.boolean().optional(),
+    })
+    .optional(),
+  githubJob: z
+    .strictObject({
+      ref: mergeRef,
+      repo: text.max(100).regex(GITHUB_REPO_PATTERN),
+      base: mergeText,
+      workflow: text.max(100),
+      job: text.max(40),
+      commit: z.string().regex(/^[0-9a-f]{40}$/),
+      command: text.max(COMPUTE_JOB_COMMAND_MAX),
+      runsOn: GithubJobRunner,
+      outputs: z.array(ComputeJobOutputPath).min(1).max(10),
+      node: z.string().regex(COMPUTE_JOB_NODE_VERSION).optional(),
+      timeoutMinutes: int,
     })
     .optional(),
 });
@@ -111,6 +131,15 @@ const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outputTail: text,
   // Only a githubActions run has one, so an older hub never receives it.
   externalUrl: text.max(500).optional(),
+  // Only a githubJob run has these, so an older hub never receives them.
+  outputs: z
+    .array(
+      z.strictObject({ path: ComputeJobOutputPath, sha256: z.string().regex(/^[0-9a-f]{64}$/), bytes: int }),
+    )
+    .max(10)
+    .optional(),
+  artifact: z.strictObject({ name: text.max(100), expiresAt: text.max(40).nullable() }).optional(),
+  cost: z.strictObject({ queuedMs: int.nullable(), billableMs: int.nullable() }).optional(),
 });
 const fullAttachResult = z.discriminatedUnion('state', [
   z.strictObject({ state: z.literal('ended'), result: fullResult }),
@@ -404,6 +433,10 @@ const worktrees = {
     z.tuple([z.strictObject({ project: ProjectConfig, repoName: text })]),
     z.array(z.strictObject({ taskKey: text, path: text })),
   ),
+  listTaskWorktrees: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text })]),
+    z.array(z.strictObject({ taskKey: TaskKey, path: text })),
+  ),
   refreshDependencies: method(
     z.tuple([text]),
     z.discriminatedUnion('status', [
@@ -443,6 +476,18 @@ const worktrees = {
   remove: method(z.tuple([z.strictObject({ path: text, force: z.boolean().optional() })]), done),
 } satisfies ManagerMethods<WorktreeManager>;
 const workspaces = {
+  listSnapshotTasks: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text })]),
+    z.array(TaskKey),
+  ),
+  removeTaskSnapshots: method(
+    z.tuple([
+      z
+        .strictObject({ project: ProjectConfig, repoName: text, taskKeys: z.array(TaskKey).max(100) })
+        .refine((args) => args.taskKeys.every((key) => key.startsWith(`${args.project.project.key}-`))),
+    ]),
+    done,
+  ),
   location: method(z.tuple([key]), workspaceInfo),
   home: method(z.tuple([z.strictObject({ projectKey: text, member: text })]), text),
   ensure: method(z.tuple([key]), workspaceInfo.extend({ created: z.boolean() })),
@@ -485,6 +530,8 @@ const transcriptOptions = z.strictObject({
   firstUserOrigin: z.enum(['brief', 'human']).optional(),
   cwd: text.nullable().optional(),
   confineTo: text.optional(),
+  limit: int.min(1).optional(),
+  before: text.optional(),
 });
 
 /** The only method gateway. Receivers validate both parameters and results. */
@@ -536,6 +583,7 @@ export const methods = {
   'worktree.findMergeFix': worktrees.findMergeFix,
   'worktree.removeMergeFix': worktrees.removeMergeFix,
   'worktree.listMergeFixes': worktrees.listMergeFixes,
+  'worktree.listTaskWorktrees': worktrees.listTaskWorktrees,
   'worktree.find': worktrees.find,
   'worktree.status': worktrees.status,
   'worktree.remove': worktrees.remove,
@@ -551,6 +599,8 @@ export const methods = {
   'workspace.checkoutTaskBranch': workspaces.checkoutTaskBranch,
   'workspace.checkoutReview': workspaces.checkoutReview,
   'workspace.publishTaskBranch': workspaces.publishTaskBranch,
+  'workspace.listSnapshotTasks': workspaces.listSnapshotTasks,
+  'workspace.removeTaskSnapshots': workspaces.removeTaskSnapshots,
   'github.is_available': method(empty, z.boolean()),
   'github.get_pull_request': method(z.strictObject({ repo: text, number: int.min(1) }), PullRequest),
   'github.find_pull_requests_for_branch': method(
@@ -726,13 +776,6 @@ export const methods = {
     z.strictObject({ pid: int.min(2), signal: z.enum(['SIGTERM', 'SIGKILL']) }),
     z.enum(['sent', 'gone', 'denied']),
   ),
-  // The administration of this engine's own machine (PM-763): the engine hands the call to its local
-  // supervisor, and only for its own target; there is no engine-to-cloud counterpart.
-  'admin.status': method(SocketParams.status, SocketValues.status),
-  'admin.logs': method(SocketParams.logs, SocketValues.logs),
-  'admin.machine': method(SocketParams.machine, SocketValues.machine),
-  'admin.submit': method(SocketParams.submit, SocketValues.submit),
-  'admin.inspect': method(SocketParams.inspect, SocketValues.inspect),
   'permission.decide': method(z.strictObject({ request: permissionRequest }), permissionDecision, 'cloud'),
   'permission.cancel': method(z.strictObject({ reqId: text }), done, 'cloud'),
   'permission.forward_question': method(z.strictObject({ info: question }), z.boolean(), 'cloud'),

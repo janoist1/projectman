@@ -2,6 +2,7 @@ import { readlinkSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  COMPUTE_JOB_WORKFLOW,
   isRegeneratedPath,
   isRegeneratedPathPattern,
   isReleaseTagName,
@@ -572,6 +573,9 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     'worktree.findMergeFix': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.removeMergeFix': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.listMergeFixes': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'worktree.listTaskWorktrees': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'workspace.listSnapshotTasks': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'workspace.removeTaskSnapshots': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.find': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.status': (params) => {
       inside(params[0], 'The worktree');
@@ -618,6 +622,39 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     },
     'full_test.run': async (params) => {
       const { spec } = params;
+      if (spec.githubJob) {
+        // A compute job as the repository's `projectman-job.yml` workflow (PM-1147) runs no command here: `cwd` is a
+        // label, and the workflow is dispatched from the one branch the owner named for this repository. The
+        // workflow may attest its outputs, so only a job the owner registered in this engine's `computeJobs`
+        // runs, with exactly its values; the run id alone is free (a pattern checked by the executor).
+        const job = spec.githubJob;
+        const entry = await mergeBase(job.ref, job.base);
+        commitIds(job.commit);
+        if (job.workflow !== COMPUTE_JOB_WORKFLOW)
+          refuse('invalid_params', 'The workflow is not the general compute job workflow');
+        if (spec.command !== job.command)
+          refuse('invalid_params', 'The command of a compute job is the command of its workflow');
+        const registered = entry.computeJobs?.find((candidate) => candidate.id === job.job);
+        if (
+          !registered ||
+          registered.command !== job.command ||
+          registered.runsOn !== job.runsOn ||
+          registered.node !== job.node ||
+          registered.timeoutMinutes !== job.timeoutMinutes ||
+          registered.outputs.length !== job.outputs.length ||
+          registered.outputs.some((output, index) => output !== job.outputs[index])
+        )
+          refuse('command_not_allowed', 'The compute job is not configured for this repository');
+        if (
+          spec.cwd !== `github-job:${job.repo}` ||
+          spec.githubActions ||
+          spec.regenerate ||
+          spec.npmCi ||
+          spec.requireHeavyLock
+        )
+          refuse('invalid_params', 'A GitHub Actions job carries no checkout, installation or lock');
+        return params;
+      }
       // The run that makes generated files again (PM-1050) is the only one with writable directories (the
       // engine derives them from the patterns), and it runs the registered repo's own `regenerateCommand`,
       // never its `fullTestCommand`; every other run runs the `fullTestCommand` and writes nothing.

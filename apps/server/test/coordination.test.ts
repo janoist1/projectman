@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OPERATOR_IDLE_MINUTES, OperatorSignal } from '@projectman/shared';
+import { OperatorSignal } from '@projectman/shared';
 import type { AiMemberConfig, OperatorSignalKind, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import { CoordinationRequests, OperatorRequests, OperatorSteps } from '../src/services/operator';
+import { CoordinationRequests, OperatorRequests, OperatorSteps } from '../src/services/coordination';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { openOverdueObligation } from './helpers/overdue-obligation';
 import { seedOperatorSession } from './helpers/operator-session';
 
 let h: DomainHarness;
@@ -73,11 +74,10 @@ async function ownerMessage(member: string) {
 async function idleSignal() {
   const card = await h.domain.tasks.create('AR', { title: 'Waiting work', repo: 'web' }, OWNER_ACTOR);
   h.repos.tasks.update(card.id, { stageId: 'development', assignee: 'dev-1' });
-  now = new Date(now.getTime() + OPERATOR_IDLE_MINUTES * 60_000);
+  const { signalId } = openOverdueObligation(h, h.repos.tasks.get(card.key)!, { at: now });
   await h.domain.operatorSignals.sweep('AR');
   await flush();
-  const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'idle')!;
-  return { card, signal, pm: await internal() };
+  return { card, signal: h.repos.operatorSignals.get(signalId)!, pm: await internal() };
 }
 
 describe('PM authorization', () => {
@@ -380,7 +380,9 @@ describe('persisted coordination signal bindings', () => {
         caseKey: signal.caseKey,
         deliveredTo: 'pm',
       });
-      expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'idle')).toHaveLength(1);
+      expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'obligation_overdue')).toHaveLength(
+        1,
+      );
       expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual(oldSteps);
       await expect(
         h.domain.teamTools.startTask(pm, { taskKey: card.key, signalId: signal.id }),

@@ -77,13 +77,15 @@ export function standbyHome(home: string, reason: string, now?: Date): void {
 
 /**
  * The home becomes a hybrid engine home (PM-318): only the engine (`npm run engine -- start`) starts on
- * it, no server. `hybrid package` has written `engine.json` and `engine.key`; both are needed.
+ * it, no server. The engine registration has written `engine.json` and `engine.key`; both are needed.
  */
 export function engineHome(home: string, reason: string, now?: Date): void {
   const dir = resolve(home);
   for (const file of [ENGINE_CONFIG_FILE, ENGINE_KEY_FILE])
     if (!existsSync(join(dir, file)))
-      throw new MigrationRefused(`${dir} has no ${file}: run "hybrid package" for this home first`);
+      throw new MigrationRefused(
+        `${dir} has no ${file}: register this home as an engine first (docs/HYBRID.md)`,
+      );
   if (instanceRole(dir) === 'retired')
     throw new MigrationRefused(`${dir} is retired: activate it first, or use another home`);
   assertStopped(dir);

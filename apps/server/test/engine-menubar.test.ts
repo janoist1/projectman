@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -11,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { installMenubar, uninstallMenubar } from '../../../scripts/engine/menubar';
+import { uninstallMenubar } from '../../../scripts/engine/menubar';
 import type { MenubarMachine } from '../../../scripts/engine/menubar';
 import type { LaunchctlResult, ServiceOptions } from '../../../scripts/engine/service';
 import { EngineLocalSnapshot } from '../../../scripts/engine/snapshot';
@@ -19,20 +20,30 @@ import { runEngineCli } from '../../../scripts/engine/commands';
 
 const ROOT = realpathSync(fileURLToPath(new URL('../../..', import.meta.url)));
 const ok = { status: 0, stdout: '', stderr: '' };
-describe('engine menu bar installation', () => {
+describe('removing the menu bar app of PM-1088', () => {
   let base: string;
   let calls: string[][];
   let failures: Record<string, LaunchctlResult>;
   let options: ServiceOptions & MenubarMachine;
   const app = () => path.join(options.applicationsDir, 'projectman motor.app');
   const plist = () => path.join(options.agentsDir, 'com.projectman.engine-menubar.plist');
+  const config = () => path.join(options.supportDir, 'menubar.json');
+  const cli = (argv: string[], output: string[] = []) =>
+    runEngineCli(argv, {
+      env: { PATH: '/usr/bin' },
+      cwd: ROOT,
+      readStdin: async () => null,
+      out: (line) => output.push(line),
+      err: (line) => output.push(line),
+      startEngine: async () => 0,
+      isRunning: () => false,
+      launchd: options,
+      menubar: options,
+    });
   beforeEach(() => {
     base = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'engine-menubar-')));
     calls = [];
     failures = {};
-    const bin = path.join(base, 'bin');
-    mkdirSync(bin);
-    writeFileSync(path.join(bin, 'EngineMenu'), 'binary', { mode: 0o755 });
     options = {
       root: ROOT,
       home: path.join(base, 'home'),
@@ -46,133 +57,52 @@ describe('engine menu bar installation', () => {
       supportDir: path.join(base, 'support'),
       buildDir: path.join(base, 'build'),
       out: () => undefined,
-      sleep: () => undefined,
+      sleep: async () => undefined,
       launchctl: (args) => {
         calls.push(['launchctl', ...args]);
         return failures[args[0]!] ?? ok;
       },
-      run: (command, args) => {
-        calls.push([command, ...args]);
-        return failures[command] ?? { ...ok, stdout: args.includes('--show-bin-path') ? bin : '' };
-      },
     };
+    // What `app install` of PM-1088 left behind.
+    for (const dir of [app(), options.agentsDir, options.supportDir, options.buildDir])
+      mkdirSync(dir, { recursive: true });
+    writeFileSync(plist(), '<plist/>');
+    writeFileSync(config(), '{}');
   });
   afterEach(() => rmSync(base, { recursive: true, force: true }));
-  it('builds, signs, assembles the bundle and starts the agent without shell environment', () => {
-    installMenubar(options);
-    expect(calls.map((c) => c.slice(0, 2))).toEqual([
-      ['swift', '--version'],
-      ['swift', 'build'],
-      ['swift', 'build'],
-      ['codesign', '--force'],
-      ['launchctl', 'bootout'],
-      ['launchctl', 'bootstrap'],
-    ]);
-    expect(readFileSync(path.join(app(), 'Contents/MacOS/EngineMenu'), 'utf8')).toBe('binary');
-    expect(existsSync(path.join(app(), 'Contents/Resources/hu.lproj/Localizable.strings'))).toBe(true);
-    const text = readFileSync(plist(), 'utf8');
-    expect(text).toContain(path.join(app(), 'Contents/MacOS/EngineMenu'));
-    expect(text).toMatch(/<key>SuccessfulExit<\/key><false\/>/);
-    expect(text).not.toContain('EnvironmentVariables');
-    expect(JSON.parse(readFileSync(path.join(options.supportDir, 'menubar.json'), 'utf8'))).toEqual({
-      schemaVersion: 1,
-      node: '/opt/node',
-      root: ROOT,
-      home: options.home,
-      path: '/usr/bin',
-    });
-  });
-  it('reports a missing toolchain before building', () => {
-    failures.swift = { status: 1, stdout: '', stderr: 'not found' };
-    expect(() => installMenubar(options)).toThrow(/xcode-select --install/);
-    expect(calls).toHaveLength(1);
-  });
-  it('keeps the installed app when the new build fails', () => {
-    installMenubar(options);
-    calls.length = 0;
-    options.run = (command, args) => {
-      calls.push([command, ...args]);
-      return args[0] === 'build' ? { status: 1, stdout: '', stderr: 'compiler failed' } : ok;
-    };
-    expect(() => installMenubar(options)).toThrow(/compiler failed/);
-    expect(readFileSync(path.join(app(), 'Contents/MacOS/EngineMenu'), 'utf8')).toBe('binary');
-    expect(calls.some((c) => c[0] === 'launchctl')).toBe(false);
-  });
-  it('cleans the staged app after signing failure and preserves the old bundle', () => {
-    installMenubar(options);
-    failures.codesign = { status: 1, stdout: '', stderr: 'signing failed' };
-    expect(() => installMenubar(options)).toThrow(/signing failed/);
-    expect(existsSync(app())).toBe(true);
-    expect(existsSync(path.join(options.applicationsDir, '.projectman motor.app.new'))).toBe(false);
-  });
-  it.each([
-    ['linux', '6.0', 'macOS'],
-    ['darwin', '21.6', 'macOS 13'],
-  ] as const)('rejects unsupported system %s %s', (platform, osRelease, message) => {
-    expect(() => installMenubar({ ...options, platform, osRelease })).toThrow(message);
-    expect(calls).toEqual([]);
-  });
-  it('replaces an existing bundle on reinstall', () => {
-    installMenubar(options);
-    writeFileSync(path.join(base, 'bin/EngineMenu'), 'updated');
-    installMenubar(options);
-    expect(readFileSync(path.join(app(), 'Contents/MacOS/EngineMenu'), 'utf8')).toBe('updated');
-    expect(existsSync(path.join(options.applicationsDir, '.projectman motor.app.old'))).toBe(false);
-  });
   it('removes the app, configuration, agent and build cache', () => {
-    installMenubar(options);
-    mkdirSync(options.buildDir);
     uninstallMenubar(options);
-    for (const file of [app(), plist(), options.buildDir, path.join(options.supportDir, 'menubar.json')])
-      expect(existsSync(file)).toBe(false);
-  });
-  it('restores the previous bundle and metadata when activation fails', () => {
-    installMenubar(options);
-    const previous = readFileSync(plist(), 'utf8');
-    writeFileSync(path.join(base, 'bin/EngineMenu'), 'updated');
-    failures.bootstrap = { status: 1, stdout: '', stderr: 'background item disabled' };
-    expect(() => installMenubar(options)).toThrow(/background item disabled/);
-    expect(readFileSync(path.join(app(), 'Contents/MacOS/EngineMenu'), 'utf8')).toBe('binary');
-    expect(readFileSync(plist(), 'utf8')).toBe(previous);
+    for (const file of [app(), plist(), options.buildDir, config()]) expect(existsSync(file)).toBe(false);
   });
   it('uninstalls idempotently on an empty machine', () => {
+    rmSync(base, { recursive: true, force: true });
     failures.bootout = { status: 113, stdout: '', stderr: 'not found' };
     expect(() => uninstallMenubar(options)).not.toThrow();
   });
   it('does not delete an app whose job could not be unloaded', () => {
-    installMenubar(options);
     failures.bootout = { status: 1, stdout: '', stderr: 'refused' };
     expect(() => uninstallMenubar(options)).toThrow(/refused/);
     expect(existsSync(app())).toBe(true);
   });
   it('routes app uninstall through the CLI', async () => {
-    const output: string[] = [];
-    expect(
-      await runEngineCli(['app', 'uninstall', '--home', options.home], {
-        env: { PATH: '/usr/bin' },
-        cwd: ROOT,
-        readStdin: async () => null,
-        out: (line) => output.push(line),
-        err: (line) => output.push(line),
-        startEngine: async () => 0,
-        isRunning: () => false,
-        launchd: options,
-        menubar: options,
-      }),
-    ).toBe(0);
+    expect(await cli(['app', 'uninstall', '--home', options.home])).toBe(0);
     expect(calls[0]).toEqual(['launchctl', 'bootout', 'gui/501/com.projectman.engine-menubar']);
+  });
+  it('retires app install: the downloaded app installs itself', async () => {
+    const output: string[] = [];
+    expect(await cli(['app', 'install', '--home', options.home], output)).toBe(1);
+    expect(output.join('\n')).toContain('REFUSED [app_install_retired]');
+    expect(calls).toEqual([]);
   });
 });
 
 describe('Swift contract fixtures', () => {
   const fixtures = path.join(ROOT, 'deploy/mac/menubar/Tests/EngineMenuCoreTests/Fixtures');
-  it.each(['running', 'no-cloud', 'stopped', 'not-initialised'])(
+  it.each(readdirSync(fixtures).filter((name) => /^status-.*\.json$/.test(name)))(
     'matches the strict snapshot contract: %s',
     (state) => {
       expect(() =>
-        EngineLocalSnapshot.parse(
-          JSON.parse(readFileSync(path.join(fixtures, `status-${state}.json`), 'utf8')),
-        ),
+        EngineLocalSnapshot.parse(JSON.parse(readFileSync(path.join(fixtures, state), 'utf8'))),
       ).not.toThrow();
     },
   );

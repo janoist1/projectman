@@ -507,6 +507,25 @@ describe('cloud mode remote parts', () => {
       });
     });
 
+    it('lists worktrees and snapshots and removes only the requested task refs through the engine', async () => {
+      const engine = await online();
+      const host = remote.directory.host('eng_a' as never)!;
+      const args = { project: testConfig(), repoName: testConfig().project.repos[0]!.name };
+      const entries = [{ taskKey: 'AR-1', path: '/engine/worktrees/AR/AR-1-web' }];
+      engine.answer('worktree.listTaskWorktrees', () => entries);
+      engine.answer('workspace.listSnapshotTasks', () => ['AR-1']);
+      engine.answer('workspace.removeTaskSnapshots', () => null);
+      expect(await host.worktrees.listTaskWorktrees(args)).toEqual(entries);
+      expect(await host.memberWorkspaces!.listSnapshotTasks(args)).toEqual(['AR-1']);
+      const removal = { ...args, taskKeys: ['AR-1'] };
+      await host.memberWorkspaces!.removeTaskSnapshots(removal);
+      expect(engine.requests.slice(-3)).toEqual([
+        { method: 'worktree.listTaskWorktrees', params: [args] },
+        { method: 'workspace.listSnapshotTasks', params: [args] },
+        { method: 'workspace.removeTaskSnapshots', params: [removal] },
+      ]);
+    });
+
     it('hands a task commit over on the engine, and asks for an update when the engine cannot (PM-739)', async () => {
       const engine = await online();
       const host = remote.directory.host('eng_a' as never)!;
@@ -576,6 +595,50 @@ describe('cloud mode remote parts', () => {
         { type: 'terminal_data', sessionId: 's1', data: 'hello' },
       ]);
       expect(remote.hub.mirror('eng_a' as never).running.get('s1')?.state).toBe('working');
+    });
+
+    it('keeps the link when an event or terminal listener throws, and still serves the others', async () => {
+      const engine = await online();
+      engine.answer('session.start', (params) => running(params.sessionId));
+      await remote.runner.start(spec());
+      remote.hub.onEvent(() => {
+        throw new Error('listener broke');
+      });
+      remote.hub.onTerminal(() => {
+        throw new Error('listener broke');
+      });
+      const seen: RunnerEvent[] = [];
+      remote.runner.onEvent((event) => seen.push(event));
+      await engine.emit({
+        kind: 'runner',
+        event: { type: 'state', sessionId: 's1', state: 'working', activity: null },
+      });
+      await engine.terminal('s1', 'out');
+      expect(seen.map((event) => event.type)).toEqual(['state', 'terminal_data']);
+    });
+
+    it('attaches a viewed terminal again when its engine connects, and not a detached one', async () => {
+      const engine = await online();
+      engine.answer('session.start', (params) => running(params.sessionId));
+      engine.answer('terminal.attach', () => null);
+      await remote.runner.start(spec());
+      await remote.runner.attachTerminal?.('s1');
+      engine.disconnect();
+      const again = cloud.connect('eng_a' as never, {
+        hello: { running: [running('s1')] },
+        prepare: (fresh) => fresh.answer('terminal.attach', () => null),
+      });
+      await vi.waitFor(() =>
+        expect(again.requests.map((entry) => entry.method)).toContain('terminal.attach'),
+      );
+      remote.runner.detachTerminal?.('s1');
+      again.disconnect();
+      const last = cloud.connect('eng_a' as never, {
+        hello: { running: [running('s1')] },
+        prepare: (fresh) => fresh.answer('terminal.attach', () => null),
+      });
+      await vi.waitFor(() => expect(remote.hub.mirror('eng_a' as never).connected).toBe(true));
+      expect(last.requests.map((entry) => entry.method)).not.toContain('terminal.attach');
     });
 
     it('applies a repeated event twice without harm and ends the session on exit', async () => {
@@ -839,6 +902,43 @@ describe('cloud mode remote parts', () => {
         changedFiles: 1,
         updatedAt: '2026-10-27T10:00:00.000Z',
       }) as const;
+
+    it('sends a compute job only to an engine bound to the project of its repository (PM-1147)', async () => {
+      const { a, b } = await bothOnline((engine) =>
+        engine.answer('full_test.run', () => ({
+          outcome: 'passed' as const,
+          exitCode: 0,
+          durationMs: 1,
+          failedFiles: [],
+          outputTail: '',
+        })),
+      );
+      const job = {
+        ...fullTestSpec('job-1'),
+        cwd: 'github-job:acme/web',
+        githubJob: {
+          ref: { projectKey: 'PA', repo: 'pa' },
+          repo: 'acme/web',
+          base: 'main',
+          workflow: 'projectman-job.yml',
+          job: 'cloud-image',
+          commit: 'a'.repeat(40),
+          command: 'npm run build',
+          runsOn: 'ubuntu-24.04' as const,
+          outputs: ['image.tar'],
+          timeoutMinutes: 30,
+        },
+      };
+      await expect(
+        remote.directory.get(A as never)!.fullTestExecutor!.run(job, new AbortController().signal),
+      ).resolves.toMatchObject({ outcome: 'passed' });
+      // The guard refuses before anything is sent; the executor reports it as a failed start.
+      await expect(
+        remote.directory.get(B as never)!.fullTestExecutor!.run(job, new AbortController().signal),
+      ).resolves.toMatchObject({ outcome: 'error', reason: 'spawn_failed' });
+      expect(asked(a, 'full_test.run')).toHaveLength(1);
+      expect(asked(b, 'full_test.run')).toHaveLength(0);
+    });
 
     describe('runner', () => {
       const runnerOver = () =>
@@ -1177,17 +1277,6 @@ describe('cloud mode remote parts', () => {
       expect(asked(b, 'workspace.home')).toHaveLength(1);
     });
 
-    it('sends the machine and administration calls only to the host owner’s engine', async () => {
-      await remote.hub.call(A as never, 'machine.processes', {});
-      await expect(remote.hub.call(B as never, 'machine.processes', {})).rejects.toMatchObject({
-        code: 'engine_not_host',
-      });
-      await expect(remote.hub.call(B as never, 'admin.status', {} as never)).rejects.toMatchObject({
-        code: 'engine_not_host',
-      });
-      expect(b.requests).toEqual([]);
-    });
-
     it('does not give the cloud’s NanoGPT key to another owner’s engine, and a NanoGPT start there waits for its own key (PM-1068)', async () => {
       await expect(b.call('secret.nanogpt_key', { sessionId: 's1' })).rejects.toMatchObject({
         linkCode: 'secret_not_allowed',
@@ -1309,6 +1398,20 @@ describe('cloud mode remote parts', () => {
       expect(engine.callIds).toHaveLength(1);
       await engine.call('permission.cancel', { reqId: engine.callIds[0]! });
       await expect(deciding).resolves.toMatchObject({ behavior: 'deny' });
+    });
+
+    it('expires a pending decision when the engine reconnects, also on a resumed link', async () => {
+      const engine = await online();
+      sessionEngines.set('s1', 'eng_a');
+      const deciding = engine.call('permission.decide', { request: permissionRequest('s1') } as never);
+      await vi.waitFor(() => expect(broker.decide).toHaveBeenCalledTimes(1));
+      const signal = vi.mocked(broker.decide).mock.calls[0]![1] as AbortSignal;
+      // The engine's own call fails the moment its link closes; the cloud's side expires the item.
+      deciding.catch(() => undefined);
+      engine.disconnect();
+      expect(signal.aborted).toBe(false);
+      cloud.connect('eng_a' as never, { resumed: true });
+      await vi.waitFor(() => expect(signal.aborted).toBe(true));
     });
 
     it('refuses to decide for a session of another engine', async () => {
@@ -1648,6 +1751,64 @@ describe('cloud mode remote parts', () => {
         });
         expect(ran).toBe(false);
         expect(onStarted).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('GitHub Actions compute job descriptor (PM-1147)', () => {
+      const jobSpec = (runId: string): FullTestSpec => ({
+        ...fullTestSpec(runId),
+        cwd: 'github-job:acme/web',
+        command: 'npm run build',
+        githubJob: {
+          ref: { projectKey: 'AR', repo: 'ar' },
+          repo: 'acme/web',
+          base: 'main',
+          workflow: 'projectman-job.yml',
+          job: 'cloud-image',
+          commit: 'a'.repeat(40),
+          command: 'npm run build',
+          runsOn: 'ubuntu-24.04-arm',
+          outputs: ['image.tar'],
+          timeoutMinutes: 30,
+        },
+      });
+
+      it('sends the descriptor to the engine and relays the outputs, the artifact and the cost', async () => {
+        const engine = await online();
+        const extra = {
+          outputs: [{ path: 'image.tar', sha256: 'b'.repeat(64), bytes: 10 }],
+          artifact: { name: 'projectman-job-j1', expiresAt: null },
+          cost: { queuedMs: 1000, billableMs: 0 },
+          externalUrl: 'https://github.com/acme/web/actions/runs/9',
+        };
+        engine.answer('full_test.run', () => ({
+          outcome: 'passed' as const,
+          exitCode: 0,
+          durationMs: 1,
+          failedFiles: [],
+          outputTail: '',
+          ...extra,
+        }));
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(jobSpec('j1'), new AbortController().signal);
+        expect(result).toMatchObject(extra);
+        expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
+          { method: 'full_test.run', params: { spec: expect.objectContaining(jobSpec('j1')) } },
+        ]);
+      });
+
+      it('blocks the run on an older engine that refuses the descriptor, without running it', async () => {
+        const engine = await online();
+        engine.answer('full_test.run', (params) => {
+          if ('githubJob' in params.spec)
+            throw Object.assign(new Error('Invalid method parameters'), { code: 'invalid_params' });
+          return { outcome: 'passed' as const, exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+        });
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(jobSpec('j1'), new AbortController().signal);
+        expect(result).toMatchObject({ outcome: 'error', reason: 'github_unavailable' });
       });
     });
 

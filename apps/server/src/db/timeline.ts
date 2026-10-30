@@ -66,6 +66,18 @@ export const TIMELINE_SQL = {
 export function createTimelineRepository(db: Db) {
   // `listOfTypes` statements by how many types they take.
   const ofTypes = new Map<number, Statement>();
+  const filtered = new Map<string, Statement>();
+  function filteredStatement(count: boolean, task: boolean, types: readonly TimelineEvent['type'][]) {
+    const key = `${count}:${task}:${types.length}`;
+    let statement = filtered.get(key);
+    if (!statement) {
+      statement = db.prepare(
+        `SELECT ${count ? 'COUNT(*) AS total' : '*'} FROM timeline_events WHERE project_key = ?${task ? ' AND task_key = ?' : ''}${types.length ? ` AND type NOT IN (${types.map(() => '?').join(', ')})` : ''}${count ? '' : ' ORDER BY seq DESC LIMIT ?'}`,
+      );
+      filtered.set(key, statement);
+    }
+    return statement;
+  }
   const statements = {
     insert: db.prepare(
       `INSERT INTO timeline_events (id, project_key, task_key, session_id, actor_kind, actor_handle, type, data, created_at, actor_via, actor_meta)
@@ -76,9 +88,6 @@ export function createTimelineRepository(db: Db) {
         (actor_handle = ? OR json_extract(data, '$.handle') = ? OR json_extract(data, '$.member') = ?
         OR json_extract(data, '$.assignee') = ? OR EXISTS (SELECT 1 FROM json_each(data, '$.to') WHERE value = ?))
         ORDER BY seq DESC LIMIT ?`,
-    ),
-    ofTask: db.prepare(
-      'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? ORDER BY seq DESC LIMIT ?',
     ),
     // What the card's rounds are counted from (PM-222), all of it: the card's whole history.
     roundEvents: db.prepare(
@@ -97,9 +106,18 @@ export function createTimelineRepository(db: Db) {
            OR (type = 'task_updated' AND EXISTS (SELECT 1 FROM json_each(data, '$.fields') WHERE value = 'description')))
        ORDER BY seq DESC LIMIT 1`,
     ),
+    // The ids of what `isLoopTriageEvidence` accepts (PM-1120): the work of the card (as `latestWork`) and its stage,
+    // label and check events, newest first. Only ids are read; the events themselves are not.
+    loopEvidenceIds: db.prepare(
+      `SELECT id FROM timeline_events WHERE project_key = ? AND task_key = ?
+         AND (type IN ('attachment_added', 'task_stage_changed', 'task_labels_changed', 'task_check_changed')
+           OR (type = 'task_note'
+             AND json_extract(data, '$.importedAuthor') IS NULL AND json_extract(data, '$.importedAt') IS NULL)
+           OR (type = 'task_updated' AND EXISTS (SELECT 1 FROM json_each(data, '$.fields') WHERE value = 'description')))
+       ORDER BY seq DESC LIMIT ?`,
+    ),
     stateBefore: db.prepare(TIMELINE_SQL.stateBefore),
     structuralEvidence: db.prepare(TIMELINE_SQL.structuralEvidence),
-    ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
     ofProjectType: db.prepare(
       'SELECT * FROM timeline_events WHERE project_key = ? AND type = ? ORDER BY seq DESC LIMIT ?',
     ),
@@ -175,6 +193,12 @@ export function createTimelineRepository(db: Db) {
       return { events: rows.slice(0, query.limit).map(toEvent), counts, more: rows.length > query.limit };
     },
     /** One event of a project, or null. */
+    /** The ids of the card's newest events a loop assessment may name as evidence (`isLoopTriageEvidence`). */
+    loopEvidenceIds(projectKey: string, taskKey: string, limit: number): string[] {
+      return (statements.loopEvidenceIds.all(projectKey, taskKey, limit) as Array<{ id: string }>).map(
+        (row) => row.id,
+      );
+    },
     get(projectKey: string, id: string): TimelineEvent | null {
       const row = statements.byId.get(projectKey, id) as TimelineRow | undefined;
       return row ? toEvent(row) : null;
@@ -266,14 +290,31 @@ export function createTimelineRepository(db: Db) {
       return rows.reverse().map(toEvent);
     },
     /** The most recent `limit` events, oldest first. */
-    list(projectKey: string, opts: { taskKey?: string; limit?: number } = {}): TimelineEvent[] {
+    list(
+      projectKey: string,
+      opts: { taskKey?: string; limit?: number; excludeTypes?: readonly TimelineEvent['type'][] } = {},
+    ): TimelineEvent[] {
       const limit = opts.limit ?? 200;
-      const rows = (
-        opts.taskKey
-          ? statements.ofTask.all(projectKey, opts.taskKey, limit)
-          : statements.ofProject.all(projectKey, limit)
+      const types = opts.excludeTypes ?? [];
+      const rows = filteredStatement(false, opts.taskKey !== undefined, types).all(
+        projectKey,
+        ...(opts.taskKey !== undefined ? [opts.taskKey] : []),
+        ...types,
+        limit,
       ) as TimelineRow[];
       return rows.reverse().map(toEvent);
+    },
+    count(
+      projectKey: string,
+      opts: { taskKey?: string; excludeTypes?: readonly TimelineEvent['type'][] } = {},
+    ): number {
+      const types = opts.excludeTypes ?? [];
+      const row = filteredStatement(true, opts.taskKey !== undefined, types).get(
+        projectKey,
+        ...(opts.taskKey !== undefined ? [opts.taskKey] : []),
+        ...types,
+      ) as { total: number };
+      return row.total;
     },
   };
 }

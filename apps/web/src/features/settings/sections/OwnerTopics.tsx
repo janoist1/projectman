@@ -124,7 +124,7 @@ export function OwnerTopics({ config }: { config: ProjectConfig }) {
               {t('settings.team.ownerTopics.edit')}
             </summary>
             <fieldset className={shared.controls}>
-              <legend>{t('settings.team.ownerTopics.builtIn')}</legend>
+              <legend className={shared.fieldLabel}>{t('settings.team.ownerTopics.builtIn')}</legend>
               {builtInOwnerTopicIds.map((id) => {
                 const topic = topics.find((entry) => entry.id === id);
                 return (
@@ -165,7 +165,9 @@ export function OwnerTopics({ config }: { config: ProjectConfig }) {
                 );
               })}
             </fieldset>
-            <h4>{t('settings.team.ownerTopics.custom')}</h4>
+            <h4 className={`${shared.fieldLabel} ${shared.ownerTopicsCustomTitle}`}>
+              {t('settings.team.ownerTopics.custom')}
+            </h4>
             {custom.length ? (
               custom.map((topic) => (
                 <div key={topic.id} className={`${shared.contactRow} ${shared.ownerTopicRow}`}>
@@ -201,18 +203,20 @@ export function OwnerTopics({ config }: { config: ProjectConfig }) {
             ) : (
               <p className={shared.help}>{t('settings.team.ownerTopics.noCustom')}</p>
             )}
-            <Button
-              ref={addButton}
-              variant="secondary"
-              icon="plus"
-              disabled={topics.length >= 12}
-              onClick={() => {
-                setAdding(true);
-                setInvalid(false);
-              }}
-            >
-              {t('settings.team.ownerTopics.add')}
-            </Button>
+            <div hidden={adding}>
+              <Button
+                ref={addButton}
+                variant="secondary"
+                icon="plus"
+                disabled={topics.length >= 12}
+                onClick={() => {
+                  setAdding(true);
+                  setInvalid(false);
+                }}
+              >
+                {t('settings.team.ownerTopics.add')}
+              </Button>
+            </div>
             {adding ? (
               <form
                 className={shared.ownerTopicForm}

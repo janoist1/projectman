@@ -22,6 +22,7 @@ it('saves a built-in toggle and an own topic, then deletes it', async () => {
   const add = section.getByRole('button', { name: t('settings.team.ownerTopics.add') });
   await waitFor(() => expect(add.matches(':disabled')).toBe(false));
   fireEvent.click(add);
+  expect(section.queryByRole('button', { name: t('settings.team.ownerTopics.add') })).toBeNull();
   expect(document.activeElement).toBe(section.getByLabelText(t('settings.team.ownerTopics.label')));
   fireEvent.change(section.getByLabelText(t('settings.team.ownerTopics.label')), {
     target: { value: 'Legal' },

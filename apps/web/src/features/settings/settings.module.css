@@ -439,7 +439,7 @@ details[open] > .foldSummary .chevron {
   padding: 16px;
   margin-top: 12px;
   border: 1px solid var(--c-line);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--c-subtle);
   display: grid;
   gap: 12px;
@@ -448,6 +448,12 @@ details[open] > .foldSummary .chevron {
 
 .ownerTopics .dutyHolders {
   color: var(--c-ink-3);
+}
+.ownerTopics legend {
+  padding: 0;
+}
+.ownerTopicsCustomTitle {
+  margin-top: 16px;
 }
 .ownerTopicRow {
   cursor: default;

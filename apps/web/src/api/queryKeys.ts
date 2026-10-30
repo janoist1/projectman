@@ -49,6 +49,8 @@ export const queryKeys = {
   me: ['me'] as const,
   /** The person's own web push devices and settings (PM-815): not tied to a project. */
   push: ['push'] as const,
+  /** The person's own ntfy phone channel (PM-901). */
+  ntfy: ['ntfy'] as const,
   projects: ['projects'] as const,
   project: (key: string) => ['project', key] as const,
   board: (key: string) => ['project', key, 'board'] as const,

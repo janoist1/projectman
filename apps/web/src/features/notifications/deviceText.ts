@@ -1,4 +1,4 @@
-import type { PushDeviceView } from '@projectman/shared';
+import type { NtfyChannelView, PushDeviceView } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { daysBetween, formatStamp, formatTime } from '../../i18n/format';
 import { t, tDynamic } from '../../i18n/t';
@@ -45,6 +45,23 @@ export function deviceStatus(device: PushDeviceView, sending: boolean, now: Date
   if (device.lastResult === 'expired')
     return { tone: 'exp', text: t('notifications.devices.state.expired', { when }) };
   return { tone: 'none', text: t('notifications.devices.state.none') };
+}
+
+/** The last send of the ntfy channel, in the same words and tones as a device row (PM-901). */
+export function ntfyStatus(channel: NtfyChannelView, sending: boolean, now: Date = new Date()): DeviceStatus {
+  if (sending) return { tone: 'none', text: t('notifications.ntfy.state.sending') };
+  if (!channel.enabled) return { tone: 'paused', text: t('notifications.ntfy.state.paused') };
+  const when = whenText(channel.lastSentAt ?? channel.createdAt, now);
+  if (channel.lastResult === 'ok') return { tone: 'ok', text: t('notifications.ntfy.state.ok', { when }) };
+  if (channel.lastResult === 'failed')
+    return { tone: 'err', text: t('notifications.ntfy.state.failed', { when }) };
+  return { tone: 'none', text: t('notifications.ntfy.state.none') };
+}
+
+/** The reason line under the ntfy channel when its last send failed; null when there is nothing to explain. */
+export function ntfyWhy(channel: NtfyChannelView): string | null {
+  if (channel.lastResult !== 'failed' || !channel.lastFailure) return null;
+  return tDynamic(`notifications.ntfy.failure.${channel.lastFailure}`, '') || null;
 }
 
 /** The reason line under a device that is expired or whose last send failed; null when there is nothing to explain. */

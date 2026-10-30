@@ -11,6 +11,8 @@ import {
   EmailContact,
   EmailLogResponse,
   OperatorGrantAuditPage,
+  NtfyChannelView,
+  NtfyOverview,
   PushDeviceView,
   PushOverview,
   PushSettings,
@@ -167,6 +169,14 @@ export const api = {
     apiRequest(routes.pushDeviceTest(id), { method: 'POST', body: {}, schema: PushDeviceView }),
   unsubscribePush: (endpoint: string) =>
     apiRequest<null>(routes.pushUnsubscribe(), { method: 'POST', body: { endpoint } }),
+  /** The phone channel through ntfy (PM-901): the signed-in person's own topic and server. */
+  ntfy: () => apiRequest(routes.pushNtfy(), { schema: NtfyOverview }),
+  saveNtfy: (body: { server: string; enabled: boolean }) =>
+    apiRequest(routes.pushNtfy(), { method: 'PUT', body, schema: NtfyChannelView }),
+  renewNtfyTopic: () =>
+    apiRequest(routes.pushNtfyTopic(), { method: 'POST', body: {}, schema: NtfyChannelView }),
+  testNtfy: () => apiRequest(routes.pushNtfyTest(), { method: 'POST', body: {}, schema: NtfyChannelView }),
+  removeNtfy: () => apiRequest<null>(routes.pushNtfy(), { method: 'DELETE' }),
   superHandoff: (key: string, id: string) =>
     apiRequest(routes.superHandoff(key, encodeURIComponent(id)), { schema: SuperHandoffDetail }),
   superOperation: (key: string, id: string) =>

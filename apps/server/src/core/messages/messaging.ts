@@ -836,7 +836,7 @@ export class Messaging {
 
   /** All rows and durable answer messages commit together; delivery starts only after that commit. */
   async answerGroup(items: InboxItem[], attachmentIds: readonly string[], close: () => void): Promise<void> {
-    const prepared: PreparedSend[] = [];
+    const prepared: { item: InboxItem; send: PreparedSend }[] = [];
     for (const item of items) {
       const resolution = item.resolution!;
       const config = await this.projects.config(item.projectKey);
@@ -844,45 +844,57 @@ export class Messaging {
       if (item.taskKey && !this.tasks.find(item.projectKey, item.taskKey)) continue;
       const question = questionPayloadOf(item)?.question ?? item.title;
       const workItem = await this.answerWorkItem(item);
-      prepared.push(
-        await this.prepareSend(
-          item.projectKey,
-          resolverSender(resolution),
-          {
-            to: [item.source],
-            taskKey: item.taskKey,
-            text: `Answer to your question "${question}":\n\n${answerText(item)}`,
-            attachmentIds: [...attachmentIds],
-          },
-          {
-            actor: resolverActor(resolution),
-            sessionId: item.sessionId,
-            workItem,
-            duringRefinement: true,
-            origin: { kind: 'answer', inboxItemId: item.id },
-            answer: { inboxItemId: item.id, question, answer: answerText(item) },
-            ...(prepared.length > 0
-              ? {
-                  questionGroupShare: {
-                    primaryItemId: this.ctx.repos.inbox.groupOf(item.id)!.primaryItemId,
-                    itemId: item.id,
-                  },
-                }
-              : {}),
-            beforeRecord: () => {
-              if (item.taskKey && !this.tasks.find(item.projectKey, item.taskKey))
-                throw conflict('question_group_incompatible', 'a source card was deleted before delivery');
-            },
-          },
-          (send) => send,
-        ),
+      const send = await this.prepareSend(
+        item.projectKey,
+        resolverSender(resolution),
+        {
+          to: [item.source],
+          taskKey: item.taskKey,
+          text: `Answer to your question "${question}":\n\n${answerText(item)}`,
+          attachmentIds: [...attachmentIds],
+        },
+        {
+          actor: resolverActor(resolution),
+          sessionId: item.sessionId,
+          workItem,
+          duringRefinement: true,
+          origin: { kind: 'answer', inboxItemId: item.id },
+          answer: { inboxItemId: item.id, question, answer: answerText(item) },
+          ...(prepared.length > 0
+            ? {
+                questionGroupShare: {
+                  primaryItemId: this.ctx.repos.inbox.groupOf(item.id)!.primaryItemId,
+                  itemId: item.id,
+                },
+              }
+            : {}),
+        },
+        (send) => send,
       );
+      prepared.push({ item, send });
     }
+    const cardGone = (item: InboxItem) => !!item.taskKey && !this.tasks.find(item.projectKey, item.taskKey);
     const messages = this.ctx.unitOfWork(() => {
       close();
-      return prepared.map((send) => send.record());
+      return prepared.map(({ item, send }, index) => {
+        if (!cardGone(item)) return send.record();
+        // A card deleted since the preparation closes its question without a message, like one deleted
+        // earlier. The first answer carries the files the others share, so without it the group cannot go.
+        if (index === 0 && attachmentIds.length > 0)
+          throw conflict('question_group_incompatible', 'a source card was deleted before delivery');
+        return null;
+      });
     });
-    for (const [index, send] of prepared.entries()) await send.deliver(messages[index]!);
+    // The answers are recorded: a delivery that fails must not make the person's answer look lost.
+    for (const [index, { item, send }] of prepared.entries()) {
+      const message = messages[index];
+      if (!message) continue;
+      try {
+        await send.deliver(message);
+      } catch (err) {
+        this.ctx.logger.warn({ err, itemId: item.id }, 'could not deliver the answer of a combined question');
+      }
+    }
   }
 
   /**

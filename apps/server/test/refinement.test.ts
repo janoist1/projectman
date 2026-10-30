@@ -127,6 +127,14 @@ describe('Refinement line', () => {
     expect(h.runner.started).toHaveLength(1);
   });
 
+  it('starts the refinement of a card created with the refine label, with no label change (PM-1161)', async () => {
+    await prepare({}, ['refine']);
+
+    await vi.waitFor(() => expect(members()).toEqual(['ana']));
+    expect(turn()?.data).toEqual({ label: 'scope-ok', member: 'ana', reason: 'started' });
+    expect(sessionsOf()[0]!.startCause).toMatchObject({ kind: 'refinement', labels: ['scope-ok'] });
+  });
+
   it('tells a member working on the card which refinement step the new member came for (PM-249)', async () => {
     await prepare({ plan: true });
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'plan', OWNER_ACTOR);

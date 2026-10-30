@@ -44,6 +44,8 @@ export interface DomainEventMap {
   inbox_cancelled: InboxItem;
   /** A release was proposed (PM-497), after its record and approval request committed. */
   release_proposed: { release: Release };
+  /** A task was created (after it committed), with the labels and stage it was created with (PM-1161). */
+  task_created: { task: Task; actor: Actor };
   /** A task entered another stage (after the change committed). */
   task_stage_changed: StageChange;
   /** A card's assignee requested a new round on the open card (PM-138). Emitted and awaited before

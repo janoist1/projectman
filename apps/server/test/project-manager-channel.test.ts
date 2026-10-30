@@ -211,7 +211,11 @@ describe('the permanent project manager channel', () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
     const { inboxItemId } = await h.domain.teamTools.askHuman(
       { projectKey: 'AR', member: 'pm', taskKey: task.key, sessionId: session.id },
-      { question: 'Which step comes first?', options: ['Planning', 'Delivery'] },
+      {
+        question: 'Which step comes first?',
+        options: ['Planning', 'Delivery'],
+        ownerTopic: 'product_direction',
+      },
     );
     await h.domain.inbox.resolve(
       'AR',

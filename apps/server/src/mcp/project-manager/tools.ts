@@ -572,7 +572,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        'Close a ready_waiting, refinement_stalled, structural_pattern or milestone_closed signal of your ' +
+        'Close an obligation_overdue, structural_pattern or milestone_closed signal of your ' +
         'wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: ' +
         "role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },
@@ -644,7 +644,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           .max(64)
           .optional()
           .describe(
-            "An idle card the system signalled, when the project lets you act on signals: starts the card's " +
+            "An overdue-obligation signal on a card, when the project lets you act on signals: starts the card's " +
               'own assignee, without an owner request; no assignee or despite_prerequisites then.',
           ),
       },

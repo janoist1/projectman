@@ -302,8 +302,16 @@ describe('the reason of a reassignment on the timeline (PM-1040)', () => {
 });
 
 describe('open-step reminders on the timeline (PM-806)', () => {
-  const row = (type: 'obligation_woken' | 'obligation_handed_over', data: Record<string, unknown>) =>
-    describeEvent({ ...creation, actor: { kind: 'system', handle: null }, type, data }, context).text;
+  const row = (
+    type: 'obligation_woken' | 'obligation_pm_told' | 'obligation_handed_over',
+    data: Record<string, unknown>,
+  ) => describeEvent({ ...creation, actor: { kind: 'system', handle: null }, type, data }, context).text;
+
+  it('shows the word to the project manager (PM-1152)', () => {
+    expect(row('obligation_pm_told', { kind: 'merge', responsible: 'dev-1', minutes: 20 })).toBe(
+      t('timeline.events.obligation_pm_told', { responsible: 'dev-1', step: 'beolvasztás', minutes: 20 }),
+    );
+  });
 
   it('names the responsible, the step and the minutes', () => {
     const data = { kind: 'merge', responsible: 'dev-1', minutes: 30 };

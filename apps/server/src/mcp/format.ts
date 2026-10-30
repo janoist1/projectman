@@ -249,15 +249,19 @@ function signalLine(signal: OperatorSignal): string {
     nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',
     silent: 'The working session has been silent too long.',
-    idle: 'The card has an AI holder, but no work has run on it for a while.',
-    merge_waiting: 'The merge was requested, but the merger has not started it.',
+    obligation_overdue:
+      'A step stood open past its reminder and the responsible did not act (subject: the obligation; facts say who, since when and when it goes to a person). Check the card first; take the step in step if it has one, close an intermediate or resolved case with dismiss_signal and a note.',
+    idle: 'Retired kind (an old signal): the card had an AI holder, but no work ran on it for a while.',
+    merge_waiting:
+      'Retired kind (an old signal): the merge was requested, but the merger had not started it.',
     merge_blocked: 'The merge stopped on a conflict, a failed check or a block.',
     unreleased: 'Work merged on the default branch has waited a long time for a release.',
-    ready_waiting: 'Startable cards (subject) wait while a developer has free capacity.',
+    ready_waiting:
+      'Retired kind (an old signal): startable cards (subject) waited while a developer had free capacity.',
     answer_stalled:
       'An answer or request reached the assignee (subject: the message), but no work followed; report only, it has no step.',
     refinement_stalled:
-      "A member's refinement turn ended without its label (subject: the label); report only, it has no step. Check the card first; close an intermediate or resolved case with dismiss_signal.",
+      "Retired kind (an old signal): a member's refinement turn ended without its label (subject: the label).",
     start_blocked:
       "A card's start waits for a repository choice or a stuck member workspace (subject: the reason; facts say who waits and what to do). It closes itself when the reason ends; a decision question about it carries this signal_id.",
   };

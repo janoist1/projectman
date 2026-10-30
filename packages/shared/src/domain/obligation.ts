@@ -7,7 +7,8 @@ import { TaskKey } from './task';
 /**
  * An obligation (PM-806): an open step that an AI member has to carry out. It has a responsible and a
  * deadline of N minutes. At the first deadline the responsible gets one reminder; at the second one the
- * step becomes an integrator todo. The system never does the step, decides, or sets a label itself.
+ * project manager is told (PM-1152); at the third the step becomes an integrator todo or goes to the
+ * owner. The system never does the step, decides, or sets a label itself.
  */
 export const ObligationKind = z.enum([
   'merge',
@@ -57,6 +58,8 @@ export const Obligation = z.object({
   pausedSince: IsoDateTime.nullable(),
   pauseReason: ObligationPauseReason.nullable(),
   wokenAt: IsoDateTime.nullable(),
+  /** When the project manager was told (PM-1152): the `tell_pm` rung. */
+  pmToldAt: IsoDateTime.nullable(),
   handedOverAt: IsoDateTime.nullable(),
   /** The integrator todo. */
   inboxItemId: z.string().nullable(),
@@ -89,45 +92,98 @@ export type ObligationStep =
   | { kind: 'resume'; dueAt: string }
   | { kind: 'extend'; dueAt: string }
   | { kind: 'wake'; dueAt: string }
+  | { kind: 'tell_pm'; dueAt: string }
   | { kind: 'hand_over' };
 
 const plusMinutes = (at: string, minutes: number): string =>
   new Date(Date.parse(at) + minutes * 60_000).toISOString();
 
-/** The rungs of the ladder a kind climbs: the one reminder, then the hand-over. */
-export const ObligationRung = z.enum(['wake', 'hand_over']);
+/**
+ * The rungs of the ladder a kind climbs (PM-1152): the responsible's reminder, a word to the project
+ * manager, then the hand-over to a person.
+ */
+export const ObligationRung = z.enum(['wake', 'tell_pm', 'hand_over']);
 export type ObligationRung = z.infer<typeof ObligationRung>;
 
+export const OBLIGATION_RUNGS: readonly ObligationRung[] = ['wake', 'tell_pm', 'hand_over'];
+
 /**
- * The next step of an obligation (PM-806). The order is the rule:
- * 1. only an open row moves; 2. a pause starts once; 3. when it ends the clock restarts for N minutes;
+ * The ladder of one row: the source's rungs without those that cannot be climbed. `wake` falls out
+ * when nobody is responsible, `tell_pm` when there is no project manager to tell or the project manager
+ * is the responsible (they were just reminded).
+ */
+export function obligationRungsOf(
+  rungs: readonly ObligationRung[],
+  who: { responsible: string | null; projectManager: string | null },
+): ObligationRung[] {
+  return rungs.filter((rung) =>
+    rung === 'wake'
+      ? who.responsible !== null
+      : rung === 'tell_pm'
+        ? who.projectManager !== null && who.projectManager !== who.responsible
+        : true,
+  );
+}
+
+const rungDone = (row: Obligation, rung: ObligationRung): boolean =>
+  rung === 'wake' ? row.wokenAt !== null : rung === 'tell_pm' ? row.pmToldAt !== null : false;
+
+const nextRungOf = (row: Obligation, rungs: readonly ObligationRung[]): ObligationRung =>
+  rungs.find((rung) => !rungDone(row, rung)) ?? 'hand_over';
+
+/**
+ * The minutes before the next due rung. A missing project manager rung must not shorten the time before
+ * a person: when the hand-over follows the reminder directly, the gap is 2N (so the hand-over comes at 3N
+ * as on a full ladder); every other gap is N.
+ */
+function gapMinutesOf(row: Obligation, rungs: readonly ObligationRung[], minutes: number): number {
+  return nextRungOf(row, rungs) === 'hand_over' &&
+    rungs.includes('wake') &&
+    !rungs.includes('tell_pm') &&
+    row.pmToldAt === null
+    ? 2 * minutes
+    : minutes;
+}
+
+/**
+ * The next step of an obligation (PM-806, PM-1152). The order is the rule:
+ * 1. only an open row moves; 2. a pause starts once; 3. when it ends the clock restarts for one gap;
  * 4. before the deadline nothing happens; 5. recent activity of the responsible moves the deadline to
- * activity + N; 6. a responsible at work gets N more minutes; 7. the first expiry is the one reminder;
- * 8. the second expiry hands the step to the integrator. A kind without the `wake` rung (`rungs`) hands
- * the step over at the first expiry.
+ * activity + gap; 6. a responsible at work gets one more gap; 7. a hand-over that follows the reminder
+ * directly is never earlier than the reminder + 2N; 8. the expiry climbs to the first rung not done
+ * yet: the reminder, the word to the project manager, the hand-over to a person. `rungs` is the row's
+ * ladder (`obligationRungsOf`); the gap is N, or 2N before a hand-over when the project manager rung is missing.
  */
 export function planObligation(
   row: Obligation,
   facts: ObligationFacts,
   now: string,
   minutes: number,
-  rungs: readonly ObligationRung[] = ['wake', 'hand_over'],
+  rungs: readonly ObligationRung[] = OBLIGATION_RUNGS,
 ): ObligationStep {
   if (row.state !== 'open') return { kind: 'none' };
   if (facts.paused) {
     return row.pausedSince === null ? { kind: 'pause', reason: facts.paused } : { kind: 'none' };
   }
-  if (row.pausedSince !== null) return { kind: 'resume', dueAt: plusMinutes(now, minutes) };
+  const gap = gapMinutesOf(row, rungs, minutes);
+  if (row.pausedSince !== null) return { kind: 'resume', dueAt: plusMinutes(now, gap) };
   const nowMs = Date.parse(now);
   if (nowMs < Date.parse(row.dueAt)) return { kind: 'none' };
   if (facts.lastActivityAt) {
-    const activityDue = Date.parse(facts.lastActivityAt) + minutes * 60_000;
+    const activityDue = Date.parse(facts.lastActivityAt) + gap * 60_000;
     if (activityDue > nowMs) return { kind: 'extend', dueAt: new Date(activityDue).toISOString() };
   }
-  if (facts.active) return { kind: 'extend', dueAt: plusMinutes(now, minutes) };
-  if (row.wokenAt === null && rungs.includes('wake'))
-    return { kind: 'wake', dueAt: plusMinutes(now, minutes) };
-  return { kind: 'hand_over' };
+  if (facts.active) return { kind: 'extend', dueAt: plusMinutes(now, gap) };
+  const next = nextRungOf(row, rungs);
+  if (next === 'hand_over') {
+    // The project manager rung fell out between the reminder and now: the person still waits 2N after it.
+    const afterReminder = row.wokenAt !== null ? Date.parse(row.wokenAt) + gap * 60_000 : 0;
+    if (afterReminder > nowMs && gap !== minutes)
+      return { kind: 'extend', dueAt: new Date(afterReminder).toISOString() };
+    return { kind: 'hand_over' };
+  }
+  const after: Obligation = next === 'wake' ? { ...row, wokenAt: now } : { ...row, pmToldAt: now };
+  return { kind: next, dueAt: plusMinutes(now, gapMinutesOf(after, rungs, minutes)) };
 }
 
 /**
@@ -146,9 +202,9 @@ export const PAUSING_REFUSALS: readonly string[] = [
   'member_on_leave',
 ] satisfies readonly ErrorCode[];
 
-export const DEFAULT_OBLIGATION_MINUTES = 30;
+export const DEFAULT_OBLIGATION_MINUTES = 20;
 
-/** Minutes an obligation waits before each of its two deadlines. */
+/** Minutes an obligation waits before each of its rungs (the reminder, the project manager, the hand-over). */
 export function obligationMinutesOf(limits: Pick<TeamLimits, 'obligationMinutes'>): number {
   return limits.obligationMinutes ?? DEFAULT_OBLIGATION_MINUTES;
 }

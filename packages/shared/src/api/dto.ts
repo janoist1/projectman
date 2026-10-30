@@ -38,7 +38,7 @@ import {
   PermissionMode,
   SelectablePermissionMode,
 } from '../domain/member';
-import { SessionState } from '../domain/session';
+import { ObligationKind } from '../domain/obligation';
 import { TeamMessage } from '../domain/message';
 import { MAX_MESSAGE_ATTACHMENTS, MessageAttachmentId } from '../domain/message-attachment';
 import { LabelDefinition, LabelId } from '../domain/label';
@@ -205,14 +205,11 @@ export const OPERATOR_ANSWER_STALL_GRACE_MS = 120_000;
 /** The least time between two wake-ups carrying `answer_stalled` signals in one project (PM-694). */
 export const OPERATOR_ANSWER_STALL_WAKE_MS = 60_000;
 export const OPERATOR_SILENT_WORK_MINUTES = 30;
-/** A card held by an AI member with no work running for this long is idle (PM-547). */
-export const OPERATOR_IDLE_MINUTES = 30;
-/** A merge the merger has not started for this long is waiting. */
-export const OPERATOR_MERGE_WAIT_MINUTES = 30;
-/** Startable cards and a free developer, with no developer starting, for this long without a break wake the Operator (PM-1082). */
-export const OPERATOR_READY_WAITING_MINUTES = 10;
-/** The Operator got no result for this much longer after waking: the owners get one `work_stalled` alert (PM-1082). */
-export const OPERATOR_READY_STALL_OWNER_MINUTES = 20;
+/**
+ * `idle`, `merge_waiting`, `ready_waiting` and `refinement_stalled` are no longer raised (PM-1152: the
+ * obligation ladder watches those stalls, its project manager rung is `obligation_overdue`); they stay in
+ * the enum for the rows that exist.
+ */
 export const OperatorSignalKind = z.enum([
   'loop_suspected',
   'process_cleanup_failed',
@@ -230,6 +227,7 @@ export const OperatorSignalKind = z.enum([
   'milestone_closed',
   'refinement_stalled',
   'start_blocked',
+  'obligation_overdue',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
 /** The start waits a `start_blocked` signal tells the project manager about (PM-455). */
@@ -257,23 +255,21 @@ export const StartBlockedFacts = z.object({
 });
 export type StartBlockedFacts = z.infer<typeof StartBlockedFacts>;
 /**
- * The facts of a `refinement_stalled` signal (PM-702): the recorded turn, the member's latest session and the
- * open question ids of the card; never a transcript or tool input.
+ * The facts of an `obligation_overdue` signal (PM-1152): the step the responsible did not carry out after
+ * the reminder; `handOverAt` is when it goes to a person.
  */
-export const RefinementStallFacts = z.object({
-  label: z.string(),
-  member: MemberHandle,
-  turnAt: z.string().datetime(),
-  session: z
-    .object({
-      id: z.string(),
-      state: SessionState,
-      lastActivityAt: z.string().datetime(),
-    })
-    .nullable(),
-  openQuestionIds: z.array(z.string()),
+export const ObligationOverdueFacts = z.object({
+  obligation: z.object({
+    id: z.string(),
+    kind: ObligationKind,
+    responsible: MemberHandle.nullable(),
+    subject: z.string(),
+    openedAt: z.iso.datetime(),
+    wokenAt: z.iso.datetime().nullable(),
+    handOverAt: z.iso.datetime(),
+  }),
 });
-export type RefinementStallFacts = z.infer<typeof RefinementStallFacts>;
+export type ObligationOverdueFacts = z.infer<typeof ObligationOverdueFacts>;
 /** The facts of an `answer_stalled` signal (PM-694): the evidence is a delivered answer or message, never its text. */
 export const AnswerStalledFacts = z.object({
   evidenceId: z.string(),

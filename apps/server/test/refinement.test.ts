@@ -438,19 +438,20 @@ describe('Refinement line', () => {
     expect(h.domain.inbox.list('AR', { kind: 'alert', state: 'open' })).toEqual([]);
   });
 
-  it('alerts once when the turn ended without the label, and does not start the member again', async () => {
+  /** PM-1152: a turn that ended without the label opens no owner alert (the obligation ladder watches it), and the member is not started again. */
+  it('opens no stall alert when the turn ended without the label, and does not start the member again', async () => {
     await prepare();
     await label({ add: ['refine'] });
     await vi.waitFor(() => expect(members()).toEqual(['ana']));
 
     endTurn('ana');
-    await vi.waitFor(() => expect(alerts('stalled')).toHaveLength(1));
-    expect(alerts('stalled')[0]).toMatchObject({ assignees: ['owner'], state: 'open' });
+    await flush();
+    expect(alerts('stalled')).toEqual([]);
 
     endTurn('ana');
     await flush();
     await h.domain.refinement.changed(task());
-    expect(alerts('stalled')).toHaveLength(1);
+    expect(alerts('stalled')).toEqual([]);
     expect(h.runner.started).toHaveLength(1);
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
   });
@@ -475,7 +476,7 @@ describe('Refinement line', () => {
       await label({ add: ['refine'] });
       await vi.waitFor(() => expect(members()).toEqual(['ana']));
       endTurn('ana');
-      await vi.waitFor(() => expect(alerts('stalled')).toHaveLength(1));
+      await flush();
 
       await label({ remove: ['refine'] });
       await vi.waitFor(() => expect(turn()?.data).toEqual({ label: null, member: null, reason: 'stopped' }));
@@ -601,20 +602,6 @@ describe('Refinement line', () => {
       expect(alerts('stalled')).toEqual([]);
       expect(h.runner.releases).toEqual([{ sessionId: id, nudge: 'Nudge after_tool' }]);
     });
-
-    it('looks at a turn that ended between turns before the pause, once the team is resumed', async () => {
-      await prepare();
-      await label({ add: ['refine'] });
-      await vi.waitFor(() => expect(members()).toEqual(['ana']));
-      const id = sessionsOf()[0]!.id;
-      h.runner.pauseOutcomes.set(id, { point: 'idle', tool: null });
-      await h.domain.pauses.pause(PAUSED_PROJECT, BY);
-      endTurn('ana');
-      await flush();
-      expect(alerts('stalled')).toEqual([]);
-      await h.domain.pauses.resume(PAUSED_PROJECT, BY);
-      await vi.waitFor(() => expect(alerts('stalled')).toHaveLength(1));
-    });
   });
 
   describe('an open question of the member (PM-264)', () => {
@@ -659,10 +646,6 @@ describe('Refinement line', () => {
       expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
       expect(h.runner.started).toHaveLength(1);
       expect(alerts('stalled')).toEqual([]);
-
-      // A turn that ends without the label after the answer is a stall again.
-      endTurn('ana');
-      await vi.waitFor(() => expect(alerts('stalled')).toHaveLength(1));
     });
 
     it('tells no stall for an open question even when the project has no waiting label', async () => {
@@ -677,8 +660,7 @@ describe('Refinement line', () => {
       expect(alerts('stalled')).toEqual([]);
 
       await answer(inboxItemId);
-      endTurn('ana');
-      await vi.waitFor(() => expect(alerts('stalled')).toHaveLength(1));
+      expect(alerts('stalled')).toEqual([]);
     });
   });
 

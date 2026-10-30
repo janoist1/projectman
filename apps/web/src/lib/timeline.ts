@@ -982,6 +982,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'member_queue_item_closed':
       return normal(t('timeline.events.member_queue_item_closed'));
     case 'obligation_woken':
+    case 'obligation_pm_told':
     case 'obligation_handed_over': {
       const kind = ObligationKind.safeParse(d.kind);
       return normal(

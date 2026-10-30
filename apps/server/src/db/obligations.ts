@@ -13,6 +13,7 @@ interface ObligationRow {
   paused_since: string | null;
   pause_reason: ObligationPauseReason | null;
   woken_at: string | null;
+  pm_told_at: string | null;
   handed_over_at: string | null;
   inbox_item_id: string | null;
   state: ObligationState;
@@ -31,6 +32,7 @@ const toRecord = (row: ObligationRow): Obligation => ({
   pausedSince: row.paused_since,
   pauseReason: row.pause_reason,
   wokenAt: row.woken_at,
+  pmToldAt: row.pm_told_at,
   handedOverAt: row.handed_over_at,
   inboxItemId: row.inbox_item_id,
   state: row.state,
@@ -43,6 +45,7 @@ interface ObligationPatch {
   pausedSince?: string | null;
   pauseReason?: ObligationPauseReason | null;
   wokenAt?: string;
+  pmToldAt?: string;
   handedOverAt?: string;
   inboxItemId?: string;
 }
@@ -83,6 +86,7 @@ export function createObligationRepository(db: Db) {
          paused_since = CASE WHEN @setPause THEN @pausedSince ELSE paused_since END,
          pause_reason = CASE WHEN @setPause THEN @pauseReason ELSE pause_reason END,
          woken_at = COALESCE(@wokenAt, woken_at),
+         pm_told_at = COALESCE(@pmToldAt, pm_told_at),
          handed_over_at = COALESCE(@handedOverAt, handed_over_at),
          inbox_item_id = COALESCE(@inboxItemId, inbox_item_id),
          state = CASE WHEN @handedOverAt IS NOT NULL THEN 'handed_over' ELSE state END,
@@ -143,6 +147,7 @@ export function createObligationRepository(db: Db) {
         pausedSince: patch.pausedSince ?? null,
         pauseReason: patch.pauseReason ?? null,
         wokenAt: patch.wokenAt ?? null,
+        pmToldAt: patch.pmToldAt ?? null,
         handedOverAt: patch.handedOverAt ?? null,
         inboxItemId: patch.inboxItemId ?? null,
       });

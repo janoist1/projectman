@@ -1,17 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  OPERATOR_IDLE_MINUTES,
-  OPERATOR_MERGE_WAIT_MINUTES,
-  OPERATOR_READY_WAITING_MINUTES,
-  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
-  OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
-} from '@projectman/shared';
-import type { OperatorSignalKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
+import { OPERATOR_SIGNAL_STEP_GAP_MINUTES } from '@projectman/shared';
+import type { ObligationKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
-import type { MergeRecord } from '../src/db';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { openOverdueObligation } from './helpers/overdue-obligation';
 
 /** PM-550: the wake-up text of the Operator by the project's level, with the step, the budget and the follow-up of each signal. */
 let h: DomainHarness;
@@ -23,8 +17,6 @@ afterEach(async () => {
 const later = (minutes: number) => {
   now = new Date(now.getTime() + minutes * 60_000);
 };
-const open = (kind: OperatorSignalKind) =>
-  h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
 
 async function setup(level: OperatorWatch | undefined, adjust?: (config: ProjectConfig) => void) {
   now = new Date('2026-10-12T10:00:00Z');
@@ -45,32 +37,19 @@ async function place(patch: Partial<Pick<Task, 'stageId' | 'status' | 'assignee'
   return h.repos.tasks.get(card.key)!;
 }
 
-async function idleCard() {
-  const card = await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
-  later(OPERATOR_IDLE_MINUTES);
-  await h.domain.operatorSignals.sweep('AR');
+/** A card whose open step the PM was told about (PM-1152); its signal is delivered to the Operator. */
+async function overdueCard(
+  opts: {
+    patch?: Partial<Pick<Task, 'stageId' | 'status' | 'assignee'>>;
+    kind?: ObligationKind;
+    responsible?: string;
+  } = {},
+) {
+  const card = await place(opts.patch ?? { stageId: 'development', status: 'active', assignee: 'dev-1' });
+  const { id, signalId } = openOverdueObligation(h, card, { at: now, ...opts });
+  await h.domain.operatorSignals.deliver('AR');
   await flush();
-  return { card, signal: open('idle')[0]! };
-}
-
-function mergeRow(taskKey: string): MergeRecord {
-  return {
-    id: `mrg_${taskKey}`,
-    projectKey: 'AR',
-    repo: 'web',
-    base: 'main',
-    commit: `branch-${taskKey}`,
-    branch: `pm/${taskKey}`,
-    fromStageId: 'code_review',
-    toStageId: 'done',
-    merger: 'dev-1',
-    requestedAt: now.toISOString(),
-    landed: 'nowhere',
-    state: 'requested',
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-    taskKey,
-  };
+  return { card, id, signal: h.repos.operatorSignals.get(signalId)! };
 }
 
 const operator = async (): Promise<ToolContext> => ({
@@ -99,7 +78,7 @@ it.each(['report', 'unblock', 'drive'] as const)(
   'keeps diagnosis and the single verified report within PM authority at %s',
   async (level) => {
     await setup(level);
-    await idleCard();
+    await overdueCard();
     const text = header();
     expect(h.runner.started.some((session) => session.member === 'operator')).toBe(false);
     expect(text).toContain('Read get_task before referring to a card');
@@ -116,19 +95,19 @@ it.each(['report', 'unblock', 'drive'] as const)(
 describe('level report', () => {
   it('keeps the ban, adds the one message and gives no step', async () => {
     await setup('report');
-    const { signal } = await idleCard();
+    const { signal } = await overdueCard();
     expect(header()).toContain('Change nothing until an owner says yes.');
     expect(header()).toContain('one message for the whole wake-up');
     expect(header()).toContain('signal_ids');
-    expect(header()).toContain('close with dismiss_signal and a note');
+    expect(header()).toContain('dismiss_signal and a note');
     expect(header()).toContain('actionable_signal_ids');
     expect(header()).not.toContain('steps_left');
-    expect(wakeRows()).toMatchObject([{ id: signal.id, kind: 'idle', ...noStep }]);
+    expect(wakeRows()).toMatchObject([{ id: signal.id, kind: 'obligation_overdue', ...noStep }]);
   });
 
   it('is the default when the project sets no level', async () => {
     await setup(undefined);
-    await idleCard();
+    await overdueCard();
     expect(header()).toContain('Change nothing until an owner says yes.');
     expect(wakeRows()).toMatchObject([noStep]);
   });
@@ -137,7 +116,7 @@ describe('level report', () => {
 describe('level unblock', () => {
   it('names the step, tells the budget and the never list, and has no general ban', async () => {
     await setup('unblock');
-    const { card, signal } = await idleCard();
+    const { card, signal } = await overdueCard();
     const text = header();
     expect(text).not.toContain('Change nothing');
     expect(text).toContain('you may take it yourself with its signal_id after weighing it');
@@ -150,7 +129,7 @@ describe('level unblock', () => {
     expect(text).not.toContain('always go to the owners');
     expect(text).toContain("Never stop another member's processes yourself.");
     expect(text).toContain('one message for the whole wake-up');
-    expect(text).toContain('close with dismiss_signal and a note');
+    expect(text).toContain('dismiss_signal and a note');
     expect(wakeRows()).toMatchObject([
       {
         id: signal.id,
@@ -163,123 +142,43 @@ describe('level unblock', () => {
     ]);
   });
 
-  it('names the merger of a waiting merge', async () => {
+  it('names the responsible of a step that is not a start of the card', async () => {
     await setup('unblock');
-    const card = await place({ stageId: 'code_review', status: 'waiting' });
-    h.repos.taskMerges.save(mergeRow(card.key));
-    later(OPERATOR_MERGE_WAIT_MINUTES);
-    await h.domain.operatorSignals.sweep('AR');
-    await flush();
-    expect(wakeRows().find((row) => row.kind === 'merge_waiting')).toMatchObject({
-      step: { tool: 'start_member', task_key: card.key, members: ['dev-1'] },
+    const { card } = await overdueCard({
+      patch: { stageId: 'code_review', status: 'waiting' },
+      kind: 'review_step',
+      responsible: 'cr',
+    });
+    expect(wakeRows().find((row) => row.kind === 'obligation_overdue')).toMatchObject({
+      step: { tool: 'start_member', task_key: card.key, members: ['cr'] },
       steps_left: 1,
     });
   });
 
-  it('gives no step on a kind only drive covers', async () => {
-    await setup('unblock', (config) => {
-      config.pipeline.stages.splice(1, 0, {
-        id: 'ready',
-        name: 'Ready',
-        kind: 'queue',
-        owners: ['owner'],
-        columnId: 'todo',
-      });
+  it('carries the obligation in the facts of the signal', async () => {
+    await setup('unblock');
+    const { card, id } = await overdueCard();
+    expect(wakeRows()[0]!.facts).toMatchObject({
+      obligation: { id, kind: 'work', responsible: 'dev-1', subject: card.key },
     });
-    await place({ stageId: 'ready', status: 'active' });
-    await h.domain.operatorSignals.sweep('AR');
-    later(OPERATOR_READY_WAITING_MINUTES);
-    await h.domain.operatorSignals.sweep('AR');
-    await flush();
-    expect(wakeRows()).toMatchObject([{ kind: 'ready_waiting', step: null, steps_left: 1 }]);
   });
 });
 
 describe('level drive', () => {
-  it('includes acknowledged cards and only new cards in wake facts, with the last dismissal', async () => {
-    await setup('drive', (config) => {
-      // A person moves the cards: the start round offers them to no AI member (PM-804), so the signal stays.
-      config.team.cardMover = { kind: 'human', handle: 'owner' };
-      config.pipeline.stages.splice(1, 0, {
-        id: 'ready',
-        name: 'Ready',
-        kind: 'queue',
-        owners: ['owner'],
-        columnId: 'todo',
-      });
-    });
-    const first = await place({ stageId: 'ready', status: 'active' });
-    await h.domain.operatorSignals.sweep('AR');
-    later(OPERATOR_READY_WAITING_MINUTES);
-    await h.domain.operatorSignals.sweep('AR');
-    await flush();
-    expect(wakeRows()[0]!.facts).toEqual({
-      cards: [first.key],
-      new_cards: [first.key],
-      last_dismissed: null,
-    });
-    const at = now.toISOString();
-    const result = await h.domain.teamTools.dismissSignal(await operator(), {
-      signalId: open('ready_waiting')[0]!.id,
-      note: 'Parked intentionally.',
-    });
-    expect(result.state).toBe('dismissed');
-    await h.domain.operatorSignals.sweep('AR');
-    h.runner.setState((await operator()).sessionId, 'idle');
-    later(1);
-    const second = await place({ stageId: 'ready', status: 'active' });
-    await h.domain.operatorSignals.sweep('AR');
-    // The stall's ten minutes are over, and so is the wake interval since the first wake-up.
-    later(OPERATOR_SIGNAL_WAKE_INTERVAL_MS / 60_000);
-    await h.domain.operatorSignals.sweep('AR');
-    await flush();
-    expect(wakeRows()[0]!.facts).toEqual({
-      cards: [first.key, second.key],
-      new_cards: [second.key],
-      last_dismissed: { at, by: 'pm', note: 'Parked intentionally.', cards: [first.key] },
-    });
-  });
-
-  it('names the project manager for cards that stand ready, with three steps', async () => {
-    await setup('drive', (config) => {
-      config.pipeline.stages.splice(1, 0, {
-        id: 'ready',
-        name: 'Ready',
-        kind: 'queue',
-        owners: ['owner'],
-        columnId: 'todo',
-      });
-      const pm = config.team.members.find((m) => m.handle === 'pm');
-      if (pm?.kind === 'ai') pm.onLeave = false;
-    });
-    await place({ stageId: 'ready', status: 'active' });
-    await h.domain.operatorSignals.sweep('AR');
-    later(OPERATOR_READY_WAITING_MINUTES);
-    await h.domain.operatorSignals.sweep('AR');
-    await flush();
+  it('gives three steps on the signal', async () => {
+    await setup('drive');
+    await overdueCard();
     expect(header()).toContain('When steps_left is 0, bring the signal to the owners.');
     expect(header()).not.toContain('Change nothing');
-    expect(header()).toContain('close with dismiss_signal and a note');
-    expect(wakeRows()).toMatchObject([
-      {
-        kind: 'ready_waiting',
-        step: { tool: 'start_member', task_key: null, members: ['pm'] },
-        steps_left: 3,
-      },
-    ]);
+    expect(wakeRows()).toMatchObject([{ kind: 'obligation_overdue', steps_left: 3 }]);
   });
 
   it('shows a signal again as a follow-up with its steps and what is left of the budget', async () => {
     await setup('drive');
-    const { card, signal } = await idleCard();
+    const { card, signal } = await overdueCard();
     const stepAt = now.toISOString();
     await h.domain.teamTools.startTask(await operator(), { taskKey: card.key, signalId: signal.id });
-    // The started developer finishes a turn and sits idle, so the idle case stands again after a while.
-    const developer = await waitForSession(h.domain, { member: 'dev-1' });
-    h.runner.setState(developer.id, 'working');
-    h.runner.setState(developer.id, 'idle');
-    await flush();
-    later(OPERATOR_IDLE_MINUTES + OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    later(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
     const session = (await operator()).sessionId;
     h.runner.setState(session, 'working');
     h.runner.setState(session, 'idle');

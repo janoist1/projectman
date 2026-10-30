@@ -2639,4 +2639,38 @@ migrations.push({
       FROM senior_waits WHERE ended_at IS NULL ORDER BY rowid;
     DROP TABLE senior_waits;`,
 });
+migrations.push({
+  version: 132,
+  name: 'the stuck-card signals are one obligation rung',
+  // PM-1152: the obligation ladder gets a rung that tells the project manager (`pm_told_at`), delivered as the
+  // `obligation_overdue` operator signal. The four duplicate stall detectors (idle, merge_waiting, ready_waiting,
+  // refinement_stalled) and the owner alerts of the same stalls are retired. operator_signals is rebuilt like
+  // version 120 (the kind CHECK grows by 'obligation_overdue'; every row is carried over unchanged, the old kinds
+  // stay valid so closed rows and events keep rendering). Open rows of the retired kinds are resolved and the
+  // open `work_stalled` and refinement 'stalled' alerts are cancelled: the obligation row of the stuck step
+  // watches it now. Obligation rows carry no data rewrite (`pm_told_at` is NULL).
+  sql: `ALTER TABLE obligations ADD COLUMN pm_told_at TEXT;
+    DROP INDEX operator_signals_open;
+    DROP INDEX operator_signals_delivery;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting','answer_stalled','process_cleanup_failed','refinement_stalled','loop_suspected','structural_pattern','milestone_closed','start_blocked','obligation_overdue')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,
+      follow_up_at TEXT, decision_note TEXT, delivered_to TEXT
+    );
+    INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to)
+      SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to FROM operator_signals_old ORDER BY rowid;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;
+    CREATE INDEX operator_signals_delivery ON operator_signals(project_key, kind, delivered_at);
+    UPDATE operator_signals SET resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE resolved_at IS NULL AND kind IN ('idle','merge_waiting','ready_waiting','refinement_stalled');
+    UPDATE inbox_items SET state = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE kind = 'alert' AND state IN ('open','screening') AND (
+        json_extract(payload, '$.alert') = 'work_stalled'
+        OR (json_extract(payload, '$.alert') = 'refinement' AND json_extract(payload, '$.reason') = 'stalled'));`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

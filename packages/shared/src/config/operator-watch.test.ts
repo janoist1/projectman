@@ -39,7 +39,7 @@ describe('operatorSignalBudget', () => {
 describe('operatorSignalStepRefusal', () => {
   const base = {
     level: 'unblock',
-    kind: 'idle',
+    kind: 'obligation_overdue',
     tool: 'start_task',
     target: { member: null, taskKey: 'AR-1' },
     allowed: idleAllowed,
@@ -109,21 +109,14 @@ describe('operatorSignalStepRefusal', () => {
     }
   });
 
-  it('keeps refinement_stalled report-only at every level, and dismissible', () => {
-    expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).toContain('refinement_stalled');
-    for (const level of ['report', 'unblock', 'drive'] as const) {
-      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('refinement_stalled');
-      for (const tool of ['start_task', 'start_member'] as const)
-        expect(
-          operatorSignalStepRefusal({
-            ...base,
-            level,
-            kind: 'refinement_stalled',
-            tool,
-            target: { member: tool === 'start_member' ? 'dev-1' : null, taskKey: 'AR-1' },
-            allowed: { startTask: 'AR-1', members: ['dev-1'], taskKey: 'AR-1' },
-          }),
-        ).toEqual({ code: 'operator_no_request', reason: level === 'report' ? 'level' : 'kind' });
+  it('lets the overdue obligation be dismissed and stepped on, and gives the retired stall kinds neither', () => {
+    expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).toContain('obligation_overdue');
+    for (const level of ['unblock', 'drive'] as const)
+      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).toContain('obligation_overdue');
+    for (const kind of ['idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled'] as const) {
+      expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).not.toContain(kind);
+      for (const level of ['unblock', 'drive'] as const)
+        expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain(kind);
     }
   });
 
@@ -142,7 +135,7 @@ describe('operatorSignalStepRefusal', () => {
       code: 'operator_no_request',
       reason: 'target',
     });
-    const merge = { ...base, kind: 'merge_waiting', tool: 'start_member', allowed: mergeAllowed } as const;
+    const merge = { ...base, tool: 'start_member', allowed: mergeAllowed } as const;
     for (const target of [
       { member: 'dev-1', taskKey: 'AR-2' },
       { member: 'claude', taskKey: 'AR-9' },

@@ -617,8 +617,11 @@ export const ReleaseFailedAlert = z.object({
 });
 export type ReleaseFailedAlert = z.infer<typeof ReleaseFailedAlert>;
 
-/** `work_stalled` (PM-1082): startable cards and free developers, and no developer started since `since`. One open alert per project. */
-export const WorkStalledAlert = z.object({
+/**
+ * `work_stalled` (PM-1082): startable cards and free developers, and no developer started since `since`.
+ * No new one opens (PM-1152: the obligation ladder watches a stuck card); old items still render.
+ */
+const WorkStalledAlert = z.object({
   alert: z.literal('work_stalled'),
   since: z.string().datetime(),
   cards: z.array(TaskKey).min(1),
@@ -631,7 +634,6 @@ export const WorkStalledAlert = z.object({
     }),
   ),
 });
-export type WorkStalledAlert = z.infer<typeof WorkStalledAlert>;
 
 export const AlertPayload = z.discriminatedUnion('alert', [
   EmailParkedAlert,

@@ -159,6 +159,9 @@ describe('describeEvent', () => {
     expect(describeEvent(event('obligation_woken', {}, undefined, null), 100)).toBe(
       'reminded the responsible once about the open step (?): no action in ? minutes',
     );
+    expect(describeEvent(event('obligation_pm_told', data, undefined, null), 100)).toBe(
+      'told the project manager about the open review step (code_review@x) of cr: still no action after the reminder',
+    );
   });
   it('names the labels of a label change', () => {
     const changed = event('task_labels_changed', { added: ['qa-ok'], removed: ['qa-failed', 'qa-retest'] });

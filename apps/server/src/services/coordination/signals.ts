@@ -1,11 +1,7 @@
-import type { OperatorSessions, OperatorAdmission } from './ports';
+import type { OperatorSessions } from './ports';
 import {
-  ALERT_SEEN_OPTION,
-  DEFAULT_AGENT_PROVIDER,
-  alertPayloadOf,
   answerStallEvidence,
   conditionHolds,
-  ownerHandles,
   dutyMembers,
   isOpenTask,
   isTheme,
@@ -15,14 +11,9 @@ import {
   OPERATOR_FAST_SIGNAL_KINDS,
   PENDING_INBOX_STATES,
   WAITING_ANSWER_LABEL,
-  startableCards,
   OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
-  refinementStallRefusal,
-  refinementTurn,
-  turnStalled,
   memberQueueSourceId,
   coordinationMemberOf,
-  projectManagersOf,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEP_KINDS,
   OPERATOR_SIGNAL_STEPS,
@@ -31,17 +22,11 @@ import {
   OperatorSignal,
   LoopTriageFacts,
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
-  aiLimitReached,
   isOnLeave,
   isWorkPaused,
   memberOf,
   openPrerequisites,
   stageOf,
-  stageOwners,
-  OPERATOR_IDLE_MINUTES,
-  OPERATOR_MERGE_WAIT_MINUTES,
-  OPERATOR_READY_STALL_OWNER_MINUTES,
-  OPERATOR_READY_WAITING_MINUTES,
   OPERATOR_SILENT_WORK_MINUTES,
   OPERATOR_START_FETCH_FAILED_MINUTES,
   START_BLOCKED_REASONS,
@@ -50,20 +35,17 @@ import {
 import type {
   AnswerEvidence,
   AnswerStalledFacts,
+  ObligationOverdueFacts,
   OperatorSignalKind,
   OperatorSignalStepTargets,
   OperatorWatch,
   ProjectConfig,
-  RefinementStallFacts,
-  Stage,
   StartBlockedReason,
   Task,
   TaskStartWaiting,
-  TaskWait,
   TimelineEvent,
-  WorkStalledAlert,
 } from '@projectman/shared';
-import type { OperatorSignalRecord, TaskSessionActivity } from '../../db';
+import type { OperatorSignalRecord } from '../../db';
 import {
   StructuralPatterns,
   STRUCTURAL_KINDS,
@@ -87,14 +69,6 @@ import { newId } from '../../kernel';
 /** Why a queued signal is held back: its own wake line is not due, or it is not owed now (`heldBack`). */
 type SignalHold = 'interval' | 'unready';
 
-type RefinementStallInput = {
-  projectKey: string;
-  taskKey: string;
-  label: string;
-  member: string;
-  turnAt: string;
-};
-
 type SignalInput = {
   projectKey: string;
   kind: OperatorSignalKind;
@@ -104,22 +78,10 @@ type SignalInput = {
   inboxItemId?: string | null;
 };
 
-/** Startable cards with a free developer (PM-1082): who is free and, among the same stages' AI owners, who is not and why. */
-type ReadyStall = {
-  cards: string[];
-  free: string[];
-  unavailable: WorkStalledAlert['unavailable'];
-  /** The AI owners of those stages: a start of any of their sessions on a card ends the stall's run. */
-  developers: string[];
-};
-
 /** The kinds raised and closed from the board's facts (PM-547), not from an event. */
 const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
-  'idle',
-  'merge_waiting',
   'merge_blocked',
   'unreleased',
-  'ready_waiting',
   'answer_stalled',
 ]);
 
@@ -153,16 +115,13 @@ const WAKE_LOOP =
 const WAKE_STEP =
   'Where a signal has a step, you may take it yourself with its signal_id after weighing it, within steps_left and not before next_step_at; a signal with follow_up true was acted on, so tell the owners what you did and what became of it.';
 const WAKE_DISMISS =
-  'A ready_waiting signal whose cards all wait on purpose you close with dismiss_signal and a note instead of bringing it to the owners; new_cards in its facts are the cards that became ready since the last close.';
-
-const WAKE_REFINEMENT =
-  'A refinement_stalled signal is report-only and starts nothing: check get_task and get_project_state first; when the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners; bring it to the owners only when the turn really stands stalled.';
+  'An obligation_overdue signal says the responsible did not act even after the reminder, and that the step goes to a person at hand_over_at in its facts: check get_task and get_project_state first; when the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners; otherwise take its step or leave it to go to the person.';
 
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_REFINEMENT} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
 };
 
 /** The case key of a card's blocked start: one per card and reason (PM-455). */
@@ -175,26 +134,10 @@ function answerStalledMember(caseKey: string): string | null {
   return caseKey.split(':')[2] ?? null;
 }
 
-/** The case key of a stalled refinement turn: `refinement_stalled:<taskKey>:<label>:<member>:<turnAt>`. */
-function refinementStallCaseKey(input: RefinementStallInput): string {
-  return `refinement_stalled:${input.taskKey}:${input.label}:${input.member}:${input.turnAt}`;
+/** The case key of an overdue obligation: one per obligation row (the row is unique for ever). */
+function obligationOverdueCaseKey(obligationId: string): string {
+  return `obligation_overdue:${obligationId}`;
 }
-
-/** The parts of a `refinement_stalled` case key; the turn time holds colons itself. */
-function refinementStallOf(projectKey: string, caseKey: string): RefinementStallInput | null {
-  const [, taskKey, label, member, ...turnAt] = caseKey.split(':');
-  return taskKey && label && member && turnAt.length
-    ? { projectKey, taskKey, label, member, turnAt: turnAt.join(':') }
-    : null;
-}
-
-/** Session states in which a member is in the middle of a turn. */
-const ENGAGED_STATES: ReadonlySet<string> = new Set([
-  'starting',
-  'working',
-  'waiting_permission',
-  'waiting_input',
-]);
 
 type OpenMerge = ReturnType<DomainContext['repos']['taskMerges']['openOfProject']>[number];
 
@@ -203,16 +146,11 @@ interface BoardReads {
   waits: ReturnType<TaskWaits['of']>;
   /** The project's open merges by card. */
   merges: ReadonlyMap<string, OpenMerge>;
-  /** Per card and member: the latest session start, activity and end. */
-  activity: readonly TaskSessionActivity[];
 }
 
-/** The board cases of a pass, the ready stall they carry and whether a transient limit hides it. */
+/** The board cases of a pass. */
 interface BoardRead {
   cases: Map<string, SignalInput>;
-  stall: ReadyStall | null;
-  /** The stall cannot be judged now (the AI limit is reached, or work is paused): its clock and alert stay as they are. */
-  held: boolean;
 }
 
 /** One notice per system problem episode; notices never authorize a write. */
@@ -224,45 +162,32 @@ export class OperatorSignals {
     ctx: DomainContext;
     projects: ProjectService;
     sessions: OperatorSessions;
-    admission: OperatorAdmission;
     queue: Pick<MemberQueue, 'add'>;
     wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
-    inbox: Pick<InboxService, 'create' | 'cancel' | 'list' | 'closeQuestionsOfSignal'>;
+    inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal'>;
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
     startAttempting: (task: Task) => boolean;
-    startHandled?: (task: Task) => boolean;
   }) {
     this.deps = privateDeps;
   }
-  /**
-   * The stall of each project that lasts now (PM-1082): its first sweep, and the developers whose start ends
-   * it. Memory only: a restart starts the clock over, at most one delay.
-   */
-  private readonly stalls = new Map<string, { since: number; developers: readonly string[] }>();
-  /** Projects whose owners got the `work_stalled` alert in the stall that lasts. */
-  private readonly told = new Set<string>();
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
     sessions: OperatorSessions;
-    admission: OperatorAdmission;
     /** The coordinator's work queue: a pending signal is an item of it. */
     queue: Pick<MemberQueue, 'add'>;
     /** Works the member's queue (the driver's `ensure`). */
     wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
-    /** The owners' `work_stalled` alert (PM-1082). */
-    inbox: Pick<InboxService, 'create' | 'cancel' | 'list' | 'closeQuestionsOfSignal'>;
+    inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal'>;
     /** Why the start of AI work on a stored card waits (PM-455): the scheduling reads carry no `startWaiting`. */
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
     startAttempting: (task: Task) => boolean;
-    /** The start round already acts on the ready card: it holds it on purpose or asked a member to start it (PM-804). */
-    startHandled?: (task: Task) => boolean;
   };
 
   /** The targeted card reads (PM-771): the periodic work never lists the project's whole card history. */
@@ -313,85 +238,17 @@ export class OperatorSignals {
   }
 
   /**
-   * Tells the project manager that a member's refinement turn ended without its label (PM-702), as a
-   * report-only signal. The case is checked against the cards, sessions and questions first; then it is
-   * stored as a pending signal (durable, one per turn) and delivered when the PM can be woken. A PM that
-   * cannot take it at all (none, AI off, leave, team pause) is `unavailable` and nothing is stored; a stored
-   * signal that waits (offline engine, admission's line, the wake interval) is `queued`, no failure; a
-   * storage or delivery error is `failed`, and the stored signal stays for the next sweep.
+   * The pending signal of an obligation that reached its project manager rung (PM-1152): one per obligation
+   * row, stored with the caller's write; `deliver` brings it to the project manager. Returns the signal id.
    */
-  async reportRefinementStall(
-    input: RefinementStallInput,
-  ): Promise<'delivered' | 'queued' | 'unavailable' | 'failed'> {
-    const { ctx, projects } = this.deps;
-    try {
-      const config = await projects.config(input.projectKey);
-      if (
-        !coordinationMemberOf(config) ||
-        !config.team.limits.aiEnabled ||
-        isWorkPaused(ctx.repos.pauses.open(), input.projectKey)
-      )
-        return 'unavailable';
-      // Nothing left to report: the turn changed or the member works again since the runtime looked.
-      if (!this.refinementStall(config, input)) return 'delivered';
-      const signal = this.raise({
-        projectKey: input.projectKey,
-        kind: 'refinement_stalled',
-        caseKey: refinementStallCaseKey(input),
-        taskKey: input.taskKey,
-        subject: input.label,
-      });
-      await this.deliver(input.projectKey);
-      const current = ctx.repos.operatorSignals.get(signal.id);
-      return !current || current.resolvedAt || current.deliveredAt ? 'delivered' : 'queued';
-    } catch {
-      return 'failed';
-    }
-  }
-
-  /**
-   * The facts of a stalled refinement turn when it still stands, else null: the one rule
-   * (`refinementStallRefusal`) read from the card, its recorded turn, the member's sessions and the open
-   * questions of the card now.
-   */
-  private refinementStall(config: ProjectConfig, input: RefinementStallInput): RefinementStallFacts | null {
-    const { ctx, sessions } = this.deps;
-    const { projectKey, taskKey, label, member, turnAt } = input;
-    const task = ctx.repos.tasks.get(taskKey);
-    const inProject = task?.projectKey === projectKey ? task : null;
-    const turn = ctx.repos.timeline.latestOfType(projectKey, taskKey, 'refinement_turn');
-    const step = inProject ? refinementTurn(inProject, config) : null;
-    const data = (turn?.data ?? {}) as Record<string, unknown>;
-    const memberSessions = ctx.repos.sessions.list(projectKey, { member, taskKey });
-    const questions = ctx.repos.inbox.list(projectKey, {
-      state: PENDING_INBOX_STATES,
-      kind: 'question',
-      taskKey,
-    });
-    const refusal = refinementStallRefusal({
-      taskOpen: !!inProject && isOpenTask(inProject),
-      sameTurn:
-        step?.kind === 'step' &&
-        step.label === label &&
-        !!turn &&
-        turn.createdAt === turnAt &&
-        data.label === label &&
-        data.member === member &&
-        data.reason !== 'done' &&
-        data.reason !== 'stopped',
-      labelMissing: !!inProject && !inProject.labels.includes(label),
-      memberActive: memberSessions.some((s) => sessions.isRunning(s.id) && ENGAGED_STATES.has(s.state)),
-      hasOpenQuestion: !turnStalled(questions, config),
-    });
-    if (refusal) return null;
-    const latest = [...memberSessions].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0];
-    return {
-      label,
-      member,
-      turnAt,
-      session: latest ? { id: latest.id, state: latest.state, lastActivityAt: latest.lastActivityAt } : null,
-      openQuestionIds: questions.map((q) => q.id),
-    };
+  raiseObligationOverdue(input: { projectKey: string; taskKey: string; obligationId: string }): string {
+    return this.raise({
+      projectKey: input.projectKey,
+      kind: 'obligation_overdue',
+      caseKey: obligationOverdueCaseKey(input.obligationId),
+      taskKey: input.taskKey,
+      subject: input.obligationId,
+    }).id;
   }
 
   presentation(projectKey: string, id: string, by?: string): OperatorSignalRecord {
@@ -522,23 +379,22 @@ export class OperatorSignals {
       });
     const allowed: OperatorSignalStepTargets = { startTask: null, members: [], taskKey: null };
     const task = signal.taskKey ? ctx.repos.tasks.get(signal.taskKey) : null;
-    if (signal.kind === 'idle' && task) {
-      const stage = stageOf(config, task.stageId);
-      const wait = taskWaits.ofCard(config, task);
-      const holders = stage && wait ? startable(this.idleHolders(config, stage, wait)) : [];
-      if (stage?.kind === 'work') allowed.startTask = holders.includes(task.assignee ?? '') ? task.key : null;
+    if (signal.kind === 'obligation_overdue' && task) {
+      // The step is the responsible's: a work step is a start of the card, any other one a start of the member.
+      const obligation = signal.subject ? ctx.repos.obligations.get(signal.subject) : null;
+      const holders = obligation?.responsible ? startable([obligation.responsible]) : [];
+      if (obligation?.kind === 'work')
+        allowed.startTask = holders.includes(task.assignee ?? '') ? task.key : null;
       else {
         allowed.members = holders;
         allowed.taskKey = task.key;
       }
-    } else if ((signal.kind === 'merge_waiting' || signal.kind === 'merge_blocked') && task) {
+    } else if (signal.kind === 'merge_blocked' && task) {
       const merger = ctx.repos.taskMerges.open(projectKey, task.key)?.merger;
       allowed.members = merger ? startable([merger]) : [];
       allowed.taskKey = task.key;
     } else if (signal.kind === 'unreleased') {
       allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle));
-    } else if (signal.kind === 'ready_waiting') {
-      allowed.members = startable(projectManagersOf(config).map((m) => m.handle));
     } else if (signal.kind === 'answer_stalled' && task) {
       const stage = stageOf(config, task.stageId);
       const wait = taskWaits.ofCard(config, task);
@@ -777,20 +633,12 @@ export class OperatorSignals {
         taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
       });
     }
-    // Built once and reused within this sweep (the stalled-refinement check reads it); never kept between sweeps.
+    // Built once and reused within this sweep; never kept between sweeps.
     const board = this.boardRead(config, cards, reads);
     for (const input of board.cases.values()) {
       active.add(input.caseKey);
-      // A card may re-enter between sweeps with the same set key after dismissal.
-      if (
-        input.kind === 'ready_waiting' &&
-        this.deps.ctx.repos.operatorSignals.openByCase(key, input.caseKey)?.state === 'dismissed'
-      )
-        this.resolve(key, input.caseKey);
       this.raise(input);
     }
-    // A transient limit hides the stall without ending it: its clock and its alert stay as they are.
-    if (!board.held) this.trackStall(config, board.stall, reads.activity);
     const outages = this.deps.activeOutageIds(key);
     for (const signal of this.deps.ctx.repos.operatorSignals.listOpen(key)) {
       if (
@@ -810,11 +658,8 @@ export class OperatorSignals {
         !active.has(signal.caseKey)
       )
         this.resolve(key, signal.caseKey);
-      if (
-        signal.kind === 'refinement_stalled' &&
-        !signal.resolvedAt &&
-        !this.caseHolds(config, signal, () => board.cases)
-      )
+      // The step was done, ended or handed over to a person: nothing is left to tell the project manager.
+      if (signal.kind === 'obligation_overdue' && !this.caseHolds(config, signal))
         this.resolve(key, signal.caseKey);
       if (
         signal.kind === 'stalled' &&
@@ -959,19 +804,17 @@ export class OperatorSignals {
               ? structural()!.facts(s)
               : s.kind === 'loop_suspected'
                 ? LoopTriageFacts.parse(JSON.parse(s.subject!))
-                : s.kind === 'ready_waiting'
-                  ? this.readyFacts(s)
+                : s.kind === 'obligation_overdue'
+                  ? this.obligationOverdueFacts(s)
                   : s.kind === 'answer_stalled'
                     ? this.answerStalledFacts(s)
                     : s.kind === 'start_blocked'
                       ? this.startBlockedFacts(config, s)
-                      : s.kind === 'refinement_stalled'
-                        ? { refinement: this.refinementStallFacts(config, s) }
-                        : s.inboxItemId
-                          ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                          : s.subject
-                            ? ctx.repos.sessions.get(s.subject)?.activity
-                            : null,
+                      : s.inboxItemId
+                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                        : s.subject
+                          ? ctx.repos.sessions.get(s.subject)?.activity
+                          : null,
             step: this.stepOf(level, config, s),
             steps_left: structuralKind(s.kind) ? 0 : budget.left,
             next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
@@ -1033,8 +876,6 @@ export class OperatorSignals {
     const { ctx, projects } = this.deps;
     const now = ctx.now().getTime();
     let board: Map<string, SignalInput> | undefined = known?.cases;
-    // Read at most once per call, however many ready_waiting signals are asked about.
-    let started: number | null | undefined;
     return open.filter((s) => {
       if (s.resolvedAt) return false;
       // A signal the coordinator took a step on is shown again once its follow-up time has come (PM-545).
@@ -1067,19 +908,13 @@ export class OperatorSignals {
         const card = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
         if (card && this.startAttemptRunning(card)) return false;
       }
-      // Free capacity is raised at once but wakes the coordinator only if the stall lasts without a break (PM-547, PM-1082).
       // A failed fetch may be a network blip the system's own retries mend: told only if it outlasts them (PM-455).
-      if (
+      return !(
         s.kind === 'start_blocked' &&
         s.subject === 'workspace_fetch_failed' &&
         !s.deliveredAt &&
         now - Date.parse(s.raisedAt) < OPERATOR_START_FETCH_FAILED_MINUTES * 60_000
-      )
-        return false;
-      if (s.kind !== 'ready_waiting' || again) return true;
-      if (started === undefined) started = this.stallStart(projectKey);
-      const stalledSince = started;
-      return stalledSince !== null && now - stalledSince >= OPERATOR_READY_WAITING_MINUTES * 60_000;
+      );
     });
   }
 
@@ -1118,9 +953,10 @@ export class OperatorSignals {
       const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
       return !!task && (this.startBlockedReason(task) === s.subject || this.startAttemptRunning(task));
     }
-    if (s.kind === 'refinement_stalled') {
-      const stall = refinementStallOf(s.projectKey, s.caseKey);
-      return !!config && !!stall && !!this.refinementStall(config, stall);
+    if (s.kind === 'obligation_overdue') {
+      // The step is still the responsible's and the project manager has been told: any other end closes the case.
+      const obligation = ctx.repos.obligations.get(s.subject ?? '');
+      return obligation?.state === 'open' && obligation.pmToldAt !== null;
     }
     if (s.kind === 'silent' || s.kind === 'stalled') {
       const session = ctx.repos.sessions.get(s.subject ?? '');
@@ -1142,7 +978,6 @@ export class OperatorSignals {
     return {
       waits: taskWaits.of(config, cards),
       merges: new Map(ctx.repos.taskMerges.openOfProject(projectKey).map((row) => [row.taskKey, row])),
-      activity: ctx.repos.sessions.taskActivity(projectKey),
     };
   }
 
@@ -1171,43 +1006,6 @@ export class OperatorSignals {
     const openMerges = [...merges.values()];
 
     if (works) {
-      const activeAt = new Map<string, number>();
-      for (const row of reads.activity) {
-        const at = Math.max(Date.parse(row.lastActivityAt), row.endedAt ? Date.parse(row.endedAt) : 0);
-        activeAt.set(row.taskKey, Math.max(activeAt.get(row.taskKey) ?? 0, at));
-      }
-      for (const task of cards) {
-        const wait = waits.get(task.key);
-        const stage = stageOf(config, task.stageId);
-        if (!wait || !stage || (stage.kind !== 'work' && stage.kind !== 'step')) continue;
-        // The scheduling read leaves out the derived `merge`, so the wait cannot say `merge` here: a card
-        // with an open merge request waits for the merge, and `merge_waiting` / `merge_blocked` speak for it (PM-578).
-        if (merges.has(task.key)) continue;
-        const holders = this.idleHolders(config, stage, wait);
-        const idleSince = Math.max(Date.parse(wait.since), activeAt.get(task.key) ?? 0);
-        if (holders.length === 0 || now - idleSince < OPERATOR_IDLE_MINUTES * 60_000) continue;
-        add({
-          kind: 'idle',
-          caseKey: `idle:${task.key}:${task.stageId}`,
-          taskKey: task.key,
-          subject: holders.join(','),
-        });
-      }
-      for (const row of openMerges) {
-        if (
-          row.state !== 'requested' ||
-          row.startedAt ||
-          !aiMember(row.merger) ||
-          now - Date.parse(row.requestedAt) < OPERATOR_MERGE_WAIT_MINUTES * 60_000
-        )
-          continue;
-        add({
-          kind: 'merge_waiting',
-          caseKey: `merge_waiting:${row.taskKey}`,
-          taskKey: row.taskKey,
-          subject: row.merger,
-        });
-      }
       for (const task of cards) {
         const stage = stageOf(config, task.stageId);
         const member = task.assignee ? aiMember(task.assignee) : null;
@@ -1239,150 +1037,7 @@ export class OperatorSignals {
         });
       }
 
-    const held = works && aiLimitReached(config, sessions.busyCount());
-    const stall = works && !held ? this.readyStall(config, cards, waits) : null;
-    if (stall)
-      add({
-        kind: 'ready_waiting',
-        caseKey: 'ready_waiting:' + stall.cards.join(','),
-        taskKey: null,
-        subject: stall.cards.join(','),
-      });
-    return { cases: found, stall, held };
-  }
-
-  /**
-   * The startable cards of the queue stages before a work stage that has a free developer (PM-1082), with the
-   * free developers and why the other AI owners of those stages are not free. The one meaning of "free" is
-   * admission's (`freeDevelopers`) and a connected engine; null when no unacknowledged card waits for one.
-   */
-  private readyStall(
-    config: ProjectConfig,
-    cards: readonly Task[],
-    waits: ReturnType<TaskWaits['of']>,
-  ): ReadyStall | null {
-    const { ctx, admission } = this.deps;
-    const projectKey = config.project.key;
-    const ready: Task[] = [];
-    const free = new Set<string>();
-    const developers = new Set<string>();
-    const unavailable = new Map<string, WorkStalledAlert['unavailable'][number]['reason']>();
-    for (const [index, stage] of config.pipeline.stages.entries()) {
-      const next = config.pipeline.stages[index + 1];
-      if (index <= 0 || next?.kind !== 'work' || stage.kind !== 'queue') continue;
-      const startable = startableCards({
-        config,
-        tasks: cards,
-        fromStageId: stage.id,
-        toStageId: next.id,
-      }).filter((task) => waits.get(task.key)?.reason === 'ready' && !this.deps.startHandled?.(task));
-      const available = admission
-        .freeDevelopers(config, next.id)
-        .map((developer) => developer.handle)
-        .filter((handle) => admission.engineOffline(projectKey, handle) === null);
-      if (startable.length === 0 || available.length === 0) continue;
-      ready.push(...startable);
-      for (const handle of available) {
-        free.add(handle);
-        developers.add(handle);
-      }
-      for (const handle of stageOwners(config, next)) {
-        const member = memberOf(config, handle);
-        if (member?.kind !== 'ai' || member.temp || available.includes(handle)) continue;
-        developers.add(handle);
-        unavailable.set(
-          handle,
-          isOnLeave(member)
-            ? 'leave'
-            : !admission.providerAvailable(config, member.provider ?? DEFAULT_AGENT_PROVIDER, handle)
-              ? 'provider_hold'
-              : admission.engineOffline(projectKey, handle) !== null
-                ? 'engine_offline'
-                : 'busy',
-        );
-      }
-    }
-    const ack = ctx.repos.operatorSignals.latestDismissed(projectKey, 'ready_waiting');
-    if (!ready.some((task) => !this.acknowledged(task, ack))) return null;
-    return {
-      cards: ready
-        .map((task) => task.key)
-        .sort((a, b) => Number(a.split('-').at(-1)) - Number(b.split('-').at(-1))),
-      free: [...free],
-      unavailable: [...unavailable]
-        .filter(([handle]) => !free.has(handle))
-        .map(([handle, reason]) => ({ handle, reason })),
-      developers: [...developers],
-    };
-  }
-
-  /**
-   * When the stall of the project last began without a break (PM-1082): the first sweep that found it, or the
-   * latest start of a developer's session on a card since, whichever is later; null when none lasts.
-   */
-  private stallStart(
-    projectKey: string,
-    activity: readonly TaskSessionActivity[] = this.deps.ctx.repos.sessions.taskActivity(projectKey),
-  ): number | null {
-    const stall = this.stalls.get(projectKey);
-    if (!stall) return null;
-    let from = stall.since;
-    for (const row of activity)
-      if (stall.developers.includes(row.member)) from = Math.max(from, Date.parse(row.startedAt));
-    return from;
-  }
-
-  /**
-   * Keeps the clock of the stall and tells the owners once, `OPERATOR_READY_STALL_OWNER_MINUTES` after the
-   * coordinator was due to wake (PM-1082). The alert closes when the stall ends; a new stall may tell again.
-   */
-  private trackStall(
-    config: ProjectConfig,
-    ready: ReadyStall | null,
-    activity?: readonly TaskSessionActivity[],
-  ): void {
-    const { ctx, inbox } = this.deps;
-    const projectKey = config.project.key;
-    const open = inbox
-      .list(projectKey, { state: 'open', kind: 'alert' })
-      .filter((item) => alertPayloadOf(item)?.alert === 'work_stalled');
-    if (!ready) {
-      this.stalls.delete(projectKey);
-      this.told.delete(projectKey);
-      for (const item of open) inbox.cancel(item.id);
-      return;
-    }
-    const now = ctx.now().getTime();
-    this.stalls.set(projectKey, {
-      since: this.stalls.get(projectKey)?.since ?? now,
-      developers: ready.developers,
-    });
-    const from = this.stallStart(projectKey, activity)!;
-    const owners = ownerHandles(config);
-    if (
-      now - from < (OPERATOR_READY_WAITING_MINUTES + OPERATOR_READY_STALL_OWNER_MINUTES) * 60_000 ||
-      this.told.has(projectKey) ||
-      open.length > 0 ||
-      owners.length === 0
-    )
-      return;
-    this.told.add(projectKey);
-    const payload: WorkStalledAlert = {
-      alert: 'work_stalled',
-      since: new Date(from).toISOString(),
-      cards: ready.cards,
-      free: ready.free,
-      unavailable: ready.unavailable,
-    };
-    inbox.create({
-      projectKey,
-      kind: 'alert',
-      assignees: owners,
-      source: 'system',
-      title: `Startable cards wait and no developer started for ${Math.floor((now - from) / 60_000)} minutes`,
-      payload,
-      options: [ALERT_SEEN_OPTION],
-    });
+    return { cases: found };
   }
 
   /**
@@ -1471,9 +1126,22 @@ export class OperatorSignals {
     return sameCaseSteps >= OPERATOR_SIGNAL_STEPS.drive;
   }
 
-  private refinementStallFacts(config: ProjectConfig, signal: OperatorSignalRecord) {
-    const stall = refinementStallOf(signal.projectKey, signal.caseKey);
-    return stall ? this.refinementStall(config, stall) : null;
+  /** What the project manager needs to weigh an overdue step: the row's clock, not the reasons it stands. */
+  private obligationOverdueFacts(signal: OperatorSignalRecord): ObligationOverdueFacts | null {
+    const row = this.deps.ctx.repos.obligations.get(signal.subject ?? '');
+    if (!row) return null;
+    return {
+      obligation: {
+        id: row.id,
+        kind: row.kind,
+        responsible: row.responsible,
+        subject: row.subject,
+        openedAt: row.openedAt,
+        wokenAt: row.wokenAt,
+        // The step goes to a person when the row's deadline passes (the last rung).
+        handOverAt: row.dueAt,
+      },
+    };
   }
 
   private answerStalledFacts(signal: OperatorSignalRecord): AnswerStalledFacts | null {
@@ -1491,47 +1159,6 @@ export class OperatorSignals {
     };
   }
 
-  /** The latest dismissal covers cards that have not re-entered their stage since it. */
-  private acknowledged(task: Task, ack: OperatorSignalRecord | null): boolean {
-    return (
-      !!ack?.decidedAt &&
-      !!ack.subject?.split(',').includes(task.key) &&
-      (task.stageEnteredAt ?? task.createdAt) <= ack.decidedAt
-    );
-  }
-
-  private readyFacts(signal: OperatorSignalRecord) {
-    const ack = this.deps.ctx.repos.operatorSignals.latestDismissed(signal.projectKey, 'ready_waiting');
-    const cards = signal.subject?.split(',') ?? [];
-    return {
-      cards,
-      new_cards: cards.filter((key) => {
-        const task = this.deps.ctx.repos.tasks.get(key);
-        return task && !this.acknowledged(task, ack);
-      }),
-      last_dismissed: ack
-        ? {
-            at: ack.decidedAt,
-            by: ack.decidedBy,
-            note: ack.decisionNote,
-            cards: ack.subject?.split(',') ?? [],
-          }
-        : null,
-    };
-  }
-
-  /** The AI members, not on leave, that hold an idle card: its assignee, or the owners of the step it stands in. */
-  private idleHolders(config: ProjectConfig, stage: Stage, wait: TaskWait): string[] {
-    const available = (handles: readonly string[]) =>
-      handles.filter((handle) => {
-        const member = memberOf(config, handle);
-        return member?.kind === 'ai' && !isOnLeave(member);
-      });
-    if (wait.reason === 'assignee') return available(wait.next.map((entry) => entry.handle));
-    if (wait.reason !== 'queued') return [];
-    if (wait.next.length > 0) return available(wait.next.map((entry) => entry.handle));
-    return stage.kind === 'step' ? available(stageOwners(config, stage)) : [];
-  }
   /**
    * Whether a signal's line may wake the coordinator now (PM-694): the general line waits
    * `OPERATOR_SIGNAL_WAKE_INTERVAL_MS` after its last delivery, the fast line (`answer_stalled`) only

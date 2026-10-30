@@ -1492,8 +1492,8 @@ the transcript summary go through the existing runner and transcript entries.
 
 An open step of an AI member must not get lost when its session exits, stalls or misunderstands.
 `services/obligations` (`ObligationsService`) gives every such step a responsible and a deadline of
-`TeamLimits.obligationMinutes` minutes (5–1440, default 30, in `WAIVER_LIMITS`). Kinds in this card:
-`merge`, `work`, `review_step` and `refinement_turn` (`fix_limit` and the PM path follow in other cards).
+`TeamLimits.obligationMinutes` minutes (5–1440, default 20, in `WAIVER_LIMITS`). Kinds in this card:
+`merge`, `work`, `review_step` and `refinement_turn` (`fix_limit`, `start` and `senior_wait` follow in other cards).
 Each kind has a source (`sources.ts`) that derives, from the task waits, the merge requests and the
 refinement turn, which steps are open now; the sweep writes one row of `obligations` (migration 88, not
 journaled) per card, kind, responsible and subject, and closes a row whose step ended.
@@ -1527,9 +1527,17 @@ A card imported into the stage (its `task_created` event carries `imported` and 
 over, so it has no step until it enters the stage again. Known gap: a second review round on the same entry (after a `code-review-changes` and the developer's fix)
 opens no new row.
 
-The pure clock is `planObligation` in `packages/shared/src/domain/obligation.ts`: the first expiry sends
-one action message from the system to the responsible (`obligation_woken`), the second makes one integrator
-todo (`obligation_handed_over`, `core/inbox` `openIntegratorTodo`). Activity of the responsible moves the
+**The ladder and the single stall watcher (PM-1152).** A stuck card has one watcher row: its obligation. The
+pure clock is `planObligation` in `packages/shared/src/domain/obligation.ts`, over the rungs `wake`, `tell_pm`
+and `hand_over` (`obligationRungsOf` drops `wake` when nobody is responsible, and `tell_pm` when there is no
+project manager or the project manager is the responsible). The first expiry sends one action message from the
+system to the responsible (`obligation_woken`); the second tells the project manager (`obligation_pm_told`:
+`pm_told_at` is written, the deadline moves on by one step and an `obligation_overdue` operator signal is raised
+in the same unit of work; the signal follows the usual delivery rules and is resolved by the 60 s signal sweep
+once the obligation is no longer open); the third makes one integrator todo (`obligation_handed_over`,
+`core/inbox` `openIntegratorTodo`). With `wake` on the ladder but no `tell_pm` the gap before the hand-over
+is two steps, so the time to a human stays the same. The former `idle`, `merge_waiting`, `ready_waiting` and
+`refinement_stalled` signal detectors and the owner `work_stalled` alert are gone. Activity of the responsible moves the
 deadline; a person's open question, a held card, a pending permission and a refused start (team paused,
 engine offline, `PAUSING_REFUSALS`) stop the clock and a resume restarts it. A restart, a double sweep and
 a crash between the todo and the row write repeat nothing: the rows hold the clock and the todo is found

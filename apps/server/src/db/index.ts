@@ -106,7 +106,6 @@ export type { UserRecord } from './users';
 export type { ProjectRecord } from './projects';
 export type { TaskPatch } from './tasks';
 export { encodeWorkItem, decodeWorkItem } from './sessions';
-export type { TaskSessionActivity } from './sessions';
 
 /** All repositories over one database connection. */
 export function createRepositories(db: Db) {

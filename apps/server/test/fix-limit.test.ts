@@ -156,7 +156,8 @@ describe('fix round limit', () => {
       expect(reminders()[0]).toMatchObject({ member: 'lead', kind: 'start', wake: true });
       expect(items()).toHaveLength(0);
       await stop();
-      advance(30);
+      // There is no word to the project manager on this ladder: the hand-over comes two gaps after the reminder.
+      advance(40);
       await sweep();
       expect(items()).toHaveLength(1);
       const decision = items()[0]!;
@@ -257,7 +258,7 @@ describe('fix round limit', () => {
       const update = vi.spyOn(h.repos.obligations, 'update').mockImplementationOnce(() => {
         throw new Error('Interrupted');
       });
-      advance(30);
+      advance(40);
       await sweep();
       expect(items()).toHaveLength(1);
       expect(todos()).toHaveLength(0);
@@ -280,7 +281,7 @@ describe('fix round limit', () => {
         await tool('lead', 'continue');
         return null;
       });
-      advance(30);
+      advance(40);
       await sweep();
       expect(timeout).toHaveBeenCalledOnce();
       expect(h.repos.obligations.find('AR', 'AR-1', 'fix_limit', 'lead', subject)?.state).toBe('fulfilled');

@@ -184,7 +184,7 @@ describe('the start offer to the project manager', () => {
       const row = startRows(collector)[0]!;
       minutes(6);
       await sweep();
-      minutes(6);
+      minutes(10);
       await sweep();
       expect(todos()[0]?.state).toBe('open');
       await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, { userId: null, source: 'system' });
@@ -526,7 +526,7 @@ describe('the start offer to the project manager', () => {
   });
 
   describe('the clock', () => {
-    it('wakes the pm once after N minutes and hands a todo to the integrator after 2N', async () => {
+    it('wakes the pm once after N minutes and hands a todo to the integrator after 3N, with no word to the pm', async () => {
       await harness((c) => {
         c.team.limits.obligationMinutes = 10;
       });
@@ -543,9 +543,14 @@ describe('the start offer to the project manager', () => {
       expect(reminders()[0]).toMatchObject({ from: null, member: 'pm', kind: 'start', wake: true });
       expect(reminders()[0]!.text).toContain(key);
       expect(todos()).toEqual([]);
+      // The pm is the responsible: there is nobody else to tell, so the gap to the hand-over is 2N.
+      minutes(10);
+      await sweep();
+      expect(todos()).toEqual([]);
       minutes(10);
       await sweep();
       expect(todos()).toHaveLength(1);
+      expect(startRows(key)[0]!.pmToldAt).toBeNull();
       expect(questionPayloadOf(todos()[0]!)).toMatchObject({
         recipient: 'integrator',
         obligation: { kind: 'start', responsible: 'pm' },

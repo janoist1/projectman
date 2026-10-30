@@ -60,6 +60,46 @@ export default async ({ instance, open, shoot, step, log }) => {
   await step('notifications', async () => {
     await visit('/p/AC/notifications');
     await shoot(page, 'notifications-en', { widths: WIDTHS });
+    // The lower part: the kinds of notification and the quiet hours.
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: width > 800 ? 982 : 844 });
+      await page.getByText('What should we let you know about?').first().scrollIntoViewIfNeeded();
+      await page.getByText('Quiet hours').first().scrollIntoViewIfNeeded();
+      await shoot(page, `notifications-lower-en-${width}`, { widths: [width], fullPage: false });
+    }
+  });
+
+  await step('machine panel', async () => {
+    for (const width of WIDTHS) {
+      await visit('/p/AC');
+      await page.setViewportSize({ width, height: width > 800 ? 982 : 844 });
+      try {
+        await page.getByText('CPU').first().click({ timeout: 5000 });
+        await page.getByText('Machine and sessions').first().waitFor({ timeout: 5000 });
+      } catch (error) {
+        log(`machine panel at ${width}: ${error.message}`);
+      }
+      await shoot(page, `machine-panel-en-${width}`, { widths: [width], fullPage: false });
+    }
+  });
+
+  await step('schedule form of a member', async () => {
+    try {
+      const members = await instance.api('/api/projects/AC/members');
+      const pm = members.find((member) => member.kind === 'ai' && member.role === 'project_manager');
+      for (const width of WIDTHS) {
+        await page.setViewportSize({ width, height: width > 800 ? 982 : 844 });
+        await visit('/p/AC/team');
+        // The edit action sits in the member's "⋯" menu (its labels are not translated by this card).
+        await page.getByRole('button', { name: `További műveletek: ${pm.displayName}` }).click();
+        await page.getByRole('button', { name: `Szerkesztés: ${pm.displayName}` }).click();
+        await page.waitForSelector('dialog[open]');
+        await page.locator('dialog[open] fieldset legend', { hasText: 'Schedule' }).scrollIntoViewIfNeeded();
+        await shoot(page, `member-schedule-en-${width}`, { widths: [width], fullPage: false });
+      }
+    } catch (error) {
+      log(`schedule form not captured: ${error.message}`);
+    }
   });
 
   await step('project settings, Hungarian', async () => {

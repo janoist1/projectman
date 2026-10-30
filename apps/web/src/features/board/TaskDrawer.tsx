@@ -361,7 +361,7 @@ export function TaskDrawer() {
     if (scrollRef.current && (view === 'card' || view === 'attachments')) scrollRef.current.scrollTop = 0;
   }, [size]);
 
-  // Hiding the card's sections shortens the scroll box and so moves it: the card is put back where it was, the
+  // Hiding the card's sections shortens the scroll box and so moves it: the card is put back where it was,
   // and the other views open at their start (a link to one event of the story scrolls to that row itself).
   useLayoutEffect(() => {
     const box = scrollRef.current;

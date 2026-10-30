@@ -47,8 +47,8 @@ export class CardMeasure {
   }
 
   /**
-   * The card's detail with its rounds, its fix rounds against the limit and the stage and label events
-   * older than its timeline window.
+   * The card's detail with its rounds, its fix rounds against the limit and the stage, label, full-test
+   * and fix-limit events older than its timeline window.
    */
   withRounds(detail: TaskDetail): TaskDetail {
     const { projectKey, key } = detail.task;

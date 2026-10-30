@@ -9,7 +9,6 @@ export * from './context';
 export * from './config-store';
 export * from './integrator-principal';
 export * from './operator-knowledge';
-export * from './operator-config-authorization';
 export * from './event-bus';
 export * from './full-test';
 export * from './engine';

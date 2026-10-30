@@ -903,11 +903,9 @@ write nothing. Agreement approval does not apply its recommended configuration o
 replace their separate protected approvals. Internal PM general sessions may read the shared
 document, but cannot propose or write it. Context carries only revision, agreement and principles
 as JSON data below the fixed instructions, with no application markers or silent truncation.
-An agreement's recommended operations are sent as a durable server-generated message with
-`operator_knowledge_approval` origin. Delivery verifies the resolved inbox, matching applying human,
-approved step and current owner/Operator before opening an idempotent `approval` request. That
-request permits only `operate` with an exact stored operation; other writes require a fresh owner
-message or answer. Startup retries undelivered continuations; a consumed one never reopens.
+A proposal carries no recommended operations since the `operate` tool went away (decision 66, PM-1158):
+approving an agreement sends no continuation. Old continuation messages (`operator_knowledge_approval`
+origin) keep their delivery rules in `OperatorRequests`.
 
 **Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
 behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with

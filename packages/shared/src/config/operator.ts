@@ -86,20 +86,6 @@ export interface OperatorConfigVerdict {
 
 const LEVEL_RANK: Record<OperatorLevel, number> = { now: 0, approval: 1, never: 2 };
 
-/** Private identity and agreement facts come from the server; policy remains shared. */
-export function canWaiveOperatorApproval(
-  verdict: OperatorConfigVerdict,
-  facts: { enabled: boolean; agreementVersion: number | null; ownerRequest: boolean },
-): boolean {
-  return (
-    verdict.level === 'approval' &&
-    verdict.waiverEligible &&
-    facts.enabled &&
-    facts.agreementVersion !== null &&
-    facts.ownerRequest
-  );
-}
-
 /** Detect attempts before strict patch parsing, so mixed edits cannot hide the protected switch. */
 export function hasOperatorWaiverField(input: unknown): boolean {
   const pending = [input];
@@ -199,8 +185,7 @@ export function operatorConfigVerdict(
  * owner's own call. `approval` becomes `now` unless
  * - a row is about the Operator's own member or its own role (it does not rewrite itself), or
  * - the change has an owner-reserved effect (deletion, security, cost: `ownerReservedEffect`).
- * `never` stays `never`, and a `now` stays `now`. The approval waiver (`canWaiveOperatorApproval`) never
- * covers what this keeps at `approval`.
+ * `never` stays `never`, and a `now` stays `now`.
  */
 export function operatorAutonomousLevel(
   previous: ProjectConfig,

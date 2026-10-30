@@ -563,7 +563,8 @@ Developers' Codex sessions get one extra writable root, the parent of the machin
 queue folder (`AgentSandbox.portable`, PM-346), and the queue variables
 (`PROJECTMAN_HEAVY_LOCK_DIR`, `npm_config_prefer_offline`) through
 `shell_environment_policy.set.<NAME>`, so their `npm test` waits in the queue like the Claude
-members'. The network stays off. The roots
+members'. With the member's outbound network on (macOS engine only, PM-1172, see "Outbound
+network") the commands reach the network through Codex's own proxy; otherwise it stays off. The roots
 are filesystem write entries in the permission profile. A command run outside the sandbox
 after a question still queues, and the CLI stops one that cannot use the queue (exit 78).
 
@@ -1021,12 +1022,28 @@ sandbox's network rules.
   unreadable credential paths are unchanged.
 - **Claude Code, OFF:** `allowedDomains` is the npm registry only. Any other host is refused by
   the sandbox without asking anyone (decision 41).
-- **Codex:** the setting is carried in the policy but not mapped yet: Codex stays without
-  network whatever the setting is (PM-358).
-- **Gemini (agy) and NanoGPT:** the setting does not take effect for them either, as for Codex:
-  their adapters do not follow `network.outbound`, so the setting is only shown. The hint under
-  the checkbox tells the user that other addresses are refused; a Gemini mapping needs its own
-  card.
+- **Codex, ON, macOS engine (PM-1172):** `buildCodexArgs` adds `-c features.network_proxy=true`
+  and a `network` part to the `projectman` permission profile:
+  `network={enabled=true,domains={"*"="allow",localhost="deny","127.0.0.1"="deny"}}` (the
+  denied hosts come from `network.deniedHosts`). There is no `mode` (`limited` would allow only
+  GET, HEAD and OPTIONS), no `allow_local_binding`, no `unix_sockets` and no `proxy_url`. Codex
+  starts its proxy on its own loopback port per session and sets `HTTP_PROXY`, `HTTPS_PROXY`
+  and `ALL_PROXY`; the sandbox lets commands reach only that proxy, which refuses the loopback,
+  private and link-local addresses (also by the resolved IP) and the Unix sockets stay closed.
+  A tool that ignores the proxy variables gets no connection. The proxy and the `network` part
+  come from one branch of the code and never appear apart: a proxy-less open network would
+  reach every address directly. The file rules are unchanged (a secret stays unreadable).
+  The feature is beta: **repeat the PM-1172 probe in `docs/SANDBOX-PROBE.md` when the minimum
+  Codex version changes**; a Codex that does not accept this profile stops every Codex member
+  with the network on from starting.
+- **Codex, OFF, or a Linux engine:** the command line is the one from before PM-1172, without
+  network. The profile runs under bubblewrap and seccomp on Linux, which no probe has verified.
+- **NanoGPT:** `buildSessionPolicy` forces `allowlist` whatever the setting is (PM-1172): a
+  sandboxed command may see the Codex process's environment, the key included (PM-329). A
+  canary probe must show the isolation first.
+- **Gemini (agy):** the setting does not take effect: its adapter does not follow
+  `network.outbound`, so the setting is only shown. The hint under the checkbox tells the user
+  that other addresses are refused; a Gemini mapping needs its own card.
 
 The session policy in `runtime/sessions` (`session-policy`) is the union of the member's
 duties: editing duties work in the task worktree, read-only duties pre-approve reading tools,
@@ -1228,15 +1245,15 @@ installation required a read exception beneath its otherwise denied Codex home; 
 Five plugin flags and named user MCP disabling were exercised; the three additional
 computer/browser flags still require the agreed supplementary startup acceptance.
 
-| CLI / OS / policy                                                           | Shell file boundary                                         | Built-in file tools  | Own git / protected shared git                                                     | Network / test servers                                            | Strict minimum                         |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------- |
-| Claude 2.1.223 / macOS                                                      | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
-| Claude 2.1.284 / macOS 14.6 arm64 / old probe settings                      | Reported sibling-folder denial; nested exception unverified | Unverified           | Reported commit allowed, hooks/config blocked; other protected metadata unverified | Reported npm allowed; local binding also opened other local ports | Not established; local-port conflict   |
-| Codex 0.159.1 / macOS 14.6 arm64 / legacy settings plus writable shared git | Reported broad reads, limited writes                        | Unverified           | Reported index lock blocked but hooks/config writable                              | Reported network/binding blocked; npm used warm cache             | Fails the strict policy as configured  |
-| Codex 0.159.1 / macOS 14.6 arm64 / restricted-read permission profile       | Denied secrets, credentials, database glob and symlinks     | Denied image symlink | Worktree edits allowed; shared index lock and protected directories denied         | Not verified by the PM-356 run                                    | Not established; PM-356 deny list only |
-| Claude 2.1.223 and 2.1.284 / Linux                                          | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
-| Codex 0.159.1 / Linux                                                       | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
-| Any later proposed release / macOS or Linux                                 | Repeat full procedure                                       | Repeat               | Repeat                                                                             | Repeat                                                            | No inferred support                    |
+| CLI / OS / policy                                                           | Shell file boundary                                         | Built-in file tools  | Own git / protected shared git                                                     | Network / test servers                                                                                                                                                                                                                                | Strict minimum                         |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Claude 2.1.223 / macOS                                                      | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                                                                                                                                                                                                            | Not established                        |
+| Claude 2.1.284 / macOS 14.6 arm64 / old probe settings                      | Reported sibling-folder denial; nested exception unverified | Unverified           | Reported commit allowed, hooks/config blocked; other protected metadata unverified | Reported npm allowed; local binding also opened other local ports                                                                                                                                                                                     | Not established; local-port conflict   |
+| Codex 0.159.1 / macOS 14.6 arm64 / legacy settings plus writable shared git | Reported broad reads, limited writes                        | Unverified           | Reported index lock blocked but hooks/config writable                              | Reported network/binding blocked; npm used warm cache                                                                                                                                                                                                 | Fails the strict policy as configured  |
+| Codex 0.159.1 / macOS 14.6 arm64 / restricted-read permission profile       | Denied secrets, credentials, database glob and symlinks     | Denied image symlink | Worktree edits allowed; shared index lock and protected directories denied         | PM-356: not verified. PM-1172 (2026-10-30, integrator, codex-cli 0.159.1, macOS 14.6 arm64): with `features.network_proxy` and the `network` part only the proxy is reachable; loopback, LAN, link-local, Unix sockets and direct connections refused | Not established; PM-356 deny list only |
+| Claude 2.1.223 and 2.1.284 / Linux                                          | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                                                                                                                                                                                                            | Not established                        |
+| Codex 0.159.1 / Linux                                                       | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                                                                                                                                                                                                            | Not established                        |
+| Any later proposed release / macOS or Linux                                 | Repeat full procedure                                       | Repeat               | Repeat                                                                             | Repeat                                                                                                                                                                                                                                                | No inferred support                    |
 
 The old settings used Claude `denyRead` for sibling live/secret folders, `allowWrite` for
 `~/.npm`, strict npm-only networking and `allowLocalBinding: true`. The old report says boolean

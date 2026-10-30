@@ -3757,6 +3757,33 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(prompt).not.toContain('# Your session folder');
   });
 
+  it.each([
+    ['open', 'Outbound network: on', true],
+    ['allowlist', 'Outbound network: off', false],
+  ] as const)(
+    'shows a Codex member the network state of its policy (%s) and words the escalation to match (PM-1172)',
+    (outbound, line, open) => {
+      const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider: 'codex' };
+      const policy = { ...readerPolicy, network: { ...readerPolicy.network, outbound } };
+      const pack = builder.build(
+        input({ project, member, handle: 'code-review', task, sessionPolicy: policy, sandbox }),
+      );
+      expect(section(pack.appendSystemPrompt, '# Session policy')).toContain(line);
+      // The escalation sentence is in the commands guide.
+      const commands = pack.guide.commands ?? '';
+      expect(commands.includes('(the network or a write outside your working directory')).toBe(!open);
+      expect(commands.includes('(a write outside your working directory')).toBe(open);
+    },
+  );
+
+  it('keeps the Outbound network line out of the Claude Code context (PM-1172)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider: 'claude' };
+    const prompt = builder.build(
+      input({ project, member, handle: 'code-review', task, sessionPolicy: readerPolicy, sandbox }),
+    ).appendSystemPrompt;
+    expect(prompt).not.toContain('Outbound network:');
+  });
+
   it('tells a read-only Codex or NanoGPT reader that the server puts files in its folder (PM-522)', () => {
     const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
     const policy = withSessionFolders(readerPolicy, { own: folder, root: '/tmp/projectman-sessions/abc123' });

@@ -554,6 +554,7 @@ function unattendedCommandsSection(input: ContextPackInput, guide: ContextPack['
     localOnly: repo !== undefined && !repo.github,
     // Codex has no allow list of its own; Claude Code's comes from the role (session-policy).
     codex: isCodex(member),
+    networkOpen: sessionPolicy?.network.outbound === 'open',
     preApproved: isCodex(member)
       ? []
       : (sessionPolicy?.tools ?? roleSessionTools(project, member.role)).shell
@@ -606,6 +607,14 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
     ...(policy.filesystem.deniedPaths?.length
       ? [
           `The file tools never read or change credential files and the live instance's data (${codeList(policy.filesystem.deniedPaths)}), and web fetch never reaches ${codeList(policy.network.deniedHosts ?? [])}, in any mode: do not look for a way around it.`,
+        ]
+      : []),
+    // PM-1172: Codex's commands reach the network through its own proxy (Codex and NanoGPT members).
+    ...(isCodex(member)
+      ? [
+          policy.network.outbound === 'open'
+            ? `Outbound network: on (a member setting the owner controls). Your shell commands reach any host except ${codeList(policy.network.deniedHosts ?? [])} and local or private addresses without asking, through the proxy Codex sets in HTTP_PROXY/HTTPS_PROXY; a tool that ignores those variables gets no connection.`
+            : 'Outbound network: off (a member setting the owner controls). A shell command that needs the network is a permission request, answered as described below.',
         ]
       : []),
     'These roots are not strict read or network isolation; outside-sandbox execution still requires permission.',

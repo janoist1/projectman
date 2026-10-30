@@ -28,9 +28,13 @@ export function registerEngineRoutes(app: FastifyInstance, services: ApiServices
     if (!auth.isHostOwner(user.id) && !auth.isOwnerAccount(user.id) && memberships.length === 0)
       throw forbidden('insufficient_access', 'Engine status requires project membership');
     // Only the engines of the viewer's own projects (and their own); the host owner sees every one (PM-1061).
-    const engines =
-      engineRegistry?.statusFor({ userId: user.id, projectKeys: memberships.map((item) => item.key) }) ?? [];
-    return { mode: engineRegistry ? 'cloud' : 'single', engines };
+    const projectKeys = memberships.map((item) => item.key);
+    if (!engineRegistry) return { mode: 'single', engines: [] };
+    return {
+      mode: 'cloud',
+      engines: engineRegistry.statusFor({ userId: user.id, projectKeys }),
+      projectEngines: engineRegistry.projectEnginesOf(projectKeys),
+    };
   });
   if (!engineRegistry) return;
   const actor = async (request: Parameters<typeof currentUser>[0]) => {

@@ -3,7 +3,7 @@ import {
   V92_CHANGE_TRIGGER_TABLES,
   V130_CHANGE_TRIGGER_TABLES,
   V100_REBUILT_TRIGGER_TABLES,
-  V135_REBUILT_TRIGGER_TABLES,
+  V136_REBUILT_TRIGGER_TABLES,
   changeTriggerSql,
   changeTriggersSql,
 } from './change-triggers';
@@ -2715,6 +2715,17 @@ migrations.push({
 });
 migrations.push({
   version: 135,
+  name: 'ntfy phone notification channel',
+  // PM-901: one personal ntfy channel per user next to web push. The topic is the secret of a public ntfy
+  // server, so the server makes it up; `origin` is the instance address the link in a message points to.
+  sql: `CREATE TABLE ntfy_channels (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    server_url TEXT NOT NULL, topic TEXT NOT NULL, origin TEXT, enabled INTEGER NOT NULL DEFAULT 1,
+    last_sent_at TEXT, last_result TEXT CHECK (last_result IN ('ok','failed')), last_failure TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);`,
+});
+migrations.push({
+  version: 136,
   name: 'engine shutdown pauses',
   // PM-1159: the hub records the pause an engine makes before it stops: a third scope, `engine`, with the engine
   // id. Such a pause is always a system `shutdown` pause and names no project; at most one is open per engine.
@@ -2765,6 +2776,6 @@ migrations.push({
     CREATE UNIQUE INDEX session_pauses_open ON session_pauses(session_id) WHERE resumed_at IS NULL;
     CREATE INDEX session_pauses_project ON session_pauses(project_key, resumed_at);
     CREATE INDEX session_pauses_pause ON session_pauses(pause_id, resumed_at);
-    ${V135_REBUILT_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
+    ${V136_REBUILT_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

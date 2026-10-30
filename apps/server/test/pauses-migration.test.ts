@@ -51,8 +51,8 @@ describe('pauses migration (PM-219)', () => {
   it("keeps the pauses of a database from before the engine scope and lets an engine's shutdown pause in (PM-1159)", () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version <= 134)) db.exec(migration.sql);
-      db.pragma('user_version = 134');
+      for (const migration of migrations.filter((item) => item.version <= 135)) db.exec(migration.sql);
+      db.pragma('user_version = 135');
       db.exec(
         `INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
          INSERT INTO pauses (id, scope, project_key, kind, source, reason, requested_by, requested_at, force_after_ms)

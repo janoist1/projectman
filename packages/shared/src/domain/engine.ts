@@ -45,6 +45,11 @@ export type EngineView = z.infer<typeof EngineView>;
 export const EngineStatusResponse = z.object({
   mode: z.enum(['single', 'cloud']),
   engines: z.array(EngineStatusView),
+  /**
+   * Cloud mode: each project of the viewer and the engine its new sessions go to (`projectEngineOf`),
+   * null when nothing can take them. Absent from an older server and in single mode.
+   */
+  projectEngines: z.record(z.string(), EngineId.nullable()).optional(),
 });
 export type EngineStatusResponse = z.infer<typeof EngineStatusResponse>;
 export const CreateEngineRequest = z.strictObject({ name: z.string().trim().min(1).max(64) });

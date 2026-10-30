@@ -149,8 +149,8 @@ export const V100_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CH
   (entry) => entry.table === 'operator_requests' || entry.table === 'operator_steps',
 );
 
-/** Migration 135 (PM-1159) rebuilds these two tables of migration 81, which drops their triggers: it creates them again. */
-export const V135_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CHANGE_TRIGGER_TABLES.filter(
+/** Migration 136 (PM-1159) rebuilds these two tables of migration 81, which drops their triggers: it creates them again. */
+export const V136_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CHANGE_TRIGGER_TABLES.filter(
   (entry) => entry.table === 'pauses' || entry.table === 'session_pauses',
 );
 
@@ -172,6 +172,7 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   web_push_devices: 'personal notification settings, not project state',
   web_push_settings: 'personal notification settings, not project state',
   web_push_items: 'personal notification settings, not project state',
+  ntfy_channels: 'personal notification settings, not project state',
   auth_sessions: 'login sessions, not project state',
   counters: 'number allocator; the card row announces itself',
   decision_candidate_state: 'Operator bookkeeping that no project reader reads',

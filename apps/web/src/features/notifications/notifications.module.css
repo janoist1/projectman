@@ -421,6 +421,53 @@
   font-size: 12px;
 }
 
+/* Phone channel through ntfy */
+
+.ntfyHead {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.ntfyTopic,
+.ntfyServer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+}
+
+.ntfyTopicLine,
+.ntfyServerLine {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ntfyServerLine input {
+  flex: 1;
+  min-width: 200px;
+}
+
+.ntfyCode {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--c-subtle);
+  color: var(--c-ink);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.ntfyActions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
 /* Quiet hours */
 
 .quietHead {

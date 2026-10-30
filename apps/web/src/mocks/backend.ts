@@ -2475,10 +2475,14 @@ export class MockBackend {
       return ok({
         mode: 'cloud',
         engines: this.engines.filter((engine) => !engine.revokedAt).map((e) => this.engineStatus(e)),
+        projectEngines: Object.fromEntries(
+          me.projects.map((project) => [project.key, this.projectEngineIdOf(project.key, project.access)]),
+        ),
       });
     }
-    // The host owner manages every engine, an owner account (PM-1062) their own.
-    if (!me.hostOwner && !me.ownerAccount)
+    // The host owner manages every engine, an owner account (PM-1062) and a project owner their own (the list only).
+    const projectOwner = me.projects.some((project) => project.access === 'owner');
+    if (!me.hostOwner && !me.ownerAccount && !(projectOwner && path === '/api/engines' && method === 'GET'))
       return error(403, 'owner_only', 'Only the host owner may manage engines');
     if (this.engineMode === 'single') return error(404, 'not_found', 'Engines are not available');
     const userId = this.user.userId;
@@ -2559,6 +2563,25 @@ export class MockBackend {
       return ok(clone(this.engines));
     }
     return error(404, 'not_found', `No route for ${method} ${path}`);
+  }
+
+  /** The engine the project's new sessions go to (PM-1093), by the shared rule; the fake has one viewer. */
+  private projectEngineIdOf(projectKey: string, access: string): string | null {
+    const userId = this.user.userId;
+    const fallback = this.engines.find((entry) => entry.isDefault && !entry.revokedAt);
+    return projectEngineOf({
+      bindings: (this.projectEngineBindings.get(projectKey) ?? []).map((binding) => ({
+        ...binding,
+        revoked: Boolean(this.engines.find((entry) => entry.id === binding.engineId)?.revokedAt),
+      })),
+      globalDefault: fallback ? { id: fallback.id, ownerUserId: fallback.createdBy } : null,
+      // The seeded project is the host owner's; an owner account's own project has only its creator.
+      projectOwnerUserIds: [
+        ...(projectKey === fixtures.PROJECT_KEY ? [fixtures.mockUser.userId] : []),
+        ...(access === 'owner' ? [userId] : []),
+      ],
+      projectCreatedBy: null,
+    });
   }
 
   /** The checklist's `engine_connected` fact (PM-1069): the single-machine engine holds all; in a cloud, the default binding's engine must list the project. */

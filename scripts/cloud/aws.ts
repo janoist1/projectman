@@ -23,6 +23,8 @@ const TAG_VALUE = 'cloud';
 const POLICY_NAME = 'bucket-access';
 const LIFECYCLE_RULE_ID = 'abort-incomplete-multipart-uploads';
 const ABORT_AFTER_DAYS = 7;
+const NONCURRENT_RULE_ID = 'expire-noncurrent-versions';
+const NONCURRENT_DAYS = 30;
 
 // ---- the answers of the CLI that the steps read (loose: AWS may add fields) ----
 
@@ -52,6 +54,8 @@ const lifecycleRuleSchema = z.looseObject({
   Prefix: z.string().optional(),
   Filter: z.looseObject({ Prefix: z.string().optional() }).optional(),
   AbortIncompleteMultipartUpload: z.looseObject({ DaysAfterInitiation: z.number().optional() }).optional(),
+  NoncurrentVersionExpiration: z.looseObject({ NoncurrentDays: z.number().optional() }).optional(),
+  Expiration: z.looseObject({ ExpiredObjectDeleteMarker: z.boolean().optional() }).optional(),
 });
 const versioningSchema = z.looseObject({ Status: z.string().optional() });
 const userSchema = z.looseObject({ User: z.looseObject({ UserName: z.string() }) });
@@ -239,8 +243,8 @@ export async function runAws(context: CloudContext, options: AwsOptions): Promis
   });
 
   await report.guard('ec2', () => runEc2(context, cli, account, options.dryRun));
-  for (const bucket of [config.aws.databaseBucket, config.aws.backupBucket])
-    await ensureBucket(context, cli, options, account, bucket);
+  await ensureBucket(context, cli, options, account, config.aws.databaseBucket, false);
+  await ensureBucket(context, cli, options, account, config.aws.backupBucket, true);
   const existing: Record<string, boolean> = {};
   for (const user of USERS) existing[user.suffix] = await ensureUser(context, cli, options, user);
   for (const user of USERS) await ensureKey(context, cli, options, user, existing[user.suffix]!);
@@ -252,12 +256,35 @@ export async function runAws(context: CloudContext, options: AwsOptions): Promis
 const MISSING_BUCKET = ['404', 'NoSuchBucket', 'NotFound'];
 const FOREIGN_BUCKET = ['403', 'AccessDenied', 'Forbidden'];
 
+function ownLifecycleRules(versioned: boolean) {
+  return [
+    {
+      ID: LIFECYCLE_RULE_ID,
+      Status: 'Enabled',
+      Filter: { Prefix: '' },
+      AbortIncompleteMultipartUpload: { DaysAfterInitiation: ABORT_AFTER_DAYS },
+    },
+    ...(versioned
+      ? [
+          {
+            ID: NONCURRENT_RULE_ID,
+            Status: 'Enabled',
+            Filter: { Prefix: '' },
+            NoncurrentVersionExpiration: { NoncurrentDays: NONCURRENT_DAYS },
+            Expiration: { ExpiredObjectDeleteMarker: true },
+          },
+        ]
+      : []),
+  ];
+}
+
 async function ensureBucket(
   context: CloudContext,
   cli: AwsCli,
   options: AwsOptions,
   account: string,
   bucket: string,
+  versioned: boolean,
 ): Promise<void> {
   const { region } = context.config.aws;
   const { report } = context;
@@ -292,20 +319,25 @@ async function ensureBucket(
     report.step(
       'skipped',
       `bucket-settings ${bucket}`,
-      'dry-run: would block public access, set AES256 encryption and the multipart cleanup rule',
+      'dry-run: would block public access, set AES256 encryption and the multipart cleanup rule' +
+        (versioned ? `, expire old versions after ${NONCURRENT_DAYS} days and turn versioning on` : ''),
     );
     return;
   }
-  // Versioning first: it is a refusal, and nothing is changed on a bucket that must be looked at.
-  await report.run(`versioning ${bucket}`, async (): Promise<StepResult> => {
-    const answer = await cli.callAs(['s3api', 'get-bucket-versioning', '--bucket', bucket], versioningSchema);
-    if (answer.Status === 'Enabled')
-      throw refused(
-        `versioning is on for ${bucket}; Litestream and restic keep their own history, so versions only cost money: ` +
-          'suspend it or choose another bucket',
+  // Refuse versioned Litestream buckets before changing their settings.
+  if (!versioned)
+    await report.run(`versioning ${bucket}`, async (): Promise<StepResult> => {
+      const answer = await cli.callAs(
+        ['s3api', 'get-bucket-versioning', '--bucket', bucket],
+        versioningSchema,
       );
-    return { status: 'ok', detail: answer.Status === 'Suspended' ? 'suspended' : 'off' };
-  });
+      if (answer.Status === 'Enabled')
+        throw refused(
+          `versioning is on for ${bucket}; Litestream keeps its own history, so versions only cost money: ` +
+            'suspend it or choose another bucket',
+        );
+      return { status: 'ok', detail: answer.Status === 'Suspended' ? 'suspended' : 'off' };
+    });
   await report.run(`public-access-block ${bucket}`, async (): Promise<StepResult> => {
     const answer = await cli.callAsOrNull(
       ['s3api', 'get-public-access-block', '--bucket', bucket],
@@ -365,19 +397,33 @@ async function ensureBucket(
       lifecycleSchema,
     );
     const rules = answer?.Rules ?? [];
-    const ours = rules
-      .map((rule) => lifecycleRuleSchema.parse(rule))
-      .find((rule) => rule.ID === LIFECYCLE_RULE_ID);
-    const detail = `abort incomplete multipart uploads after ${ABORT_AFTER_DAYS} days`;
+    const desired = ownLifecycleRules(versioned);
+    const parsed = rules.map((rule) => lifecycleRuleSchema.parse(rule));
+    const ownIds = new Set(desired.map((rule) => rule.ID));
+    const ours = parsed.filter((rule) => rule.ID !== undefined && ownIds.has(rule.ID));
+    const detail =
+      `abort incomplete multipart uploads after ${ABORT_AFTER_DAYS} days` +
+      (versioned
+        ? `; expire noncurrent versions after ${NONCURRENT_DAYS} days and remove expired delete markers`
+        : '');
     if (
-      ours?.Status === 'Enabled' &&
-      ours.AbortIncompleteMultipartUpload?.DaysAfterInitiation === ABORT_AFTER_DAYS &&
-      (ours.Filter?.Prefix ?? ours.Prefix ?? '') === ''
+      desired.every((expected) =>
+        ours.some(
+          (rule) =>
+            rule.ID === expected.ID &&
+            rule.Status === 'Enabled' &&
+            (rule.Filter?.Prefix ?? rule.Prefix ?? '') === '' &&
+            (expected.ID === LIFECYCLE_RULE_ID
+              ? rule.AbortIncompleteMultipartUpload?.DaysAfterInitiation === ABORT_AFTER_DAYS
+              : rule.NoncurrentVersionExpiration?.NoncurrentDays === NONCURRENT_DAYS &&
+                rule.Expiration?.ExpiredObjectDeleteMarker === true),
+        ),
+      )
     )
       return { status: 'unchanged', detail };
     if (options.dryRun) return { status: 'skipped', detail: `dry-run: would ${detail}` };
     // The call replaces the whole configuration: keep the owner's other rules.
-    const others = rules.filter((rule) => (rule as { ID?: unknown }).ID !== LIFECYCLE_RULE_ID);
+    const others = rules.filter((rule) => !ownIds.has((rule as { ID: string }).ID));
     await cli.call([
       's3api',
       'put-bucket-lifecycle-configuration',
@@ -385,19 +431,31 @@ async function ensureBucket(
       bucket,
       '--lifecycle-configuration',
       JSON.stringify({
-        Rules: [
-          ...others,
-          {
-            ID: LIFECYCLE_RULE_ID,
-            Status: 'Enabled',
-            Filter: { Prefix: '' },
-            AbortIncompleteMultipartUpload: { DaysAfterInitiation: ABORT_AFTER_DAYS },
-          },
-        ],
+        Rules: [...others, ...desired],
       }),
     ]);
-    return { status: ours ? 'updated' : 'created', detail };
+    return { status: ours.length > 0 ? 'updated' : 'created', detail };
   });
+  // Install expiration before enabling versioning, including when resuming a suspended bucket.
+  if (versioned)
+    await report.run(`versioning ${bucket}`, async (): Promise<StepResult> => {
+      const answer = await cli.callAs(
+        ['s3api', 'get-bucket-versioning', '--bucket', bucket],
+        versioningSchema,
+      );
+      const detail = `on, old versions kept ${NONCURRENT_DAYS} days`;
+      if (answer.Status === 'Enabled') return { status: 'unchanged', detail };
+      if (options.dryRun) return { status: 'skipped', detail: 'dry-run: would turn versioning on' };
+      await cli.call([
+        's3api',
+        'put-bucket-versioning',
+        '--bucket',
+        bucket,
+        '--versioning-configuration',
+        'Status=Enabled',
+      ]);
+      return { status: 'updated', detail };
+    });
 }
 
 // ---- the IAM users and their keys ----

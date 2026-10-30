@@ -168,8 +168,13 @@ losing the host needs it.
 - **Storage size.** The database replicates every second; the storage is the database (small) plus a daily
   snapshot kept for a week and the restic snapshots (daily for a week, weekly for a month, monthly
   for half a year). For a team-sized installation this is megabytes.
-- **Versioning.** Do not turn on bucket versioning for the Litestream prefix: Litestream manages
-  its own history and versioning only doubles the storage.
+- **Versioning.** The restic bucket is versioned, with noncurrent versions retained for 30 days
+  and expired delete markers removed. A compromised hub's restic key can delete objects, but
+  cannot delete their old versions, suspend versioning or shorten the lifecycle rules. Deleted
+  or overwritten data can therefore be recovered within that window. Pruned packs and old lock
+  objects continue to use storage during those 30 days. The Litestream bucket stays unversioned:
+  Litestream manages its own history. For another storage provider, enable equivalent protection
+  where available; without it, a compromised hub can still destroy the restic repository.
 - **Only one writer.** Exactly one container replicates into a replica. A second one (a duplicate
   machine, a rehearsal started carelessly) writes a diverging history. Run exactly one container, and use
   the rehearsal command below, which never replicates.
@@ -370,6 +375,28 @@ manager), on a new volume. Logins survive (the `secret` is restored).
 Never run a restored copy beside the original: one container replicates into one replica
 ([ARCHITECTURE.md, Instance role and the move](ARCHITECTURE.md#instance-role-and-the-move-pm-143-part-of-pm-135)).
 Stop the old one first.
+
+### Restoring the restic repository from old versions (compromised hub)
+
+Detect the compromise and recover within the 30-day retention window; after it, old versions
+expire. Use the owner's administration machine and trusted tools:
+
+1. Stop the hub so it cannot write to the repository during recovery.
+2. Use the owner's **admin AWS profile**, not the restic key, to inventory versions and delete
+   markers under the repository prefix:
+   `aws --profile <adminProfile> s3api list-object-versions --bucket <backupBucket> --prefix projectman/`.
+   Identify the last trusted repository state before the incident.
+3. Remove incident delete markers with
+   `aws --profile <adminProfile> s3api delete-object --bucket <backupBucket> --key <key> --version-id <marker>`.
+   For overwritten objects, copy the trusted previous version to the same key:
+   `aws --profile <adminProfile> s3api copy-object --bucket <backupBucket> --key <key> --copy-source '<bucket>/<key>?versionId=<id>'`.
+   URL-encode the copy source as required. Select versions and markers by incident time; do not
+   remove legitimate pre-incident deletions or restore every historical object indiscriminately.
+4. With the recovered repository and its password configured on a trusted machine, run
+   `restic check --read-data`, then `restic snapshots`. Resolve any integrity failure before
+   restoring files or restarting the hub.
+5. Rotate the hub's storage keys with `npm run cloud -- aws --rotate-keys`, then redeploy a
+   trusted hub with the new credentials.
 
 ### The restore rehearsal
 
@@ -677,6 +704,7 @@ text, which only a copy of the cloud's history on the owner's machine could be.
 
 ## What is not covered, and what was not verified
 
+- Recovery of the restic repository from old object versions has not been tested against a live AWS account.
 - The cloud runs one machine. High availability, a read replica and several regions are not
   provided.
 - **No control socket client and no migration tools in the container.** The image holds the

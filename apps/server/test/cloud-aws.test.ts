@@ -15,6 +15,19 @@ afterEach(() => world.cleanup());
 
 const run = (...args: string[]) => runCloud(['aws', ...args], world.deps());
 const envText = () => readFileSync(world.envFile, 'utf8');
+const abortRule = {
+  ID: 'abort-incomplete-multipart-uploads',
+  Status: 'Enabled',
+  Filter: { Prefix: '' },
+  AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+};
+const noncurrentRule = {
+  ID: 'expire-noncurrent-versions',
+  Status: 'Enabled',
+  Filter: { Prefix: '' },
+  NoncurrentVersionExpiration: { NoncurrentDays: 30 },
+  Expiration: { ExpiredObjectDeleteMarker: true },
+};
 const envValues = () =>
   new Map(
     envText()
@@ -39,17 +52,13 @@ describe('aws: the first run', () => {
       expect(bucket.encryption).toEqual({
         Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' }, BucketKeyEnabled: true }],
       });
-      expect(bucket.lifecycle).toEqual({
-        Rules: [
-          {
-            ID: 'abort-incomplete-multipart-uploads',
-            Status: 'Enabled',
-            Filter: { Prefix: '' },
-            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
-          },
-        ],
-      });
     }
+    const database = world.aws.buckets.get('acme-projectman-db')!;
+    expect(database.versioning).toBeNull();
+    expect(database.lifecycle).toEqual({ Rules: [abortRule] });
+    const backup = world.aws.buckets.get('acme-projectman-backup')!;
+    expect(backup.versioning).toBe('Enabled');
+    expect(backup.lifecycle).toEqual({ Rules: [abortRule, noncurrentRule] });
     expect([...world.aws.users.keys()].sort()).toEqual([
       'projectman-cloud-litestream',
       'projectman-cloud-restic',
@@ -168,10 +177,12 @@ describe('aws --dry-run', () => {
 
   it('on a half-finished account prints each change and makes none', async () => {
     world.aws.addBucket('acme-projectman-db');
+    world.aws.addBucket('acme-projectman-backup');
     world.aws.addUser('projectman-cloud-litestream');
     expect(await run('--dry-run')).toBe(0);
     expect(world.aws.mutations()).toEqual([]);
     expect(world.output).toContain('dry-run: would turn all four blocks on');
+    expect(world.output).toContain('would turn versioning on');
     expect(world.output).toContain('dry-run: would create a key and write it to cloud.env');
     expect(existsSync(world.envFile)).toBe(false);
   });
@@ -200,6 +211,19 @@ describe('aws: the buckets', () => {
     expect(await run()).toBe(0);
   });
 
+  it('resumes backup versioning after installing its lifecycle rules', async () => {
+    const backup = world.aws.addBucket('acme-projectman-backup', { versioning: 'Suspended' });
+    expect(await run()).toBe(0);
+    expect(backup.versioning).toBe('Enabled');
+    const operations = world.aws.calls
+      .filter((call) => call.args.includes('acme-projectman-backup'))
+      .map((call) => call.args[1]);
+    expect(operations.indexOf('put-bucket-lifecycle-configuration')).toBeGreaterThan(-1);
+    expect(operations.indexOf('put-bucket-lifecycle-configuration')).toBeLessThan(
+      operations.indexOf('put-bucket-versioning'),
+    );
+  });
+
   it('keeps the other lifecycle rules of a bucket', async () => {
     const mine = {
       ID: 'expire-logs',
@@ -210,8 +234,31 @@ describe('aws: the buckets', () => {
     world.aws.addBucket('acme-projectman-backup', { lifecycle: { Rules: [mine] } });
     expect(await run()).toBe(0);
     const rules = world.aws.buckets.get('acme-projectman-backup')!.lifecycle!.Rules;
-    expect(rules).toHaveLength(2);
+    expect(rules).toHaveLength(3);
     expect(rules[0]).toEqual(mine);
+  });
+
+  it('keeps a noncurrent expiration rule on the database bucket', async () => {
+    const database = world.aws.addBucket('acme-projectman-db', {
+      lifecycle: { Rules: [noncurrentRule] },
+    });
+    expect(await run()).toBe(0);
+    expect(database.lifecycle).toEqual({ Rules: [noncurrentRule, abortRule] });
+  });
+
+  it.each([
+    { Status: 'Disabled' },
+    { Filter: { Prefix: 'partial/' } },
+    { NoncurrentVersionExpiration: { NoncurrentDays: 1 } },
+    { Expiration: { ExpiredObjectDeleteMarker: false } },
+  ])('repairs an altered backup expiration rule: %j', async (change) => {
+    const backup = world.aws.addBucket('acme-projectman-backup', {
+      versioning: 'Enabled',
+      lifecycle: { Rules: [abortRule, { ...noncurrentRule, ...change }] },
+    });
+    expect(await run()).toBe(0);
+    expect(backup.lifecycle).toEqual({ Rules: [abortRule, noncurrentRule] });
+    expect(world.aws.callsTo('put-bucket-versioning')).toEqual([]);
   });
 });
 

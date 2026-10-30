@@ -378,6 +378,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
+  PM-1186 enables versioning on the restic backup bucket after installing 30-day noncurrent-version
+  expiration and expired-delete-marker cleanup; the Litestream database bucket stays unversioned.
   PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
   Mac single activation. Credentials stay on the administration machine, outside member sessions.
   PM-1116 retired the one-off move commands (`seed` with its PM-717 integrity gate, `dns plan|import|verify|switch`);

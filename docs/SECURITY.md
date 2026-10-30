@@ -1243,8 +1243,8 @@ the owner, delivered to nobody) with a reason: `unreadable`, `token_invalid`, `t
 - Text and size limits: an inbound text is cut at `EMAIL_INBOUND_TEXT_MAX`; the message the member reads is
   the same neutralized team message as any other (`neutralizeMessageHeaders`).
 
-**The reply address.** An outgoing mail carries a reply address on the reply domain with a random 130-bit
-token; the database keeps only its keyed hash (HMAC-SHA-256), and the token is valid for 60 days
+**The reply address.** An outgoing mail carries a reply address on the reply domain with a random 128-bit
+token (26 characters of base32, 130 bits of encoding); the database keeps only its keyed hash (HMAC-SHA-256), and the token is valid for 60 days
 (`EMAIL_REPLY_TOKEN_DAYS`): an older one is parked as `token_expired`. The token binds the reply to the
 member, the contact and the card of the mail it answers, so a mail to it from another address is not the
 contact's. Since PM-989 a member also has a mailbox of their own on the reply domain; a mail to it is
@@ -1466,8 +1466,8 @@ everything outside the three owner-reserved classes **without any person's yes**
 - It can **change approval rules and roles** of the project: the pipeline's labels and gates, `setBy`
   and `notByAuthor`, `releaseFourEyes`, the merger, the role bundles and the roles of members. The
   checks of an integrator's ordinary configuration change (`integratorConfigRefusal`: `approval_rules`,
-  `members`, `owner_settings`) do not apply to a super step: `commitLocked` skips them for the super origin and
-  the step is judged by its owner-reserved classes instead. (`approvalStructureChanged` makes the owner's yes
+  `members`, `owner_settings`) run only in the Operator's own judgement; a super step does not go through them
+  (`commitLocked` moves the check into the audited super step) and is judged by its owner-reserved classes instead. (`approvalStructureChanged` makes the owner's yes
   necessary only for a request that started with a team _member's_ message, PM-1010, not for a key.)
 - It can **invite a person with any access up to `admin`** (`invite_create` is a routine operation; only
   `owner` is a security effect). The invitation goes to an e-mail address the caller chooses. A leaked key

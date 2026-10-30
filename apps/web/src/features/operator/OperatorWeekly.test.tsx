@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
@@ -39,7 +40,14 @@ function setup(items: InboxItem[] = [], overrides: (project: Project) => object 
   const project = mockProject();
   project.backend.inbox.length = 0;
   project.backend.inbox.push(...items);
-  project.render(<OperatorPanel returnFocusTo={{ current: null }} />, '/', overrides(project));
+  // Strict mode runs a newly drawn composer's effects again, as the development build does in the browser.
+  project.render(
+    <StrictMode>
+      <OperatorPanel returnFocusTo={{ current: null }} />
+    </StrictMode>,
+    '/',
+    overrides(project),
+  );
   return project;
 }
 const loads = (project: Project) => project.requests.filter((request) => request.path.startsWith(url)).length;

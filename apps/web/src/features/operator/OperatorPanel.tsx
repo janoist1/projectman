@@ -74,7 +74,8 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
     setQueueOpen(false);
     setWeeklyOpen(false);
   }, [operatorChecklistRequest]);
-  // Back from the weekly measure the focus returns to its entry, which is drawn again only then.
+  // Back from the weekly measure the focus returns to its entry, which is drawn again only then; the
+  // composer drawn with it does not take the focus (its own effect may run after this one).
   useEffect(() => {
     if (weeklyLeft > 0) weeklyButton.current?.focus();
   }, [weeklyLeft]);
@@ -397,7 +398,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
           ) : null}
           <div className={styles.composer}>
             <Composer
-              autoFocus={!operatorChecklistRequest?.focus}
+              autoFocus={!operatorChecklistRequest?.focus && weeklyLeft === 0}
               label={t('operator.composer.label')}
               placeholder={
                 readOnly ? t('operator.composer.placeholderOther') : t('operator.composer.placeholder')

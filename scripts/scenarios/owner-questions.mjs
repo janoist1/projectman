@@ -1,6 +1,7 @@
 /**
  * Screenshots for PM-1192 (docs/SCREENSHOTS.md): the weekly question measure in the Operator panel: its entry,
- * a week with questions opened, a zero week opened, and the empty state.
+ * an opened week and an opened zero week, loading, empty, the failures, no access, the method, the focus after
+ * going back, and the dark theme.
  *
  * The demo project has no owner questions over weeks, so the browser is told the weekly report
  * (`/operator/owner-questions`); everything else is the real UI on the real demo project.
@@ -78,50 +79,127 @@ const BUSY = report([
 ]);
 const EMPTY = report([]);
 
+const failure = (code) => ({ error: { code, message: code } });
+
 export default async ({ open, shoot, step }) => {
-  let answer = BUSY;
+  // What the browser is told: the answer, its status, and a hold that keeps it loading until released.
+  const state = { body: BUSY, status: 200, hold: null };
   const openPanel = async () => {
     const page = await open({ path: '/p/AC', width: 1512 });
     await page.route(
       (url) => url.pathname === '/api/projects/AC/operator/owner-questions',
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answer) }),
+      async (route) => {
+        if (state.hold) await state.hold;
+        const body =
+          state.status === 200 ? state.body : failure(state.status === 403 ? 'forbidden' : 'internal');
+        await route.fulfill({
+          status: state.status,
+          contentType: 'application/json',
+          body: JSON.stringify(body),
+        });
+      },
     );
     await page.waitForSelector('[data-operator-button]');
     await page.click('[data-operator-button]');
     await page.waitForSelector('#operator-panel textarea');
     return page;
   };
-  const openWeekly = async (page) => {
-    await page.getByRole('button', { name: /^Heti/ }).click();
-    await page.locator('#operator-panel details').first().waitFor();
+  const entry = (page) => page.getByRole('button', { name: /^Heti/ });
+  const panel = (page) => page.locator('#operator-panel');
+  const openWeekly = async (page, waitFor = '#operator-panel details > summary') => {
+    await entry(page).click();
+    await page.locator(waitFor).first().waitFor({ timeout: 20_000 });
   };
+  const week = (page, index) => panel(page).locator('details > summary').nth(index);
 
   await step('a. the entry in the Operator panel', async () => {
     const page = await openPanel();
-    await page.getByRole('button', { name: /^Heti/ }).waitFor();
+    await entry(page).waitFor();
     await shoot(page, 'a-entry', { widths: WIDTHS });
   });
 
-  await step('b. the current week opened', async () => {
+  await step('b. the current week opened: routes, then topics and integrator todos', async () => {
     const page = await openPanel();
     await openWeekly(page);
-    await shoot(page, 'b-weeks', { widths: WIDTHS });
-    await page.locator('#operator-panel details > summary').first().click();
-    await shoot(page, 'c-week-open', { widths: WIDTHS });
+    await week(page, 0).click();
+    await shoot(page, 'b-week-open', { widths: WIDTHS });
+    await panel(page).getByText('Integrátori teendők').first().scrollIntoViewIfNeeded();
+    await shoot(page, 'b-week-topics', { widths: WIDTHS });
   });
 
-  await step('d. a zero week opened', async () => {
+  await step('c. a zero week with an integrator todo opened', async () => {
     const page = await openPanel();
     await openWeekly(page);
-    await page.locator('#operator-panel details > summary').nth(1).click();
-    await shoot(page, 'd-zero-week', { widths: WIDTHS });
+    await week(page, 1).click();
+    await shoot(page, 'c-zero-week', { widths: WIDTHS });
   });
 
-  await step('e. nothing reached the owner', async () => {
-    answer = EMPTY;
+  await step('d. loading', async () => {
+    let release;
+    state.hold = new Promise((done) => (release = done));
+    const page = await openPanel();
+    await openWeekly(page, '#operator-panel [role="status"]:has-text("betöltése")');
+    await shoot(page, 'd-loading', { widths: WIDTHS });
+    state.hold = null;
+    release();
+  });
+
+  await step('e. nothing reached the owner in eight weeks', async () => {
+    state.body = EMPTY;
     const page = await openPanel();
     await openWeekly(page);
     await shoot(page, 'e-empty', { widths: WIDTHS });
+    state.body = BUSY;
+  });
+
+  await step('f. the first load fails', async () => {
+    state.status = 500;
+    const page = await openPanel();
+    await openWeekly(page, 'text=A heti mérés most nem tölthető be.');
+    await shoot(page, 'f-failed', { widths: WIDTHS });
+    state.status = 200;
+  });
+
+  await step('g. a refresh fails and the data stays', async () => {
+    const page = await openPanel();
+    await openWeekly(page);
+    state.status = 500;
+    await panel(page).getByRole('button', { name: 'Frissítés' }).click();
+    await panel(page).getByText('A frissítés nem sikerült', { exact: false }).waitFor({ timeout: 20_000 });
+    await shoot(page, 'g-stale', { widths: WIDTHS });
+    state.status = 200;
+  });
+
+  await step('h. no access', async () => {
+    state.status = 403;
+    const page = await openPanel();
+    await openWeekly(page, 'text=A heti mérést csak a projekt tulajdonosa láthatja');
+    await shoot(page, 'h-denied', { widths: WIDTHS });
+    state.status = 200;
+  });
+
+  await step('i. how it is counted, opened', async () => {
+    const page = await openPanel();
+    await openWeekly(page);
+    await panel(page).getByText('Hogyan számoljuk?').click();
+    // The highlight scrolls the method into view at each width.
+    await shoot(page, 'i-method', { widths: WIDTHS, highlight: 'text=Hogyan számoljuk? >> visible=true' });
+  });
+
+  await step('j. back to the conversation by keyboard: the focus is on the entry', async () => {
+    const page = await openPanel();
+    await openWeekly(page);
+    await panel(page).getByRole('button', { name: 'Vissza a beszélgetéshez' }).focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement?.textContent?.startsWith('Heti'));
+    await shoot(page, 'j-focus-back', { widths: WIDTHS });
+  });
+
+  await step('k. the data, dark theme', async () => {
+    const page = await openPanel();
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await openWeekly(page);
+    await week(page, 0).click();
+    await shoot(page, 'k-dark', { widths: [390] });
   });
 };

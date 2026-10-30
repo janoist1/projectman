@@ -454,7 +454,7 @@ Short and in order: account setup, local credentials, and commands that the owne
 11. **Later:** manually delete the old Route 53 hosted zone when the owner decides; the delegation cannot be
     switched back by the tool any more.
 
-The AWS profile needs the EC2 and IAM rights of "EC2 central account and provisioning" above, the S3 actions `CreateBucket`, `ListBucket`, `GetBucketVersioning`,
+The AWS profile needs the EC2 and IAM rights of "EC2 central account and provisioning" above, the S3 actions `CreateBucket`, `ListBucket`, `GetBucketVersioning`, `PutBucketVersioning`,
 `Get`/`PutBucketPublicAccessBlock`, `Get`/`PutEncryptionConfiguration`, `Get`/`PutLifecycleConfiguration`,
 and IAM `CreateUser`, `TagUser`, `GetUser`, `PutUserPolicy`, `GetUserPolicy`, `ListUserPolicies`,
 `ListAttachedUserPolicies`, `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`.
@@ -535,8 +535,10 @@ reading call per right the token needs. It changes nothing, in either cloud.
 2. **The buckets**: created in the region (checked with `--expected-bucket-owner`; a name that is
    someone else's exits 2), all four public-access blocks on, AES256 encryption with a bucket key,
    a rule that aborts unfinished multipart uploads after 7 days (other lifecycle rules are kept).
-   Versioning must not be on (Litestream and restic keep their own history): an enabled bucket
-   exits 2.
+   The restic backup bucket is versioned: noncurrent versions expire after 30 days, and expired
+   delete markers are removed. These lifecycle rules are installed before versioning is enabled
+   (or resumed). The Litestream database bucket must remain unversioned because Litestream keeps
+   its own history: enabled versioning on that bucket exits 2.
 3. **Two IAM users**, `<instanceName>-litestream` (the database bucket) and `<instanceName>-restic`
    (the backup bucket), each with one inline policy `bucket-access`:
 

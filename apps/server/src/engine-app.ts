@@ -9,6 +9,7 @@ import { AgentProvider, routes } from '@projectman/shared';
 import { APP_DEFAULTS, loopbackBaseUrl } from './app';
 import { serializeRequest } from './http';
 import type {
+  EngineGuard,
   FullTestExecutor,
   GithubActionsClient,
   MachineGithubService,
@@ -312,6 +313,20 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     },
   };
 
+  // The engine's own guard of the sandbox boundary (PM-1176): one audit line per refused tool call, with
+  // the code only: never the path or the tool input.
+  const engineGuard: EngineGuard = {
+    refused: ({ sessionId, member, code }) =>
+      audit.record({
+        reqId: '',
+        method: 'tool.guard',
+        sessionId,
+        ...(member ? { member } : {}),
+        outcome: 'refused',
+        code,
+      }),
+  };
+
   // The engine's own NanoGPT key file (PM-1068): read at every use, so a changed file takes effect at once.
   // A file that cannot be read gives no key; the log names the error code only, never the key.
   const ownNanogptKey = nanogptKeyFile
@@ -441,6 +456,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     sessionConfigRoot: path.join(home, SESSION_CONFIG_DIR),
     instanceTag,
     broker,
+    engineGuard,
     scopeProcesses: {
       processes: () => probe.processes(),
       envValues: (pids, names) => probe.envValues(pids, names),

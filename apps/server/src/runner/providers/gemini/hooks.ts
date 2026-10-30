@@ -6,6 +6,7 @@ import type { HookPayload } from '../../hook-payload';
 import {
   decideToolCall,
   toolPathForms,
+  type EngineWriteZone,
   type NormalizedToolCall,
   type ToolDecision,
 } from '../../tool-decision';
@@ -75,6 +76,14 @@ export function geminiSessionControl(
   } else if (!segments.every((s) => /^[A-Za-z0-9._-]+$/.test(s))) return null;
   return { decision: 'allow' };
 }
+
+const WRITE_TOOLS: ReadonlySet<string> = new Set([
+  'write_file',
+  'edit_file',
+  'write_to_file',
+  'replace_file_content',
+  'multi_replace_file_content',
+]);
 
 export function mapGeminiTool(
   name: string,
@@ -213,6 +222,7 @@ export function decideGeminiToolCall(
   policy: SessionPolicy,
   payload: HookPayload,
   root: string | null,
+  engineWriteZone?: EngineWriteZone,
 ): ToolDecision {
   const control = geminiSessionControl(str(payload.gemini_tool) ?? '', object(payload.gemini_args), {
     conversationId: payload.session_id ?? '',
@@ -227,7 +237,14 @@ export function decideGeminiToolCall(
   ).call;
   if (call.category === 'command' && (!call.cwd || !path.isAbsolute(call.cwd)))
     return { decision: 'deny', reason: 'cwd_outside_workspace' };
+  // A write that names no path is no `edit` call; the engine guard (PM-1176) still refuses it, never asks.
+  if (engineWriteZone && WRITE_TOOLS.has(str(payload.gemini_tool) ?? '') && call.paths.length === 0)
+    return { decision: 'deny', reason: 'outside_writable_roots' };
   const under = (p: string, r: string) => p === r || p.startsWith(`${r}/`);
+  const toolOptions = {
+    shellRulesOutsideSandbox: true,
+    ...(engineWriteZone ? { engineWriteZone } : {}),
+  };
   let decision: ToolDecision;
   const id = payload.session_id;
   if (
@@ -250,8 +267,8 @@ export function decideGeminiToolCall(
       )
     )
       decision = { decision: 'allow' };
-    else decision = decideToolCall(policy, call, { shellRulesOutsideSandbox: true });
-  } else decision = decideToolCall(policy, call, { shellRulesOutsideSandbox: true });
+    else decision = decideToolCall(policy, call, toolOptions);
+  } else decision = decideToolCall(policy, call, toolOptions);
   if (
     decision.decision === 'allow' &&
     call.category === 'edit' &&

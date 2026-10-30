@@ -8,7 +8,7 @@ import type {
 import type { CommandOutput } from '../cli';
 import type { HookPayload } from '../hook-payload';
 import type { SessionPolicy } from '../../contracts';
-import type { ToolDecision } from '../tool-decision';
+import type { EngineWriteZone, ToolDecision } from '../tool-decision';
 
 /**
  * Provider adapters: what differs between the agent CLIs the runner drives (Claude Code,
@@ -162,7 +162,12 @@ export interface ProviderAdapter {
   launch(input: LaunchInput): Promise<Launch>;
   /** A hook body, validated; null when malformed. */
   parseHook(body: unknown, event?: string): HookPayload | null;
-  decideToolCall?(policy: SessionPolicy, payload: HookPayload, conversationRoot: string | null): ToolDecision;
+  decideToolCall?(
+    policy: SessionPolicy,
+    payload: HookPayload,
+    conversationRoot: string | null,
+    engineWriteZone?: EngineWriteZone,
+  ): ToolDecision;
   turnStartOutput?(spec: StartSessionSpec): unknown;
   /** Whether a hook came from a subagent and must not change the session's state. */
   isSubagentHook(payload: HookPayload): boolean;

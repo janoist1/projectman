@@ -195,6 +195,9 @@ class FakeAws {
           : ok({ KeyCount: 0 });
       case 'get-bucket-versioning':
         return ok(bucket.versioning ? { Status: bucket.versioning } : {});
+      case 'put-bucket-versioning':
+        bucket.versioning = flagValue(args, '--versioning-configuration')!.replace('Status=', '');
+        return ok();
       case 'get-public-access-block':
         return bucket.publicAccessBlock
           ? ok({ PublicAccessBlockConfiguration: bucket.publicAccessBlock })

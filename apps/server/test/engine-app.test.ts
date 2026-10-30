@@ -896,6 +896,47 @@ describe('engine process', () => {
     });
   });
 
+  describe('engine guard (PM-1176)', () => {
+    it('audits a refusal with its code only, and tells the cloud it was the engine guard', async () => {
+      await startEngine();
+      await cloud.connected();
+      const secretPath = '/outside/SECRET-GUARD-PATH';
+      fake
+        .options()!
+        .engineGuard!.refused({ sessionId: 's1', member: 'dev', code: 'outside_writable_roots' });
+      fake.broker().refused!({
+        sessionId: 's1',
+        toolName: 'Write',
+        toolInput: { file_path: secretPath },
+        by: 'engine_guard',
+        reason: 'outside_writable_roots',
+      });
+      await waitFor(
+        () =>
+          cloud.received.some(
+            (entry) => entry.event.kind === 'refused' && entry.event.info.by === 'engine_guard',
+          ),
+        'the refusal event',
+      );
+      await engine!.close();
+      const text = readFileSync(path.join(home, 'logs', 'engine-audit.jsonl'), 'utf8');
+      const guard = text
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((record) => record.method === 'tool.guard');
+      expect(guard).toEqual([
+        expect.objectContaining({
+          sessionId: 's1',
+          member: 'dev',
+          outcome: 'refused',
+          code: 'outside_writable_roots',
+        }),
+      ]);
+      expect(text).not.toContain(secretPath);
+    });
+  });
+
   describe('log and audit', () => {
     it('keeps prompts, messages, tokens and request bodies out of every log', async () => {
       cloud.handle('mcp.relay', () => ({ status: 200, contentType: 'application/json', body: '{}' }));

@@ -625,14 +625,26 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       if (spec.githubJob) {
         // A compute job as the repository's `projectman-job.yml` workflow (PM-1147) runs no command here: `cwd` is a
         // label, and the workflow is dispatched from the one branch the owner named for this repository. The
-        // command is the job's own; which commands a repository may run is the project's `computeJobs` (PM-1148).
+        // workflow may attest its outputs, so only a job the owner registered in this engine's `computeJobs`
+        // runs, with exactly its values; the run id alone is free (a pattern checked by the executor).
         const job = spec.githubJob;
-        await mergeBase(job.ref, job.base);
+        const entry = await mergeBase(job.ref, job.base);
         commitIds(job.commit);
         if (job.workflow !== COMPUTE_JOB_WORKFLOW)
           refuse('invalid_params', 'The workflow is not the general compute job workflow');
         if (spec.command !== job.command)
           refuse('invalid_params', 'The command of a compute job is the command of its workflow');
+        const registered = entry.computeJobs?.find((candidate) => candidate.id === job.job);
+        if (
+          !registered ||
+          registered.command !== job.command ||
+          registered.runsOn !== job.runsOn ||
+          registered.node !== job.node ||
+          registered.timeoutMinutes !== job.timeoutMinutes ||
+          registered.outputs.length !== job.outputs.length ||
+          registered.outputs.some((output, index) => output !== job.outputs[index])
+        )
+          refuse('command_not_allowed', 'The compute job is not configured for this repository');
         if (
           spec.cwd !== `github-job:${job.repo}` ||
           spec.githubActions ||

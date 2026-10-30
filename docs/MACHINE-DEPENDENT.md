@@ -2516,8 +2516,11 @@ assumption or remote-engine RPC.
   result, with the engine-limit check (`engine-link/engine-limit.ts`: base is the configured merge branch,
   fixed workflow, no checkout, installation or lock) and the project guard (`githubJob.ref.projectKey`)
   applying as for the merge check. An engine older than PM-1147 refuses the field with `invalid_params`,
-  shown as `github_unavailable`. Which commands a repository may run is the project's `computeJobs` allowlist
-  (PM-1148); until then the engine-limit checks only the structure of the descriptor.
+  shown as `github_unavailable`. A job runs only when it is registered in the engine's own `engine.json`
+  (`repos[].computeJobs`, set by the owner by hand: id, command, runner, outputs, Node, timeout) and the request
+  matches it value for value; otherwise it is refused as `command_not_allowed` (see `docs/SECURITY.md`
+  "Compute jobs on GitHub Actions"). The project-level setting that tells the hub what to ask for comes with
+  PM-1148.
   PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.

@@ -1239,6 +1239,15 @@ describe('engine local limit', () => {
             fullTestCommand: 'npm test',
             mergeBranch: 'main',
             workspaceSetup: null,
+            computeJobs: [
+              {
+                id: 'cloud-image',
+                command: 'npm run build',
+                runsOn: 'ubuntu-24.04-arm' as const,
+                outputs: ['image.tar'],
+                timeoutMinutes: 30,
+              },
+            ],
           },
         ],
       });
@@ -1249,6 +1258,19 @@ describe('engine local limit', () => {
         job({ githubJob: { ...githubJob, base: 'dev' } }),
         'merge_not_allowed',
       );
+      // A job the owner did not register, or one that differs from it in any value, is not run.
+      const notConfigured = (change: Record<string, unknown>) =>
+        refused(
+          limit,
+          'full_test.run',
+          job({ githubJob: { ...githubJob, ...change }, command: change.command ?? githubJob.command }),
+          'command_not_allowed',
+        );
+      await notConfigured({ job: 'other-job' });
+      await notConfigured({ command: 'npm run evil' });
+      await notConfigured({ outputs: ['image.tar', 'extra.bin'] });
+      await notConfigured({ runsOn: 'macos-15' });
+      await notConfigured({ timeoutMinutes: 360 });
       await refused(
         limit,
         'full_test.run',

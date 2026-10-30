@@ -20,6 +20,7 @@ import type {
 } from '../contracts';
 import type { OpenScope, ProcessScopeDriver } from './process-scope';
 import type { HookPayload } from './hook-payload';
+import { exitOutputTail, OutputTail } from './exit-output';
 import { InputQueue, NotSubmittedError } from './input-queue';
 import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL, PauseState } from './pause';
 import { PermissionGate } from './permission-gate';
@@ -147,6 +148,7 @@ export class AgentSession {
   private readonly startedAt = Date.now();
 
   /** First SessionStart seen (or other proof that the prompt is up). */
+  private readonly outputTail = new OutputTail();
   private ready = false;
   private readyAt = 0;
   /** A prompt reached the CLI (UserPromptSubmit): start-up dialogs are over. */
@@ -332,6 +334,7 @@ export class AgentSession {
     if (proc.pid <= 1 && this.scope) this.cleanup ??= this.scope.close('start_failed', { force: true });
     proc.onData((data) => {
       this.screen.write(data);
+      this.outputTail.push(data);
       this.quotaScreenNeedsFlush = true;
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
       // PTY chunks may split the error from its reset duration. Read the rendered screen
@@ -1540,16 +1543,24 @@ export class AgentSession {
 
     const failed =
       this.rateLimitFailure !== null || (!this.stopRequested && (exitCode !== 0 || (signal ?? 0) !== 0));
+    // A CLI that fails before it is ready says why in its output only (PM-1207): keep the last of it
+    // (redacted and bounded) in the log and in the session's last state.
+    const earlyExit = this.ready ? null : exitOutputTail(this.outputTail.plainText());
     // Leave a trace in the terminal, so its snapshot shows why the session is gone.
     const note = `\r\n\x1b[2m[session ended: exit code ${exitCode}${signal ? `, signal ${signal}` : ''}]\x1b[0m\r\n`;
     this.screen.write(note);
     this.deps.emit({ type: 'terminal_data', sessionId: this.id, data: note });
     if (!this.ready)
       this.log.warn(
-        { sessionId: this.id, exitCode, signal, provider: this.adapter.provider },
+        { sessionId: this.id, exitCode, signal, provider: this.adapter.provider, output: earlyExit },
         'agent CLI exited before it was ready',
       );
-    this.apply({ kind: 'exit', failed, message: this.rateLimitFailure ?? undefined });
+    const message =
+      this.rateLimitFailure ??
+      (failed && earlyExit !== null
+        ? `${this.adapter.label} exited before it was ready (exit code ${exitCode}${signal ? `, signal ${signal}` : ''})${earlyExit ? `: ${earlyExit}` : ''}`
+        : undefined);
+    this.apply({ kind: 'exit', failed, message });
     // A pause still stopping the session ends with it.
     const p = this.pauseState;
     if (p?.phase === 'stopping') {

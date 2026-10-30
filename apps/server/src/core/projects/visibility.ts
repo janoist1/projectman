@@ -68,12 +68,14 @@ export function visibleTaskDetail(
   messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): TaskDetail {
   const timeline = detail.timeline.map((event) => visibleTimelineEvent(viewer, event, messageParticipants));
+  const earlier = detail.earlierEvents?.map((event) => visibleTimelineEvent(viewer, event, messageParticipants));
   const sessions = detail.sessions.map((session) => visibleSession(viewer, session, messageParticipants));
   if (
     timeline.some((event, index) => event !== detail.timeline[index]) ||
+    earlier?.some((event, index) => event !== detail.earlierEvents?.[index]) ||
     sessions.some((session, index) => session !== detail.sessions[index])
   )
-    return { ...detail, timeline, sessions };
+    return { ...detail, timeline, ...(earlier ? { earlierEvents: earlier } : {}), sessions };
   return detail;
 }
 

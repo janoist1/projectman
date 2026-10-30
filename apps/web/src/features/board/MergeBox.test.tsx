@@ -6,6 +6,7 @@ import { setFetchImplementation } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { t } from '../../i18n/t';
 import type { MockBackend } from '../../mocks/backend';
+import { openStory } from '../../test/cardStory';
 import { mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
 
@@ -13,7 +14,7 @@ afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, 
 
 const drawer = (
   <Routes>
-    <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
+    <Route path="/p/:key/tasks/:taskKey/*" element={<TaskDrawer />} />
   </Routes>
 );
 
@@ -387,6 +388,7 @@ describe('a conflict the merger fixes (PM-471)', () => {
     project.backend.runMerge('AC-27');
     expect(project.backend.findTask('AC-27')!.merged?.resolution?.note).toBe('Resolve adjacent imports');
     await act(() => client.invalidateQueries({ queryKey: queryKeys.task('AC', 'AC-27') }));
+    await openStory();
     fireEvent.click(await screen.findByText(t('timeline.events.merged_resolution')));
     expect(screen.getAllByText('Resolve adjacent imports', { selector: 'p' }).length).toBeGreaterThan(0);
   });

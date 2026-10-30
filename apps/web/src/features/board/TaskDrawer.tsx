@@ -57,7 +57,6 @@ import { ComplexityWarning } from './ComplexityWarning';
 import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
 import type { CardSize } from './cardSize';
 import { useDrawerBase, withQueryParam } from './drawerBase';
-import { nextStepLine } from './NextStep';
 import { RefineButton } from './RefineButton';
 import { MergeBox } from './MergeBox';
 import { SignalBox } from './SignalBox';
@@ -67,8 +66,7 @@ import { useBoardModel } from './useBoardModel';
 import { useCanAttach, useUploadQueue } from './attachmentUploads';
 import { useFileDrop } from './useFileDrop';
 import { TaskAttachments } from './TaskAttachments';
-import { TaskSteps } from './TaskSteps';
-import { TaskTimeline } from './TimelineAttachment';
+import { TaskProcess } from './TaskSteps';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
 import { TaskAcceptance } from './TaskAcceptance';
@@ -234,7 +232,7 @@ function StartPanel({
 const WIDE_QUERY = '(min-width: 1104px)';
 
 /** The views of the open card (PM-487): the sub-paths of its route, `card` being none. */
-type CardView = 'card' | 'thread' | 'attachments' | 'steps' | 'timeline';
+type CardView = 'card' | 'thread' | 'attachments' | 'steps';
 
 /**
  * The open card (PM-283): the quick view is the drawer on the right of the board, the large window (`?size=large`)
@@ -245,7 +243,7 @@ export function TaskDrawer() {
   const { taskKey = '', '*': subPath } = useParams();
   const { key, myHandle, can, me } = useProject();
   const [searchParams, setSearchParams] = useSearchParams();
-  // A link to one event of the timeline (#timeline-<id>) scrolls the timeline to that row itself.
+  // A link to one event of the story (#timeline-<id>) scrolls the story to that row itself.
   const location = useLocation();
   const eventLink = location.hash.startsWith('#timeline-');
   const mobile = useIsMobile();
@@ -284,15 +282,15 @@ export function TaskDrawer() {
   // The card's conversation (PM-273): a view of the same open card (`/thread`), not a page. A theme has none.
   const hasThread = Boolean(task && !isTheme(task) && entry);
   // The views of the open card (PM-487) are sub-paths of it; an unknown one, and a theme's `/thread`, is the card.
-  // An older link to one event (`/tasks/KEY#timeline-<id>`, shared before the timeline had a view) opens the timeline.
-  // The Process view (PM-1151) is a card's, like the conversation: a theme has none.
+  // The Process view (PM-1160) holds the card's story, a theme's too: the older `/timeline` sub-path and a link to
+  // one event (`/tasks/KEY#timeline-<id>`, shared before the story had a view) open it.
   const view: CardView =
-    subPath === 'attachments' || subPath === 'timeline'
+    subPath === 'attachments'
       ? subPath
-      : (subPath === 'thread' || subPath === 'steps') && hasThread
+      : subPath === 'thread' && hasThread
         ? subPath
-        : !subPath && eventLink
-          ? 'timeline'
+        : subPath === 'steps' || subPath === 'timeline' || (!subPath && eventLink)
+          ? 'steps'
           : 'card';
   const thread = view === 'thread';
   const taskMessages = useTaskMessages(key, taskKey, hasThread);
@@ -364,30 +362,12 @@ export function TaskDrawer() {
   }, [size]);
 
   // Hiding the card's sections shortens the scroll box and so moves it: the card is put back where it was, the
-  // attachments open at their start, and the timeline at its end (the latest event, the next step, the comment box).
-  const timelineEnd = view === 'timeline' && !detail.isPending && !eventLink;
-  const timelineStick = useRef(true);
+  // and the other views open at their start (a link to one event of the story scrolls to that row itself).
   useLayoutEffect(() => {
     const box = scrollRef.current;
-    if (!box || thread) return;
-    if (view === 'timeline' && eventLink) return;
-    if (timelineEnd) timelineStick.current = true;
-    box.scrollTop =
-      view === 'card' ? cardScroll.current : view === 'attachments' ? 0 : timelineEnd ? box.scrollHeight : 0;
-  }, [view, thread, timelineEnd, eventLink]);
-
-  // The timeline stays at its end while its content still grows (the comment box, the next step, a resize of the
-  // window), until the reader scrolls away from the end.
-  useEffect(() => {
-    const box = scrollRef.current;
-    if (!box || !timelineEnd || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(() => {
-      if (timelineStick.current) box.scrollTop = box.scrollHeight;
-    });
-    observer.observe(box);
-    for (const child of Array.from(box.children)) observer.observe(child);
-    return () => observer.disconnect();
-  }, [timelineEnd, twoColumns]);
+    if (!box || thread || (view === 'steps' && eventLink)) return;
+    box.scrollTop = view === 'card' ? cardScroll.current : 0;
+  }, [view, thread, eventLink]);
 
   // On a narrow phone the row of views scrolls: the open view stays in it.
   useEffect(() => {
@@ -654,59 +634,24 @@ export function TaskDrawer() {
         />
       </div>
     );
-    // Only the open view is in the tree: it has no draft to keep, and its rows would repeat the card's texts.
-    const stepsView = hasThread ? (
+    // Only the open view shows the box and the story: the comment box stays in the tree, so a draft is kept.
+    const steps = (
       <div key="steps" className={styles.group} hidden={view !== 'steps'}>
-        {view === 'steps' ? (
-          <section className={drawer.section}>
-            {/* The tab names the view: the title stays for the screen readers. */}
-            <h2 className={clsx(drawer.sectionTitle, 'visually-hidden')}>{t('task.steps.title')}</h2>
-            {detail.isPending ? (
-              <LoadingState compact />
-            ) : detail.isError ? (
-              <ErrorState
-                compact
-                error={detail.error}
-                message={t('task.steps.loadFailed')}
-                onRetry={() => void detail.refetch()}
-              />
-            ) : (
-              <TaskSteps
-                key={task.key}
-                task={task}
-                state={entry?.state}
-                steps={detail.data.steps}
-                events={detail.data.timeline}
-                ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
-              />
-            )}
-          </section>
-        ) : null}
-      </div>
-    ) : null;
-    const timeline = (
-      <div key="timeline" className={styles.group} hidden={view !== 'timeline'}>
-        <section className={drawer.section}>
-          {/* The tab names the section: the title stays for the screen readers. */}
-          <h3 className={clsx(drawer.sectionTitle, 'visually-hidden')}>{t('task.timeline')}</h3>
-          {detail.isPending ? (
-            <LoadingState compact />
-          ) : detail.isError ? (
-            <ErrorState compact error={detail.error} onRetry={() => void detail.refetch()} />
-          ) : (
-            <TaskTimeline
-              task={task}
-              events={detail.data.timeline}
-              ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
-              fullMessageHref={fullMessageHref}
-              next={theme ? null : nextStepLine(task, pipeline, members, myHandle)}
-            />
-          )}
-        </section>
-
-        {can.comment && myHandle ? (
-          <TaskCommentComposer key={`comments:${task.key}`} taskKey={task.key} members={members} />
-        ) : null}
+        <TaskProcess
+          key={task.key}
+          active={view === 'steps'}
+          task={task}
+          state={theme ? undefined : entry?.state}
+          theme={theme}
+          detail={detail}
+          ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
+          fullMessageHref={fullMessageHref}
+          composer={
+            can.comment && myHandle ? (
+              <TaskCommentComposer key={`comments:${task.key}`} taskKey={task.key} members={members} />
+            ) : null
+          }
+        />
       </div>
     );
     const more = (
@@ -802,16 +747,11 @@ export function TaskDrawer() {
                 label: t('task.view.attachments'),
                 count: attachmentCount > 0 ? attachmentCount : undefined,
               },
-              ...(hasThread
-                ? [
-                    {
-                      value: 'steps' as const,
-                      label: t('task.view.steps'),
-                      count: stepCount > 0 ? stepCount : undefined,
-                    },
-                  ]
-                : []),
-              { value: 'timeline', label: t('task.view.timeline') },
+              {
+                value: 'steps',
+                label: t('task.view.steps'),
+                count: stepCount > 0 ? stepCount : undefined,
+              },
             ]}
           />
         </div>
@@ -822,16 +762,13 @@ export function TaskDrawer() {
           onScroll={(event) => {
             const box = event.currentTarget;
             if (view === 'card') cardScroll.current = box.scrollTop;
-            if (view === 'timeline') {
-              timelineStick.current = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
-            }
           }}
         >
           {/* All views stay in the tree: what is typed in a hidden one (a message, a comment, a description) is kept. */}
           {[
             ...(twoColumns
-              ? [signals, content, attachments, stepsView, timeline, more, side]
-              : [signals, side, content, attachments, stepsView, timeline, more]),
+              ? [signals, content, attachments, steps, more, side]
+              : [signals, side, content, attachments, steps, more]),
             hasThread ? (
               <div key="thread" className={styles.thread} hidden={!thread}>
                 <TaskThread

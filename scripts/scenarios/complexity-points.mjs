@@ -233,7 +233,9 @@ export default async ({ instance, open, shoot, step, log }) => {
       method: 'PATCH',
       body: { complexity: { points: 13, reason: REASON } },
     });
-    const page = await open({ path: `/p/AC/tasks/${scored}/timeline` });
+    const page = await open({ path: `/p/AC/tasks/${scored}/steps` });
+    // The story folds the system events away at first; this scene shows them all.
+    await page.addInitScript(() => window.localStorage.setItem('pm:cardStory.view', 'all'));
     await page.route(`**/api/projects/AC/tasks/${scored}`, async (route) => {
       const response = await route.fetch();
       const detail = await response.json();

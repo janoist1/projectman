@@ -28,6 +28,7 @@ const card = (
   </>
 );
 
+const storyTitle = new RegExp(`^${t('task.story.title')}`);
 const views = () => screen.findByRole('group', { name: t('task.view.label') });
 const viewButton = (label: string) =>
   within(screen.getByRole('group', { name: t('task.view.label') })).getByRole('button', {
@@ -45,26 +46,18 @@ const attach = (project: ReturnType<typeof mockProject>, ...names: string[]) =>
   );
 
 describe('the views of the open card (PM-487)', () => {
-  it('has five views in a row, the attachments with their count', async () => {
+  it('has four views in a row, the attachments with their count', async () => {
     const project = mockProject();
     attach(project, 'a.pdf', 'b.pdf');
     project.render(card, '/p/AC/tasks/AC-21');
     const group = await views();
-    await waitFor(() => expect(within(group).getAllByRole('button')).toHaveLength(5));
+    await waitFor(() => expect(within(group).getAllByRole('button')).toHaveLength(4));
     expect(
       within(group)
         .getAllByRole('button')
         .map((button) => button.querySelector('span')!.textContent),
-    ).toEqual([
-      t('task.view.card'),
-      t('task.view.thread'),
-      t('task.view.attachments'),
-      t('task.view.steps'),
-      t('task.view.timeline'),
-    ]);
+    ).toEqual([t('task.view.card'), t('task.view.thread'), t('task.view.attachments'), t('task.view.steps')]);
     await waitFor(() => expect(within(viewButton(t('task.view.attachments'))).getByText('2')).toBeTruthy());
-    // No count for a view that has nothing to count: the timeline never has one.
-    expect(viewButton(t('task.view.timeline')).querySelectorAll('span')).toHaveLength(1);
   });
 
   it('shows no count for a card without attachments', async () => {
@@ -75,7 +68,7 @@ describe('the views of the open card (PM-487)', () => {
     expect(viewButton(t('task.view.attachments')).querySelectorAll('span')).toHaveLength(1);
   });
 
-  it('keeps the attachments and the timeline off the card view, and shows each on its own view', async () => {
+  it('keeps the attachments and the story off the card view, and shows each on its own view', async () => {
     const project = mockProject();
     attach(project, 'a.pdf');
     project.render(card, '/p/AC/tasks/AC-21');
@@ -83,19 +76,19 @@ describe('the views of the open card (PM-487)', () => {
     await screen.findByText(t('task.description'));
     expect(pressed()).toEqual([t('task.view.card')]);
     expect(screen.queryByRole('region', { name: t('attachments.title') })).toBeNull();
-    expect(screen.queryByRole('heading', { name: t('task.timeline') })).toBeNull();
+    expect(screen.queryByRole('heading', { name: storyTitle })).toBeNull();
     expect(screen.queryByLabelText(t('task.comments.label'))).toBeTruthy(); // in the tree, for the draft
 
     fireEvent.click(viewButton(t('task.view.attachments')));
     expect(where()).toBe('/p/AC/tasks/AC-21/attachments');
     expect(await screen.findByRole('region', { name: t('attachments.title') })).toBeTruthy();
     expect(await screen.findByRole('list', { name: t('attachments.listLabel') })).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: t('task.timeline') })).toBeNull();
+    expect(screen.queryByRole('heading', { name: storyTitle })).toBeNull();
     expect(screen.queryByRole('heading', { name: t('task.description') })).toBeNull();
 
-    fireEvent.click(viewButton(t('task.view.timeline')));
-    expect(where()).toBe('/p/AC/tasks/AC-21/timeline');
-    expect(await screen.findByRole('heading', { name: t('task.timeline') })).toBeTruthy();
+    fireEvent.click(viewButton(t('task.view.steps')));
+    expect(where()).toBe('/p/AC/tasks/AC-21/steps');
+    expect(await screen.findByRole('heading', { name: storyTitle })).toBeTruthy();
     expect(screen.getByRole('textbox', { name: t('task.comments.label') })).toBeTruthy();
     expect(screen.queryByRole('region', { name: t('attachments.title') })).toBeNull();
 
@@ -123,25 +116,25 @@ describe('the views of the open card (PM-487)', () => {
     const project = mockProject();
     project.render(card, '/p/AC/tasks/AC-21?size=large');
     await views();
-    fireEvent.click(viewButton(t('task.view.timeline')));
-    expect(where()).toBe('/p/AC/tasks/AC-21/timeline?size=large');
+    fireEvent.click(viewButton(t('task.view.steps')));
+    expect(where()).toBe('/p/AC/tasks/AC-21/steps?size=large');
   });
 
   it('keeps a comment that was begun when another view is shown', async () => {
     const project = mockProject();
-    project.render(card, '/p/AC/tasks/AC-21/timeline');
+    project.render(card, '/p/AC/tasks/AC-21/steps');
     const box = (await screen.findByRole('textbox', {
       name: t('task.comments.label'),
     })) as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: 'Half a comment' } });
     fireEvent.click(viewButton(t('task.view.card')));
-    fireEvent.click(viewButton(t('task.view.timeline')));
+    fireEvent.click(viewButton(t('task.view.steps')));
     expect(
       (screen.getByRole('textbox', { name: t('task.comments.label') }) as HTMLTextAreaElement).value,
     ).toBe('Half a comment');
   });
 
-  it('shows the writing of a comment on the timeline view, not on the card view', async () => {
+  it('shows the writing of a comment on the process view, not on the card view', async () => {
     const project = mockProject();
     project.render(card, '/p/AC/tasks/AC-21');
     await views();
@@ -149,7 +142,7 @@ describe('the views of the open card (PM-487)', () => {
     expect(screen.queryByRole('textbox', { name: t('task.comments.label') })).toBeNull();
   });
 
-  it('scrolls to the event a link points at on the timeline view, not to its end', async () => {
+  it('opens the process view for the older /timeline sub-path, at the event a link points at', async () => {
     const project = mockProject();
     const note = project.backend.timeline.find(
       (event) => event.taskKey === 'AC-21' && event.type === 'task_note',
@@ -160,11 +153,11 @@ describe('the views of the open card (PM-487)', () => {
     });
     project.render(card, `/p/AC/tasks/AC-21/timeline#timeline-${note.id}`);
     await views();
-    expect(pressed()).toEqual([t('task.view.timeline')]);
+    expect(pressed()).toEqual([t('task.view.steps')]);
     await waitFor(() => expect(reached).toContain(`timeline-${note.id}`));
   });
 
-  it('opens the timeline for an older link to one event, without the /timeline sub-path', async () => {
+  it('opens the process view for an older link to one event, without a sub-path', async () => {
     const project = mockProject();
     const note = project.backend.timeline.find(
       (event) => event.taskKey === 'AC-21' && event.type === 'task_note',
@@ -175,11 +168,11 @@ describe('the views of the open card (PM-487)', () => {
     });
     project.render(card, `/p/AC/tasks/AC-21#timeline-${note.id}`);
     await views();
-    expect(pressed()).toEqual([t('task.view.timeline')]);
+    expect(pressed()).toEqual([t('task.view.steps')]);
     await waitFor(() => expect(reached).toContain(`timeline-${note.id}`));
   });
 
-  it('gives a theme three views, without the conversation, and the card for its /thread', async () => {
+  it('gives a theme the same views, without the conversation, and the card for its /thread', async () => {
     const project = mockProject();
     const theme = Task.parse(
       project.backend.handle('POST', '/api/projects/AC/tasks', { title: 'Epic', kind: 'theme' }).body,
@@ -190,9 +183,12 @@ describe('the views of the open card (PM-487)', () => {
       within(group)
         .getAllByRole('button')
         .map((button) => button.querySelector('span')!.textContent),
-    ).toEqual([t('task.view.card'), t('task.view.attachments'), t('task.view.timeline')]);
+    ).toEqual([t('task.view.card'), t('task.view.attachments'), t('task.view.steps')]);
     expect(pressed()).toEqual([t('task.view.card')]);
-    fireEvent.click(viewButton(t('task.view.timeline')));
-    expect(where()).toBe(`/p/AC/tasks/${theme.key}/timeline`);
+    fireEvent.click(viewButton(t('task.view.steps')));
+    expect(where()).toBe(`/p/AC/tasks/${theme.key}/steps`);
+    expect(await screen.findByRole('heading', { name: storyTitle })).toBeTruthy();
+    // A theme has no "Most" box.
+    expect(screen.queryByRole('region', { name: t('task.steps.now') })).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { useState } from 'react';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
+import { openStory } from '../../test/cardStory';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { onTaskUpdate } from '../../test/msw/tasks';
 import { apiFailure } from '../../test/msw/contract';
@@ -13,7 +14,7 @@ import { TaskPrioritySelect } from './TaskPriority';
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 const drawer = (
   <Routes>
-    <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
+    <Route path="/p/:key/tasks/:taskKey/*" element={<TaskDrawer />} />
   </Routes>
 );
 const select = async () => (await screen.findByLabelText(t('priority.label'))) as HTMLSelectElement;
@@ -42,6 +43,7 @@ describe('card priority properties', () => {
         path: '/api/projects/AC/tasks/AC-20',
         body: { priority: 'high' },
       });
+      await openStory(screen, true);
       await screen.findByText(
         t('timeline.events.task_updated', {
           fields: t('timeline.priorityChange', {

@@ -1,31 +1,30 @@
-import { useId, useState } from 'react';
+import { useId, useMemo } from 'react';
+import type { ReactNode } from 'react';
 import clsx from 'clsx';
 import { Link } from 'react-router';
-import { CARD_STEP_EVENT_TYPES, cardStepOutcome } from '@projectman/shared';
-import type { CardStep, CardStepOutcome, Task, TaskStartWaiting, TimelineEvent } from '@projectman/shared';
+import type { UseQueryResult } from '@tanstack/react-query';
+import type { CardStep, Task, TaskDetail, TaskStartWaiting, TimelineEvent } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import type { ChipTone } from '../../components/Chip';
+import { ErrorState, LoadingState } from '../../components/States';
 import { formatAgo, formatStamp } from '../../i18n/format';
 import { hasMessage, t, tDynamic } from '../../i18n/t';
+import { buildCardStory } from '../../lib/cardStory';
+import type { StoryRound } from '../../lib/cardStory';
+import { inboxItemDomId } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
 import { startWaitingText } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
-import { describeEvent } from '../../lib/timeline';
 import type { TimelineContext } from '../../lib/timeline';
+import { CardStory } from './CardStory';
+import { nextStepLine } from './NextStep';
+import { useAttachmentRows } from './TimelineAttachment';
 import { useCardLink } from './cardSize';
 import { useDrawerBase } from './drawerBase';
 import drawer from './drawer.module.css';
 import styles from './TaskSteps.module.css';
 
-/** The ran rows shown at first: the older ones open in place (PM-1151). */
-const RAN_SHOWN = 10;
-
-const OUTCOME_TONE: Record<CardStepOutcome, ChipTone> = {
-  ran: 'ok',
-  failed: 'blocked',
-  handed_over: 'needs',
-};
 const STATE_TONE: Record<CardStep['state'], ChipTone> = {
   waiting: 'neutral',
   running: 'accent',
@@ -66,9 +65,9 @@ function waitText(step: CardStep, task: Task, ctx: Pick<TimelineContext, 'member
   return null;
 }
 
-function Time({ value, className, children }: { value: string; className?: string; children?: string }) {
+function Time({ value, children }: { value: string; children?: string }) {
   return (
-    <time dateTime={value} title={formatStamp(value)} className={className}>
+    <time dateTime={value} title={formatStamp(value)}>
       {children ?? formatStamp(value)}
     </time>
   );
@@ -146,7 +145,11 @@ function StepRow({
   return (
     <li className={styles.step}>
       {step.source === 'inbox' ? (
-        <Link to={cardLink(drawerBase.card(task.key))} className={clsx(styles.stepInner, styles.stepLink)}>
+        // The item's own box on the Card view answers it.
+        <Link
+          to={`${cardLink(drawerBase.card(task.key))}${step.ref ? `#${inboxItemDomId(step.ref)}` : ''}`}
+          className={clsx(styles.stepInner, styles.stepLink)}
+        >
           {body}
         </Link>
       ) : (
@@ -156,160 +159,131 @@ function StepRow({
   );
 }
 
-function RanRow({
-  event,
-  outcome,
-  ctx,
-  task,
-}: {
-  event: TimelineEvent;
-  outcome: CardStepOutcome | null;
-  ctx: TimelineContext;
-  task: Task;
-}) {
-  const cardLink = useCardLink();
-  const drawerBase = useDrawerBase();
-  const described = describeEvent(event, ctx);
-  return (
-    <li className={styles.ranRow} data-outcome={outcome ?? 'none'}>
-      <span className={styles.ranDot} data-outcome={outcome ?? 'none'} aria-hidden="true" />
-      <div className={styles.ranBody}>
-        <p className={styles.ranText}>
-          {outcome ? <span className="visually-hidden">{t(`task.steps.outcome.${outcome}`)}: </span> : null}
-          {described.text}
-        </p>
-        <div className={styles.ranFoot}>
-          {outcome ? <Chip tone={OUTCOME_TONE[outcome]}>{t(`task.steps.outcome.${outcome}`)}</Chip> : null}
-          <Link
-            to={`${cardLink(drawerBase.card(task.key, 'timeline'))}#timeline-${event.id}`}
-            className={styles.toTimeline}
-          >
-            {t('task.steps.toTimeline')}
-          </Link>
-        </div>
-      </div>
-      <Time value={event.createdAt} className={styles.ranTime} />
-    </li>
-  );
-}
-
-/** The card's Process view (PM-1151): what it waits for now, which steps are open, what ran and what failed. */
-export function TaskSteps({
+/** The "Most" box: the state, what the card waits for and who comes next. */
+function Now({
   task,
   state,
   steps,
-  events,
+  round,
   ctx,
 }: {
   task: Task;
-  state: TaskState | undefined;
-  /** Absent: the server did not read them (the open-steps section is left out, no error). */
+  state: TaskState;
+  /** Absent: the server did not read them (no waiting rows, no error). */
   steps: readonly CardStep[] | undefined;
-  events: readonly TimelineEvent[];
+  round: StoryRound | undefined;
   ctx: TimelineContext;
 }) {
-  const [all, setAll] = useState(false);
-  const openId = useId();
-  const ranId = useId();
   const nowId = useId();
-  const ran = events
-    .filter((event) => CARD_STEP_EVENT_TYPES.includes(event.type))
-    .map((event) => ({ event, outcome: cardStepOutcome(event) }))
-    .sort((a, b) => b.event.createdAt.localeCompare(a.event.createdAt));
-  const failed = ran.filter((row) => row.outcome === 'failed').length;
-  const handed = ran.filter((row) => row.outcome === 'handed_over').length;
-  const shown = all ? ran : ran.slice(0, RAN_SHOWN);
-  const first = (steps?.length ?? 0) === 0 && ran.length === 0;
-  const now = Date.now();
-  const stageName = ctx.pipeline?.stageById.get(task.stageId)?.name;
-
-  const nowSection = state ? (
+  const done = state.phase === 'done';
+  const mine = steps?.some((step) => step.source === 'inbox' && step.holder === ctx.myHandle) ?? false;
+  const next = ctx.pipeline ? nextStepLine(task, ctx.pipeline, ctx.members, ctx.myHandle) : null;
+  const time = formatStamp(state.since);
+  return (
     <section className={drawer.section} aria-labelledby={nowId}>
       <h3 id={nowId} className={drawer.sectionTitle}>
         {t('task.steps.now')}
       </h3>
-      <div className={clsx(styles.now, state.phase === 'done' && styles.nowDone)}>
+      <div className={clsx(styles.now, done && styles.nowDone, mine && styles.nowMine)}>
         <p className={styles.nowText}>
-          {state.phase === 'done' ? t('task.steps.doneNow') : state.next ? state.next.line : state.label}
+          {done ? t('task.steps.doneNow') : state.next ? state.next.line : state.label}
         </p>
         <p className={styles.nowSince}>
-          {stageName && state.phase !== 'done'
-            ? t('task.steps.nowMeta', { stage: stageName, time: formatStamp(state.since) })
-            : t('task.steps.since', { time: formatStamp(state.since) })}
+          {round && !done
+            ? t('task.steps.nowMeta', { stage: round.stageName, number: round.number, time })
+            : t('task.steps.since', { time })}
         </p>
-      </div>
-    </section>
-  ) : null;
-
-  if (first) {
-    return (
-      <div className={styles.steps}>
-        {nowSection}
-        <div className={styles.first}>
-          <p className={styles.firstTitle}>{t('task.steps.firstTitle')}</p>
-          <p className={styles.firstBody}>{t('task.steps.firstBody')}</p>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className={styles.steps}>
-      {nowSection}
-
-      {steps ? (
-        <section className={drawer.section} aria-labelledby={openId}>
-          <h3 id={openId} className={drawer.sectionTitle}>
-            {t('task.steps.open')}
-            {steps.length > 0 ? <span className={styles.count}> · {steps.length}</span> : null}
-          </h3>
-          {steps.length > 0 ? (
+        {steps?.length ? (
+          <>
+            <h4 className={styles.waitTitle}>{t('task.steps.waitingFor')}</h4>
             <ul className={styles.stepList}>
               {steps.map((step) => (
-                <StepRow key={`${step.source}:${step.ref}`} step={step} task={task} ctx={ctx} now={now} />
+                <StepRow
+                  key={`${step.source}:${step.ref}`}
+                  step={step}
+                  task={task}
+                  ctx={ctx}
+                  now={Date.now()}
+                />
               ))}
             </ul>
-          ) : (
-            <p className={styles.openEmpty}>{t('task.steps.openEmpty')}</p>
-          )}
-        </section>
-      ) : null}
-
-      <section className={drawer.section} aria-labelledby={ranId}>
-        <h3 id={ranId} className={drawer.sectionTitle}>
-          {t('task.steps.ran')}
-        </h3>
-        {ran.length === 0 ? (
-          <p className={styles.openEmpty}>{t('task.steps.ranEmpty')}</p>
-        ) : (
-          <>
-            <p className={styles.ranSummary}>
-              <span>{t('task.steps.ranCount', { count: ran.length })}</span>
-              {failed > 0 ? (
-                <>
-                  <span aria-hidden="true"> · </span>
-                  <span className={styles.failedCount}>{t('task.steps.ranFailed', { count: failed })}</span>
-                </>
-              ) : null}
-              {handed > 0 ? (
-                <>
-                  <span aria-hidden="true"> · </span>
-                  <span className={styles.handedCount}>{t('task.steps.ranHanded', { count: handed })}</span>
-                </>
-              ) : null}
-            </p>
-            <ul className={styles.ranList}>
-              {shown.map(({ event, outcome }) => (
-                <RanRow key={event.id} event={event} outcome={outcome} ctx={ctx} task={task} />
-              ))}
-            </ul>
-            {!all && ran.length > RAN_SHOWN ? (
-              <button type="button" className={styles.earlier} onClick={() => setAll(true)}>
-                {t('task.steps.earlier', { count: ran.length - RAN_SHOWN })}
-              </button>
-            ) : null}
           </>
-        )}
-      </section>
+        ) : null}
+        {next ? (
+          <p className={styles.next}>
+            <span className={styles.nextLabel}>{t('task.next')}</span> {next}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The card's Process view (PM-1160): the "Most" box (the state, what it waits for, who comes next), the comment
+ * box and the story in rounds. A hidden view keeps only the comment box, so a draft survives the tab changes.
+ */
+export function TaskProcess({
+  active,
+  task,
+  state,
+  theme,
+  detail,
+  ctx,
+  fullMessageHref,
+  composer,
+}: {
+  active: boolean;
+  task: Task;
+  /** Absent for a theme: it has no "Most" box. */
+  state: TaskState | undefined;
+  theme: boolean;
+  detail: Pick<UseQueryResult<TaskDetail>, 'data' | 'isPending' | 'isError' | 'error' | 'refetch'>;
+  ctx: TimelineContext;
+  fullMessageHref: (event: TimelineEvent) => string | null;
+  composer: ReactNode;
+}) {
+  const data = detail.data;
+  const { renderText, dialog } = useAttachmentRows(task, data?.timeline ?? []);
+  const { pipeline, labels, members, myHandle, openInboxIds } = ctx;
+  const story = useMemo(
+    () =>
+      data
+        ? buildCardStory({
+            task,
+            events: data.timeline,
+            earlierEvents: data.earlierEvents,
+            theme,
+            ctx: { pipeline, labels, members, myHandle, openInboxIds },
+          })
+        : null,
+    [data, task.stageId, task.status, theme, pipeline, labels, members, myHandle, openInboxIds],
+  );
+  const wait = detail.isPending ? (
+    <LoadingState compact />
+  ) : detail.isError ? (
+    <ErrorState
+      compact
+      error={detail.error}
+      message={t('task.steps.loadFailed')}
+      onRetry={() => void detail.refetch()}
+    />
+  ) : null;
+  return (
+    <div className={styles.steps}>
+      {/* The tab names the view: the title stays for the screen readers. */}
+      <h2 className={clsx(drawer.sectionTitle, 'visually-hidden')}>{t('task.steps.title')}</h2>
+      {active
+        ? (wait ??
+          (state && !theme && story ? (
+            <Now task={task} state={state} steps={data?.steps} round={story.rounds.at(-1)} ctx={ctx} />
+          ) : null))
+        : null}
+      {composer}
+      {active && story ? (
+        <CardStory story={story} ctx={ctx} fullMessageHref={fullMessageHref} renderText={renderText} />
+      ) : null}
+      {dialog}
     </div>
   );
 }

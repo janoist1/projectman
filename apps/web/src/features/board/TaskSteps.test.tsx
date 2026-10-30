@@ -9,6 +9,7 @@ import { TaskDrawer } from './TaskDrawer';
 
 afterEach(() => {
   vi.restoreAllMocks();
+  window.localStorage.clear();
   setFetchImplementation((input, init) => globalThis.fetch(input, init));
 });
 
@@ -74,109 +75,153 @@ const queueItem = (patch: Partial<MemberQueueItem> = {}): MemberQueueItem => ({
   ...patch,
 });
 
-/** Opens the Process view of AC-21; its open permission item of the fixtures is one of the steps. */
-async function openSteps(project: Project) {
-  project.render(card, '/p/AC/tasks/AC-21/steps');
-  return screen.findByRole('heading', { name: new RegExp(`^${t('task.steps.open')}`), level: 3 });
+/** Opens the Process view of AC-21 (in the fixtures: in QA, after four stage moves, one item waits for the viewer). */
+async function openProcess(project: Project, path = '/p/AC/tasks/AC-21/steps') {
+  project.render(card, path);
+  return screen.findByRole('heading', { name: new RegExp(`^${t('task.story.title')}`), level: 3 });
 }
 
-/** A section's heading may carry a count after its name. */
-const section = (name: string) => screen.getByRole('region', { name: new RegExp(`^${name}`) });
+const now = () => screen.getByRole('region', { name: t('task.steps.now') });
+const story = () => screen.getByRole('region', { name: new RegExp(`^${t('task.story.title')}`) });
+/** The round headers, newest first. */
+const rounds = () =>
+  within(story())
+    .getAllByRole('button')
+    .filter((button) => button.hasAttribute('aria-expanded') && button.closest('h4') !== null);
+const noiseFolds = () => within(story()).queryAllByRole('button', { name: /rendszer-esemény/ });
 
-describe('the Process view of the open card (PM-1151)', () => {
+describe('the "Most" box of the Process view (PM-1160)', () => {
   it('shows what waits, with the one who holds it, and the overdue deadline', async () => {
     const project = mockProject();
     project.backend.obligations = [obligation()];
     project.backend.queueItems = [queueItem({ attempts: 1 })];
-    await openSteps(project);
-    const open = within(section(t('task.steps.open')));
-    const rows = open.getAllByRole('listitem');
+    await openProcess(project);
+    const rows = within(now()).getAllByRole('listitem');
     expect(rows).toHaveLength(3);
     // The running queue item comes first, on its second attempt; the obligation's deadline has passed.
     expect(within(rows[0]!).getByText(t('task.steps.state.running'))).toBeTruthy();
     expect(within(rows[0]!).getByText(t('task.steps.meta.attempt', { count: 2 }))).toBeTruthy();
-    expect(open.getByText(/^lejárt /)).toBeTruthy();
-    // The "Most" box names the stage the card stands in.
-    expect(within(section(t('task.steps.now'))).getByText(/ · .* óta$/)).toBeTruthy();
+    expect(within(now()).getByText(/^lejárt /)).toBeTruthy();
+    // The box names the stage and the round the card stands in.
+    expect(within(now()).getByText(/, \d+\. kör · .* óta$/)).toBeTruthy();
     // The message text of the queue item never reaches the view.
     expect(screen.queryByText('A private message text')).toBeNull();
   });
 
-  it('counts the open steps on the tab, and leads an item for the viewer back to the card', async () => {
+  it('counts the open steps on the tab, and leads an item for the viewer to its box on the card', async () => {
     const project = mockProject();
-    await openSteps(project);
+    await openProcess(project);
     const tabs = screen.getByRole('group', { name: t('task.view.label') });
     const tab = within(tabs).getByRole('button', { name: new RegExp(`^${t('task.view.steps')}`) });
     expect(within(tab).getByText('1')).toBeTruthy();
-    // Nothing ran yet: one dashed line instead of a bare count.
-    expect(within(section(t('task.steps.ran'))).getByText(t('task.steps.ranEmpty'))).toBeTruthy();
-    expect(screen.queryByText(t('task.steps.ranCount', { count: 0 }))).toBeNull();
-    const row = within(section(t('task.steps.open'))).getByRole('link');
+    const row = within(now()).getByRole('link');
     expect(within(row).getByText(t('task.steps.forYou'))).toBeTruthy();
     fireEvent.click(row);
-    expect(screen.getByTestId('where').textContent).toBe('/p/AC/tasks/AC-21');
+    expect(screen.getByTestId('where').textContent).toMatch(/^\/p\/AC\/tasks\/AC-21#inbox-item-/);
   });
 
-  it('lists what ran newest first, marks the failed and handed-over ones and leaves out other events', async () => {
-    const project = mockProject();
-    const { backend } = project;
-    backend.addTimeline('AC-21', null, 'task_merged', { commit: 'abc12345' }, null, ago(50));
-    backend.addTimeline('AC-21', null, 'task_full_test', { outcome: 'failed' }, null, ago(40));
-    backend.addTimeline('AC-21', null, 'obligation_handed_over', { kind: 'merge' }, null, ago(30));
-    backend.addTimeline('AC-21', null, 'member_queue_item_closed', { reason: 'stale' }, null, ago(20));
-    await openSteps(project);
-    const ran = within(section(t('task.steps.ran')));
-    const rows = ran.getAllByRole('listitem');
-    expect(rows).toHaveLength(4);
-    // An outcome that is not known (an old or unrecognised close reason) gets no chip.
-    for (const outcome of ['ran', 'failed', 'handed_over'] as const)
-      expect(within(rows[0]!).queryByText(t(`task.steps.outcome.${outcome}`))).toBeNull();
-    expect(within(rows[1]!).getByText(t('task.steps.outcome.handed_over'))).toBeTruthy();
-    expect(within(rows[2]!).getByText(t('task.steps.outcome.failed'))).toBeTruthy();
-    // A screen reader hears the outcome at the start of the row, too.
-    expect(rows[2]!.querySelector('p')?.textContent).toMatch(
-      new RegExp(`^${t('task.steps.outcome.failed')}: `),
-    );
-    expect(within(rows[3]!).getByText(t('task.steps.outcome.ran'))).toBeTruthy();
-    expect(ran.getByText(t('task.steps.ranFailed', { count: 1 }))).toBeTruthy();
-    expect(ran.getByText(t('task.steps.ranHanded', { count: 1 }))).toBeTruthy();
-    // A row leads to its event on the timeline.
-    fireEvent.click(within(rows[2]!).getByRole('link', { name: t('task.steps.toTimeline') }));
-    expect(screen.getByTestId('where').textContent).toMatch(/^\/p\/AC\/tasks\/AC-21\/timeline#timeline-evt/);
-  });
-
-  it('shows the first ten ran rows and the older ones in place', async () => {
-    const project = mockProject();
-    for (let index = 0; index < 12; index++)
-      project.backend.addTimeline('AC-21', null, 'task_merged', {}, null, ago(100 - index));
-    await openSteps(project);
-    const ran = within(section(t('task.steps.ran')));
-    expect(ran.getAllByRole('listitem')).toHaveLength(10);
-    fireEvent.click(ran.getByRole('button', { name: t('task.steps.earlier', { count: 2 }) }));
-    await waitFor(() => expect(ran.getAllByRole('listitem')).toHaveLength(12));
-    expect(ran.queryByRole('button', { name: /^Korábbiak/ })).toBeNull();
-  });
-
-  it('says so when nothing ran and nothing is open', async () => {
+  it('leaves out the list when nothing waits', async () => {
     const project = mockProject();
     project.backend.inbox = project.backend.inbox.filter((item) => item.taskKey !== 'AC-21');
-    project.render(card, '/p/AC/tasks/AC-21/steps');
-    expect(await screen.findByText(t('task.steps.firstTitle'))).toBeTruthy();
-    // The Now box stays above it: it says what the card waits for.
-    expect(section(t('task.steps.now'))).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: new RegExp(`^${t('task.steps.open')}`) })).toBeNull();
+    await openProcess(project);
+    expect(within(now()).queryByText(t('task.steps.waitingFor'))).toBeNull();
+    expect(within(now()).queryAllByRole('listitem')).toHaveLength(0);
+  });
+});
+
+describe('the story of the Process view (PM-1160)', () => {
+  it('opens the latest round and folds the earlier ones to a line with their outcome', async () => {
+    const project = mockProject();
+    await openProcess(project);
+    const heads = rounds();
+    expect(heads.length).toBeGreaterThanOrEqual(4);
+    expect(heads[0]!.getAttribute('aria-expanded')).toBe('true');
+    expect(heads.slice(1).every((head) => head.getAttribute('aria-expanded') === 'false')).toBe(true);
+    expect(heads[0]!.textContent).toContain(t('task.story.outcome.running'));
+    // The round before it went on: the chip says where, and the closed round shows a line about it.
+    expect(heads[1]!.textContent).toContain(t('task.story.outcome.forward', { stage: '' }).trim());
+    const panelId = heads[0]!.getAttribute('aria-controls')!;
+    expect(document.getElementById(panelId)).toBeTruthy();
+    expect(heads[1]!.getAttribute('aria-controls')).toBeNull();
+    fireEvent.click(heads[1]!);
+    expect(rounds()[1]!.getAttribute('aria-expanded')).toBe('true');
+    expect(document.getElementById(rounds()[1]!.getAttribute('aria-controls')!)).toBeTruthy();
   });
 
-  it('gives a theme no Process view', async () => {
+  it('folds the system events into runs, shows them all in the "Minden" view and remembers the choice', async () => {
     const project = mockProject();
-    const response = project.backend.handle('POST', '/api/projects/AC/tasks', {
-      title: 'Epic',
-      kind: 'theme',
+    await openProcess(project);
+    const before = noiseFolds().length;
+    expect(before).toBeGreaterThan(0);
+    const choice = within(story()).getByRole('group', { name: t('task.story.viewLabel') });
+    fireEvent.click(within(choice).getByRole('button', { name: t('task.story.view.all') }));
+    expect(noiseFolds()).toHaveLength(0);
+    expect(window.localStorage.getItem('pm:cardStory.view')).toBe('all');
+  });
+
+  it('starts in the remembered view', async () => {
+    window.localStorage.setItem('pm:cardStory.view', 'all');
+    const project = mockProject();
+    await openProcess(project);
+    expect(noiseFolds()).toHaveLength(0);
+    const choice = within(story()).getByRole('group', { name: t('task.story.viewLabel') });
+    expect(
+      within(choice)
+        .getByRole('button', { name: t('task.story.view.all') })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('opens a noise run in place', async () => {
+    const project = mockProject();
+    await openProcess(project);
+    const folds = noiseFolds().length;
+    fireEvent.click(noiseFolds()[0]!);
+    // The round shows its system events now, with a way to hide them again.
+    expect(noiseFolds()).toHaveLength(0);
+    expect(folds).toBeGreaterThan(0);
+    fireEvent.click(within(story()).getByRole('button', { name: t('task.story.noiseHide') }));
+    expect(noiseFolds()).toHaveLength(folds);
+  });
+
+  it('opens the round and the run that hide the event an older link points at', async () => {
+    const project = mockProject();
+    const hidden = project.backend.timeline.find(
+      (event) => event.taskKey === 'AC-21' && event.type === 'session_started',
+    )!;
+    const reached: string[] = [];
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      reached.push(this.id);
     });
+    await openProcess(project, `/p/AC/tasks/AC-21/timeline#timeline-${hidden.id}`);
+    await waitFor(() => expect(reached).toContain(`timeline-${hidden.id}`));
+    expect(document.getElementById(`timeline-${hidden.id}`)).toBeTruthy();
+  });
+
+  it('shows the older rows of a long round in place', async () => {
+    const project = mockProject();
+    for (let index = 0; index < 32; index++)
+      project.backend.addTimeline(
+        'AC-21',
+        'owner',
+        'task_note',
+        { text: `Note ${index}` },
+        null,
+        ago(100 - index),
+      );
+    await openProcess(project);
+    const more = await within(story()).findByRole('button', { name: /^Korábbiak/ });
+    fireEvent.click(more);
+    expect(within(story()).queryByRole('button', { name: /^Korábbiak/ })).toBeNull();
+    expect(within(story()).getByText('Note 0')).toBeTruthy();
+  });
+
+  it('helps a card that has no story yet, without the choice of view', async () => {
+    const project = mockProject();
+    const response = project.backend.handle('POST', '/api/projects/AC/tasks', { title: 'Fresh card' });
     const key = (response.body as { key: string }).key;
-    project.render(card, `/p/AC/tasks/${key}/steps`);
-    await screen.findByRole('group', { name: t('task.view.label') });
-    expect(screen.queryByRole('button', { name: new RegExp(`^${t('task.view.steps')}`) })).toBeNull();
-    expect(screen.queryByRole('heading', { name: t('task.steps.title') })).toBeNull();
+    await openProcess(project, `/p/AC/tasks/${key}/steps`);
+    expect(await screen.findByText(t('task.story.firstTitle'))).toBeTruthy();
+    expect(within(story()).queryByRole('group', { name: t('task.story.viewLabel') })).toBeNull();
   });
 });

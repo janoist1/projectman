@@ -6,6 +6,7 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { apiRequest, setFetchImplementation } from '../../api/client';
 import { plainLanguageQuestion } from '../../mocks/fixtures';
+import { openStory, openTab } from '../../test/cardStory';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { t, tDynamic } from '../../i18n/t';
 import { onTaskLabels, onTaskUpdate } from '../../test/msw/tasks';
@@ -116,6 +117,7 @@ describe('task drawer lifecycle', () => {
     await screen.findByRole('button', { name: t('taskLifecycle.reopen') });
     expect(project.backend.findTask('AC-20')).toMatchObject({ status: 'cancelled', assignee: 'be-1' });
     expect(project.backend.findSession('ses_ac20_be1')?.state).toBe('exited');
+    await openStory(screen, true);
     expect(
       screen.getByText(t('timeline.events.task_cancelled_reason', { reason: 'Acme scope changed.' })),
     ).toBeTruthy();
@@ -127,7 +129,7 @@ describe('task drawer lifecycle', () => {
       closedAt: null,
       stageId: 'dev',
     });
-    expect(screen.getByText(t('timeline.events.task_reopened'))).toBeTruthy();
+    expect(await screen.findByText(t('timeline.events.task_reopened'))).toBeTruthy();
   });
   it('changes and clears the assignee even while the old assignee has a live session', async () => {
     const project = mockProject();
@@ -144,6 +146,7 @@ describe('task drawer lifecycle', () => {
     fireEvent.change(select, { target: { value: 'kata' } });
     // A live session no longer refuses the change (PM-342): the old session is asked for a handoff note.
     await waitFor(() => expect(project.backend.findTask('AC-20')?.assignee).toBe('kata'));
+    await openStory(screen, true);
     await screen.findByText(/Előző felelős: Backend fejlesztő/);
     fireEvent.change(screen.getByLabelText(t('taskLifecycle.assignee')), { target: { value: '' } });
     await waitFor(() => expect(project.backend.findTask('AC-20')?.assignee).toBeNull());
@@ -330,13 +333,17 @@ describe('task drawer labels', () => {
     fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
     fireEvent.click(within(section).getByRole('button', { name: /Válaszra vár/ }));
     // The timeline names the label, not its id.
+    await openStory(screen, true);
     await screen.findByText(t('timeline.labelsAdded', { labels: 'Válaszra vár' }));
+    await openTab('card');
     fireEvent.click(
       await within(section).findByRole('button', {
         name: t('task.labels.remove', { label: 'Válaszra vár' }),
       }),
     );
+    await openStory(screen, true);
     await screen.findByText(t('timeline.labelsRemoved', { labels: 'Válaszra vár' }));
+    await openTab('card');
     expect(
       within(section).queryByRole('button', { name: t('task.labels.remove', { label: 'Válaszra vár' }) }),
     ).toBeNull();
@@ -352,7 +359,8 @@ describe('task drawer labels', () => {
         .getAllByRole('button', { name: t('task.labels.apply') })
         .at(-1)!,
     );
-    // The reason shows as a comment on the timeline.
+    // The reason shows as a comment in the story.
+    await openStory();
     await screen.findByText('Which Acme market?');
     expect(labelChanges(project)).toEqual([
       { add: ['waiting-answer'] },
@@ -449,7 +457,7 @@ describe('task drawer comments', () => {
       importedAt: at,
     });
     const count = project.backend.messages.length;
-    project.render(drawer, '/p/AC/tasks/AC-20');
+    project.render(drawer, '/p/AC/tasks/AC-20/steps');
     const author = await screen.findByText('Morgan Example');
     const row = author.closest('li')!;
     expect(within(row).getByText(t('task.comments.imported'), { exact: false })).toBeTruthy();
@@ -702,8 +710,8 @@ describe('task drawer layout', () => {
     const open = await screen.findByRole('link', { name: t('task.openSession') });
     expect(follows(decision, open)).toBe(true);
     expect(follows(open, properties)).toBe(true);
-    // The timeline and the attachments have views of their own (PM-487): the card ends with its numbers.
-    expect(screen.queryByRole('heading', { name: t('task.timeline') })).toBeNull();
+    // The story and the attachments have views of their own (PM-487): the card ends with its numbers.
+    expect(screen.queryByRole('heading', { name: new RegExp(`^${t('task.story.title')}`) })).toBeNull();
     expect(screen.queryByRole('region', { name: t('attachments.title') })).toBeNull();
     // The move panel opens inside the row of the session buttons (the row it is positioned by), so
     // it stays within the drawer wherever the button wraps to.

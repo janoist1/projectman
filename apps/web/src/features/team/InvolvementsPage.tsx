@@ -63,7 +63,7 @@ export function InvolvementRows({
                   <Link to={`/p/${key}/team/${handle}`}>{member?.displayName ?? handle}</Link>
                   <Chip tone={description.tone ?? 'neutral'}>{description.verb}</Chip>
                   {event.taskKey ? (
-                    <Link to={`/p/${key}/tasks/${event.taskKey}/timeline#timeline-${event.id}`}>
+                    <Link to={`/p/${key}/tasks/${event.taskKey}/steps#timeline-${event.id}`}>
                       {event.taskKey} · {taskTitle}
                     </Link>
                   ) : (

@@ -104,6 +104,11 @@ Entries in the order they appear below (search for the bold name).
   `service install|uninstall|switch`) and “Engine app package (PM-1104, PM-1121)” (the bundled
   engine). **Machine assumptions added:** outbound HTTPS to github.com, `ditto`, the Security
   framework, a writable `~/Library/Caches` and the app's own bundle location, `/bin/sh` and `open`.
+  **Language (PM-1185):** the app ships `hu.lproj` and `en.lproj` (development region `en`); macOS
+  picks one from the language list of the engine's own Mac (Hungarian on a Hungarian system,
+  English on any other), and numbers follow that locale (`L10n.locale`). The language is never
+  taken from the hub or from the account's system language. The app file name, bundle id and
+  `CFBundleName` are the same in every language.
   Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
 

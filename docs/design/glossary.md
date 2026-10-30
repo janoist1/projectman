@@ -34,119 +34,129 @@ English word, and the same thing is never called two names.
 
 ## Board and card
 
-| Hungarian | English | Note |
-| --- | --- | --- |
-| kártya, feladat | card | The UI never says "task". "Új feladat" → "New card". |
-| alkártya, alfeladat, rész | sub-card | |
-| tábla; Folyamat (menu) | board; Board | |
-| oszlop | column | |
-| lépés | stage | Configured stage names are not translated. |
-| lépésfajta | stage kind | |
-| téma | theme | |
-| térkép | map | |
-| modul | module | |
-| címke | label | Hungarian "tag" is **member**, never "tag". |
-| előfeltétel | prerequisite | "{count} vár rá" → "{count\|# card waits\|# cards wait} on it" |
-| kapcsolat | relation | |
-| hivatkozás | link | |
-| csatolmány | attachment | |
-| elfogadási pont | acceptance item | lezárva / megerősítve → closed / confirmed |
-| összetettség, pont | complexity, points | |
-| prioritás | priority | |
-| Kidolgozás | refinement | "Kidolgozásra vár" → "Waiting for refinement" |
-| indítható; Indulásra vár | ready to start; Waiting to start | |
-| elvet / lezár / újranyit | cancel / close / reopen | "cancelled card" |
-| beolvasztás | merge | |
-| ág | branch | |
-| munkafa | worktree | |
-| ütközés | conflict | |
-| ellenőrzés (merge) | check | |
-| teljes teszt | full test | |
-| keret (AI-keret) | plan | "{provider} plan", "AI plan"; keretmutató → plan meter |
-| gyorsítótár | cache | |
+| Hungarian                 | English                          | Note                                                           |
+| ------------------------- | -------------------------------- | -------------------------------------------------------------- |
+| kártya, feladat           | card                             | The UI never says "task". "Új feladat" → "New card".           |
+| alkártya, alfeladat, rész | sub-card                         |                                                                |
+| tábla; Folyamat (menu)    | board; Board                     |                                                                |
+| oszlop                    | column                           |                                                                |
+| lépés                     | stage                            | Configured stage names are not translated.                     |
+| lépésfajta                | stage kind                       |                                                                |
+| téma                      | theme                            |                                                                |
+| térkép                    | map                              |                                                                |
+| modul                     | module                           |                                                                |
+| címke                     | label                            | Hungarian "tag" is **member**, never "tag".                    |
+| előfeltétel               | prerequisite                     | "{count} vár rá" → "{count\|# card waits\|# cards wait} on it" |
+| kapcsolat                 | relation                         |                                                                |
+| hivatkozás                | link                             |                                                                |
+| csatolmány                | attachment                       |                                                                |
+| elfogadási pont           | acceptance item                  | lezárva / megerősítve → closed / confirmed                     |
+| összetettség, pont        | complexity, points               |                                                                |
+| prioritás                 | priority                         |                                                                |
+| Kidolgozás                | refinement                       | "Kidolgozásra vár" → "Waiting for refinement"                  |
+| indítható; Indulásra vár  | ready to start; Waiting to start |                                                                |
+| elvet / lezár / újranyit  | cancel / close / reopen          | "cancelled card"                                               |
+| beolvasztás               | merge                            |                                                                |
+| ág                        | branch                           |                                                                |
+| munkafa                   | worktree                         |                                                                |
+| ütközés                   | conflict                         |                                                                |
+| ellenőrzés (merge)        | check                            |                                                                |
+| teljes teszt              | full test                        |                                                                |
+| keret (AI-keret)          | plan                             | "{provider} plan", "AI plan"; keretmutató → plan meter         |
+| gyorsítótár               | cache                            |                                                                |
 
 ## Timeline, sessions, how we work
 
-| Hungarian | English | Note |
-| --- | --- | --- |
-| idővonal | timeline | |
-| munkamenet | session | |
-| általános beszélgetés | general chat | |
-| megbeszélés | meeting | |
-| Beszélgetés (tab) / Terminál / Részletek | Chat / Terminal / Details | |
-| munkakönyvtár | working directory | |
-| szolgáltató | provider | |
-| engedély; mód | permission; mode | |
-| leállít | stop | |
-| szünet, szüneteltet, folytat | pause, pause, resume | "The whole instance is paused" |
-| élesítés | release | |
-| átadás, leadás | handoff | "hands off the work"; átadó jegyzet → handoff note |
-| átvevő; felelős | the new assignee; assignee | |
-| gépi összefoglaló | automatic summary | |
-| javítási kör; javítási körök határa | fix round; fix round limit | extra kör → extra round |
-| kódátnézés; UI/UX átnézés | code review; UI/UX review | |
-| visszaküldés | send-back | |
-| Körbe fut | Going in circles | körbeírogatás → back-and-forth |
-| bevonás; bevonva | involvement; brought in | page title "Involvements" |
-| kapu; jóváhagyás | gate; approval | "Ember dönt" → "A person decides" |
-| feladatkör | duty | Template duty names come from the template's `en` locale (Ütemezés → Scheduling). |
-| Mit kap a munkájához | What they get to work with | |
-| bevezető, útmutató, csapateszköz | intro, guide, team tool | |
-| induló üzenet; rendszerprompt | kick-off message; system prompt | |
-| Hogyan dolgozunk | How we work | "Egy kártya útja" → "A card's path"; Alapszabályok → Ground rules; Jelmagyarázat → Legend |
+| Hungarian                                | English                         | Note                                                                                      |
+| ---------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------- |
+| idővonal                                 | timeline                        |                                                                                           |
+| munkamenet                               | session                         |                                                                                           |
+| általános beszélgetés                    | general chat                    |                                                                                           |
+| megbeszélés                              | meeting                         |                                                                                           |
+| Beszélgetés (tab) / Terminál / Részletek | Chat / Terminal / Details       |                                                                                           |
+| munkakönyvtár                            | working directory               |                                                                                           |
+| szolgáltató                              | provider                        |                                                                                           |
+| engedély; mód                            | permission; mode                |                                                                                           |
+| leállít                                  | stop                            |                                                                                           |
+| szünet, szüneteltet, folytat             | pause, pause, resume            | "The whole instance is paused"                                                            |
+| élesítés                                 | release                         |                                                                                           |
+| átadás, leadás                           | handoff                         | "hands off the work"; átadó jegyzet → handoff note                                        |
+| átvevő; felelős                          | the new assignee; assignee      |                                                                                           |
+| gépi összefoglaló                        | automatic summary               |                                                                                           |
+| javítási kör; javítási körök határa      | fix round; fix round limit      | extra kör → extra round                                                                   |
+| kódátnézés; UI/UX átnézés                | code review; UI/UX review       |                                                                                           |
+| visszaküldés                             | send-back                       |                                                                                           |
+| Körbe fut                                | Going in circles                | körbeírogatás → back-and-forth                                                            |
+| bevonás; bevonva                         | involvement; brought in         | page title "Involvements"                                                                 |
+| kapu; jóváhagyás                         | gate; approval                  | "Ember dönt" → "A person decides"                                                         |
+| feladatkör                               | duty                            | Template duty names come from the template's `en` locale (Ütemezés → Scheduling).         |
+| Mit kap a munkájához                     | What they get to work with      |                                                                                           |
+| bevezető, útmutató, csapateszköz         | intro, guide, team tool         |                                                                                           |
+| induló üzenet; rendszerprompt            | kick-off message; system prompt |                                                                                           |
+| Hogyan dolgozunk                         | How we work                     | "Egy kártya útja" → "A card's path"; Alapszabályok → Ground rules; Jelmagyarázat → Legend |
 
 ## Waiting for you, Operator, team, messages
 
-| Hungarian | English | Note |
-| --- | --- | --- |
-| Rád vár (the list, nav, pill) | For you | Owner's decision on PM-1178 (2026-10-30). Status of a member or session: "Waiting for you". |
-| teendő | to-do | |
-| kérdés; döntés | question; decision | |
-| tárgytalan | moot | |
-| szűrés (Operátor) | screening | |
-| Operátor | Operator | A proper name: capital O. |
-| integrátor | integrator | |
-| csapat | team | |
-| tag; AI-tag; ember | member; AI member; person | "people" in plural, not "humans" |
-| szerep | role | Configured role names are not translated. |
-| tulajdonos | owner | |
-| meghívás; meghívott | invite (noun and verb); invited | "invitation" only in e-mail subjects |
-| felvesz (tagot) | hire | |
-| elbocsát; elbocsátva | retire; retired | "Retired: {handle}" |
-| szabadság | on leave | |
-| üzenet; üzenetváltás | message; conversation | |
-| Jelölések; jelölés | Feedback; mark | The feedback widget's pins on a page. |
-| visszajelzés | feedback | |
+| Hungarian                     | English                         | Note                                                                                        |
+| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------- |
+| Rád vár (the list, nav, pill) | For you                         | Owner's decision on PM-1178 (2026-10-30). Status of a member or session: "Waiting for you". |
+| teendő                        | to-do                           |                                                                                             |
+| kérdés; döntés                | question; decision              |                                                                                             |
+| tárgytalan                    | moot                            |                                                                                             |
+| szűrés (Operátor)             | screening                       |                                                                                             |
+| Operátor                      | Operator                        | A proper name: capital O.                                                                   |
+| integrátor                    | integrator                      |                                                                                             |
+| csapat                        | team                            |                                                                                             |
+| tag; AI-tag; ember            | member; AI member; person       | "people" in plural, not "humans"                                                            |
+| szerep                        | role                            | Configured role names are not translated.                                                   |
+| tulajdonos                    | owner                           |                                                                                             |
+| meghívás; meghívott           | invite (noun and verb); invited | "invitation" only in e-mail subjects                                                        |
+| felvesz (tagot)               | hire                            |                                                                                             |
+| elbocsát; elbocsátva          | retire; retired                 | "Retired: {handle}"                                                                         |
+| szabadság                     | on leave                        |                                                                                             |
+| üzenet; üzenetváltás          | message; conversation           |                                                                                             |
+| Jelölések; jelölés            | Feedback; mark                  | The feedback widget's pins on a page.                                                       |
+| visszajelzés                  | feedback                        |                                                                                             |
 
 ## Settings, machine, owners
 
-| Hungarian | English | Note |
-| --- | --- | --- |
-| Beállítások | Settings | |
-| gép | machine | |
-| motor | engine | The app file name stays `projectman motor.app` (PM-1168). |
-| tulajdonosok | owners | |
-| értesítések | notifications | |
-| fiók | account | |
-| rendszernyelv; csapat nyelve | language (your UI language); team language | Settings label: "Team language". |
-| időzóna | time zone | |
-| integrátorkulcs | integrator key | |
+| Hungarian                                                | English                                           | Note                                                                                                |
+| -------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Beállítások                                              | Settings                                          |                                                                                                     |
+| gép                                                      | machine                                           |                                                                                                     |
+| motor                                                    | engine                                            | The app file name stays `projectman motor.app` (PM-1168).                                           |
+| tulajdonosok                                             | owners                                            |                                                                                                     |
+| értesítések                                              | notifications                                     |                                                                                                     |
+| fiók                                                     | account                                           |                                                                                                     |
+| rendszernyelv; csapat nyelve                             | language (your UI language); team language        | Settings label: "Team language".                                                                    |
+| időzóna                                                  | time zone                                         |                                                                                                     |
+| integrátorkulcs                                          | integrator key                                    |                                                                                                     |
+| lépés gazdája                                            | handler                                           | Settings > Board: "Handlers", "no handler". Not "owner": owner is a person with the `owner` access. |
+| Keretek; {percent}% keret                                | Limits; {percent}% of plan                        |                                                                                                     |
+| ntfy téma                                                | topic                                             |                                                                                                     |
+| Rád vár (list)                                           | For you                                           |                                                                                                     |
+| Munkaterület                                             | Workspace                                         |                                                                                                     |
+| Operátor jogosítványa                                    | Operator permissions                              |                                                                                                     |
+| chopper                                                  | chopper                                           | Stays untranslated.                                                                                 |
+| Napló (integrator key); e-mail napló                     | Activity log; Log                                 |                                                                                                     |
+| belépő                                                   | access file                                       |                                                                                                     |
+| Ütemezés; Élesítés jóváhagyása; Visszajelzés-feldolgozás | Scheduling; Release approval; Feedback processing | Duty names, from the template's `en` locale.                                                        |
 
 ## Shell (PM-1178)
 
-| Hungarian | English |
-| --- | --- |
-| Belépés / Kijelentkezés | Log in / Log out |
-| Betöltés… / Újra | Loading… / Try again |
-| Mégse / Bezárás / Küldés | Cancel / Close / Send |
-| nem kötelező | optional |
-| Rendszer | System |
-| E-mail cím / Jelszó / Neved | Email address / Password / Your name |
-| Belépőkód; Beállítókód | Sign-in code; Setup code |
+| Hungarian                                               | English                                      |
+| ------------------------------------------------------- | -------------------------------------------- |
+| Belépés / Kijelentkezés                                 | Log in / Log out                             |
+| Betöltés… / Újra                                        | Loading… / Try again                         |
+| Mégse / Bezárás / Küldés                                | Cancel / Close / Send                        |
+| nem kötelező                                            | optional                                     |
+| Rendszer                                                | System                                       |
+| E-mail cím / Jelszó / Neved                             | Email address / Password / Your name         |
+| Belépőkód; Beállítókód                                  | Sign-in code; Setup code                     |
 | Kapcsolódás… / Megszakadt a kapcsolat, újrakapcsolódás… | Connecting… / Connection lost, reconnecting… |
-| Ez az oldal nem létezik. | This page doesn't exist. |
-| Ugrás a tartalomra | Skip to content |
-| Nyelv | Language |
+| Ez az oldal nem létezik.                                | This page doesn't exist.                     |
+| Ugrás a tartalomra                                      | Skip to content                              |
+| Nyelv                                                   | Language                                     |
 
 Values of the shell enums:
 

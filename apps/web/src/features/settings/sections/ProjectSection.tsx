@@ -40,6 +40,7 @@ function ProjectEditor({ draft, change }: SectionEditorProps) {
       />
       <SelectField
         label={t('settings.project.language')}
+        hint={t('settings.project.languageHint')}
         value={project.language}
         onChange={(event) =>
           change((config) => {

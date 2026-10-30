@@ -6689,7 +6689,9 @@ export const hu = {
       name: 'Név',
       key: 'Kulcs',
       workspace: 'Munkaterület',
-      language: 'Nyelv',
+      language: 'A csapat nyelve',
+      languageHint:
+        'Ezen a nyelven írnak az AI-tagok: kártyák, üzenetek, kérdések. A saját felületed nyelvét a fiókmenüben állítod.',
       timezone: 'Időzóna',
       languages: { hu: 'Magyar', en: 'English' },
     },

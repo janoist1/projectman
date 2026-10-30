@@ -16,6 +16,7 @@ const obligation = (patch: Partial<Obligation> = {}): Obligation => ({
   pausedSince: null,
   pauseReason: null,
   wokenAt: null,
+  pmToldAt: null,
   handedOverAt: null,
   inboxItemId: null,
   state: 'open',

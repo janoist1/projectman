@@ -1,13 +1,16 @@
 import {
+  OBLIGATION_RUNGS,
   PAUSING_REFUSALS,
   PENDING_INBOX_STATES,
   SYSTEM_SENDER,
+  coordinationMemberOf,
   isInformationalAlert,
   inboxRecipientOf,
   isOpenTask,
   labelDefinition,
   memberOf,
   obligationMinutesOf,
+  obligationRungsOf,
   planObligation,
   questionPayloadOf,
 } from '@projectman/shared';
@@ -35,6 +38,7 @@ import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../kernel';
 import type {
   ObligationAdmission,
   ObligationFixLimit,
+  ObligationPmNotices,
   ObligationRefinement,
   ObligationSessions,
   ObligationStartOffers,
@@ -85,8 +89,10 @@ const minutesBetween = (from: string, to: string): number =>
 /**
  * The obligation tracking (PM-806): an open step must not get lost when the AI member responsible for it
  * stops, stalls or misunderstands. Every step has a responsible and a deadline of N minutes
- * (`obligationMinutes`): the first expiry sends the responsible one reminder, the second one gives the
- * step to the integrator as a todo or a decision item. The system never does the step, decides, or sets a label itself.
+ * (`obligationMinutes`): the first expiry sends the responsible one reminder, the second one tells the
+ * project manager (an `obligation_overdue` signal), the third one gives the step to the integrator as a todo
+ * or a decision item. A rung falls out where nobody could climb it (`obligationRungsOf`). The system never
+ * does the step, decides, or sets a label itself.
  *
  * The sweep is level-driven: each kind's source says which steps are open now, a row is written for
  * each (once for ever, per card, kind, responsible and subject), and a row whose step is not open any
@@ -107,6 +113,7 @@ export class ObligationsService {
   private readonly admission: ObligationAdmission;
   private readonly sources: ObligationSource[];
   private readonly cards = new KeyedMutex();
+  private pmNotices: ObligationPmNotices | null = null;
 
   constructor(deps: ObligationsDeps) {
     this.ctx = deps.ctx;
@@ -158,6 +165,11 @@ export class ObligationsService {
     this.sources.push(
       seniorWaitSource({ ctx: deps.ctx, inbox: deps.inbox, timeline: deps.timeline, tasks: deps.tasks }),
     );
+  }
+
+  /** Where the second rung goes: the project manager's operator signal (wired by the assembly). */
+  usePmNotices(notices: ObligationPmNotices): void {
+    this.pmNotices = notices;
   }
 
   /** The minutes of a kind's deadline in this configuration: its own, or the project's obligation minutes. */
@@ -265,7 +277,7 @@ export class ObligationsService {
 
   /**
    * The open items a person has to answer, by card: the tracking's own todos and notices do not count.
-   * An owner's alert about the very step (a stalled refinement turn) does: the person has it, so the
+   * An item of a person about the very card (an owner's alert, a question) does: the person has it, so the
    * clock stands still until they have dealt with it.
    */
   private humanItemsByCard(projectKey: string, config: ProjectConfig): Map<string, InboxItem[]> {
@@ -400,7 +412,11 @@ export class ObligationsService {
       },
       at,
       minutes,
-      source.rungs,
+      obligationRungsOf(source.rungs ?? OBLIGATION_RUNGS, {
+        responsible: row.responsible,
+        // Without a way to tell the project manager the rung falls out too.
+        projectManager: this.pmNotices ? (coordinationMemberOf(view.config)?.handle ?? null) : null,
+      }),
     );
     switch (step.kind) {
       case 'none':
@@ -416,6 +432,9 @@ export class ObligationsService {
         return;
       case 'wake':
         await this.wake(row, minutes, step.dueAt, at, view);
+        return;
+      case 'tell_pm':
+        await this.tellPm(row, minutes, step.dueAt, at);
         return;
       case 'hand_over':
         await this.handOver(row, minutes, at, view);
@@ -505,7 +524,47 @@ export class ObligationsService {
     }
   }
 
-  /** The second expiry: a decision hand-over or one todo. A crash never repeats an existing item. */
+  /**
+   * The second rung: the project manager is told. The row, the pending signal and the event are written in
+   * one transaction, so a failed delivery is never repeated as a second signal; the next signal sweep delivers it.
+   */
+  private async tellPm(row: Obligation, minutes: number, dueAt: string, at: string): Promise<void> {
+    const notices = this.pmNotices;
+    if (!notices) throw new Error('no project manager notices are wired');
+    this.ctx.unitOfWork(() => {
+      const signalId = notices.raise({
+        projectKey: row.projectKey,
+        taskKey: row.taskKey,
+        obligationId: row.id,
+      });
+      this.ctx.repos.obligations.update(row.id, { pmToldAt: at, dueAt }, at);
+      this.timeline.append({
+        projectKey: row.projectKey,
+        taskKey: row.taskKey,
+        actor: SYSTEM_ACTOR,
+        type: 'obligation_pm_told',
+        data: {
+          obligationId: row.id,
+          kind: row.kind,
+          responsible: row.responsible,
+          subject: row.subject,
+          openedAt: row.openedAt,
+          minutes,
+          signalId,
+        },
+      });
+    });
+    try {
+      await notices.deliver(row.projectKey);
+    } catch (err) {
+      this.ctx.logger.warn(
+        { err, obligationId: row.id, taskKey: row.taskKey },
+        'could not deliver an obligation notice to the project manager',
+      );
+    }
+  }
+
+  /** The last expiry: a decision hand-over or one todo. A crash never repeats an existing item. */
   private async handOver(row: Obligation, minutes: number, at: string, view: ProjectView): Promise<void> {
     const source = this.sourceOf(row.kind);
     const result = await source.handOver?.(row, view);

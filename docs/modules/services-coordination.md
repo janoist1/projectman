@@ -249,34 +249,24 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   and its delivery opens the usual owner request. Owner dismissal suppresses repeats until resolution.
   Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
   admission stay on the server, and notice delivery uses the existing engine session boundary.
-  Five board kinds (PM-547, migration 56) join the four, raised and closed by the same sweep from
-  `OperatorSignals.boardRead` (`pending()` rechecks a signal against it before waking the Operator):
-  `idle` (`idle:<task>:<stage>`; a work or step card whose `TaskWaits` reason is `assignee`, or `queued`
-  with an AI step owner, held by an AI member who is not on leave, with no activity for
-  `OPERATOR_IDLE_MINUTES` = 30 since the later of `wait.since` and the card's latest session activity),
-  `merge_waiting` (`merge_waiting:<task>`; a `requested` merge an AI merger has not started for
-  `OPERATOR_MERGE_WAIT_MINUTES` = 30), `merge_blocked` (`merge_blocked:<task>`; a `failed` or `blocked`
-  merge with an AI merger, at once; a person as merger gets the inbox item instead) and
-  `ready_waiting` (`ready_waiting:<card keys>`; startable cards in later queue stages ready for a work stage
-  whose AI owner is free, with the parallel AI limit not reached; "free" is admission's `freeDevelopers`
-  (not on leave, not temporary, under its capacity, provider not on hold, no start waiting for them) and a
-  connected engine; raised at once, delivered only after the stall (the first sweep that found a case, or the
-  latest session start of those stages' AI owners on a card, whichever is later; memory only, so a restart
-  starts it over) lasted `OPERATOR_READY_WAITING_MINUTES` = 10 without a break, so a further card that
-  becomes startable does not restart it; silently closed if it ends before). After `OPERATOR_READY_STALL_OWNER_MINUTES` = 20
-  more, the owners get one `work_stalled` inbox alert per stall (cards, free members, and the not-free AI
-  owners with `leave`, `provider_hold`, `engine_offline` or `busy`), withdrawn when the stall ends. `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
-  team is paused. All data comes from the server's database and configuration: no machine-dependent part.
-  `startableCards` shares the pull rules without the urgent filter: no assignee, open prerequisite,
-  holding label, refinement, open subtask or unmet gate. The subject lists all startable card keys in numeric
-  order. The latest dismissed signal acknowledges its subject cards when their stage entry (or creation)
-  is no later than its decision, even after resolution or capacity changes. No case exists when all are
-  acknowledged; a new card or re-entry opens a case for the full set. The old `ready_waiting` case resolves
-  on the first sweep. The Operator may use `dismiss_signal { signal_id, note }` without an owner request
-  at every watch level, only for a delivered, unpresented, still valid ready_waiting signal and outside
-  guest conversations. It stores the reason in `decision_note` (migration 59, outside the DTO) and publishes
-  the decision to owners. Presented signals remain theirs to decide. Wake facts contain `cards`, `new_cards`
-  (unacknowledged at wake time), and `last_dismissed` with the time, actor, note and cards.
+  `merge_blocked` (PM-547; `merge_blocked:<task>`; a `failed` or `blocked` merge with an AI merger, at once;
+  a person as merger gets the inbox item instead) is raised and closed by the same sweep from
+  `OperatorSignals.boardRead` (`pending()` rechecks a signal against it before waking the Operator).
+  Stalled work is watched in one place (PM-1152): the obligation ladder (`ObligationsService`). Its
+  second rung, `tell_pm`, writes `pm_told_at` (migration 132), moves the due time on by one step and
+  raises an `obligation_overdue` signal (`obligation_overdue:<obligation id>`) through
+  `OperatorSignals.raiseObligationOverdue`; the signal then follows the usual delivery rules (grouping, the
+  15-minute project wake interval). The case holds while the obligation is `open` and `pm_told_at` is set;
+  the 60-second sweep resolves the row once the obligation is fulfilled, closed or handed over. The four
+  former detectors (`idle`, `merge_waiting`, `ready_waiting` with its in-memory stall clock and the owner
+  `work_stalled` alert, and the `refinement_stalled` event branch) are gone; their kinds stay in the union
+  only so old rows and timeline events keep rendering, and nothing opens a new row of them (the sweep
+  resolves an open row an older build left, with the questions asked about it; migration 132 leaves them to it). The Operator
+  may use `dismiss_signal { signal_id, note }` without an owner request at every watch level, for a
+  delivered, unpresented, still valid `obligation_overdue`, `structural_pattern` or `milestone_closed`
+  signal and outside guest conversations. It stores the reason in `decision_note` (migration 59, outside
+  the DTO) and publishes the decision to owners. Presented signals remain theirs to decide. All data comes
+  from the server's database and configuration: no machine-dependent part.
 
   **Question screening (PM-556, PM-558).** An AI member's `ask_human` question (the project manager's too, not
   the Operator's own and not a human's) is created in the inbox state `screening` with

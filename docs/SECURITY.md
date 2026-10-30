@@ -453,7 +453,7 @@ signal of the same project; it grants nothing and only ties the question to the 
 The PM may present delivered, unpresented `pending` or `open` signals once through `send_message`
 with `signal_id` or `signal_ids`, addressed only to owners from its internal general session.
 The server revalidates signal and recipient bindings transactionally. `dismiss_signal` may close
-only an unpresented `ready_waiting` case that still holds, with a note. Human acceptance or
+only an unpresented `obligation_overdue`, `structural_pattern` or `milestone_closed` case that still holds, with a note. Human acceptance or
 dismissal requires a project owner's own login; integrator and AI acceptance fails with 409,
 and dismissal with 403. A valid owner acceptance opens a separate PM `message` request only
 after actual delivery: the signal must be accepted and actionable, `decidedBy` must match the

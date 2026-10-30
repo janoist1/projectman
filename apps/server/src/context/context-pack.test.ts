@@ -1856,9 +1856,7 @@ describe('system prompt', () => {
 
       it('lets the unblock level take one step on an idle or merge signal, with no general ban', () => {
         const unblock = promptAt('unblock');
-        expect(unblock).toContain(
-          'On an idle, merge_waiting or merge_blocked signal you may take one step yourself',
-        );
+        expect(unblock).toContain('signal you may take one step yourself');
         expect(unblock).toContain(step);
         expect(unblock).toContain(
           'An answer_stalled signal permits only start_member for the current assignee',
@@ -1873,16 +1871,13 @@ describe('system prompt', () => {
         expect(unblock).not.toContain('start the release owner');
       });
 
-      it('lets the drive level take up to three steps and start the release owner and the project manager', () => {
+      it('lets the drive level take up to three steps and start the release owner', () => {
         const drive = promptAt('drive');
         expect(drive).toContain(step);
         expect(drive).toContain(
           'up to three steps per signal, at least 30 minutes apart (steps_left, next_step_at)',
         );
         expect(drive).toContain('start the release owner on an unreleased signal (propose a release)');
-        expect(drive).toContain(
-          'the project manager on a ready_waiting signal whose new_cards should start (hand out work)',
-        );
         expect(drive).toContain('When steps_left is 0, bring the signal to the owners.');
         expect(drive).not.toContain(ban);
       });

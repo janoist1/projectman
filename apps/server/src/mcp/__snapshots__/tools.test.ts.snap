@@ -631,7 +631,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Dismiss a system signal",
     },
-    "description": "Close a ready_waiting, refinement_stalled, structural_pattern or milestone_closed signal of your wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
+    "description": "Close an obligation_overdue, structural_pattern or milestone_closed signal of your wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4604,7 +4604,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "boolean",
         },
         "signal_id": {
-          "description": "An idle card the system signalled, when the project lets you act on signals: starts the card's own assignee, without an owner request; no assignee or despite_prerequisites then.",
+          "description": "An overdue-obligation signal on a card, when the project lets you act on signals: starts the card's own assignee, without an owner request; no assignee or despite_prerequisites then.",
           "maxLength": 64,
           "minLength": 1,
           "type": "string",

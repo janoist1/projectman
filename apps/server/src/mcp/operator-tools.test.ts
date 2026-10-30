@@ -4,6 +4,7 @@ import type { Actor } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR, waitForSession } from '../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../test/helpers/domain-harness';
 import { settle } from '../../test/helpers/fakes';
+import { openOverdueObligation } from '../../test/helpers/overdue-obligation';
 import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
@@ -504,9 +505,8 @@ describe('dismiss_signal authorization and domain errors', () => {
 
   it('dismisses without an owner request and hides the record-only note from the DTO', async () => {
     const card = await h.domain.tasks.create('AR', { title: 'Parked' }, { kind: 'human', handle: 'owner' });
-    h.repos.tasks.update(card.id, { stageId: 'ready', status: 'active' });
-    await h.domain.operatorSignals.sweep('AR');
-    const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'ready_waiting')!;
+    const { signalId } = openOverdueObligation(h, card, { at: new Date() });
+    const signal = h.repos.operatorSignals.get(signalId)!;
     h.repos.operatorSignals.delivered([signal.id], new Date().toISOString(), 'pm');
     expect(h.repos.operatorRequests.latest('AR', 1)).toEqual([]);
     await expect(
@@ -528,8 +528,8 @@ describe('dismiss_signal authorization and domain errors', () => {
     ).rejects.toMatchObject({ code: 'invalid', message: 'the PM may not dismiss this signal kind' });
     const ready = h.domain.operatorSignals.raise({
       projectKey: 'AR',
-      kind: 'ready_waiting',
-      caseKey: 'ready_waiting:missing',
+      kind: 'obligation_overdue',
+      caseKey: 'obligation_overdue:missing',
     });
     await expect(
       h.domain.teamTools.dismissSignal(operator, { signalId: ready.id, note: 'Note' }),

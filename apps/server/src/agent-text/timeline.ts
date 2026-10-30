@@ -202,6 +202,8 @@ export function describeEvent(
         : 'handed the integrator todo to the owner: it was not resolved within 24 hours';
     case 'obligation_woken':
       return `reminded ${member('responsible', 'the responsible')} once about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}): no action in ${text('minutes') ?? '?'} minutes`;
+    case 'obligation_pm_told':
+      return `told the project manager about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}) of ${member('responsible', 'the responsible')}: still no action after the reminder`;
     case 'obligation_handed_over':
       return `gave the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}) of ${member('responsible', 'the responsible')} to the ${text('recipient') ?? 'owner'} as a todo${text('recipientRefusal') ? ` (the integrator is not available: ${text('recipientRefusal')})` : ''}: still no action after the reminder`;
     case 'question_answered':

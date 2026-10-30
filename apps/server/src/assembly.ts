@@ -1363,7 +1363,6 @@ export function createDomain(opts: DomainOptions) {
     ctx,
     projects,
     sessions,
-    admission,
     queue: memberQueue,
     wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
     taskWaits,
@@ -1371,7 +1370,11 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     startWaitingOf: (task) => tasks.startWaitingOf(task),
     startAttempting: (task) => tasks.startAttempting(task),
-    startHandled: (task) => !!startRound.holdOf(task) || !!startRound.startOfferOf(task),
+  });
+  // A step that stands overdue after its reminder goes to the PM as an `obligation_overdue` signal (PM-1152).
+  obligations.usePmNotices({
+    raise: (input) => operatorSignals.raiseObligationOverdue(input),
+    deliver: (projectKey) => operatorSignals.deliver(projectKey),
   });
   messaging.registerSignals(operatorSignals);
   const structuralReviews = new StructuralReviews({
@@ -1394,8 +1397,6 @@ export function createDomain(opts: DomainOptions) {
       assess: (input) => loopWatch.assess(input),
     },
   });
-  // A refinement turn that ended without its label goes to the PM as a report-only signal (PM-702).
-  refinement.useStallNotices({ report: (input) => operatorSignals.reportRefinementStall(input) });
   events.on('config_changed', ({ projectKey }) => operatorSignals.recheckRecipients(projectKey));
   const questionScreening = new QuestionScreening({
     ctx,

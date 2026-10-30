@@ -137,6 +137,7 @@ export const TimelineEventType = z.enum([
   'obligation_woken',
   'member_queue_item_closed',
   'obligation_handed_over',
+  'obligation_pm_told',
   'workspace_released',
   'host_request_opened',
   'host_request_answered',
@@ -526,6 +527,16 @@ export interface TimelineEventData {
     subject: string;
     openedAt: string;
     minutes: number;
+  };
+  /** The step stayed open after the reminder, so the system told the project manager once (PM-1152, actor system); `signalId` is the `obligation_overdue` signal. */
+  obligation_pm_told: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle | null;
+    subject: string;
+    openedAt: string;
+    minutes: number;
+    signalId: string;
   };
   /** An automatic start no longer applies, or failed for a reason retrying cannot clear (PM-927). */
   member_queue_item_closed: {

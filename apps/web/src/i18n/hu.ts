@@ -4000,6 +4000,7 @@ export const hu = {
         milestone_closed: 'Lezárult szakasz',
         refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
         start_blocked: '{key}: az indítás csöndben vár',
+        obligation_overdue: '{key}: a lépés az emlékeztető után is áll',
       },
       bodies: {
         loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
@@ -4022,6 +4023,8 @@ export const hu = {
           'A kidolgozási kör véget ért, de a hozzá tartozó címke nincs a kártyán, és a tag nem dolgozik tovább.',
         start_blocked:
           'A kártya indítása repóválasztásra vagy beragadt munkaterületre vár. A PM megoldja, amit tag megoldhat; az ok megszűntével a jelzés magától lezárul.',
+        obligation_overdue:
+          'A felelős az emlékeztető után sem végezte el a lépést. A PM megvizsgálja; ha a lépés megtörtént vagy továbbkerült, a jelzés magától lezárul, különben a lépés az integrátorra száll.',
       },
     },
   },
@@ -5593,6 +5596,8 @@ export const hu = {
         'Az Operátor a javítási körök határáról szóló döntést a tulajdonosnak adta tovább.{note}',
       obligation_woken:
         'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
+      obligation_pm_told:
+        'A projektmenedzser jelzést kapott: {responsible} a(z) {step} az emlékeztető után sem végezte el ({minutes} perces lépések).',
       member_queue_item_closed:
         'A várakozó indítás lezárult: az indítás oka megszűnt vagy az indítás nem teljesíthető.',
       obligation_handed_over:

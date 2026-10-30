@@ -198,8 +198,8 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
   `markDecisionCandidates(ctx, { items })`. See `docs/modules/services-coordination.md`, "Decision candidates".
-- `dismiss_signal { signal_id, note }` (PM-679, PM-780) closes a delivered, unpresented `ready_waiting`
-  whose cards all wait on purpose, an intermediate/resolved `refinement_stalled`, or a coordinator-only
+- `dismiss_signal { signal_id, note }` (PM-679, PM-780) closes a delivered, unpresented `obligation_overdue`
+  that needs nothing (PM-1152), or a coordinator-only
   `structural_pattern` / `milestone_closed` that needs no review. Structural signals never go in
   `signal_ids`; summarize only worthwhile reviews in one short owner message. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return

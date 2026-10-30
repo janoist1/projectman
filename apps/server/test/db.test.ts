@@ -32,6 +32,8 @@ describe('legacy task check migration', () => {
     db.exec('CREATE TABLE host_requests (opened_by TEXT, project_key TEXT)');
     // And for migration 130 (PM-1135): the acceptance repository prepares its statements.
     db.exec(migrations.find((item) => item.version === 130)!.sql);
+    // And for migration 132 (PM-1152): the obligation repository prepares its `pm_told_at` update.
+    db.exec('ALTER TABLE obligations ADD COLUMN pm_told_at TEXT');
     const repos = createRepositories(db);
     repos.projects.insert({
       key: 'AR',
@@ -45,6 +47,7 @@ describe('legacy task check migration', () => {
     db.prepare('UPDATE tasks SET checks = ? WHERE key = ?').run(checks, 'AR-1');
     db.exec('DROP TABLE host_requests');
     db.exec('DROP TABLE task_acceptance_items');
+    db.exec('ALTER TABLE obligations DROP COLUMN pm_told_at');
     db.exec('ALTER TABLE team_messages DROP COLUMN location');
     db.exec('ALTER TABLE team_messages DROP COLUMN places');
     db.exec('ALTER TABLE projects DROP COLUMN created_by');

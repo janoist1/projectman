@@ -17,8 +17,7 @@ export function isCoordinatorOnlySignal(kind: OperatorSignalKind): boolean {
 
 /** The signal kinds the coordinator may close as needing nothing instead of presenting them. */
 export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
-  'ready_waiting',
-  'refinement_stalled',
+  'obligation_overdue',
   ...COORDINATOR_ONLY_SIGNAL_KINDS,
 ];
 
@@ -36,16 +35,8 @@ export const OPERATOR_SIGNAL_STEP_GAP_MINUTES = 30;
  */
 export const OPERATOR_SIGNAL_STEP_KINDS: Record<OperatorWatch, readonly OperatorSignalKind[]> = {
   report: [],
-  unblock: ['idle', 'merge_waiting', 'merge_blocked', 'answer_stalled', 'start_blocked'],
-  drive: [
-    'idle',
-    'merge_waiting',
-    'merge_blocked',
-    'unreleased',
-    'ready_waiting',
-    'answer_stalled',
-    'start_blocked',
-  ],
+  unblock: ['obligation_overdue', 'merge_blocked', 'answer_stalled', 'start_blocked'],
+  drive: ['obligation_overdue', 'merge_blocked', 'unreleased', 'answer_stalled', 'start_blocked'],
 };
 /**
  * The signal kinds whose wake-ups go on the project's fast line (PM-694): at most one wake-up per

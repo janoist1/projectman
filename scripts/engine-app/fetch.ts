@@ -17,14 +17,13 @@ import { EngineAppManifest } from './manifest';
 /**
  * Fetches the engine app that the general GitHub workflow built (PM-1156), the same way `image-fetch` fetches the
  * cloud image: finds or follows the `engine-app` run (never starts one), checks where it ran, verifies the
- * attestation of all three files, the manifest against the commit and the files, then unpacks the app and checks
+ * attestation of both files (manifest and zip; the disk image is not downloaded), the manifest against the commit and the zip, then unpacks the app and checks
  * its signature and the engine package inside it. Needs `gh` (read access to the Actions of the repository), `ditto`,
  * `codesign` and, with `--open`, `open`. Any failure removes the output directory.
  */
 
 const MANIFEST_OUTPUT = ENGINE_APP_JOB.outputs[0]!;
 const ZIP_OUTPUT = ENGINE_APP_JOB.outputs[1]!;
-const DMG_OUTPUT = ENGINE_APP_JOB.outputs[2]!;
 const APP_NAME = 'projectman motor.app';
 const ENGINE_DIRECTORY = 'Contents/Resources/engine';
 
@@ -41,7 +40,7 @@ function fileDigest(file: string): { sha256: string; size: number } {
   return { sha256: createHash('sha256').update(content).digest('hex'), size: content.length };
 }
 
-/** The manifest must describe this commit and exactly the downloaded zip and dmg. */
+/** The manifest must describe this commit and exactly the downloaded zip (the dmg is not fetched). */
 function checkedManifest(incoming: string, commit: string): EngineAppManifest {
   let manifest: EngineAppManifest;
   try {
@@ -52,14 +51,9 @@ function checkedManifest(incoming: string, commit: string): EngineAppManifest {
     throw refused('the engine app manifest is invalid');
   }
   if (manifest.version !== commit) throw refused('the engine app was built from another commit');
-  for (const [asset, output] of [
-    [manifest.zip, ZIP_OUTPUT],
-    [manifest.dmg, DMG_OUTPUT],
-  ] as const) {
-    const actual = fileDigest(path.join(incoming, output));
-    if (actual.sha256 !== asset.sha256 || actual.size !== asset.size)
-      throw refused(`${asset.name} hash or size differs from the manifest`);
-  }
+  const actual = fileDigest(path.join(incoming, ZIP_OUTPUT));
+  if (actual.sha256 !== manifest.zip.sha256 || actual.size !== manifest.zip.size)
+    throw refused(`${manifest.zip.name} hash or size differs from the manifest`);
   return manifest;
 }
 

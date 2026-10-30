@@ -122,6 +122,7 @@ const SCOPES: Scopes = {
   'permission.forward_question': 'open',
   'mcp.relay': 'open',
   'secret.nanogpt_key': 'open',
+  'engine.pause_for_shutdown': 'open',
 };
 
 /** The registry facts the guard needs. */

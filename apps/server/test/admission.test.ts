@@ -90,6 +90,8 @@ interface World {
     /** The engines whose sessions' provider key is on hold (PM-1091), and the ones that are not connected. */
     held?: EngineId[];
     offline?: EngineId[];
+    /** The engines with an open shutdown pause (PM-1159): connected, but their sessions are being held. */
+    paused?: EngineId[];
   };
 }
 
@@ -106,7 +108,10 @@ function admissionFor(world: World = {}) {
   const log = capturingLogger();
   const ctx = {
     repos: {
-      pauses: { open: () => [] },
+      pauses: {
+        open: () => [],
+        findOpenEngine: (id: EngineId) => (world.engines?.paused?.includes(id) ? { id: 'pau_engine' } : null),
+      },
       tasks: {
         get: (key: string) => tasks.get(key) ?? null,
         listByAssignee: (_projectKey: string, handle: string) =>
@@ -603,6 +608,16 @@ describe('admission checks', () => {
     expect(await refusal(admission.check({ config, member: member('dev-1'), workItem: general }))).toBe(
       'engine_offline',
     );
+  });
+
+  it('waits for an engine whose sessions its shutdown pause still holds (PM-1159)', async () => {
+    const { admission, config, member } = admissionFor({
+      engines: { of: { 'dev-1': ENGINE_A, 'dev-2': ENGINE_B }, usage: {}, paused: [ENGINE_A] },
+    });
+    expect(await refusal(admission.check({ config, member: member('dev-1'), workItem: general }))).toBe(
+      'engine_offline',
+    );
+    expect(await refusal(admission.check({ config, member: member('dev-2'), workItem: general }))).toBeNull();
   });
 
   it('asks for no plan usage when an earlier check refuses', async () => {

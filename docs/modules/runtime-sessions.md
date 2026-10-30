@@ -51,6 +51,24 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   pauses, so the sessions start again with a nudge that says their process is new; a pause a person made stays.
   A crash and a second Ctrl-C after 3 s do not pause. The service manager must allow the shutdown
   pause to finish before terminating child sessions.
+- **Stopping and starting an engine (PM-1159).** Pausing and resuming has one rule: the hub holds the pause, every
+  runner pauses through it. An engine that stops asks the hub (`engine.pause_for_shutdown`, engine → hub) and the
+  hub's `PauseService.pauseEngineForShutdown` records an `engine`-scope pause (kind `shutdown`, source `system`, one
+  open per engine, column `pauses.engine_id`) that holds the engine's running sessions. It is the hub's record, not
+  the team's: `pauses.open()`, `isWorkPaused`, the project and instance views, the gates and the timeline do not see
+  it, and `admission` answers `engine_offline` for the engine while it is open. The engine pauses its sessions
+  itself only when the hub cannot take the call (`link_down`, `unknown_method`, timeout). A session whose process
+  ends under a pause row is closed by the system's own closes (`LiveSessionSweep`, `reconcileAfterRestart`,
+  `reconcileEngine`) with the `pause` stop, not `exited`/`server_restart`, so it is not lost.
+  When the engine connects, `resumeEngine` runs after `reconcileEngine` (so a process the stop took away is no longer
+  running) and resumes the pause like any other: a session stopped mid-turn, with no stop point or waiting for a heavy
+  command starts again with `--resume` and the pause nudge; one stopped between turns with nothing to do does not.
+  A heavy command (`npm test`, `typecheck`) of a Claude Code session runs in the background, and goes with the stop;
+  its completion would never arrive. At the end of both shutdown pauses `markHeavyRuns` marks the rows that stopped at
+  `idle`/`turn_end` and whose session holds a queued or running heavy command (`EngineHost.heavyRunSessions`) to start
+  again. When the hub restarts (a deploy), `resumeAfterStartup` hands a session of an engine that is not connected
+  yet to that engine's pause instead of starting it; it starts when the engine connects, and no message is stored for
+  it. A revoked engine's pause ends with it (`endEnginePause`, without a restart).
 - **Access.** `GET` of a project's pause: an internal member; changing it: admin or owner. The instance's pause
   may be seen by anyone who is internal in some project (and by the host owner with no project of their own),
   with only the sessions of the viewer's projects, and changed by the host owner alone (`domain.instanceOwner`,

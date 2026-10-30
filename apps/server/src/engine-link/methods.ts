@@ -12,6 +12,7 @@ import {
   HandoffSummary,
   MemoryPressure,
   MergeTestReport,
+  MAX_PAUSE_FORCE_AFTER_MS,
   PausePoint,
   PlanUsage,
   ProjectConfig,
@@ -785,6 +786,12 @@ export const methods = {
     'cloud',
   ),
   'secret.nanogpt_key': method(session, z.strictObject({ key: text }), 'cloud'),
+  // PM-1159: an engine that is about to stop asks the cloud to pause its sessions, so that the cloud records it.
+  'engine.pause_for_shutdown': method(
+    z.strictObject({ waitMs: int.max(MAX_PAUSE_FORCE_AFTER_MS) }),
+    z.strictObject({ held: int, left: int }),
+    'cloud',
+  ),
 } as const satisfies ResultBindings<ContractResults> &
   ParamBindings<ContractParams> & {
     'files.export': { result: z.ZodType<FileExportResult> };

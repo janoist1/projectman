@@ -283,7 +283,7 @@ export class SessionOrchestrator {
       isRunning: (sessionId) => this.isRunning(sessionId),
       engineConnected: (engineId) => deps.engines.get(engineId) !== null,
       end: (sessionId) => {
-        this.markEnded(sessionId, null, null, { kind: 'exited' });
+        this.markEnded(sessionId, null, null, this.stopOfLost(sessionId, 'exited'));
       },
       now: () => this.ctx.now().getTime(),
       logger: this.ctx.logger,
@@ -1435,11 +1435,19 @@ export class SessionOrchestrator {
     this.liveSweep.sweep();
   }
 
+  /**
+   * How the system ends a session whose process it finds gone (a restart, a reconnect, the sweep). A session a
+   * pause holds ends as paused (PM-1159): only the pause's resume starts it again, never the restart path too.
+   */
+  private stopOfLost(sessionId: string, otherwise: 'exited' | 'server_restart'): SessionStop {
+    return this.ctx.repos.pauses.openSession(sessionId) ? { kind: 'pause' } : { kind: otherwise };
+  }
+
   /** Startup: sessions do not survive a restart (their conversations do, via --resume). */
   async reconcileAfterRestart(): Promise<void> {
     for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
       if (this.isRunning(session.id)) continue;
-      this.markEnded(session.id, null, null, { kind: 'server_restart' });
+      this.markEnded(session.id, null, null, this.stopOfLost(session.id, 'server_restart'));
     }
     await this.retryScopeCleanup();
     // Failed process scopes retain their folders until the owning engine confirms closure.
@@ -1480,7 +1488,7 @@ export class SessionOrchestrator {
   ): Promise<void> {
     for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
       if (engineIdOf(session) !== engineId || reported.has(session.id) || starting(session.id)) continue;
-      this.markEnded(session.id, null, null, { kind: 'server_restart' });
+      this.markEnded(session.id, null, null, this.stopOfLost(session.id, 'server_restart'));
     }
     for (const sessionId of reported) {
       const session = this.ctx.repos.sessions.get(sessionId);

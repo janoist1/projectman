@@ -96,7 +96,7 @@ export type { DeferredStartRecord } from './deferred-starts';
 export type { StoredSuperAudit } from './super-audit';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
 export type { OperatorRequestRecord, OperatorStepRecord } from './operator-requests';
-export type { PauseRecord, SessionPauseRecord } from './pauses';
+export type { PauseRecord, SessionPauseRecord, TeamPauseRecord } from './pauses';
 export type { ReviewPinRecord } from './review-pins';
 export type { TaskFixLimitRecord } from './fix-limits';
 export type { FullTestRunRecord } from './full-test-runs';

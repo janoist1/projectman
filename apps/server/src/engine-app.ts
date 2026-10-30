@@ -793,6 +793,19 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       const running = runner.list();
       if (running.length === 0) return;
       log.info({ sessions: running.length }, 'pausing the running sessions before shutdown');
+      // The hub records the pause, so that the sessions continue when this engine connects again (PM-1159);
+      // pausing them here is only for a hub that cannot be reached or does not know the method.
+      try {
+        const result = await client.call(
+          'engine.pause_for_shutdown',
+          { waitMs },
+          { timeoutMs: waitMs + SHUTDOWN_PAUSE_CAP_MS },
+        );
+        log.info(result, 'the hub paused the running sessions before shutdown');
+        return;
+      } catch (error) {
+        log.warn({ err: error }, 'the hub did not take the shutdown pause; pausing the sessions locally');
+      }
       const cap = new Promise<void>((resolve) => setTimeout(resolve, waitMs + SHUTDOWN_PAUSE_CAP_MS).unref());
       await Promise.race([
         Promise.all(

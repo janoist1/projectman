@@ -968,7 +968,22 @@ describe('engine process', () => {
   });
 
   describe('shutdown', () => {
-    it('pauses the running sessions first, then stops them and tells the cloud', async () => {
+    it('asks the cloud to pause the running sessions and does not pause them itself (PM-1159)', async () => {
+      const asked: number[] = [];
+      cloud.handle('engine.pause_for_shutdown', ({ waitMs }) => {
+        asked.push(waitMs);
+        return { held: 1, left: 0 };
+      });
+      const built = await startEngine();
+      const { call } = await cloud.connected();
+      await call('session.start', startSpec());
+      await built.pauseForShutdown();
+      expect(asked).toEqual([5000]);
+      expect(fake.runner.pauses).toHaveLength(0);
+    });
+
+    it('pauses the running sessions itself when the cloud does not take the pause, then stops them and tells the cloud', async () => {
+      // This cloud has no handler for the method: it answers `unknown_method`, as a hub from before it does.
       const built = await startEngine();
       const { call } = await cloud.connected();
       await call('session.start', startSpec());

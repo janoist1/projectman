@@ -380,7 +380,7 @@ export class Admission {
     if (!engines) return undefined;
     const engineId = engines.engineFor(projectKey, handle);
     if (engineId === null) throw conflict('engine_offline', `no engine is chosen for ${handle}`);
-    if (!engines.get(engineId))
+    if (!this.engineUsable(engineId))
       throw conflict('engine_offline', `engine ${engineId} is not connected`, { engine: engineId });
     return engineId;
   }
@@ -389,7 +389,12 @@ export class Admission {
     if (!this.engines) return null;
     const engine = this.engines.engineFor(projectKey, handle);
     if (engine === null) return {};
-    return this.engines.get(engine) ? null : { engine };
+    return this.engineUsable(engine) ? null : { engine };
+  }
+
+  /** The engine is connected and not stopping: an engine that has made its shutdown pause (PM-1159) takes no start. */
+  private engineUsable(engineId: EngineId): boolean {
+    return !!this.engines?.get(engineId) && !this.ctx.repos.pauses.findOpenEngine(engineId);
   }
 
   startFrame(config: ProjectConfig): 'ai_disabled' | 'team_paused' | 'ai_limit_reached' | null {

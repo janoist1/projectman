@@ -36,6 +36,8 @@ describe('legacy task check migration', () => {
     db.exec('ALTER TABLE obligations ADD COLUMN pm_told_at TEXT');
     // And for migration 133 (PM-1148): the compute job run repository prepares its statements.
     db.exec(migrations.find((item) => item.version === 133)!.sql);
+    // And for migration 135 (PM-1159): the pause repository prepares its `engine_id` insert.
+    db.exec('ALTER TABLE pauses ADD COLUMN engine_id TEXT');
     const repos = createRepositories(db);
     repos.projects.insert({
       key: 'AR',
@@ -50,6 +52,7 @@ describe('legacy task check migration', () => {
     db.exec('DROP TABLE host_requests');
     db.exec('DROP TABLE task_acceptance_items');
     db.exec('DROP TABLE compute_job_runs');
+    db.exec('ALTER TABLE pauses DROP COLUMN engine_id');
     db.exec('ALTER TABLE obligations DROP COLUMN pm_told_at');
     db.exec('ALTER TABLE team_messages DROP COLUMN location');
     db.exec('ALTER TABLE team_messages DROP COLUMN places');

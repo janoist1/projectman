@@ -32,6 +32,7 @@ export const CLOUD_METHODS = [
   'permission.forward_question',
   'mcp.relay',
   'secret.nanogpt_key',
+  'engine.pause_for_shutdown',
 ] as const;
 type EngineSideMethod = Exclude<EngineMethod, (typeof CLOUD_METHODS)[number]>;
 

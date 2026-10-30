@@ -149,6 +149,11 @@ export const V100_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CH
   (entry) => entry.table === 'operator_requests' || entry.table === 'operator_steps',
 );
 
+/** Migration 135 (PM-1159) rebuilds these two tables of migration 81, which drops their triggers: it creates them again. */
+export const V135_REBUILT_TRIGGER_TABLES: readonly ChangeTriggerTable[] = V81_CHANGE_TRIGGER_TABLES.filter(
+  (entry) => entry.table === 'pauses' || entry.table === 'session_pauses',
+);
+
 export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
   // Migration 131 (PM-1150) drops `senior_waits` with its triggers: the wait is an obligation row now.
   ...V81_CHANGE_TRIGGER_TABLES.filter((entry) => entry.table !== 'senior_waits'),

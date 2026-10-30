@@ -107,6 +107,9 @@ describe('the Process view of the open card (PM-1151)', () => {
     const tabs = screen.getByRole('group', { name: t('task.view.label') });
     const tab = within(tabs).getByRole('button', { name: new RegExp(`^${t('task.view.steps')}`) });
     expect(within(tab).getByText('1')).toBeTruthy();
+    // Nothing ran yet: one dashed line instead of a bare count.
+    expect(within(section(t('task.steps.ran'))).getByText(t('task.steps.ranEmpty'))).toBeTruthy();
+    expect(screen.queryByText(t('task.steps.ranCount', { count: 0 }))).toBeNull();
     const row = within(section(t('task.steps.open'))).getByRole('link');
     expect(within(row).getByText(t('task.steps.forYou'))).toBeTruthy();
     fireEvent.click(row);
@@ -158,6 +161,8 @@ describe('the Process view of the open card (PM-1151)', () => {
     project.backend.inbox = project.backend.inbox.filter((item) => item.taskKey !== 'AC-21');
     project.render(card, '/p/AC/tasks/AC-21/steps');
     expect(await screen.findByText(t('task.steps.firstTitle'))).toBeTruthy();
+    // The Now box stays above it: it says what the card waits for.
+    expect(section(t('task.steps.now'))).toBeTruthy();
     expect(screen.queryByRole('heading', { name: new RegExp(`^${t('task.steps.open')}`) })).toBeNull();
   });
 

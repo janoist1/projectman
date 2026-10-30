@@ -223,33 +223,38 @@ export function TaskSteps({
   const now = Date.now();
   const stageName = ctx.pipeline?.stageById.get(task.stageId)?.name;
 
+  const nowSection = state ? (
+    <section className={drawer.section} aria-labelledby={nowId}>
+      <h3 id={nowId} className={drawer.sectionTitle}>
+        {t('task.steps.now')}
+      </h3>
+      <div className={clsx(styles.now, state.phase === 'done' && styles.nowDone)}>
+        <p className={styles.nowText}>
+          {state.phase === 'done' ? t('task.steps.doneNow') : state.next ? state.next.line : state.label}
+        </p>
+        <p className={styles.nowSince}>
+          {stageName && state.phase !== 'done'
+            ? t('task.steps.nowMeta', { stage: stageName, time: formatStamp(state.since) })
+            : t('task.steps.since', { time: formatStamp(state.since) })}
+        </p>
+      </div>
+    </section>
+  ) : null;
+
   if (first) {
     return (
-      <div className={styles.first}>
-        <p className={styles.firstTitle}>{t('task.steps.firstTitle')}</p>
-        <p className={styles.firstBody}>{t('task.steps.firstBody')}</p>
+      <div className={styles.steps}>
+        {nowSection}
+        <div className={styles.first}>
+          <p className={styles.firstTitle}>{t('task.steps.firstTitle')}</p>
+          <p className={styles.firstBody}>{t('task.steps.firstBody')}</p>
+        </div>
       </div>
     );
   }
   return (
     <div className={styles.steps}>
-      {state ? (
-        <section className={drawer.section} aria-labelledby={nowId}>
-          <h3 id={nowId} className={drawer.sectionTitle}>
-            {t('task.steps.now')}
-          </h3>
-          <div className={clsx(styles.now, state.phase === 'done' && styles.nowDone)}>
-            <p className={styles.nowText}>
-              {state.phase === 'done' ? t('task.steps.doneNow') : state.next ? state.next.line : state.label}
-            </p>
-            <p className={styles.nowSince}>
-              {stageName && state.phase !== 'done'
-                ? t('task.steps.nowMeta', { stage: stageName, time: formatStamp(state.since) })
-                : t('task.steps.since', { time: formatStamp(state.since) })}
-            </p>
-          </div>
-        </section>
-      ) : null}
+      {nowSection}
 
       {steps ? (
         <section className={drawer.section} aria-labelledby={openId}>
@@ -273,31 +278,37 @@ export function TaskSteps({
         <h3 id={ranId} className={drawer.sectionTitle}>
           {t('task.steps.ran')}
         </h3>
-        <p className={styles.ranSummary}>
-          <span>{t('task.steps.ranCount', { count: ran.length })}</span>
-          {failed > 0 ? (
-            <>
-              <span aria-hidden="true"> · </span>
-              <span className={styles.failedCount}>{t('task.steps.ranFailed', { count: failed })}</span>
-            </>
-          ) : null}
-          {handed > 0 ? (
-            <>
-              <span aria-hidden="true"> · </span>
-              <span className={styles.handedCount}>{t('task.steps.ranHanded', { count: handed })}</span>
-            </>
-          ) : null}
-        </p>
-        <ul className={styles.ranList}>
-          {shown.map(({ event, outcome }) => (
-            <RanRow key={event.id} event={event} outcome={outcome} ctx={ctx} task={task} />
-          ))}
-        </ul>
-        {!all && ran.length > RAN_SHOWN ? (
-          <button type="button" className={styles.earlier} onClick={() => setAll(true)}>
-            {t('task.steps.earlier', { count: ran.length - RAN_SHOWN })}
-          </button>
-        ) : null}
+        {ran.length === 0 ? (
+          <p className={styles.openEmpty}>{t('task.steps.ranEmpty')}</p>
+        ) : (
+          <>
+            <p className={styles.ranSummary}>
+              <span>{t('task.steps.ranCount', { count: ran.length })}</span>
+              {failed > 0 ? (
+                <>
+                  <span aria-hidden="true"> · </span>
+                  <span className={styles.failedCount}>{t('task.steps.ranFailed', { count: failed })}</span>
+                </>
+              ) : null}
+              {handed > 0 ? (
+                <>
+                  <span aria-hidden="true"> · </span>
+                  <span className={styles.handedCount}>{t('task.steps.ranHanded', { count: handed })}</span>
+                </>
+              ) : null}
+            </p>
+            <ul className={styles.ranList}>
+              {shown.map(({ event, outcome }) => (
+                <RanRow key={event.id} event={event} outcome={outcome} ctx={ctx} task={task} />
+              ))}
+            </ul>
+            {!all && ran.length > RAN_SHOWN ? (
+              <button type="button" className={styles.earlier} onClick={() => setAll(true)}>
+                {t('task.steps.earlier', { count: ran.length - RAN_SHOWN })}
+              </button>
+            ) : null}
+          </>
+        )}
       </section>
     </div>
   );

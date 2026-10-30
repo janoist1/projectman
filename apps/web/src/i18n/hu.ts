@@ -2867,6 +2867,7 @@ export const hu = {
       open: 'Nyitott lépések',
       openEmpty: 'Most nincs nyitott rendszer-lépés.',
       ran: 'Lefutott',
+      ranEmpty: 'Még nem futott le rendszer-lépés.',
       ranCount: '{count} lépés',
       ranFailed: '{count} hibás',
       ranHanded: '{count} emberhez került',

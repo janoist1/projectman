@@ -480,7 +480,8 @@ export interface PermissionRefusedInfo {
   by?: 'engine_guard';
 }
 
-export type EngineGuardCode = 'outside_writable_roots' | 'denied_path' | 'updated_input';
+export type EngineGuardCode =
+  'outside_writable_roots' | 'denied_path' | 'updated_input' | 'escalation_refused';
 
 /** Engine mode only (PM-1176): the engine itself refused a tool call; one audit line, no path or input. */
 export interface EngineGuard {

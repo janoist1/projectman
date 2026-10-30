@@ -991,6 +991,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   (`runner/tool-decision.ts`, `engineWriteZone`). Each refusal is a `tool.guard` line (`refused`, the code
   `outside_writable_roots`, `denied_path` or `updated_input`) in `logs/engine-audit.jsonl` and a `refused` event
   with `by: engine_guard` to the cloud. The hub's strict frame schema needs the hub deployed before the engine.
+  PM-1187: `engine.json` `allowedProviders` is the engine's own provider list (`engine-limit.ts` refuses a
+  `session.start` for another provider with `provider_not_allowed`; absent: all), and the same rule refuses a
+  Codex/NanoGPT writer in the `default` mode (`permission_mode_too_low`). The runner refuses every Codex/NanoGPT
+  `PermissionRequest` but an MCP tool in the engine process (`escalation_refused`, capability
+  `sandboxEscalation`), so the cloud cannot approve a run outside the Codex sandbox.
   Stopping (PM-1159): `pauseForShutdown` asks the cloud first (`engine.pause_for_shutdown`, engine → cloud), which
   records the pause and resumes it at the engine's next connection; the engine pauses its sessions itself only when the
   cloud cannot take the call (`link_down`, `unknown_method` from an older cloud, timeout), and then nothing is recorded.

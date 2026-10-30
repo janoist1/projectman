@@ -32,6 +32,7 @@ import {
   TOOL_DENY_MESSAGES,
   claudeFileToolPaths,
   decideToolCall,
+  engineEscalationRefused,
   engineFileToolVerdict,
   engineWriteZone,
   type EngineWriteZone,
@@ -1123,6 +1124,12 @@ export class AgentSession {
       return this.adapter.denyOutput(
         TOOL_DENY_MESSAGES[code === 'denied_path' ? 'denied_path' : 'outside_writable_roots'],
       );
+    }
+    // Engine mode (PM-1187): a request to run outside the provider's sandbox is never the cloud's to approve.
+    if (this.deps.engineGuard && engineEscalationRefused(this.adapter.capabilities, toolName)) {
+      this.engineRefused(payload, 'escalation_refused');
+      if (!payload.agent_id) this.noteToolEnd(payload);
+      return this.adapter.denyOutput(TOOL_DENY_MESSAGES.escalation_refused);
     }
     // A reader's file tool: refused below the closed home, allowed where the boundary leaves it open (PM-425).
     const verdict = this.readBoundaryVerdict(payload);

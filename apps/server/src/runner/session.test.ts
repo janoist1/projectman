@@ -691,6 +691,70 @@ describe('the engine guard (PM-1176)', () => {
     expect(engineGuard.refused).toHaveBeenCalledTimes(2);
     expect(refused).toHaveBeenCalledWith(expect.objectContaining({ by: 'engine_guard' }));
   });
+
+  describe('a request to run outside the sandbox (PM-1187)', () => {
+    const permission = (tool_name: string) => ({
+      hook_event_name: 'PermissionRequest',
+      tool_name,
+      tool_input: { command: 'git fetch' },
+      tool_use_id: 'call_1',
+    });
+    const codexSession = (engineGuard?: EngineGuard) => {
+      const decide = vi.fn(async (): Promise<PermissionDecision> => ({ behavior: 'allow' }));
+      const refused = vi.fn();
+      const s = start({
+        adapter: createCodexAdapter({
+          bin: 'unused',
+          logger: silentLogger(),
+          codexHome: '/unused-codex-home',
+        }),
+        spec: { provider: 'codex', member: 'dev-8' },
+        broker: { decide, refused },
+        ...(engineGuard ? { engineGuard } : {}),
+      });
+      return { ...s, decide, refused };
+    };
+
+    it('denies a Codex Bash request without asking the cloud, and reports the engine guard', async () => {
+      const engineGuard = { refused: vi.fn() };
+      const { hook, decide, refused } = codexSession(engineGuard);
+      expect(await hook(permission('Bash'))).toMatchObject({
+        hookSpecificOutput: { decision: { behavior: 'deny', message: expect.any(String) } },
+      });
+      expect(decide).not.toHaveBeenCalled();
+      expect(engineGuard.refused).toHaveBeenCalledWith({
+        sessionId: 'ses_1',
+        member: 'dev-8',
+        code: 'escalation_refused',
+      });
+      expect(refused).toHaveBeenCalledWith(
+        expect.objectContaining({ toolName: 'Bash', by: 'engine_guard', reason: 'escalation_refused' }),
+      );
+    });
+
+    it('leaves an MCP tool to the cloud', async () => {
+      const engineGuard = { refused: vi.fn() };
+      const { hook, decide } = codexSession(engineGuard);
+      void hook(permission('mcp__team__send_message'));
+      await vi.waitFor(() => expect(decide).toHaveBeenCalledOnce());
+      expect(engineGuard.refused).not.toHaveBeenCalled();
+    });
+
+    it('does not run without an engine guard (single mode)', async () => {
+      const { hook, decide } = codexSession();
+      void hook(permission('Bash'));
+      await vi.waitFor(() => expect(decide).toHaveBeenCalledOnce());
+    });
+
+    it('leaves a provider without sandbox escalation alone', async () => {
+      const engineGuard = { refused: vi.fn() };
+      const decide = vi.fn(async (): Promise<PermissionDecision> => ({ behavior: 'allow' }));
+      const { hook } = start({ spec: guardSpec(), broker: { decide }, engineGuard });
+      void hook(permission('Bash'));
+      await vi.waitFor(() => expect(decide).toHaveBeenCalledOnce());
+      expect(engineGuard.refused).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('process liveness', () => {

@@ -300,6 +300,7 @@ describe('Codex adapter', () => {
       readiness: 'screen',
       toolGate: 'permission_request',
       mcpImageResults: true,
+      sandboxEscalation: true,
     });
     expect(adapter.inputTools.has('request_user_input')).toBe(true);
     expect(adapter.timing.enterDelayMs).toBeGreaterThan(120);

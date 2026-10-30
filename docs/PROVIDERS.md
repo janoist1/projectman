@@ -574,6 +574,16 @@ These are the same private cache and development-data paths Claude uses (PM-193)
 denied paths remain excluded. Only a writing sandbox grants write access to these roots;
 plan mode keeps the variables without granting writes. Reading placements receive neither these member-directory variables nor these local write roots.
 
+**Codex on an engine (PM-1187).** An engine runs nothing outside the Codex sandbox. The runner refuses every
+Codex or NanoGPT `PermissionRequest` itself, without asking the cloud, except an `mcp__` tool and
+`request_user_input` (`escalation_refused`, `ProviderCapabilities.sandboxEscalation`). Edits and commands
+inside the worktree (`.git` is writable in the sandbox) go on; a network command (`npm install`,
+`git fetch`) and a write outside the worktree are refused, and the hub's routine command permissions do not
+apply (the engine's `workspaceSetup` installs the worktree). A writer in the `default` mode (sandbox
+`read-only`, approval on request) cannot edit under this rule, so the engine does not start it
+(`permission_mode_too_low`): such a member needs `acceptEdits` or `auto`. Reading placements and `plan` mode
+are not affected. See [SECURITY.md](SECURITY.md).
+
 A Codex session whose sandbox writes (`workspace-write`, a developer's own placement; PM-339) also gets its own **session folder** and its own **temporary directory**, both made
 by the server before the process starts and removed with the session:
 

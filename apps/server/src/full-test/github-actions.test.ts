@@ -299,6 +299,33 @@ describe('withGithubActions', () => {
     expect(s.branches.remove).toHaveBeenCalled();
   });
 
+  const unfinishedTestStep = (): WorkflowStepInfo => ({
+    ...step('merge-test', null),
+    status: 'in_progress',
+  });
+
+  it('reads the jobs again when a finished job still shows its test step unfinished, then passes', async () => {
+    const s = setup({
+      listJobs: vi
+        .fn()
+        .mockResolvedValueOnce([job(11, 'success', [step('checkout', 'success'), unfinishedTestStep()])])
+        .mockResolvedValue([greenJob(11)]),
+    });
+    await expect(runIt(s)).resolves.toMatchObject({ outcome: 'passed' });
+    expect(s.actions.listJobs).toHaveBeenCalledTimes(2);
+    expect(s.clock.sleeps).toContain(LOG_POLL_MS);
+  });
+
+  it('is GitHub data missing when the test step never finishes, after a bounded wait', async () => {
+    const s = setup({
+      listJobs: vi.fn(async () => [job(11, 'success', [step('checkout', 'success'), unfinishedTestStep()])]),
+    });
+    const result = await runIt(s);
+    expect(result).toMatchObject({ outcome: 'error', reason: 'github_unavailable', externalUrl: RUN_URL });
+    expect(s.clock.now() - T0).toBe(10_000 + STEPS_WAIT_MAX_MS);
+    expect(s.actions.jobLog).not.toHaveBeenCalled();
+  });
+
   it('ends with a run error when a shard never finishes, after a bounded wait', async () => {
     const s = setup({
       listJobs: vi.fn(async () => [greenJob(), { ...job(12, null, []), status: 'in_progress' }]),

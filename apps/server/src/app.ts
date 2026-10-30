@@ -470,6 +470,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       modules.worktrees ??
       createWorktreeManager({
         rootDir: roots.worktrees,
+        repoPathOf: (projectKey, repoName) => {
+          const config = domain.projects.cachedConfig(projectKey);
+          const repo = config?.project.repos.find((entry) => entry.name === repoName);
+          return config && repo ? resolve(config.project.workspacePath, repo.path) : null;
+        },
         logger: log.child({ module: 'worktree' }),
         cloneDependencies: options.cloneDependencies ?? false,
       });

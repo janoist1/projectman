@@ -95,6 +95,8 @@ export async function cloneDependencies(args: {
   /** Reference checkouts in order: the repo's path first, then its other worktrees (never the target). */
   candidates: string[];
   logger: FastifyBaseLogger;
+  /** Host worktree reads go through the manager's anchored link validation. */
+  isNodeModulesIgnored?: () => Promise<boolean>;
   /** Default: process.platform (tests). */
   platform?: NodeJS.Platform;
   /**
@@ -131,7 +133,10 @@ async function cloneIntoTarget(
     const targetLock = await readOrNull(path.join(target, DEPENDENCY_LOCKFILE));
     if (!targetLock) return skipped('no_lockfile');
     // `node_modules/` (with the slash) matches a directory-only ignore pattern that does not exist yet.
-    if ((await tryGit(['-C', target, 'check-ignore', '-q', 'node_modules/'])) === null)
+    if (
+      !(await (args.isNodeModulesIgnored?.() ??
+        tryGit(['-C', target, 'check-ignore', '-q', 'node_modules/']).then((out) => out !== null)))
+    )
       return skipped('not_ignored');
 
     // Only a reference the target can be cloned from counts (PM-846): the repo may lie on another volume

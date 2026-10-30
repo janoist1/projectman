@@ -2316,6 +2316,14 @@ assumption or remote-engine RPC.
   directory (PM-399), plus only `packed-refs.lock` (PM-411), so Codex
   can finish rebase pseudo-ref deletion and loose branch deletion. The common git directory as a whole, other
   worktrees' metadata, configuration, hooks, alternates and admin links remain read-only.
+  PM-1171 (`contracts/session-policy.ts`, `runtime/sessions/session-policy.ts`,
+  `worktree/worktree-manager.ts`, `worktree/member-workspace-manager.ts`) shares the git metadata
+  protection lists between Claude and Codex. Claude also denies the worktree `.git` file.
+  Host worktree reads validate the `.git`, `commondir` and `gitdir` links against the configured
+  repository before git, then use safe settings; independent clones reject a common directory.
+  All filesystem validation runs on the engine owning these paths; no new remote boundary is
+  needed. Native denial of creating nonexistent metadata paths requires an OS/provider probe,
+  on Linux as well as macOS. A session cannot rely on writing `objects/info` for gc or commit graphs.
   PM-731 (engine limit, `engine-link/engine-limit.ts`): the engine's read candidates are its
   write candidates plus the user's own files from `SANDBOX_HOME_READS` (`.gitconfig`,
   `.config/git`, `.claude/shell-snapshots`, `contracts/engine.ts`) and the existing regular

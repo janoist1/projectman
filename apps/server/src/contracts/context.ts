@@ -384,6 +384,8 @@ export interface WorktreeManager {
 export interface WorktreeManagerOptions {
   /** Where worktrees are created, e.g. ~/.projectman/worktrees. */
   rootDir: string;
+  /** Trusted engine-local repository anchor for path-only worktree operations. Missing paths fail closed. */
+  repoPathOf?(projectKey: string, repoName: string): string | null;
   logger: FastifyBaseLogger;
   /** PM-332: clone node_modules into a task worktree from an installed checkout with the same lockfile (APFS clonefile, macOS). Default false. */
   cloneDependencies?: boolean;

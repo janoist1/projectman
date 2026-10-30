@@ -70,6 +70,45 @@ function codexOverrides(args: string[]) {
 }
 
 describe('provider-neutral session policy', () => {
+  it('protects shared git configuration and the task worktree links in the Claude sandbox', () => {
+    const admin = `${sharedGit}/worktrees/task`;
+    const p = policy('developer', {
+      kind: 'task_worktree',
+      path: source,
+      gitDir: sharedGit,
+      worktreeGitDir: admin,
+    });
+    expect(sessionSandbox(p, { userHome: '/fictional/user' })!.denyWrite).toEqual(
+      expect.arrayContaining([
+        ...['config', 'config.lock', 'hooks', 'objects/info'].map((name) => `${sharedGit}/${name}`),
+        ...['commondir', 'gitdir', 'config.worktree', 'hooks'].map((name) => `${admin}/${name}`),
+        `${source}/.git`,
+      ]),
+    );
+  });
+
+  it('protects independent clone configuration and git links in the Claude sandbox', () => {
+    const p = policy('developer', {
+      kind: 'task_worktree',
+      path: source,
+      workspace: { branch: 'AR-1-task', baseCommit: null },
+    });
+    expect(sessionSandbox(p, { userHome: '/fictional/user' })!.denyWrite).toEqual(
+      expect.arrayContaining(
+        [
+          'config',
+          'config.lock',
+          'config.worktree',
+          'commondir',
+          'gitdir',
+          'hooks',
+          'modules',
+          'objects/info',
+        ].map((name) => `${source}/.git/${name}`),
+      ),
+    );
+  });
+
   it('preserves an explicitly supplied read boundary on the wire and in a plan profile', () => {
     const p = policy('developer', { kind: 'task_worktree', path: source }, 'plan');
     const readBoundary = {
@@ -424,11 +463,11 @@ describe('provider-neutral session policy', () => {
       'Edit(//fictional/live)',
       'Edit(//fictional/live/**)',
     ]);
-    // A developer's sandbox is unchanged: its own worktree stays writable.
+    // Reader-only installation denials do not close a developer's worktree.
     expect(
       sessionSandbox(development(), { userHome: '/fictional/user', readerDenyWrite: ['/fictional/home'] })!
         .denyWrite,
-    ).toBeUndefined();
+    ).not.toContain('/fictional/home');
   });
 
   it('names an accented attachment directory in its rules, and none with rule syntax (PM-188)', () => {

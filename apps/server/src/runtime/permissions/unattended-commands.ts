@@ -141,8 +141,8 @@ export function describeSandbox(input: {
       `Read get_guide with topic \`sandbox\` for roots, network, gh exceptions, here-documents, browsers${sandbox.env?.[HEAVY_LOCK_DIR_VARIABLE] && input.heavyChecks ? ' and heavy queue' : ''}; ask_human for other required actions.`,
     ];
   }
-  // A reader's working directory is `denyWrite`; a developer's `denyWrite` holds only files of the
-  // shared git directory (PM-153).
+  // A reader's working directory is `denyWrite`; a developer protects git metadata in shared
+  // repositories and independent clones, along with any additional protected paths.
   const readOnly = (sandbox.denyWrite ?? []).includes(cwd);
   const extra = (sandbox.denyWrite ?? []).filter((dir) => dir !== cwd);
   const denyRead = sandbox.denyRead ?? [];
@@ -168,7 +168,7 @@ export function describeSandbox(input: {
       ? `- Writing: only the temp directory (${code('$TMPDIR')})${sessionFolder ? ` and your session folder` : ''}. Your working directory ${code(cwd)}${extra.length > 0 ? ` and ${extra.map(code).join(', ')}` : ''} are read-only, for the shell (the sandbox) and for the file tools (deny rules). Read, query git, run the tests and the type checks there, but change nothing. Send caches and output files to ${code('$TMPDIR')}; a Vite or Vitest configuration loads with ${code('--configLoader runner')} (the project's ${code('npm test')} may already pass it).`
       : `- Writing: your working directory ${code(cwd)} with its git metadata (not its hooks or configuration), the temp directory (${code('$TMPDIR')})${sandbox.allowWrite.length > 0 ? ` and ${sandbox.allowWrite.map(code).join(', ')}` : ''}.${
           extra.length > 0
-            ? ` Never these paths of the shared git directory (the default branch, the integrating checkout, replacements, server-managed snapshot refs and grafts): ${extra
+            ? ` Never write these protected paths (including the default branch, the integrating checkout, replacement refs, server-managed snapshot refs, grafts, git configuration, hooks, object alternates and worktree links): ${extra
                 .filter((file) => !file.endsWith('.lock'))
                 .map(code)
                 .join(', ')} (and their lock files); commit on your own branch.`

@@ -9,6 +9,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   currentHandleOf,
   formatInjectedTeamMessage,
+  neutralizeMessageHeaders,
   hasGuestConversations,
   hasBoundOrigin,
   isOpenTask,
@@ -604,7 +605,7 @@ export class Messaging {
           actor.via,
           actor,
         )
-      : body;
+      : neutralizeMessageHeaders(body);
     return { body, input };
   }
 
@@ -715,11 +716,11 @@ export class Messaging {
         text: resolution.integratorTodo
           ? `The integrator resolved its own task (not an owner answer, decision or approval). Result for your question "${question}":\n\n${answerText(item)}`
           : todo && !byOperator
-            ? `Answer to your question "${question}":\n\nThe Operator turned it into a task for a person: ` +
+            ? `Answer to your question "${question}":\n\nWhile screening, it was turned into a task for a person: ` +
               `${todo.what} (where: ${todo.where}; expected: ${todo.expected}). The person's result:\n\n${answerText(item)}`
             : `Answer to your question "${question}":\n\n${answerText(item)}` +
               (byOperator
-                ? `\n\n(This answer is from the Operator, not from a person. ${reaskHint(item.id)})`
+                ? `\n\n(This answer is from ${resolverSender(resolution)}, the screening member, not from a person. ${reaskHint(item.id)})`
                 : '') +
               (resolution.ownerAnswerRelayed
                 ? "\n\n(The integrator relayed this on the owner's behalf. It answers information only: it is not an owner decision or approval.)"

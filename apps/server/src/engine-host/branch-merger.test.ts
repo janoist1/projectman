@@ -1111,11 +1111,12 @@ describe('commitFiles', () => {
 
   it('lists nothing as changed for a file whose text is already there', async () => {
     const { merger, repo } = fixture({ withRemote: false });
-    const onto = git(repo, 'rev-parse', 'HEAD');
+    write(repo, 'existing.md', 'one\n');
+    const onto = commit(repo, 'Add document');
     const result = await merger.commitFiles(REF, {
       onto,
       files: [
-        { path: 'a.txt', text: 'one\n' },
+        { path: 'existing.md', text: 'one\n' },
         { path: 'new.md', text: '' },
       ],
       message: 'Same',
@@ -1123,7 +1124,7 @@ describe('commitFiles', () => {
     expect(result.changed).toEqual(['new.md']);
     const same = await merger.commitFiles(REF, {
       onto,
-      files: [{ path: 'a.txt', text: 'one\n' }],
+      files: [{ path: 'existing.md', text: 'one\n' }],
       message: 'S',
     });
     expect(same.changed).toEqual([]);
@@ -1132,20 +1133,20 @@ describe('commitFiles', () => {
   it('refuses without an identity, a bad file set, a bad message, a bad commit and a path over a directory', async () => {
     const { merger, repo } = fixture({ withRemote: false });
     const onto = git(repo, 'rev-parse', 'HEAD');
-    const ok = { path: 'a.txt', text: 'x' };
+    const ok = { path: 'a.md', text: 'x' };
     const refused = (input: Parameters<BranchMerger['commitFiles']>[1], code = 'invalid_input') =>
       expect(merger.commitFiles(REF, input)).rejects.toMatchObject({ code });
     await refused({ onto, files: [], message: 'm' });
     await refused({
       onto,
-      files: [ok, { path: 'b.txt', text: 'y' }, { path: 'c.txt', text: 'z' }],
+      files: [ok, { path: 'b.md', text: 'y' }, { path: 'c.md', text: 'z' }],
       message: 'm',
     });
     await refused({ onto, files: [ok, ok], message: 'm' });
     await refused({ onto, files: [{ path: '../x', text: 'y' }], message: 'm' });
     await refused({ onto, files: [{ path: '.git/hooks/x', text: 'y' }], message: 'm' });
-    await refused({ onto, files: [{ path: 'a.txt', text: 'a\0b' }], message: 'm' });
-    await refused({ onto, files: [{ path: 'a.txt', text: 'x'.repeat(1024 * 1024 + 1) }], message: 'm' });
+    await refused({ onto, files: [{ path: 'a.md', text: 'a\0b' }], message: 'm' });
+    await refused({ onto, files: [{ path: 'a.md', text: 'x'.repeat(1024 * 1024 + 1) }], message: 'm' });
     await refused({ onto, files: [ok], message: ' ' });
     await refused({ onto: 'main', files: [ok], message: 'm' });
     await refused({ onto: 'a'.repeat(40), files: [ok], message: 'm' }, 'unknown_object');
@@ -1153,10 +1154,10 @@ describe('commitFiles', () => {
     await expect(
       bare.merger.commitFiles(REF, { onto: git(bare.repo, 'rev-parse', 'HEAD'), files: [ok], message: 'm' }),
     ).rejects.toMatchObject({ code: 'no_identity' });
-    write(repo, 'dir/x.txt', 'x\n');
+    write(repo, 'dir.md/x.txt', 'x\n');
     const withDir = commit(repo, 'dir');
-    await refused({ onto: withDir, files: [{ path: 'dir', text: 'file' }], message: 'm' });
-    await refused({ onto: withDir, files: [{ path: 'a.txt/inner', text: 'x' }], message: 'm' }); // a.txt is a file
+    await refused({ onto: withDir, files: [{ path: 'dir.md', text: 'file' }], message: 'm' });
+    await refused({ onto: withDir, files: [{ path: 'a.txt/inner.md', text: 'x' }], message: 'm' }); // a.txt is a file
   });
 });
 

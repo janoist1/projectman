@@ -2281,15 +2281,18 @@ assumption or remote-engine RPC.
   PM-360 adds the shared `SessionReadBoundary` schema and optional
   `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. Under the owner's
   2026-10-26 scope decision, developer runtime paths do not automatically populate it:
-  absent means the existing broad non-sensitive home reads and session/tmp behavior.
-  Claude's existing `worktreeSandbox` read/write rules remain unchanged. Explicit boundaries
+  absent on a writing placement means the existing broad non-sensitive home reads and session/tmp
+  behavior; reading placements require a boundary (PM-1175). Explicit boundaries
   contain reopenable roots and typed file/directory exceptions, separate from unconditional
   policy/adapter denials. Local adapters resolve lexical/physical paths and reject invalid
   explicit inputs using the shared `runner/tool-decision.ts` matcher (exported through
   `runner/index.ts` for the engine): glob component boundaries, case handling and macOS
   `/System/Volumes/Data` firmlink aliases have one implementation. The engine
   (`engine-link/engine-limit.ts`) adds its own homes/temp roots and checks
-  exceptions and required private directories only when a boundary is supplied. Existing
+  exceptions and required private directories when a boundary is supplied. PM-1175 refuses reading
+  sessions without a portable read boundary and builds Claude's `denyRead`/`allowRead` from the
+  engine's canonical boundary, including realpath aliases for allowed paths. The checks run on
+  the remote engine with the existing boundary data; no new data crosses the link. Existing
   engine-root, permission-mode, environment and sensitive-path checks always apply.
   PM-425 populates it for every reading session (`placementReadsOnly`: a `read_only` placement,
   a review copy without the test permission, a taskless chat, the non-super Operator) and for
@@ -2645,6 +2648,8 @@ assumption or remote-engine RPC.
   `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
+  PM-1175: `merge.commit_files` accepts only Markdown project document paths, excluding hidden
+  segments and agent instruction files (`engine-host/merge-input.ts`), on local and remote engines.
   PM-797: a collecting card with no code of its own, whose subtasks are all closed, skips the gate on the hub's
   own data (`TaskRepository.sourceEvidence`, "Collecting card closes with its parts"), so its close makes no
   engine call and adds no machine assumption; a card with a trace of a source keeps the gate.
@@ -2835,6 +2840,8 @@ assumption or remote-engine RPC.
 - **Engine service (launchd)** — `scripts/engine/{service,snapshot,logs,commands,cli}.ts`,
   `scripts/engine/{service-switch,switch-state}.ts` (PM-1124). A plist whose `WorkingDirectory`
   contains `engine-package.json` is app-managed; otherwise it is checkout-managed.
+  PM-1175: service installation and switching keep only absolute, nonempty PATH entries; switching
+  preserves deliberate absolute local entries. This filtering runs on the engine host.
   Package installation uses the embedded `bin/node` and package root in the same template.
   `AssociatedBundleIdentifiers` names `com.projectman.engine-app`; `service install --path`
   accepts the app's login shell PATH. `service switch [--to <package-root>]` is for app-managed

@@ -125,7 +125,6 @@ async function fakeRun(command: string, args: string[]): Promise<RunResult> {
     fs.mkdirSync(app, { recursive: true });
     fs.writeFileSync(path.join(app, 'projectman-motor.json'), `${JSON.stringify(world.manifest)}\n`);
     fs.writeFileSync(path.join(app, 'projectman-motor.zip'), world.zipText);
-    fs.writeFileSync(path.join(app, 'projectman-motor.dmg'), DMG);
     return ok();
   }
   if (args[0] === 'attestation' && args[1] === 'verify') {
@@ -163,15 +162,10 @@ const fetchApp = (change: Partial<EngineAppFetchRequest> = {}) =>
   fetchEngineApp(context(), { commit: COMMIT, out: out(), dryRun: false, open: false, ...change });
 
 describe('engine-app fetch', () => {
-  it('verifies the run, all three files and the app, and leaves the app and its three files', async () => {
+  it('verifies the run, the manifest and the zip and the app, and leaves the app, the manifest and the zip but no dmg', async () => {
     const app = await fetchApp();
     expect(app).toBe(path.join(out(), APP));
-    expect(fs.readdirSync(out()).sort()).toEqual([
-      APP,
-      'projectman-motor.dmg',
-      'projectman-motor.json',
-      'projectman-motor.zip',
-    ]);
+    expect(fs.readdirSync(out()).sort()).toEqual([APP, 'projectman-motor.json', 'projectman-motor.zip']);
     const download = called('gh', 'run').find((call) => call[2] === 'download')!;
     expect(download).toEqual(
       expect.arrayContaining([String(RUN), '--repo', REPO, '--name', `projectman-job-${RUN_ID}`]),
@@ -179,7 +173,6 @@ describe('engine-app fetch', () => {
     expect(called('gh', 'attestation').map((call) => path.basename(call[3]!))).toEqual([
       'projectman-motor.json',
       'projectman-motor.zip',
-      'projectman-motor.dmg',
     ]);
     expect(called('codesign')).toEqual([['codesign', '--verify', '--deep', '--strict', app]]);
     expect(called('open')).toEqual([]);
@@ -220,7 +213,7 @@ describe('engine-app fetch', () => {
   });
 
   it.each([
-    ['an attestation that fails', () => (world.attestFails = 'projectman-motor.dmg'), 'attestation'],
+    ['an attestation that fails', () => (world.attestFails = 'projectman-motor.zip'), 'attestation'],
     [
       'a manifest of another commit',
       () => (world.manifest = { ...goodManifest(), version: OTHER_COMMIT }),

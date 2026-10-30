@@ -53,7 +53,7 @@ Mac then builds nothing: it downloads and verifies the result. The values are in
 | `runs_on`         | `macos-15`                                                                                                                                                                                                                                             |
 | `node`            | `22`                                                                                                                                                                                                                                                   |
 | `timeout_minutes` | `60`                                                                                                                                                                                                                                                   |
-| `outputs`         | `app/projectman-motor.json app/projectman-motor.zip app/projectman-motor.dmg`                                                                                                                                                                          |
+| `outputs`         | `app/projectman-motor.json app/projectman-motor.zip`                                                                                                                                                                                                   |
 | `command`         | `npm ci && npm run engine-app -- package --commit "$PROJECTMAN_JOB_COMMIT" --out "$RUNNER_TEMP/engine-package" && npm run engine-app -- build --package "$RUNNER_TEMP/engine-package/$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/app" --ad-hoc` |
 
 The engine starts a job only when the owner has registered it by hand, with exactly these values: in the
@@ -67,7 +67,7 @@ engine's `engine.json`, in the `computeJobs` of the repository entry (`repos[].c
     "runsOn": "macos-15",
     "node": "22",
     "timeoutMinutes": 60,
-    "outputs": ["app/projectman-motor.json", "app/projectman-motor.zip", "app/projectman-motor.dmg"],
+    "outputs": ["app/projectman-motor.json", "app/projectman-motor.zip"],
     "command": "npm ci && npm run engine-app -- package --commit \"$PROJECTMAN_JOB_COMMIT\" --out \"$RUNNER_TEMP/engine-package\" && npm run engine-app -- build --package \"$RUNNER_TEMP/engine-package/$PROJECTMAN_JOB_COMMIT\" --out \"$PROJECTMAN_JOB_OUT/app\" --ad-hoc"
   }
 ]
@@ -82,13 +82,17 @@ npm run engine-app -- fetch --commit <SHA40> --out /path/to/new-directory [--run
 ```
 
 `fetch` never starts a run. It finds or follows the newest `engine-app` run of the commit (or the given `--run`),
-checks where it ran (workflow, event, default branch, result, title) and the attestation of all three files against
-the workflow's exact identity and this run, then the manifest (commit, sha256, size of the zip and the dmg),
+checks where it ran (workflow, event, default branch, result, title) and the attestation of the manifest and the zip
+against the workflow's exact identity and this run, then the manifest (commit, sha256 and size of the zip),
 unpacks the app with `ditto`, runs `codesign --verify --deep --strict` and compares the `engine-package.json`
-inside the app with the commit. Any failure removes the output directory. On success it leaves `projectman motor.app`
-and the three files, and prints the app's path as its last line. It needs `gh` logged in with read access to the
+inside the app with the commit. Any failure removes the output directory. On success it leaves `projectman motor.app`,
+the zip and the manifest, and prints the app's path as its last line. It needs `gh` logged in with read access to the
 repository's Actions (gh 2.49 or newer for `gh attestation`), `ditto` and `codesign`; the artifact lives 7 days.
-`--dry-run` stops at the run's address.
+`--dry-run` stops at the run's address. `fetch` downloads only the manifest and the zip, not the disk image: the
+install unpacks the zip, and the image (kept for `publish`, which builds on the release Mac) was 388 MB of the 635 MB
+a run used to bring (PM-1157). A registration made before PM-1157 lists the `.dmg` among its `outputs`; the owner
+changes it to the two paths above in `engine.json` and in the hub's `repoComputeJobs`, otherwise the run still
+uploads the image in the artifact and `fetch` still downloads it (it discards it unused).
 
 **Installing is opening the new app, not a bare `service switch --to`.** The menu bar app that is still installed
 decides by `SwitchPolicy.candidate` only whether the packaged version and the running one differ; after a manual

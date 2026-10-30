@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
-import type { EngineStatusView } from '@projectman/shared';
+import type { EngineStatusResponse, EngineStatusView } from '@projectman/shared';
 import { useEngines, useEngineStatus, useMe } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Dialog } from '../../components/Dialog';
@@ -11,7 +11,7 @@ import { formatAgo } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { useMediaQuery } from '../../lib/hooks';
 import { useNow } from '../../lib/useNow';
-import { defaultEngine, defaultFirst, engineState, statusText, workText } from './engineView';
+import { engineState, mainFirst, projectMainEngine, statusText, workText } from './engineView';
 import styles from './Engines.module.css';
 
 /**
@@ -22,10 +22,13 @@ export function EngineIndicator({ phone = false }: { phone?: boolean }) {
   const status = useEngineStatus();
   const isPhone = useMediaQuery('(max-width: 767px)');
   if (status.data?.mode !== 'cloud' || status.isError || phone !== isPhone) return null;
-  return <CloudIndicator engines={status.data.engines} phone={phone} />;
+  return <CloudIndicator status={status.data} phone={phone} />;
 }
 
-function CloudIndicator({ engines, phone }: { engines: EngineStatusView[]; phone: boolean }) {
+function CloudIndicator({ status, phone }: { status: EngineStatusResponse; phone: boolean }) {
+  const { engines } = status;
+  const { key } = useProject();
+  const { main, source } = projectMainEngine(status, key);
   const [open, setOpen] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const badge = useMediaQuery('(max-width: 1279px)');
@@ -52,7 +55,6 @@ function CloudIndicator({ engines, phone }: { engines: EngineStatusView[]; phone
     }
   }, [engines]);
 
-  const main = defaultEngine(engines);
   const state = !main ? 'none' : main.online ? 'online' : 'offline';
   const trouble = state !== 'online';
   const live = (
@@ -63,12 +65,14 @@ function CloudIndicator({ engines, phone }: { engines: EngineStatusView[]; phone
   // On a phone only a problem takes room in the header.
   if (phone && !trouble) return live;
 
-  const text = engines.length === 0 ? t('engines.none') : !main ? t('engines.noDefault') : main.name;
+  const noMain = source === 'project' ? t('engines.noProjectEngine') : t('engines.noDefault');
+  const noMainLabel = source === 'project' ? t('engines.labelNoProjectEngine') : t('engines.labelNoDefault');
+  const text = engines.length === 0 ? t('engines.none') : !main ? noMain : main.name;
   const label =
     engines.length === 0
       ? t('engines.labelNone')
       : !main
-        ? t('engines.labelNoDefault')
+        ? noMainLabel
         : main.online
           ? t('engines.labelOnline', { name: main.name })
           : main.lastSeenAt
@@ -110,7 +114,16 @@ function CloudIndicator({ engines, phone }: { engines: EngineStatusView[]; phone
       </button>
       {live}
       {open && (
-        <EnginePanel id={id} phone={phone} engines={engines} now={now} onClose={close} anchor={button} />
+        <EnginePanel
+          id={id}
+          phone={phone}
+          engines={engines}
+          main={main}
+          source={source}
+          now={now}
+          onClose={close}
+          anchor={button}
+        />
       )}
     </span>
   );
@@ -120,6 +133,8 @@ function EnginePanel({
   id,
   phone,
   engines,
+  main,
+  source,
   now,
   onClose,
   anchor,
@@ -127,17 +142,18 @@ function EnginePanel({
   id: string;
   phone: boolean;
   engines: EngineStatusView[];
+  main: EngineStatusView | null;
+  source: 'project' | 'default';
   now: Date;
   onClose: () => void;
   anchor: RefObject<HTMLButtonElement | null>;
 }) {
   const me = useMe();
-  const owner = me.data?.hostOwner === true;
+  const { key, isOwner } = useProject();
+  const owner = me.data?.hostOwner === true || isOwner;
   const counts = useEngines(owner);
-  const { key } = useProject();
   const title = useRef<HTMLHeadingElement>(null);
   const [position, setPosition] = useState({ top: 64, right: 16 });
-  const main = defaultEngine(engines);
   const heading = engines.length > 1 ? t('engines.titleMany') : t('engines.title');
 
   useLayoutEffect(() => {
@@ -188,7 +204,7 @@ function EnginePanel({
     ) : (
       <>
         <ul className={styles.list}>
-          {defaultFirst(engines).map((engine) => {
+          {mainFirst(engines, main?.id ?? null).map((engine) => {
             const state = engineState(engine);
             const detail = counts.data?.find((entry) => entry.id === engine.id);
             return (
@@ -196,7 +212,7 @@ function EnginePanel({
                 <span className={styles.dot} data-state={state} />
                 <span className={styles.name}>
                   {engine.name}
-                  {engine.isDefault && <span className={styles.chip}>{t('engines.defaultChip')}</span>}
+                  {engine.id === main?.id && <span className={styles.chip}>{t('engines.defaultChip')}</span>}
                 </span>
                 <span className={styles.status} data-needs={state === 'offline'}>
                   {statusText(engine, now)}
@@ -206,7 +222,12 @@ function EnginePanel({
             );
           })}
         </ul>
-        {!main ? (
+        {!main && source === 'project' ? (
+          <p className={styles.hint}>
+            {t('engines.panelNoProjectEngine')}{' '}
+            {t(owner ? 'engines.panelBindOwner' : 'engines.panelBindMember')}
+          </p>
+        ) : !main ? (
           <p className={styles.hint}>
             {t('engines.panelNoDefault')} {t(owner ? 'engines.panelPickOwner' : 'engines.panelPickMember')}
           </p>

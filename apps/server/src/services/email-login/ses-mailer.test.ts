@@ -97,6 +97,19 @@ describe('the SES e-mail code mailer', () => {
     },
   );
 
+  it.each(['hu', 'en'] as const)(
+    'chooses the template by the purpose of the code, in the %s language',
+    async (language) => {
+      await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language, purpose: 'password' });
+      await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, language, purpose: 'login' });
+      const subjects = requests.map((r) => JSON.parse(r.body).Content.Simple.Subject.Data);
+      const locale = getLocale(language);
+      expect(subjects).toEqual([locale.passwordResetCode.subject, locale.emailLoginCode.subject]);
+      const text: string = JSON.parse(requests[0]!.body).Content.Simple.Body.Text.Data;
+      expect(text).toContain(CODE);
+    },
+  );
+
   it('signs for the region with the explicit keys and the session token', async () => {
     await mailer({ sessionToken: 'explicit-session-token' }).send({
       to: TO,

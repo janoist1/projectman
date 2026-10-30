@@ -1,10 +1,20 @@
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { DEFAULT_UI_LANGUAGE } from '@projectman/shared';
-import type { EmailLoginCodeRequest, EmailLoginVerifyRequest } from '@projectman/shared';
+import type {
+  EmailLoginCodeRequest,
+  EmailLoginVerifyRequest,
+  PasswordCodeRequest,
+  PasswordResetRequest,
+} from '@projectman/shared';
 import { EMAIL_LOGIN_MAX_FAILED_ATTEMPTS } from '../../db';
 import type { EmailLoginEventKind, Repositories } from '../../db';
 import { EMAIL_CODE_DELIVERY_FAILED } from '../../contracts';
-import type { EmailCodeMailer, EmailLoginDirectory } from '../../contracts';
+import type {
+  EmailCodeMailer,
+  EmailCodePurpose,
+  EmailLoginDirectory,
+  EmailLoginStanding,
+} from '../../contracts';
 import { DomainError, invalid, ipRateLimitKey, KeyedMutex, newId } from '../../kernel';
 
 const MINUTE_MS = 60_000;
@@ -46,9 +56,21 @@ export interface EmailLoginService {
    * limits are looked at here (they may refuse the request, never an address); eligibility, the address
    * limits, the code and the letter follow in the background, one request at a time.
    */
-  requestCode(input: EmailLoginCodeRequest, clientIp: string): typeof EMAIL_LOGIN_CODE_REQUESTED;
+  requestCode(
+    input: EmailLoginCodeRequest | PasswordCodeRequest,
+    clientIp: string,
+    purpose?: EmailCodePurpose,
+  ): typeof EMAIL_LOGIN_CODE_REQUESTED;
   /** Redeems a code; the account and its client memberships exist when it returns. */
   verify(input: EmailLoginVerifyRequest, clientIp: string): Promise<{ userId: string }>;
+  /**
+   * Redeems a password code (PM-946): the same limits and answers as `verify`, but only a code made for a
+   * password, only for an existing client account, and it accepts no invitation and creates no account.
+   */
+  redeemPasswordCode(
+    input: Pick<PasswordResetRequest, 'email' | 'code'>,
+    clientIp: string,
+  ): Promise<{ userId: string }>;
   /** The background steps queued so far have run. */
   settled(): Promise<void>;
   stop(): Promise<void>;
@@ -61,6 +83,25 @@ const invalidCode = () => invalid('email_code_invalid', 'the code is wrong, expi
 /** Hex HMAC-SHA-256 of a labelled value: the one way an address, an IP or a code is stored or compared. */
 function mac(key: Buffer, label: string, value: string): string {
   return createHmac('sha256', key).update(`${label}:${value}`).digest('hex');
+}
+
+const noAccess = () =>
+  new DomainError('email_login_no_access', 'this address has no access to log in', { status: 403 });
+
+/** The HMAC label of a code: it binds the code to its purpose, so a login code never sets a password (PM-946). */
+const codeLabel = (purpose: EmailCodePurpose) => (purpose === 'password' ? 'password-code' : 'code');
+
+type StoredCode = NonNullable<ReturnType<Repositories['emailLogin']['code']>>;
+
+/**
+ * Who may set a password with a code (PM-946): a client who already has an account and a client project.
+ * The standing has excluded the owners and every colleague; an address with only an open invitation has
+ * no account yet and logs in by the invitation.
+ */
+function hasClientAccount(
+  standing: EmailLoginStanding,
+): standing is Extract<EmailLoginStanding, { eligible: true }> & { userId: string } {
+  return standing.eligible && standing.userId !== null && standing.clientProjects >= 1;
 }
 
 const normalizeAddress = (email: string) => email.trim().toLowerCase();
@@ -105,14 +146,19 @@ export function createEmailLoginService(deps: {
   }
 
   /** The background step of one code request. It never throws, and logs only fixed codes. */
-  async function issue(input: EmailLoginCodeRequest): Promise<void> {
+  async function issue(
+    input: EmailLoginCodeRequest | PasswordCodeRequest,
+    purpose: EmailCodePurpose,
+  ): Promise<void> {
     const email = 'email' in input ? input.email : directory.inviteEmail(input.inviteToken);
     if (!email) return;
     const address = normalizeAddress(email);
     const standing = await directory.standing(address);
-    if (!standing.eligible) return;
+    if (!standing.eligible || (purpose === 'password' && !hasClientAccount(standing))) return;
     // The existing account's language wins; a first login has none yet, so the page's choice, else the default.
-    const language = standing.language ?? input.language ?? DEFAULT_UI_LANGUAGE;
+    // A password code always goes to an existing account, so the request carries no language.
+    const language =
+      standing.language ?? ('language' in input ? input.language : undefined) ?? DEFAULT_UI_LANGUAGE;
     const hash = addressHash(address);
     const subject = `addr:${hash}`;
     const at = now();
@@ -130,7 +176,7 @@ export function createEmailLoginService(deps: {
     repo.putCode({
       addressHash: hash,
       id,
-      codeHash: mac(key, 'code', `${id}:${code}`),
+      codeHash: mac(key, codeLabel(purpose), `${id}:${code}`),
       createdAt: at.toISOString(),
       expiresAt,
       failedAttempts: 0,
@@ -138,7 +184,7 @@ export function createEmailLoginService(deps: {
     });
     repo.addEvent('send', subject, at.toISOString());
     try {
-      await mailer.send({ to: address, code, language, expiresAt });
+      await mailer.send({ to: address, code, language, expiresAt, purpose });
     } catch (err) {
       // Only the code and the coarse reason: the error object carries the address.
       const reason = (err as { reason?: unknown } | null)?.reason;
@@ -149,8 +195,49 @@ export function createEmailLoginService(deps: {
     }
   }
 
+  /**
+   * The part of a redemption both purposes share: the IP limit, the address lock, and the check of the row
+   * and of the code (bound to its purpose) with the failed-attempt count. `accept` runs only for a code that
+   * is right, live and meant for this purpose.
+   */
+  async function redeem<T>(
+    purpose: EmailCodePurpose,
+    email: string | null,
+    code: string,
+    clientIp: string,
+    accept: (address: string, stored: StoredCode, at: string) => Promise<T>,
+  ): Promise<T> {
+    const subject = ipSubject(clientIp);
+    enforce('verify', subject, HOUR_MS, L.verifiesPerIpHour);
+    repo.addEvent('verify', subject, now().toISOString());
+    const address = normalizeAddress(email ?? '');
+    const hash = addressHash(address);
+    return verifyLock.run(hash, async () => {
+      const at = now().toISOString();
+      const row = repo.code(hash);
+      const stored =
+        email &&
+        row &&
+        row.id !== DUMMY_CODE.id &&
+        row.usedAt === null &&
+        row.expiresAt > at &&
+        row.failedAttempts < EMAIL_LOGIN_MAX_FAILED_ATTEMPTS
+          ? row
+          : null;
+      const checked = stored ?? DUMMY_CODE;
+      const expected = Buffer.from(checked.codeHash, 'hex');
+      const given = Buffer.from(mac(key, codeLabel(purpose), `${checked.id}:${code}`), 'hex');
+      const matches = expected.length === given.length && timingSafeEqual(expected, given);
+      if (!matches || !stored) {
+        repo.failAttempt(checked.id);
+        throw invalidCode();
+      }
+      return accept(address, stored, at);
+    });
+  }
+
   return {
-    requestCode(input, clientIp) {
+    requestCode(input, clientIp, purpose = 'login') {
       const subject = ipSubject(clientIp);
       enforce('request', subject, HOUR_MS, L.requestsPerIpHour);
       enforce('send', null, DAY_MS, L.sendsPerDay);
@@ -159,7 +246,7 @@ export function createEmailLoginService(deps: {
       if (stopped || queued >= L.maxQueued) return EMAIL_LOGIN_CODE_REQUESTED;
       queued += 1;
       tail = tail
-        .then(() => (stopped ? undefined : issue(input)))
+        .then(() => (stopped ? undefined : issue(input, purpose)))
         .catch((err: unknown) => {
           logger.warn(
             { code: 'email_login_request_failed', name: (err as Error)?.name },
@@ -172,35 +259,9 @@ export function createEmailLoginService(deps: {
       return EMAIL_LOGIN_CODE_REQUESTED;
     },
 
-    async verify(input, clientIp) {
-      const subject = ipSubject(clientIp);
-      enforce('verify', subject, HOUR_MS, L.verifiesPerIpHour);
-      repo.addEvent('verify', subject, now().toISOString());
+    verify(input, clientIp) {
       const email = 'email' in input ? input.email : directory.inviteEmail(input.inviteToken);
-      const address = normalizeAddress(email ?? '');
-      const hash = addressHash(address);
-      return verifyLock.run(hash, async () => {
-        const at = now().toISOString();
-        const row = repo.code(hash);
-        const stored =
-          email &&
-          row &&
-          row.id !== DUMMY_CODE.id &&
-          row.usedAt === null &&
-          row.expiresAt > at &&
-          row.failedAttempts < EMAIL_LOGIN_MAX_FAILED_ATTEMPTS
-            ? row
-            : null;
-        const checked = stored ?? DUMMY_CODE;
-        const expected = Buffer.from(checked.codeHash, 'hex');
-        const given = Buffer.from(mac(key, 'code', `${checked.id}:${input.code}`), 'hex');
-        const matches = expected.length === given.length && timingSafeEqual(expected, given);
-        if (!matches || !stored) {
-          repo.failAttempt(checked.id);
-          throw invalidCode();
-        }
-        const noAccess = () =>
-          new DomainError('email_login_no_access', 'this address has no access to log in', { status: 403 });
+      return redeem('login', email, input.code, clientIp, async (address, stored, at) => {
         const before = await directory.standing(address);
         if (!before.eligible) {
           repo.consume(stored.id, at);
@@ -215,6 +276,18 @@ export function createEmailLoginService(deps: {
         if (!after.eligible || after.userId === null || after.clientProjects < 1) throw noAccess();
         logger.info({ accepted }, 'client logged in with an e-mail code');
         return { userId: after.userId };
+      });
+    },
+
+    redeemPasswordCode(input, clientIp) {
+      return redeem('password', input.email, input.code, clientIp, async (address, stored, at) => {
+        const standing = await directory.standing(address);
+        if (!hasClientAccount(standing)) {
+          repo.consume(stored.id, at);
+          throw noAccess();
+        }
+        if (!repo.consume(stored.id, at)) throw invalidCode();
+        return { userId: standing.userId };
       });
     },
 

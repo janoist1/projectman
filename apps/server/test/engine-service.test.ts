@@ -239,6 +239,21 @@ describe('service install, uninstall and status', () => {
     );
   });
 
+  it.each(['.', 'bin', './x', ''])(
+    'drops relative or empty PATH entry %j on install and switch',
+    async (entry) => {
+      const pathEnv = `/usr/bin:${entry}:/opt/bin`;
+      expect(servicePathEnv(pathEnv)).toBe('/usr/bin:/opt/bin');
+      await installService(options({ pathEnv, preservePathEnv: true }));
+      expect(readFileSync(servicePaths(options()).plist, 'utf8')).toContain(
+        '<string>/usr/bin:/opt/bin</string>',
+      );
+      await expect(installService(options({ pathEnv: entry, preservePathEnv: true }))).rejects.toThrow(
+        /PATH is empty/,
+      );
+    },
+  );
+
   it('is found for its home only', async () => {
     await installService(options());
     const agentsDir = path.join(base, 'LaunchAgents');

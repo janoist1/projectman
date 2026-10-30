@@ -125,7 +125,7 @@ const OWNER_HANDLE = 'owner';
 const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   email_send_policy: 'only an owner may change email approval policy',
   machine_access: 'only an owner may change whether an AI member may put machine work in the owners queue',
-  locations: 'only an owner may change filesystem locations',
+  locations: 'only an owner may change filesystem locations or project document paths',
   admin_or_account: 'only an owner may grant admin access or change account bindings',
   approval_policy: 'only an owner may change or remove human approval gates',
   release_approvers: 'only an owner may change the release approvers',

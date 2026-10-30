@@ -1270,8 +1270,16 @@ gets `denyWrite` in the shared git directory (`sharedGitDenials`): `refs/heads/<
 stale lock for the integrating session; and `refs/replace` (the directory) and `info/grafts`, with
 which every local git command would see other content or history for the default branch without
 the ref moving (`git replace <a blob of main> <another blob>` reaches the integrating checkout's
-diff, merge and checkout). A member workspace (PM-138) is an independent clone with
-its own `.git` in the working directory: no `gitDir`, no git `denyWrite`. An `allowRead` path
+diff, merge and checkout). PM-1171 also denies writes to shared `config`, `config.lock`, `hooks`
+and `objects/info`, the own admin directory's `commondir`, `gitdir`, `config.worktree` and `hooks`,
+and the worktree's `.git` file. A member workspace (PM-138) is an independent clone with
+its own `.git` in the working directory: its `config`, `config.lock`, `config.worktree`, `commondir`,
+`gitdir`, `hooks`, `modules` and `objects/info` are denied for writing too. These metadata lists
+come from `contracts/session-policy.ts`, shared with the Codex adapter. Other worktrees' admin
+directories are not enumerated: new ones can appear, and Claude denies override allows, so denying
+the whole `worktrees` tree would also close the session's own index. Host link validation provides
+the second layer. Native denial of creation of a nonexistent metadata path still needs a real
+provider probe; the generated rules alone do not prove that behavior. An `allowRead` path
 inside a `sensitivePaths` entry is left out; Claude Code 2.1.284's Seatbelt profile puts `allowRead`
 after `denyRead` and denies the narrower `denyRead` paths again, so the credentials stay closed.
 

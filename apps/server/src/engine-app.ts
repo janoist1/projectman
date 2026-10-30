@@ -401,6 +401,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     resolved.repos.find((entry) => entry.project === projectKey && entry.repo === repo)?.path ?? null;
   const worktrees = createWorktreeManager({
     rootDir: roots.worktrees,
+    repoPathOf: boundRepoPath,
     logger: log.child({ module: 'worktree' }),
     cloneDependencies: options.cloneDependencies ?? false,
   });

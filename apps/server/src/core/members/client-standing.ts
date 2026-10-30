@@ -11,7 +11,7 @@ const INELIGIBLE: EmailLoginStanding = { eligible: false };
  * The directory the e-mail login asks (PM-670): who may be sent a code and what a redeemed code may do.
  *
  * An address is eligible only when it is a client and nothing else: it has a client account or an open
- * client invitation, is not the host owner, holds `client` access in every project it is a member of,
+ * client invitation, is neither the host owner nor an owner account (PM-1062), holds `client` access in every project it is a member of,
  * and has no open invitation of another access (that person logs in with a password). Whatever cannot be
  * known (a project whose configuration does not load) makes the address not eligible: it fails closed,
  * unlike the membership list of `/api/me`, which skips such a project.
@@ -20,7 +20,7 @@ export function createEmailLoginDirectory(deps: {
   ctx: DomainContext;
   projects: ProjectService;
   invitations: InvitationService;
-  accounts: Pick<InvitationAccounts, 'isHostOwner'>;
+  accounts: Pick<InvitationAccounts, 'isHostOwner' | 'isOwnerAccount'>;
 }): EmailLoginDirectory {
   const { ctx, projects, invitations, accounts } = deps;
 
@@ -28,7 +28,7 @@ export function createEmailLoginDirectory(deps: {
     async standing(email) {
       const address = email.trim().toLowerCase();
       const user = ctx.repos.users.findByEmail(address);
-      if (user && accounts.isHostOwner(user.id)) return INELIGIBLE;
+      if (user && (accounts.isHostOwner(user.id) || accounts.isOwnerAccount(user.id))) return INELIGIBLE;
       const open = ctx.repos.invitations.openByEmail(address, ctx.now().toISOString());
       if (open.some((invite) => invite.access !== 'client')) return INELIGIBLE;
       let clientProjects = 0;

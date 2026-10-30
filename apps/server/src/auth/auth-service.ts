@@ -329,6 +329,18 @@ export class AuthService {
     };
   }
 
+  /**
+   * Sets the password of an account (PM-946) and ends all its sessions, in one transaction. The hash is made
+   * first, so the transaction stays short. The caller starts a new session for the account.
+   */
+  async setPassword(userId: string, password: string): Promise<void> {
+    const passwordHash = await hash(password, PASSWORD_OPTIONS);
+    this.repos.transaction(() => {
+      this.repos.users.setPasswordHash(userId, passwordHash);
+      this.repos.authSessions.deleteByUser(userId);
+    });
+  }
+
   /** The account with this id, or null. */
   user(id: string): AuthUser | null {
     const user = this.repos.users.get(id);

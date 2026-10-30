@@ -6,6 +6,7 @@ import {
   isRegeneratedPath,
   isRegeneratedPathPattern,
   isReleaseTagName,
+  placementReadsOnly,
   SessionReadBoundary,
   type ProjectConfig,
 } from '@projectman/shared';
@@ -355,6 +356,11 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         }
       }
       let sandbox = spec.sandbox;
+      if (
+        placementReadsOnly(policy.access, { mode: policy.reviewCopyMode, enforcement: policy.enforcement }) &&
+        sandbox?.portable?.readBoundary === undefined
+      )
+        refuse('invalid_params', 'A reading session needs a read boundary on this engine');
       // A reading session's boundary (PM-425) is checked for every provider: the sandbox's list is the
       // one the policy's copy is replaced with, and no transcript of any session is ever readable.
       let readerDenied: string[] = [];
@@ -459,24 +465,26 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         const shared = portable.tmpDir
           ? [...paths.claudeTmpRoots, ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : [])]
           : [];
+        const canonicalBoundary = {
+          deniedRoots: [
+            ...new Set(
+              [...boundary.data.deniedRoots, userHome, home, ...shared].flatMap((root) => [
+                root,
+                resolveReal(root),
+              ]),
+            ),
+          ],
+          allowedPaths,
+        };
         sandbox = {
           ...sandbox!,
-          allowRead: sandbox!.allowRead?.filter((target) => !hardDenied(target)),
+          denyRead: [...new Set([...canonicalBoundary.deniedRoots, ...(filesystem.deniedPaths ?? [])])],
+          allowRead: [...new Set(allowedPaths.flatMap((entry) => [entry.path, resolveReal(entry.path)]))],
           allowWrite: sandbox!.allowWrite.filter((target) => !hardDenied(target)),
           portable: {
             ...portable,
             allowWrite: portable.allowWrite.filter((target) => !hardDenied(target)),
-            readBoundary: {
-              deniedRoots: [
-                ...new Set(
-                  [...boundary.data.deniedRoots, userHome, home, ...shared].flatMap((root) => [
-                    root,
-                    resolveReal(root),
-                  ]),
-                ),
-              ],
-              allowedPaths,
-            },
+            readBoundary: canonicalBoundary,
           },
         };
       }
@@ -886,10 +894,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       mergeRepo(params.ref);
       commitIds(params.onto);
       if (!isCommitFileSet(params.files))
-        refuse(
-          'invalid_params',
-          'Not a set of 1 to 2 different files inside the repository, each text under 1 MiB',
-        );
+        refuse('invalid_params', 'Not a set of 1 to 2 different project documents, each text under 1 MiB');
       if (!isMergeMessage(params.message) || params.message.trim().length === 0)
         refuse('invalid_params', 'Not a commit message');
       return params;

@@ -86,7 +86,7 @@ export function createSesEmailCodeMailer(options: SesEmailCodeMailerOptions): Em
       const { SESv2Client, SendEmailCommand } = await (ses ??= import('@aws-sdk/client-sesv2'));
       client ??= new SESv2Client(clientOptions);
       const locale = getLocale(input.language);
-      const text = locale.emailLoginCode;
+      const text = input.purpose === 'password' ? locale.passwordResetCode : locale.emailLoginCode;
       const command = new SendEmailCommand({
         FromEmailAddress: options.from,
         Destination: { ToAddresses: [input.to] },

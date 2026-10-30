@@ -11,7 +11,12 @@ export interface EmailCodeMailInput {
   language: UiLanguage;
   /** UTC ISO date-time (`2026-10-14T17:42:00.000Z`) after which the code no longer works. */
   expiresAt: string;
+  /** What the code is for (PM-946); the letter says so. Absent: a login code. */
+  purpose?: EmailCodePurpose;
 }
+
+/** A login code logs in; a password code sets a new password. The two are never interchangeable. */
+export type EmailCodePurpose = 'login' | 'password';
 
 export interface EmailCodeMailer {
   send(input: EmailCodeMailInput): Promise<void>;

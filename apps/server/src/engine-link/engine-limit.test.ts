@@ -178,6 +178,48 @@ describe('engine local limit', () => {
       },
     );
 
+    it.each([false, true])('refuses a reading session without a portable boundary (%j)', async (missing) => {
+      await refused(
+        make(),
+        'session.start',
+        start({
+          policy: { ...policy(), access: 'read_only' },
+          sandbox: missing ? sandbox() : undefined,
+        }),
+        'invalid_params',
+      );
+    });
+
+    it('builds Claude read lists from the canonical boundary instead of hub lists', async () => {
+      const original = worktreeStart();
+      const physical = path.join(original.cwd, 'physical');
+      const alias = path.join(original.cwd, 'alias');
+      mkdirSync(physical, { recursive: true });
+      symlinkSync(physical, alias);
+      const input = {
+        ...original,
+        provider: 'claude',
+        sandbox: sandbox({
+          allowWrite: [],
+          allowRead: [original.cwd, alias, outside],
+          portable: {
+            allowWrite: [],
+            env: {},
+            readBoundary: {
+              deniedRoots: [],
+              allowedPaths: [
+                { path: original.cwd, kind: 'directory' },
+                { path: alias, kind: 'directory' },
+              ],
+            },
+          },
+        }),
+      };
+      const checked = await make().check('session.start', input as never);
+      expect(checked.sandbox?.denyRead).toEqual(expect.arrayContaining([userHome, home]));
+      expect(checked.sandbox?.allowRead).toEqual([input.cwd, alias, physical]);
+    });
+
     it('adds its own homes while preserving an own checkout underneath app home', async () => {
       const input = worktreeStart();
       const checked = await make().check('session.start', input as never);
@@ -1661,6 +1703,7 @@ describe('engine local limit', () => {
       }
       const commit = (files: { path: string; text: string }[], message = 'm', onto = sha) =>
         refused(limit, 'merge.commit_files', { ref, onto, files, message }, 'invalid_params');
+      await commit([{ path: '.github/workflows/x.yml', text: 'x' }]);
       await commit([{ path: 'a.md', text: 'x'.repeat(1024 * 1024 + 1) }]);
       await commit([{ path: 'a.md', text: 'é'.repeat(600 * 1024) }]); // under 1 MiB in characters, over in bytes
       await commit([{ path: 'a.md', text: 'a\0b' }]);

@@ -638,7 +638,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `127.0.0.1` and shares the IP limits). For this service, `kernel/local-request.ts`'s `ipRateLimitKey`
   groups IPv6 addresses by canonical /64 and keeps IPv4 addresses whole, including mapped IPv4 (PM-703);
   other limiters retain their existing keys. The `secret` file in the home and the SQLite database
-  are also local assumptions. **Does this
+  are also local assumptions. **Password codes (PM-946):** `POST /api/auth/password/request` and
+  `/password/reset` (public, same file) use the same table, the same limits and the same constant 202
+  answer. A code is bound to its purpose by the HMAC label (`password-code` against `code`), so a
+  password code never logs in and a login code never sets a password; an address has one live code, and
+  a new one of either purpose replaces the other. Only an existing client account (never the host owner,
+  an owner account or a colleague) gets the letter; a good code replaces the password and deletes every
+  session of the account before the new session starts. No new machine assumption. **Does this
   work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
   and no engine protocol or payload changes.
 
@@ -2275,15 +2281,18 @@ assumption or remote-engine RPC.
   PM-360 adds the shared `SessionReadBoundary` schema and optional
   `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. Under the owner's
   2026-10-26 scope decision, developer runtime paths do not automatically populate it:
-  absent means the existing broad non-sensitive home reads and session/tmp behavior.
-  Claude's existing `worktreeSandbox` read/write rules remain unchanged. Explicit boundaries
+  absent on a writing placement means the existing broad non-sensitive home reads and session/tmp
+  behavior; reading placements require a boundary (PM-1175). Explicit boundaries
   contain reopenable roots and typed file/directory exceptions, separate from unconditional
   policy/adapter denials. Local adapters resolve lexical/physical paths and reject invalid
   explicit inputs using the shared `runner/tool-decision.ts` matcher (exported through
   `runner/index.ts` for the engine): glob component boundaries, case handling and macOS
   `/System/Volumes/Data` firmlink aliases have one implementation. The engine
   (`engine-link/engine-limit.ts`) adds its own homes/temp roots and checks
-  exceptions and required private directories only when a boundary is supplied. Existing
+  exceptions and required private directories when a boundary is supplied. PM-1175 refuses reading
+  sessions without a portable read boundary and builds Claude's `denyRead`/`allowRead` from the
+  engine's canonical boundary, including realpath aliases for allowed paths. The checks run on
+  the remote engine with the existing boundary data; no new data crosses the link. Existing
   engine-root, permission-mode, environment and sensitive-path checks always apply.
   PM-425 populates it for every reading session (`placementReadsOnly`: a `read_only` placement,
   a review copy without the test permission, a taskless chat, the non-super Operator) and for
@@ -2310,6 +2319,14 @@ assumption or remote-engine RPC.
   directory (PM-399), plus only `packed-refs.lock` (PM-411), so Codex
   can finish rebase pseudo-ref deletion and loose branch deletion. The common git directory as a whole, other
   worktrees' metadata, configuration, hooks, alternates and admin links remain read-only.
+  PM-1171 (`contracts/session-policy.ts`, `runtime/sessions/session-policy.ts`,
+  `worktree/worktree-manager.ts`, `worktree/member-workspace-manager.ts`) shares the git metadata
+  protection lists between Claude and Codex. Claude also denies the worktree `.git` file.
+  Host worktree reads validate the `.git`, `commondir` and `gitdir` links against the configured
+  repository before git, then use safe settings; independent clones reject a common directory.
+  All filesystem validation runs on the engine owning these paths; no new remote boundary is
+  needed. Native denial of creating nonexistent metadata paths requires an OS/provider probe,
+  on Linux as well as macOS. A session cannot rely on writing `objects/info` for gc or commit graphs.
   PM-731 (engine limit, `engine-link/engine-limit.ts`): the engine's read candidates are its
   write candidates plus the user's own files from `SANDBOX_HOME_READS` (`.gitconfig`,
   `.config/git`, `.claude/shell-snapshots`, `contracts/engine.ts`) and the existing regular
@@ -2631,6 +2648,8 @@ assumption or remote-engine RPC.
   `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
+  PM-1175: `merge.commit_files` accepts only Markdown project document paths, excluding hidden
+  segments and agent instruction files (`engine-host/merge-input.ts`), on local and remote engines.
   PM-797: a collecting card with no code of its own, whose subtasks are all closed, skips the gate on the hub's
   own data (`TaskRepository.sourceEvidence`, "Collecting card closes with its parts"), so its close makes no
   engine call and adds no machine assumption; a card with a trace of a source keeps the gate.
@@ -2821,6 +2840,8 @@ assumption or remote-engine RPC.
 - **Engine service (launchd)** — `scripts/engine/{service,snapshot,logs,commands,cli}.ts`,
   `scripts/engine/{service-switch,switch-state}.ts` (PM-1124). A plist whose `WorkingDirectory`
   contains `engine-package.json` is app-managed; otherwise it is checkout-managed.
+  PM-1175: service installation and switching keep only absolute, nonempty PATH entries; switching
+  preserves deliberate absolute local entries. This filtering runs on the engine host.
   Package installation uses the embedded `bin/node` and package root in the same template.
   `AssociatedBundleIdentifiers` names `com.projectman.engine-app`; `service install --path`
   accepts the app's login shell PATH. `service switch [--to <package-root>]` is for app-managed

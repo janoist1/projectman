@@ -105,6 +105,13 @@
   color: var(--c-ink-3);
 }
 
+/* The way to the password page, right-aligned under the password field (PM-946) */
+.forgot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+}
+
 .linkButton {
   padding: 0;
   border: 0;

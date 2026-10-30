@@ -4,6 +4,7 @@ import {
   isCardLink,
   isTheme,
   modelForProvider,
+  neutralizeMessageHeaders,
   QUESTION_SCREENING_MINUTES,
 } from '@projectman/shared';
 import type {
@@ -937,7 +938,7 @@ export function formatFeedbackMark(read: FeedbackToolMark): string {
     );
   }
   if (mark.card) lines.push(`Card: ${mark.card.key} "${mark.card.title}" (${mark.card.stageName})`);
-  lines.push('', 'Text:', mark.body, '');
+  lines.push('', 'Text:', neutralizeMessageHeaders(mark.body), '');
   if (mark.thread.length > 0) {
     lines.push('Thread:');
     for (const entry of mark.thread) {
@@ -945,7 +946,7 @@ export function formatFeedbackMark(read: FeedbackToolMark): string {
       const card = entry.card ? ` ${entry.card.key}` : '';
       lines.push(
         `- ${formatTimestamp(entry.createdAt)} ${entry.actor.name} (${entry.actor.handle}) ${what}${card}` +
-          (entry.body ? `: ${entry.body}` : ''),
+          (entry.body ? `: ${neutralizeMessageHeaders(entry.body)}` : ''),
       );
     }
     lines.push('');

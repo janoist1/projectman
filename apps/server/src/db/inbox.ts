@@ -100,6 +100,11 @@ export function createInboxRepository(db: Db) {
          AND EXISTS (SELECT 1 FROM json_each(payload, '$.attachments') WHERE json_extract(value, '$.id') = ?)
        ORDER BY seq`,
     ),
+    questionAskedAgainFrom: db.prepare(
+      `SELECT * FROM inbox_items WHERE project_key = ? AND kind = 'question'
+         AND json_extract(payload, '$.unscreened.previousItemId') = ?
+       ORDER BY seq LIMIT 1`,
+    ),
     updatePayload: db.prepare('UPDATE inbox_items SET payload = ?, updated_at = ? WHERE id = ?'),
     countOpenFor: db.prepare(
       `SELECT COUNT(*) AS n FROM inbox_items
@@ -420,6 +425,11 @@ export function createInboxRepository(db: Db) {
     /** The questions, whatever their state, that name this file (PM-498), oldest first. */
     listQuestionsWithAttachment(projectKey: string, attachmentId: string): InboxItem[] {
       return (statements.questionsWithAttachment.all(projectKey, attachmentId) as InboxRow[]).map(toItem);
+    },
+    /** The question that asked this one again (PM-558), if any: one targeted query, not every question of the project. */
+    findQuestionAskedAgainFrom(projectKey: string, previousItemId: string): InboxItem | null {
+      const row = statements.questionAskedAgainFrom.get(projectKey, previousItemId) as InboxRow | undefined;
+      return row ? toItem(row) : null;
     },
     /** Replaces the payload of an item in any state (PM-498: a file of a question was deleted). */
     updatePayload(id: string, payload: Record<string, unknown>, at: string): InboxItem | null {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EmailLoginVerifyRequest } from '@projectman/shared';
 import { createRepositories, openDatabase } from '../../db';
 import type { EmailLoginCodeRecord, Repositories } from '../../db';
+import type { EmailCodeMailInput, EmailLoginDirectory } from '../../contracts';
 import { createEmailLoginService } from './index';
 import type { EmailLoginService } from './index';
 
@@ -13,6 +14,95 @@ vi.mock('node:crypto', async (importOriginal) => {
     createHmac: vi.fn(actual.createHmac),
     timingSafeEqual: vi.fn(actual.timingSafeEqual),
   };
+});
+
+describe('purpose-bound e-mail codes (PM-946)', () => {
+  const key = Buffer.alloc(32, 9);
+  const email = 'client@example.test';
+  const code = '123456';
+  const account = {
+    eligible: true as const,
+    userId: 'usr_client',
+    clientProjects: 1,
+    openClientInvites: 0,
+    inviteDisplayName: null,
+    language: null as 'hu' | 'en' | null,
+  };
+  let repos: Repositories;
+  let service: EmailLoginService;
+  let now: Date;
+  let standing: Awaited<ReturnType<EmailLoginDirectory['standing']>>;
+  const sent: EmailCodeMailInput[] = [];
+
+  beforeEach(() => {
+    repos = createRepositories(openDatabase(':memory:'));
+    now = new Date('2026-10-19T12:00:00.000Z');
+    standing = account;
+    sent.length = 0;
+    service = createEmailLoginService({
+      repo: repos.emailLogin,
+      directory: {
+        inviteEmail: () => null,
+        standing: async () => standing,
+        acceptOpenClientInvites: async () => ({ userId: null, accepted: 0 }),
+      },
+      mailer: { send: async (input) => void sent.push(input) },
+      key,
+      now: () => now,
+      logger: { info: () => undefined, warn: () => undefined },
+      generateCode: () => code,
+    });
+  });
+
+  afterEach(async () => {
+    await service.stop();
+    repos.db.close();
+  });
+
+  const request = async (purpose: 'login' | 'password') => {
+    service.requestCode({ email }, '203.0.113.1', purpose);
+    await service.settled();
+  };
+
+  it('mails a password code only to an existing client account', async () => {
+    standing = { ...account, userId: null, clientProjects: 0, openClientInvites: 1 };
+    await request('password');
+    expect(sent).toHaveLength(0);
+    // The same address does get a login code: the invitation is enough for that.
+    await request('login');
+    expect(sent.map((s) => s.purpose)).toEqual(['login']);
+
+    now = new Date(now.getTime() + 2 * 60_000);
+    standing = account;
+    await request('password');
+    expect(sent.map((s) => s.purpose)).toEqual(['login', 'password']);
+  });
+
+  it('mails the password code in the language of the account, and the default when it has none', async () => {
+    standing = { ...account, language: 'hu' };
+    await request('password');
+    now = new Date(now.getTime() + 2 * 60_000);
+    standing = account;
+    await request('password');
+    expect(sent.map((s) => s.language)).toEqual(['hu', 'en']);
+  });
+
+  it('redeems a code only for the purpose it was made for', async () => {
+    await request('login');
+    await expect(service.redeemPasswordCode({ email, code }, '203.0.113.1')).rejects.toMatchObject({
+      code: 'email_code_invalid',
+    });
+    await expect(service.verify({ email, code }, '203.0.113.1')).resolves.toEqual({ userId: 'usr_client' });
+
+    now = new Date(now.getTime() + 2 * 60_000);
+    await request('password');
+    await expect(service.verify({ email, code }, '203.0.113.1')).rejects.toMatchObject({
+      code: 'email_code_invalid',
+    });
+    await expect(service.redeemPasswordCode({ email, code }, '203.0.113.1')).resolves.toEqual({
+      userId: 'usr_client',
+    });
+  });
 });
 
 describe('invalid e-mail code verification work (PM-703)', () => {

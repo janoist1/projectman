@@ -97,10 +97,9 @@ describe('PM-126 fictional probe fixtures (no agent CLI)', () => {
     });
   });
 
-  // This proves the host trigger, not whether a particular native sandbox allows planting.
-  // If host git is hardened, replace these exposure assertions with marker-absence assertions.
+  // Repository checkout hooks remain trusted; worktree reads disable executable configuration.
   it.each(['hook', 'config-hooks', 'config-fsmonitor'])(
-    'reproduces %s execution by the actual host worktree manager',
+    'checks %s execution by the actual host worktree manager',
     async (variant) => {
       const { target } = await plant(p, variant);
       await expect(readFile(target)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -116,6 +115,7 @@ describe('PM-126 fictional probe fixtures (no agent CLI)', () => {
       const manager = createWorktreeManager({
         rootDir: path.join(p.data, 'worktrees'),
         logger: { debug: noop, info: noop, warn: noop },
+        repoPathOf: () => p.repo,
       });
       if (variant === 'config-fsmonitor') await manager.status(p.own);
       else
@@ -125,7 +125,9 @@ describe('PM-126 fictional probe fixtures (no agent CLI)', () => {
           taskKey: 'T-3',
           title: 'Fictional host trigger',
         });
-      expect(await readFile(target, 'utf8')).toBe('fictional host execution\n');
+      if (variant === 'config-fsmonitor')
+        await expect(readFile(target)).rejects.toMatchObject({ code: 'ENOENT' });
+      else expect(await readFile(target, 'utf8')).toBe('fictional host execution\n');
     },
   );
 });

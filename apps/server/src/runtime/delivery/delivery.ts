@@ -2,6 +2,7 @@ import {
   formatInjectedTeamMessage,
   formatTeamMessageBatch,
   messageTextWithAttachments,
+  neutralizeMessageHeaders,
   memberDuties,
   memberOf,
   REVIEW_DUTIES,
@@ -284,7 +285,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
             session,
             text ??
               (plain && !message.via
-                ? messageTextWithAttachments(message)
+                ? neutralizeMessageHeaders(messageTextWithAttachments(message))
                 : formatInjectedTeamMessage(
                     message.from,
                     messageTextWithAttachments(message),

@@ -1,5 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { EmailLoginCodeRequest, EmailLoginVerifyRequest, routes } from '@projectman/shared';
+import {
+  EmailLoginCodeRequest,
+  EmailLoginVerifyRequest,
+  PasswordCodeRequest,
+  PasswordResetRequest,
+  routes,
+} from '@projectman/shared';
 import type { Me } from '@projectman/shared';
 import { parseBody } from '../http';
 import { clientAddress, DomainError, unavailable } from '../kernel';
@@ -7,7 +13,8 @@ import type { EmailLoginService } from '../services/email-login';
 import type { AuthService, AuthUser } from './auth-service';
 
 /**
- * The e-mail login of invited clients (PM-670): a code request and its redemption. Both are public
+ * The e-mail login of invited clients (PM-670): a code request and its redemption, and the same pair for
+ * setting a password (PM-946). All are public
  * routes (same-origin only, like the other login routes). Without the service, or before the first setup,
  * both answer `email_login_unavailable` before they look at the body.
  */
@@ -60,6 +67,36 @@ export function registerEmailLoginRoutes(
     const user = auth.user(userId);
     if (!user)
       throw new DomainError('email_login_no_access', 'this address has no access to log in', { status: 403 });
+    return startSessionFor(request, reply, user);
+  });
+
+  app.post(routes.passwordCodeRequest(), async (request, reply) => {
+    const service = available();
+    const body = parseBody(PasswordCodeRequest, request.body);
+    try {
+      return reply
+        .code(202)
+        .send(service.requestCode(body, clientAddress(request, clientIpHeader), 'password'));
+    } catch (err) {
+      return withRetryAfter(err, reply);
+    }
+  });
+
+  // The body is checked first, so a too short password never spends the code. The password is hashed and
+  // stored only after the code is redeemed, and that ends every session of the account (PM-946).
+  app.post(routes.passwordReset(), async (request, reply) => {
+    const service = available();
+    const body = parseBody(PasswordResetRequest, request.body);
+    let userId: string;
+    try {
+      ({ userId } = await service.redeemPasswordCode(body, clientAddress(request, clientIpHeader)));
+    } catch (err) {
+      return withRetryAfter(err, reply);
+    }
+    const user = auth.user(userId);
+    if (!user)
+      throw new DomainError('email_login_no_access', 'this address has no access to log in', { status: 403 });
+    await auth.setPassword(userId, body.password);
     return startSessionFor(request, reply, user);
   });
 }

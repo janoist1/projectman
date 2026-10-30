@@ -1,5 +1,5 @@
 import { execCommand } from '../exec';
-import { isCommitId, isPlainBranchName, isRepoFilePath } from '@projectman/shared';
+import { isCommitId, isPlainBranchName, isRepoFilePath, isProjectDocPath } from '@projectman/shared';
 import { MergeError, type MergeRepoRef } from '../contracts';
 
 /**
@@ -16,10 +16,10 @@ const COMMIT_FILES_MAX = 2;
 export { isRepoFilePath };
 export { isCommitId, isMergeId } from '@projectman/shared';
 
-/** Whether one file of `commitFiles` is acceptable: a path inside the repository, text under 1 MiB (UTF-8 bytes) without NUL. */
+/** Whether one file of `commitFiles` is acceptable: a project document path, text under 1 MiB (UTF-8 bytes) without NUL. */
 function isCommitFile(file: { path: string; text: string }): boolean {
   return (
-    isRepoFilePath(file.path) &&
+    isProjectDocPath(file.path) &&
     !file.text.includes('\0') &&
     Buffer.byteLength(file.text, 'utf8') <= DOC_FILE_MAX_BYTES
   );

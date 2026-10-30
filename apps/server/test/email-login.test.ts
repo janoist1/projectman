@@ -758,6 +758,244 @@ describe('e-mail login of invited clients (PM-670)', () => {
     });
   });
 
+  describe('setting a password with a code (PM-946)', () => {
+    const NEW_PASSWORD = 'a brand new password';
+    const requestPasswordCode = async (email: string, ip = freshIp()) => {
+      const res = await post(routes.passwordCodeRequest(), { email }, ip);
+      await emailLogin().settled();
+      return res;
+    };
+    const resetPassword = (body: Record<string, string>, ip = freshIp(), cookie?: string) =>
+      post(routes.passwordReset(), body, ip, cookie);
+    const errorOf = (res: { statusCode: number; json(): { error: { code: string } } }) => [
+      res.statusCode,
+      res.json().error.code,
+    ];
+    /** An existing client account with the password of the test owner. */
+    const clientAccount = (handle = 'cli') =>
+      addHumanAndLogin(h.app, { handle, access: 'client', email: `${handle}@acme.test` });
+
+    it('sets the password, ends every earlier session and starts a new one', async () => {
+      const oldCookie = await clientAccount();
+      const otherDevice = cookieOf(
+        await post(routes.login(), { email: 'cli@acme.test', password: OWNER_LOGIN.password }),
+      );
+      users().setLanguage(users().findByEmail('cli@acme.test')!.id, 'hu');
+      await requestPasswordCode('cli@acme.test');
+      expect(mailer.sent.map((s) => s.purpose)).toEqual(['password']);
+      // The password letter goes in the account's language (PM-1177).
+      expect(mailer.sent.map((s) => s.language)).toEqual(['hu']);
+      const code = mailer.codeFor('cli@acme.test');
+
+      const ok = await resetPassword({ email: 'cli@acme.test', code, password: NEW_PASSWORD });
+      expect(ok.statusCode, ok.body).toBe(200);
+      expect((await me(cookieOf(ok))).email).toBe('cli@acme.test');
+      expect((await inject(h.app, 'GET', routes.me(), oldCookie)).statusCode).toBe(401);
+      expect((await inject(h.app, 'GET', routes.me(), otherDevice)).statusCode).toBe(401);
+      expect(
+        (await post(routes.login(), { email: 'cli@acme.test', password: NEW_PASSWORD })).statusCode,
+      ).toBe(200);
+      expect(
+        (await post(routes.login(), { email: 'cli@acme.test', password: OWNER_LOGIN.password })).statusCode,
+      ).toBe(401);
+    });
+
+    it('lets a passwordless client account set its first password', async () => {
+      await inviteClient('kata@acme.test', { displayName: 'Kata' });
+      expect((await login('kata@acme.test')).statusCode).toBe(200);
+      now = new Date(now.getTime() + 2 * MINUTE);
+      await requestPasswordCode('kata@acme.test');
+      const ok = await resetPassword({
+        email: 'kata@acme.test',
+        code: mailer.codeFor('kata@acme.test'),
+        password: NEW_PASSWORD,
+      });
+      expect(ok.statusCode, ok.body).toBe(200);
+      expect(
+        (await post(routes.login(), { email: 'kata@acme.test', password: NEW_PASSWORD })).statusCode,
+      ).toBe(200);
+    });
+
+    it('answers every address byte for byte the same and mails only an existing client', async () => {
+      await clientAccount('cli');
+      await clientAccount('owneracc');
+      h.app.projectman.repos.ownerAccounts.grant(
+        'usr_owneracc',
+        users().findByEmail(OWNER_LOGIN.email)!.id,
+        now.toISOString(),
+      );
+      await addHumanAndLogin(h.app, { handle: 'dev', access: 'developer', email: 'dev@acme.test' });
+      await addHumanAndLogin(h.app, { handle: 'view', access: 'viewer', email: 'view@acme.test' });
+      await inviteClient('invitee@acme.test');
+      const emails = [
+        'cli@acme.test',
+        'unknown@acme.test',
+        'owneracc@acme.test',
+        'dev@acme.test',
+        'view@acme.test',
+        'invitee@acme.test',
+        OWNER_LOGIN.email,
+      ];
+      const answers = new Map<string, unknown>();
+      const sent: Record<string, number> = {};
+      for (const email of emails) {
+        const before = mailer.sent.length;
+        const res = await requestPasswordCode(email);
+        answers.set(email, { status: res.statusCode, body: res.body, type: res.headers['content-type'] });
+        sent[email] = mailer.sent.length - before;
+      }
+      for (const answer of answers.values()) expect(answer).toEqual(answers.get('cli@acme.test'));
+      expect(answers.get('cli@acme.test')).toMatchObject({
+        status: 202,
+        body: JSON.stringify({ expiresInSeconds: 600, resendAfterSeconds: 60 }),
+      });
+      expect(sent).toEqual({
+        'cli@acme.test': 1,
+        'unknown@acme.test': 0,
+        'owneracc@acme.test': 0,
+        'dev@acme.test': 0,
+        'view@acme.test': 0,
+        'invitee@acme.test': 0,
+        [OWNER_LOGIN.email]: 0,
+      });
+    });
+
+    it('refuses an excluded address the same way as a wrong code', async () => {
+      const wrong = await resetPassword({ email: 'cli@acme.test', code: '123456', password: NEW_PASSWORD });
+      const excluded = await resetPassword({
+        email: OWNER_LOGIN.email,
+        code: '123456',
+        password: NEW_PASSWORD,
+      });
+      expect(errorOf(excluded)).toEqual([400, 'email_code_invalid']);
+      expect(excluded.body).toBe(wrong.body);
+      expect(
+        (await post(routes.login(), { email: OWNER_LOGIN.email, password: NEW_PASSWORD })).statusCode,
+      ).toBe(401);
+    });
+
+    it.each(['wrong', 'expired', 'used'])('rejects a %s code', async (state) => {
+      await clientAccount();
+      await requestPasswordCode('cli@acme.test');
+      const code = mailer.codeFor('cli@acme.test');
+      let given = code;
+      if (state === 'wrong') given = code === '000000' ? '111111' : '000000';
+      if (state === 'expired') now = new Date(now.getTime() + EMAIL_LOGIN_LIMITS.codeTtlMs);
+      if (state === 'used') {
+        expect(
+          (await resetPassword({ email: 'cli@acme.test', code, password: NEW_PASSWORD })).statusCode,
+        ).toBe(200);
+      }
+      const res = await resetPassword({ email: 'cli@acme.test', code: given, password: 'another password' });
+      expect(errorOf(res)).toEqual([400, 'email_code_invalid']);
+      const password = state === 'used' ? NEW_PASSWORD : OWNER_LOGIN.password;
+      expect((await post(routes.login(), { email: 'cli@acme.test', password })).statusCode).toBe(200);
+    });
+
+    it('keeps a login code from setting a password and a password code from logging in', async () => {
+      await clientAccount();
+      await requestCode({ email: 'cli@acme.test' });
+      const loginCode = mailer.codeFor('cli@acme.test');
+      const refused = await resetPassword({
+        email: 'cli@acme.test',
+        code: loginCode,
+        password: NEW_PASSWORD,
+      });
+      expect(errorOf(refused)).toEqual([400, 'email_code_invalid']);
+      // The refused try did not spend the login code.
+      expect((await verify({ email: 'cli@acme.test', code: loginCode })).statusCode).toBe(200);
+
+      now = new Date(now.getTime() + 2 * MINUTE);
+      await requestPasswordCode('cli@acme.test');
+      const passwordCode = mailer.codeFor('cli@acme.test');
+      const noLogin = await verify({ email: 'cli@acme.test', code: passwordCode });
+      expect(errorOf(noLogin)).toEqual([400, 'email_code_invalid']);
+      const ok = await resetPassword({ email: 'cli@acme.test', code: passwordCode, password: NEW_PASSWORD });
+      expect(ok.statusCode, ok.body).toBe(200);
+    });
+
+    it('refuses a good code when the address lost its client access meanwhile', async () => {
+      await clientAccount();
+      await requestPasswordCode('cli@acme.test');
+      const code = mailer.codeFor('cli@acme.test');
+      await h.app.projectman.domain.projects.update(
+        'AR',
+        { actor: humanActor('owner'), author: OWNER_LOGIN },
+        (draft) => {
+          const member = draft.team.members.find((m) => m.handle === 'cli');
+          if (member?.kind === 'human') member.access = 'developer';
+          return 'Promote the client';
+        },
+      );
+      const res = await resetPassword({ email: 'cli@acme.test', code, password: NEW_PASSWORD });
+      expect(errorOf(res)).toEqual([403, 'email_login_no_access']);
+      expect(
+        (await post(routes.login(), { email: 'cli@acme.test', password: OWNER_LOGIN.password })).statusCode,
+      ).toBe(200);
+    });
+
+    it('rejects a short password as invalid_request without spending the code', async () => {
+      await clientAccount();
+      await requestPasswordCode('cli@acme.test');
+      const code = mailer.codeFor('cli@acme.test');
+      const short = await resetPassword({ email: 'cli@acme.test', code, password: 'short' });
+      expect(errorOf(short)).toEqual([400, 'invalid_request']);
+      const ok = await resetPassword({ email: 'cli@acme.test', code, password: NEW_PASSWORD });
+      expect(ok.statusCode, ok.body).toBe(200);
+    });
+
+    it('counts against the limits of the login code', async () => {
+      await clientAccount();
+      // One letter a minute per address, whatever the purpose.
+      await requestCode({ email: 'cli@acme.test' });
+      await requestPasswordCode('cli@acme.test');
+      expect(mailer.sent.map((s) => s.purpose)).toEqual(['login']);
+
+      // The request limit of the IP is shared with the login route.
+      const ip = '203.0.113.9';
+      for (let i = 0; i < EMAIL_LOGIN_LIMITS.requestsPerIpHour / 2; i += 1) {
+        expect((await post(routes.emailLoginRequest(), { email: `a${i}@acme.test` }, ip)).statusCode).toBe(
+          202,
+        );
+        expect((await post(routes.passwordCodeRequest(), { email: `b${i}@acme.test` }, ip)).statusCode).toBe(
+          202,
+        );
+      }
+      const limited = await post(routes.passwordCodeRequest(), { email: 'cli@acme.test' }, ip);
+      expect(errorOf(limited)).toEqual([429, 'email_login_rate_limited']);
+      expect(limited.json().error.details.retryAfterSeconds).toBeGreaterThan(0);
+      expect(limited.headers['retry-after']).toBe(String(limited.json().error.details.retryAfterSeconds));
+    });
+
+    it('limits the redemptions of an IP together with the login redemptions', async () => {
+      const ip = '203.0.113.10';
+      const body = { email: 'cli@acme.test', code: '123456', password: NEW_PASSWORD };
+      for (let i = 0; i < EMAIL_LOGIN_LIMITS.verifiesPerIpHour / 2; i += 1) {
+        await verify({ email: 'cli@acme.test', code: '123456' }, ip);
+        await resetPassword(body, ip);
+      }
+      const limited = await resetPassword(body, ip);
+      expect(errorOf(limited)).toEqual([429, 'email_login_rate_limited']);
+      expect(limited.headers['retry-after']).toBeDefined();
+    });
+
+    it('answers 503 on both routes without a mailer', async () => {
+      const bare = await createAppHarness({ expectedErrors: [/^request failed$/, /^request failed$/] });
+      try {
+        await bare.app.inject({ method: 'POST', url: routes.setup(), payload: OWNER_LOGIN });
+        for (const [url, payload] of [
+          [routes.passwordCodeRequest(), { email: 'cli@acme.test' }],
+          [routes.passwordReset(), { email: 'cli@acme.test', code: '123456', password: NEW_PASSWORD }],
+        ] as const) {
+          const res = await bare.app.inject({ method: 'POST', url, payload });
+          expect([res.statusCode, res.json().error.code]).toEqual([503, 'email_login_unavailable']);
+        }
+      } finally {
+        await bare.close();
+      }
+    });
+  });
+
   describe('regressions', () => {
     it('keeps the password login, the setup and the password invitation working', async () => {
       const developer = await inviteOf('dev@acme.test', 'developer');

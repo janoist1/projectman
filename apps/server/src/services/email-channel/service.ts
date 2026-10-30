@@ -643,7 +643,7 @@ export function createEmailChannelService(deps: {
         throw refused('invalid_request', 'the quote is too long', 400);
       let source:
         | { kind: 'message'; from: string; to: readonly string[]; at: string }
-        | { kind: 'email'; from: string }
+        | { kind: 'email'; from: string; at: string }
         | null = null;
       const sourceRef = input.sourceMessageId ?? input.sourceEmailId;
       if (input.sourceMessageId && input.sourceEmailId)
@@ -655,7 +655,13 @@ export function createEmailChannelService(deps: {
         source = { kind: 'message', from: message.from, to: message.to, at: message.createdAt };
       } else if (input.sourceEmailId) {
         const message = repo.messages.get(input.sourceEmailId);
-        if (!message || message.projectKey !== projectKey || message.direction !== 'inbound')
+        // A parked mail is stored with the From it claimed (authentication_failed, token_invalid, ...): it proves nothing.
+        if (
+          !message ||
+          message.projectKey !== projectKey ||
+          message.direction !== 'inbound' ||
+          message.status !== 'delivered'
+        )
           throw refused('email_unknown', 'unknown source e-mail', 404);
         const address = target?.kind === 'human' ? target.email : null;
         source = {
@@ -664,6 +670,7 @@ export function createEmailChannelService(deps: {
             address && message.fromAddress?.toLowerCase() === address.toLowerCase()
               ? input.handle
               : (message.fromAddress ?? ''),
+          at: message.createdAt,
         };
       }
       const changeRefusal: EmailContactRefusal | null = emailContactChangeRefusal({

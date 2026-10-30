@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
-import PostalMime from 'postal-mime';
+import PostalMime, { addressParser } from 'postal-mime';
 import {
   ALERT_SEEN_OPTION,
   EMAIL_INBOUND_TEXT_MAX,
@@ -44,6 +44,8 @@ type Parsed = {
   mimeReferences: string | null;
   inReplyTo: string | null;
   fromAddress: string;
+  /** The raw headers hold exactly one From, with exactly one mailbox: the sender SES authenticated is unambiguous. */
+  singleFrom: boolean;
   subject: string;
   text: string;
   attachmentNames: string[];
@@ -72,6 +74,11 @@ async function parse(raw: Uint8Array): Promise<Parsed | null> {
     const email = await PostalMime.parse(raw);
     const fromAddress = email.from?.address?.trim().toLowerCase();
     if (!fromAddress) return null;
+    // The parser takes the first From; SES judges DMARC on the domain it picks (RFC 7489 §6.6.1). Only a mail
+    // with exactly one From header holding exactly one mailbox is the same sender for both.
+    const fromHeaders = email.headers.filter((header) => header.key === 'from');
+    const fromMailboxes = fromHeaders.length === 1 ? addressParser(fromHeaders[0]!.value) : [];
+    const singleFrom = fromMailboxes.length === 1 && fromMailboxes[0]!.address !== undefined;
     const body = email.text?.trim() ? email.text : htmlToText(email.html ?? '');
     const name = (filename: string | null) => limited(filename ?? 'attachment', ATTACHMENT_NAME_MAX);
     const validId = (value: string | undefined): string | null =>
@@ -85,6 +92,7 @@ async function parse(raw: Uint8Array): Promise<Parsed | null> {
       mimeReferences: references.length ? references.join(' ') : null,
       inReplyTo: validId(email.inReplyTo),
       fromAddress: limited(fromAddress, ADDRESS_MAX),
+      singleFrom,
       subject: limited((email.subject ?? '').trim(), EMAIL_SUBJECT_MAX),
       text: cleanReplyText(body),
       attachmentNames: email.attachments.slice(0, ATTACHMENT_NAMES_MAX).map((a) => name(a.filename)),
@@ -150,7 +158,8 @@ export function createEmailInbound(deps: {
     alert = true,
   ): 'parked' | 'duplicate' {
     const at = now().toISOString();
-    const text = limited(parsed?.text ?? '', EMAIL_INBOUND_TEXT_MAX);
+    // A stranger's mail to a guessable address raises no alert and is nobody's to read: keep no text of it.
+    const text = alert ? limited(parsed?.text ?? '', EMAIL_INBOUND_TEXT_MAX) : '';
     let record: EmailMessageRecord;
     try {
       record = repo.messages.insert({
@@ -165,7 +174,7 @@ export function createEmailInbound(deps: {
         parkReason: reason,
         note: null,
         fromAddress: parsed?.fromAddress ?? '',
-        attachmentNames: parsed?.attachmentNames ?? [],
+        attachmentNames: alert ? (parsed?.attachmentNames ?? []) : [],
         replyTokenHash: null,
         replyExpiresAt: null,
         inReplyTo: link?.inReplyTo ?? null,
@@ -342,7 +351,8 @@ export function createEmailInbound(deps: {
     if (!known) return fail('token_invalid');
     if (known.replyExpiresAt && known.replyExpiresAt < now().toISOString()) return fail('token_expired');
     const { dmarc, spam, virus } = mail.verdicts;
-    if (dmarc !== 'pass' || spam === 'fail' || virus === 'fail') return fail('authentication_failed');
+    if (dmarc !== 'pass' || spam === 'fail' || virus === 'fail' || !parsed.singleFrom)
+      return fail('authentication_failed');
     const contact = config.team.members.find((member) => member.handle === known.contact);
     if (contact?.kind !== 'human' || !contact.email || contact.email.toLowerCase() !== parsed.fromAddress)
       return fail('unknown_sender');
@@ -383,7 +393,7 @@ export function createEmailInbound(deps: {
       return park(projectKey, config, mail, 'unknown_sender', parsed, link, false);
     const known: Link = { ...link, contact: sender.handle };
     const { dmarc, spam, virus } = mail.verdicts;
-    if (dmarc !== 'pass' || spam === 'fail' || virus === 'fail')
+    if (dmarc !== 'pass' || spam === 'fail' || virus === 'fail' || !parsed.singleFrom)
       return park(projectKey, config, mail, 'authentication_failed', parsed, known);
     const candidates = [parsed.inReplyTo, ...(parsed.mimeReferences?.split(' ').reverse() ?? [])];
     for (const id of candidates) {

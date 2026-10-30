@@ -24,7 +24,7 @@ import type {
   HumanQuestionInput,
   HumanQuestionsPort,
 } from '../../contracts';
-import { aiActor, conflict, DomainError, unique } from '../../kernel';
+import { aiActor, conflict, DomainError, KeyedMutex, unique } from '../../kernel';
 import type { DomainContext } from '../base';
 import type { ProjectService } from '../projects';
 import type { TaskService } from '../tasks';
@@ -52,6 +52,7 @@ export class HumanQuestions implements HumanQuestionsPort {
   private readonly timeline: TimelineService;
   private readonly questionScreening: Pick<QuestionScreening, 'enqueue' | 'enabled' | 'cannotScreen'>;
   private readonly openQuestionLabel: OpenQuestionLabel;
+  private readonly reasks = new KeyedMutex();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -71,7 +72,20 @@ export class HumanQuestions implements HumanQuestionsPort {
     this.openQuestionLabel = deps.openQuestionLabel;
   }
 
-  async ask(projectKey: string, caller: HumanQuestionCaller, input: HumanQuestionInput): Promise<AskedHuman> {
+  /**
+   * A re-ask is checked ("once per earlier question") and written with an await between them (the waiting
+   * label), so two concurrent re-asks of one question would both pass: they take turns per earlier question.
+   */
+  ask(projectKey: string, caller: HumanQuestionCaller, input: HumanQuestionInput): Promise<AskedHuman> {
+    if (caller.kind !== 'member' || !input.reaskOf) return this.askNow(projectKey, caller, input);
+    return this.reasks.run(`${projectKey}/${input.reaskOf}`, () => this.askNow(projectKey, caller, input));
+  }
+
+  private async askNow(
+    projectKey: string,
+    caller: HumanQuestionCaller,
+    input: HumanQuestionInput,
+  ): Promise<AskedHuman> {
     const config = await this.projects.config(projectKey);
     const external = caller.kind === 'external';
     const asker = external ? caller.origin.actor.handle : caller.member;
@@ -294,10 +308,8 @@ export class HumanQuestions implements HumanQuestionsPort {
     const answeredFromQueue = previous.resolution?.rule === 'operator_answered';
     if (outcome !== 'answered' && outcome !== 'forwarded' && outcome !== 'moot' && !answeredFromQueue)
       throw refuse('reask_not_allowed: the Operator did not answer, forward or close that question.');
-    const asked = this.inbox
-      .list(projectKey, { kind: 'question' })
-      .some((item) => questionPayloadOf(item)?.unscreened?.previousItemId === reaskOf);
-    if (asked) throw refuse('reask_not_allowed: that question was already asked again.');
+    if (this.ctx.repos.inbox.findQuestionAskedAgainFrom(projectKey, reaskOf))
+      throw refuse('reask_not_allowed: that question was already asked again.');
     return { reason, previousItemId: reaskOf };
   }
 

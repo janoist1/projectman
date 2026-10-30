@@ -17,7 +17,7 @@ import { TEAM_SETTING_KEYS, TEAM_SETTING_POLICY, teamSettingValue } from './team
 /**
  * Configuration changes only an owner may make (checked on every configuration commit by a
  * human who is not an owner):
- * - `locations`: the workspace or a repository path;
+ * - `locations`: the workspace, repository or project document paths;
  * - `admin_or_account`: granting admin access, or changing a human's account (email) binding,
  *   except an invitation claiming a seat that had no account yet;
  * - `approval_policy`: approvals (gate labels only humans may set) and who may give them,
@@ -210,7 +210,17 @@ function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConfig): bo
 function locationsSignature(config: ProjectConfig): string {
   return JSON.stringify({
     workspace: config.project.workspacePath,
-    repos: config.project.repos.map((repo) => ({ name: repo.name, path: repo.path })),
+    repos: config.project.repos.map((repo) => ({
+      name: repo.name,
+      path: repo.path,
+      docs: repo.docs
+        ? {
+            decisions: repo.docs.decisions ?? null,
+            roadmap: repo.docs.roadmap ?? null,
+            lessons: repo.docs.lessons ?? null,
+          }
+        : null,
+    })),
   });
 }
 

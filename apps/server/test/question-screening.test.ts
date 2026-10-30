@@ -376,6 +376,10 @@ describe('the project manager screens AI members’ questions', () => {
       expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
       const added = typedInto(devSession).slice(before).join('\n');
       expect(added).toContain('Use Inter.');
+      const answer = h.repos.messages
+        .list('AR', { between: ['pm', dev.member] })
+        .find((message) => message.body.includes('Use Inter.'));
+      expect(answer?.body).toContain('pm');
       expect(added).toContain('reask_of');
       expect(timelineOf('question_screened')[0]?.data).toMatchObject({
         inboxItemId,
@@ -694,6 +698,16 @@ describe('the project manager screens AI members’ questions', () => {
       const err = await refusal(reask(first, 'Once more.'));
       expect(err.code).toBe('invalid');
       expect(err.message).toContain('reask_not_allowed');
+      expect(humanQueue()).toHaveLength(1);
+    });
+
+    it('lets only one of two concurrent re-asks of a question through', async () => {
+      const first = await answered();
+      const results = await Promise.allSettled([
+        reask(first, 'The brand guide is out of date.'),
+        reask(first, 'Once more.'),
+      ]);
+      expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
       expect(humanQueue()).toHaveLength(1);
     });
   });

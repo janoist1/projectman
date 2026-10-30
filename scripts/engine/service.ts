@@ -32,7 +32,7 @@ export interface ServiceOptions {
   nodePath: string;
   /** The `PATH` the sessions' CLIs are found on (the installing shell's, written at install time). */
   pathEnv: string;
-  /** A switch carries the installed PATH unchanged, including any deliberate local customization. */
+  /** A switch preserves absolute installed PATH entries, including deliberate local customization. */
   preservePathEnv?: boolean;
   /** `~/Library/LaunchAgents`. */
   agentsDir: string;
@@ -65,14 +65,15 @@ const processAlive = (pid: number): boolean => {
   }
 };
 
-/**
- * `npm run engine` puts the checkout's `node_modules/.bin` folders in front of PATH; they are the installing
- * run's, not the sessions' tools, and would be written into the file. They are left out.
- */
+/** launchd must never resolve relative PATH entries against the service's working directory. */
+function absolutePathEntries(pathEnv: string): string[] {
+  return pathEnv.split(path.delimiter).filter((entry) => entry !== '' && path.isAbsolute(entry));
+}
+
+/** Leave out the installing npm run's node_modules/.bin folders as well. */
 export function servicePathEnv(pathEnv: string): string {
-  return pathEnv
-    .split(path.delimiter)
-    .filter((entry) => entry !== '' && !entry.endsWith(path.join('node_modules', '.bin')))
+  return absolutePathEntries(pathEnv)
+    .filter((entry) => !entry.endsWith(path.join('node_modules', '.bin')))
     .join(path.delimiter);
 }
 
@@ -184,7 +185,9 @@ export async function installService(options: ServiceOptions): Promise<void> {
   requireMac(options);
   if (!path.isAbsolute(options.nodePath) || !path.isAbsolute(options.root) || !path.isAbsolute(options.home))
     throw new EngineConfigError('service_paths', 'The node, repository and home paths must be absolute.');
-  const pathEnv = options.preservePathEnv ? options.pathEnv : servicePathEnv(options.pathEnv);
+  const pathEnv = options.preservePathEnv
+    ? absolutePathEntries(options.pathEnv).join(path.delimiter)
+    : servicePathEnv(options.pathEnv);
   if (!pathEnv)
     throw new EngineConfigError('service_path_env', 'PATH is empty: the sessions could not find their CLIs.');
   const templateFile = path.join(options.root, PLIST_TEMPLATE);

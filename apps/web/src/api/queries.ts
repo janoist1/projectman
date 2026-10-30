@@ -35,6 +35,8 @@ import type {
   AcceptInviteRequest,
   EmailLoginCodeRequest,
   EmailLoginVerifyRequest,
+  PasswordCodeRequest,
+  PasswordResetRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
@@ -1269,6 +1271,24 @@ export function useVerifyEmailLogin() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: EmailLoginVerifyRequest) => api.verifyEmailLogin(body),
+    onSuccess: (me) => {
+      client.clear();
+      client.setQueryData(queryKeys.me, me);
+    },
+  });
+}
+
+/* ---------- password set or reset with an e-mail code (PM-946) ---------- */
+
+export function useRequestPasswordCode() {
+  return useMutation({ mutationFn: (body: PasswordCodeRequest) => api.requestPasswordCode(body) });
+}
+
+/** A redeemed password code starts a session like a login: a fresh cache with `Me`. */
+export function useResetPassword() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PasswordResetRequest) => api.resetPassword(body),
     onSuccess: (me) => {
       client.clear();
       client.setQueryData(queryKeys.me, me);

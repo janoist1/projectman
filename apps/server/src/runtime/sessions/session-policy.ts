@@ -5,6 +5,9 @@ import {
   HYBRID_ARCHIVE_DIR,
   HYBRID_STAGING_DIR,
   sensitivePaths,
+  GIT_SHARED_READ_ONLY,
+  GIT_ADMIN_LINKS,
+  GIT_CLONE_READ_ONLY,
 } from '../../contracts';
 export {
   SANDBOX_DENIED_ENV_VARS,
@@ -307,8 +310,8 @@ function sharedTmpRules(
  *   rule), the temp directory and the member's npm cache and development data
  *   (`MEMBER_SANDBOX_DIRS`, set in the environment); never the default branch and the integrating
  *   checkout's `HEAD` and `index` (`sharedGitDenials`), and nothing the host runs or loads outside a
- *   sandbox. A member workspace is an independent clone with its own `.git`: nothing is shared
- *   there, so nothing is denied.
+ *   sandbox. Shared repositories and independent member clones both protect configuration,
+ *   hooks, alternates and git links using the same metadata lists as Codex.
  *   The parent of the heavy-run queue folder is writable too (`heavyLockAccess`).
  * - Environment: without `SANDBOX_DENIED_ENV_VARS`, with `SANDBOX_PTY_ENV`.
  * - Network: only the npm registry; the tests may listen on local ports, which also opens every
@@ -329,6 +332,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       : undefined;
   const heavy = heavyLockAccess(paths.heavyLockDir, denied, [userHome, appHome]);
   const gitDir = policy.placement.kind === 'task_worktree' ? policy.placement.gitDir : undefined;
+  const adminDir = policy.placement.kind === 'task_worktree' ? policy.placement.worktreeGitDir : undefined;
   const own = memberDir
     ? MEMBER_SANDBOX_DIRS.map((dir) => ({ ...dir, path: path.join(memberDir, dir.name) }))
     : [];
@@ -338,6 +342,16 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
   const sharedTmp = sharedTmpRules(tmpDir, paths.sharedTmpRoots);
   const denyWrite = [
     ...(gitDir && defaultBranch ? sharedGitDenials(gitDir, defaultBranch) : []),
+    ...(gitDir ? GIT_SHARED_READ_ONLY.map((name) => path.join(gitDir, name)) : []),
+    ...(policy.placement.kind === 'task_worktree' && gitDir
+      ? [
+          path.join(policy.placement.path, '.git'),
+          ...(adminDir ? GIT_ADMIN_LINKS.map((name) => path.join(adminDir, name)) : []),
+        ]
+      : []),
+    ...(policy.placement.kind === 'task_worktree' && policy.placement.workspace && !gitDir
+      ? GIT_CLONE_READ_ONLY.map((name) => path.join(policy.placement.path, '.git', name))
+      : []),
     ...sharedTmp.denyWrite,
   ];
   const allowRead = [

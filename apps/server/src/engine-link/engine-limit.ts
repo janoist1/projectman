@@ -2,6 +2,7 @@ import { readlinkSync, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  COMPUTE_JOB_WORKFLOW,
   isRegeneratedPath,
   isRegeneratedPathPattern,
   isReleaseTagName,
@@ -621,6 +622,27 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     },
     'full_test.run': async (params) => {
       const { spec } = params;
+      if (spec.githubJob) {
+        // A compute job as the repository's `projectman-job.yml` workflow (PM-1147) runs no command here: `cwd` is a
+        // label, and the workflow is dispatched from the one branch the owner named for this repository. The
+        // command is the job's own; which commands a repository may run is the project's `computeJobs` (PM-1148).
+        const job = spec.githubJob;
+        await mergeBase(job.ref, job.base);
+        commitIds(job.commit);
+        if (job.workflow !== COMPUTE_JOB_WORKFLOW)
+          refuse('invalid_params', 'The workflow is not the general compute job workflow');
+        if (spec.command !== job.command)
+          refuse('invalid_params', 'The command of a compute job is the command of its workflow');
+        if (
+          spec.cwd !== `github-job:${job.repo}` ||
+          spec.githubActions ||
+          spec.regenerate ||
+          spec.npmCi ||
+          spec.requireHeavyLock
+        )
+          refuse('invalid_params', 'A GitHub Actions job carries no checkout, installation or lock');
+        return params;
+      }
       // The run that makes generated files again (PM-1050) is the only one with writable directories (the
       // engine derives them from the patterns), and it runs the registered repo's own `regenerateCommand`,
       // never its `fullTestCommand`; every other run runs the `fullTestCommand` and writes nothing.

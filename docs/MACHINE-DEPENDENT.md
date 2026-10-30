@@ -35,7 +35,7 @@ Entries in the order they appear below (search for the bold name).
   Control socket, pause and deployment · Native sandbox and canonical paths · CLI token and plan usage · Claude
   workspace trust
 - **Merge and checks:** Server full test before review · Merge-test file watchdog · Child-guard cleanup permissions ·
-  Merge-test step cache · Merge check measurements · GitHub Actions merge check · Merge conflict fix worktrees ·
+  Merge-test step cache · Merge check measurements · GitHub Actions runs (merge check, compute jobs) · Merge conflict fix worktrees ·
   Member initiated merge (`merge.*`) · Disposable instances and migration tools · Engine service (launchd) ·
   Non-interactive editors in member sessions
 
@@ -2355,7 +2355,7 @@ assumption or remote-engine RPC.
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
   **Module:** `runner`
 - **Server full test before review** — PM-909: with `reviewTest.beforeReview: github_actions` the run is not
-  local: no sandbox, `srt` or local checkout; see "GitHub Actions merge check" for its machine assumptions and
+  local: no sandbox, `srt` or local checkout; see "GitHub Actions runs (merge check, compute jobs)" for its machine assumptions and
   for the remote engine (the run needs only an engine with a full test executor and `gh`). `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine), PM-846: with a work root the
   executor gets only `worktreesRoot`; the `pmft-*` run directories stay in `os.tmpdir()`, outside the home (PM-848),
@@ -2437,7 +2437,7 @@ assumption or remote-engine RPC.
   `engine-link/remote/host.ts` maps older-engine `invalid_params` to the preparation error without retrying
   a weakened request. No Linux sandbox support is added.
   In GitHub mode (`FullTestSpec.githubActions`, PM-900) the sandbox does not run: the engine's
-  `withGithubActions` executor takes the request (see "GitHub Actions merge check").
+  `withGithubActions` executor takes the request (see "GitHub Actions runs (merge check, compute jobs)").
   **Module:** `services/full-tests`
 - **Merge-test file watchdog (PM-1054)** — `scripts/merge-test/{npm,reporter}.ts`.
   Every test invocation, including reruns, uses the default and hanging-process reporters plus
@@ -2479,8 +2479,8 @@ assumption or remote-engine RPC.
   crosses, in the separate `full_test.report` call (the `run`/`attach` schemas are unchanged). An older
   engine answers `unknown_method`, so its checks show unknown steps. Related task: PM-876.
   **Module:** `full-test`, `engine-link`, `services/merges`
-- **GitHub Actions merge check (PM-900, PM-907)** — `full-test/{github-actions,github-verdict}.ts`
-  (`withGithubActions`), `engine-host/check-branch.ts` (`createCheckBranchGit`),
+- **GitHub Actions runs (merge check, compute jobs) (PM-900, PM-907, PM-1147)** — `full-test/{github-actions,github-verdict,github-job}.ts`
+  (`withGithubActions`, `withGithubJob`, composed as `withGithubRuns` in `full-test/index.ts`), `engine-host/check-branch.ts` (`createCheckBranchGit`),
   `services/github/actions.ts` (`createGithubActionsClient`), wired in `assembly.ts` (single machine) and
   `engine-app.ts` (engine process), and the repository's `.github/workflows/merge-check.yml`. For a
   `full_test.run` that carries `githubActions`, the engine pushes the merge commit to a check branch
@@ -2500,6 +2500,24 @@ assumption or remote-engine RPC.
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
   PM-1059 does not touch this check: it keeps running on the engine the card's merge already uses, and the
   engine-side `gh` client keeps its project-less `MachineGithubService` contract.
+  **Compute jobs (PM-1147):** a `full_test.run` that carries `githubJob` (`FullTestSpec.githubJob`, exclusive
+  with `githubActions`) runs one job of the general `projectman-job.yml` workflow (PM-1144) instead: no check
+  branch is pushed; the workflow is dispatched on the owner's merge branch (`base`) with the inputs `job`,
+  `run_id` (the spec's `runId`), `commit`, `command`, `runs_on`, `outputs`, `node` and `timeout_minutes`, and
+  the run is found by its title `projectman-job <job> <commit> <run_id>` (a run id that already has a run is
+  refused). Dispatch, waiting for the run, following it, cancelling it on abort or timeout, and reading the
+  jobs and logs are one shared loop (`followWorkflowRun` in `full-test/github-actions.ts`) used by both
+  executors. The result carries the declared outputs (the `projectman-job output` lines: path, SHA-256,
+  size), the artifact (`projectman-job-<run_id>`, its expiry) and the cost (queue wait, billable time from the
+  run timing). The local executor refuses `githubJob` as `github_unavailable`. **Machine assumptions:** the
+  same as the merge check (`gh` login with workflow rights, the base's upstream remote is the repository,
+  outbound HTTPS); nothing is checked out or pushed. **Remote engine:** the engine that has the repository and
+  `gh` orchestrates the run; the existing `full_test.run` request carries the descriptor and returns the
+  result, with the engine-limit check (`engine-link/engine-limit.ts`: base is the configured merge branch,
+  fixed workflow, no checkout, installation or lock) and the project guard (`githubJob.ref.projectKey`)
+  applying as for the merge check. An engine older than PM-1147 refuses the field with `invalid_params`,
+  shown as `github_unavailable`. Which commands a repository may run is the project's `computeJobs` allowlist
+  (PM-1148); until then the engine-limit checks only the structure of the descriptor.
   PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.
@@ -2817,7 +2835,8 @@ assumption or remote-engine RPC.
   and then checks the bundle with `tar` alone. Owner setup, once: Settings → Actions → General → Workflow
   permissions → "Read repository contents". The local `image-build` (Docker and Buildx) remains the fallback.
   **Does this work on a remote engine?** Yes, and the engine is not affected: nothing of it runs on, or crosses
-  to, an engine, and there is no new RPC. The hub and the engine start no job in this step (PM-1147, PM-1148).
+  to, an engine, and there is no new RPC. The hub and the engine start no job in this step; PM-1147 adds the
+  engine's runner (see "GitHub Actions runs (merge check, compute jobs)") and PM-1148 the callers.
   **Module:** `scripts`
 
 - **The cloud machine downloads the image artifact (PM-1154)** — `scripts/cloud/{image-github,image-fetch,images,machine,host,config}.ts`,

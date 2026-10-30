@@ -5,6 +5,8 @@ import { server } from './msw/server';
 import { takeContractViolations } from './msw/contract';
 
 // The UI tests read Hungarian (the mock account's language too); an English test sets its own language.
+// Set once at load too: a test file's top-level `t()` runs before the first beforeEach.
+setCurrentLanguage('hu');
 beforeEach(() => {
   setCurrentLanguage('hu');
 });

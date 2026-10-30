@@ -493,8 +493,10 @@ required server that fails to start ends the CLI. Do not set `required` again un
 cause of the team MCP start failure is fixed and proven with a real `codex` run.
 
 The bypass flag lets our own hooks run without the one-time review in `/hooks`; it also runs
-any other enabled hooks of the user's Codex config and of the trusted project's `.codex/`
-folder, the same exposure as pre-trusting a Claude Code workspace (backlog PM-49).
+any other enabled hooks it loads. Therefore the start refuses (PM-1169) when the user's Codex
+config sets `hooks` or `project_root_markers`, when a `hooks.json` exists (user or `/etc/codex`), or
+when a macOS MDM `com.openai.codex.plist` exists; the project's `.codex/` folder is already limited to a
+few keys of `config.toml` (PM-357). The owner removes them or moves them to another Codex home.
 
 Claude model aliases (`opus`, …) are not passed to Codex; such members get projectman's
 default, `gpt-6.1-sol` at `medium` reasoning effort, rather than the owner's interactive

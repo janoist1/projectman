@@ -2337,7 +2337,12 @@ assumption or remote-engine RPC.
   `runner/cli.ts` resolves the real executable on the session PATH; the profile reopens
   only its `packages/standalone` installation ancestor read-only beneath a denied path,
   provided that ancestor contains no denied path. Unknown layouts stay closed.
-  macOS MDM-managed Codex preferences are not inspected yet (PM-375).
+  PM-1169 adds presence checks (lstat only, content never read; an unreadable file refuses too):
+  `$CODEX_HOME/hooks.json`, `/etc/codex/hooks.json` and, on darwin only, the two
+  `com.openai.codex.plist` files below `/Library/Managed Preferences` (`AmbientConfigLocations.codexPresenceRefused`);
+  `hooks` and `project_root_markers` in the user and project `config.toml` refuse as well. The check runs
+  in the runner, which is the engine process in engine mode, so it inspects the engine machine's hooks and
+  MDM; a Linux engine has no MDM path but `/etc/codex/hooks.json` counts there too.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`, `session.assert_workspace_config` and `host.*` (PM-313), build the policy from its filesystem and supported OS/provider
   enforcement, preserve protected paths and fail closed where required; do not copy Mac
   path grants or infer Codex permissions from Claude syntax. The outbound network intent

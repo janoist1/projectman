@@ -7,6 +7,7 @@ import {
   parseCliVersion,
   CODEX_OVERRIDING_ROOTS,
   CODEX_SANDBOX_ROOTS,
+  CODEX_START_ROOTS,
   inspectCodexSandboxConfig,
   inspectCodexMcpServers,
   inspectProjectCodex,
@@ -127,12 +128,54 @@ describe('local Codex configuration checks', () => {
       user,
       project,
       env: { CODEX_HOME: home },
-      locations: { codexManaged: [admin], codexUser: user },
+      locations: { codexManaged: [admin], codexUser: user, codexPresenceRefused: [] },
     };
   }
 
-  it('keeps local sandbox roots within the broader ambient refusal roots', () => {
+  it('keeps local sandbox and start roots within the broader ambient refusal roots', () => {
     for (const root of CODEX_SANDBOX_ROOTS) expect(CODEX_OVERRIDING_ROOTS.has(root)).toBe(true);
+    for (const root of CODEX_START_ROOTS) expect(CODEX_OVERRIDING_ROOTS.has(root)).toBe(true);
+  });
+
+  it.each(['hooks', 'project_root_markers'])(
+    'refuses %s in the user and project config of a Codex start, without values (PM-1169)',
+    async (root) => {
+      for (const source of ['user', 'project'] as const) {
+        const input = await fixture();
+        await writeFile(input[source], `${root} = "fictional-private-value"\n`);
+        expect(await inspectCodexSandboxConfig(input)).toEqual([{ file: input[source], keys: [root] }]);
+      }
+    },
+  );
+
+  it('refuses a user hooks file, an administrator hooks file and a macOS preference file by presence (PM-1169)', async () => {
+    const input = await fixture();
+    const managed = path.join(input.codexHome, 'managed-hooks.json');
+    const plist = path.join(input.codexHome, 'com.openai.codex.plist');
+    const locations = { ...input.locations, codexPresenceRefused: [managed, plist] };
+    expect(await inspectCodexSandboxConfig({ ...input, locations })).toEqual([]);
+    await writeFile(path.join(input.codexHome, 'hooks.json'), 'fictional-private-value');
+    await writeFile(managed, 'fictional-private-value');
+    await writeFile(plist, 'fictional-private-value');
+    const issues = await inspectCodexSandboxConfig({ ...input, locations });
+    expect(issues).toEqual([
+      { file: path.join(input.codexHome, 'hooks.json'), keys: ['(hooks file)'] },
+      { file: managed, keys: ['(hooks file)'] },
+      { file: plist, keys: ['(managed preferences)'] },
+    ]);
+    expect(JSON.stringify(issues)).not.toContain('fictional-private-value');
+  });
+
+  it('refuses a presence file that cannot be inspected', async () => {
+    const input = await fixture();
+    // A name below a symlink loop fails with ELOOP, which is neither "absent" nor readable.
+    const loop = path.join(input.codexHome, 'loop');
+    await symlink(loop, loop);
+    const file = path.join(loop, 'com.openai.codex.plist');
+    const locations = { ...input.locations, codexPresenceRefused: [file] };
+    expect(await inspectCodexSandboxConfig({ ...input, locations })).toEqual([
+      { file, keys: ['(unreadable)'] },
+    ]);
   });
 
   it.each([...CODEX_SANDBOX_ROOTS])(
@@ -231,7 +274,23 @@ describe('ambient Codex configuration', () => {
     provider: AgentProvider,
     cwd: string,
     locations: Parameters<typeof inspectAmbientConfig>[0]['locations'],
-  ) => inspectAmbientConfig({ provider, cwd, env: {}, locations });
+  ) =>
+    inspectAmbientConfig({ provider, cwd, env: {}, locations: { codexPresenceRefused: [], ...locations } });
+
+  it('refuses project_root_markers and a present preference file for NanoGPT too (PM-1169)', async () => {
+    const f = await files();
+    const user = await f.write('config.toml', 'project_root_markers = [".hg"]\n');
+    const plist = await f.write('com.openai.codex.plist', 'private-value');
+    const issues = await inspect('nanogpt', f.at('repo'), {
+      codexManaged: [],
+      codexUser: user,
+      codexPresenceRefused: [plist],
+    });
+    expect(issues).toEqual([
+      { file: user, keys: ['project_root_markers'] },
+      { file: plist, keys: ['(managed preferences)'] },
+    ]);
+  });
 
   it('flags any content of a Codex administrator file, and the overriding roots of the user and project files', async () => {
     const f = await files();
@@ -308,7 +367,7 @@ describe('ambient Codex configuration', () => {
       provider: 'codex' as const,
       cwd: f.dir,
       env: {},
-      locations: { codexManaged: [], codexUser: f.at('home/config.toml') },
+      locations: { codexManaged: [], codexUser: f.at('home/config.toml'), codexPresenceRefused: [] },
     };
     expect(await inspectAmbientConfig({ ...request, projectFolder: 'any' })).toContainEqual({
       file: folder,

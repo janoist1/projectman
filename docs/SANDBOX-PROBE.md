@@ -159,8 +159,10 @@ tool, exclude a command from sandboxing, disable filesystem isolation, add a sta
 add a second MCP server. Use harmless hooks/MCP that only create a fixture marker and return
 fictional data. Record which run, which merge, and which trust prompts appear. Test new and
 resumed sessions, remembered approvals and a changed project settings file. Distinguish trusted
-runner-owned hooks/MCP from member-configurable processes; PM-49 cannot be certified until
-the latter cannot widen the boundary.
+runner-owned hooks/MCP from member-configurable processes. Since PM-1169 the start refuses user and
+administrator hooks (`hooks`, `hooks.json`), `project_root_markers` and macOS MDM `com.openai.codex`
+preferences by presence, so member-configurable hooks cannot widen the boundary; probe the refusal, not a
+disabling.
 
 Trusted runner hook/team calls must succeed while the **same member shell and file tools**
 cannot read their tokens or call arbitrary app HTTP paths. Use fictional token endpoints on

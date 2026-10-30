@@ -34,7 +34,18 @@ async function setup() {
     },
   });
 }
-it('raises a failed process cleanup signal and resolves it on confirmed recovery', async () => {
+const failedCleanup = {
+  scopeId: 'scp_0123456789abcdef',
+  kind: 'process_group' as const,
+  outcome: 'failed' as const,
+  reason: 'stop' as const,
+  killed: true,
+  survivors: 1,
+  durationMs: 7000,
+};
+const cleanupSignals = () =>
+  h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'process_cleanup_failed');
+async function startCleanupTask() {
   await setup();
   await h.domain.tasks.create('AR', { title: 'Cleanup test' }, OWNER_ACTOR);
   await h.domain.taskStarts.start('AR', 'AR-1', {
@@ -42,19 +53,31 @@ it('raises a failed process cleanup signal and resolves it on confirmed recovery
     actor: OWNER_ACTOR,
     author: { name: 'Owner', email: 'owner@example.com' },
   });
-  const sessionId = h.runner.lastStarted().sessionId;
-  const cleanup = {
-    scopeId: 'scp_0123456789abcdef',
-    kind: 'process_group' as const,
-    outcome: 'failed' as const,
-    reason: 'stop' as const,
-    killed: true,
-    survivors: 1,
-    durationMs: 7000,
-  };
-  h.runner.emit({ type: 'exit', sessionId, exitCode: 0, signal: null, cleanup });
+  return h.runner.lastStarted().sessionId;
+}
+it('holds back the failed process cleanup signal while the failure is within the grace period', async () => {
+  const sessionId = await startCleanupTask();
+  h.runner.emit({ type: 'exit', sessionId, exitCode: 0, signal: null, cleanup: failedCleanup });
+  now = new Date(now.getTime() + 60_000);
+  h.runner.emit({ type: 'scope_recovered', sessionId, cleanup: { ...failedCleanup, reason: 'recovery' } });
   await flush();
-  const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'process_cleanup_failed');
+  expect(cleanupSignals()).toHaveLength(0);
+  h.runner.emit({
+    type: 'scope_recovered',
+    sessionId,
+    cleanup: { ...failedCleanup, outcome: 'clean', reason: 'recovery', survivors: 0 },
+  });
+  await flush();
+  expect(cleanupSignals()).toHaveLength(0);
+});
+it('raises a failed process cleanup signal and resolves it on confirmed recovery', async () => {
+  const sessionId = await startCleanupTask();
+  const cleanup = failedCleanup;
+  h.runner.emit({ type: 'exit', sessionId, exitCode: 0, signal: null, cleanup });
+  now = new Date(now.getTime() + 121_000);
+  h.runner.emit({ type: 'scope_recovered', sessionId, cleanup: { ...cleanup, reason: 'recovery' } });
+  await flush();
+  const signal = cleanupSignals()[0];
   expect(signal).toMatchObject({
     caseKey: `cleanup:${cleanup.scopeId}`,
     subject: cleanup.scopeId,

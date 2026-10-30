@@ -1065,10 +1065,10 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     await h.domain.sessions.reconcileAfterRestart();
     expect(closeScopes).toHaveBeenCalledWith([{ sessionId, scopeId, sinceAgeMs: expect.any(Number) }]);
     expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
+    // The failure was recovered within the grace period: no signal was ever raised (PM-1204).
     expect(
-      h.repos.operatorSignals.list('AR').find((signal) => signal.kind === 'process_cleanup_failed')
-        ?.resolvedAt,
-    ).not.toBeNull();
+      h.repos.operatorSignals.list('AR').some((signal) => signal.kind === 'process_cleanup_failed'),
+    ).toBe(false);
   });
 
   it('does not keep the workspace for a session ended by a restart that an engine report would revive (PM-792)', async () => {

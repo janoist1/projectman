@@ -44,6 +44,11 @@ export interface ProviderCapabilities {
    * `PROVIDER_MCP_IMAGE_RESULTS` (`contracts/runner.ts`), with the evidence for each provider.
    */
   mcpImageResults: boolean;
+  /**
+   * The provider's permission request asks to run outside its own OS sandbox (Codex and NanoGPT escalation:
+   * network, writes outside the workspace). An engine refuses every such request itself (PM-1187).
+   */
+  sandboxEscalation: boolean;
 }
 
 /** Timing of the interaction with a TUI (CLAUDE_TIMING and CODEX_TIMING in the adapters). */

@@ -96,6 +96,8 @@ describe('the project manager screens AI members’ questions', () => {
   const screen = (args: Parameters<typeof h.domain.teamTools.screenQuestion>[1]) =>
     h.domain.teamTools.screenQuestion(operatorTool(), args);
 
+  /** A topic of the default list, for the questions that go to the owner (PM-1190). */
+  const ownerTopic = 'cost';
   const todo = {
     what: 'Sign in',
     where: 'Vendor console',
@@ -129,7 +131,14 @@ describe('the project manager screens AI members’ questions', () => {
     expect((await h.domain.teamTools.listSystemFeedback(operatorTool())).items).toEqual([
       expect.objectContaining({ id: feedbackId }),
     ]);
-    await screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId });
+    await screen({
+      itemId: inboxItemId,
+      outcome: 'todo',
+      todo,
+      ownerTopic,
+      note: 'Missing tool',
+      feedbackId,
+    });
     expect(item(inboxItemId).state).toBe('open');
     expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({ feedbackId, outcome: 'todo' });
     expect(timelineOf('question_screened')[0]?.data).toMatchObject({
@@ -213,8 +222,8 @@ describe('the project manager screens AI members’ questions', () => {
     });
     try {
       await expect(
-        screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId }),
-      ).rejects.toThrow();
+        screen({ itemId: inboxItemId, outcome: 'todo', todo, ownerTopic, note: 'Missing tool', feedbackId }),
+      ).rejects.toThrow('Timeline unavailable');
       expect(item(inboxItemId)).toEqual(before);
     } finally {
       append.mockRestore();
@@ -225,10 +234,10 @@ describe('the project manager screens AI members’ questions', () => {
   it('does not attach feedback to a question already released', async () => {
     const { inboxItemId } = await ask();
     const feedbackId = feedback();
-    await screen({ itemId: inboxItemId, outcome: 'decision', note: 'Owner decides' });
+    await screen({ itemId: inboxItemId, outcome: 'decision', ownerTopic, note: 'Owner decides' });
     const before = item(inboxItemId);
     const err = await refusal(
-      screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Missing tool', feedbackId }),
+      screen({ itemId: inboxItemId, outcome: 'todo', todo, ownerTopic, note: 'Missing tool', feedbackId }),
     );
     expect(err.message).toContain('question_not_screening');
     expect(item(inboxItemId)).toEqual(before);
@@ -278,14 +287,17 @@ describe('the project manager screens AI members’ questions', () => {
     it('sends the PM own question directly to the people', async () => {
       const { inboxItemId } = await h.domain.teamTools.askHuman(
         { projectKey: 'AR', member: 'pm', sessionId: devSession, taskKey: null },
-        { question: 'Which card first?' },
+        { question: 'Which card first?', ownerTopic: 'product_direction' },
       );
       expect(item(inboxItemId).state).toBe('open');
     });
 
     it('does not screen the Operator’s own question or a human’s', async () => {
       const asking = await ownerAsksOperator();
-      const own = await h.domain.teamTools.askHuman(asking, { question: 'May I hire a reviewer?' });
+      const own = await h.domain.teamTools.askHuman(asking, {
+        question: 'May I hire a reviewer?',
+        ownerTopic,
+      });
       expect(own.screening).toBeUndefined();
       expect(item(own.inboxItemId)).toMatchObject({ state: 'open', assignees: ['owner'] });
       expect(questionPayloadOf(item(own.inboxItemId))?.screening).toBeUndefined();
@@ -339,7 +351,7 @@ describe('the project manager screens AI members’ questions', () => {
         state: 'processing',
       });
 
-      await screen({ itemId: inboxItemId, outcome: 'decision', note: 'The owner decides.' });
+      await screen({ itemId: inboxItemId, outcome: 'decision', ownerTopic, note: 'The owner decides.' });
 
       expect(h.repos.memberQueue.findBySource('AR', 'pm', source)).toMatchObject({
         state: 'done',
@@ -441,15 +453,23 @@ describe('the project manager screens AI members’ questions', () => {
       const { inboxItemId } = await ask();
       const original = item(inboxItemId).options;
 
-      await screen({ itemId: inboxItemId, outcome: 'decision', note: 'Only the owner can pick a brand.' });
-
-      expect(item(inboxItemId)).toMatchObject({ state: 'open', options: original });
-      expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({
+      await screen({
+        itemId: inboxItemId,
         outcome: 'decision',
+        ownerTopic: 'product_direction',
         note: 'Only the owner can pick a brand.',
       });
+
+      expect(item(inboxItemId)).toMatchObject({ state: 'open', options: original });
+      expect(questionPayloadOf(item(inboxItemId))).toMatchObject({
+        ownerTopic: 'product_direction',
+        screening: { outcome: 'decision', note: 'Only the owner can pick a brand.' },
+      });
       expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
-      expect(timelineOf('question_screened')[0]?.data).toMatchObject({ outcome: 'decision' });
+      expect(timelineOf('question_screened')[0]?.data).toMatchObject({
+        outcome: 'decision',
+        ownerTopic: 'product_direction',
+      });
     });
 
     it('todo: opens with Done and Cannot do it, and Cannot do it needs a reason', async () => {
@@ -461,7 +481,13 @@ describe('the project manager screens AI members’ questions', () => {
         expected: 'The key in the vault',
       };
 
-      await screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'Only a person can sign in there.' });
+      await screen({
+        itemId: inboxItemId,
+        outcome: 'todo',
+        todo,
+        ownerTopic,
+        note: 'Only a person can sign in there.',
+      });
 
       expect(item(inboxItemId).state).toBe('open');
       expect(item(inboxItemId).options.map((o) => o.id)).toEqual(['todo_done', 'todo_cannot']);
@@ -543,15 +569,99 @@ describe('the project manager screens AI members’ questions', () => {
 
     it('refuses a question that is no longer in screening', async () => {
       const { inboxItemId } = await ask();
-      await screen({ itemId: inboxItemId, outcome: 'decision', note: 'A person decides.' });
+      await screen({ itemId: inboxItemId, outcome: 'decision', ownerTopic, note: 'A person decides.' });
       const err = await refusal(screen({ itemId: inboxItemId, outcome: 'answered', answer: 'x', note: 'x' }));
       expect(err.code).toBe('invalid');
       expect(err.message).toContain('question_not_screening');
       // A moot call does not close one a person already holds if it is not an AI member's.
       const asking = await ownerAsksOperator();
-      const own = await h.domain.teamTools.askHuman(asking, { question: 'May I?' });
+      const own = await h.domain.teamTools.askHuman(asking, { question: 'May I?', ownerTopic });
       const refused = await refusal(screen({ itemId: own.inboxItemId, outcome: 'moot', note: 'x' }));
       expect(refused.message).toContain('the PM cannot screen its own question');
+    });
+  });
+
+  describe('owner topics (PM-1190)', () => {
+    it('keeps a decision in screening without a listed owner topic', async () => {
+      const { inboxItemId } = await ask();
+      for (const [topic, code] of [
+        [undefined, 'owner_topic_required'],
+        ['architecture', 'owner_topic_unknown'],
+      ] as const) {
+        const err = await refusal(
+          screen({
+            itemId: inboxItemId,
+            outcome: 'decision',
+            note: 'x',
+            ...(topic ? { ownerTopic: topic } : {}),
+          }),
+        );
+        expect(err.message).toMatch(new RegExp(`^${code}:`));
+        expect(err.message).toContain('`product_direction`');
+      }
+      expect(item(inboxItemId).state).toBe('screening');
+      expect(timelineOf('question_screened')).toEqual([]);
+    });
+
+    it('records approval for an approval question without a topic', async () => {
+      const { inboxItemId } = await ask('May we set merge-ok?');
+      await screen({ itemId: inboxItemId, outcome: 'decision', note: 'An approval.' });
+      expect(questionPayloadOf(item(inboxItemId))).toMatchObject({
+        approvalLabel: 'merge-ok',
+        ownerTopic: 'approval',
+      });
+      expect(timelineOf('question_screened')[0]?.data).toMatchObject({ ownerTopic: 'approval' });
+    });
+
+    it('needs a topic for a todo for the owner', async () => {
+      const { inboxItemId } = await ask('Please create the API key');
+      const err = await refusal(
+        screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'A person signs in.' }),
+      );
+      expect(err.message).toMatch(/^owner_topic_required:/);
+      expect(item(inboxItemId).state).toBe('screening');
+    });
+
+    it("needs a topic for the project manager's own decision and records it, not for information", async () => {
+      const asking = await ownerAsksOperator();
+      const err = await rejection(
+        h.domain.teamTools.askHuman(asking, { question: 'May I hire a reviewer?', options: ['Yes', 'No'] }),
+        TeamToolError,
+      );
+      expect(err.message).toMatch(/^owner_topic_required:/);
+      const own = await h.domain.teamTools.askHuman(asking, {
+        question: 'May I hire a reviewer?',
+        ownerTopic,
+      });
+      expect(questionPayloadOf(item(own.inboxItemId))?.ownerTopic).toBe(ownerTopic);
+      const asked = h.domain.timeline
+        .list('AR')
+        .find((event) => event.type === 'question_asked' && event.data.inboxItemId === own.inboxItemId);
+      expect(asked?.data).toMatchObject({ ownerTopic });
+      const info = await h.domain.teamTools.askHuman(asking, {
+        question: 'When is the demo?',
+        responsePurpose: 'information',
+      });
+      expect(questionPayloadOf(item(info.inboxItemId))).not.toHaveProperty('ownerTopic');
+      const approval = await h.domain.teamTools.askHuman(asking, {
+        question: 'May we set merge-ok?',
+        taskKey: 'AR-1',
+      });
+      expect(questionPayloadOf(item(approval.inboxItemId))?.ownerTopic).toBe('approval');
+    });
+
+    it("needs a topic for a re-ask and refuses one on another member's screened question", async () => {
+      const { inboxItemId } = await ask();
+      await screen({ itemId: inboxItemId, outcome: 'answered', answer: 'Use Inter.', note: 'Style guide.' });
+      const reask = { question: 'Really Inter?', reaskOf: inboxItemId, reaskReason: 'Outdated guide.' };
+      expect((await refusal(h.domain.teamTools.askHuman(dev, reask))).message).toMatch(
+        /^owner_topic_required:/,
+      );
+      expect((await h.domain.teamTools.askHuman(dev, { ...reask, ownerTopic })).inboxItemId).toBeTruthy();
+      const other = await refusal(
+        h.domain.teamTools.askHuman(dev, { question: 'Which colour?', ownerTopic }),
+      );
+      expect(other.message).toContain('owner_topic_not_allowed');
     });
   });
 
@@ -620,6 +730,7 @@ describe('the project manager screens AI members’ questions', () => {
       h.domain.teamTools.askHuman(as, {
         question: 'Really Inter?',
         recipient: 'integrator',
+        ownerTopic,
         ...(previous !== undefined ? { reaskOf: previous } : {}),
         ...(reason !== undefined ? { reaskReason: reason } : {}),
       });
@@ -681,7 +792,12 @@ describe('the project manager screens AI members’ questions', () => {
 
     it('is refused when the Operator did not settle the earlier question without a person', async () => {
       const decision = await ask('Brand?');
-      await screen({ itemId: decision.inboxItemId, outcome: 'decision', note: 'A person decides.' });
+      await screen({
+        itemId: decision.inboxItemId,
+        outcome: 'decision',
+        ownerTopic,
+        note: 'A person decides.',
+      });
       const timedOut = await ask('Slow?');
       now = new Date(START.getTime() + QUESTION_SCREENING_MINUTES * 60_000);
       await h.domain.questionScreening.sweep();
@@ -839,7 +955,12 @@ describe('GET /api/projects/:key/inbox/screened (PM-558)', () => {
       answer: 'Yes.',
     });
     await domain.inbox.settleScreened(moot, { outcome: 'moot', by: 'pm', note: 'Gone.' });
-    await domain.inbox.releaseScreened(decision, { outcome: 'decision', by: 'pm', note: 'A person.' });
+    await domain.inbox.releaseScreened(decision, {
+      outcome: 'decision',
+      by: 'pm',
+      ownerTopic: 'cost',
+      note: 'A person.',
+    });
 
     const res = await get(cookie, `?since=${encodeURIComponent('2000-01-01T00:00:00.000Z')}`);
     expect(res.statusCode).toBe(200);

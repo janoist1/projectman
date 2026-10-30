@@ -1782,7 +1782,7 @@ describe('system prompt', () => {
       for (const text of [
         'a "question screening" notice',
         'call screen_question for every question in the notice, always with a note.',
-        'Always choose decision for an approval, a release, human access, a cost or fee, a change of scope or deadline',
+        'owner_topic',
         "start or move nothing on the board, change no settings, and never decide in the owner's name.",
       ])
         expect(pm.guide.role).toContain(text);
@@ -1890,7 +1890,7 @@ describe('system prompt', () => {
             level === 'report' ? 'On a signal you never merge' : 'Apart from the step a signal names',
           );
           expect(operator).toContain(
-            'When a stalled, silent, outage, nobody or start_blocked signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human.',
+            'When a stalled, silent, outage, nobody or start_blocked signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and its owner_topic.',
           );
           expect(operator).not.toContain('always goes to the owners');
           expect(operator).toContain('at most one message per wake-up');
@@ -2826,6 +2826,18 @@ describe('expected steps', () => {
     expect(guide()).toContain('despite_prerequisites');
   });
 
+  it("lists the project's owner topics in the project manager's guide (PM-1190)", () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    const guide = () => builder.build(input({ project, handle: 'pm' })).guide.role!;
+    expect(guide()).toContain('`product_direction`');
+    project.team.ownerDecisionTopics = [{ id: 'hiring', label: 'Felvétel', hint: 'who joins the team' }];
+    expect(guide()).toContain('`hiring` (Felvétel): who joins the team');
+    expect(guide()).not.toContain('`product_direction`');
+    project.team.ownerDecisionTopics = [];
+    expect(guide()).toContain('The project lists no owner topics');
+  });
+
   it('tells a member holding the prioritization duty that it may set a priority, when the setting allows it (PM-1096)', () => {
     const project = buildProject();
     addMember(project, 'pm', 'project_manager');
@@ -3755,6 +3767,33 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(prompt).not.toContain('# Your sandbox');
     // No folder in the policy (the managed VM, or no safe temporary root): no folder text.
     expect(prompt).not.toContain('# Your session folder');
+  });
+
+  it.each([
+    ['open', 'Outbound network: on', true],
+    ['allowlist', 'Outbound network: off', false],
+  ] as const)(
+    'shows a Codex member the network state of its policy (%s) and words the escalation to match (PM-1172)',
+    (outbound, line, open) => {
+      const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider: 'codex' };
+      const policy = { ...readerPolicy, network: { ...readerPolicy.network, outbound } };
+      const pack = builder.build(
+        input({ project, member, handle: 'code-review', task, sessionPolicy: policy, sandbox }),
+      );
+      expect(section(pack.appendSystemPrompt, '# Session policy')).toContain(line);
+      // The escalation sentence is in the commands guide.
+      const commands = pack.guide.commands ?? '';
+      expect(commands.includes('(the network or a write outside your working directory')).toBe(!open);
+      expect(commands.includes('(a write outside your working directory')).toBe(open);
+    },
+  );
+
+  it('keeps the Outbound network line out of the Claude Code context (PM-1172)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider: 'claude' };
+    const prompt = builder.build(
+      input({ project, member, handle: 'code-review', task, sessionPolicy: readerPolicy, sandbox }),
+    ).appendSystemPrompt;
+    expect(prompt).not.toContain('Outbound network:');
   });
 
   it('tells a read-only Codex or NanoGPT reader that the server puts files in its folder (PM-522)', () => {

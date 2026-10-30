@@ -2533,6 +2533,24 @@ describe('buildSessionPolicy', () => {
     });
     expect(allowlist.network.outbound).toBe('allowlist');
   });
+
+  it.each([
+    ['codex', 'open'],
+    ['nanogpt', 'allowlist'],
+  ] as const)(
+    'opens the network of a %s member only if its isolation is proven (PM-1172)',
+    (provider, expected) => {
+      const policy = buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: { kind: 'task_worktree', path: '/work' },
+        outboundNetwork: true,
+        provider,
+      });
+      expect(policy.network.outbound).toBe(expected);
+    },
+  );
 });
 
 describe('sessionFolderAccess (PM-522)', () => {

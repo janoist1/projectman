@@ -136,6 +136,7 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   operator_watch: 'only an owner may change how much the Operator does on its own on a signal',
   operator_approval_waiver: 'only an owner may change the Operator approval waiver',
   task_create_access: 'only an owner may change who may open new cards',
+  owner_decision_topics: 'only an owner may change the topics AI members may ask the owner to decide',
 };
 
 /** The card mover a create request names; absent means the worker. */

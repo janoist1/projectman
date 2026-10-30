@@ -49,7 +49,11 @@ describe('shared owner question visibility', () => {
       },
       'pm',
     );
-    await domain.inbox.releaseScreened(group.primaryItemId, { outcome: 'decision', by: 'pm' });
+    await domain.inbox.releaseScreened(group.primaryItemId, {
+      outcome: 'decision',
+      by: 'pm',
+      ownerTopic: 'cost',
+    });
     const get = (cookie: string, query: string) =>
       h.app.inject({ url: `${routes.inbox('AR')}${query}`, headers: { cookie } });
     const open = (await get(owner, '')).json<InboxView>();

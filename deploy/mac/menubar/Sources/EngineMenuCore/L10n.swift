@@ -164,10 +164,12 @@ public enum L10n: String, CaseIterable {
     case releaseOnly = "releaseOnly"
     case locatorInvalid = "locatorInvalid"
     case locatorMissing = "locatorMissing"
+    /// The locale of the localization macOS picked for this app from the user's language list.
+    public static let locale = Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
     public static func text(_ key: L10n, _ args: String...) -> String { render(key, args) }
     public static func render(_ key: L10n, _ args: [String]) -> String {
         let format = Bundle.main.localizedString(forKey: key.rawValue, value: nil, table: nil)
-        return String(format: format, locale: Locale(identifier: "hu_HU"), arguments: args)
+        return String(format: format, locale: locale, arguments: args)
     }
 }
 public struct Localized {

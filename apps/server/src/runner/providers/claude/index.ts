@@ -167,6 +167,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
       sessionPermissionRules: true,
       readiness: 'session_start',
       mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.claude,
+      sandboxEscalation: false,
     },
     timing: CLAUDE_TIMING,
     inputTools: CLAUDE_INPUT_TOOLS,

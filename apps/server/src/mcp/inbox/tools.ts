@@ -148,6 +148,16 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           'information: a plain factual question, no decision; the integrator may relay the answer; needs no options. ' +
             'owner_decision (default): a choice or anything with cost, deletion or security; only the owner answers.',
         ),
+        owner_topic: z
+          .string()
+          .trim()
+          .min(1)
+          .max(40)
+          .optional()
+          .describe(
+            "Only the project manager's own decision question or a re-ask: the id of the project's owner topic " +
+              'it falls under (role guide); refused without one (owner_topic_required).',
+          ),
       },
       check(args, issue) {
         if ((args.reask_of === undefined) !== (args.reask_reason === undefined))
@@ -180,7 +190,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
       external: {
         access: 'write',
         modes: ['super'],
-        omit: ['reask_of', 'reask_reason', 'recipient', 'signal_id'],
+        omit: ['reask_of', 'reask_reason', 'recipient', 'signal_id', 'owner_topic'],
         description:
           'Ask the owners a question you cannot decide yourself. It goes to their inbox, unscreened: {inbox_item_id, state: "open", approval_label?, attachments}. Only an owner answers it, with their own login; you cannot answer it yourself, and no one wakes you when it is answered. Read the answer with get_super_question, and withdraw a moot question with withdraw_question. Write for a non-specialist who often reads on a phone: one plain sentence that names the decision, the options by what happens if one is picked, one recommended option with a one-sentence reason, technical background in details. response_purpose information marks a plain factual question whose answer is no decision; owner_decision (default) is a choice, an approval or anything with cost, deletion or security. options are required for an owner decision. `to` names existing humans (owners only for an owner decision); omit it to ask the current owners. task_key and attachments name a card and files of that card or its parent; there is no default card.',
         async run({ ctx, args, handler }) {
@@ -222,6 +232,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           ...(args.reask_of !== undefined ? { reaskOf: args.reask_of } : {}),
           ...(args.reask_reason !== undefined ? { reaskReason: args.reask_reason } : {}),
           ...(args.response_purpose ? { responsePurpose: args.response_purpose } : {}),
+          ...(args.owner_topic !== undefined ? { ownerTopic: args.owner_topic } : {}),
         });
         return (
           (args.recipient

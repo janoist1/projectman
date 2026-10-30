@@ -45,7 +45,11 @@ describe('NanoGPT adapter', () => {
   }
   it('takes the capabilities of Codex, except that an image in a tool result is not promised (PM-518)', async () => {
     const { adapter } = await harness();
-    expect(adapter.capabilities).toMatchObject({ toolGate: 'permission_request', mcpImageResults: false });
+    expect(adapter.capabilities).toMatchObject({
+      toolGate: 'permission_request',
+      mcpImageResults: false,
+      sandboxEscalation: true,
+    });
   });
   it('refuses an explicitly invalid worktree boundary before using the key', async () => {
     const h = await harness();

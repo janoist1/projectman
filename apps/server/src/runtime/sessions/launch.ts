@@ -461,6 +461,7 @@ export class SessionLauncher {
           ...(provider !== 'claude' || claudeOwnTmp ? claudeTmpRoots : []),
         ],
         outboundNetwork: outboundNetworkOf(member),
+        provider,
         placement: ws
           ? ws.placement
           : placed

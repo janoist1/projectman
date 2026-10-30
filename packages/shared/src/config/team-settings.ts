@@ -1,4 +1,5 @@
 import type { OwnerOnlyChange } from './owner-only';
+import { DEFAULT_OWNER_DECISION_TOPICS } from './owner-topics';
 import type { ProjectConfig } from './schema';
 
 type Team = ProjectConfig['team'];
@@ -60,6 +61,13 @@ export const TEAM_SETTING_POLICY = {
   assigneeFit: { waiver: true, ownerOnly: null, default: 'automatic' },
   // PM-1137: absent reasons show the general ones.
   ruleReasons: { waiver: true, ownerOnly: null },
+  // PM-1190: the owner topics an owner decision needs.
+  ownerDecisionTopics: {
+    waiver: false,
+    ownerOnly: 'owner_decision_topics',
+    default: DEFAULT_OWNER_DECISION_TOPICS,
+    stored: true,
+  },
   // `mergerOf` derives an absent merger from the pipeline; the migration stores it (`addMerger`).
   merger: { waiver: false, ownerOnly: null },
   members: { waiver: 'entries', ownerOnly: null },
@@ -112,12 +120,10 @@ export function teamSettingOf<K extends DefaultedTeamSetting>(
 
 /** The stored defaults (`stored`), as fresh values a new or an older configuration takes in. */
 export function storedTeamDefaults(): Partial<Team> {
-  const copy = (value: unknown) =>
-    Array.isArray(value) ? [...value] : value !== null && typeof value === 'object' ? { ...value } : value;
   return Object.fromEntries(
     TEAM_SETTING_KEYS.flatMap((key) => {
       const policy = policyOf(key);
-      return policy.stored ? [[key, copy(policy.default)]] : [];
+      return policy.stored ? [[key, structuredClone(policy.default)]] : [];
     }),
   );
 }

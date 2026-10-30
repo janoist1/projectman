@@ -104,6 +104,11 @@ Entries in the order they appear below (search for the bold name).
   `service install|uninstall|switch`) and “Engine app package (PM-1104, PM-1121)” (the bundled
   engine). **Machine assumptions added:** outbound HTTPS to github.com, `ditto`, the Security
   framework, a writable `~/Library/Caches` and the app's own bundle location, `/bin/sh` and `open`.
+  **Language (PM-1185):** the app ships `hu.lproj` and `en.lproj` (development region `en`); macOS
+  picks one from the language list of the engine's own Mac (Hungarian on a Hungarian system,
+  English on any other), and numbers follow that locale (`L10n.locale`). The language is never
+  taken from the hub or from the account's system language. The app file name, bundle id and
+  `CFBundleName` are the same in every language.
   Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
 
@@ -991,6 +996,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   (`runner/tool-decision.ts`, `engineWriteZone`). Each refusal is a `tool.guard` line (`refused`, the code
   `outside_writable_roots`, `denied_path` or `updated_input`) in `logs/engine-audit.jsonl` and a `refused` event
   with `by: engine_guard` to the cloud. The hub's strict frame schema needs the hub deployed before the engine.
+  PM-1187: `engine.json` `allowedProviders` is the engine's own provider list (`engine-limit.ts` refuses a
+  `session.start` for another provider with `provider_not_allowed`; absent: all), and the same rule refuses a
+  Codex/NanoGPT writer in the `default` mode (`permission_mode_too_low`). The runner refuses every Codex/NanoGPT
+  `PermissionRequest` but an MCP tool in the engine process (`escalation_refused`, capability
+  `sandboxEscalation`), so the cloud cannot approve a run outside the Codex sandbox.
   Stopping (PM-1159): `pauseForShutdown` asks the cloud first (`engine.pause_for_shutdown`, engine → cloud), which
   records the pause and resumes it at the engine's next connection; the engine pauses its sessions itself only when the
   cloud cannot take the call (`link_down`, `unknown_method` from an older cloud, timeout), and then nothing is recorded.
@@ -2287,6 +2297,14 @@ assumption or remote-engine RPC.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
   the adapter's Codex home denied (PM-356).
+  PM-1172: with the outbound network on, a macOS engine and not a NanoGPT member, the profile also
+  carries Codex's `network` part and `features.network_proxy=true`. Codex's network proxy runs on
+  the engine, on its own loopback port per session; the denied hosts are the engine's own loopback,
+  private and link-local addresses (the hook and MCP listeners among them) and the Unix sockets
+  (the `control.sock` among them) stay closed. Verified on macOS 14.6 arm64 with codex-cli 0.159.1
+  only; on a Linux engine (bubblewrap, seccomp) the runner leaves the network closed, because no
+  probe covers it. `SessionPolicy` crosses to the engine as data in `session.start`; the platform
+  guard decides on the engine.
   PM-360 adds the shared `SessionReadBoundary` schema and optional
   `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. Under the owner's
   2026-10-26 scope decision, developer runtime paths do not automatically populate it:

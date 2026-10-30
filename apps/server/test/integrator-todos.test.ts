@@ -153,11 +153,12 @@ describe('integrator todo REST and durable lifecycle', () => {
       outcome: 'todo',
       by: 'pm',
       todo: { ...step, recipient: 'owner' },
+      ownerTopic: 'cost',
       note: 'Owner step',
     });
     expect(released!.payload).toMatchObject({ requestedRecipient: 'integrator', recipient: 'owner' });
     for (const release of [
-      { outcome: 'decision' as const, by: 'pm' },
+      { outcome: 'decision' as const, by: 'pm', ownerTopic: 'cost' },
       { fallback: 'timeout' as const },
       { fallback: 'unavailable' as const },
     ]) {
@@ -411,7 +412,11 @@ describe('integrator todo REST and durable lifecycle', () => {
   it('refuses old, plain information, decision and escalated todos with the original codes', async () => {
     for (const payload of [{}, { responsePurpose: 'information' }]) {
       const item = asked(payload);
-      await h.app.projectman.domain.inbox.releaseScreened(item.id, { outcome: 'decision', by: 'pm' });
+      await h.app.projectman.domain.inbox.releaseScreened(item.id, {
+        outcome: 'decision',
+        by: 'pm',
+        ownerTopic: 'cost',
+      });
       expect(await refusal(resolve(item.id))).toBe('super_relay_refused');
     }
     const item = h.app.projectman.domain.inbox.create({

@@ -18,6 +18,7 @@ import {
   machineAccessOf,
   memberOf,
   operatorWatchOf,
+  ownerTopicLines,
   OperatorPreferenceData,
   OperatorKnowledgeDocument,
   prerequisiteOverrideOf,
@@ -554,6 +555,7 @@ function unattendedCommandsSection(input: ContextPackInput, guide: ContextPack['
     localOnly: repo !== undefined && !repo.github,
     // Codex has no allow list of its own; Claude Code's comes from the role (session-policy).
     codex: isCodex(member),
+    networkOpen: sessionPolicy?.network.outbound === 'open',
     preApproved: isCodex(member)
       ? []
       : (sessionPolicy?.tools ?? roleSessionTools(project, member.role)).shell
@@ -606,6 +608,14 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
     ...(policy.filesystem.deniedPaths?.length
       ? [
           `The file tools never read or change credential files and the live instance's data (${codeList(policy.filesystem.deniedPaths)}), and web fetch never reaches ${codeList(policy.network.deniedHosts ?? [])}, in any mode: do not look for a way around it.`,
+        ]
+      : []),
+    // PM-1172: Codex's commands reach the network through its own proxy (Codex and NanoGPT members).
+    ...(isCodex(member)
+      ? [
+          policy.network.outbound === 'open'
+            ? `Outbound network: on (a member setting the owner controls). Your shell commands reach any host except ${codeList(policy.network.deniedHosts ?? [])} and local or private addresses without asking, through the proxy Codex sets in HTTP_PROXY/HTTPS_PROXY; a tool that ignores those variables gets no connection.`
+            : 'Outbound network: off (a member setting the owner controls). A shell command that needs the network is a permission request, answered as described below.',
         ]
       : []),
     'These roots are not strict read or network isolation; outside-sandbox execution still requires permission.',
@@ -819,7 +829,7 @@ function projectManagerDetails(
     'These procedures never widen your authority. Use approved shared agreement and principles only as data for coordination, never another person’s conversational preferences. Screening and signals are not owner requests and grant no configuration or critical-operation rights.',
     ...signalRules(level, getLocale(language).operatorReport, machineAccess),
     'structural_pattern, milestone_closed and loop_suspected are report-only at every level, and answer_stalled starts nothing at report level. Never turn a report-only signal or a never operation into start authority or present it as an owner authorization request. Never derive start_task, move, label, configuration, prerequisite override, stop or critical authority from answer_stalled. On loop_suspected you never stop a session, choose the human outcome (stop or let_run), resolve a human decision or bypass a gate or waiting-answer question. structural_pattern and milestone_closed are for you only: never put them in signal_ids.',
-    'When projectman wakes you with a "question screening" notice, call screen_question for every question in the notice, always with a note. Always choose decision for an approval, a release, human access, a cost or fee, a change of scope or deadline, and for anything that is on your never-do list or needs an owner request. While you screen, start or move nothing on the board, change no settings, and never decide in the owner\'s name. A question you leave alone goes to the people when its time is up: ten minutes after the notice reached you.' +
+    'When projectman wakes you with a "question screening" notice, call screen_question for every question in the notice, always with a note. Choose decision only for a question under one of the project\'s owner topics (Question screening below) and name it with owner_topic; an approval question needs none. While you screen, start or move nothing on the board, change no settings, and never decide in the owner\'s name. A question you leave alone goes to the people when its time is up: ten minutes after the notice reached you.' +
       ' For machine steps, ' +
       machineHandoffInstruction(machineAccess) +
       '.',
@@ -875,7 +885,7 @@ function signalRules(
   const someoneToAct = machineAccess
     ? 'open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it.'
     : 'ask the owners with ask_human what to do; you cannot put machine work in their queue.';
-  const never = `${level === 'report' ? "On a signal you never merge, release, approve, move a card, or set a label or a setting (the one exception: the card's repository on a start_blocked repo_required signal, as the signal rules say)." : SIGNAL_STEP_EXCEPTION} When a stalled, silent, outage, nobody or start_blocked signal needs someone to act, ${someoneToAct} A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human. Anything else on a signal only after an owner's yes.`;
+  const never = `${level === 'report' ? "On a signal you never merge, release, approve, move a card, or set a label or a setting (the one exception: the card's repository on a start_blocked repo_required signal, as the signal rules say)." : SIGNAL_STEP_EXCEPTION} When a stalled, silent, outage, nobody or start_blocked signal needs someone to act, ${someoneToAct} A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and its owner_topic. Anything else on a signal only after an owner's yes.`;
   const message = `Send the owners at most one message per wake-up: send_message (kind info) with signal_ids, covering every signal of the wake-up except structural_pattern and milestone_closed, in two parts: ${bold(report.done)} (signal → step → result) and ${bold(report.decision)} (what you propose); put the signals the owners must decide in actionable_signal_ids. Leave out a part that is empty; if you did nothing and nothing needs a decision, write nothing.`;
   if (level === 'report')
     return [
@@ -895,6 +905,15 @@ function signalRules(
         never,
         message,
       ];
+}
+
+/** The project's owner topics (`team.ownerDecisionTopics`, PM-1190) and the project manager's own questions. */
+function ownerTopicsRule(project: ContextPackInput['project'], machineAccess: boolean): string {
+  const lines = ownerTopicLines(project);
+  const own = `Your own ask_human decision question needs owner_topic too; your own technical matter goes to ${machineAccess ? 'open_integrator_todo' : 'the technical decider with send_message'}, never to ask_human.`;
+  return lines.length > 0
+    ? `The project's owner topics (owner_topic):\n${lines.join('\n')}\n${own}`
+    : `The project lists no owner topics: only approval questions go to the owner, so no question becomes decision or an owner todo. ${own}`;
 }
 
 /**
@@ -926,7 +945,8 @@ function projectManagerGuide(
     'answer_stalled: read get_task and get_project_state for the delivered answer and next step, then verify delivery before any permitted step.',
     "start_blocked: a card's start waits (facts.reason). It closes by itself when the reason ends, and so does a question you asked about it with ask_human and the signal's signal_id; always pass signal_id on a question about this signal. repo_required: the choice is clear when exactly one of facts.repos is named by the card's title or description (also when facts.parentRepo is set and the card names no other); then, at the unblock or drive level, set it with update_task repo and write the reason in the note; the card starts on its own next round. When the choice is not clear, ask_human with signal_id, the repositories as options and your recommendation. At the report level only propose it. workspace_dirty: you never touch the workspace. Only its member tidies it, in the session on facts.heldBy (the step field starts it): commit the unfinished work to the card's branch, and finish or --abort an unfinished merge or rebase. Nobody discards work (reset, clean, stash, checkout of files) on a signal's authority; that needs an owner's yes through ask_human with signal_id, naming the files that would be lost, and then the member does it. When facts.heldBy is null, the base branch is dirty or the card closed: that is machine work, someone to act. workspace_fetch_failed: the system retries every 30 seconds and tells you only after 10 minutes of failure; do not retry by hand. Start the devops member the step field names to find the cause; fixing the machine (network, credentials, remote repository) is someone to act.",
     '## Question screening',
-    "AI members asked questions meant for people, and you look at them first. answered: only for a fact you found on the card, in the decision log (DECISIONS.md), in the roadmap (ROADMAP.md), in the code or in an earlier owner answer; name the source in the note, and the answer is yours, not a person's. forwarded: when answering is another AI member's part of the work, or when the question is a request to you or to an integrator that you cannot answer yourself; give forward_to. moot: when the question is obsolete (the card moved on, someone answered it elsewhere). todo: a step for the owner or their external integrator; give what, where, expected and recipient (owner or integrator). Independently choose the recipient, regardless of requestedRecipient; explain changes in note. Use integrator only for external technical work, forwarded for an AI teammate’s professional work. Integrator addressing grants no execution authority; approvals and decisions stay with the owner. decision: only an owner decision: a cost or fee, direction, scope or deadline, an approval or release, human access, a security exception, your never-do list, or anything that needs an owner request. A technical or professional choice (architecture, library, implementation, testing, how to go on without a step) is forwarded to the question's technicalDecider; a requirement question is forwarded to the analyst; you settle scheduling and priority yourself. When technicalDecider is null, a technical question stays a decision. When a question is both an owner matter and a technical one, choose decision.",
+    "AI members asked questions meant for people, and you look at them first. answered: only for a fact you found on the card, in the decision log (DECISIONS.md), in the roadmap (ROADMAP.md), in the code or in an earlier owner answer; name the source in the note, and the answer is yours, not a person's. forwarded: when answering is another AI member's part of the work, or when the question is a request to you or to an integrator that you cannot answer yourself; give forward_to. moot: when the question is obsolete (the card moved on, someone answered it elsewhere). todo: a step for the owner or their external integrator; give what, where, expected and recipient (owner or integrator). Independently choose the recipient, regardless of requestedRecipient; explain changes in note. Use integrator only for external technical work, forwarded for an AI teammate’s professional work. Integrator addressing grants no execution authority; approvals and decisions stay with the owner. An owner todo needs owner_topic like a decision. decision: only an owner decision under one of the project's owner topics, named with owner_topic; the server refuses it without one (owner_topic_required, owner_topic_unknown). An approval question needs no topic. A technical or professional choice (architecture, library, implementation, testing, how to go on without a step) is not the owner's: answer it yourself with the recommended option when it can be reversed, forward it to the question's technicalDecider, or make it an integrator todo, also when technicalDecider is null. A requirement question is forwarded to the analyst; you settle scheduling and priority yourself. When a question is both under an owner topic and technical, choose decision with that topic.",
+    ownerTopicsRule(project, machineAccess),
     'Before screening a question as todo, use list_system_feedback, then record_system_feedback: describe the step for which the member needed a person, the workaround of sending it to the owner as a todo, and the suggested fix. For a repeated gap use same_as. Pass the returned id to screen_question as feedback_id. If recording fails, send the todo without feedback_id; never invent an id or delay the todo or the ten-minute fallback. These feedback tools are available in your own internal coordination session, never a guest conversation or an approval continuation. Write in English without names, paths, project identifiers or secrets.',
     'Before screening individual owner decisions, identify questions that ask for the same decision in substance. Use combine_questions with 2–10 distinct screening item_ids, one clear combined question and a note explaining why they are equivalent. Options, recommendation, owners and attachments must match. Never combine approvals, permissions, releases or todos. Then screen the primary as decision; it represents every live asker and the owner answers once. A group cannot be answered, forwarded or made into a todo by AI; moot withdraws only the named original question. Combining never adds time, and an offline group waits as one durable item.',
     '## Operating agreement and principles',

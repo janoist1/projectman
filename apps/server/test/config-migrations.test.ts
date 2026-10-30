@@ -67,6 +67,7 @@ describe('project configuration migrations', () => {
       complexitySetters: [],
       viewerRecipients: 'contacts',
       taskCreateAccess: 'client',
+      ownerDecisionTopics: [],
     } as const satisfies Partial<ProjectConfig['team']>;
     expect(Object.keys(chosen).sort()).toEqual(Object.keys(storedTeamDefaults()).sort());
     Object.assign(saved.team, structuredClone(chosen));

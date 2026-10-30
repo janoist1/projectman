@@ -612,6 +612,7 @@ export class OperatorTools implements OperatorToolsHandler {
       forwardTo?: string;
       todo?: ScreeningTodo;
       feedbackId?: string;
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -688,6 +689,7 @@ export class OperatorTools implements OperatorToolsHandler {
                 note,
                 ...(args.todo ? { todo: args.todo } : {}),
                 ...(args.feedbackId !== undefined ? { feedbackId: args.feedbackId } : {}),
+                ...(args.ownerTopic !== undefined ? { ownerTopic: args.ownerTopic } : {}),
               },
               // A todo no integrator can take goes to the technical decider, not to the owners (PM-1139).
               outcome === 'todo'

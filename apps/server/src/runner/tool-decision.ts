@@ -7,6 +7,7 @@ import {
   type SessionReadBoundary,
 } from '@projectman/shared';
 import type { EngineGuardCode, SessionPolicy, StartSessionSpec } from '../contracts';
+import type { ProviderCapabilities } from './providers/types';
 
 /**
  * The runner's own tool-call decision for a CLI that has no permission hook of its own (the
@@ -44,7 +45,8 @@ export type ToolDenyReason =
   | 'read_only_placement'
   | 'not_granted'
   | 'cwd_outside_workspace'
-  | 'outside_writable_roots';
+  | 'outside_writable_roots'
+  | 'escalation_refused';
 
 export type ToolDecision =
   { decision: 'allow' } | { decision: 'ask' } | { decision: 'deny'; reason: ToolDenyReason };
@@ -86,6 +88,8 @@ export const TOOL_DENY_MESSAGES: Record<ToolDenyReason, string> = {
   not_granted: 'The session policy does not grant this operation.',
   cwd_outside_workspace: 'The command working directory must be inside this session workspace.',
   outside_writable_roots: 'This session may not write to that path; it lies outside its writable folders.',
+  escalation_refused:
+    'This engine runs nothing outside the sandbox: commands that need the network or write outside the workspace are refused. Work inside the sandbox, or report what you need.',
 };
 const ASK: ToolDecision = { decision: 'ask' };
 const deny = (reason: ToolDenyReason): ToolDecision => ({ decision: 'deny', reason });
@@ -402,6 +406,18 @@ export function engineFileToolVerdict(
   const target = claudeFileToolPaths(toolName, toolInput);
   if (!target) return null;
   return engineWriteVerdict(zone, { paths: target.paths, writes: !target.reads }, cwd, options);
+}
+
+/**
+ * Engine mode (PM-1187): whether a permission request asks to run outside the provider's own sandbox.
+ * The Codex hook names the tool only as `Bash`, `apply_patch` or `mcp__<server>__<tool>`, and a network
+ * approval has no described shape, so everything but an MCP tool counts: the check fails closed.
+ */
+export function engineEscalationRefused(
+  capabilities: Pick<ProviderCapabilities, 'sandboxEscalation'>,
+  toolName: string,
+): boolean {
+  return capabilities.sandboxEscalation && !toolName.startsWith('mcp__');
 }
 
 /** The session folders a session reads without asking (PM-333): the root of this instance's, else its own. */

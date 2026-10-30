@@ -211,6 +211,9 @@ export const ERROR_CODES = [
   'question_group_incompatible',
   'invalid_outcome_fields',
   'reask_not_allowed',
+  // An AI member's owner decision names no owner topic, or one the project does not list (PM-1190).
+  'owner_topic_required',
+  'owner_topic_unknown',
   'ai_approval_forbidden',
   'not_a_recipient',
   // AI work: admission, task starts, schedules and sessions

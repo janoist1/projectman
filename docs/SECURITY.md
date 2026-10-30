@@ -54,6 +54,34 @@ tenants into separate OS accounts or machines.
   `permission_refused` timeline event with `by: engine_guard`. Single mode has no `engineGuard` and is
   unchanged. The hub's frame schema is strict: deploy the hub before the engine, or the new `by` field closes
   the link.
+- The engine's provider list and the Codex escalation (PM-1187). A compromised cloud must not run code on
+  the Mac outside an OS sandbox, so the engine decides two more things itself:
+  - `engine.json` `allowedProviders` lists the providers the engine starts sessions for. A `session.start` for
+    another provider (a missing provider means Claude) is refused with `provider_not_allowed` before any path
+    is checked; an empty list starts nothing. A missing field allows every provider, which is the engine from
+    before this change. `npm run engine -- init` writes `claude, codex, nanogpt` on a new engine and keeps
+    the previous value (a missing one too) with `--force`; `npm run engine -- providers <list>|all|none`
+    changes it; `status` shows it.
+  - Every Codex or NanoGPT `PermissionRequest` is refused by the engine without asking the cloud
+    (`escalation_refused`), except an `mcp__<server>__<tool>` tool (the team tools, which run no code outside
+    the sandbox) and `request_user_input` (a question, not a permission). The Codex hook names the tool only as
+    `Bash`, `apply_patch` or an MCP tool, and has no described shape for a network approval, so the engine
+    does not parse the payload: it fails closed. What runs inside the Codex sandbox (edits and commands in
+    the worktree, `.git` included) goes on as before; a network command (`npm install`, `git fetch`) and a
+    write outside the worktree are refused. The refusal is a `tool.guard` audit line with the code
+    `escalation_refused` and a `refused` event with `by: engine_guard`, like the PM-1176 refusals.
+  - A Codex or NanoGPT session that writes in the `default` mode (sandbox `read-only`, approval on request)
+    could never edit once escalation is refused, so the engine does not start it: `permission_mode_too_low`.
+    Reading placements and `plan` mode are not affected. Both start refusals are `session.start` audit lines
+    with `outcome: refused` and the code, without a path or input; the hub shows them as
+    `session_start_failed`.
+  - **Residual risk, Gemini (owner decision, 2026-10-30).** Gemini stays on the engine: with the cloud's
+    approval its commands run on the Mac without an OS sandbox, because the agy CLI has no sandbox this
+    engine can enforce. The mitigation is `allowedProviders`: a new engine starts without Gemini, and the
+    owner adds it with `providers` when the risk is accepted.
+  - **Residual risk, hook forwarder.** The hook forwarder is fail-open: when it gets no answer the CLI asks
+    at its terminal, and with `allowRemoteTerminalInput: true` (the default) the cloud can type keys into it,
+    even into a TUI menu. Setting `allowRemoteTerminalInput` to `false` closes this.
 - The move to the hybrid mode (PM-318, [HYBRID.md](HYBRID.md)) handles two secrets. The machine key is
   made on the Mac (`newMachineKey`), written to `engine.key` with mode 0600 and the `wx` flag (never
   over an existing file), and shown nowhere; only its SHA-256 hash is in the cloud package, and a test
@@ -130,6 +158,12 @@ tenants into separate OS accounts or machines.
   `sensitivePaths` (PM-324). Environment delivery (PM-329) is restricted to NanoGPT
   sessions. The local Codex/NanoGPT permission profile denies these paths to sandboxed
   commands as well (PM-356); explicitly approved host commands remain outside that boundary.
+  A Codex member with the outbound network on (the default, macOS engine, PM-1172) can send the
+  working copy's content out through Codex's network proxy. Reading the secrets stays denied
+  (PM-356), and the proxy refuses the loopback, private and link-local addresses; Unix sockets are
+  closed too (PM-1172 probe, `docs/SANDBOX-PROBE.md`). A NanoGPT member stays without network, because
+  its commands may see the Codex process's environment, the key included, until a canary probe
+  shows otherwise.
   The adapter excludes the key from
   member shell environments, disables Codex notification commands, and rejects ambient
   configuration that can override provider, permissions, hooks or MCP servers before
@@ -783,7 +817,8 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   requests, and the routing itself sends a request whose input is longer than 4,000 characters, a
   tool of another MCP server (email, shared documents, ...), an unknown tool, and a file write or
   patch outside the session's directories (Codex `apply_patch` included) to a person. Waking the
-  decider uses subscription capacity and competes with its own work.
+  decider uses subscription capacity and competes with its own work. On an engine (PM-1187) the engine refuses
+  such a Codex request itself, before it reaches the cloud.
 - The `autoMode` prose in `--settings` only guides the classifier; it is not a boundary.
 
 **The CLI's sandbox (PM-167, decision 28).** Every legacy Claude session runs its shell in Claude

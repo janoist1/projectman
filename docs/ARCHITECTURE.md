@@ -1159,7 +1159,11 @@ home, the server's own checkout `installDir` from `index.ts`; PM-188) in `denyWr
 and the live data (`deniedPaths`) in `denyRead`. The Claude adapter also denies `Edit` of the
 `denyWrite` paths (and everything below them) with rules, since the sandbox does not bind the
 built-in file tools. Codex renders the sensitive-path denials and portable writes through its
-own permission profile (PM-356; readers receive no write entries).
+own permission profile (PM-356; readers receive no write entries). With the member's outbound
+network on, on a macOS engine and not for NanoGPT (`buildSessionPolicy` forces `allowlist` there),
+the profile also gets Codex's `network` part and the command line `features.network_proxy=true`,
+both from one branch of `buildCodexArgs` (PM-1172): commands reach the network through Codex's
+proxy, which refuses the loopback, private and link-local addresses; every other case has no network.
 
 ## Instance role and the move (PM-143, part of PM-135)
 
@@ -1684,7 +1688,10 @@ session boundary and works with remote engines.
 
 The selected live PM (`coordinationMemberOf`, shared `config/project-manager.ts`) receives every
 coordination signal and screens AI questions, including the Operator's. Its own questions go directly
-to people. `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination
+to people. An AI question reaches the owner as a decision or an owner todo only under one of the
+project's owner topics (`team.ownerDecisionTopics`, owner-only; PM-1190): the screening and the PM's own
+`ask_human` name it with `owner_topic`, approvals record `approval`, and the system fallback needs none
+([core-inbox](modules/core-inbox.md)). `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination
 mutations (`combine_questions`, `screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
 actual internal general session; other people, customer conversations, other members and external
 tokens cannot use them (`project_manager_only`, HTTP 403 / MCP forbidden). The Operator and internal

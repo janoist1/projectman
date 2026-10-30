@@ -55,6 +55,8 @@ interface UnattendedCommandsInput {
    * for a human.
    */
   codex?: boolean;
+  /** The Codex member's outbound network is on (PM-1172): the network is no escalation then. */
+  networkOpen?: boolean;
   /** Omit command examples from the restriction index, keeping all restrictions. */
   brief?: boolean;
 }
@@ -257,7 +259,7 @@ export function describeUnattendedCommands(input: UnattendedCommandsInput): stri
 
   const lines = [
     codex
-      ? 'Your sandbox runs commands on its own as far as it allows them. What it does not allow (the network or a write outside your working directory, including shared git metadata) is an escalation, and an escalation waits in a human inbox until someone approves it, unless it is one of the forms below; the owner is often away, so a blocked session can lose hours. So write those commands in the forms below. The server judges the command text only, not what it would do.'
+      ? `Your sandbox runs commands on its own as far as it allows them. What it does not allow (${input.networkOpen ? 'a write' : 'the network or a write'} outside your working directory, including shared git metadata) is an escalation, and an escalation waits in a human inbox until someone approves it, unless it is one of the forms below; the owner is often away, so a blocked session can lose hours. So write those commands in the forms below. The server judges the command text only, not what it would do.`
       : 'Every other shell command waits in a human inbox until someone approves it, and the owner is often away: a blocked session can lose hours. So write your commands in the forms below. The server judges the command text only, not what it would do.',
     `- Reading: read-only commands run without asking in ${where}. They are ${code('git')} with ${gitReaders.map(code).join(', ')} (and ${code('git branch')} only to list); ${READ_ONLY_PROGRAMS.map(code).join(', ')} (${code('find')} without ${code('-exec')} or ${code('-delete')}, ${code('sort')} without ${code('-o')}, ${code('tail')} without ${code('-f')}, ${code('xargs')} only after a lister such as ${code('git ls-files')}); no ${code('git -c')}, no ${code('--output')}.`,
     `- Project checks: ${PROJECT_CHECK_COMMANDS.map(code).join(', ')}, without ${NPX_REFUSED_OPTIONS.map(code).join(', ')}.${

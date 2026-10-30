@@ -571,6 +571,67 @@ The development session's `/mcp` must show only `team`; no `js`, `cua`, computer
 tool may be available. Record the tool inventory without invoking any disabled tool.
 This later run is a separate acceptance prerequisite, not established by the standalone probe.
 
+## PM-1172: outbound network of a Codex member through Codex's proxy
+
+**Native result recorded on PM-1172, 2026-10-30.** The integrator ran the probe (15:28–15:34 CET) with
+`codex-cli 0.159.1` (standalone, `~/.codex/packages/standalone`), macOS 14.6 arm64, main `b035fcd0`:
+the interactive TUI with a subscription login, from a PTY, outside the sandbox, without `codex exec`, on
+the PM-356 fixture. Every security point (1–10, 13–15) gave the expected result; no stop condition held.
+
+**Repeat this whenever the minimum Codex version changes** (`docs/PROVIDERS.md` says so): a Codex that
+does not accept the profile stops every Codex member with the network on from starting.
+
+Setup: the PM-356 section above (`sh scripts/sandbox-probe.sh setup`, the `probe_*` variables and the
+`probe_write` / `probe_read` profiles; interactive TUI, subscription login, no `codex exec`, no real
+secret, no live port (4700/4800/5173) and no `control.sock`). Start line: the PM-356 one, with
+`--ask-for-approval on-request`, `-c features.network_proxy=true`, and this before the closing `}` of
+both profiles:
+
+```
+,network={enabled=true,domains={"*"="allow",localhost="deny","127.0.0.1"="deny"}}
+```
+
+The profile has no `mode` (`limited` allows only GET, HEAD and OPTIONS), no `allow_local_binding`, no
+`unix_sockets` and no `proxy_url`. `features.network_proxy` and the `network` part always go together:
+without the proxy the commands reach the network directly, the loopback included. Disable the user's own
+MCP servers (`-c mcp_servers.<name>.enabled=false`) and read the CLI from `~/.codex/packages/standalone`
+(read exception) as in the PM-356 run.
+
+Throwaway listeners outside the sandbox, in another terminal (`port=48123`, any free port but
+4700/4800/5173; `$probe_root` is the fixture):
+
+```
+node -e "require('http').createServer((q,s)=>s.end('PROBE-OK\n')).listen(+process.argv[1],'0.0.0.0')" $port &
+# the same with '::1' instead of '0.0.0.0'
+node -e "require('net').createServer().listen(process.argv[1])" "$probe_root/pm1172.sock" &
+lan=$(ipconfig getifaddr en0)
+```
+
+Run in the TUI one by one; record the output and the exit code of each:
+
+| #   | Command and expectation                                                                                                                                                                                                                                                         | Result 2026-10-30                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `env \| grep -i -E '^(http\|https\|all)_proxy=' \| cut -d= -f1`: the variable names; the `HTTP_PROXY` port separately                                                                                                                                                           | `ALL_PROXY`, `HTTPS_PROXY`, `HTTP_PROXY` and the lower-case ones are set; `HTTP_PROXY` is `http://127.0.0.1:50643`                                                                                                  |
+| 2   | `curl -sS -o /dev/null -w '%{http_code}\n' https://example.com` → 200                                                                                                                                                                                                           | `200`                                                                                                                                                                                                               |
+| 3   | **Decisive:** `curl -sS -m 5 --noproxy '*' -o /dev/null -w '%{http_code}\n' https://example.com` → failure                                                                                                                                                                      | exit 6, "Could not resolve host": the direct connection is closed                                                                                                                                                   |
+| 4   | Through the proxy, none may print `PROBE-OK`: `curl -sS -m 5 http://127.0.0.1:$port/`, `http://localhost:$port/`, `http://[::1]:$port/`, `http://127.1:$port/`, `http://0.0.0.0:$port/`, `http://localtest.me:$port/`                                                           | 127.0.0.1, localhost, 127.1: "denied" (baseline_policy); `[::1]`, 0.0.0.0, localtest.me: "not_allowed_local"; no `PROBE-OK`                                                                                         |
+| 5   | `curl -sS -m 5 --noproxy '*' http://127.0.0.1:$port/` → failure                                                                                                                                                                                                                 | exit 7, could not connect                                                                                                                                                                                           |
+| 6   | `curl -sS -m 5 http://$lan:$port/`, and the same with `--noproxy '*'` → failure                                                                                                                                                                                                 | through the proxy "not_allowed_local"; with `--noproxy` exit 7                                                                                                                                                      |
+| 7   | `curl -sS -m 5 -o /dev/null -w '%{http_code}\n' http://169.254.169.254/` → refusal                                                                                                                                                                                              | 403 from the proxy, "local/private network addresses are blocked"                                                                                                                                                   |
+| 8   | Unix socket, both must fail: `node -e "require('net').connect(process.argv[1]).on('connect',()=>console.log('CONNECTED')).on('error',e=>console.log('REFUSED',e.code))" "$probe_root/pm1172.sock"` → REFUSED; `curl -sS -m 5 --unix-socket "$probe_root/pm1172.sock" http://x/` | `REFUSED EPERM`; curl exit 7                                                                                                                                                                                        |
+| 9   | `cat <probe_root>/fake-live/secret` → sandbox refusal, with the network on too                                                                                                                                                                                                  | "Operation not permitted" (exit 1), also in the reader profile                                                                                                                                                      |
+| 10  | Writing: in the writer profile `touch pm1172.txt` and `touch <probe_tmp>/ok.txt` work, `touch <probe_root>/outside/x` is refused; in the reader profile `touch x` is refused                                                                                                    | as expected; `outside/x` was not created on the host                                                                                                                                                                |
+| 11  | Function (not a security point): `git ls-remote https://github.com/openai/codex HEAD`; in the writer profile `npm view left-pad version --cache <probe_tmp>/npm-cache`                                                                                                          | `git ls-remote` over HTTPS worked; `npm view` printed `1.3.0`                                                                                                                                                       |
+| 12  | The TUI refuses points 4–6 without asking                                                                                                                                                                                                                                       | no approval prompt; for localhost/127.0.0.1 "explicitly denied by policy and cannot be approved from this prompt"                                                                                                   |
+| 13  | The TUI starts without `--sandbox`, and `/status` shows the profile. The "embedded mode" warning (from `-c`) is expected                                                                                                                                                        | one warning, "Running without the shared background server: command-line configuration overrides (-c …) requires embedded mode."; `/status`: "Profile projectman (workspace with network access, Ask for approval)" |
+| 14  | Two TUIs at once: point 2 gives 200 in both and the `HTTP_PROXY` ports differ                                                                                                                                                                                                   | writer and reader both `200`; ports 50643 and 50955: no clash, no per-session `proxy_url` needed                                                                                                                    |
+| 15  | Control: without the `network` part and the switch, point 2 fails                                                                                                                                                                                                               | exit 6, "Could not resolve host"                                                                                                                                                                                    |
+
+Record: the date, who ran it, `codex --version`, the macOS version, the commit, the exact arguments
+(without secrets) and the result of each point. If any security point differs, Codex's network cannot be
+turned on for that version. The NanoGPT member's probe (`ps -A -E -ww` and a canary, see the PM-358 note of
+2026-10-07) is not part of this one: a NanoGPT member stays without network until it passes.
+
 ## Acceptance record and alternatives
 
 Fill one row per CLI version / OS / effective policy. For each capability record `pass`,

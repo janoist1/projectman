@@ -79,6 +79,15 @@ raw payload fields, restrict human visibility to owners, exclude integrator work
 and plan the handoff to the owners (no clock: on an explicit owner pass-on or when no owner has a live super key).
 Assignees remain real human handles.
 
+Owner topics (PM-1190): `releaseScreened` checks, under the question lock after loading the
+configuration, that a release by the project manager as `decision` or as a todo for the owner names
+one of the project's owner topics (`ownerTopicRefusal` in `packages/shared`); a protected question
+records `approval` instead, and the system releases (fallback, integrator refusal) need none.
+`HumanQuestions.ask` applies the same rule to the coordinator's own question and to a re-ask,
+except for information and approval questions, and refuses `ownerTopic` on any other member's
+question (`owner_topic_not_allowed`). The topic lands in `payload.ownerTopic` and the
+`question_asked`/`question_screened` events; older items and events without it keep rendering.
+
 `IntegratorTodoAccess` is a boolean port, defaulting to unavailable. `app.ts` supplies the shared
 `integratorSideAvailable(config, hasActiveSuperKey)` rule (PM-1045): some owner of the project has a live
 super key (not revoked, not expired; `AuthService.hasActiveSuperKey`), whatever the Operator member's leave or AI

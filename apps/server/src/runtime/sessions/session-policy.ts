@@ -874,6 +874,8 @@ export function buildSessionPolicy(input: {
   deniedPaths?: string[];
   /** Whether the member's commands can reach the network. */
   outboundNetwork: boolean;
+  /** The member's provider: a NanoGPT member's commands stay off the network (PM-1172, PM-329). */
+  provider?: AgentProvider;
   /**
    * The Operator's conversation with someone who is not an owner (PM-475): the team tools only, no
    * file, shell or web tool, and nothing to read outside the placement.
@@ -949,7 +951,9 @@ export function buildSessionPolicy(input: {
       allowedDomains: [],
       allowLocalBinding: false,
       deniedHosts: [...HARD_DENIED_HOSTS],
-      outbound: input.outboundNetwork ? 'open' : 'allowlist',
+      // A NanoGPT member's commands may see the Codex process's environment, key included (PM-329):
+      // no open network until a canary probe shows the isolation.
+      outbound: input.outboundNetwork && input.provider !== 'nanogpt' ? 'open' : 'allowlist',
     },
     outsideSandbox: enforcement === 'strict' ? 'deny' : 'ask',
     permissions,

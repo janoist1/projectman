@@ -439,6 +439,12 @@ stop() {
   echo "stopped"
 }
 
+# The size is informational: a file that vanishes during the walk (a litestream .tmp) makes du exit 1, but
+# du still prints the total of what it measured, so its exit code and stderr are ignored.
+data_size_bytes() {
+  { du -sb "$1" 2>/dev/null || true; } | cut -f1
+}
+
 status() {
   local unit container=absent health=none image="" image_id="" deploy data_bytes=0 free_bytes=0
   local mem_total mem_available swap_total swap_used
@@ -452,7 +458,7 @@ status() {
   fi
   deploy=$(read_deploy)
   if [ -d "$DATA_DIR" ]; then
-    data_bytes=$(du -sb "$DATA_DIR" | cut -f1)
+    data_bytes=$(data_size_bytes "$DATA_DIR")
   fi
   free_bytes=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
   read -r mem_total mem_available < <(free -b | awk '/^Mem:/ { print $2, $7 }')

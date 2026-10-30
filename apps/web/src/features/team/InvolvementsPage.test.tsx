@@ -36,9 +36,7 @@ describe('involvement overview', () => {
     );
     expect(await screen.findByText(/Please review\./)).toBeTruthy();
     // The event is on the timeline view of the card: the link opens that view, not the card.
-    expect(
-      document.querySelector('a[href="/p/AC/tasks/AC-21/timeline#timeline-evt_involvement"]'),
-    ).toBeTruthy();
+    expect(document.querySelector('a[href="/p/AC/tasks/AC-21/steps#timeline-evt_involvement"]')).toBeTruthy();
     expect(screen.getByRole('heading', { name: t('involvement.title') })).toBeTruthy();
     fireEvent.change(screen.getByLabelText(t('involvement.member')), { target: { value: 'fe-1' } });
     await waitFor(() =>

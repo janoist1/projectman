@@ -81,7 +81,7 @@ describe('LeaveChip', () => {
 describe('where a member on leave is marked (PM-227)', () => {
   const drawer = (
     <Routes>
-      <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
+      <Route path="/p/:key/tasks/:taskKey/*" element={<TaskDrawer />} />
     </Routes>
   );
 
@@ -162,8 +162,8 @@ describe('where a member on leave is marked (PM-227)', () => {
   it('marks an owner of the next stage on leave in the "next" row', async () => {
     const project = mockProject();
     sendOnLeave(project, 'code-review');
-    project.render(drawer, '/p/AC/tasks/AC-20');
-    const row = (await screen.findByText(t('task.next'))).closest('li')!;
+    project.render(drawer, '/p/AC/tasks/AC-20/steps');
+    const row = (await screen.findByText(t('task.next'))).closest('p')!;
     expect(within(row).getByText(onLeave)).toBeTruthy();
     expect(row.textContent).toContain(nameOfMember(project, 'code-review'));
   });

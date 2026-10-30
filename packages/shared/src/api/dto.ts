@@ -1044,6 +1044,8 @@ export const TaskDetail = z.object({
   subtasks: z.array(Task).optional(),
   task: Task,
   timeline: z.array(TimelineEvent),
+  /** The card's stage, label, full-test and fix-limit events older than `timeline` (PM-1160), oldest first; absent: not read. */
+  earlierEvents: z.array(TimelineEvent).optional(),
   pullRequests: z.array(TaskPullRequest).default([]),
   sessions: z.array(Session),
   /** Review rounds and send-backs counted from the whole timeline (PM-222). */

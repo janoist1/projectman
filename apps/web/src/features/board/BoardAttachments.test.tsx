@@ -245,17 +245,17 @@ describe('the open card takes files too', () => {
     // The board under the drawer is not told: it shows no hint of its own.
     expect(screen.queryByText(t('attachments.boardHint'))).toBeNull();
     expect(fireEvent.drop(heading, { dataTransfer: drag })).toBe(false);
-    await findAddedRow('shot.png', within(drawer));
-    expect(screen.queryByText(t('attachments.dropActive'))).toBeNull();
-    expect(uploads(project, 'AC-20')).toHaveLength(1);
     // The drawer shows the Attachments view, so the upload is in sight (PM-487).
     expect(
-      within(drawer).getByRole('button', {
+      await within(drawer).findByRole('button', {
         name: new RegExp(`^${t('task.view.attachments')}`),
         pressed: true,
       }),
     ).toBeTruthy();
     expect(within(drawer).getByRole('region', { name: t('attachments.title') })).toBeTruthy();
+    await findAddedRow('shot.png', within(drawer));
+    expect(screen.queryByText(t('attachments.dropActive'))).toBeNull();
+    expect(uploads(project, 'AC-20')).toHaveLength(1);
   });
 
   it('says so when the person may not attach, and sends nothing', async () => {

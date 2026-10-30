@@ -11,7 +11,7 @@ afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, 
 
 const drawer = (
   <Routes>
-    <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
+    <Route path="/p/:key/tasks/:taskKey/*" element={<TaskDrawer />} />
   </Routes>
 );
 
@@ -44,7 +44,7 @@ function mergedAfterConflict() {
 describe('the merge in the card’s history and properties (PM-453)', () => {
   it('tells the request, the conflict and the merge in the timeline, and the result in the properties', async () => {
     const project = mergedAfterConflict();
-    project.render(drawer, '/p/AC/tasks/AC-27');
+    project.render(drawer, '/p/AC/tasks/AC-27/steps');
     await screen.findByText(new RegExp(t('timeline.events.task_merge_requested', { merger: '.*' })));
     expect(
       screen.getByText(
@@ -66,7 +66,7 @@ describe('the merge in the card’s history and properties (PM-453)', () => {
     project.backend.setMergeOutcome('AC-27', 'blocked');
     startMerge(project.backend);
     project.backend.runMerge('AC-27');
-    project.render(drawer, '/p/AC/tasks/AC-27');
+    project.render(drawer, '/p/AC/tasks/AC-27/steps');
     expect((await screen.findAllByText(new RegExp('^A beolvasztás elakadt: '))).length).toBeGreaterThan(0);
   });
 });
@@ -75,7 +75,7 @@ describe('a client reads the merge like any member (PM-79)', () => {
   it('shows the merge in the timeline and the result in the properties, with no way to merge', async () => {
     const project = mergedAfterConflict();
     project.backend.viewerHandle = 'kata';
-    project.render(drawer, '/p/AC/tasks/AC-27', { myHandle: 'kata', isOwner: false });
+    project.render(drawer, '/p/AC/tasks/AC-27/steps', { myHandle: 'kata', isOwner: false });
     expect(await screen.findByText(t('task.merge.merged.label'))).toBeTruthy();
     expect(screen.getByText(new RegExp('^Beolvasztotta a main ágba'))).toBeTruthy();
     expect(screen.queryByRole('button', { name: t('task.merge.button') })).toBeNull();

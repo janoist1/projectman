@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { TimelineEvent, TimelineEventType } from './event';
+import type { TimelineEvent } from './event';
 import type { InboxItem } from './inbox';
 import { canSeeInboxItem, isInformationalAlert } from './inbox';
 import { MemberHandle } from './member';
@@ -146,24 +146,6 @@ export function cardSteps(input: CardStepsInput): CardStep[] {
   ];
   return steps.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.since.localeCompare(b.since));
 }
-
-/** The timeline events that are a system step of a card running, in the "ran" layer of the card's process view. */
-export const CARD_STEP_EVENT_TYPES: readonly TimelineEventType[] = [
-  'refinement_turn',
-  'obligation_woken',
-  'obligation_handed_over',
-  'task_full_test',
-  'task_merge_requested',
-  'task_merge_failed',
-  'task_merge_blocked',
-  'task_merged',
-  'task_handoff',
-  'task_senior_wait',
-  'task_fix_limit',
-  'task_loop',
-  'question_screened',
-  'member_queue_item_closed',
-];
 
 export type CardStepOutcome = 'ran' | 'failed' | 'handed_over';
 

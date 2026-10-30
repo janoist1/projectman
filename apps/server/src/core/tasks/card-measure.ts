@@ -47,17 +47,21 @@ export class CardMeasure {
   }
 
   /**
-   * The card's detail with its rounds and its fix rounds against the limit, for members who see the
-   * card's sessions (not for clients).
+   * The card's detail with its rounds, its fix rounds against the limit and the stage, label, full-test
+   * and fix-limit events older than its timeline window.
    */
   withRounds(detail: TaskDetail): TaskDetail {
     const { projectKey, key } = detail.task;
     const config = this.projects.cachedConfig(projectKey);
     if (!config) return detail;
     const fixRounds = this.fixRounds?.(detail.task, config);
+    // The same read gives the events the timeline window cut off, for the card's story (PM-1160).
+    const events = this.ctx.repos.timeline.roundEvents(projectKey, key);
+    const shown = new Set(detail.timeline.map((event) => event.id));
     return {
       ...detail,
-      rounds: cardRounds(this.ctx, config, projectKey, key),
+      rounds: countCardRounds(events, config),
+      earlierEvents: events.filter((event) => !shown.has(event.id)),
       ...(fixRounds ? { fixRounds } : {}),
     };
   }

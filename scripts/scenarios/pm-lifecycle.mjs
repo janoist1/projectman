@@ -99,7 +99,8 @@ export default async ({ instance, open, shoot, step, log }) => {
       body: { reason: 'Tárgytalan' },
     });
     await instance.api(`/api/projects/AC/tasks/${card.key}/reopen`, { method: 'POST', body: {} });
-    const page = await open({ path: `/p/AC/tasks/${card.key}` });
+    // The card opens in a side panel; its story (a reopening is an essence event) sits on the "Folyamat" tab.
+    const page = await open({ path: `/p/AC/tasks/${card.key}/steps` });
     await page.route(`**/api/projects/AC/tasks/${card.key}**`, async (route) => {
       if (route.request().method() !== 'GET') return route.continue();
       const response = await route.fetch();
@@ -108,8 +109,6 @@ export default async ({ instance, open, shoot, step, log }) => {
       return route.fulfill({ response, json: withReason(await response.json()) });
     });
     await page.reload();
-    // The card opens in a side panel; its timeline sits on the "Idővonal" tab.
-    await page.getByText('Idővonal', { exact: true }).first().click();
     await page.getByText(REASON, { exact: false }).first().waitFor();
     await page.getByText(REASON, { exact: false }).first().scrollIntoViewIfNeeded();
     await shoot(page, 'g-timeline-reopened', { widths: [1512] });

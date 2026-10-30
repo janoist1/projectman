@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CARD_STEP_EVENT_TYPES, cardStepOutcome, cardSteps, visibleCardStepsInput } from './card-step';
+import { cardStepOutcome, cardSteps, visibleCardStepsInput } from './card-step';
 import type { InboxItem } from './inbox';
 import type { MemberQueueItem } from './member-queue';
 import type { Obligation } from './obligation';
@@ -183,6 +183,5 @@ describe('cardStepOutcome', () => {
 
   test('an event type that is no step has no outcome', () => {
     expect(event('task_note')).toBeNull();
-    expect(CARD_STEP_EVENT_TYPES).not.toContain('task_note');
   });
 });

@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
+import { openStory } from '../../test/cardStory';
 import { mockProject } from '../../test/mockProject';
 import { onTaskUpdate } from '../../test/msw/tasks';
 import { apiFailure } from '../../test/msw/contract';
@@ -12,7 +13,7 @@ afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, 
 
 const drawer = (
   <Routes>
-    <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
+    <Route path="/p/:key/tasks/:taskKey/*" element={<TaskDrawer />} />
   </Routes>
 );
 
@@ -114,6 +115,7 @@ describe('the repository of a task in the drawer', () => {
       await waitFor(() =>
         expect((screen.getByLabelText(t('task.repoLabel')) as HTMLSelectElement).value).toBe('admin'),
       );
+      await openStory(screen, true);
       await screen.findByText(
         t('timeline.events.task_updated', {
           fields: t('timeline.repoChange', { previous: t('timeline.noRepo'), repo: 'admin' }),
@@ -144,6 +146,7 @@ describe('the repository of a task in the drawer', () => {
         path: '/api/projects/AC/tasks/AC-20',
         body: { repo: null },
       });
+      await openStory(screen, true);
       await screen.findByText(
         t('timeline.events.task_updated', {
           fields: t('timeline.repoChange', { previous: 'infra', repo: t('timeline.noRepo') }),

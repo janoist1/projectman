@@ -5,6 +5,10 @@
   margin-top: 12px;
   min-width: 0;
 }
+/* Closed: one line (the field's own minimum is three), still a 44px touch target. */
+.closed textarea {
+  min-height: 44px;
+}
 .options {
   list-style: none;
   padding: 4px;

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { openStory } from '../../test/cardStory';
 import { mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
 
@@ -498,6 +499,8 @@ describe('the notices of the system in the card conversation (PM-421)', () => {
       to: ['qa'],
     });
     project.render(card, '/p/AC/tasks/AC-21/timeline');
+    // The notice is system noise, folded away until every event is shown.
+    await openStory(screen, true);
     const links = await screen.findAllByRole('link', { name: t('timeline.fullMessage') });
     expect(links.some((link) => link.getAttribute('href')?.includes('message=msg_system'))).toBe(true);
   });

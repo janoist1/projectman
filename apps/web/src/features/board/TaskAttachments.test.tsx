@@ -10,6 +10,7 @@ import { setFetchImplementation } from '../../api/client';
 import { formatBytes } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { findAddedRow } from '../../test/attachmentTimeline';
+import { openStory, openTab } from '../../test/cardStory';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
 
@@ -378,6 +379,7 @@ describe('attachments: upload', () => {
     expect(calls.sort()).toEqual(['bad.txt', 'good.txt']);
 
     failing = false;
+    await openTab('attachments');
     fireEvent.click(
       screen.getByRole('button', { name: t('attachments.retryLabel', { fileName: 'bad.txt' }) }),
     );
@@ -521,7 +523,6 @@ describe('attachments: paste', () => {
     expect(uploads(project)).toHaveLength(0);
     // A screenshot has no text: a text field cannot take it, so it is attached.
     expect(fireEvent.paste(field, { clipboardData: clipboard([image]) })).toBe(false);
-    await findAddedRow('image.png');
     // The drawer shows the Attachments view then, so the upload is in sight (PM-487).
     expect(
       await screen.findByRole('button', {
@@ -529,6 +530,7 @@ describe('attachments: paste', () => {
         pressed: true,
       }),
     ).toBeTruthy();
+    await findAddedRow('image.png');
   });
 
   it('ignores a paste while a dialog is open', async () => {
@@ -561,6 +563,7 @@ describe('attachments: delete', () => {
     fireEvent.click(screen.getByRole('button', { name: t('attachments.deleteYes') }));
     await waitFor(() => expect(screen.queryByText('old.txt')).toBeNull());
     expect(project.backend.attachments).toHaveLength(0);
+    await openStory();
     const deleted = await screen.findByText(t('timeline.attachmentDeleted', { fileName: 'old.txt' }));
     // The actor of the event is named next to it.
     expect(within(deleted.closest('li')!).getByText(t('common.you'))).toBeTruthy();

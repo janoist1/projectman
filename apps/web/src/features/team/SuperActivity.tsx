@@ -76,7 +76,7 @@ export function SuperActivity() {
                   {t(`superMode.outcomes.${entry.outcome}`)}
                 </Chip>
                 {entry.taskKey ? (
-                  <Link to={`/p/${key}/tasks/${entry.taskKey}/timeline`}>{entry.taskKey}</Link>
+                  <Link to={`/p/${key}/tasks/${entry.taskKey}/steps`}>{entry.taskKey}</Link>
                 ) : null}
               </div>
             </li>

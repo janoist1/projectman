@@ -154,4 +154,21 @@ describe('rounds on the card detail', () => {
     const seen = TaskDetail.parse((await get('client', routes.task('AR', key))).json());
     expect(seen.rounds).toEqual(rounds);
   });
+
+  it('adds the stage and label events older than the timeline window, oldest first (PM-1160)', async () => {
+    const key = await closedCard('Login page', '2026-10-01T10:00:00.000Z');
+    const { cardMeasure, tasks } = domain();
+    const detail = cardMeasure.withRounds(tasks.detail('AR', key, 3));
+    const earlier = detail.earlierEvents ?? [];
+    expect(detail.timeline).toHaveLength(3);
+    expect(earlier.length).toBeGreaterThan(0);
+    expect(earlier[0]?.type).toBe('task_stage_changed');
+    const shown = new Set(detail.timeline.map((event) => event.id));
+    expect(earlier.some((event) => shown.has(event.id))).toBe(false);
+    expect(earlier.map((event) => event.createdAt)).toEqual(
+      [...earlier.map((event) => event.createdAt)].sort(),
+    );
+    // A window that holds the whole card leaves nothing earlier.
+    expect(cardMeasure.withRounds(tasks.detail('AR', key)).earlierEvents).toEqual([]);
+  });
 });

@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import type { ComponentProps, ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { attachmentPreviewOf, routes } from '@projectman/shared';
 import type { Task, TimelineEvent } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
-import { Timeline } from '../../components/Timeline';
 import { t } from '../../i18n/t';
 import { AttachmentImageDialog } from './AttachmentImageDialog';
 import { AttachmentOpenLink } from './AttachmentOpenLink';
@@ -23,11 +22,10 @@ const text = (value: unknown) => (typeof value === 'string' ? value : '');
  * download. All of it goes through the protected content routes. A file that was deleted since
  * stays plain text (its route would answer 404).
  */
-export function TaskTimeline({
-  task,
-  events,
-  ...timeline
-}: { task: Task; events: readonly TimelineEvent[] } & Omit<ComponentProps<typeof Timeline>, 'renderText'>) {
+export function useAttachmentRows(
+  task: Task,
+  events: readonly TimelineEvent[],
+): { renderText: (event: TimelineEvent) => ReactNode; dialog: ReactNode } {
   const { key } = useProject();
   const [open, setOpen] = useState<OpenImage | null>(null);
   const deleted = new Set(
@@ -77,10 +75,5 @@ export function TaskTimeline({
       onClose={() => setOpen(null)}
     />
   );
-  return (
-    <>
-      <Timeline {...timeline} events={events} renderText={renderText} />
-      {dialog}
-    </>
-  );
+  return { renderText, dialog };
 }

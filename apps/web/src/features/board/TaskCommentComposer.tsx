@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useId, useRef, useState } from 'react';
 import { useCreateTaskComment } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -16,6 +17,9 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
   const [text, setText] = useState('');
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null);
   const [selected, setSelected] = useState(0);
+  // One line until the reader focuses it; the hint and the Send button follow, and stay while there is a draft.
+  const [focused, setFocused] = useState(false);
+  const open = focused || text !== '';
   const textarea = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
   const contacts = useContacts();
@@ -53,7 +57,7 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
   };
   return (
     <form
-      className={styles.composer}
+      className={clsx(styles.composer, !open && styles.closed)}
       onSubmit={(event) => {
         event.preventDefault();
         if (!text.trim() || mutation.isPending) return;
@@ -72,11 +76,13 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
         ref={textarea}
         label={t('task.comments.label')}
         hint={
-          contacts.restricted
-            ? t(noContacts ? 'task.comments.contactsHintNone' : 'task.comments.contactsHint')
-            : t('task.comments.hint')
+          !open
+            ? undefined
+            : contacts.restricted
+              ? t(noContacts ? 'task.comments.contactsHintNone' : 'task.comments.contactsHint')
+              : t('task.comments.hint')
         }
-        rows={3}
+        rows={open ? 3 : 1}
         maxLength={10000}
         value={text}
         disabled={mutation.isPending}
@@ -91,7 +97,11 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
           if (document.activeElement === event.currentTarget)
             updateMention(event.currentTarget.value, event.currentTarget.selectionStart);
         }}
-        onBlur={() => setMention(null)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setMention(null);
+          setFocused(false);
+        }}
         onKeyDown={(event) => {
           if (!mention || event.nativeEvent.isComposing) return;
           if (event.key === 'Escape') {
@@ -129,9 +139,11 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
         </ul>
       ) : null}
       {mutation.isError ? <p role="alert">{errorMessage(mutation.error)}</p> : null}
-      <Button type="submit" loading={mutation.isPending} disabled={!text.trim()}>
-        {t('common.send')}
-      </Button>
+      {open ? (
+        <Button type="submit" loading={mutation.isPending} disabled={!text.trim()}>
+          {t('common.send')}
+        </Button>
+      ) : null}
     </form>
   );
 }

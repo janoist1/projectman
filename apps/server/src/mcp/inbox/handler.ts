@@ -77,6 +77,7 @@ export class InboxTools implements InboxToolsHandler {
       signalId?: string;
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;

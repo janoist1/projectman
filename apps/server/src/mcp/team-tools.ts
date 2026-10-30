@@ -432,6 +432,7 @@ export class TeamToolsService implements TeamToolsHandler {
       signalId?: string;
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -456,6 +457,7 @@ export class TeamToolsService implements TeamToolsHandler {
       forwardTo?: string;
       todo?: ScreeningTodo;
       feedbackId?: string;
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;

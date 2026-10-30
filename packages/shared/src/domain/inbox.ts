@@ -1029,6 +1029,12 @@ export const QuestionPayload = z.object({
    * `owner_decision` only the owner's own login answers. A missing value counts as `owner_decision`.
    */
   responsePurpose: QuestionResponsePurpose.optional(),
+  /**
+   * The owner topic the owner is asked to decide under (PM-1190): one of the project's `ownerDecisionTopics`,
+   * or `approval` for an approval question. Absent on older questions and on what needs none (information,
+   * a system release).
+   */
+  ownerTopic: z.string().optional(),
   /** Binds the question to one durable super operation (PM-762); such a question is always an owner decision. */
   superOperation: SuperOperationQuestionPayload.optional(),
   /**

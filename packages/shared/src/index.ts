@@ -106,6 +106,7 @@ export * from './config/operator-watch';
 export * from './config/answer-stall';
 export * from './config/repos';
 export * from './config/owner-only';
+export * from './config/owner-topics';
 export * from './config/integrator';
 export * from './config/permission-level';
 export * from './config/technical-decider';

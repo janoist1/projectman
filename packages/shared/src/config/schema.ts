@@ -20,6 +20,7 @@ import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 import { RepoDocs } from './project-docs';
 import { isRegeneratedPathPattern } from './regenerated-paths';
 import { OperatorWatch } from './operator-watch';
+import { OwnerDecisionTopics } from './owner-topics';
 import { RULE_REASON_MAX, TEAM_RULE_IDS } from './team-rule-ids';
 
 /**
@@ -473,6 +474,11 @@ export const ProjectConfig = z.object({
     assigneeFit: z.enum(['automatic', 'automatic_and_ai']).optional(),
     /** Why each rule on the "How we work" page lives (PM-1137); absent: the general reasons show. */
     ruleReasons: RuleReasons.optional(),
+    /**
+     * The topics an AI member may ask the owner to decide under (PM-1190); empty: only approvals reach the
+     * owner. Absent: its `TEAM_SETTING_POLICY` default.
+     */
+    ownerDecisionTopics: OwnerDecisionTopics.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),

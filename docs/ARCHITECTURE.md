@@ -1684,7 +1684,10 @@ session boundary and works with remote engines.
 
 The selected live PM (`coordinationMemberOf`, shared `config/project-manager.ts`) receives every
 coordination signal and screens AI questions, including the Operator's. Its own questions go directly
-to people. `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination
+to people. An AI question reaches the owner as a decision or an owner todo only under one of the
+project's owner topics (`team.ownerDecisionTopics`, owner-only; PM-1190): the screening and the PM's own
+`ask_human` name it with `owner_topic`, approvals record `approval`, and the system fallback needs none
+([core-inbox](modules/core-inbox.md)). `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination
 mutations (`combine_questions`, `screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
 actual internal general session; other people, customer conversations, other members and external
 tokens cannot use them (`project_manager_only`, HTTP 403 / MCP forbidden). The Operator and internal

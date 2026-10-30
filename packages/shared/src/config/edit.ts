@@ -89,6 +89,8 @@ export const PatchConfigRequest = z
     ruleReasons: z
       .partialRecord(z.enum(TEAM_RULE_IDS), z.string().trim().min(1).max(RULE_REASON_MAX).nullable())
       .optional(),
+    /** The owner topics (PM-1190): the whole list replaces the saved one, [] too. Owner-only (`owner_decision_topics`). */
+    ownerDecisionTopics: ProjectConfig.shape.team.shape.ownerDecisionTopics,
     merger: ProjectConfig.shape.team.shape.merger,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
@@ -341,6 +343,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.complexitySetters !== undefined ? { complexitySetters: patch.complexitySetters } : {}),
       ...(patch.assigneeFit !== undefined ? { assigneeFit: patch.assigneeFit } : {}),
       ...(patch.ruleReasons !== undefined ? { ruleReasons } : {}),
+      ...(patch.ownerDecisionTopics !== undefined ? { ownerDecisionTopics: patch.ownerDecisionTopics } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),

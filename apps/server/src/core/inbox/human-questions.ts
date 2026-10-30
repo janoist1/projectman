@@ -1,5 +1,8 @@
 import {
+  APPROVAL_OWNER_TOPIC,
   coordinationMemberOf,
+  ownerTopicRefusal,
+  ownerTopicRefusalMessage,
   externalOriginActor,
   hasBoundOrigin,
   memberOf,
@@ -109,13 +112,18 @@ export class HumanQuestions implements HumanQuestionsPort {
       (input.recipient !== undefined && input.recipient !== 'owner')
     )
       throw refuse('The integrator cannot re-ask or choose the recipient.');
+    const aiMember = caller.kind === 'member' && memberOf(config, asker)?.kind === 'ai';
+    const coordinator = coordinationMemberOf(config)?.handle === asker;
     // Every other AI member's question goes through the project manager first (PM-558); a re-ask does not.
-    const screened =
-      caller.kind === 'member' &&
-      this.questionScreening.enabled &&
-      coordinationMemberOf(config)?.handle !== asker &&
-      !unscreened &&
-      memberOf(config, asker)?.kind === 'ai';
+    const screened = aiMember && this.questionScreening.enabled && !coordinator && !unscreened;
+    // An AI member's question that skips the screening names its owner topic itself (PM-1190); the screening
+    // names it for any other.
+    const ownTopic = aiMember && (coordinator || unscreened !== null);
+    if (input.ownerTopic !== undefined && !ownTopic)
+      throw refuse(
+        "owner_topic_not_allowed: only the project manager's own question or a re-ask names an owner topic; " +
+          'the screening names it for yours.',
+      );
 
     const responsePurpose = input.responsePurpose ?? (external ? 'owner_decision' : undefined);
     let assignees: string[];
@@ -164,6 +172,9 @@ export class HumanQuestions implements HumanQuestionsPort {
           assignees,
         })
       : null;
+    const ownerTopic = ownTopic
+      ? this.ownerTopic(config, input.ownerTopic, approvalLabel, responsePurpose)
+      : null;
     // The files are checked before the label is claimed: a refusal leaves no waiting label behind.
     const attachments = this.questionAttachments(config, projectKey, task, assignees, input.attachmentIds);
     const autoLabel = await this.openQuestionLabel.claim(projectKey, taskKey, asker, question);
@@ -198,6 +209,7 @@ export class HumanQuestions implements HumanQuestionsPort {
             : {}),
         options: choices.map((choice) => choice.label),
         ...(approvalLabel ? { approvalLabel } : {}),
+        ...(ownerTopic ? { ownerTopic } : {}),
         ...(recommendedIndex >= 0 ? { recommended: options[recommendedIndex]!.id } : {}),
         ...(reason ? { recommendationReason: reason } : {}),
         ...(details ? { details } : {}),
@@ -220,6 +232,7 @@ export class HumanQuestions implements HumanQuestionsPort {
         requestedRecipient,
         ...(screened ? { screening: true as const } : {}),
         ...(unscreened ? { unscreened } : {}),
+        ...(ownerTopic ? { ownerTopic } : {}),
       },
     });
     // An Operator that cannot take it gives the question to the people before this call returns; one that
@@ -282,6 +295,23 @@ export class HumanQuestions implements HumanQuestionsPort {
     )
       throw missing(`Question ${itemId} does not exist in this project.`);
     return item;
+  }
+
+  /**
+   * The owner topic of a question that skips the screening (PM-1190): `approval` for an approval question,
+   * none for an information question, else one of the project's topics; throws before anything is written.
+   */
+  private ownerTopic(
+    config: ProjectConfig,
+    asked: string | undefined,
+    approvalLabel: string | null,
+    responsePurpose: HumanQuestionInput['responsePurpose'],
+  ): string | null {
+    if (approvalLabel) return APPROVAL_OWNER_TOPIC;
+    if (responsePurpose === 'information') return null;
+    const refusal = ownerTopicRefusal(config, asked);
+    if (refusal) throw new DomainError(refusal, ownerTopicRefusalMessage(config, refusal));
+    return asked!;
   }
 
   /**

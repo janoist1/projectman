@@ -785,6 +785,8 @@ export interface InboxToolsHandler {
       /** `information`: a simple fact the super-mode integrator may relay (PM-762); missing means an owner decision. */
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;
+      /** The owner topic of the coordinator's own decision question or of a re-ask (PM-1190). */
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -1085,8 +1087,9 @@ export interface OperatorToolsHandler {
   /**
    * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
    * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
-   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
-   * guest conversation; needs no open request.
+   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. A decision and an owner's
+   * todo name the project's owner topic (`ownerTopic`, PM-1190). Only the Operator, not in a guest
+   * conversation; needs no open request.
    */
   screenQuestion(
     ctx: ToolContext,
@@ -1098,6 +1101,7 @@ export interface OperatorToolsHandler {
       forwardTo?: MemberHandle;
       todo?: ScreeningTodo;
       feedbackId?: string;
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;

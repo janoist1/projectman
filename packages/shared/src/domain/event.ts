@@ -474,6 +474,8 @@ export interface TimelineEventData {
     question: string;
     screening?: true;
     unscreened?: { reason: string; previousItemId: string };
+    /** The owner topic of an owner decision that skips the screening (PM-1190). */
+    ownerTopic?: string;
   };
   question_answered: {
     inboxItemId: string;
@@ -517,6 +519,8 @@ export interface TimelineEventData {
     answer?: string;
     todo?: QuestionTodo;
     feedbackId?: string;
+    /** The owner topic a decision or an owner's todo went to the owner under (PM-1190). */
+    ownerTopic?: string;
   };
   /** A question of `asker` went to the people with no Operator outcome (PM-556). */
   question_screening_skipped: { inboxItemId: string; asker: string; reason: 'timeout' | 'unavailable' };

@@ -9,7 +9,10 @@ import {
   integratorExecution,
 } from '../../kernel';
 import {
+  APPROVAL_OWNER_TOPIC,
   APPROVAL_PAYLOAD_KEYS,
+  ownerTopicRefusal,
+  ownerTopicRefusalMessage,
   hasProtectedQuestionPayload,
   humanInboxAssignment,
   isIntegratorTodo,
@@ -172,6 +175,8 @@ interface ScreeningRelease {
   todo?: ScreeningTodo;
   feedbackId?: string;
   fallback?: 'timeout' | 'unavailable';
+  /** The owner topic of a decision or an owner's todo (PM-1190); `releaseOwnerTopic` checks it. */
+  ownerTopic?: string;
 }
 
 /** What the `question_screened` timeline entry says about the Operator's outcome. */
@@ -179,7 +184,28 @@ type ScreenedEntry = Pick<ScreeningSettlement, 'by' | 'note' | 'answer' | 'forwa
   outcome: TimelineEventData['question_screened']['outcome'];
   todo?: QuestionTodo;
   feedbackId?: string;
+  ownerTopic?: string;
 };
+
+/**
+ * The owner topic a screened question goes to the owner under (PM-1190), or undefined when it needs none:
+ * a release by the system (`fallback`) or a todo for the integrator. An approval question records
+ * `approval`; any other decision or owner's todo needs one of the project's topics, else it is refused
+ * and stays in screening.
+ */
+function releaseOwnerTopic(
+  current: InboxItem,
+  release: ScreeningRelease,
+  config: ProjectConfig,
+): string | undefined {
+  const toOwner =
+    release.outcome === 'decision' || (release.outcome === 'todo' && release.todo?.recipient === 'owner');
+  if (!release.by || !toOwner) return undefined;
+  if (hasProtectedQuestionPayload(current)) return APPROVAL_OWNER_TOPIC;
+  const refusal = ownerTopicRefusal(config, release.ownerTopic);
+  if (refusal) throw invalid(refusal, ownerTopicRefusalMessage(config, refusal));
+  return release.ownerTopic;
+}
 
 /** `payload` with the screening record changed by `patch`; the record starts at `at` when it had none. */
 function withScreening(
@@ -1615,6 +1641,7 @@ export class InboxService {
         ...current.payload,
         recipient: selected.recipient,
         ...(selected.recipient === 'integrator' ? { integratorOpenedAt: at } : {}),
+        ...(release.ownerTopic ? { ownerTopic: release.ownerTopic } : {}),
       },
       {
         at,
@@ -1753,10 +1780,12 @@ export class InboxService {
       if (!current || current.kind !== 'question' || current.state !== 'screening') return null;
       const { outcome, fallback } = release;
       const config = await this.projects.config(current.projectKey);
+      const { ownerTopic: _asked, ...rest } = release;
+      const ownerTopic = releaseOwnerTopic(current, release, config);
       const at = isoNow(this.ctx);
       const { selected, forwardTo, todo, payload, options } = this.releaseFields(
         current,
-        release,
+        ownerTopic ? { ...rest, ownerTopic } : rest,
         config,
         at,
         forward && release.by ? technicalDeciderOf(config, current.source) : null,
@@ -1797,6 +1826,7 @@ export class InboxService {
             note: release.note ?? '',
             ...(todo ? { todo } : {}),
             ...(release.feedbackId !== undefined ? { feedbackId: release.feedbackId } : {}),
+            ...(ownerTopic ? { ownerTopic } : {}),
           });
         } else if (fallback) {
           this.timeline.append({
@@ -1929,6 +1959,7 @@ export class InboxService {
         ...(outcome.answer ? { answer: outcome.answer } : {}),
         ...(outcome.todo ? { todo: outcome.todo } : {}),
         ...(outcome.feedbackId !== undefined ? { feedbackId: outcome.feedbackId } : {}),
+        ...(outcome.ownerTopic ? { ownerTopic: outcome.ownerTopic } : {}),
         ...(outcome.outcome === 'todo'
           ? {
               // A todo forwarded to the decider has no recipient: it is nobody's inbox item (PM-1139).

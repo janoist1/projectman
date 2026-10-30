@@ -879,7 +879,11 @@ describe('AgentSession', () => {
     const { events, hook } = start({ spec: { initialMessage: 'Build the login page' } });
     await hook({ hook_event_name: 'SessionStart', source: 'startup' });
     await vi.advanceTimersByTimeAsync(
-      CLAUDE_TIMING.readySettleMs + TYPE_MS + CLAUDE_TIMING.submitTimeoutMs + CLAUDE_TIMING.enterRetryMs,
+      CLAUDE_TIMING.readySettleMs +
+        TYPE_MS +
+        CLAUDE_TIMING.submitTimeoutMs +
+        CLAUDE_TIMING.lateSubmitMs +
+        CLAUDE_TIMING.enterRetryMs,
     );
     expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
     expect(events.filter((e) => e.type === 'first_input_failed')).toEqual([

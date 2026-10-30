@@ -538,7 +538,11 @@ const transcriptOptions = z.strictObject({
 /** The only method gateway. Receivers validate both parameters and results. */
 export const methods = {
   'session.start': method(EngineStartSpec, RunningSession),
-  'session.send': method(session.extend({ message: text }), done),
+  // `deliveryId` (PM-1205): only sent to an engine that advertises `deliveryIds` in its hello.
+  'session.send': method(
+    session.extend({ message: text, deliveryId: text.regex(/^dlv_[0-9a-f]{32}$/).optional() }),
+    done,
+  ),
   'session.compact': method(session.extend({ instruction: text }), z.boolean()),
   'session.stop': method(session.extend({ force: z.boolean().optional() }), done),
   'session.close_scopes': method(

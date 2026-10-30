@@ -359,8 +359,13 @@ export interface SessionRunner {
    * took it (reported the prompt). Rejects when the process ended first, or when the message was
    * typed but the CLI did not take it in time (PM-571): it did not reach the agent, so the caller
    * must not count it as delivered. A slash command reports no prompt, so it resolves once typed.
+   *
+   * With a `deliveryId` (the sender's key for this message) the call is idempotent per process (PM-1205): a
+   * repeat joins the message still awaited, and one the CLI already took (confirmed or not) is not typed
+   * again. A call that did not take the message (rejected as not taken) may be repeated with the same id.
+   * A message the CLI showed it was busy for after the timeout resolves as taken, unconfirmed.
    */
-  sendUserMessage(sessionId: string, text: string): Promise<void>;
+  sendUserMessage(sessionId: string, text: string, options?: { deliveryId?: string }): Promise<void>;
   /**
    * Compacts the session's conversation (PM-213): types the CLI's compaction command with
    * `instruction` once the session is idle, and holds every later message back until the CLI is

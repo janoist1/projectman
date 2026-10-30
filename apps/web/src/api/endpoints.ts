@@ -107,6 +107,8 @@ import type {
   AcceptInviteRequest,
   EmailLoginCodeRequest,
   EmailLoginVerifyRequest,
+  PasswordCodeRequest,
+  PasswordResetRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
@@ -234,6 +236,10 @@ export const api = {
     apiRequest(routes.emailLoginRequest(), { method: 'POST', body, schema: EmailLoginCodeRequested }),
   verifyEmailLogin: (body: EmailLoginVerifyRequest) =>
     apiRequest(routes.emailLoginVerify(), { method: 'POST', body, schema: Me }),
+  requestPasswordCode: (body: PasswordCodeRequest) =>
+    apiRequest(routes.passwordCodeRequest(), { method: 'POST', body, schema: EmailLoginCodeRequested }),
+  resetPassword: (body: PasswordResetRequest) =>
+    apiRequest(routes.passwordReset(), { method: 'POST', body, schema: Me }),
   logout: () => apiRequest<unknown>(routes.logout(), { method: 'POST' }),
   me: () => apiRequest(routes.me(), { schema: Me }),
 

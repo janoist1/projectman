@@ -668,6 +668,12 @@ export class MockBackend {
     inviteEmail: (token) => this.openClientInvite(token)?.email ?? null,
     eligible: (email) => this.emailLoginEligible(email),
     hasAccount: (email) => this.accounts.has(email),
+    hasClientAccount: (email) => this.accounts.has(email) && this.clientMemberships(email) > 0,
+    setPassword: (email, password) => {
+      const account = this.accounts.get(email);
+      if (account) account.password = password;
+      return this.startEmailSession(email, null);
+    },
     inviteDisplayName: (email) =>
       this.openInvitesOf(email).find((invite) => invite.displayName)?.displayName ?? null,
     startSession: (email, name) => this.startEmailSession(email, name),
@@ -2153,6 +2159,9 @@ export class MockBackend {
     }
     if (path === '/api/auth/email/request' && method === 'POST') return this.emailLogin.request(body);
     if (path === '/api/auth/email/verify' && method === 'POST') return this.emailLogin.verify(body);
+    if (path === '/api/auth/password/request' && method === 'POST')
+      return this.emailLogin.request(body, 'password');
+    if (path === '/api/auth/password/reset' && method === 'POST') return this.emailLogin.resetPassword(body);
     if (path === '/api/auth/logout' && method === 'POST') {
       this.auth = 'login';
       return ok();
@@ -3646,6 +3655,14 @@ export class MockBackend {
     );
     if (memberships.some((member) => member.kind !== 'human' || member.access !== 'client')) return false;
     return memberships.length > 0 || open.length > 0;
+  }
+
+  /** The client seats of the address, 0 when it is not eligible for the e-mail login at all. */
+  private clientMemberships(email: string): number {
+    if (!this.emailLoginEligible(email)) return 0;
+    return this.config.team.members.filter(
+      (member) => member.kind === 'human' && member.email?.toLowerCase() === email,
+    ).length;
   }
 
   /** A right code: accepts the open client invitations, makes the passwordless account and starts the session. */

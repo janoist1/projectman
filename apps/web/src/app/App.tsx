@@ -37,6 +37,7 @@ const projectSetupPage = lazyPage(
 );
 const setupPage = lazyPage(() => import('../features/auth/SetupPage'), 'SetupPage');
 const loginPage = lazyPage(() => import('../features/auth/LoginPage'), 'LoginPage');
+const passwordResetPage = lazyPage(() => import('../features/auth/PasswordResetPage'), 'PasswordResetPage');
 const createProjectPage = lazyPage(
   () => import('../features/projects/CreateProjectPage'),
   'CreateProjectPage',
@@ -81,6 +82,7 @@ export function AppRoutes() {
       <Route path="/owner-invite/:token" element={ownerInvitePage} />
       <Route path="/setup" element={setupPage} />
       <Route path="/login" element={loginPage} />
+      <Route path="/login/password" element={passwordResetPage} />
       <Route element={<AuthGate />}>
         <Route index element={<HomeRedirect />} />
         <Route path="/welcome" element={welcomePage} />

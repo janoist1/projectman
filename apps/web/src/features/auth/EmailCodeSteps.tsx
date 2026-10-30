@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { EMAIL_LOGIN_CODE_LENGTH } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { ErrorBanner } from '../../components/ErrorBanner';
@@ -31,6 +31,8 @@ export function CodeStep({
   address,
   onOtherAddress,
   onSubmit,
+  extraFields,
+  submitLabels,
 }: {
   flow: EmailCodeFlow;
   address: string;
@@ -38,6 +40,10 @@ export function CodeStep({
   onOtherAddress?: () => void;
   /** Called with a code that has the right shape; the page sends it. */
   onSubmit: (code: string) => void;
+  /** Fields of the page that go with the code, below the code field (the new password). */
+  extraFields?: ReactNode;
+  /** The button text when the step does something other than log in: ready, busy, and waiting out a limit. */
+  submitLabels?: { ready: string; busy: string; wait: (time: string) => string };
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [code, setCode] = useState('');
@@ -111,6 +117,7 @@ export function CodeStep({
           }}
           error={error}
         />
+        {extraFields}
         {flow.resent ? <p className={styles.notice}>{t('auth.emailLogin.resent')}</p> : null}
         <FlowProblems flow={flow} />
         <Button
@@ -122,10 +129,12 @@ export function CodeStep({
           disabled={flow.verifyLimitLeft > 0}
         >
           {flow.verifyLimitLeft > 0
-            ? t('auth.emailLogin.verifyWait', { time: formatCountdown(flow.verifyLimitLeft) })
+            ? (submitLabels?.wait ?? ((time) => t('auth.emailLogin.verifyWait', { time })))(
+                formatCountdown(flow.verifyLimitLeft),
+              )
             : verifying
-              ? t('auth.emailLogin.verifying')
-              : t('auth.emailLogin.verify')}
+              ? (submitLabels?.busy ?? t('auth.emailLogin.verifying'))
+              : (submitLabels?.ready ?? t('auth.emailLogin.verify'))}
         </Button>
       </form>
       <div className={styles.resend}>

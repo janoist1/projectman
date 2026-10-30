@@ -1886,7 +1886,7 @@ export const hu = {
       codeTitle: 'Nézd meg a leveleidet',
       address: 'Cím:',
       otherAddress: 'Másik cím',
-      codeLabel: 'Belépőkód',
+      codeLabel: 'Kód',
       codeFormat: 'A kód {digits} számjegyből áll.',
       codeInvalid: 'Ez a kód nem jó, vagy már lejárt. Nézd meg újra, vagy kérj új kódot.',
       verify: 'Belépés',
@@ -1904,6 +1904,23 @@ export const hu = {
       nameLabel: 'Neved',
       tooMany: 'Túl sok kérés érkezett. Várj egy kicsit, utána újra kérhetsz kódot.',
       unavailable: 'Az e-mailes belépés most nem működik. Próbáld újra később.',
+    },
+    /** Setting or resetting a client's password with an e-mailed code (PM-946); linked from the login page. */
+    passwordReset: {
+      link: 'Elfelejtett vagy hiányzó jelszó',
+      title: 'Jelszó beállítása',
+      subtitle:
+        'Add meg az e-mail címed, és küldünk egy kódot. A kóddal új jelszót állíthatsz be, és be is lépsz vele.',
+      codeSubtitle:
+        'Ha a címhez tartozik fiók, elküldtük a {digits} számjegyű kódot. {minutes} percig érvényes.',
+      newPassword: 'Új jelszó',
+      newPasswordHint: 'Legalább 8 karakter.',
+      save: 'Jelszó mentése és belépés',
+      saving: 'Mentés…',
+      saveWait: 'Jelszó mentése ({time})',
+      saved: 'Elmentettük az új jelszavad. A többi eszközön újra be kell lépned.',
+      remembered: 'Eszedbe jutott?',
+      backToLogin: 'Vissza a belépéshez',
     },
     showPassword: 'Jelszó mutatása',
     hidePassword: 'Jelszó elrejtése',

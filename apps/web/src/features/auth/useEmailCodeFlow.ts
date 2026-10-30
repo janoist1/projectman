@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Me } from '@projectman/shared';
 import { isApiError } from '../../api/client';
-import { useRequestEmailLoginCode, useVerifyEmailLogin } from '../../api/queries';
+import {
+  useRequestEmailLoginCode,
+  useRequestPasswordCode,
+  useResetPassword,
+  useVerifyEmailLogin,
+} from '../../api/queries';
 import { t } from '../../i18n/t';
 import { retryAfterOf, useCountdown, useSingleFlight } from './emailLogin';
 
@@ -24,9 +29,11 @@ const DEFAULT_LIFETIME_SECONDS = 600;
  * keep the address, the code and the name. A request or a check runs once at a time: a second call while
  * one runs is dropped.
  */
-export function useEmailCodeFlow(identity: CodeIdentity) {
-  const requestCode = useRequestEmailLoginCode();
+export function useEmailCodeFlow(identity: CodeIdentity, purpose: 'login' | 'password' = 'login') {
+  const requestLoginCode = useRequestEmailLoginCode();
+  const requestPasswordCode = useRequestPasswordCode();
   const verifyCode = useVerifyEmailLogin();
+  const resetPassword = useResetPassword();
   const run = useSingleFlight();
   const [busy, setBusy] = useState<'request' | 'verify' | null>(null);
   const [resendUntil, setResendUntil] = useState<number | null>(null);
@@ -72,7 +79,10 @@ export function useEmailCodeFlow(identity: CodeIdentity) {
       clearProblems();
       setBusy('request');
       try {
-        const answer = await requestCode.mutateAsync(identity);
+        const answer =
+          purpose === 'password' && 'email' in identity
+            ? await requestPasswordCode.mutateAsync(identity)
+            : await requestLoginCode.mutateAsync(identity);
         setResendUntil(Date.now() + answer.resendAfterSeconds * 1000);
         setLifetimeSeconds(answer.expiresInSeconds);
         setCodeInvalid(false);
@@ -98,14 +108,24 @@ export function useEmailCodeFlow(identity: CodeIdentity) {
 
   /** Redeems the code (already normalized); the name goes along when the account is new. */
   function verify(code: string, name?: string): Promise<VerifyOutcome | undefined> {
+    return redeem(() => verifyCode.mutateAsync({ ...identity, code, ...(name ? { name } : {}) }));
+  }
+
+  /** Redeems a password code (already normalized) and sets the new password (PM-946). */
+  function setPassword(code: string, password: string): Promise<VerifyOutcome | undefined> {
+    if (!('email' in identity)) throw new TypeError('a password code needs an address');
+    return redeem(() => resetPassword.mutateAsync({ email: identity.email, code, password }));
+  }
+
+  /** The check both redemptions share: one at a time, and every refusal filed under its banner. */
+  function redeem(call: () => Promise<Me>): Promise<VerifyOutcome | undefined> {
     return run(async (): Promise<VerifyOutcome> => {
       clearProblems();
       setCodeInvalid(false);
       setResent(false);
       setBusy('verify');
       try {
-        const me = await verifyCode.mutateAsync({ ...identity, code, ...(name ? { name } : {}) });
-        return { kind: 'ok', me };
+        return { kind: 'ok', me: await call() };
       } catch (error) {
         if (isApiError(error)) {
           if (error.code === 'email_code_invalid') {
@@ -147,6 +167,7 @@ export function useEmailCodeFlow(identity: CodeIdentity) {
     announcement,
     request,
     verify,
+    setPassword,
     reset,
   };
 }

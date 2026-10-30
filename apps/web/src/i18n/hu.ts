@@ -5673,6 +5673,7 @@ export const hu = {
       permission_ai_denied: 'AI-döntnök elutasította',
       permission_refused_approver_none: 'Elutasítva, senki nem dönt a kérdésekről: {summary}',
       permission_refused_classifier: 'A Claude Code elutasította: {summary}',
+      permission_refused_engine_guard: 'A motor őre elutasította: {summary}',
       permission_escalated_lead: 'Továbbküldve emberi döntésre',
       permission_escalated_timeout: 'A döntnök nem döntött időben, emberi döntésre vár',
       permission_escalated_unreached: 'A döntnököt nem sikerült elérni, emberi döntésre vár',

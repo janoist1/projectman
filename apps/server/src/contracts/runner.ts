@@ -476,6 +476,15 @@ export interface PermissionRefusedInfo {
   toolName: string;
   toolInput: unknown;
   reason?: string;
+  /** Who refused: the engine's own guard (PM-1176); absent: the agent's own classifier (PM-165). */
+  by?: 'engine_guard';
+}
+
+export type EngineGuardCode = 'outside_writable_roots' | 'denied_path' | 'updated_input';
+
+/** Engine mode only (PM-1176): the engine itself refused a tool call; one audit line, no path or input. */
+export interface EngineGuard {
+  refused(entry: { sessionId: string; member?: string; code: EngineGuardCode }): void;
 }
 
 export interface TranscriptReader {
@@ -566,6 +575,12 @@ export interface RunnerModuleOptions {
   /** Base URL the CLI calls for HTTP hooks, e.g. http://127.0.0.1:4700 (the runner adds /hooks/<token>). */
   publicBaseUrl: string;
   broker: PermissionBroker;
+  /**
+   * Engine mode only (PM-1176): the runner itself keeps file tool calls inside the session's write
+   * zone and drops a broker answer that changes the tool input, whatever the cloud decided; every
+   * refusal is reported here. Absent (single mode): no such guard.
+   */
+  engineGuard?: EngineGuard;
   /** How long a permission request may wait for a human before it is denied. */
   permissionTimeoutMs: number;
   logger: FastifyBaseLogger;

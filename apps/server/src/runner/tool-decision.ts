@@ -6,7 +6,7 @@ import {
   type DeniedSessionOperation,
   type SessionReadBoundary,
 } from '@projectman/shared';
-import type { SessionPolicy } from '../contracts';
+import type { EngineGuardCode, SessionPolicy, StartSessionSpec } from '../contracts';
 
 /**
  * The runner's own tool-call decision for a CLI that has no permission hook of its own (the
@@ -43,12 +43,26 @@ export type ToolDenyReason =
   | 'plan_mode'
   | 'read_only_placement'
   | 'not_granted'
-  | 'cwd_outside_workspace';
+  | 'cwd_outside_workspace'
+  | 'outside_writable_roots';
 
 export type ToolDecision =
   { decision: 'allow' } | { decision: 'ask' } | { decision: 'deny'; reason: ToolDenyReason };
 
-interface ToolDecisionOptions {
+/**
+ * Where an engine-mode session's own file tools may write (PM-1176), as path forms made once at
+ * the start (see `engineWriteZone`): below `allowed` and not below `forbidden`; `denied` is neither
+ * read nor written.
+ */
+export interface EngineWriteZone {
+  allowed: string[];
+  forbidden: string[];
+  denied: string[];
+}
+
+export interface ToolDecisionOptions {
+  /** Engine mode (PM-1176): an edit outside this zone is denied, never asked. */
+  engineWriteZone?: EngineWriteZone;
   /** Temporary agy exception (PM-326, owner T4); remove with PM-361 sandbox support. */
   shellRulesOutsideSandbox?: boolean;
   /** The user's home directory, for `~` and `$HOME`; defaults to the process user's. */
@@ -71,6 +85,7 @@ export const TOOL_DENY_MESSAGES: Record<ToolDenyReason, string> = {
   read_only_placement: 'This session placement permits reading only.',
   not_granted: 'The session policy does not grant this operation.',
   cwd_outside_workspace: 'The command working directory must be inside this session workspace.',
+  outside_writable_roots: 'This session may not write to that path; it lies outside its writable folders.',
 };
 const ASK: ToolDecision = { decision: 'ask' };
 const deny = (reason: ToolDenyReason): ToolDecision => ({ decision: 'deny', reason });
@@ -294,6 +309,8 @@ export function claudeFileToolPaths(
       return { paths: text('file_path'), reads: false };
     case 'NotebookEdit':
       return { paths: text('notebook_path'), reads: false };
+    case 'NotebookRead':
+      return { paths: text('notebook_path'), reads: true };
     case 'Grep':
       return { paths: text('path'), reads: true };
     case 'Glob':
@@ -313,6 +330,78 @@ export function claudeFileToolPaths(
     default:
       return null;
   }
+}
+
+/**
+ * The write zone of an engine-mode session (PM-1176), from the spec the engine already confined to
+ * its own roots: what the OS sandbox of Claude Code lets commands write (the working directory unless
+ * the placement only reads, the writable roots, `allowWrite`, the portable temp directory) plus the
+ * session folder. Not writable even inside it: the denied, protected and read-only paths and
+ * `denyWrite`. The roots become path forms once, here.
+ */
+export function engineWriteZone(spec: StartSessionSpec, options: { home?: string } = {}): EngineWriteZone {
+  const home = options.home ?? homedir();
+  const { policy, sandbox } = spec;
+  const reading =
+    policy !== undefined &&
+    placementReadsOnly(policy.access, { mode: policy.reviewCopyMode, enforcement: policy.enforcement });
+  const form = (roots: readonly string[]): string[] => rootForms(spec.cwd, roots, home);
+  return {
+    allowed: form([
+      ...(reading ? [] : [spec.cwd]),
+      ...(policy ? policy.filesystem.writableRoots : (spec.writableRoots ?? [])),
+      ...(policy?.filesystem.sessionFolder ? [policy.filesystem.sessionFolder] : []),
+      ...(sandbox?.allowWrite ?? []),
+      ...(sandbox?.portable?.allowWrite ?? []),
+      ...(sandbox?.portable?.tmpDir ? [sandbox.portable.tmpDir] : []),
+    ]),
+    forbidden: form([
+      ...(policy?.filesystem.deniedPaths ?? []),
+      ...(policy?.filesystem.protectedPaths ?? []),
+      ...(policy?.filesystem.readOnlyPaths ?? []),
+      ...(sandbox?.denyWrite ?? []),
+    ]),
+    denied: form(policy?.filesystem.deniedPaths ?? []),
+  };
+}
+
+/**
+ * What the engine's own guard says about the paths of one file-tool call (PM-1176): `denied_path`
+ * when any form of a path lies below a denied path (read or write); for a write also
+ * `outside_writable_roots` when any form lies outside the zone or in a forbidden place, or when the
+ * call names no path at all (fails closed). Otherwise null.
+ */
+function engineWriteVerdict(
+  zone: EngineWriteZone,
+  target: { paths: readonly string[]; writes: boolean },
+  cwd: string,
+  options: { home?: string; caseInsensitive?: boolean } = {},
+): EngineGuardCode | null {
+  const home = options.home ?? homedir();
+  const caseInsensitive = options.caseInsensitive ?? CASE_INSENSITIVE_FILESYSTEM;
+  const forms = target.paths.flatMap((path) => toolPathForms(cwd, path, home));
+  if (forms.some((form) => underAny(form, zone.denied, caseInsensitive))) return 'denied_path';
+  if (!target.writes) return null;
+  if (
+    forms.length === 0 ||
+    forms.some((form) => !underAny(form, zone.allowed) || underAny(form, zone.forbidden, caseInsensitive))
+  ) {
+    return 'outside_writable_roots';
+  }
+  return null;
+}
+
+/** `engineWriteVerdict` for a Claude Code file tool call; null for any other tool. */
+export function engineFileToolVerdict(
+  zone: EngineWriteZone,
+  toolName: string,
+  toolInput: unknown,
+  cwd: string,
+  options: { home?: string; caseInsensitive?: boolean } = {},
+): EngineGuardCode | null {
+  const target = claudeFileToolPaths(toolName, toolInput);
+  if (!target) return null;
+  return engineWriteVerdict(zone, { paths: target.paths, writes: !target.reads }, cwd, options);
 }
 
 /** The session folders a session reads without asking (PM-333): the root of this instance's, else its own. */
@@ -1056,6 +1145,17 @@ export function decideToolCall(
     case 'edit': {
       // 6. Changing files.
       if (mode === 'plan') return deny('plan_mode');
+      // Engine mode (PM-1176): outside the write zone nothing is asked, whatever the cloud would approve.
+      // A denied path is refused above, in every mode.
+      if (
+        options.engineWriteZone &&
+        engineWriteVerdict(options.engineWriteZone, { paths: call.paths, writes: true }, cwd, {
+          home,
+          caseInsensitive,
+        }) === 'outside_writable_roots'
+      ) {
+        return deny('outside_writable_roots');
+      }
       // The session's own folder (PM-268): written without asking, a reader's too, in any mode but plan.
       const ownFolder = rootForms(
         cwd,

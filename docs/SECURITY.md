@@ -35,6 +35,22 @@ tenants into separate OS accounts or machines.
   only for requests classified as local. HTTPS termination is trusted only from
   a loopback reverse proxy, using the same protocol check as integrator keys.
 
+- The engine guards the sandbox boundary itself (PM-1176). In engine mode the cloud decides permissions, and a
+  decision that arrives over the link is not trusted to keep a session inside its zone. The write zone is the
+  session's cwd (unless the placement only reads), its `writableRoots`, session folder and the sandbox's and
+  portable policy's allowed write paths; `deniedPaths`, `protectedPaths`, `readOnlyPaths` and the sandbox's
+  `denyWrite` are always outside it. At PreToolUse (before the dependency gate, which the hook forwarder
+  fails open on timeout) the engine refuses a Claude `Edit`, `Write`, `MultiEdit` or `NotebookEdit` that names
+  no path, any path form (real path, firmlink, textual `..`) outside the zone or under a forbidden path,
+  whatever the cloud decided before (`rememberForSession`, an `allowedTools` `Edit(<outside>/**)` rule); it
+  refuses a read tool (`Read`, `NotebookRead`, `Grep`, `Glob`) under `deniedPaths`. A Gemini `edit` outside
+  the zone, or one with no path, is a `deny`, never an `ask`. A broker `allow` that carries `updatedInput` is
+  turned into a denial (`updated_input`), so a decision cannot swap the path the engine has checked. Each
+  refusal is one `logs/engine-audit.jsonl` line (`method: tool.guard`, `outcome: refused`, session id, member
+  and the code `outside_writable_roots`, `denied_path` or `updated_input`; never the path or the input) and a
+  `permission_refused` timeline event with `by: engine_guard`. Single mode has no `engineGuard` and is
+  unchanged. The hub's frame schema is strict: deploy the hub before the engine, or the new `by` field closes
+  the link.
 - The move to the hybrid mode (PM-318, [HYBRID.md](HYBRID.md)) handles two secrets. The machine key is
   made on the Mac (`newMachineKey`), written to `engine.key` with mode 0600 and the `wx` flag (never
   over an existing file), and shown nowhere; only its SHA-256 hash is in the cloud package, and a test

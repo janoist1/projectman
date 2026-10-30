@@ -55,7 +55,7 @@ export function createPermissionBroker(deps: {
     refused(session, {
       toolName: request.toolName,
       summary: summarizeToolInput(request.toolInput) || request.toolName,
-      by: 'classifier',
+      by: request.by ?? 'classifier',
       ...(request.reason ? { reason: excerpt(request.reason, 500) } : {}),
     });
   }

@@ -154,6 +154,7 @@ it.each([
 it.each([
   ['approver_none', 'permission_refused_approver_none'],
   ['classifier', 'permission_refused_classifier'],
+  ['engine_guard', 'permission_refused_engine_guard'],
 ] as const)('describes a refused permission request (by %s) with the reason folded away', (by, key) => {
   const event: TimelineEvent = {
     ...creation,

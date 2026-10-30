@@ -188,6 +188,7 @@ export class SessionManager implements SessionRunner {
         logger: this.log,
         processScopes: this.scopes,
         broker: this.opts.broker,
+        ...(this.opts.engineGuard ? { engineGuard: this.opts.engineGuard } : {}),
         refreshDependencies: this.opts.refreshDependencies,
         permissionTimeoutMs: this.opts.permissionTimeoutMs,
         emit: (event) => this.emit(event),

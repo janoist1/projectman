@@ -792,6 +792,33 @@ describe('process liveness', () => {
     expect(s.events.filter((e) => e.type === 'exit')).toHaveLength(1);
   });
 
+  it('keeps the last output of a CLI that fails before it is ready in the failed state (PM-1207)', async () => {
+    const s = start({
+      adapter: createCodexAdapter({ bin: 'codex', codexHome: '/nonexistent', logger: silentLogger() }),
+    });
+    s.pty.print('Error: invalid configuration\r\n  mcp_servers.team: token=abcdefghijklmnop rejected\r\n');
+    s.pty.exit(1);
+    await s.session.exited;
+    const failed = s.events.filter((e) => e.type === 'state').at(-1);
+    expect(failed).toMatchObject({ state: 'failed' });
+    const activity = (failed as Extract<RunnerEvent, { type: 'state' }>).activity ?? '';
+    expect(activity).toContain('invalid configuration');
+    expect(activity).toContain('exit code 1');
+    expect(activity).not.toContain('abcdefghijklmnop');
+  });
+
+  it('adds no output to the exit of a session that was ready', async () => {
+    const s = await ready();
+    s.pty.print('some output\r\n');
+    s.pty.exit(1);
+    await s.session.exited;
+    const failed = s.events.filter((e) => e.type === 'state').at(-1) as Extract<
+      RunnerEvent,
+      { type: 'state' }
+    >;
+    expect(failed.activity).toBeNull();
+  });
+
   it('keeps a live or inaccessible process running and stops probing after exit', async () => {
     const s = await ready();
     const probe = vi.spyOn(process, 'kill').mockReturnValue(true);

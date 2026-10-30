@@ -98,6 +98,8 @@ export function isListedEvent(event: TimelineEvent): boolean {
  */
 export function storyWeight(event: TimelineEvent, ctx: Pick<TimelineContext, 'labels'>): 'essence' | 'noise' {
   const { data, type } = event;
+  // The automatic notice to a member (a card moved into their stage) is the system talking, not a message.
+  if (type === 'team_message' && event.actor.kind === 'system') return 'noise';
   if (ESSENCE_TYPES.has(type)) return 'essence';
   if (
     type === 'task_labels_changed' &&

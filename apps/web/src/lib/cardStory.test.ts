@@ -196,6 +196,12 @@ describe('the weight of an event', () => {
     ['a failed step', event('task_full_test', 1, { outcome: 'failed' }), 'essence'],
     ['a step that ran', event('task_full_test', 1, { outcome: 'passed' }), 'noise'],
     ['a type it does not know', event('something_new', 1, {}), 'noise'],
+    ['a message from a member', event('team_message', 1, { text: 'x' }), 'essence'],
+    [
+      'a message the system sent',
+      event('team_message', 1, { text: 'x' }, { kind: 'system', handle: null }),
+      'noise',
+    ],
   ] as const)('is %s: %s', (_name, subject, expected) => {
     expect(storyWeight(subject, ctx)).toBe(expected);
   });

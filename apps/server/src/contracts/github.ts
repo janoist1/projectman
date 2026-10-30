@@ -86,6 +86,23 @@ export interface WorkflowRunInfo {
   headBranch: string;
   htmlUrl: string;
   createdAt: string;
+  /** When the run left the queue and started (`run_started_at`); the wait is `runStartedAt − createdAt`. */
+  runStartedAt?: string;
+}
+
+/** An artifact of a run. */
+interface WorkflowArtifactInfo {
+  name: string;
+  expired: boolean;
+  expiresAt: string | null;
+  sizeBytes: number;
+}
+
+/** What the run cost (`/actions/runs/{id}/timing`); null: GitHub did not say. */
+interface WorkflowRunTiming {
+  runDurationMs: number | null;
+  /** The sum of every billable `total_ms`; 0 in a public repository. */
+  billableMs: number | null;
 }
 
 export interface WorkflowStepInfo {
@@ -121,7 +138,21 @@ export interface GithubActionsClient {
     input: { branch: string; headSha: string },
     signal?: AbortSignal,
   ): Promise<WorkflowRunInfo | null>;
+  /**
+   * The newest workflow_dispatch run of `workflow` on `branch` whose `display_title` is exactly `displayTitle`
+   * (a general workflow's `run-name`, PM-1144); null: none yet.
+   */
+  findRunByTitle(
+    repo: string,
+    workflow: string,
+    input: { branch: string; displayTitle: string },
+    signal?: AbortSignal,
+  ): Promise<WorkflowRunInfo | null>;
   getRun(repo: string, runId: number, signal?: AbortSignal): Promise<WorkflowRunInfo>;
+  /** The run's artifacts (at most 100). */
+  listArtifacts(repo: string, runId: number, signal?: AbortSignal): Promise<WorkflowArtifactInfo[]>;
+  /** The run's duration and billable time. */
+  runTiming(repo: string, runId: number, signal?: AbortSignal): Promise<WorkflowRunTiming>;
   /** The run's jobs (at most 100). */
   listJobs(repo: string, runId: number, signal?: AbortSignal): Promise<WorkflowJobInfo[]>;
   /** The job's plain log; GithubError not_found until GitHub has it. */

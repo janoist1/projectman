@@ -164,6 +164,33 @@ describe('the full test executor in the heavy-run queue', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('refuses a GitHub Actions compute job descriptor the same way (PM-1147)', async () => {
+    const onStarted = vi.fn();
+    const job: FullTestSpec = {
+      ...spec,
+      cwd: 'github-job:acme/web',
+      githubJob: {
+        ref: { projectKey: 'PM', repo: 'projectman' },
+        repo: 'acme/web',
+        base: 'main',
+        workflow: 'projectman-job.yml',
+        job: 'cloud-image',
+        commit: 'a'.repeat(40),
+        command: spec.command,
+        runsOn: 'ubuntu-24.04',
+        outputs: ['image.tar'],
+        timeoutMinutes: 30,
+      },
+    };
+    const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir }).run(
+      job,
+      new AbortController().signal,
+      onStarted,
+    );
+    expect(result).toMatchObject({ outcome: 'error', reason: 'github_unavailable', durationMs: 0 });
+    expect(onStarted).not.toHaveBeenCalled();
+  });
+
   describe('when the run requires the queue (PM-658)', () => {
     const required: FullTestSpec = { ...spec, requireHeavyLock: true };
 

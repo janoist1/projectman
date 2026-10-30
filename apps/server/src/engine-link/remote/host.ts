@@ -345,6 +345,16 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
             failedFiles: [],
             outputTail: `engine ${id} refused the request: it does not support the GitHub Actions merge check (githubActions). Update the engine to this version of projectman.`,
           };
+        // The same for a compute job (PM-1147): it is not run anywhere else.
+        if (spec.githubJob && err instanceof EngineCallError && err.linkCode === 'invalid_params')
+          return {
+            outcome: 'error',
+            reason: 'github_unavailable',
+            exitCode: null,
+            durationMs: now() - startedAt,
+            failedFiles: [],
+            outputTail: `engine ${id} refused the request: it does not support GitHub Actions compute jobs (githubJob). Update the engine to this version of projectman.`,
+          };
         // An older engine's strict schema refuses `requireHeavyLock` before it runs anything (PM-658):
         // the run is blocked, never repeated without the flag.
         if (spec.requireHeavyLock && err instanceof EngineCallError && err.linkCode === 'invalid_params')

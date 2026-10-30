@@ -33,6 +33,22 @@ The cloud image is the first job. Its values (the same ones that are in `CLOUD_I
 | `outputs`         | `bundle/manifest.json bundle/linux-arm64.tar`                                                                                                                                                                                    |
 | `command`         | `npm ci && docker buildx create --name projectman --driver docker-container --bootstrap --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"` (`image-build` needs no config) |
 
+An engine starts this job (PM-1147) only when the owner has registered it in the engine's `engine.json`, in the
+`computeJobs` of the repository entry, with exactly the values above:
+
+```json
+"computeJobs": [
+  {
+    "id": "cloud-image",
+    "runsOn": "ubuntu-24.04-arm",
+    "node": "22",
+    "timeoutMinutes": 60,
+    "outputs": ["bundle/manifest.json", "bundle/linux-arm64.tar"],
+    "command": "npm ci && docker buildx create --name projectman --driver docker-container --bootstrap --use && npm run cloud -- image-build --ref \"$PROJECTMAN_JOB_COMMIT\" --out \"$PROJECTMAN_JOB_OUT/bundle\""
+  }
+]
+```
+
 Start it for the accepted full SHA (the `run_id` is `manual-<first 8 of the SHA>-<time>`):
 
 ```sh

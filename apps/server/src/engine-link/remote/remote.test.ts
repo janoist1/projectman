@@ -903,6 +903,43 @@ describe('cloud mode remote parts', () => {
         updatedAt: '2026-10-27T10:00:00.000Z',
       }) as const;
 
+    it('sends a compute job only to an engine bound to the project of its repository (PM-1147)', async () => {
+      const { a, b } = await bothOnline((engine) =>
+        engine.answer('full_test.run', () => ({
+          outcome: 'passed' as const,
+          exitCode: 0,
+          durationMs: 1,
+          failedFiles: [],
+          outputTail: '',
+        })),
+      );
+      const job = {
+        ...fullTestSpec('job-1'),
+        cwd: 'github-job:acme/web',
+        githubJob: {
+          ref: { projectKey: 'PA', repo: 'pa' },
+          repo: 'acme/web',
+          base: 'main',
+          workflow: 'projectman-job.yml',
+          job: 'cloud-image',
+          commit: 'a'.repeat(40),
+          command: 'npm run build',
+          runsOn: 'ubuntu-24.04' as const,
+          outputs: ['image.tar'],
+          timeoutMinutes: 30,
+        },
+      };
+      await expect(
+        remote.directory.get(A as never)!.fullTestExecutor!.run(job, new AbortController().signal),
+      ).resolves.toMatchObject({ outcome: 'passed' });
+      // The guard refuses before anything is sent; the executor reports it as a failed start.
+      await expect(
+        remote.directory.get(B as never)!.fullTestExecutor!.run(job, new AbortController().signal),
+      ).resolves.toMatchObject({ outcome: 'error', reason: 'spawn_failed' });
+      expect(asked(a, 'full_test.run')).toHaveLength(1);
+      expect(asked(b, 'full_test.run')).toHaveLength(0);
+    });
+
     describe('runner', () => {
       const runnerOver = () =>
         createRemoteRunner({
@@ -1714,6 +1751,64 @@ describe('cloud mode remote parts', () => {
         });
         expect(ran).toBe(false);
         expect(onStarted).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('GitHub Actions compute job descriptor (PM-1147)', () => {
+      const jobSpec = (runId: string): FullTestSpec => ({
+        ...fullTestSpec(runId),
+        cwd: 'github-job:acme/web',
+        command: 'npm run build',
+        githubJob: {
+          ref: { projectKey: 'AR', repo: 'ar' },
+          repo: 'acme/web',
+          base: 'main',
+          workflow: 'projectman-job.yml',
+          job: 'cloud-image',
+          commit: 'a'.repeat(40),
+          command: 'npm run build',
+          runsOn: 'ubuntu-24.04-arm',
+          outputs: ['image.tar'],
+          timeoutMinutes: 30,
+        },
+      });
+
+      it('sends the descriptor to the engine and relays the outputs, the artifact and the cost', async () => {
+        const engine = await online();
+        const extra = {
+          outputs: [{ path: 'image.tar', sha256: 'b'.repeat(64), bytes: 10 }],
+          artifact: { name: 'projectman-job-j1', expiresAt: null },
+          cost: { queuedMs: 1000, billableMs: 0 },
+          externalUrl: 'https://github.com/acme/web/actions/runs/9',
+        };
+        engine.answer('full_test.run', () => ({
+          outcome: 'passed' as const,
+          exitCode: 0,
+          durationMs: 1,
+          failedFiles: [],
+          outputTail: '',
+          ...extra,
+        }));
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(jobSpec('j1'), new AbortController().signal);
+        expect(result).toMatchObject(extra);
+        expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
+          { method: 'full_test.run', params: { spec: expect.objectContaining(jobSpec('j1')) } },
+        ]);
+      });
+
+      it('blocks the run on an older engine that refuses the descriptor, without running it', async () => {
+        const engine = await online();
+        engine.answer('full_test.run', (params) => {
+          if ('githubJob' in params.spec)
+            throw Object.assign(new Error('Invalid method parameters'), { code: 'invalid_params' });
+          return { outcome: 'passed' as const, exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+        });
+        const result = await remote.directory
+          .get('eng_a' as never)!
+          .fullTestExecutor!.run(jobSpec('j1'), new AbortController().signal);
+        expect(result).toMatchObject({ outcome: 'error', reason: 'github_unavailable' });
       });
     });
 

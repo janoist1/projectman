@@ -12,7 +12,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import { SelectablePermissionMode } from '@projectman/shared';
+import { ComputeJobDefinition, SelectablePermissionMode } from '@projectman/shared';
 import { isLoopbackHostname, isWithin } from '../kernel/pure';
 import { readInstanceMarker } from '../instance';
 
@@ -53,6 +53,18 @@ export const EngineConfig = z.strictObject({
       fullTestCommand: z.string().min(1).max(500).optional(),
       /** PM-1050: the one command that may make generated files again in a merge check checkout, with write access to the directories of its patterns. */
       regenerateCommand: z.string().min(1).max(500).optional(),
+      /**
+       * PM-1147: the compute jobs (GitHub Actions) this repository may run; the owner sets them by hand. A job
+       * request that is not one of these, value for value, is refused.
+       */
+      computeJobs: z
+        .array(ComputeJobDefinition)
+        .max(20)
+        .refine(
+          (jobs) => new Set(jobs.map((job) => job.id)).size === jobs.length,
+          'The job ids are not unique',
+        )
+        .optional(),
       workspaceSetup: z
         .discriminatedUnion('kind', [
           z.strictObject({
@@ -250,6 +262,7 @@ export interface ResolvedEngineConfig extends Omit<EngineConfig, 'repos'> {
     path: string;
     fullTestCommand?: string;
     regenerateCommand?: string;
+    computeJobs?: ComputeJobDefinition[];
     workspaceSetup: { kind: 'npm_ci'; timeoutMs: number } | null;
     mergeBranch?: string;
   }>;

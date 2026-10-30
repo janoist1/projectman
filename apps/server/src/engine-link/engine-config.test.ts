@@ -54,6 +54,19 @@ describe('engine configuration', () => {
     expect(() => loadEngineConfig(dir)).toThrowError(expect.objectContaining({ code: 'config_invalid' }));
   });
 
+  it('keeps the compute jobs of a repo with their defaults, and refuses a duplicated job id (PM-1147)', () => {
+    const job = {
+      id: 'cloud-image',
+      command: 'npm run build',
+      runsOn: 'ubuntu-24.04-arm',
+      outputs: ['a.tar'],
+    };
+    const repo = { project: 'PM', repo: 'projectman', path: '/work/projectman' };
+    saveEngineConfig(dir, base({ repos: [{ ...repo, computeJobs: [job] }] }));
+    expect(loadEngineConfig(dir).repos[0]?.computeJobs).toEqual([{ ...job, timeoutMinutes: 60 }]);
+    expect(() => base({ repos: [{ ...repo, computeJobs: [job, job] }] })).toThrow();
+  });
+
   it('keeps the optional mergeBranch of a repo, and refuses an empty one', () => {
     const repo = { project: 'PM', repo: 'projectman', path: '/work/projectman' };
     saveEngineConfig(

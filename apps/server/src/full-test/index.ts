@@ -31,8 +31,16 @@ import {
 } from './npm-ci';
 import { prepareStepCache } from './step-cache';
 export { assertNpmCiCheckout, assertRegenerateCheckout } from './npm-ci';
-export { withGithubActions } from './github-actions';
-export type { GithubActionsDeps } from './github-actions';
+import { withGithubActions } from './github-actions';
+import type { GithubActionsDeps } from './github-actions';
+import { withGithubJob } from './github-job';
+export { withGithubActions, withGithubJob };
+export type { GithubActionsDeps };
+
+/** `local` with both GitHub Actions runs of the engine: the merge check (PM-900) and the compute jobs (PM-1147). */
+export function withGithubRuns(local: FullTestExecutor, deps: GithubActionsDeps): FullTestExecutor {
+  return withGithubJob(withGithubActions(local, deps), deps);
+}
 export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } from './workspace-dependencies';
 export type { WorkspaceDependencyInstallerOptions } from './workspace-dependencies';
 
@@ -148,14 +156,16 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
 
     async run(spec, signal, onStarted) {
       // The GitHub Actions merge check (PM-900) is orchestrated by the engine's own executor, not here.
-      if (spec.githubActions)
+      if (spec.githubActions || spec.githubJob)
         return {
           outcome: 'error',
           reason: 'github_unavailable',
           exitCode: null,
           durationMs: 0,
           failedFiles: [],
-          outputTail: 'This engine runs no GitHub Actions check.',
+          outputTail: spec.githubJob
+            ? 'This engine runs no GitHub Actions job.'
+            : 'This engine runs no GitHub Actions check.',
         };
       if (spec.npmCi) {
         try {

@@ -3,12 +3,15 @@
 //   npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>]
 //   npm run engine-app -- build --package <dir> --out <dir> [--ad-hoc]
 //   npm run engine-app -- publish --tag <tag> --config <absolute-file>
+//   npm run engine-app -- fetch --commit <sha> --out <new dir> [--run <number>] [--dry-run] [--open]  (PM-1156)
 //
 // The package lands in <dir>/<sha> (printed as the last line: the input of `build --package`); see package.ts for its layout. Exit status: 0 done, 1 failed, 2 refused
 // (also an existing, non-empty target), 64 wrong usage. Signing options: docs/DEPLOY.md "Engine app build".
 import { acquireHeavyLock, defaultHeavyLockDir, runSandboxed } from '../../apps/server/src/full-test';
 import { realDeps } from '../cloud/deps';
+import { Report } from '../cloud/report';
 import { runEngineAppCli } from './commands';
+import { fetchEngineApp } from './fetch';
 import { buildEnginePackage } from './package';
 import { buildEngineApp } from './build';
 import { publishEngineApp } from './publish';
@@ -51,6 +54,7 @@ runEngineAppCli(process.argv.slice(2), {
       request,
       abort.signal,
     ),
+  fetch: (request) => fetchEngineApp({ deps, report: new Report((line) => console.log(line)) }, request),
   originUrl: async () => {
     const result = await deps.run('git', ['-C', deps.repoRoot, 'remote', 'get-url', 'origin']);
     return result.code === 0 ? result.stdout.trim() || null : null;

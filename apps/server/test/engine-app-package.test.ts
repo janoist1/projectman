@@ -67,6 +67,7 @@ class World {
   failing: string[] = [];
   tag = '';
   archive = ARCHIVE;
+  nodeArchiveHasNpm = true;
 
   constructor() {
     for (const directory of [
@@ -85,6 +86,11 @@ class World {
         const nodeDir = args[args.indexOf('-C') + 1]!;
         fs.mkdirSync(path.join(nodeDir, 'bin'), { recursive: true });
         fs.writeFileSync(path.join(nodeDir, 'bin/node'), 'node binary');
+        if (this.nodeArchiveHasNpm) {
+          fs.mkdirSync(path.join(nodeDir, 'lib/node_modules/npm/bin'), { recursive: true });
+          fs.writeFileSync(path.join(nodeDir, 'lib/node_modules/npm/bin/npm-cli.js'), 'npm');
+          fs.symlinkSync('../lib/node_modules/npm/bin/npm-cli.js', path.join(nodeDir, 'bin/npm'));
+        }
         return OK;
       }
       if (args.includes('checkout')) writeCheckout(args[1]!, sha256(ARCHIVE));
@@ -137,7 +143,7 @@ class World {
     return done(0, run.command.includes('node --version') ? `v${NODE_VERSION}\n` : '');
   }
 
-  build(overrides: Partial<EnginePackageDeps> = {}) {
+  build(overrides: Partial<EnginePackageDeps> = {}, basePath = '/usr/bin:/bin') {
     return buildEnginePackage(
       { ...this.deps, ...overrides },
       {
@@ -150,7 +156,7 @@ class World {
         engineHome: path.join(this.root, 'home'),
         userHome: path.join(this.root, 'user'),
         tmpDir: this.sandboxTmp,
-        baseEnv: { PATH: '/usr/bin:/bin' },
+        baseEnv: { PATH: basePath },
       },
     );
   }
@@ -221,6 +227,33 @@ describe('engine package build', () => {
     for (const run of world.sandboxRuns) expect(run.env.PATH).toMatch(/\/pm-engine-app-[^/]+\/node\/bin:/);
     expect(fs.readdirSync(world.out)).toEqual([COMMIT]);
     expect(fs.readdirSync(world.sandboxTmp)).toEqual([]);
+  });
+
+  it('unpacks the npm of the pinned Node archive but ships only bin/node', async () => {
+    const { root } = await world.build();
+    const tar = world.commands.find((command) => command.startsWith('tar '))!;
+    expect(tar).toContain('/bin/npm');
+    expect(tar).toContain('/lib/node_modules/npm');
+    expect(fs.existsSync(path.join(root, 'bin/node'))).toBe(true);
+    expect(fs.readdirSync(path.join(root, 'bin'))).toEqual(['node']);
+    expect(fs.existsSync(path.join(root, 'lib'))).toBe(false);
+  });
+
+  it('refuses a Node archive without npm before anything is installed', async () => {
+    world.nodeArchiveHasNpm = false;
+    await expect(world.build()).rejects.toThrow('holds no npm');
+    expect(world.sandboxRuns).toEqual([]);
+  });
+
+  it('leaves no folder under the closed home on the PATH of the sandboxed steps', async () => {
+    const user = path.join(world.root, 'user');
+    await world.build({}, `${user}/hostedtoolcache/node/bin:/usr/bin:${world.root}/home/tools:/bin`);
+    expect(world.sandboxRuns.length).toBeGreaterThan(0);
+    for (const run of world.sandboxRuns) {
+      const entries = run.env.PATH!.split(':');
+      expect(entries[0]).toMatch(/\/pm-engine-app-[^/]+\/node\/bin$/);
+      expect(entries.slice(1)).toEqual(['/usr/bin', '/bin']);
+    }
   });
 
   it('keeps no dangling symlink in the package, only links to what it ships', async () => {

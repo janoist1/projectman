@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { GithubJobRunner } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
+import { CLOUD_IMAGE_JOB } from '../../../scripts/cloud/image-fetch';
+import { ENGINE_APP_JOB } from '../../../scripts/engine-app/job';
 
 /** Rules of the general compute-job workflow (PM-1145) and of every workflow in the public repository. */
 interface Step {
@@ -133,6 +135,19 @@ describe('the projectman-job workflow', () => {
         env: { PATH: process.env['PATH'] ?? '', ...valid, ...change },
         encoding: 'utf8',
       });
+
+    it.each([CLOUD_IMAGE_JOB, ENGINE_APP_JOB])('lets the registered $id job through', (job) => {
+      expect(
+        run({
+          JOB: job.id,
+          COMMAND: job.command,
+          RUNS_ON: job.runsOn,
+          OUTPUTS: job.outputs.join(' '),
+          NODE_VERSION: job.node,
+          TIMEOUT_MINUTES: String(job.timeoutMinutes),
+        }).status,
+      ).toBe(0);
+    });
 
     it('lets a valid dispatch through', () => {
       expect(run({}).status).toBe(0);

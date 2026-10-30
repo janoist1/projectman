@@ -21,6 +21,8 @@ export const EngineAppManifest = z.strictObject({
   dmg: asset('projectman-motor.dmg'),
 });
 
+export type EngineAppManifest = z.infer<typeof EngineAppManifest>;
+
 export function bundleVersions(tag: string | null): { short: string; build: string } {
   if (tag === null) return { short: '0.0.0', build: '0' };
   if (!RELEASE_TAG_PATTERN.test(tag)) throw new Error('Invalid release tag');

@@ -130,6 +130,32 @@ export interface SandboxRunExtras {
   buildWrite?: string[];
 }
 
+function isUnder(file: string, directory: string): boolean {
+  const relative = path.relative(directory, file);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/**
+ * The PATH of the sandboxed steps (PM-1156): the prefix, then the machine's PATH without the folders the sandbox
+ * closes (under the user's home or the engine home, such as a hosted runner's toolcache). They cannot be read
+ * there anyway, and a lookup that stumbles on one fails instead of moving on to the next folder.
+ */
+function stepPath(prefix: string | undefined, base: string | undefined, closed: string[]): string {
+  const closedRoots = closed.flatMap((directory) => {
+    const resolved = path.resolve(directory);
+    try {
+      const real = fs.realpathSync(resolved);
+      return real === resolved ? [resolved] : [resolved, real];
+    } catch {
+      return [resolved];
+    }
+  });
+  const kept = (base ?? '')
+    .split(':')
+    .filter((entry) => entry !== '' && !closedRoots.some((root) => isUnder(path.resolve(entry), root)));
+  return [...(prefix ? [prefix] : []), ...kept].join(':');
+}
+
 /** One run directory for the sandboxed steps; its settings files are outside the child's write access. */
 export async function withSandboxRun<T>(
   run: SandboxRunInput,
@@ -196,7 +222,7 @@ export async function withSandboxRun<T>(
       },
     });
     const env = fullTestEnv(paths, 1, options.baseEnv ?? process.env);
-    if (extras.pathPrefix) env.PATH = `${extras.pathPrefix}:${env.PATH}`;
+    env.PATH = stepPath(extras.pathPrefix, env.PATH, [userHome, run.paths.engineHome]);
     const config = `--userconfig=${quoteShellWord(paths.npmUserConfig)} --globalconfig=${quoteShellWord(paths.npmGlobalConfig)}`;
     const execute = async (
       stage: 'install' | 'build' | 'check',

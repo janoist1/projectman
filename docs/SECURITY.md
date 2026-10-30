@@ -1300,6 +1300,18 @@ version and timeout; otherwise it is refused as `command_not_allowed`. The base 
 run id is free (a pattern). The engine dispatches nothing else, and owner-only configuration is the only place a
 command can be added.
 
+**The engine app job (PM-1156).** `npm run engine-app -- fetch` accepts an `engine-app` run on the same chain as
+`image-fetch` accepts `cloud-image` (`scripts/cloud/compute-job-run.ts`): the run is `projectman-job.yml`,
+dispatched by hand on the default branch, successful and titled `projectman-job engine-app <commit> <run id>`;
+then the exact workflow identity and this very run must have attested each of the three files
+(`projectman-motor.json`, `.zip`, `.dmg`). The manifest must name the commit and match the zip and the dmg by hash
+and size, and the unpacked app must pass `codesign --verify --deep --strict` and carry the engine package of the
+same commit. The GitHub API does not return the dispatch inputs, so `fetch` cannot see the command that ran: the
+root of trust is the write right on the repository, the workflow identity and this run's attestation, as for the
+cloud image. The hub's own start of the job is bound by the `computeJobs` registration in `engine.json`. The
+fetched app runs with the user's rights once opened; `gh` and `ditto` set no quarantine, so Gatekeeper does not
+stop an ad-hoc app, and the updater stays off while the Team ID is empty.
+
 ## Web push, the service worker and the member context preview (PM-814, PM-815, PM-827, PM-1000, PM-1013)
 
 **The VAPID private key.** The installation key lives in `~/.projectman/secrets/web-push.json`: a 0600 file in a

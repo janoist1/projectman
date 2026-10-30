@@ -14,7 +14,7 @@ import { receiveImage, receiveStagedImage, selectedImage } from './images';
 import type { ReceivedImage, SelectedImage } from './images';
 import { locateGithubImage, stageGithubImage, usesGithubImage } from './image-github';
 import type { GithubImage } from './image-github';
-import { runNumber } from './image-fetch';
+import { runNumber } from './compute-job-run';
 
 /**
  * The commands that manage the machine (PM-535): `deploy`, `rollback`, `status`, `logs`, `ssh`, `stop`,

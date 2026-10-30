@@ -124,7 +124,12 @@ Entries in the order they appear below (search for the bold name).
   registry, Xcode Command Line Tools when a native module has no prebuilt binary. **Remote engine:** the package
   runs on the engine's Mac; nothing crosses the server/engine boundary (`installDir` already travels in the
   hello). Not in the package: the menu bar app's Swift sources and the plist template of the packaged service
-  (PM-1124). **Module:** `scripts`, `deploy`, `contracts`, `engine-link`.
+  (PM-1124). **PM-1156:** the package also builds on a GitHub `macos-15` runner (the `engine-app` compute job). The
+  runner's Node and Python live in its toolcache under the user's home, which the sandbox closes, so the steps use
+  the npm of the pinned Node archive (`bin/npm`, `lib/node_modules/npm` are unpacked next to `bin/node`; only
+  `bin/node` goes into the package) and the sandbox PATH (`stepPath` in `sandbox.ts`) leaves out every folder under
+  the closed user or engine home, so node-gyp finds `/usr/bin/python3`. On the Mac this means the local build also
+  uses the pinned npm, not the machine's. **Module:** `scripts`, `deploy`, `contracts`, `engine-link`.
 
 - **Engine app release build (PM-1104, PM-1122, PM-1123)** — `scripts/engine-app/build.ts`,
   `manifest.ts`, `deploy/mac/app/{Info.plist,node.entitlements}`. `npm run engine-app -- build`
@@ -152,7 +157,14 @@ Entries in the order they appear below (search for the bold name).
   its empty Team ID disables app updates. **Remote engine:** this build runs only on the
   release machine; the resulting app/package runs on the engine Mac. Nothing new crosses the
   server/engine boundary. Real signing/notarization is checked at the owner's first release
-  (PM-1123); automated checks use a fake process runner. **Module:** `scripts`, `deploy`.
+  (PM-1123); automated checks use a fake process runner. **PM-1156:** the same `build --ad-hoc` runs on the
+  GitHub `macos-15` runner (the `engine-app` compute job) and takes the Swift sources and the Info.plist
+  template from the runner's checkout of the same commit. The Mac then needs no build: `npm run engine-app --
+fetch --commit <sha> --out <new dir> [--open]` (`scripts/engine-app/fetch.ts`) downloads the run's artifact
+  with the Mac's own `gh` login (read access to the repository's Actions, gh 2.49 or newer for the attestation),
+  verifies it and unpacks it with `ditto` and `codesign --verify`, and `--open` starts the app with `open`; the
+  app then installs itself through its own release switch. This runs on the Mac the app goes to, a remote
+  engine's too; nothing crosses the server/engine boundary. **Module:** `scripts`, `deploy`.
 
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
   sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
@@ -2827,8 +2839,13 @@ assumption or remote-engine RPC.
   **Module:** `scripts`
 
 - **Compute jobs on GitHub Actions (PM-1144, PM-1145)** — `.github/workflows/projectman-job.yml`,
-  `packages/shared/src/domain/compute-job.ts`, `scripts/cloud/{image-fetch,images,github,commands}.ts`,
-  `apps/server/test/{cloud-image-fetch,projectman-job-workflow}.test.ts`, `docs/AWS.md` "Prebuilt ARM images".
+  `packages/shared/src/domain/compute-job.ts`, `scripts/cloud/{compute-job-run,image-fetch,images,github,commands}.ts`,
+  `scripts/engine-app/{job,fetch}.ts`,
+  `apps/server/test/{cloud-image-fetch,engine-app-fetch,projectman-job-workflow}.test.ts`, `docs/AWS.md` "Prebuilt ARM images".
+  The run finder (`compute-job-run.ts`) is job-independent since PM-1156; the second job is `engine-app`
+  (`macos-15`, see "Engine app release build"): the runner has Xcode, `hdiutil` and `codesign`, and its Node and
+  Python come from a toolcache under the user's home, which the package sandbox closes (the pinned Node's npm and a
+  filtered PATH answer that).
   Heavy machine work (the first one is the cloud image build) runs on a GitHub-hosted runner through one general
   workflow, started by hand with `gh workflow run`, so the owner's Mac needs no Docker Desktop (its 8 GB VM).
   **What runs where:** the runner is one of `ubuntu-24.04`, `ubuntu-24.04-arm` or `macos-15` (the cloud image

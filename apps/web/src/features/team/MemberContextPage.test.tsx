@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import type { MemberContextPreview } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
+import { setCurrentLanguage } from '../../i18n/language';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import { server } from '../../test/msw/server';
@@ -90,6 +91,18 @@ describe('member context preview', () => {
     expect(summary.closest('details')?.querySelector('pre')?.getAttribute('lang')).toBe('en');
     expect(p.requests.every((request) => request.method === 'GET')).toBe(true);
     expect(screen.getByText(t('memberContext.placementNote'))).toBeTruthy();
+  });
+
+  it('counts the characters of a long section in English, with a formatted number (PM-1180)', async () => {
+    setCurrentLanguage('en');
+    const p = mockProject();
+    const fixture = sample(p);
+    fixture.prompt.sections[0]!.chars = 1234;
+    server.use(http.get(endpoint, () => HttpResponse.json(fixture)));
+    p.render(page(), '/p/AC/team/fe-1/context');
+    await ready();
+    expect(screen.getByText('1,234 chars')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('NaN');
   });
 
   it('copies the full original prompt and announces success', async () => {

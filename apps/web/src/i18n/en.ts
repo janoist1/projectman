@@ -1136,8 +1136,8 @@ export const en = {
       guides: '{count|guide|guides} on request',
       tools: '{count|team tool|team tools}',
     },
-    sections: '{count|# section|# sections}',
-    chars: '{count|# char|# chars}',
+    sections: '{shown} {count|section|sections}',
+    chars: '{shown} {count|char|chars}',
     introTitle: 'Intro',
     guidesTitle: 'Guides',
     toolsTitle: 'Team tools',
@@ -1148,7 +1148,8 @@ export const en = {
     copyFailed: "Couldn't copy. The clipboard isn't available right now.",
     kickoff: 'Kick-off message',
     kickoffTask: 'Kick-off message (the card summary)',
-    promptLead: 'System prompt, {count|# section|# sections}. The text is in English, as the member gets it.',
+    promptLead:
+      'System prompt, {shown} {count|section|sections}. The text is in English, as the member gets it.',
     placementNote:
       'What is only decided at start (workspace, session rules, the sandbox for a Claude member) is not part of the preview.',
     guidesLead:

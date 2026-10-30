@@ -265,7 +265,10 @@ export function MemberContextPage() {
                       </span>
                       {item === 'intro' && (
                         <small>
-                          {t('memberContext.sections', { count: number(data.prompt.sections.length) })}
+                          {t('memberContext.sections', {
+                            count: data.prompt.sections.length,
+                            shown: number(data.prompt.sections.length),
+                          })}
                         </small>
                       )}
                     </button>
@@ -363,7 +366,10 @@ function ContextPart({ data, part }: { data: MemberContextPreview; part: Part })
               {index === (data.initialMessage ? 1 : 0) && (
                 <>
                   <p className={`${styles.note} ${data.initialMessage ? styles.promptLead : ''}`}>
-                    {t('memberContext.promptLead', { count: number(data.prompt.sections.length) })}
+                    {t('memberContext.promptLead', {
+                      count: data.prompt.sections.length,
+                      shown: number(data.prompt.sections.length),
+                    })}
                   </p>
                   <p className={styles.note}>{t('memberContext.placementNote')}</p>
                 </>
@@ -372,7 +378,7 @@ function ContextPart({ data, part }: { data: MemberContextPreview; part: Part })
                 summary={
                   <span lang={section.id === 'initialMessage' ? undefined : 'en'}>{section.title}</span>
                 }
-                peek={t('memberContext.chars', { count: number(section.chars) })}
+                peek={t('memberContext.chars', { count: section.chars, shown: number(section.chars) })}
                 open={open.has(section.id)}
                 onToggle={(value) => toggle(section.id, value)}
               >
@@ -396,7 +402,7 @@ function ContextPart({ data, part }: { data: MemberContextPreview; part: Part })
                   {guide.title} · <code>{guide.topic}</code>
                 </span>
               }
-              peek={t('memberContext.chars', { count: number(guide.chars) })}
+              peek={t('memberContext.chars', { count: guide.chars, shown: number(guide.chars) })}
             >
               <pre lang="en" className={styles.text}>
                 {guide.text}

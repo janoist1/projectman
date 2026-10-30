@@ -105,8 +105,8 @@ export const hu = {
       guides: '{count|útmutató kérésre|útmutató kérésre}',
       tools: '{count|csapateszköz|csapateszköz}',
     },
-    sections: '{count} szakasz',
-    chars: '{count} kar.',
+    sections: '{shown} {count|szakasz|szakasz}',
+    chars: '{shown} {count|kar.|kar.}',
     introTitle: 'Bevezető',
     guidesTitle: 'Útmutatók',
     toolsTitle: 'Csapateszközök',
@@ -117,7 +117,7 @@ export const hu = {
     copyFailed: 'A másolás nem sikerült. A vágólap most nem érhető el.',
     kickoff: 'Induló üzenet',
     kickoffTask: 'Induló üzenet (a kártya összefoglalója)',
-    promptLead: 'Rendszerprompt, {count} szakasz. A szöveg angol, ahogy a tag kapja.',
+    promptLead: 'Rendszerprompt, {shown} {count|szakasz|szakasz}. A szöveg angol, ahogy a tag kapja.',
     placementNote:
       'Ami csak induláskor dől el (munkaterület, munkamenet-szabályok, Claude-tagnál a sandbox), az előnézetben nem szerepel.',
     guidesLead:

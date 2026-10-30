@@ -20,6 +20,8 @@ export const HOST_SUBCOMMANDS = [
   'bootstrap',
   'receive-env',
   'receive-image',
+  /** Downloads and unpacks a GitHub artifact from a pre-signed link on the standard input (PM-1154). */
+  'stage-image',
   'start',
   'stop',
   'status',

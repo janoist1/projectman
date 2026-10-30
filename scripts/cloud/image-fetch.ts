@@ -177,7 +177,7 @@ function checkOrigin(run: Run, input: { repo: string; branch: string; ref: strin
 }
 
 /** Both the exact workflow identity and this very run must have signed the file. */
-async function verifyAttestation(
+export async function verifyAttestation(
   context: ImageFetchContext,
   input: { repo: string; branch: string; run: number },
   file: string,
@@ -250,6 +250,125 @@ async function installBundle(
   return image;
 }
 
+/** A checked, successful run of the cloud image job at one commit (what `image-fetch` and `deploy` both start from). */
+export interface CloudImageRun {
+  repo: string;
+  branch: string;
+  /** The GitHub run number. */
+  id: number;
+  /** The `run_id` input of the workflow, which names the artifact. */
+  runId: string;
+  url: string;
+}
+
+/** The value of a `--run` option: a GitHub Actions run number. */
+export function runNumber(command: string, value: string): number {
+  if (!/^[0-9]{1,18}$/.test(value))
+    throw badUsage(`${command} --run needs the number of a GitHub Actions run`);
+  return Number(value);
+}
+
+/**
+ * Finds (or takes the given) run of the cloud image job at `ref`, follows it until it ends and checks where it
+ * ran (workflow, event, default branch, result, title). Never starts a run: it names the command that would.
+ */
+export async function locateCloudImageRun(
+  context: ImageFetchContext,
+  input: { root: string; ref: string; run?: number },
+): Promise<CloudImageRun> {
+  const { root, ref } = input;
+  const repo = githubRepoOf(
+    (await checked(context, 'git', ['-C', root, 'remote', 'get-url', 'origin'])).trim(),
+  );
+  const repository = parseJson(
+    await checked(context, 'gh', ['api', `repos/${repo}`]),
+    z.looseObject({ default_branch: z.string().min(1) }),
+    `repository ${repo}`,
+  );
+  const branch = repository.default_branch;
+  const id = input.run ?? (await findRun(context, repo, branch, ref));
+  if (id === null)
+    throw refused(
+      `no ${COMPUTE_JOB_WORKFLOW} run of ${CLOUD_IMAGE_JOB.job} for ${ref}; start one with:\n` +
+        cloudImageLaunchCommand(repo, branch, ref, context.deps.now()),
+    );
+  const run = await finishedRun(context, repo, id);
+  const runId = ComputeJobRunId.parse(checkOrigin(run, { repo, branch, ref }));
+  return { repo, branch, id, runId, url: runUrl(repo, id) };
+}
+
+const artifactListSchema = z.looseObject({
+  artifacts: z.array(
+    z.looseObject({
+      id: z.number().int().positive(),
+      name: z.string(),
+      size_in_bytes: z.number().int().positive(),
+      expired: z.boolean(),
+    }),
+  ),
+});
+
+/** The one live artifact `projectman-job-<run_id>` of the run; an expired one means the run must be repeated. */
+export async function cloudImageArtifact(
+  context: ImageFetchContext,
+  run: CloudImageRun,
+): Promise<{ id: number; name: string; bytes: number }> {
+  const name = `projectman-job-${run.runId}`;
+  const list = parseJson(
+    await checked(context, 'gh', ['api', `repos/${run.repo}/actions/runs/${run.id}/artifacts?per_page=100`]),
+    artifactListSchema,
+    `the artifacts of run ${run.id}`,
+  );
+  const named = list.artifacts.filter((artifact) => artifact.name === name);
+  const live = named.filter((artifact) => !artifact.expired);
+  if (live.length === 1) return { id: live[0]!.id, name, bytes: live[0]!.size_in_bytes };
+  if (live.length > 1) throw refused(`run ${run.url} has more than one artifact ${name}`);
+  throw refused(
+    named.length > 0
+      ? `the artifact ${name} of run ${run.url} has expired (7 days); start the run again`
+      : `run ${run.url} has no artifact ${name}`,
+  );
+}
+
+/**
+ * The short-lived (about one minute) pre-signed link of an artifact's zip. It is a credential: it goes to the
+ * machine on a standard input and nowhere else, so it is registered with the report and never in a message. The
+ * request must not follow the redirect (`gh api` would, and the 460 MB would come to this computer).
+ */
+export async function artifactDownloadUrl(
+  context: Pick<ImageFetchContext, 'report'> & { deps: Pick<CloudDeps, 'run' | 'pipe' | 'fetch'> },
+  repo: string,
+  artifactId: number,
+): Promise<string> {
+  const token = (await checked(context, 'gh', ['auth', 'token'])).trim();
+  if (!token) throw refused('gh is not logged in');
+  context.report.protect(token);
+  let response: Response;
+  try {
+    response = await context.deps.fetch(
+      `https://api.github.com/repos/${repo}/actions/artifacts/${artifactId}/zip`,
+      {
+        redirect: 'manual',
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: 'application/vnd.github+json',
+          'x-github-api-version': '2022-11-28',
+        },
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+  } catch {
+    throw new CloudError(`the download link of artifact ${artifactId} could not be requested`);
+  }
+  const location = response.headers.get('location');
+  if (response.status !== 302 || location === null || !location.startsWith('https://'))
+    throw new CloudError(
+      `GitHub gave no download link for artifact ${artifactId} (status ${response.status})`,
+    );
+  context.report.protect(location);
+  return location;
+}
+
 /**
  * Fetches the cloud image bundle that the general GitHub workflow built (PM-1145): finds or follows the run
  * (never starts one), checks where it ran, verifies the attestation of both files and the bundle, and writes
@@ -262,27 +381,13 @@ export async function runImageFetch(
   const { deps, report } = context;
   const { ref } = input;
   imageRef('image-fetch', ref);
-  if (input.run !== undefined && !/^[0-9]{1,18}$/.test(input.run))
-    throw badUsage('image-fetch --run needs the number of a GitHub Actions run');
+  const requested = input.run === undefined ? undefined : runNumber('image-fetch', input.run);
   const { root, out } = newOutputDirectory(deps, 'image-fetch', input.output);
-  const repo = githubRepoOf(
-    (await checked(context, 'git', ['-C', root, 'remote', 'get-url', 'origin'])).trim(),
-  );
-  const repository = parseJson(
-    await checked(context, 'gh', ['api', `repos/${repo}`]),
-    z.looseObject({ default_branch: z.string().min(1) }),
-    `repository ${repo}`,
-  );
-  const branch = repository.default_branch;
-  const id = input.run === undefined ? await findRun(context, repo, branch, ref) : Number(input.run);
-  if (id === null)
-    throw refused(
-      `no ${COMPUTE_JOB_WORKFLOW} run of ${CLOUD_IMAGE_JOB.job} for ${ref}; start one with:\n` +
-        cloudImageLaunchCommand(repo, branch, ref, deps.now()),
-    );
-  const run = await finishedRun(context, repo, id);
-  const runId = ComputeJobRunId.parse(checkOrigin(run, { repo, branch, ref }));
-  const url = runUrl(repo, id);
+  const { repo, branch, id, runId, url } = await locateCloudImageRun(context, {
+    root,
+    ref,
+    ...(requested === undefined ? {} : { run: requested }),
+  });
   if (input.dryRun) {
     report.step('ok', 'image-fetch', `${ref}: ${url} to ${out} (dry-run)`);
     return;

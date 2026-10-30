@@ -10,8 +10,11 @@ import { readHostStatus, readUnitFile, withHost } from './host';
 import type { StepResult } from './report';
 import { readSecret } from './secrets';
 import { readEc2HostInstance } from './ec2-host';
-import { receiveImage, selectedImage } from './images';
-import type { SelectedImage } from './images';
+import { receiveImage, receiveStagedImage, selectedImage } from './images';
+import type { ReceivedImage, SelectedImage } from './images';
+import { locateGithubImage, stageGithubImage, usesGithubImage } from './image-github';
+import type { GithubImage } from './image-github';
+import { runNumber } from './image-fetch';
 
 /**
  * The commands that manage the machine (PM-535): `deploy`, `rollback`, `status`, `logs`, `ssh`, `stop`,
@@ -231,26 +234,55 @@ function reportedFailure(message: string): CloudError {
 
 // ---- deploy and rollback ----
 
+/** Where the image comes from: a bundle on this computer, or the artifact of a GitHub run (PM-1154). */
+type ImageSource = { kind: 'bundle'; image: SelectedImage } | { kind: 'github'; github: GithubImage };
+
+function receivedDetail(sha: string, image: ReceivedImage): string {
+  return `source=${sha} platform=${image.platform} archiveSha256=${image.archiveSha256} imageId=${image.imageId}`;
+}
+
+/** Brings the image onto the machine, whichever way, and returns what was verified and imported. */
+async function receiveFromSource(
+  context: CloudContext,
+  host: HostSession,
+  target: Target,
+  source: ImageSource,
+): Promise<ReceivedImage> {
+  const { report } = context;
+  if (source.kind === 'bundle') {
+    await report.run('receive-image', async (): Promise<StepResult> => {
+      await receiveImage(context, host, source.image);
+      return { status: 'ok', detail: receivedDetail(target.sha, source.image) };
+    });
+    return source.image;
+  }
+  const { artifact, run } = source.github;
+  let staged: Awaited<ReturnType<typeof stageGithubImage>> | undefined;
+  await report.run('stage-image', async (): Promise<StepResult> => {
+    staged = await stageGithubImage(context, host, { sha: target.sha, github: source.github });
+    return { status: 'ok', detail: `artifact=${artifact.name} bytes=${artifact.bytes} run=${run.url}` };
+  });
+  await report.run('receive-image', async (): Promise<StepResult> => {
+    await receiveStagedImage(host, staged!.image, staged!.stage);
+    return { status: 'ok', detail: receivedDetail(target.sha, staged!.image) };
+  });
+  return staged!.image;
+}
+
 /** bootstrap, receive-image, receive-env, start; then waits for health and goes back to the earlier image if it never comes. */
 async function deployOnHost(
   context: CloudContext,
   host: HostSession,
   target: Target,
   envText: string,
-  image: SelectedImage,
+  source: ImageSource,
 ): Promise<void> {
   const { report, deps } = context;
   await report.run('bootstrap', async (): Promise<StepResult> => {
     await host.call('bootstrap', [], { input: readUnitFile(deps.repoRoot), timeoutMs: BOOTSTRAP_TIMEOUT_MS });
     return { status: 'ok', detail: 'Docker, git, swap, directories, systemd unit' };
   });
-  await report.run('receive-image', async (): Promise<StepResult> => {
-    await receiveImage(context, host, image);
-    return {
-      status: 'ok',
-      detail: `source=${target.sha} platform=${image.platform} archiveSha256=${image.archiveSha256} imageId=${image.imageId}`,
-    };
-  });
+  const image = await receiveFromSource(context, host, target, source);
   await report.run('receive-env', async (): Promise<StepResult> => {
     await host.call('receive-env', [], { input: envText });
     return { status: 'updated', detail: '/etc/projectman/cloud.env' };
@@ -293,6 +325,8 @@ async function deployOnHost(
 interface DeployOptions {
   ref: string | null;
   dryRun: boolean;
+  /** The GitHub run number of the image (`--run`; only with `deployment.imageSource` "github"). */
+  run?: string;
 }
 
 function recordedStart(
@@ -306,8 +340,32 @@ function recordedStart(
 
 export async function runDeploy(context: CloudContext, options: DeployOptions): Promise<void> {
   const { report, config } = context;
+  const run = options.run === undefined ? undefined : runNumber('deploy', options.run);
+  if (run !== undefined && !usesGithubImage(context))
+    throw refused('deploy --run needs deployment.imageSource "github"');
   const target = await resolveTarget(context, options.ref);
-  const image = selectedImage(context, target.sha);
+  let source: ImageSource;
+  let imageText: string;
+  if (usesGithubImage(context)) {
+    const github = await context.report.guard('image', async () => {
+      const found = await locateGithubImage(context, {
+        sha: target.sha,
+        ...(run === undefined ? {} : { run }),
+      });
+      report.step(
+        'ok',
+        'image',
+        `source=${target.sha} artifact=${found.artifact.name} bytes=${found.artifact.bytes} run=${found.run.url}`,
+      );
+      return found;
+    });
+    source = { kind: 'github', github };
+    imageText = `the GitHub artifact ${github.artifact.name} (${formatBytes(github.artifact.bytes)}) that the machine downloads itself`;
+  } else {
+    const image = selectedImage(context, target.sha);
+    source = { kind: 'bundle', image };
+    imageText = `verified image ${image.imageId}`;
+  }
   const envText = cloudEnvText(context);
   if (!/^TUNNEL_TOKEN=./m.test(envText))
     report.line(
@@ -317,11 +375,11 @@ export async function runDeploy(context: CloudContext, options: DeployOptions): 
     report.step(
       'skipped',
       'deploy',
-      `dry-run: would connect by SSH through SSM, bootstrap ${config.aws.instanceName}, receive verified image ${image.imageId}, send cloud.env, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
+      `dry-run: would connect by SSH through SSM, bootstrap ${config.aws.instanceName}, receive ${imageText}, send cloud.env, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
     );
     return;
   }
-  await withHost(context, (host) => deployOnHost(context, host, target, envText, image));
+  await withHost(context, (host) => deployOnHost(context, host, target, envText, source));
 }
 
 export async function runRollback(context: CloudContext, options: { dryRun: boolean }): Promise<void> {

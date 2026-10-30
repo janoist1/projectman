@@ -92,9 +92,11 @@ that waits for one. Pipeline release gates remain the project's human approval g
 1. On the administration Mac, the owner or the integrator acting on the owner's request first
    gets the image bundle of the commit: start the general GitHub workflow by hand (the
    `gh workflow run projectman-job.yml ...` line in [AWS.md](AWS.md#prebuilt-arm-images-pm-718), or
-   the line `image-fetch` prints when it finds no run), then
+   the line `image-fetch` prints when it finds no run). With `deployment.imageSource: "github"` (PM-1154),
+   `npm run cloud -- deploy --ref <commit>` then has the cloud machine download and verify the run's
+   artifact itself, so nothing large passes through the Mac. With the default `bundle` source, first run
    `npm run cloud -- image-fetch --ref <commit> --out <new directory>`, which verifies the run and
-   its attestation and needs no Docker. Then `npm run cloud -- deploy --ref <commit>`. Credentials stay
+   its attestation and needs no Docker, and then `deploy --ref <commit>`. Credentials stay
    under `~/.config/projectman/cloud/`; see [AWS.md](AWS.md) for image verification and rollback.
    The local `image-build` remains the fallback (GitHub down, or a commit before PM-1145).
 2. Update the Mac engine's own checkout to the same commit, run `npm ci`, then

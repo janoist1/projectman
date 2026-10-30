@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, stat } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { TaskKey, type ProjectConfig } from '@projectman/shared';
 import type {
@@ -13,6 +13,7 @@ import { isStrictlyWithin } from '../kernel';
 import { cleanupDependencyLeftovers, cloneDependencies, dependencyState } from './dependencies';
 import { git, GitCommandError, gitSucceeds, isoOrNull, tryGit } from './git';
 import { canonical, createKeyedLock, withRepoLock } from './paths';
+import { SAFE_GIT_SETTINGS } from './workspace-access';
 
 /** A fetch that takes longer is abandoned; the worktree starts from the last known state. */
 const FETCH_TIMEOUT_MS = 60_000;
@@ -56,6 +57,30 @@ interface ListedWorktree {
   /** The repository's main checkout (listed first by git). */
   main: boolean;
   prunable: boolean;
+}
+
+/** Validate links without letting git read configuration from a session-selected repository. */
+async function assertWorktreeLinks(dir: string, repoGitDir: string): Promise<string> {
+  try {
+    const gitFile = path.join(dir, '.git');
+    if (!(await lstat(gitFile)).isFile()) throw new Error('git entry is not a regular file');
+    const pointer = /^gitdir: (.+)\n?$/.exec(await readFile(gitFile, 'utf8'));
+    if (!pointer) throw new Error('invalid git pointer');
+    const common = await realpath(repoGitDir);
+    const admin = await realpath(path.resolve(dir, pointer[1]!));
+    // Compare against the anchored path, not a canonicalized worktrees symlink out of it.
+    if (path.dirname(admin) !== path.join(common, 'worktrees'))
+      throw new Error('git directory is not a direct worktree admin child');
+    const commonLink = (await readFile(path.join(admin, 'commondir'), 'utf8')).replace(/\r?\n$/, '');
+    if (!commonLink || (await realpath(path.resolve(admin, commonLink))) !== common)
+      throw new Error('unexpected common git directory');
+    const backLink = (await readFile(path.join(admin, 'gitdir'), 'utf8')).replace(/\r?\n$/, '');
+    if (!backLink || (await realpath(path.resolve(admin, backLink))) !== (await realpath(gitFile)))
+      throw new Error('git directory does not point back to the worktree');
+    return admin;
+  } catch {
+    throw new WorktreeError('not_a_worktree', `${dir} has invalid worktree links`);
+  }
 }
 
 /**
@@ -122,19 +147,73 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     return { repo, repoPath, target };
   }
 
-  async function worktreeInfo(dir: string, branch: string, repo: string): Promise<WorktreeInfo> {
-    const commonDir =
-      (await tryGit(['-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'])) ??
-      (await git(['-C', dir, 'rev-parse', '--git-common-dir']));
-    const adminDir =
-      (await tryGit(['-C', dir, 'rev-parse', '--absolute-git-dir'])) ??
-      (await git(['-C', dir, 'rev-parse', '--git-dir']));
+  async function repositoryFor(dir: string): Promise<string> {
+    const parts = path.relative(rootDir, dir).split(path.sep);
+    const [projectKey, folder] = parts;
+    const name = parts.length === 3 && folder === '_merge-fix' ? parts[2] : folder;
+    if (
+      !projectKey ||
+      !/^[A-Z][A-Z0-9]{0,9}$/.test(projectKey) ||
+      !name ||
+      (parts.length !== 2 && !(parts.length === 3 && folder === '_merge-fix'))
+    )
+      throw new WorktreeError('not_a_worktree', `${dir} is not a managed worktree`);
+    const match = new RegExp(`^${projectKey}-[0-9]+-([a-z0-9][a-z0-9._-]*)$`).exec(name);
+    const repoName = match?.[1];
+    const repoPath = repoName ? opts.repoPathOf?.(projectKey, repoName) : null;
+    if (!repoPath) throw new WorktreeError('not_a_worktree', `${dir} has no configured repository`);
+    return repoPath;
+  }
+
+  async function worktreeGit(dir: string, args: string[], repoPath?: string): Promise<string> {
+    const repo = repoPath ?? (await repositoryFor(dir));
+    await assertWorktreeLinks(dir, path.join(repo, '.git'));
+    return git([...SAFE_GIT_SETTINGS, '-C', dir, ...args], { isolatedConfig: true });
+  }
+
+  async function tryWorktreeGit(dir: string, args: string[], repoPath?: string): Promise<string | null> {
+    try {
+      return await worktreeGit(dir, args, repoPath);
+    } catch (err) {
+      if (err instanceof GitCommandError) return null;
+      throw err;
+    }
+  }
+
+  async function unpushedCommits(dir: string): Promise<number> {
+    if ((await tryWorktreeGit(dir, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'])) === null) return 0;
+    const remotes = (await worktreeGit(dir, ['remote'])).split('\n').filter(Boolean);
+    let args: string[];
+    if (remotes.length > 0) {
+      args = ['rev-list', '--count', 'HEAD', '--not', '--remotes'];
+    } else {
+      const branch = (await tryWorktreeGit(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim();
+      args = [
+        'rev-list',
+        '--count',
+        'HEAD',
+        '--not',
+        ...(branch ? [`--exclude=${branch}`] : []),
+        '--branches',
+      ];
+    }
+    return Number.parseInt((await worktreeGit(dir, args)).trim(), 10) || 0;
+  }
+
+  async function worktreeInfo(
+    dir: string,
+    branch: string,
+    repo: string,
+    repoPath: string,
+  ): Promise<WorktreeInfo> {
+    const commonDir = await realpath(path.join(repoPath, '.git'));
+    const adminDir = await assertWorktreeLinks(dir, commonDir);
     return {
       path: dir,
       branch,
       repo,
-      gitDir: path.resolve(dir, commonDir.trim()),
-      worktreeGitDir: path.resolve(dir, adminDir.trim()),
+      gitDir: commonDir,
+      worktreeGitDir: adminDir,
     };
   }
 
@@ -145,10 +224,12 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
   }): Promise<WorktreeInfo | null> {
     const { repo, repoPath, target } = await taskLocation(args);
     return withRepoLock(await canonical(repoPath), async () => {
+      if (await exists(target)) await assertWorktreeLinks(target, path.join(repoPath, '.git'));
       const found = await findByPath(await listWorktrees(repoPath), target);
       if (!found) return null;
-      const branch = found.branch ?? (await git(['-C', target, 'rev-parse', '--abbrev-ref', 'HEAD'])).trim();
-      return worktreeInfo(target, branch, repo.name);
+      const branch =
+        found.branch ?? (await worktreeGit(target, ['rev-parse', '--abbrev-ref', 'HEAD'], repoPath)).trim();
+      return worktreeInfo(target, branch, repo.name, repoPath);
     });
   }
 
@@ -172,6 +253,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     try {
       const repoPath = dependencyRepos.get(path.resolve(worktreePath));
       if (!repoPath) return { status: 'skipped', reason: 'not_worktree' };
+      await assertWorktreeLinks(worktreePath, path.join(repoPath, '.git'));
       const own = await canonical(worktreePath);
       await cleanupDependencyLeftovers(own);
       if ((await dependencyState(own)).fresh) {
@@ -200,7 +282,13 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
           if (listedPath === own || listedPath === (await canonical(repoPath))) continue;
           candidates.push(listed.path);
         }
-        const result = await cloneDependencies({ target: own, candidates, logger: log });
+        const result = await cloneDependencies({
+          target: own,
+          candidates,
+          logger: log,
+          isNodeModulesIgnored: async () =>
+            (await tryWorktreeGit(own, ['check-ignore', '-q', 'node_modules/'], repoPath)) !== null,
+        });
         if (result.status !== 'skipped') {
           const { reference, dirs, ms } = result;
           log.info(
@@ -258,6 +346,8 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     const { project, taskKey, title } = args;
     const { repo, repoPath, target } = location;
     return withRepoLock(await canonical(repoPath), async () => {
+      if (await exists(path.join(target, '.git')))
+        await assertWorktreeLinks(target, path.join(repoPath, '.git'));
       await git(['-C', repoPath, 'worktree', 'prune']);
       await ensureSharedRepoSettings(repoPath);
       const worktrees = await listWorktrees(repoPath);
@@ -265,9 +355,10 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
       const atTarget = await findByPath(worktrees, target);
       if (atTarget) {
         const branch =
-          atTarget.branch ?? (await git(['-C', target, 'rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+          atTarget.branch ??
+          (await worktreeGit(target, ['rev-parse', '--abbrev-ref', 'HEAD'], repoPath)).trim();
         log.debug({ repo: repo.name, taskKey, path: target, branch }, 'reusing task worktree');
-        return worktreeInfo(target, branch, repo.name);
+        return worktreeInfo(target, branch, repo.name, repoPath);
       }
 
       const wanted = taskBranchName(taskKey, title);
@@ -292,7 +383,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
           { repo: repo.name, taskKey, path: holder.path, branch },
           'reusing the worktree of the task branch',
         );
-        return worktreeInfo(holder.path, branch, repo.name);
+        return worktreeInfo(holder.path, branch, repo.name, repoPath);
       }
 
       await assertFreeDirectory(target, repoPath);
@@ -304,7 +395,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
           { repo: repo.name, taskKey, path: target, branch },
           'created task worktree on its existing branch',
         );
-        return worktreeInfo(target, branch, repo.name);
+        return worktreeInfo(target, branch, repo.name, repoPath);
       }
 
       const remote = await findTaskBranch(repoPath, 'refs/remotes/origin/', taskKey, wanted);
@@ -327,7 +418,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
           { repo: repo.name, taskKey, path: target, branch: remote },
           'created task worktree from origin',
         );
-        return worktreeInfo(target, remote, repo.name);
+        return worktreeInfo(target, remote, repo.name, repoPath);
       }
 
       const startPoint = await startPointFor(repoPath, repo.defaultBranch);
@@ -335,7 +426,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
         timeoutMs: CHECKOUT_TIMEOUT_MS,
       });
       log.info({ repo: repo.name, taskKey, path: target, branch, startPoint }, 'created task worktree');
-      return worktreeInfo(target, branch, repo.name);
+      return worktreeInfo(target, branch, repo.name, repoPath);
     });
   }
 
@@ -373,17 +464,17 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
   async function status(worktreePath: string): Promise<{ dirty: boolean; unpushedCommits: number }> {
     const dir = path.resolve(worktreePath);
     await cleanupDependencyLeftovers(dir);
-    const porcelain = await git(['-C', dir, 'status', '--porcelain']);
+    const porcelain = await worktreeGit(dir, ['status', '--porcelain']);
     return { dirty: porcelain.trim().length > 0, unpushedCommits: await unpushedCommits(dir) };
   }
 
   async function head(worktreePath: string): Promise<SourceHead | null> {
     const dir = path.resolve(worktreePath);
-    const commit = (await tryGit(['-C', dir, 'rev-parse', '--verify', '--quiet', 'HEAD^{commit}']))?.trim();
-    const branch = (await tryGit(['-C', dir, 'symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim();
+    const commit = (await tryWorktreeGit(dir, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']))?.trim();
+    const branch = (await tryWorktreeGit(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim();
     if (!commit || !branch) return null;
-    const changes = (await git(['-C', dir, 'status', '--porcelain'])).split('\n').filter(Boolean).length;
-    const committedAt = isoOrNull(await tryGit(['-C', dir, 'log', '-1', '--format=%cI', commit]));
+    const changes = (await worktreeGit(dir, ['status', '--porcelain'])).split('\n').filter(Boolean).length;
+    const committedAt = isoOrNull(await tryWorktreeGit(dir, ['log', '-1', '--format=%cI', commit]));
     return { commit, branch, dirty: changes > 0, changes, path: dir, committedAt };
   }
 
@@ -404,18 +495,16 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
         `${dir} is not under ${rootDir}; only worktrees created by projectman are removed`,
       );
     }
-    let worktrees: ListedWorktree[];
-    try {
-      worktrees = await listWorktrees(dir);
-    } catch {
-      throw new WorktreeError('not_a_worktree', `${dir} is not a git worktree`);
-    }
+    const repoPath = await repositoryFor(dir);
+    await assertWorktreeLinks(dir, path.join(repoPath, '.git'));
+    const worktrees = await listWorktrees(repoPath);
     const self = await findByPath(worktrees, dir);
     const main = worktrees[0];
     if (!self || !main) throw new WorktreeError('not_a_worktree', `${dir} is not a git worktree`);
     if (self.main) throw new WorktreeError('main_worktree', `${dir} is a main checkout, not a task worktree`);
 
     await withRepoLock(await canonical(main.path), async () => {
+      await assertWorktreeLinks(dir, path.join(repoPath, '.git'));
       await cleanupDependencyLeftovers(dir);
       if (!force && (await status(dir)).dirty) {
         throw new WorktreeError(
@@ -460,11 +549,12 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
   async function findMergeFix(args: { project: ProjectConfig; repoName: string; taskKey: string }) {
     const { repo, repoPath, target, branch } = await fixLocation(args);
     return withRepoLock(await canonical(repoPath), async () => {
+      if (await exists(target)) await assertWorktreeLinks(target, path.join(repoPath, '.git'));
       const found = await findByPath(await listWorktrees(repoPath), target);
       if (!found) return null;
       if (found.branch !== branch)
         throw new WorktreeError('path_taken', 'merge-fix path holds another branch');
-      return worktreeInfo(target, branch, repo.name);
+      return worktreeInfo(target, branch, repo.name, repoPath);
     });
   }
 
@@ -478,16 +568,18 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
       throw new WorktreeError('no_start_point', 'merge fix needs a commit id');
     const { repo, repoPath, target, branch } = await fixLocation(args);
     const info = await withRepoLock(await canonical(repoPath), async () => {
+      if (await exists(target)) await assertWorktreeLinks(target, path.join(repoPath, '.git'));
       await ensureSharedRepoSettings(repoPath);
       const listed = await listWorktrees(repoPath);
       const found = await findByPath(listed, target);
       if (found) {
         if (
           found.branch !== branch ||
-          !(await gitSucceeds(['-C', target, 'merge-base', '--is-ancestor', args.commit, 'HEAD']))
+          (await tryWorktreeGit(target, ['merge-base', '--is-ancestor', args.commit, 'HEAD'], repoPath)) ===
+            null
         )
           throw new WorktreeError('path_taken', 'merge-fix checkout does not contain the approved commit');
-        return worktreeInfo(target, branch, repo.name);
+        return worktreeInfo(target, branch, repo.name, repoPath);
       }
       if (await exists(target)) throw new WorktreeError('path_taken', 'merge-fix path already exists');
       if (await refExists(repoPath, `refs/heads/${branch}`))
@@ -496,7 +588,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
       await git(['-C', repoPath, 'worktree', 'add', '--no-track', '-b', branch, target, args.commit], {
         timeoutMs: CHECKOUT_TIMEOUT_MS,
       });
-      return worktreeInfo(target, branch, repo.name);
+      return worktreeInfo(target, branch, repo.name, repoPath);
     });
     dependencyRepos.set(path.resolve(info.path), repoPath);
     dependencyRepos.set(await canonical(info.path), repoPath);
@@ -513,6 +605,7 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
       if (found?.main)
         throw new WorktreeError('main_worktree', 'merge fix must not remove the main checkout');
       if (found) {
+        await assertWorktreeLinks(current.target, path.join(current.repoPath, '.git'));
         await git(['-C', current.repoPath, 'worktree', 'remove', '--force', '--', current.target]);
         dependencyRepos.delete(path.resolve(current.target));
         dependencyRepos.delete(await canonical(current.target));
@@ -670,24 +763,6 @@ async function hasRemote(repoPath: string, name: string): Promise<boolean> {
 
 function refExists(repoPath: string, ref: string): Promise<boolean> {
   return gitSucceeds(['-C', repoPath, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
-}
-
-/**
- * Commits on HEAD that no remote has. Without any remote: commits on HEAD that no other
- * local branch has.
- */
-async function unpushedCommits(dir: string): Promise<number> {
-  if (!(await refExists(dir, 'HEAD'))) return 0;
-  const remotes = (await git(['-C', dir, 'remote'])).split('\n').filter(Boolean);
-  let args: string[];
-  if (remotes.length > 0) {
-    args = ['rev-list', '--count', 'HEAD', '--not', '--remotes'];
-  } else {
-    // with --branches, --exclude takes the short branch name
-    const head = (await tryGit(['-C', dir, 'symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim();
-    args = ['rev-list', '--count', 'HEAD', '--not', ...(head ? [`--exclude=${head}`] : []), '--branches'];
-  }
-  return Number.parseInt((await git(['-C', dir, ...args])).trim(), 10) || 0;
 }
 
 async function assertFreeDirectory(target: string, repoPath: string): Promise<void> {

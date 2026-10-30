@@ -4,6 +4,7 @@ import { statSync } from 'node:fs';
 import path from 'node:path';
 import { toolPathForms, withoutFirmlink, pathPatternMatcher, isReadBoundaryPath } from '../../tool-decision';
 import type { StartSessionSpec } from '../../../contracts';
+import { GIT_SHARED_READ_ONLY, GIT_ADMIN_LINKS, GIT_CLONE_READ_ONLY } from '../../../contracts';
 import {
   FAST_HOOK_TIMEOUT_S,
   TOOL_PREPARE_HOOK_TIMEOUT_S,
@@ -342,16 +343,7 @@ function codexSharedGitAccess(
     const ownGitDir = path.join(placement.path, '.git');
     return {
       writable: [ownGitDir],
-      readOnly: [
-        'config',
-        'config.lock',
-        'config.worktree',
-        'commondir',
-        'gitdir',
-        'hooks',
-        'modules',
-        path.join('objects', 'info'),
-      ].map((name) => path.join(ownGitDir, name)),
+      readOnly: GIT_CLONE_READ_ONLY.map((name) => path.join(ownGitDir, name)),
     };
   }
   if (!gitDir || !adminDir) return { writable: [], readOnly: [] };
@@ -363,10 +355,8 @@ function codexSharedGitAccess(
       adminDir,
     ],
     readOnly: [
-      ...['config', 'config.lock', 'hooks', path.join('objects', 'info')].map((name) =>
-        path.join(gitDir, name),
-      ),
-      ...['commondir', 'gitdir', 'config.worktree', 'hooks'].map((name) => path.join(adminDir, name)),
+      ...GIT_SHARED_READ_ONLY.map((name) => path.join(gitDir, name)),
+      ...GIT_ADMIN_LINKS.map((name) => path.join(adminDir, name)),
       // Only Codex lifts the lock denial; packed-refs and all other checkout protections stay.
       ...denyWrite.filter((entry) => insidePath(entry, gitDir) && entry !== packedRefsLock),
     ],

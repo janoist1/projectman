@@ -230,9 +230,16 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
       throw new MemberWorkspaceError('workspace_invalid', `${info.path} is not an independent clone`);
     if (await maybeLstat(path.join(info.gitDir, 'objects', 'info', 'alternates')))
       throw new MemberWorkspaceError('workspace_invalid', `${info.path} borrows objects (alternates)`);
+    if (await maybeLstat(path.join(info.gitDir, 'commondir')))
+      throw new MemberWorkspaceError('workspace_invalid', `${info.path} uses a common git directory`);
     const gitDir = (await gitIn(info.path, ['rev-parse', '--absolute-git-dir'])).trim();
     if ((await canonical(gitDir)) !== (await canonical(info.gitDir)))
       throw new MemberWorkspaceError('workspace_invalid', `${info.path} uses another git directory`);
+    const commonDir = (
+      await gitIn(info.path, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+    ).trim();
+    if ((await canonical(commonDir)) !== (await canonical(info.gitDir)))
+      throw new MemberWorkspaceError('workspace_invalid', `${info.path} uses another common directory`);
   }
 
   async function ensure(key: MemberWorkspaceKey): Promise<MemberWorkspaceInfo & { created: boolean }> {

@@ -1,5 +1,17 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -7,7 +19,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig, RepoConfig } from '@projectman/shared';
 import { getTemplate } from '@projectman/templates';
-import { createWorktreeManager } from './index';
+import { createWorktreeManager as createManager } from './index';
 import { createGitSeed } from '../../test/helpers/git-seed';
 import { hasApfsTemporaryFilesystem } from '../../test/helpers/apfs';
 
@@ -85,6 +97,18 @@ let clone: string;
 let rootDir: string;
 let project: ProjectConfig;
 
+function createWorktreeManager(options: Parameters<typeof createManager>[0]) {
+  return createManager({
+    repoPathOf: (projectKey, repoName) => {
+      const repo = project.project.repos.find((entry) => entry.name === repoName);
+      return project.project.key === projectKey && repo
+        ? path.resolve(project.project.workspacePath, repo.path)
+        : null;
+    },
+    ...options,
+  });
+}
+
 beforeAll(async () => {
   configDir = await mkdtemp(path.join(tmpdir(), 'pm-gitconfig-'));
   const configFile = path.join(configDir, 'gitconfig');
@@ -140,6 +164,69 @@ async function sharedSettings(repo: string): Promise<Record<string, string>> {
 }
 
 const ALL_FALSE = Object.fromEntries(SHARED_SETTING_KEYS.map((key) => [key, 'false']));
+
+describe('host worktree link validation', () => {
+  it.each(['foreign git directory', 'foreign commondir', 'wrong backlink', 'symlink', 'directory'])(
+    'rejects a %s before loading executable git configuration',
+    async (variant) => {
+      const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+      const info = await manager.ensureForTask(task('AR-1', 'Links'));
+      const marker = path.join(base, 'fsmonitor-ran');
+      const monitor = path.join(base, 'monitor');
+      await writeFile(monitor, `#!/bin/sh\ntouch '${marker}'\n`);
+      await chmod(monitor, 0o700);
+      const fake = path.join(info.path, 'fake-git');
+      await cp(path.join(clone, '.git'), fake, { recursive: true });
+      await git('--git-dir', fake, 'config', 'core.fsmonitor', monitor);
+      if (variant === 'foreign git directory') {
+        await writeFile(path.join(info.path, '.git'), `gitdir: ${fake}\n`);
+      } else if (variant === 'foreign commondir') {
+        await writeFile(path.join(info.worktreeGitDir!, 'commondir'), `${fake}\n`);
+      } else if (variant === 'wrong backlink') {
+        await writeFile(path.join(info.worktreeGitDir!, 'gitdir'), `${fake}/config\n`);
+      } else {
+        await rm(path.join(info.path, '.git'));
+        if (variant === 'symlink') await symlink(path.join(fake, 'config'), path.join(info.path, '.git'));
+        else await mkdir(path.join(info.path, '.git'));
+      }
+      await expect(manager.status(info.path)).rejects.toMatchObject({ code: 'not_a_worktree' });
+      await expect(manager.head(info.path)).rejects.toMatchObject({ code: 'not_a_worktree' });
+      await expect(manager.find(task('AR-1', 'Links'))).rejects.toMatchObject({ code: 'not_a_worktree' });
+      await expect(manager.remove({ path: info.path, force: true })).rejects.toMatchObject({
+        code: 'not_a_worktree',
+      });
+      expect(await exists(marker)).toBe(false);
+    },
+  );
+
+  it('reads an intact worktree with fsmonitor disabled', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    const info = await manager.ensureForTask(task('AR-1', 'Links'));
+    const marker = path.join(base, 'fsmonitor-ran');
+    const monitor = path.join(base, 'monitor');
+    await writeFile(monitor, `#!/bin/sh\ntouch '${marker}'\n`);
+    await chmod(monitor, 0o700);
+    await git('-C', clone, 'config', 'core.fsmonitor', monitor);
+    const restarted = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    expect(await restarted.status(info.path)).toEqual({ dirty: false, unpushedCommits: 0 });
+    expect((await restarted.head(info.path))?.commit).toBe(await git('-C', clone, 'rev-parse', 'HEAD'));
+    expect(await exists(marker)).toBe(false);
+  });
+
+  it.each(['missing', 'unknown'] as const)(
+    'refuses a worktree with a %s repository resolver',
+    async (variant) => {
+      const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+      const info = await manager.ensureForTask(task('AR-1', 'Links'));
+      const restarted = createManager({
+        rootDir,
+        logger: testLogger().logger,
+        ...(variant === 'unknown' ? { repoPathOf: () => null } : {}),
+      });
+      await expect(restarted.status(info.path)).rejects.toMatchObject({ code: 'not_a_worktree' });
+    },
+  );
+});
 
 describe('shared repository settings', { timeout: 30_000 }, () => {
   it('sets them on a new task worktree, rewrites only what changed and leaves a settled repository alone', async () => {

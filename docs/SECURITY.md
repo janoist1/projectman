@@ -669,11 +669,20 @@ Neither HTTP authentication nor a native Bash sandbox establishes that all agent
 unable to read app data or connect to app ports. Decision 24's local-binding exception conflicts
 with the strict PM-87 requirement; its scope remains unresolved.
 
-The temporary-repository tests in `apps/server/test/sandbox-probe.test.js` reproduce host
-execution through shared `post-checkout`, `core.hooksPath` and `core.fsmonitor` using the actual
-worktree manager. This proves the host trigger if planting is possible, not native sandbox
-planting. PM-131 removed the normal Codex shared-git writable root, but the host git wrapper
-still trusts repository executable configuration and hooks. The whole shared git directory must
+The temporary-repository tests in `apps/server/test/sandbox-probe.test.js` exercise shared
+`post-checkout`, `core.hooksPath` and `core.fsmonitor` using the actual worktree manager.
+The checkout hook tests prove host execution if planting is possible; the status test now
+requires fsmonitor's marker to stay absent. None proves native sandbox planting.
+PM-1171 validates task worktree links before host reads without invoking git:
+the regular `.git` file must point to a direct child of the configured repository's
+`.git/worktrees`, `commondir` must resolve to that repository's canonical `.git`, and `gitdir`
+must point back to the worktree's `.git`. Invalid links fail with `not_a_worktree` before git runs;
+reads use `SAFE_GIT_SETTINGS` with no hooks or fsmonitor and isolated global/system configuration.
+Removal validates links too. Independent member clones reject `.git/commondir` and a common git
+directory other than their own (`workspace_invalid`). Claude and Codex protect the same git
+configuration, hook, alternates and link paths; this is defense in depth, not a native provider
+probe. Repository-level checkout operations still trust the configured project's hooks and
+configuration. The whole shared git directory must
 not be restored as a writable root to work around denied git operations: PM-399/PM-411 grant only
 the narrow set of the paragraph on the Codex profile (objects, refs, logs, packed-refs.lock, and the worktree's own
 admin directory, with the configuration, hooks and links read-only). Other narrow trusted git

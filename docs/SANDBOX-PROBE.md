@@ -199,11 +199,11 @@ corresponding `fake-live/<variant>-executed.txt`. A marker proves host execution
 sandbox planting. If the host trigger is denied by the outer environment, this step remains
 unverified; do not request general host execution for member work.
 
-`apps/server/test/sandbox-probe.test.js` separately reproduces all three host triggers using
-the **actual worktree manager** and temporary fictional repos, without any agent CLI.
-That automated result establishes the current host-side vulnerability conditional on planting;
-it does not prove whether native Claude/Codex allows planting. Hardened host git should replace
-those exposure assertions with marker-absence assertions when implemented in its own task.
+`apps/server/test/sandbox-probe.test.js` checks these host triggers using the **actual worktree
+manager** and temporary fictional repos, without any agent CLI. Since PM-1171 the worktree
+status read disables fsmonitor, and its assertion requires the marker to stay absent. The two
+repository-level checkout hook triggers still establish host execution conditional on planting.
+None of these tests proves whether native Claude/Codex allows planting.
 
 ## PM-167: the reader and developer sandboxes on the owner's machine
 

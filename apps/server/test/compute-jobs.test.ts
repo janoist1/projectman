@@ -326,9 +326,73 @@ describe('compute jobs', () => {
     expect(jobs.pending[0]!.signal.aborted).toBe(true);
   });
 
-  it('does not show another project’s run', async () => {
-    await setup();
+  describe('reading runs', () => {
+    let seq = 0;
+    /** A run row of a project, made `seq` seconds after the epoch so the order is known. */
+    function seed(projectKey: string, repo: string, job: string) {
+      seq += 1;
+      const id = `job_seed${seq}`;
+      h.repos.computeJobRuns.insert({
+        id,
+        projectKey,
+        repo,
+        job,
+        commit: COMMIT,
+        runner: 'github_actions',
+        requestedBy: 'devops',
+        taskKey: null,
+        createdAt: new Date(seq * 1000).toISOString(),
+      });
+      return id;
+    }
 
-    expect(() => h.domain.computeJobs.get('OTHER', 'job_missing')).toThrowError(/not found/);
+    async function setupWithRuns() {
+      await setup();
+      h.repos.projects.insert({
+        key: 'OTHER',
+        name: 'Other',
+        templateId: null,
+        configVersion: 'v1',
+        createdAt: '2026-09-29T10:00:00.000Z',
+        updatedAt: '2026-09-29T10:00:00.000Z',
+      });
+      return {
+        webImage: seed('AR', 'web', 'cloud-image'),
+        webDocs: seed('AR', 'web', 'docs'),
+        apiImage: seed('AR', 'api', 'cloud-image'),
+        foreign: seed('OTHER', 'web', 'cloud-image'),
+      };
+    }
+
+    it('gets a run of the project and refuses one of another project or none', async () => {
+      const runs = await setupWithRuns();
+
+      expect(h.domain.computeJobs.get('AR', runs.webImage).id).toBe(runs.webImage);
+      expect(() => h.domain.computeJobs.get('AR', runs.foreign)).toThrowError(/not found/);
+      expect(() => h.domain.computeJobs.get('AR', 'job_missing')).toThrowError(/not found/);
+    });
+
+    it('lists the runs of the project only, newest first', async () => {
+      const runs = await setupWithRuns();
+
+      expect(h.domain.computeJobs.list('AR').map((run) => run.id)).toEqual([
+        runs.apiImage,
+        runs.webDocs,
+        runs.webImage,
+      ]);
+    });
+
+    it.each([
+      ['the repository', { repo: 'web' }, ['webDocs', 'webImage']],
+      ['the job', { job: 'cloud-image' }, ['apiImage', 'webImage']],
+      ['the repository and the job', { repo: 'web', job: 'cloud-image' }, ['webImage']],
+      ['the limit', { limit: 1 }, ['apiImage']],
+    ] as const)('filters the list by %s', async (_name, filter, expected) => {
+      const runs = await setupWithRuns();
+
+      expect(h.domain.computeJobs.list('AR', filter).map((run) => run.id)).toEqual(
+        expected.map((name) => runs[name]),
+      );
+    });
   });
 });

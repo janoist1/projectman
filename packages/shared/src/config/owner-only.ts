@@ -114,7 +114,7 @@ function machineAccessChanged(previous: ProjectConfig, next: ProjectConfig): boo
   });
 }
 
-/** The repositories that have a full test or run it only at the merge, with those two settings. */
+/** The repositories that have compute jobs, with those jobs. */
 function computeJobsSignature(config: ProjectConfig): string {
   return canonical(
     config.project.repos
@@ -124,6 +124,7 @@ function computeJobsSignature(config: ProjectConfig): string {
   );
 }
 
+/** The repositories that have a full test or run it only at the merge, with those two settings. */
 function reviewTestSignature(config: ProjectConfig): string {
   return canonical(
     config.project.repos

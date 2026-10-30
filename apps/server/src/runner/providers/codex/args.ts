@@ -143,6 +143,8 @@ interface CodexArgsInput {
   realCwd: string;
   /** Node binary used when curl is missing (defaults to the running Node). */
   nodePath?: string;
+  /** The engine's platform (defaults to the running one); Codex's network proxy is verified on macOS only. */
+  platform?: NodeJS.Platform;
 }
 
 interface CodexModelProvider {
@@ -177,6 +179,21 @@ type CodexAccess = 'read' | 'write' | 'deny';
 interface CodexPermissionProfile {
   extends: ':read-only' | ':workspace';
   filesystem: Record<string, CodexAccess | Record<string, CodexAccess>>;
+  /** Codex's own network proxy rules (PM-1172); only together with `features.network_proxy`. */
+  network?: { enabled: true; domains: Record<string, 'allow' | 'deny'> };
+}
+
+/**
+ * The profile's `network` part for an open outbound network (PM-1172, probed on codex-cli 0.159.1):
+ * every host but the denied ones. No `mode` (`limited` allows only GET, HEAD and OPTIONS), no
+ * `allow_local_binding` and no `unix_sockets`: then the proxy blocks the loopback, private and
+ * link-local addresses (also by the resolved IP) and the sandbox refuses Unix sockets.
+ */
+function codexNetwork(deniedHosts: readonly string[]): NonNullable<CodexPermissionProfile['network']> {
+  return {
+    enabled: true,
+    domains: { '*': 'allow', ...Object.fromEntries(deniedHosts.map((host) => [host, 'deny' as const])) },
+  };
 }
 
 function insidePath(candidate: string, parent: string): boolean {
@@ -504,10 +521,16 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     ...(portable?.allowWrite ?? []),
     ...(tmpDir ? [tmpDir] : []),
   ];
+  // PM-1172: the open network and its proxy come from this one branch. Without the proxy the commands
+  // would reach every address directly, the loopback included; only macOS is verified (Linux stays closed).
+  const networkProxy =
+    spec.policy?.network.outbound === 'open' && (input.platform ?? process.platform) === 'darwin'
+      ? codexNetwork(spec.policy.network.deniedHosts ?? [])
+      : undefined;
+  if (networkProxy) c('features.network_proxy', true);
   c('default_permissions', CODEX_PERMISSION_PROFILE);
-  c(
-    `permissions.${CODEX_PERMISSION_PROFILE}`,
-    codexPermissionProfile({
+  c(`permissions.${CODEX_PERMISSION_PROFILE}`, {
+    ...codexPermissionProfile({
       sandbox: writes ? 'workspace-write' : 'read-only',
       deniedPaths: codexDeniedPaths(input),
       writableRoots,
@@ -524,7 +547,8 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
       tmpDir,
       cliPath: input.cliPath,
     }),
-  );
+    ...(networkProxy ? { network: networkProxy } : {}),
+  });
 
   // Every command sees them, also one run outside the sandbox after a question.
   // The browsers belong to a writing sandbox. A read-only one still names the session folder (PM-522):

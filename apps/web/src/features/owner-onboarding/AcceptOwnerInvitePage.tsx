@@ -8,6 +8,7 @@ import { Button } from '../../components/Button';
 import { PasswordField, TextField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
+import { currentLanguage } from '../../i18n/language';
 import { t } from '../../i18n/t';
 import { useDocumentTitle } from '../../lib/hooks';
 import { AuthLayout } from '../auth/AuthLayout';
@@ -63,7 +64,7 @@ function AcceptForm({ token, invite }: { token: string; invite: PublicOwnerInvit
   const loginPath = `/login?next=${encodeURIComponent(`/owner-invite/${token}`)}`;
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    accept.mutate(invite.requiresLogin ? {} : { name: name.trim(), password }, {
+    accept.mutate(invite.requiresLogin ? {} : { name: name.trim(), password, language: currentLanguage() }, {
       onSuccess: () => navigate('/welcome', { replace: true }),
     });
   };

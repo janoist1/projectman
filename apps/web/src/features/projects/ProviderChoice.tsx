@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { AgentProvider, type ProviderLoginStatus } from '@projectman/shared';
 import { Button } from '../../components/Button';
+import { intlLocale } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { NanogptKeyDialog } from '../settings/NanogptKeyDialog';
 import { ProviderTodo, providerStatusText } from '../settings/ProviderStatus';
@@ -142,7 +143,10 @@ export function ProviderChoice({
       {!query.isPending && checkedAt ? (
         <p className={styles.muted}>
           {t('projects.create.checkedAt', {
-            time: new Date(checkedAt).toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' }),
+            time: new Date(checkedAt).toLocaleTimeString(intlLocale(), {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
           })}
         </p>
       ) : null}

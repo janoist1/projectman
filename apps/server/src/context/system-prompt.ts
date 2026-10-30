@@ -47,7 +47,7 @@ import {
   describeSessionTmpDir,
   describeUnattendedCommands,
 } from '../runtime/permissions';
-import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
+import { isHumanOnlyLabel, labelHolders, screenshotPlacement } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
 import { ROLE_PURPOSES } from './role-purposes';
@@ -488,7 +488,10 @@ function sessionFolderSection({ member, sandbox, sessionPolicy }: ContextPackInp
   if (isGemini(member)) return ['# Your session folder', describeSessionFolder(folder, 'gemini')].join('\n');
   if (!isCodex(member)) return '';
   if (sessionPolicy?.permissions.sandbox === 'read-only')
-    return ['# Your session folder', describeReadOnlySessionFolder(folder)].join('\n');
+    return [
+      '# Your session folder',
+      describeReadOnlySessionFolder(folder, { screenshots: screenshotPlacement(sessionPolicy.access) }),
+    ].join('\n');
   const tmpDir = sandbox?.portable?.tmpDir;
   return [
     '# Your session folder',
@@ -555,6 +558,7 @@ function unattendedCommandsSection(input: ContextPackInput, guide: ContextPack['
     localOnly: repo !== undefined && !repo.github,
     // Codex has no allow list of its own; Claude Code's comes from the role (session-policy).
     codex: isCodex(member),
+    networkOpen: sessionPolicy?.network.outbound === 'open',
     preApproved: isCodex(member)
       ? []
       : (sessionPolicy?.tools ?? roleSessionTools(project, member.role)).shell
@@ -587,16 +591,40 @@ function approverText(member: ContextPackInput['member']): string {
   return 'Permission questions: when the CLI asks for a permission, a human decides in their inbox. Wait for the answer and do not ask again in another form.';
 }
 
-function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInput): string {
+/**
+ * What the member does about `node_modules` (PM-1203). A worktree that is not a member workspace is
+ * cloned from an installed checkout and its member installs the rest; a member workspace is installed
+ * by the engine, so only a shortfall it reports is mentioned. Readers and Codex (which cannot leave its
+ * sandbox on an engine) never install: they ask.
+ */
+function dependenciesLines({
+  sessionPolicy: policy,
+  member,
+  workspaceDependencies,
+}: ContextPackInput): string[] {
+  if (!policy) return [];
+  const { placement } = policy;
+  if (placement.kind === 'task_worktree' && !placement.workspace)
+    return [
+      'node_modules is cloned automatically from an installed checkout with the same lockfile. If node_modules is missing or the lockfile changed, run npm ci here (a routine step).',
+    ];
+  if (!workspaceDependencies) return [];
+  const state =
+    workspaceDependencies === 'missing' ? 'are not installed' : 'are older than package-lock.json';
+  if (policy.access === 'task_worktree' && !isCodex(member))
+    return [`The dependencies in this workspace ${state}: run npm ci here first (a routine step).`];
+  return [
+    `The dependencies in this workspace ${state}. Do not try to install them; if you need them, tell a human with ask_human (the integrator can install them).`,
+  ];
+}
+
+function sessionPolicySection(input: ContextPackInput): string {
+  const { sessionPolicy: policy, member } = input;
   if (!policy) return '';
   return [
     '# Session policy',
     `Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
-    ...(policy.access === 'task_worktree'
-      ? [
-          `${policy.placement.kind === 'task_worktree' && !policy.placement.workspace ? 'node_modules is cloned automatically from an installed checkout with the same lockfile. ' : ''}If node_modules is missing or the lockfile changed, run npm ci here (a routine step).`,
-        ]
-      : []),
+    ...dependenciesLines(input),
     ...(policy.access === 'review_copy' ? [`Review copy mode: ${policy.reviewCopyMode ?? 'inherit'}.`] : []),
     `Readable roots for automatic command decisions: ${codeList(policy.filesystem.readableRoots)}.`,
     `Writable workspace roots: ${codeList(policy.filesystem.writableRoots)}.`,
@@ -607,6 +635,14 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
     ...(policy.filesystem.deniedPaths?.length
       ? [
           `The file tools never read or change credential files and the live instance's data (${codeList(policy.filesystem.deniedPaths)}), and web fetch never reaches ${codeList(policy.network.deniedHosts ?? [])}, in any mode: do not look for a way around it.`,
+        ]
+      : []),
+    // PM-1172: Codex's commands reach the network through its own proxy (Codex and NanoGPT members).
+    ...(isCodex(member)
+      ? [
+          policy.network.outbound === 'open'
+            ? `Outbound network: on (a member setting the owner controls). Your shell commands reach any host except ${codeList(policy.network.deniedHosts ?? [])} and local or private addresses without asking, through the proxy Codex sets in HTTP_PROXY/HTTPS_PROXY; a tool that ignores those variables gets no connection.`
+            : 'Outbound network: off (a member setting the owner controls). A shell command that needs the network is a permission request, answered as described below.',
         ]
       : []),
     'These roots are not strict read or network isolation; outside-sandbox execution still requires permission.',

@@ -49,6 +49,7 @@ import { roleLabel } from '../../../lib/members';
 import { useInstantLimits } from '../SettingsEditor';
 import shared from '../settings.module.css';
 import { SettingsSection } from './SettingsSection';
+import { OwnerTopics } from './OwnerTopics';
 
 function memberRole(member: MemberConfig, roles: readonly RoleView[]): string {
   return member.kind === 'human'
@@ -834,6 +835,7 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
           )}
         </div>
       </section>
+      <OwnerTopics config={config} />
       <section aria-labelledby="settings-mover-title">
         <h3 id="settings-mover-title" className={shared.groupTitle}>
           {t('settings.team.mover.label')}

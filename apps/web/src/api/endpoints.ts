@@ -127,6 +127,7 @@ import type {
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
+  SetLanguageRequest,
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
@@ -244,6 +245,8 @@ export const api = {
     apiRequest(routes.passwordReset(), { method: 'POST', body, schema: Me }),
   logout: () => apiRequest<unknown>(routes.logout(), { method: 'POST' }),
   me: () => apiRequest(routes.me(), { schema: Me }),
+  setLanguage: (body: SetLanguageRequest) =>
+    apiRequest(routes.myLanguage(), { method: 'PUT', body, schema: Me }),
 
   invitations: (key: string) => apiRequest(routes.invitations(key), { schema: InvitationsView }),
   createInvite: (key: string, body: CreateInviteRequest) =>

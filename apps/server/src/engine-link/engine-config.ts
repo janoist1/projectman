@@ -261,7 +261,8 @@ export interface ResolvedEngineConfig extends Omit<EngineConfig, 'repos'> {
     fullTestCommand?: string;
     regenerateCommand?: string;
     computeJobs?: ComputeJobDefinitions;
-    workspaceSetup: { kind: 'npm_ci'; timeoutMs: number } | null;
+    /** `implicit`: the setting is absent, so it is a default (PM-1203), not the operator's choice. */
+    workspaceSetup: { kind: 'npm_ci'; timeoutMs: number; implicit: boolean } | null;
     mergeBranch?: string;
   }>;
 }
@@ -332,10 +333,15 @@ export function resolveEngineConfig(
     return {
       ...entry,
       path: real,
+      // PM-1203: a repository with no setting installs member clones' dependencies; `none` opts out.
       workspaceSetup:
-        entry.workspaceSetup?.kind === 'npm_ci'
-          ? { kind: 'npm_ci' as const, timeoutMs: entry.workspaceSetup.timeoutMs ?? 600_000 }
-          : null,
+        entry.workspaceSetup?.kind === 'none'
+          ? null
+          : {
+              kind: 'npm_ci' as const,
+              timeoutMs: entry.workspaceSetup?.timeoutMs ?? 600_000,
+              implicit: entry.workspaceSetup === undefined,
+            },
     };
   });
   const keyFile = realOrAbsolute(config.keyFile ?? engineFiles(home).key, 'The engine key file');

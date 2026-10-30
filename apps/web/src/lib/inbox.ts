@@ -24,7 +24,7 @@ import type {
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { formatStamp, formatTime, formatTokens } from '../i18n/format';
+import { formatStamp, formatTime, formatTokens, intlLocale } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
@@ -604,7 +604,7 @@ export function delegationNote(
   if (delegation?.state === 'pending_lead')
     return t('inbox.delegation.pendingLead', {
       names: joinNames(namesOf(delegation.leads, members, myHandle)),
-      time: new Date(delegation.leadDeadline).toLocaleTimeString('hu-HU', {
+      time: new Date(delegation.leadDeadline).toLocaleTimeString(intlLocale(), {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',

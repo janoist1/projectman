@@ -6,6 +6,9 @@ import type { ProjectService } from '../../core/projects';
 import type { BackgroundTasks } from '../../kernel';
 import type { OperatorSignals } from './signals';
 
+/** How long a process cleanup may keep failing before the project manager is told (PM-1204). */
+const PROCESS_CLEANUP_SIGNAL_GRACE_MS = 2 * 60_000;
+
 /** Register signal lifecycle listeners at their original position in domain assembly. */
 export function wireOperatorSignals(deps: {
   ctx: DomainContext;
@@ -40,6 +43,15 @@ export function wireOperatorSignals(deps: {
     wakeOperatorSignals(projectKey);
   });
   events.on('session_cleanup_failed', ({ projectKey, sessionId, scopeId }) => {
+    // Slowly exiting processes usually settle on the next retry: signal only a failure that lasted.
+    // The record keeps the first failure's time; every retry that fails again emits this event once more.
+    // A retry that cannot run (an unreachable engine) emits nothing; the engine outage has its own signal.
+    const failedAt = ctx.repos.sessionCleanups.get(scopeId)?.failedAt;
+    const ageMs = failedAt ? ctx.now().getTime() - Date.parse(failedAt) : Infinity;
+    if (ageMs < PROCESS_CLEANUP_SIGNAL_GRACE_MS) {
+      logger.info({ projectKey, scopeId, ageMs }, 'process cleanup failed; signal held back during grace');
+      return;
+    }
     const session = sessions.find(sessionId);
     operatorSignals.raise({
       projectKey,

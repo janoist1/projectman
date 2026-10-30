@@ -3769,6 +3769,33 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(prompt).not.toContain('# Your session folder');
   });
 
+  it.each([
+    ['open', 'Outbound network: on', true],
+    ['allowlist', 'Outbound network: off', false],
+  ] as const)(
+    'shows a Codex member the network state of its policy (%s) and words the escalation to match (PM-1172)',
+    (outbound, line, open) => {
+      const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider: 'codex' };
+      const policy = { ...readerPolicy, network: { ...readerPolicy.network, outbound } };
+      const pack = builder.build(
+        input({ project, member, handle: 'code-review', task, sessionPolicy: policy, sandbox }),
+      );
+      expect(section(pack.appendSystemPrompt, '# Session policy')).toContain(line);
+      // The escalation sentence is in the commands guide.
+      const commands = pack.guide.commands ?? '';
+      expect(commands.includes('(the network or a write outside your working directory')).toBe(!open);
+      expect(commands.includes('(a write outside your working directory')).toBe(open);
+    },
+  );
+
+  it('keeps the Outbound network line out of the Claude Code context (PM-1172)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider: 'claude' };
+    const prompt = builder.build(
+      input({ project, member, handle: 'code-review', task, sessionPolicy: readerPolicy, sandbox }),
+    ).appendSystemPrompt;
+    expect(prompt).not.toContain('Outbound network:');
+  });
+
   it('tells a read-only Codex or NanoGPT reader that the server puts files in its folder (PM-522)', () => {
     const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
     const policy = withSessionFolders(readerPolicy, { own: folder, root: '/tmp/projectman-sessions/abc123' });
@@ -3795,6 +3822,29 @@ describe("the CLI's own sandbox (PM-167)", () => {
       expect(text).not.toContain('$TMPDIR');
       expect(text).not.toContain('take_screenshots` tool');
     }
+  });
+
+  it('tells a read-only Codex developer in a worktree to make screenshots with take_screenshots (PM-1202)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
+    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
+    const worktreePolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      permissionMode: 'default',
+      placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+    });
+    const policy = withSessionFolders(worktreePolicy, {
+      own: folder,
+      root: '/tmp/projectman-sessions/abc123',
+    });
+    expect(policy.permissions.sandbox).toBe('read-only');
+    const prompt = builder.build(
+      input({ project, member, handle: 'fe-1', task, sessionPolicy: policy }),
+    ).appendSystemPrompt;
+    const text = section(prompt, '# Your session folder');
+    expect(text).toContain('`take_screenshots` tool');
+    expect(text).not.toContain('you make no screenshots');
   });
 
   it('tells a Gemini member its session folder: file tools, view_file, no screenshots (PM-522)', () => {
@@ -3932,26 +3982,68 @@ describe('who decides a permission question (the approver, PM-165)', () => {
 });
 
 describe('member workspaces (PM-138)', () => {
-  it.each([false, true])(
-    'gives one installation rule in a worktree with member workspace %s',
-    (workspace) => {
-      const source = input({ handle: 'fe-1' });
+  it('gives the installation rule in a worktree that is not a member workspace', () => {
+    const source = input({ handle: 'fe-1' });
+    source.sessionPolicy = buildSessionPolicy({
+      config: source.project,
+      role: 'developer',
+      task: source.task!,
+      placement: { kind: 'task_worktree', path: '/work/task' },
+    });
+    const text = section(builder.build(source).appendSystemPrompt, '# Session policy');
+    expect(text).toContain('npm ci');
+    expect(text).toContain('cloned automatically');
+    expect(text).not.toContain('install in the default checkout');
+  });
+
+  describe('dependencies the engine left out (PM-1203)', () => {
+    const promptFor = (
+      handle: string,
+      role: 'developer' | 'qa',
+      workspaceDependencies?: 'missing' | 'stale',
+      provider?: 'codex',
+    ) => {
+      const base = input({ handle });
+      const source = provider
+        ? input({ handle, member: { ...aiMember(base.project, handle), provider } })
+        : base;
       source.sessionPolicy = buildSessionPolicy({
         config: source.project,
-        role: 'developer',
+        role,
         task: source.task!,
-        placement: {
-          kind: 'task_worktree',
-          path: '/work/task',
-          ...(workspace ? { workspace: { branch: 'AR-21', baseCommit: null } } : {}),
-        },
+        placement:
+          role === 'developer'
+            ? { kind: 'task_worktree', path: '/work/task', workspace: { branch: 'AR-21', baseCommit: null } }
+            : { kind: 'read_only', path: '/work/task' },
       });
-      const text = section(builder.build(source).appendSystemPrompt, '# Session policy');
-      expect(text).toContain('npm ci');
-      expect(text.includes('cloned automatically')).toBe(!workspace);
-      expect(text).not.toContain('install in the default checkout');
-    },
-  );
+      return section(
+        builder.build({ ...source, ...(workspaceDependencies ? { workspaceDependencies } : {}) })
+          .appendSystemPrompt,
+        '# Session policy',
+      );
+    };
+
+    it('says nothing about installing when the workspace is installed', () => {
+      expect(promptFor('fe-1', 'developer')).not.toContain('npm ci');
+    });
+
+    it.each(['missing', 'stale'] as const)('tells a writer to run npm ci when they are %s', (state) => {
+      const text = promptFor('fe-1', 'developer', state);
+      expect(text).toContain('run npm ci');
+      expect(text).not.toContain('Do not try to install');
+    });
+
+    it('tells a reader and a Codex writer to ask a human, without trying to install', () => {
+      for (const text of [
+        promptFor('code-review', 'qa', 'missing'),
+        promptFor('fe-1', 'developer', 'missing', 'codex'),
+      ]) {
+        expect(text).toContain('Do not try to install');
+        expect(text).toContain('ask_human');
+        expect(text).not.toContain('run npm ci');
+      }
+    });
+  });
   it('tells a developer which branch of its own workspace it works on, and that switching needs committed work', () => {
     const project = buildLocalOnlyProject('.');
     const task = makeTask({ stageId: 'dev', repo: 'app' });

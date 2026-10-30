@@ -7,6 +7,7 @@ import { useAcceptInvite, useInvite, useMe, useSetupStatus } from '../../api/que
 import { Button } from '../../components/Button';
 import { PasswordField, TextField } from '../../components/Field';
 import { ErrorState, LoadingState } from '../../components/States';
+import { currentLanguage } from '../../i18n/language';
 import { t } from '../../i18n/t';
 import { AuthLayout } from '../auth/AuthLayout';
 import { InviteCodeAccept } from './InviteCodeAccept';
@@ -48,7 +49,7 @@ function AcceptForm({ token, invite }: { token: string; invite: PublicInviteView
   const loginPath = `/login?next=${encodeURIComponent(`/invite/${token}`)}`;
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    accept.mutate(invite.requiresLogin ? {} : { name: name.trim(), password }, {
+    accept.mutate(invite.requiresLogin ? {} : { name: name.trim(), password, language: currentLanguage() }, {
       onSuccess: () => navigate(`/p/${invite.projectKey}`, { replace: true }),
     });
   };

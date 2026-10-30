@@ -1,9 +1,10 @@
+import { intlLocale } from '../i18n/format';
 import { t, tDynamic } from '../i18n/t';
 
 export function formatScheduleTime(at: string | null, timezone: string): string {
   if (!at) return t('schedules.noNext');
   return (
-    new Intl.DateTimeFormat('hu-HU', {
+    new Intl.DateTimeFormat(intlLocale(), {
       timeZone: timezone,
       dateStyle: 'short',
       timeStyle: 'short',

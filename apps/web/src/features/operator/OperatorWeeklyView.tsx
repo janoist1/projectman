@@ -5,7 +5,7 @@ import {
   UNKNOWN_OWNER_TOPIC,
   ownerDecisionTopicsOf,
 } from '@projectman/shared';
-import type { OwnerQuestionWeek, OwnerTopic } from '@projectman/shared';
+import type { OwnerQuestionWeek, OwnerTopic, ProjectConfig } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { useConfig } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -20,8 +20,8 @@ import { useOwnerQuestions } from './useOwnerQuestions';
 import styles from './OperatorWeekly.module.css';
 
 /** A topic's name: the unknown topic's text, otherwise the owner topic's name. */
-function topicLabel(id: string, topics: readonly OwnerTopic[]): string {
-  return id === UNKNOWN_OWNER_TOPIC ? t('operator.weekly.unknownTopic') : ownerTopicLabel(id, topics);
+function topicLabel(id: string, config: Pick<ProjectConfig, 'team'> | undefined): string {
+  return id === UNKNOWN_OWNER_TOPIC ? t('operator.weekly.unknownTopic') : ownerTopicLabel(id, config);
 }
 
 /** A number in the week's row, named for a screen reader by the column it stands under. */
@@ -57,12 +57,12 @@ function Breakdown({ rows }: { rows: { id: string; label: string; count: number 
 function WeekRow({
   week,
   current,
-  topics,
+  config,
   topicIds,
 }: {
   week: OwnerQuestionWeek;
   current: boolean;
-  topics: readonly OwnerTopic[];
+  config: Pick<ProjectConfig, 'team'> | undefined;
   topicIds: readonly string[];
 }) {
   const [open, setOpen] = useState(false);
@@ -113,7 +113,7 @@ function WeekRow({
             <Breakdown
               rows={topicIds.map((id) => ({
                 id,
-                label: topicLabel(id, topics),
+                label: topicLabel(id, config),
                 count: week.byTopic[id] ?? 0,
               }))}
             />
@@ -252,7 +252,7 @@ export function OperatorWeeklyView({ onBack }: { onBack: () => void }) {
                 key={week.weekStart}
                 week={week}
                 current={index === 0}
-                topics={topics}
+                config={config.data?.config}
                 topicIds={topicIds}
               />
             ))}

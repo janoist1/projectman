@@ -17,6 +17,7 @@ import {
   CANCEL_WAIT_MS,
   DISPATCH_RETRIES,
   JOB_WAIT_MAX_MS,
+  STEPS_WAIT_MAX_MS,
   LOG_POLL_MS,
   RUN_APPEAR_MAX_MS,
   STALE_BRANCH_MS,
@@ -275,6 +276,27 @@ describe('withGithubActions', () => {
     expect(s.actions.listJobs).toHaveBeenCalledTimes(2);
     expect(s.clock.sleeps).toContain(LOG_POLL_MS);
     expect(s.actions.dispatchWorkflow).toHaveBeenCalledOnce();
+  });
+
+  it('reads the jobs again when finished jobs list no steps, and judges the steps that show up later', async () => {
+    const s = setup({
+      listJobs: vi
+        .fn()
+        .mockResolvedValueOnce([job(11, 'success', []), job(12, 'failure', [])])
+        .mockResolvedValue([greenJob(11), redJob(12)]),
+    });
+    await expect(runIt(s)).resolves.toMatchObject({ outcome: 'failed', exitCode: 1 });
+    expect(s.actions.listJobs).toHaveBeenCalledTimes(2);
+    expect(s.clock.sleeps).toContain(LOG_POLL_MS);
+  });
+
+  it('is GitHub data missing, not a run error, when the steps never show up, after a bounded wait', async () => {
+    const s = setup({ listJobs: vi.fn(async () => [job(11, 'success', [])]) });
+    const result = await runIt(s);
+    expect(result).toMatchObject({ outcome: 'error', reason: 'github_unavailable', externalUrl: RUN_URL });
+    expect(s.clock.now() - T0).toBe(10_000 + STEPS_WAIT_MAX_MS);
+    expect(s.actions.jobLog).not.toHaveBeenCalled();
+    expect(s.branches.remove).toHaveBeenCalled();
   });
 
   it('ends with a run error when a shard never finishes, after a bounded wait', async () => {

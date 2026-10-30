@@ -17,6 +17,7 @@ import {
   fullScopeProblem,
   judge,
   passedResult,
+  stepsMissing,
   stripGithubTimestamps,
   withHeader,
   type FinishedRun,
@@ -38,6 +39,8 @@ export const RUN_APPEAR_MAX_MS = 120_000;
 const RUN_POLL_MS = 10_000;
 /** GitHub may finish the run before its shard jobs expose their terminal states. */
 export const JOB_WAIT_MAX_MS = 120_000;
+/** During a GitHub incident the jobs API gives finished jobs no steps; they may show up minutes later. */
+export const STEPS_WAIT_MAX_MS = 300_000;
 /** How long the logs of a finished run are waited for (GitHub has them a little later). */
 const LOG_WAIT_MAX_MS = 30_000;
 export const LOG_POLL_MS = 5_000;
@@ -138,6 +141,8 @@ export interface FollowRequest {
   onStarted?: () => void;
   /** Whether to wait for the jobs of a completed run to settle; default: always. */
   settleJobs?: (run: WorkflowRunInfo) => boolean;
+  /** Whether to also wait (up to `STEPS_WAIT_MAX_MS`) for finished jobs that list no steps; default: no. */
+  settleSteps?: boolean;
 }
 
 /** A completed run with its jobs, as the caller's `finish` gets it. */
@@ -310,16 +315,21 @@ export async function followWorkflowRun<T>(
   };
   try {
     let jobs = await read('The jobs', () => actions.listJobs(req.repo, finishedRun.id, signal));
-    const jobsDeadline = Math.min(deadline, now() + JOB_WAIT_MAX_MS);
-    // A completed run can temporarily expose queued/running shards, or no jobs at all.
-    // Wait for the job view to settle before treating a missing verdict as an error.
-    while (
-      (req.settleJobs?.(finishedRun) ?? true) &&
-      (jobs.length === 0 || jobs.some((job) => job.status !== 'completed' || job.conclusion === null)) &&
-      now() < jobsDeadline
-    ) {
+    const settleStart = now();
+    const jobsDeadline = Math.min(deadline, settleStart + JOB_WAIT_MAX_MS);
+    const stepsDeadline = Math.min(deadline, settleStart + STEPS_WAIT_MAX_MS);
+    // A completed run can temporarily expose queued/running shards, or no jobs at all, or finished jobs
+    // without their steps. Wait for the job view to settle before treating a missing verdict as an error.
+    const waitUntil = (list: readonly WorkflowJobInfo[]): number => {
+      if (!(req.settleJobs?.(finishedRun) ?? true)) return 0;
+      const pending =
+        list.length === 0 || list.some((job) => job.status !== 'completed' || job.conclusion === null);
+      if (pending) return jobsDeadline;
+      return req.settleSteps && list.some(stepsMissing) ? stepsDeadline : 0;
+    };
+    for (let until = waitUntil(jobs); now() < until; until = waitUntil(jobs)) {
       if (signal.aborted) return killed();
-      await sleep(Math.min(LOG_POLL_MS, jobsDeadline - now()), signal);
+      await sleep(Math.min(LOG_POLL_MS, until - now()), signal);
       if (signal.aborted) return killed();
       jobs = await read('The jobs', () => actions.listJobs(req.repo, finishedRun.id, signal));
     }
@@ -466,6 +476,7 @@ export function withGithubActions(local: FullTestExecutor, deps: GithubActionsDe
           ...(onStarted ? { onStarted } : {}),
           // A run of another commit is judged an error at once, so there is nothing to wait for.
           settleJobs: (finishedRun) => finishedRun.headSha.toLowerCase() === check.commit.toLowerCase(),
+          settleSteps: true,
         },
         signal,
         async (done): Promise<FullTestResult> => {
@@ -473,6 +484,7 @@ export function withGithubActions(local: FullTestExecutor, deps: GithubActionsDe
           runningSince = done.runningSince;
           const judgement = judge(done.run, check.commit, done.jobs);
           if (judgement.kind === 'error') return error('github_run_error', judgement.message);
+          if (judgement.kind === 'missing') return error('github_unavailable', judgement.message);
           if (judgement.kind === 'timeout') return error('timeout', 'A job of the run timed out on GitHub.');
           const finished: FinishedRun = {
             run: done.run,

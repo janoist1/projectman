@@ -175,9 +175,7 @@ function RanRow({
       <span className={styles.ranDot} data-outcome={outcome ?? 'none'} aria-hidden="true" />
       <div className={styles.ranBody}>
         <p className={styles.ranText}>
-          {outcome === 'failed' ? (
-            <span className="visually-hidden">{t('task.steps.outcome.failed')}: </span>
-          ) : null}
+          {outcome ? <span className="visually-hidden">{t(`task.steps.outcome.${outcome}`)}: </span> : null}
           {described.text}
         </p>
         <div className={styles.ranFoot}>
@@ -223,6 +221,7 @@ export function TaskSteps({
   const shown = all ? ran : ran.slice(0, RAN_SHOWN);
   const first = (steps?.length ?? 0) === 0 && ran.length === 0;
   const now = Date.now();
+  const stageName = ctx.pipeline?.stageById.get(task.stageId)?.name;
 
   if (first) {
     return (
@@ -243,7 +242,11 @@ export function TaskSteps({
             <p className={styles.nowText}>
               {state.phase === 'done' ? t('task.steps.doneNow') : state.next ? state.next.line : state.label}
             </p>
-            <p className={styles.nowSince}>{t('task.steps.since', { time: formatStamp(state.since) })}</p>
+            <p className={styles.nowSince}>
+              {stageName && state.phase !== 'done'
+                ? t('task.steps.nowMeta', { stage: stageName, time: formatStamp(state.since) })
+                : t('task.steps.since', { time: formatStamp(state.since) })}
+            </p>
           </div>
         </section>
       ) : null}

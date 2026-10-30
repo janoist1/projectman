@@ -2863,6 +2863,7 @@ export const hu = {
       now: 'Most',
       doneNow: 'Kész: a kártya végigfutott.',
       since: '{time} óta',
+      nowMeta: '{stage} · {time} óta',
       open: 'Nyitott lépések',
       openEmpty: 'Most nincs nyitott rendszer-lépés.',
       ran: 'Lefutott',

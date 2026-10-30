@@ -95,6 +95,8 @@ describe('the Process view of the open card (PM-1151)', () => {
     expect(within(rows[0]!).getByText(t('task.steps.state.running'))).toBeTruthy();
     expect(within(rows[0]!).getByText(t('task.steps.meta.attempt', { count: 2 }))).toBeTruthy();
     expect(open.getByText(/^lejárt /)).toBeTruthy();
+    // The "Most" box names the stage the card stands in.
+    expect(within(section(t('task.steps.now'))).getByText(/ · .* óta$/)).toBeTruthy();
     // The message text of the queue item never reaches the view.
     expect(screen.queryByText('A private message text')).toBeNull();
   });
@@ -127,6 +129,10 @@ describe('the Process view of the open card (PM-1151)', () => {
       expect(within(rows[0]!).queryByText(t(`task.steps.outcome.${outcome}`))).toBeNull();
     expect(within(rows[1]!).getByText(t('task.steps.outcome.handed_over'))).toBeTruthy();
     expect(within(rows[2]!).getByText(t('task.steps.outcome.failed'))).toBeTruthy();
+    // A screen reader hears the outcome at the start of the row, too.
+    expect(rows[2]!.querySelector('p')?.textContent).toMatch(
+      new RegExp(`^${t('task.steps.outcome.failed')}: `),
+    );
     expect(within(rows[3]!).getByText(t('task.steps.outcome.ran'))).toBeTruthy();
     expect(ran.getByText(t('task.steps.ranFailed', { count: 1 }))).toBeTruthy();
     expect(ran.getByText(t('task.steps.ranHanded', { count: 1 }))).toBeTruthy();

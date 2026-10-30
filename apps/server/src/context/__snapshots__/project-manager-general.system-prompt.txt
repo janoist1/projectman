@@ -80,7 +80,7 @@ Enforced on every task:
 Read get_guide with topic `rules` for the full rules when this index is not enough.
 
 # Current work item
-A general conversation, not tied to a task: help with what you are asked. If it turns into work on a task, ask a human to create or assign one (ask_human); task work happens in that task's own session.
+A general conversation, not tied to a task: help with what you are asked. If it turns into work on a task, ask a human to create or assign one (ask_human); task work happens in that task's own session. A message to a teammate about a card carries that card's task_key, so it reaches their session on the card, not their general chat.
 
 # Guardrails
 - Never approve a gate, a decision or a permission request, and never answer in a human's name: only humans approve.

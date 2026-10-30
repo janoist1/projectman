@@ -2067,6 +2067,10 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_labels_changed', ({ task }) => {
     refine(() => refinement.changed(task));
   });
+  // A card created with the `refine` label starts its refinement too (PM-1161).
+  events.on('task_created', ({ task }) => {
+    refine(() => refinement.changed(task));
+  });
   events.on('task_stage_changed', (change) => {
     refine(() => refinement.moved(change));
   });

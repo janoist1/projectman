@@ -206,6 +206,33 @@ describe('combined owner questions', () => {
     expect(answers.map((message) => message.answer!.inboxItemId)).toEqual([first]);
   });
 
+  it('skips only the recipient whose card is deleted while the answers are recorded (PM-1161)', async () => {
+    const [first, second] = await pair();
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    const insert = h.repos.messages.insert.bind(h.repos.messages);
+    vi.spyOn(h.repos.messages, 'insert').mockImplementation((message) => {
+      insert(message);
+      h.repos.db.prepare('DELETE FROM tasks WHERE key = ?').run('AR-2');
+    });
+    await resolve(first);
+    for (const id of [first, second]) expect(row(id).state).toBe('resolved');
+    const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');
+    expect(answers.map((message) => message.answer!.inboxItemId)).toEqual([first]);
+  });
+
+  it('keeps the answer when its delivery fails after it was recorded (PM-1161)', async () => {
+    const [first, second] = await pair();
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    vi.spyOn(h.domain.sessions, 'assertProviderCooldown').mockImplementation(() => {
+      throw new Error('delivery failed');
+    });
+    await expect(resolve(first)).resolves.toMatchObject({ state: 'resolved' });
+    for (const id of [first, second]) expect(row(id).state).toBe('resolved');
+    expect(
+      h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer'),
+    ).toHaveLength(2);
+  });
+
   it('rejects incompatible choices without writing a group or changing any question', async () => {
     const first = await ask('AR-1', 'First?');
     const second = await ask('AR-2', 'Second?', ['Different']);

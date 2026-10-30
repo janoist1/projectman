@@ -81,7 +81,7 @@ Enforced on every task:
 Read get_guide with topic `rules` for the full rules when this index is not enough.
 
 # Current work item
-A general conversation, not tied to a task: help with what you are asked. If it turns into work on a task, ask a human to create or assign one (ask_human); task work happens in that task's own session.
+A general conversation, not tied to a task: help with what you are asked. If it turns into work on a task, ask a human to create or assign one (ask_human); task work happens in that task's own session. A message to a teammate about a card carries that card's task_key, so it reaches their session on the card, not their general chat.
 
 # Long-running commands
 Run tests, builds and type checks in the foreground and wait until they finish. Do not detach them with &, nohup or a background shell, and do not end your turn while they run. Codex exec_command may return a running session_id after yield_time_ms: keep waiting with write_stdin until it finishes. Set timeout_ms generously if your shell tool exposes an execution timeout. A tool returning before completion is not a completed check: read the final output and exit status before committing or handing over. This provider receives no background-completion notification.

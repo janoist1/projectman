@@ -428,7 +428,7 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
   if (workItem.type === 'general') {
     return [
       heading,
-      "A general conversation, not tied to a task: help with what you are asked. If it turns into work on a task, ask a human to create or assign one (ask_human); task work happens in that task's own session.",
+      "A general conversation, not tied to a task: help with what you are asked. If it turns into work on a task, ask a human to create or assign one (ask_human); task work happens in that task's own session. A message to a teammate about a card carries that card's task_key, so it reaches their session on the card, not their general chat.",
     ].join('\n');
   }
   if (workItem.type === 'meeting') {

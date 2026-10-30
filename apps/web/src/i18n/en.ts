@@ -15,7 +15,7 @@ export const en = {
     retry: 'Try again',
     notFound: "This page doesn't exist.",
     projectNotFound: "There's no such project, or you're not a member of it.",
-    backHome: 'Back to the home page',
+    backHome: 'Back home',
     skipToContent: 'Skip to content',
   },
 
@@ -23,7 +23,7 @@ export const en = {
     /** Not used in English (`withArticle` returns the bare name); the key stays so the section is complete. */
     vowels: 'aeiou',
     you: 'You',
-    youInitials: 'YOU',
+    youInitials: 'ME',
     close: 'Close',
     cancel: 'Cancel',
     send: 'Send',
@@ -159,7 +159,7 @@ export const en = {
       web_push_endpoint_invalid: "This notification device can't be used. Turn notifications on again.",
       web_push_device_limit: 'You can ask for notifications on at most 20 devices. Delete a device first.',
       web_push_endpoint_taken:
-        "This browser is already another user's notification device. Clear the browser's notification setting and try again.",
+        "This browser is already another account's notification device. Clear the browser's notification setting and try again.",
       web_push_quiet_hours_invalid: 'Check the start, the end and the time zone of the quiet hours.',
       web_push_integrator_refused: 'You can manage notifications with your own login.',
       web_push_test_too_soon: 'Wait five seconds before the next test.',
@@ -493,7 +493,8 @@ export const en = {
       invalid_event_cursor: 'The change-tracking cursor is invalid, or belongs to another project.',
       event_cursor_expired:
         'The change log started over (for example after a restore); the state has to be read again.',
-      owner_approval_required: 'This is a human approval: only the owner can give it, with their own login.',
+      owner_approval_required:
+        'This approval is for a person: only the owner can give it, with their own login.',
       owner_login_required: 'Only the owner can do this, with their own login.',
       queue_item_not_processing: "This queue item isn't being processed any more, it can't be closed.",
       too_many_attempts: 'Too many attempts. Wait a little and try again.',
@@ -591,7 +592,7 @@ export const en = {
       saveWait: 'Save password ({time})',
       saved: 'We saved your new password. You need to log in again on your other devices.',
       remembered: 'Remembered it?',
-      backToLogin: 'Back to log in',
+      backToLogin: 'Back to login',
     },
     showPassword: 'Show password',
     hidePassword: 'Hide password',
@@ -623,7 +624,7 @@ export const en = {
     accept: 'Accept invite',
     loginRequired:
       'There is already an account for this email address. Log in with that account, then come back to the invite.',
-    login: 'Log in to the invite',
+    login: 'Log in to accept',
     existing: 'Already have an account? Log in first.',
     nameHint: "This is how you'll appear to the team.",
     codeIntro: "We'll send the sign-in code to the invited address: {hint}",

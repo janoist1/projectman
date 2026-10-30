@@ -87,6 +87,12 @@ class FakeMachine {
   /** How many status polls answer `starting` after a start. */
   startingPolls = 1;
   failures = new Map<string, RunResult>();
+  /** What `stage-image` received on its standard input, and the stage it left (consumed by `receive-image`). */
+  stagedLinks: string[] = [];
+  staged: string | null = null;
+  readonly stageId = 'e'.repeat(32);
+  /** The `manifest.json` text that `stage-image` answers with. */
+  stageManifest = '';
   rehearsalOutput = 'checking the replica\nREHEARSAL PASSED\n';
   rehearsalCode = 0;
   logText = 'line one\nline two\n';
@@ -146,8 +152,23 @@ class FakeMachine {
       case 'receive-env':
         this.envText = input ?? null;
         return done();
+      case 'stage-image': {
+        // The GitHub artifact: the machine downloads it from the link on stdin and answers with the manifest.
+        this.stagedLinks.push(input ?? '');
+        this.staged = this.stageId;
+        return done(
+          JSON.stringify({
+            stage: this.stageId,
+            manifest: Buffer.from(this.stageManifest).toString('base64'),
+          }) + '\n',
+        );
+      }
       case 'receive-image': {
-        const [sha, platform, , , imageId] = args;
+        const [sha, platform, , , imageId, stage] = args;
+        if (stage !== undefined) {
+          if (stage !== this.staged) return refuse('the stage is missing');
+          this.staged = null;
+        }
         this.imported.set(sha!, { imageId: imageId!, platform: platform as 'linux/arm64' });
         return done(JSON.stringify({ imageId, platform, revision: sha }) + '\n');
       }

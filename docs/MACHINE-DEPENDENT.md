@@ -2820,6 +2820,23 @@ assumption or remote-engine RPC.
   to, an engine, and there is no new RPC. The hub and the engine start no job in this step (PM-1147, PM-1148).
   **Module:** `scripts`
 
+- **The cloud machine downloads the image artifact (PM-1154)** — `scripts/cloud/{image-github,image-fetch,images,machine,host,config}.ts`,
+  `deploy/aws/host.sh` (`stage-image`, `receive-image … <stage>`),
+  `apps/server/test/{cloud-image-host,cloud-machine-github,cloud-image-fetch}.test.ts`, `docs/AWS.md`
+  "The machine downloads the artifact itself". With `deployment.imageSource: "github"` the EC2 machine fetches
+  the GitHub artifact `projectman-job-<run_id>` itself instead of receiving a 460 MB stream from the admin Mac.
+  **What runs where:** the Mac (the admin machine, `gh` logged in with read access to the repository's Actions)
+  finds the run, gets the artifact's pre-signed link (valid about one minute) and sends it on a standard input
+  to `host.sh stage-image`; the machine downloads the zip with `curl` over HTTPS, unpacks exactly the manifest
+  and the archive into `/var/lib/projectman/.stage/<id>`, and answers the manifest, which the Mac verifies
+  (attestation, schema, commit); `receive-image` then imports from the stage. **What the machine needs:** `curl`
+  and `unzip` (installed by `bootstrap`), outbound HTTPS to GitHub's artifact storage (its host is not fixed),
+  about twice the artifact size free on `/var/lib/projectman`; no GitHub credential, no `gh`. **What crosses the
+  boundary:** the short-lived link (stdin only, never in an argument or a message) and the small manifest; the
+  image itself no longer crosses it. **Does this work on a remote engine?** The engine is not affected: this is
+  the cloud deploy path of the admin Mac and the EC2 machine; it adds no RPC and no engine-side step.
+  **Module:** `scripts`
+
 - **Non-interactive editors in member sessions** — `runner/env.ts` (`NON_INTERACTIVE_EDITOR_ENV`,
   `buildSessionEnv`) (PM-428). Every member session gets `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`,
   `EDITOR` and `VISUAL` set to `true`, so git (a rebase's message or todo list) never opens

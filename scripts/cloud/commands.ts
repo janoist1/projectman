@@ -21,7 +21,8 @@ import {
 } from './machine';
 import { Report } from './report';
 import { runImageFetch, type ImageFetchContext } from './image-fetch';
-import { runImageBuild, selectedImage, type ImageBuildContext } from './images';
+import { imagePreflight } from './image-github';
+import { runImageBuild, type ImageBuildContext } from './images';
 import { ENV_FILE_NAME, secretsDir } from './secrets';
 import { runSesCheck, runSesConfigure, runSesPlan, runSesRequestProduction } from './ses';
 import { runSesReceiveCheck, runSesReceiveConfigure, runSesReceivePlan } from './ses-receive';
@@ -36,8 +37,9 @@ commands:
                                      built (finds or follows the run, never starts one; no Docker, no cloud configuration)
   preflight                          check the aws CLI, the login, the region, the machine type and the secrets store
   aws [--dry-run] [--rotate-keys]    create the EC2 machine, the S3 buckets, the IAM users and their keys
-  deploy [--ref <tag|sha>] [--dry-run]
-                                     install or update the board on the machine (default: the newest release tag)
+  deploy [--ref <tag|sha>] [--run <id>] [--dry-run]
+                                     install or update the board on the machine (default: the newest release tag);
+                                     --run: the GitHub run of the image (deployment.imageSource "github" only)
   rollback [--dry-run]               go back to the previous image
   status                             the machine, the unit, the container, the deploy history, disk and memory
   logs [--lines <n>]                 the last lines of the board's log (default 200)
@@ -110,9 +112,7 @@ function logLines(value: string | undefined): number {
 const PREFLIGHT_CHECKS: { name: string; run(context: CloudContext): Promise<void> }[] = [
   {
     name: 'image',
-    run: async (context) => {
-      selectedImage(context);
-    },
+    run: imagePreflight,
   },
   { name: 'aws', run: awsPreflight },
   { name: 'cloudflare', run: cloudflarePreflight },
@@ -221,9 +221,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
   deploy: {
     summary: 'install or update the board',
     flags: ['dry-run'],
-    values: ['ref'],
+    values: ['ref', 'run'],
     run: (context, invocation) =>
-      runDeploy(context, { ref: invocation.values.ref ?? null, dryRun: invocation.dryRun }),
+      runDeploy(context, {
+        ref: invocation.values.ref ?? null,
+        dryRun: invocation.dryRun,
+        ...(invocation.values.run === undefined ? {} : { run: invocation.values.run }),
+      }),
   },
   rollback: {
     summary: 'go back to the previous image',

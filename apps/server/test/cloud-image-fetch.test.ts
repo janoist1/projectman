@@ -9,8 +9,11 @@ import type { CloudDeps, RunResult } from '../../../scripts/cloud/deps';
 import { CloudError } from '../../../scripts/cloud/errors';
 import {
   CLOUD_IMAGE_JOB,
+  artifactDownloadUrl,
+  cloudImageArtifact,
   cloudImageLaunchCommand,
   runImageFetch,
+  type CloudImageRun,
   type ImageFetchContext,
 } from '../../../scripts/cloud/image-fetch';
 import { selectedImage } from '../../../scripts/cloud/images';
@@ -268,6 +271,10 @@ describe('image-fetch', () => {
     const message = (error as Error).message;
     expect(message).toContain(cloudImageLaunchCommand(REPO, 'main', REF, new Date(clock)));
     expect(message).toContain(`-f commit=${REF} -f runs_on=${CLOUD_IMAGE_JOB.runsOn}`);
+    // Without --bootstrap the builder does not know linux/arm64 yet (the first run, 40971861471, failed so).
+    expect(CLOUD_IMAGE_JOB.command).toContain(
+      'docker buildx create --name projectman --driver docker-container --bootstrap',
+    );
     expect(ghCalls('workflow')).toEqual([]);
     expect(fs.existsSync(out())).toBe(false);
   });
@@ -346,6 +353,91 @@ describe('image-fetch', () => {
   ])('rejects %s as bad usage', async (_name, change) => {
     await expect(fetchImage(change)).rejects.toMatchObject({ exitCode: 64 });
     expect(calls).toEqual([]);
+  });
+});
+
+describe('the artifact of a run and its download link (PM-1154)', () => {
+  const run: CloudImageRun = {
+    repo: REPO,
+    branch: 'main',
+    id: RUN,
+    runId: RUN_ID,
+    url: `https://github.com/${REPO}/actions/runs/${RUN}`,
+  };
+  const TOKEN = 'gho_secrettoken';
+  const LINK = 'https://pipelines.example.test/artifact.zip?sig=SECRETSIGNATURE';
+  const artifact = (change: Record<string, unknown> = {}) => ({
+    id: 77,
+    name: `projectman-job-${RUN_ID}`,
+    size_in_bytes: 460_000_000,
+    expired: false,
+    ...change,
+  });
+  const artifactContext = (
+    artifacts: unknown[],
+    respond: (url: string, init: RequestInit) => Response = () =>
+      new Response(null, { status: 302, headers: { location: LINK } }),
+  ) => {
+    const requests: { url: string; init: RequestInit }[] = [];
+    const reported: string[] = [];
+    const report = new Report((line) => reported.push(line));
+    const context = {
+      deps: {
+        run: async (command: string, args: string[]): Promise<RunResult> => {
+          if (command === 'gh' && args[0] === 'auth') return ok(`${TOKEN}\n`);
+          if (command === 'gh' && args[0] === 'api') return ok(JSON.stringify({ artifacts }));
+          return { code: 127, stdout: '', stderr: 'unknown' };
+        },
+        fetch: async (url: string | URL | Request, init?: RequestInit) => {
+          requests.push({ url: String(url), init: init ?? {} });
+          return respond(String(url), init ?? {});
+        },
+      },
+      report,
+    };
+    return { context, requests, reported, report };
+  };
+
+  it('finds the one live artifact of the run', async () => {
+    const { context } = artifactContext([artifact(), artifact({ id: 78, name: 'other' })]);
+    await expect(cloudImageArtifact(context as never, run)).resolves.toEqual({
+      id: 77,
+      name: `projectman-job-${RUN_ID}`,
+      bytes: 460_000_000,
+    });
+  });
+
+  it.each([
+    ['no artifact', [], 'has no artifact'],
+    ['an expired artifact', [artifact({ expired: true })], 'has expired'],
+    ['two live artifacts', [artifact(), artifact({ id: 78 })], 'more than one'],
+  ])('refuses %s', async (_name, artifacts, message) => {
+    const { context } = artifactContext(artifacts);
+    await expect(cloudImageArtifact(context as never, run)).rejects.toMatchObject({
+      exitCode: 2,
+      message: expect.stringContaining(message),
+    });
+  });
+
+  it('asks without following the redirect and keeps the link out of every message', async () => {
+    const { context, requests, report, reported } = artifactContext([]);
+    await expect(artifactDownloadUrl(context as never, REPO, 77)).resolves.toBe(LINK);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.url).toBe(`https://api.github.com/repos/${REPO}/actions/artifacts/77/zip`);
+    expect(requests[0]!.init.redirect).toBe('manual');
+    report.step('ok', 'note', `${LINK} ${TOKEN}`);
+    expect(reported.join('\n')).not.toMatch(/SECRETSIGNATURE|secrettoken/);
+  });
+
+  it.each([
+    ['a status that is no redirect', () => new Response('x', { status: 200 })],
+    ['a redirect to http', () => new Response(null, { status: 302, headers: { location: 'http://x/y' } })],
+    ['a redirect without a location', () => new Response(null, { status: 302 })],
+  ])('refuses %s without naming a link', async (_name, respond) => {
+    const { context } = artifactContext([], respond);
+    const error = await artifactDownloadUrl(context as never, REPO, 77).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CloudError);
+    expect((error as Error).message).not.toMatch(/SECRETSIGNATURE|secrettoken/);
   });
 });
 

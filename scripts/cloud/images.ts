@@ -117,36 +117,24 @@ export function selectedImage(context: CloudContext, sha?: string): SelectedImag
   }
 }
 
-export async function receiveImage(
-  context: CloudContext,
-  host: HostSession,
-  image: SelectedImage,
-): Promise<void> {
-  // Recheck after any seed upload and immediately before streaming; the host independently hashes stdin.
-  const digest = archiveDigest(image.file);
-  if (digest.archiveSha256 !== image.archiveSha256 || digest.archiveBytes !== image.archiveBytes)
-    throw new CloudError('image archive changed before transfer');
-  const command = await host.command('receive-image', [
-    image.sourceSha,
-    image.platform,
-    String(image.archiveBytes),
-    image.archiveSha256,
-    image.imageId,
-  ]);
-  const result = await context.deps.pipe({ command: 'cat', args: [image.file] }, command);
-  if (result.code === 3) throw refused('the host refused the image import');
-  // A lost answer: the import may have happened; the caller reconciles instead of streaming again.
-  const lost =
-    result.code !== 0 && !host.signal.aborted ? host.transportError('receive-image', result) : null;
-  if (lost) throw lost;
-  if (result.code !== 0 || host.signal.aborted) throw new CloudError('image stream or import failed');
-  const schema = z.strictObject({
-    imageId: imageIdSchema,
-    platform: platformSchema,
-    revision: sourceShaSchema,
-  });
+const RECEIVE_STAGED_TIMEOUT_MS = 30 * 60_000;
+
+/** What `start` and the health check need of a received image, whichever source it came from. */
+export type ReceivedImage = Pick<
+  SelectedImage,
+  'sourceSha' | 'platform' | 'archiveSha256' | 'archiveBytes' | 'imageId'
+>;
+
+const receivedSchema = z.strictObject({
+  imageId: imageIdSchema,
+  platform: platformSchema,
+  revision: sourceShaSchema,
+});
+
+/** The machine's answer of `receive-image` must name exactly the image that was sent. */
+function checkReceived(stdout: string, image: ReceivedImage): void {
   try {
-    const actual = schema.parse(JSON.parse(result.stdout));
+    const actual = receivedSchema.parse(JSON.parse(stdout));
     if (
       actual.imageId !== image.imageId ||
       actual.platform !== image.platform ||
@@ -156,6 +144,42 @@ export async function receiveImage(
   } catch {
     throw new CloudError('the host answered image verification with invalid metadata');
   }
+}
+
+function receiveImageArguments(image: ReceivedImage): string[] {
+  return [image.sourceSha, image.platform, String(image.archiveBytes), image.archiveSha256, image.imageId];
+}
+
+/** Imports the archive that `stage-image` left on the machine (PM-1154): the same checks as the streamed one. */
+export async function receiveStagedImage(
+  host: HostSession,
+  image: ReceivedImage,
+  stage: string,
+): Promise<void> {
+  const answer = await host.call('receive-image', [...receiveImageArguments(image), stage], {
+    timeoutMs: RECEIVE_STAGED_TIMEOUT_MS,
+  });
+  checkReceived(answer, image);
+}
+
+export async function receiveImage(
+  context: CloudContext,
+  host: HostSession,
+  image: SelectedImage,
+): Promise<void> {
+  // Recheck after any seed upload and immediately before streaming; the host independently hashes stdin.
+  const digest = archiveDigest(image.file);
+  if (digest.archiveSha256 !== image.archiveSha256 || digest.archiveBytes !== image.archiveBytes)
+    throw new CloudError('image archive changed before transfer');
+  const command = await host.command('receive-image', receiveImageArguments(image));
+  const result = await context.deps.pipe({ command: 'cat', args: [image.file] }, command);
+  if (result.code === 3) throw refused('the host refused the image import');
+  // A lost answer: the import may have happened; the caller reconciles instead of streaming again.
+  const lost =
+    result.code !== 0 && !host.signal.aborted ? host.transportError('receive-image', result) : null;
+  if (lost) throw lost;
+  if (result.code !== 0 || host.signal.aborted) throw new CloudError('image stream or import failed');
+  checkReceived(result.stdout, image);
 }
 
 /** What an image build needs of its environment: running a command and piping two. */

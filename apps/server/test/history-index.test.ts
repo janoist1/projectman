@@ -358,6 +358,7 @@ describe('history index', () => {
         'web_push_devices',
         'web_push_settings',
         'web_push_items',
+        'ntfy_channels',
         'member_queue_items',
         'email_contacts',
         'email_contact_events',

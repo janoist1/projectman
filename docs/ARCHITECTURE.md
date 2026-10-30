@@ -2091,6 +2091,19 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   link to the host's own first project. **Remote engine:** fully supported; nothing runs on the
   engine and no new data crosses the server/engine boundary.
 
+- **ntfy phone channel (PM-901)** — `apps/server/src/services/ntfy`, `contracts/ntfy.ts` and the personal
+  `ntfy_channels` table run on the server/hub. The web push service takes the decisions (category, quiet hours,
+  presence, claim, digest) and hands the same ones to the channel through the `PhoneChannel` contract; the channel
+  is delivered once per user and item, also to a user without a browser device. Delivery is an outbound HTTPS POST
+  (ntfy JSON API) from the hub to `https://ntfy.sh` or to the user's own ntfy server: a public DNS name without
+  port or credentials, and the connection refuses any private, loopback or link-local address. Redirects are not
+  followed and the answer is not read. The topic (128 random bits, made by the server) is the only secret on a public
+  server: it sits in `ntfy_channels`, is shown only to its owner and never goes to a log or an error. The message
+  is generic (no item title, project or card key); its link is the `Origin` of the page that saved the channel.
+  Standby copies and `PROJECTMAN_WEB_PUSH_ENABLED=0` do not send. **Remote engine:** fully supported; nothing runs
+  on the engine and no new data crosses the server/engine boundary. A self-hosted ntfy instance on the cloud
+  machine would be an outbound call to that machine's public name.
+
 - **Administration adapter and supervisor (PM-763, Super mode 7/10)** — `apps/server/src/administration/**`
   (module `administration`, engine layer, sealed), `apps/server/src/contracts/administration.ts`,
   `apps/server/src/engine-link/{methods,protocol,engine-handlers}.ts` and `engine-link/remote/administration.ts`,

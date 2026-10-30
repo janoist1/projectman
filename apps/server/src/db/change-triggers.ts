@@ -154,6 +154,7 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   web_push_devices: 'personal notification settings, not project state',
   web_push_settings: 'personal notification settings, not project state',
   web_push_items: 'personal notification settings, not project state',
+  ntfy_channels: 'personal notification settings, not project state',
   auth_sessions: 'login sessions, not project state',
   counters: 'number allocator; the card row announces itself',
   decision_candidate_state: 'Operator bookkeeping that no project reader reads',

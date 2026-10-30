@@ -54,6 +54,7 @@ export interface AppHarnessOptions {
     BuildAppOptions,
     | 'webPush'
     | 'webPushTransport'
+    | 'ntfyTransport'
     | 'doneCleanupDelayMs'
     | 'screenQuestions'
     | 'doneTurnLimitMs'

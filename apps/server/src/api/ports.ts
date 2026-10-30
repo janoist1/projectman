@@ -2,6 +2,7 @@ import type { SessionMessages } from '../runtime/delivery';
 import type { ReleaseService } from '../services/releases';
 import type { AuthDomain } from '../auth';
 import type { WebPushService } from '../services/web-push';
+import type { NtfyService } from '../services/ntfy';
 import type { HostRequestsService } from '../services/host-requests';
 import type { SuperAdministration, SuperHandoffService, SuperOperator } from '../services/super-operator';
 import type { StructureService } from '../services/structure';
@@ -47,6 +48,7 @@ export interface ApiDomain extends AuthDomain {
   readonly checklist: ChecklistService;
   readonly releases: ReleaseService;
   readonly webPush: WebPushService;
+  readonly ntfy: NtfyService;
   readonly hostRequests: HostRequestsService;
   readonly superOperator: SuperOperator;
   readonly superHandoffs: SuperHandoffService;

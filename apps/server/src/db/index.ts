@@ -3,6 +3,9 @@ import { createChecklistRepository } from './checklist';
 import { createEmailChannelRepository } from './email-channel';
 export type { EmailMessageRecord } from './email-channel';
 import { createWebPushRepository } from './web-push';
+import { createNtfyRepository } from './ntfy';
+export { ntfyChannelView } from './ntfy';
+export type { NtfyChannelRecord } from './ntfy';
 export { pushDeviceView } from './web-push';
 export type { PushDeviceRecord } from './web-push';
 import { createMessageAttachmentRepository } from './message-attachments';
@@ -117,6 +120,7 @@ export function createRepositories(db: Db) {
     checklists: createChecklistRepository(db),
     db,
     webPush: createWebPushRepository(db),
+    ntfy: createNtfyRepository(db),
     engines: createEngineRepository(db),
     projectEngines: createProjectEngineRepository(db),
     users: createUserRepository(db),

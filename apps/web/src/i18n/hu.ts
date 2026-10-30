@@ -1468,6 +1468,10 @@ export const hu = {
       web_push_quiet_hours_invalid: 'Ellenőrizd a csendes órák kezdetét, végét és időzónáját.',
       web_push_integrator_refused: 'Az értesítéseket a saját bejelentkezéseddel kezelheted.',
       web_push_test_too_soon: 'Várj öt másodpercet az újabb próba előtt.',
+      ntfy_unavailable: 'Az ntfy-értesítés most nem érhető el.',
+      ntfy_server_invalid:
+        'Az ntfy-szerver címe nem használható. Nyilvános, https-es névre van szükség, port és útvonal nélkül.',
+      ntfy_not_configured: 'Előbb állítsd be az ntfy-csatornát.',
       card_busy: 'A kártyán már dolgozik egy azonos szerepű tag.',
       engine_not_found: 'Nincs ilyen motor.',
       engine_revoked: 'Ez a gép vissza van vonva. Köss be egy újat a Gépeid alatt.',

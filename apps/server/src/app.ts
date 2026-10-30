@@ -191,6 +191,7 @@ export const APP_DEFAULTS = {
 export interface BuildAppOptions {
   webPush?: { enabled?: boolean; subject?: string };
   webPushTransport?: import('./contracts').PushTransport;
+  ntfyTransport?: import('./contracts').NtfyTransport;
   engineMode?: 'single' | 'cloud';
   /** Tests: the cloud mode's setup code instead of a random one (PM-317). */
   setupCode?: string;
@@ -654,6 +655,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       appHome: home,
       webPush: options.webPush,
       webPushTransport: options.webPushTransport,
+      ntfyTransport: options.ntfyTransport,
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
       sessionTmpDir: options.sessionTmpDir,

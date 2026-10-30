@@ -19,6 +19,12 @@ export const routes = {
   pushDevice: (id: string) => `/api/me/push/devices/${id}`,
   pushDeviceTest: (id: string) => `/api/me/push/devices/${id}/test`,
   pushUnsubscribe: () => '/api/me/push/unsubscribe',
+  /** GET NtfyOverview; PUT SaveNtfyChannelRequest -> NtfyChannelView; DELETE (PM-901). */
+  pushNtfy: () => '/api/me/push/ntfy',
+  /** POST: a new secret topic -> NtfyChannelView. */
+  pushNtfyTopic: () => '/api/me/push/ntfy/topic',
+  /** POST: a test message -> NtfyChannelView. */
+  pushNtfyTest: () => '/api/me/push/ntfy/test',
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
   /** GET the project manager's member queue (`MemberQueueView`, PM-894, PM-1042); `?closedSince=<iso>`. */
   projectManagerQueue: (key: string) => `/api/projects/${key}/project-manager/queue`,

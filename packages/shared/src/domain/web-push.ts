@@ -151,13 +151,20 @@ export function quietWindowAt(
     ).toISOString();
   return { quiet, endsAt: quiet ? atMinute(end) : null, nextStartAt: quiet ? null : atMinute(start) };
 }
+/** An https URL with a plain host name: no port, credentials or parser normalization ambiguities. */
+export function plainHttpsUrl(value: string): URL | null {
+  try {
+    if (!/^https:\/\/[a-z0-9.-]+(?:[/?#]|$)/i.test(value) || /[\s\\]/.test(value)) return null;
+    const url = new URL(value);
+    return url.protocol !== 'https:' || url.port || url.username || url.password ? null : url;
+  } catch {
+    return null;
+  }
+}
 export function isAllowedPushEndpoint(value: string): boolean {
   try {
-    // Require a plain authority with no port or credentials; reject parser normalization ambiguities.
-    if (!/^https:\/\/[a-z0-9.-]+(?:[/?#]|$)/i.test(value) || /[\s\\]/.test(value)) return false;
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.port || url.username || url.password) return false;
-    const host = url.hostname;
+    const host = plainHttpsUrl(value)?.hostname;
+    if (!host) return false;
     return (
       [
         'fcm.googleapis.com',

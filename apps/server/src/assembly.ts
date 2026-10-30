@@ -23,8 +23,9 @@ import {
 } from './mcp';
 import { createInboxService } from './core/inbox';
 import { createWebPushService } from './services/web-push';
+import { createNtfyService } from './services/ntfy';
 import { createHostRequestsService } from './services/host-requests';
-import type { PushTransport } from './contracts';
+import type { NtfyTransport, PushTransport } from './contracts';
 import type { IntegratorTodoAccess } from './core/inbox';
 import { createStructureService } from './services/structure';
 import {
@@ -244,6 +245,7 @@ export interface DomainOptions {
   historySemantic?: import('./contracts').HistorySemanticPort;
   webPush?: { enabled?: boolean; subject?: string };
   webPushTransport?: PushTransport;
+  ntfyTransport?: NtfyTransport;
   integratorCredentials?: import('./contracts').IntegratorCredentialAuthority;
   revokeIntegratorAccessKey?: (userId: string, keyId: string) => unknown;
   /** The owner's grant every machine operation passes (PM-881); absent: no machine operation runs. */
@@ -644,12 +646,21 @@ export function createDomain(opts: DomainOptions) {
     () => providerKeys?.nanogptKey() ?? Promise.resolve(null),
   );
   const presence = new PresenceService();
+  const ntfy = createNtfyService({
+    enabled: opts.webPush?.enabled,
+    standby: opts.standby,
+    transport: opts.ntfyTransport,
+    repos: opts.repos,
+    logger: opts.logger,
+    now,
+  });
   const webPush = createWebPushService({
     home: opts.appHome,
     enabled: opts.webPush?.enabled,
     subject: opts.webPush?.subject,
     standby: opts.standby,
     transport: opts.webPushTransport,
+    phone: ntfy.phone(),
     repos: opts.repos,
     presence,
     config: (key) => projects.config(key),
@@ -2368,6 +2379,7 @@ export function createDomain(opts: DomainOptions) {
     engineCounters,
     checklist,
     webPush,
+    ntfy,
     hostRequests,
     superOperator,
     superHandoffs,

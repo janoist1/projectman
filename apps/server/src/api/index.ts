@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { registerWebPushRoutes } from './web-push';
+import { registerNtfyRoutes } from './ntfy';
 import type { AuthService, OwnerAccountService } from '../auth';
 import type { ApiDomain } from './ports';
 import type { EngineRegistry } from '../runtime/sessions';
@@ -88,6 +89,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerEngineRoutes(app, services);
   registerVersionRoutes(app, domain);
   registerWebPushRoutes(app, domain);
+  registerNtfyRoutes(app, domain);
   registerProviderRoutes(app, services);
   registerProjectRoutes(app, services);
   registerOperatorRoutes(app, services);

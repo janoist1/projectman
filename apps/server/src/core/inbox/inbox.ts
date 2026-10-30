@@ -86,6 +86,8 @@ import type {
   ResolveIntegratorTodoRequest,
   ScreeningTodo,
   ScreenedQuestionsResponse,
+  OwnerQuestionsQuery,
+  OwnerQuestionsReport,
   BoundActor,
   TimelineEventData,
   TodoRoute,
@@ -95,6 +97,8 @@ import type {
 import {
   fixLimitDeciders,
   ownerHandles,
+  ownerQuestionsSince,
+  weeklyOwnerQuestions,
   RETIRED_OPERATOR_HANDLE,
   TEAM_SETTING_POLICY,
 } from '@projectman/shared';
@@ -741,6 +745,20 @@ export class InboxService {
   screenedQuestions(projectKey: string, since: string): ScreenedQuestionsResponse {
     const screened = this.ctx.repos.inbox.screenedQuestions(projectKey, since, SCREENED_QUESTIONS_LIMIT);
     return { items: this.withQuestionGroups(screened.items), today: screened.today };
+  }
+
+  /**
+   * The weekly owner question measure of the last `weeks` weeks (PM-1192): `weeklyOwnerQuestions` over the
+   * project's questions, cut in the project's time zone.
+   */
+  async ownerQuestions(projectKey: string, query: OwnerQuestionsQuery): Promise<OwnerQuestionsReport> {
+    const config = await this.projects.config(projectKey);
+    const input = { timezone: config.project.timezone, now: this.ctx.now(), weeks: query.weeks };
+    const items = this.ctx.repos.inbox.questionsSince(projectKey, ownerQuestionsSince(input));
+    return weeklyOwnerQuestions(items, {
+      ...input,
+      coordinatorHandle: coordinationMemberOf(config)?.handle ?? null,
+    });
   }
 
   /** The decision items of one gate request of a task, oldest first. */

@@ -45,6 +45,31 @@ export function formatStamp(value: string | Date, now: Date = new Date()): strin
   return t('time.dateAt', { date: formatDate(value, now), time });
 }
 
+// Calendar days ("2026-10-26") are dates without a zone: read and printed in UTC so no zone shifts them.
+const calendarDayFormat = new Intl.DateTimeFormat(LOCALE, {
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+const calendarDayYearFormat = new Intl.DateTimeFormat(LOCALE, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  timeZone: 'UTC',
+});
+
+/**
+ * A range of calendar days: "okt. 26. – nov. 1.", with the year ("2025. dec. 29. – 2026. jan. 4.") when asked
+ * for or when the range crosses a year.
+ */
+export function formatDayRange(start: string, end: string, withYear = false): string {
+  const from = new Date(`${start}T00:00:00Z`);
+  const to = new Date(`${end}T00:00:00Z`);
+  const format =
+    withYear || from.getUTCFullYear() !== to.getUTCFullYear() ? calendarDayYearFormat : calendarDayFormat;
+  return `${format.format(from)} – ${format.format(to)}`;
+}
+
 /** Short age for cards: "ma", "tegnap", "3 napja". */
 export function formatAge(value: string | Date, now: Date = new Date()): string {
   const days = daysBetween(value, now);

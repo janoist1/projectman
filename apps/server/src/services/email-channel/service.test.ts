@@ -594,6 +594,22 @@ describe('EmailChannelService', () => {
       expect(rows).toEqual([{ source: 'member' }, { source: 'member' }]);
     });
 
+    it('takes a delivered mail of the person as the source, never a parked one with the same From (PM-1011)', async () => {
+      const { emailChannel, harness } = await setup();
+      const mailOf = received(harness);
+      harness.repos.emailChannel.messages.update(mailOf.id, {
+        fromAddress: 'acme@example.test',
+        status: 'parked',
+        parkReason: 'authentication_failed',
+      });
+      const ask = { handle: 'acme', wants: true, requestedBy: 'acme', sourceEmailId: mailOf.id };
+      expect(() => emailChannel.setContactByMember('AR', 'dev-1', ask)).toThrowError(
+        expect.objectContaining({ code: 'email_unknown' }),
+      );
+      harness.repos.emailChannel.messages.update(mailOf.id, { status: 'delivered', parkReason: null });
+      expect(emailChannel.setContactByMember('AR', 'dev-1', ask)).toEqual({ handle: 'acme', wants: true });
+    });
+
     it('lists contacts with an address flag only', async () => {
       const { emailChannel } = await setup();
       const contacts = emailChannel.contactsForMember('AR');

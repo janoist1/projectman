@@ -148,6 +148,20 @@ describe('EmailInbound', () => {
       });
     });
 
+    it.each([
+      ['two From headers', 'From: owner@example.com\r\nFrom: attacker@example.test'],
+      ['two mailboxes in one From', 'From: owner@example.com, attacker@example.test'],
+    ])('parks a mail with %s as failed authentication (PM-1011)', async (_name, from) => {
+      const { harness, emailChannel, reply } = await setup();
+      const mail = reply({
+        raw: new TextEncoder().encode(`${from}\r\nSubject: Re: Summary\r\n\r\nAnswer`),
+      });
+      expect(await emailChannel.inbound.receive(mail)).toBe('parked');
+      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({
+        parkReason: 'authentication_failed',
+      });
+    });
+
     it.each(['In-Reply-To', 'References'])(
       'links a member-address reply using %s after consent is withdrawn',
       async (header) => {
@@ -508,14 +522,14 @@ describe('EmailInbound', () => {
       expect(inboundRows()).toEqual([]);
     });
 
-    it('parks a mail from an unknown sender without an alert', async () => {
-      const { emailChannel, reply, inboundRows, alerts } = await setupDirect();
-      expect(await emailChannel.inbound.receive(reply({ to: address, from: 'stranger@example.org' }))).toBe(
-        'parked',
-      );
+    it('parks a mail from an unknown sender without an alert and keeps no text of it', async () => {
+      const { harness, emailChannel, reply, inboundRows, alerts } = await setupDirect();
+      const mail = reply({ to: address, from: 'stranger@example.org', body: 'Click here' });
+      expect(await emailChannel.inbound.receive(mail)).toBe('parked');
       expect(inboundRows()).toMatchObject([
         { status: 'parked', parkReason: 'unknown_sender', member: 'dev-1' },
       ]);
+      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({ text: '' });
       expect(alerts()).toEqual([]);
     });
 

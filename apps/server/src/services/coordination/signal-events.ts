@@ -45,6 +45,7 @@ export function wireOperatorSignals(deps: {
   events.on('session_cleanup_failed', ({ projectKey, sessionId, scopeId }) => {
     // Slowly exiting processes usually settle on the next retry: signal only a failure that lasted.
     // The record keeps the first failure's time; every retry that fails again emits this event once more.
+    // A retry that cannot run (an unreachable engine) emits nothing; the engine outage has its own signal.
     const failedAt = ctx.repos.sessionCleanups.get(scopeId)?.failedAt;
     const ageMs = failedAt ? ctx.now().getTime() - Date.parse(failedAt) : Infinity;
     if (ageMs < PROCESS_CLEANUP_SIGNAL_GRACE_MS) {

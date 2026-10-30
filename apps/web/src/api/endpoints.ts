@@ -23,6 +23,8 @@ import {
   SuperAuditPage,
   SuperOperationDetail,
   OperatorKnowledgeDocument,
+  OWNER_QUESTION_WEEKS_DEFAULT,
+  OwnerQuestionsReport,
   OperatorPreferenceDocument,
   OperatorApprovalWaiverResponse,
   MemberQueueView,
@@ -399,6 +401,11 @@ export const api = {
   /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */
   operatorKnowledge: (key: string) =>
     apiRequest(routes.operatorKnowledge(key), { schema: OperatorKnowledgeDocument }),
+  /** The weekly owner question measure of the last eight weeks (PM-1192); the owner's own login only. */
+  ownerQuestions: (key: string) =>
+    apiRequest(`${routes.operatorOwnerQuestions(key)}?weeks=${OWNER_QUESTION_WEEKS_DEFAULT}`, {
+      schema: OwnerQuestionsReport,
+    }),
   operatorPreferenceMe: (key: string) =>
     apiRequest(routes.operatorPreferenceMe(key), { schema: OperatorPreferenceDocument }),
   operatorPreferences: (key: string) =>

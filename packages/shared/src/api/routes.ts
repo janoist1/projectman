@@ -30,6 +30,8 @@ export const routes = {
   projectManagerQueue: (key: string) => `/api/projects/${key}/project-manager/queue`,
   operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
   operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
+  /** GET the weekly owner question measure (`OwnerQuestionsReport`, PM-1192); `?weeks=8`; the owner's own login only. */
+  operatorOwnerQuestions: (key: string) => `/api/projects/${key}/operator/owner-questions`,
   projectChecklist: (key: string) => `/api/projects/${key}/checklist`,
   projectChecklistItemState: (key: string, itemId: string) =>
     `/api/projects/${key}/checklist/items/${itemId}/state`,

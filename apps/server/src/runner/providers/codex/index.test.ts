@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { homedir } from 'node:os';
@@ -130,10 +130,16 @@ describe('Codex launch workspace check (PM-357)', () => {
     expect(readFileSync(hookConfigPath, 'utf8')).toBe('url = "http://127.0.0.1:1/hooks/test"\n');
     expect(launch.cliArgs.join('\n')).not.toContain('/hooks/test');
     expect(launch.cliArgs.join('\n')).toContain(hookConfigPath);
+    // So does the team MCP bridge: the URL is in a 0600 file of the session's folder (PM-1170).
+    const mcpConfigPath = path.join(sessionConfigDir, 'codex-mcp.json');
+    expect(JSON.parse(readFileSync(mcpConfigPath, 'utf8'))).toEqual({ url: 'http://127.0.0.1:1/mcp/test' });
+    expect(statSync(mcpConfigPath).mode & 0o777).toBe(0o600);
+    expect(launch.cliArgs.join('\n')).not.toContain('/mcp/test');
     expect(launch.cliArgs).toEqual(
       codexArgs.buildCodexArgs({
         spec,
         hookConfigPath,
+        mcpConfigPath,
         permissionTimeoutMs: 1000,
         realCwd: cwd,
         codexHome: home,

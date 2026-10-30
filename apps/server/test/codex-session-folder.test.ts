@@ -161,6 +161,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     const { args } = buildCodexArgs({
       spec,
       hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
+      mcpConfigPath: '/run/ses_1.0123456789abcdef/codex-mcp.json',
       permissionTimeoutMs: 40_000,
       realCwd: spec.cwd,
     });
@@ -297,6 +298,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     const { args } = buildCodexArgs({
       spec,
       hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
+      mcpConfigPath: '/run/ses_1.0123456789abcdef/codex-mcp.json',
       permissionTimeoutMs: 40_000,
       realCwd: spec.cwd,
     });

@@ -10,6 +10,7 @@ import {
   forwarderCommand,
   permissionHookTimeoutS,
 } from '../../hook-forwarder';
+import { mcpBridgeCommand } from '../../mcp-bridge';
 import { sanitizeMessage } from '../../typing';
 
 /**
@@ -20,7 +21,8 @@ import { sanitizeMessage } from '../../typing';
  * - hooks: command hooks for every event we follow, running the curl/Node forwarder that
  *   POSTs the payload to /hooks/<token> (Codex has no HTTP hooks). The PermissionRequest
  *   forwarder prints the answer, which Codex reads as the hook's decision.
- * - the team MCP server over Streamable HTTP, its tools pre-approved;
+ * - the team MCP server through a stdio bridge to its Streamable HTTP route (`mcp-bridge.ts`), its
+ *   tools pre-approved;
  * - the member's system prompt as `developer_instructions`;
  * - trust for the session's directory (as an inline table: a path in the key would be split
  *   at its dots), so the trust screen never shows;
@@ -133,6 +135,8 @@ interface CodexArgsInput {
   spec: StartSessionSpec;
   /** The private file holding the hooks' POST target (`writeHookConfig`, PM-156). */
   hookConfigPath: string;
+  /** The private file holding the team MCP URL, read by the stdio bridge (`writeMcpBridgeConfig`, PM-1170). */
+  mcpConfigPath: string;
   permissionTimeoutMs: number;
   /** The session's directory, resolved (Codex looks its trust up by the resolved path). */
   realCwd: string;
@@ -469,7 +473,9 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   // The team server stays optional (PM-1070): `required = true` (PM-1055) made Codex exit at start
   // ("agent CLI exited before it was ready") for every session, so a failing team MCP must only
   // cost the tools, not the session.
-  const team: Record<string, unknown> = { url: spec.mcpUrl };
+  // A stdio bridge reads the URL from the session's private file: the URL holds the session's
+  // token and must not be on the command line (PM-1170).
+  const team: Record<string, unknown> = { ...mcpBridgeCommand(input.mcpConfigPath, input.nodePath) };
   if (approvals.all) team.default_tools_approval_mode = 'approve';
   if (approvals.names.length > 0) {
     team.tools = Object.fromEntries(approvals.names.map((t) => [t, { approval_mode: 'approve' }]));

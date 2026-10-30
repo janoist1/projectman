@@ -46,7 +46,7 @@ and other `sensitivePaths`; approved host commands remain outside that boundary.
 
 ### Investigating a missing team MCP or a 429 (PM-377)
 
-The launch arguments retain `mcp_servers.team`; the disabled `apps` feature concerns
+The launch arguments retain `mcp_servers.team` (a stdio bridge since PM-1170); the disabled `apps` feature concerns
 ChatGPT connectors. Fake CLI tests cover argument delivery and simulated team calls,
 not whether a real custom model receives and invokes the team tools. No configuration
 change is justified by the available evidence. After deployment, the integrator checks
@@ -485,6 +485,17 @@ Codex is started as `codex [resume] --no-alt-screen --no-daemon
 [--model <m>] -- [<id>] [<brief>]`. Every setting is a per-process `-c` override (update
 check off, the directory trusted, hooks, the team MCP server with its tools pre-approved,
 developer instructions); nothing is written to `~/.codex`.
+
+The team MCP server is a stdio server (PM-1170): `mcp_servers.team = { command = <node>,
+args = ["-e", <bridge>, "<session folder>/codex-mcp.json"], … }` plus the unchanged
+`default_tools_approval_mode` / `tools` approvals. The bridge (`runner/mcp-bridge.ts`) reads the
+team URL from that 0600 file and POSTs every JSON-RPC line from stdin to the stateless JSON
+route; a request the route does not answer (network error, non-2xx, unreadable answer) gets the
+JSON-RPC error `team server unreachable (<status>)`, a notification nothing. It has no retries and
+no timeout beyond Codex's `tool_timeout_sec`. The URL, which holds the session's token, is
+therefore on no command line, NanoGPT members included. Codex starts MCP servers as its own
+children, outside its command sandbox (which closes the session folder); this is confirmed only by
+a real `codex` run: after deployment the owner checks the first `get_task` of a Codex session.
 
 The team server must stay optional (PM-1070). PM-1055 made it `required = true` (with a
 20-second startup timeout and `mcp_optional_startup_grace_ms = 0`), and every Codex

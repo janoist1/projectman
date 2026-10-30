@@ -1,4 +1,5 @@
 import type { FeedbackMarkView } from '@projectman/shared';
+import { currentLanguage } from '../../i18n/language';
 import { t } from '../../i18n/t';
 
 /** The list's state filter: a processor sees the work to do, everyone else their own open marks. */
@@ -72,7 +73,7 @@ export function sourceOptions(marks: readonly FeedbackMarkView[]): SourceOption[
       options.set(value, { value, label: `${host}${segment}` });
     }
   }
-  return [...options.values()].sort((a, b) => a.label.localeCompare(b.label, 'hu'));
+  return [...options.values()].sort((a, b) => a.label.localeCompare(b.label, currentLanguage()));
 }
 
 export function matchesSource(mark: Pick<FeedbackMarkView, 'surface' | 'pagePath'>, value: string): boolean {

@@ -1422,6 +1422,13 @@ export const hu = {
     reconnecting: 'Megszakadt a kapcsolat, újrakapcsolódás…',
   },
 
+  /** The language switch of the account menu and the pre-login pages (PM-1168). Language names are in their own language. */
+  language: {
+    label: 'Nyelv',
+    names: { en: 'English', hu: 'Magyar' },
+    saveFailed: 'Nem sikerült menteni a nyelvet. Próbáld újra.',
+  },
+
   errors: {
     generic: 'Valami nem sikerült.',
     network: 'Nem érem el a szervert.',

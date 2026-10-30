@@ -8,6 +8,8 @@ import { Icon } from '../components/Icon';
 import { t } from '../i18n/t';
 import { useDismiss } from '../lib/hooks';
 import { useMeContext } from './contexts';
+import { useRestoredLanguageFocus } from './languageFocus';
+import { LanguageSwitch } from './LanguageSwitch';
 import styles from './Menus.module.css';
 
 /** Project switcher: current project, other projects, new project. */
@@ -111,6 +113,7 @@ export function AccountMenu({
   const version = serverVersion.isSuccess ? serverVersion.data : undefined;
   const navigate = useNavigate();
   useDismiss(open, () => setOpen(false), refs, triggerRef);
+  useRestoredLanguageFocus('account', () => triggerRef.current);
   useEffect(() => {
     if (!open || placement !== 'right') return;
     const close = () => setOpen(false);
@@ -146,12 +149,24 @@ export function AccountMenu({
         <div
           ref={panelRef}
           id={panelId}
-          className={clsx(styles.panel, placement === 'right' ? styles.panelRight : styles.panelBelow)}
+          className={clsx(
+            styles.panel,
+            styles.accountPanel,
+            placement === 'right' ? styles.panelRight : styles.panelBelow,
+          )}
           style={placement === 'right' ? anchor : undefined}
         >
           <div className={styles.account}>
             <span className={styles.accountName}>{me.name}</span>
             <span className={styles.accountEmail}>{me.email}</span>
+          </div>
+          <div className={styles.separator} />
+          <div className={styles.languageRow}>
+            <Icon name="globe" size={16} />
+            <span className={styles.itemText} aria-hidden="true">
+              {t('language.label')}
+            </span>
+            <LanguageSwitch focusTarget="account" />
           </div>
           <div className={styles.separator} />
           {onPause ? (

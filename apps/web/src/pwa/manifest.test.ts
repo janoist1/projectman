@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { hu } from '../i18n/hu';
+import { en } from '../i18n/en';
 import { buildPwaFiles } from '../../vite-plugin-pwa';
 import { buildManifest, PWA_COLORS } from './manifest';
 
@@ -10,7 +10,7 @@ const here = (path: string) => resolve(dirname(fileURLToPath(import.meta.url)), 
 const read = (path: string) => readFileSync(here(path), 'utf8');
 
 describe('web app manifest', () => {
-  const manifest = buildManifest({ name: hu.app.name, description: hu.pwa.description });
+  const manifest = buildManifest({ name: en.app.name, description: en.pwa.description });
 
   it('has the fields installability needs', () => {
     expect(manifest).toMatchObject({
@@ -18,11 +18,11 @@ describe('web app manifest', () => {
       start_url: '/',
       scope: '/',
       display: 'standalone',
-      lang: 'hu',
+      lang: 'en',
       dir: 'ltr',
-      name: hu.app.name,
-      short_name: hu.app.name,
-      description: hu.pwa.description,
+      name: en.app.name,
+      short_name: en.app.name,
+      description: en.pwa.description,
     });
     expect(manifest).not.toHaveProperty('orientation');
   });
@@ -54,7 +54,7 @@ describe('build files', () => {
   const files = buildPwaFiles();
 
   it('serializes the manifest and fills the build id into the worker', () => {
-    expect(JSON.parse(files.manifest).name).toBe(hu.app.name);
+    expect(JSON.parse(files.manifest).name).toBe(en.app.name);
     expect(files.serviceWorker()).not.toContain('__BUILD_ID__');
     expect(files.serviceWorker('dev')).toContain("'dev'");
   });

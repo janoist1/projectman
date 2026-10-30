@@ -9,6 +9,7 @@ import { ToastProvider } from '../components/Toast';
 import { BoardPage } from '../features/board/BoardPage';
 import { TaskDrawer } from '../features/board/TaskDrawer';
 import { t } from '../i18n/t';
+import { useLanguage } from '../i18n/useLanguage';
 import { readStorage } from '../lib/hooks';
 import { AuthGate } from './AuthGate';
 import { NotFoundPage } from './NotFoundPage';
@@ -73,9 +74,8 @@ function HomeRedirect() {
   return <Navigate to={`/p/${target.key}`} replace />;
 }
 
-const notFound = <NotFoundPage message={t('app.notFound')} />;
-
 export function AppRoutes() {
+  const notFound = <NotFoundPage message={t('app.notFound')} />;
   return (
     <Routes>
       <Route path="/invite/:token" element={invitePage} />
@@ -126,11 +126,13 @@ export function AppRoutes() {
 
 export function App() {
   const [queryClient] = useState(createQueryClient);
+  const language = useLanguage();
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <ToastProvider>
-          <AppRoutes />
+          {/* A new language remounts the pages (the cache and the route stay): every text is read again. */}
+          <AppRoutes key={language} />
         </ToastProvider>
       </BrowserRouter>
     </QueryClientProvider>

@@ -1,6 +1,6 @@
 import { PWA_COLORS } from './manifest';
 
-export interface OfflineText {
+interface OfflineText {
   /** Product name; it fills `{name}` in the body. */
   name: string;
   title: string;
@@ -46,12 +46,27 @@ function palette(tokens: (typeof OFFLINE_TOKENS)[keyof typeof OFFLINE_TOKENS]): 
   return `--page:${tokens.page};--ink:${tokens.ink};--ink-3:${tokens.ink3};--primary:${tokens.primary};--on-primary:${tokens.onPrimary};--accent:${tokens.accent};`;
 }
 
-/** The static page the service worker shows when a page load finds no network. */
-export function buildOfflineHtml(text: OfflineText): string {
+/** The page's texts per language; English is what shows without a stored choice or a script. */
+export type OfflineTexts = Record<'en' | 'hu', OfflineText>;
+
+/**
+ * The static page the service worker shows when a page load finds no network. It holds both languages:
+ * the script picks the stored UI language (`pm:language`), otherwise the browser's language.
+ */
+export function buildOfflineHtml(texts: OfflineTexts): string {
+  const text = texts.en;
   const body = text.body.replaceAll('{name}', text.name);
   const { light, dark } = OFFLINE_TOKENS;
+  const shown = Object.fromEntries(
+    Object.entries(texts).map(([language, entry]) => [
+      language,
+      { ...entry, body: entry.body.replaceAll('{name}', entry.name) },
+    ]),
+  );
+  // `<` never appears raw inside the script, so a text cannot close it.
+  const shownJson = JSON.stringify(shown).replaceAll('<', '\\u003c');
   return `<!doctype html>
-<html lang="hu">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -89,15 +104,28 @@ export function buildOfflineHtml(text: OfflineText): string {
           <path d="M6.5 6v12M12 6v7.5M17.5 6v4" />
         </svg>
       </div>
-      <h1>${escapeHtml(text.title)}</h1>
-      <p>${escapeHtml(body)}</p>
+      <h1 id="title">${escapeHtml(text.title)}</h1>
+      <p id="body">${escapeHtml(body)}</p>
       <button type="button" id="retry" data-retry="${escapeHtml(text.retry)}" data-retrying="${escapeHtml(text.retrying)}" data-still-offline="${escapeHtml(text.stillOffline)}">${escapeHtml(text.retry)}</button>
       <div id="status" role="status" aria-live="polite"></div>
     </main>
     <script>
       (function () {
+        var texts = ${shownJson};
+        var stored = null;
+        try { stored = localStorage.getItem('pm:language'); } catch (e) {}
+        var language = stored === 'en' || stored === 'hu' ? stored : /^hu\\b/i.test(navigator.language || '') ? 'hu' : 'en';
+        var shown = texts[language];
+        document.documentElement.lang = language;
+        document.title = shown.title + ' · ' + shown.name;
+        document.getElementById('title').textContent = shown.title;
+        document.getElementById('body').textContent = shown.body;
         var button = document.getElementById('retry');
         var status = document.getElementById('status');
+        button.textContent = shown.retry;
+        button.setAttribute('data-retry', shown.retry);
+        button.setAttribute('data-retrying', shown.retrying);
+        button.setAttribute('data-still-offline', shown.stillOffline);
         function reload() { location.reload(); }
         function retry() {
           if (button.getAttribute('aria-busy') === 'true') return;

@@ -1,7 +1,13 @@
 import { cleanup, configure } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, beforeEach } from 'vitest';
+import { setCurrentLanguage } from '../i18n/language';
 import { server } from './msw/server';
 import { takeContractViolations } from './msw/contract';
+
+// The UI tests read Hungarian (the mock account's language too); an English test sets its own language.
+beforeEach(() => {
+  setCurrentLanguage('hu');
+});
 
 // findBy* and waitFor poll for 1 s by default; a slow role query under parallel load can use that
 // up on its own, so give them time to stay below the test timeout in vitest.config.ts.

@@ -148,10 +148,11 @@ describe('PasswordResetPage', () => {
     expect((wait as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('goes back to the login page when the server has no e-mail codes', async () => {
+  it('goes back to the login page when the server has no e-mail codes, without showing the form first', async () => {
     const backend = clientBackend();
     backend.emailLogin.enabled = false;
     renderReset(backend);
+    expect(screen.queryByLabelText(t('auth.login.email'))).toBeNull();
     await screen.findByText('login');
   });
 });

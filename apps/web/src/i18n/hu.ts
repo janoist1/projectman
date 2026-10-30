@@ -1903,7 +1903,7 @@ export const hu = {
       announceResendReady: 'Most már kérhetsz új kódot.',
       nameLabel: 'Neved',
       tooMany: 'Túl sok kérés érkezett. Várj egy kicsit, utána újra kérhetsz kódot.',
-      unavailable: 'Az e-mailes belépés most nem működik. Próbáld újra később.',
+      unavailable: 'A kódküldés most nem működik. Próbáld újra később.',
     },
     /** Setting or resetting a client's password with an e-mailed code (PM-946); linked from the login page. */
     passwordReset: {

@@ -40,6 +40,17 @@ export function PasswordResetPage() {
 
   if (status.data?.needsSetup) return <Navigate to="/setup" replace />;
   if (status.data && !status.data.emailLoginEnabled) return <Navigate to={loginPath} replace />;
+  // The form waits for the setup status: without e-mail codes the page leads back to the login.
+  if (status.isPending)
+    return (
+      <AuthLayout title={t('auth.passwordReset.title')} subtitle={t('auth.passwordReset.subtitle')}>
+        <div className={styles.skeletons} aria-busy="true">
+          <div className={styles.skeleton} />
+          <div className={`${styles.skeleton} ${styles.skeletonButton}`} />
+          <span className="visually-hidden">{t('app.loading')}</span>
+        </div>
+      </AuthLayout>
+    );
 
   const send = async (event: FormEvent) => {
     event.preventDefault();

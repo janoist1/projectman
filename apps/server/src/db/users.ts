@@ -73,6 +73,9 @@ export function createUserRepository(db: Db) {
       const row = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as UserRow | undefined;
       return row ? toUser(row) : null;
     },
+    setPasswordHash(id: string, passwordHash: string): void {
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+    },
     list(): UserRecord[] {
       return (db.prepare('SELECT * FROM users ORDER BY created_at').all() as UserRow[]).map(toUser);
     },
@@ -96,6 +99,10 @@ export function createAuthSessionRepository(db: Db) {
     },
     delete(id: string): void {
       db.prepare('DELETE FROM auth_sessions WHERE id = ?').run(id);
+    },
+    /** Every session of the user; returns how many were removed. */
+    deleteByUser(userId: string): number {
+      return db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(userId).changes;
     },
     deleteExpired(now: string): number {
       return db.prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').run(now).changes;

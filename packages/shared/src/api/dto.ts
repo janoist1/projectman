@@ -435,6 +435,16 @@ export const EmailLoginVerifyRequest = z.union([
 ]);
 export type EmailLoginVerifyRequest = z.infer<typeof EmailLoginVerifyRequest>;
 
+/** Asks for a password-reset code (PM-946); always 202 `EmailLoginCodeRequested`, whoever the address belongs to. */
+export const PasswordCodeRequest = z.object({ email: LoginEmail }).strict();
+export type PasswordCodeRequest = z.infer<typeof PasswordCodeRequest>;
+
+/** Redeems the password-reset code and sets the new password; the answer is `Me` and a new session. */
+export const PasswordResetRequest = z
+  .object({ email: LoginEmail, code: LoginCode, password: SetupRequest.shape.password })
+  .strict();
+export type PasswordResetRequest = z.infer<typeof PasswordResetRequest>;
+
 /** `details` of `email_login_rate_limited`. */
 export const EmailLoginRateLimitedDetails = z.object({ retryAfterSeconds: z.number().int().positive() });
 export type EmailLoginRateLimitedDetails = z.infer<typeof EmailLoginRateLimitedDetails>;

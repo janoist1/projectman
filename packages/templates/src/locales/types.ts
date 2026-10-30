@@ -201,6 +201,11 @@ export interface TemplateLocale {
     subject: string;
     text: (input: { code: string; validUntil: string }) => string;
   };
+  /** The mail that carries a one-time password-reset code (PM-946); same input as `emailLoginCode`. */
+  passwordResetCode: {
+    subject: string;
+    text: (input: { code: string; validUntil: string }) => string;
+  };
   /** Text of the outgoing channel e-mail (PM-941). */
   email: {
     /** The short notice under the first mail a member sends to a contact (PM-1017). */

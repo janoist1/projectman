@@ -442,6 +442,11 @@ export const hu: TemplateLocale = {
     text: ({ code, validUntil }) =>
       `A belépési kódod: ${code}\n\nA kód egyszer használható, és eddig érvényes: ${validUntil}.\n\nHa nem te kérted, hagyd figyelmen kívül ezt a levelet.\n`,
   },
+  passwordResetCode: {
+    subject: 'Jelszó-beállító kódod',
+    text: ({ code, validUntil }) =>
+      `A jelszó beállításához szükséges kódod: ${code}\n\nA kód egyszer használható, és eddig érvényes: ${validUntil}.\n\nHa nem te kérted, hagyd figyelmen kívül ezt a levelet; a jelszavad nem változik.\n`,
+  },
   email: {
     quoteHeader: ({ date, name }) => `${date}, ${name} ezt írta:`,
     firstNotice: ({ member, project }) =>

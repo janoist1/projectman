@@ -427,6 +427,11 @@ export const en: TemplateLocale = {
     text: ({ code, validUntil }) =>
       `Your login code: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message.\n`,
   },
+  passwordResetCode: {
+    subject: 'Your password code',
+    text: ({ code, validUntil }) =>
+      `The code to set your password: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message; your password stays as it is.\n`,
+  },
   email: {
     quoteHeader: ({ date, name }) => `On ${date}, ${name} wrote:`,
     firstNotice: ({ member, project }) =>

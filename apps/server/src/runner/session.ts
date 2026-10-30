@@ -147,8 +147,9 @@ export class AgentSession {
   private stopRequested = false;
   private readonly startedAt = Date.now();
 
-  /** First SessionStart seen (or other proof that the prompt is up). */
+  /** The end of the CLI's raw output: the reason it leaves when it exits before it is ready (PM-1207). */
   private readonly outputTail = new OutputTail();
+  /** First SessionStart seen (or other proof that the prompt is up). */
   private ready = false;
   private readyAt = 0;
   /** A prompt reached the CLI (UserPromptSubmit): start-up dialogs are over. */

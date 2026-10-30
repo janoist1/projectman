@@ -258,7 +258,11 @@ export function MemberContextPage() {
                       onClick={() => changeParams((next) => next.set('part', item))}
                     >
                       <strong>{number(item === 'intro' ? data.prompt.chars : data[item].length)}</strong>
-                      <span>{t(`memberContext.parts.${item}`)}</span>
+                      <span>
+                        {t(`memberContext.parts.${item}`, {
+                          count: item === 'intro' ? data.prompt.chars : data[item].length,
+                        })}
+                      </span>
                       {item === 'intro' && (
                         <small>
                           {t('memberContext.sections', { count: number(data.prompt.sections.length) })}

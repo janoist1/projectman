@@ -1131,7 +1131,11 @@ export const en = {
     refresh: 'Refresh',
     onLeave: "They're on leave now; when they're back, they get this.",
     noDuties: 'No separate duties.',
-    parts: { intro: 'characters in the intro', guides: 'guides on request', tools: 'team tools' },
+    parts: {
+      intro: '{count|character|characters} in the intro',
+      guides: '{count|guide|guides} on request',
+      tools: '{count|team tool|team tools}',
+    },
     sections: '{count|# section|# sections}',
     chars: '{count|# char|# chars}',
     introTitle: 'Intro',

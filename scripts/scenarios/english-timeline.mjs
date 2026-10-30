@@ -106,4 +106,62 @@ export default async ({ instance, open, shoot, step }) => {
     const page = await open({ path: '/p/AC/sessions' });
     await shoot(page, 'involvements-en', { widths: WIDTHS });
   });
+  await step('how we work, with a rule panel open', async () => {
+    const page = await open({ path: '/p/AC/how-we-work' });
+    await page
+      .getByRole('button', { name: /Code review/ })
+      .first()
+      .click();
+    await shoot(page, 'how-we-work-panel-en', { widths: WIDTHS });
+  });
+  await step('the handoff box on the card', async () => {
+    const providers = { from: 'codex', to: 'claude' };
+    const handoff = {
+      id: 'hnd_shot',
+      from: developer.handle,
+      to: owner.handle,
+      fromProvider: providers.from,
+      toProvider: providers.to,
+      reason: 'manual',
+      step: 'waiting_point',
+      startedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+      deadlineAt: new Date(Date.now() + 7 * 60_000).toISOString(),
+    };
+    const page = await open({ path: '/p/AC/tasks/AC-1' });
+    await page.route('**/api/projects/AC/tasks/AC-1', async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      await route.fulfill({ response, json: { ...body, task: { ...body.task, handoff } } });
+    });
+    await page.reload();
+    await shoot(page, 'handoff-box-en', { widths: WIDTHS });
+  });
+  await step('the pause confirmation, bar and details', async () => {
+    const page = await open({ path: '/p/AC' });
+    await page
+      .getByRole('button', { name: /^Account/ })
+      .first()
+      .click();
+    await page.getByRole('button', { name: 'Pause the team' }).click();
+    await page.getByText('Pause the team?').waitFor();
+    await shoot(page, 'pause-confirm-en', { widths: WIDTHS });
+    await page.getByRole('button', { name: 'Pause', exact: true }).last().click();
+    await page
+      .getByText(/The team is (paused|stopping)/)
+      .first()
+      .waitFor();
+    // A shot resizes the window: look at the bar and its details once per width, on a fresh page.
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: width > 800 ? 982 : 844 });
+      await page.reload();
+      await page.getByText('The team is paused').first().waitFor();
+      await shoot(page, `pause-bar-en-${width}`, { widths: [width] });
+      await page
+        .getByRole('button', { name: /details/i })
+        .first()
+        .click();
+      await shoot(page, `pause-details-en-${width}`, { widths: [width] });
+    }
+    await instance.api('/api/projects/AC/pause/resume', { method: 'POST', body: {} });
+  });
 };

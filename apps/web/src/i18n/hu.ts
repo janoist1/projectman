@@ -100,7 +100,11 @@ export const hu = {
     refresh: 'Frissítés',
     onLeave: 'Most szabadságon van; ha visszajön, ezt kapja.',
     noDuties: 'Nincs külön duty-ja.',
-    parts: { intro: 'karakteres bevezető', guides: 'útmutató kérésre', tools: 'csapateszköz' },
+    parts: {
+      intro: '{count|karakteres bevezető|karakteres bevezető}',
+      guides: '{count|útmutató kérésre|útmutató kérésre}',
+      tools: '{count|csapateszköz|csapateszköz}',
+    },
     sections: '{count} szakasz',
     chars: '{count} kar.',
     introTitle: 'Bevezető',

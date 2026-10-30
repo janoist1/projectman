@@ -43,7 +43,9 @@ async function ready() {
   await screen.findByText(t('memberContext.ready'));
 }
 function openPart(part: 'intro' | 'guides' | 'tools') {
-  fireEvent.click(screen.getByRole('button', { name: new RegExp(t(`memberContext.parts.${part}`)) }));
+  fireEvent.click(
+    screen.getByRole('button', { name: new RegExp(t(`memberContext.parts.${part}`, { count: 1 })) }),
+  );
 }
 
 beforeEach(() => localStorage.clear());
@@ -229,7 +231,7 @@ describe('member context preview', () => {
     await screen.findByText(t(part === 'guides' ? 'memberContext.noGuides' : 'memberContext.noTools'));
     expect(
       screen
-        .getByRole('button', { name: new RegExp(t(`memberContext.parts.${part}`)) })
+        .getByRole('button', { name: new RegExp(t(`memberContext.parts.${part}`, { count: 0 })) })
         .querySelector('strong')?.textContent,
     ).toBe('0');
   });

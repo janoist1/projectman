@@ -6,10 +6,13 @@ import type { MessageKey, MessageParams, TranslateArgs } from './t';
 /**
  * A message whose placeholders are elements (a link, a chip) instead of text: `rich('key', { name:
  * <Link /> })`. `**bold**` in the message becomes bold text, placeholders inside it included. The
- * words stay in the locale file, the elements are the caller's.
+ * words stay in the locale file, the elements are the caller's. A number goes to the message as it is, so
+ * a plural form (`{limit|# round|# rounds}`) can choose its word.
  */
 export function rich<K extends MessageKey>(key: K, parts: Record<MessageParams<K>, ReactNode>): ReactNode {
-  const marks = Object.fromEntries(Object.keys(parts).map((name) => [name, `{${name}}`]));
+  const marks = Object.fromEntries(
+    Object.entries(parts).map(([name, value]) => [name, typeof value === 'number' ? value : `{${name}}`]),
+  );
   const template = t(key, ...([marks] as unknown as TranslateArgs<K>));
   const elements = parts as Record<string, ReactNode>;
   return template.split('**').map((segment, index) => {

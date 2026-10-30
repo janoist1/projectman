@@ -3916,7 +3916,6 @@ export const hu = {
       current: 'Folyamatban',
       total: 'Hozzád jutott',
       viaIntegrator: 'Integrátoron át',
-      countLabel: '{label}: {count}',
       updated: 'Frissítve: {date}',
       refresh: 'Frissítés',
       refreshing: 'Frissítés…',
@@ -7118,6 +7117,17 @@ export const hu = {
       open: 'Megnyitás',
       openLabel: 'Megnyitás: {name}',
       mark: '{n} hiba van benne',
+    },
+  },
+
+  ownerTopics: {
+    approval: 'Jóváhagyás',
+    builtIn: {
+      product_direction: { label: 'Termékirány' },
+      cost: { label: 'Költség' },
+      external_party: { label: 'Ügyfél vagy külső fél' },
+      risk_acceptance: { label: 'Kockázatvállalás' },
+      owner_only_setting: { label: 'Tulajdonosi beállítás' },
     },
   },
 

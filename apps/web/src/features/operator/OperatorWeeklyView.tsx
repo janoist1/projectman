@@ -15,13 +15,23 @@ import { Icon } from '../../components/Icon';
 import { ErrorState } from '../../components/States';
 import { formatDayRange, formatStamp } from '../../i18n/format';
 import { t, tDynamic } from '../../i18n/t';
+import { ownerTopicLabel } from '../../lib/ownerTopics';
 import { useOwnerQuestions } from './useOwnerQuestions';
 import styles from './OperatorWeekly.module.css';
 
-/** A topic's name: the project's own label, the unknown topic's text, otherwise its id (a removed topic). */
+/** A topic's name: the unknown topic's text, otherwise the owner topic's name. */
 function topicLabel(id: string, topics: readonly OwnerTopic[]): string {
-  if (id === UNKNOWN_OWNER_TOPIC) return t('operator.weekly.unknownTopic');
-  return topics.find((topic) => topic.id === id)?.label ?? id;
+  return id === UNKNOWN_OWNER_TOPIC ? t('operator.weekly.unknownTopic') : ownerTopicLabel(id, topics);
+}
+
+/** A number in the week's row, named for a screen reader by the column it stands under. */
+function Count({ label, count }: { label: string; count: number }) {
+  return (
+    <span className={styles.count}>
+      <span className="visually-hidden">{label}: </span>
+      {count}
+    </span>
+  );
 }
 
 /** The project's topics in their order, then approval and the unknown one, then any other id the weeks name. */
@@ -56,8 +66,6 @@ function WeekRow({
   topicIds: readonly string[];
 }) {
   const [open, setOpen] = useState(false);
-  const total = t('operator.weekly.total');
-  const via = t('operator.weekly.viaIntegrator');
   return (
     <details className={styles.week} open={open}>
       <summary
@@ -75,34 +83,24 @@ function WeekRow({
           </span>
           <small>{formatDayRange(week.weekStart, week.weekEnd)}</small>
         </span>
-        <span
-          className={styles.count}
-          aria-label={t('operator.weekly.countLabel', { label: total, count: week.total })}
-        >
-          {week.total}
-        </span>
-        <span
-          className={styles.count}
-          aria-label={t('operator.weekly.countLabel', { label: via, count: week.answeredByIntegrator })}
-        >
-          {week.answeredByIntegrator}
-        </span>
+        <Count label={t('operator.weekly.total')} count={week.total} />
+        <Count label={t('operator.weekly.viaIntegrator')} count={week.answeredByIntegrator} />
         <Icon name="chevronRight" size={16} strokeWidth={2.2} className={styles.chevron} />
       </summary>
       <div className={styles.weekBody}>
-        <div className={styles.facts}>
-          <p>
-            <b>{week.answeredByOwner}</b>
-            {t('operator.weekly.answeredByOwner')}
-          </p>
-          <p>
-            <b>{week.open}</b>
-            {t('operator.weekly.open')}
-          </p>
-        </div>
-        <p className={styles.muted}>{t('operator.weekly.answerHint')}</p>
         {week.total > 0 ? (
           <>
+            <div className={styles.facts}>
+              <p>
+                <b>{week.answeredByOwner}</b>
+                {t('operator.weekly.answeredByOwner')}
+              </p>
+              <p>
+                <b>{week.open}</b>
+                {t('operator.weekly.open')}
+              </p>
+            </div>
+            <p className={styles.muted}>{t('operator.weekly.answerHint')}</p>
             <h4>{t('operator.weekly.byRoute')}</h4>
             <Breakdown
               rows={OwnerQuestionRoute.options.map((route) => ({

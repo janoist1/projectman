@@ -45,8 +45,12 @@ function setup(items: InboxItem[] = [], overrides: (project: Project) => object 
 const loads = (project: Project) => project.requests.filter((request) => request.path.startsWith(url)).length;
 const composer = () => screen.findByRole('textbox', { name: t('operator.composer.label') });
 const entry = () => screen.findByRole('button', { name: new RegExp(`^${t('operator.weekly.entry')}`) });
-const countLabel = (key: 'total' | 'viaIntegrator', count: number) =>
-  t('operator.weekly.countLabel', { label: t(`operator.weekly.${key}`), count });
+/** The row's numbers as a screen reader reads them, the hidden column name first. */
+const counts = (summary: HTMLElement) =>
+  Array.from(
+    summary.querySelectorAll('span > .visually-hidden'),
+    (label) => label.parentElement!.textContent,
+  );
 const weekRows = () => document.querySelectorAll('details > summary[aria-expanded]').length - 1;
 
 describe('the weekly question measure (PM-1192)', () => {
@@ -81,8 +85,10 @@ describe('the weekly question measure (PM-1192)', () => {
     await waitFor(() => expect(document.activeElement).toBe(title));
     const current = (await screen.findByText(t('operator.weekly.current'))).closest('summary')!;
     expect(weekRows()).toBe(8);
-    expect(within(current).getByLabelText(countLabel('total', 2))).toBeTruthy();
-    expect(within(current).getByLabelText(countLabel('viaIntegrator', 1))).toBeTruthy();
+    expect(counts(current)).toEqual([
+      `${t('operator.weekly.total')}: 2`,
+      `${t('operator.weekly.viaIntegrator')}: 1`,
+    ]);
     expect(screen.queryByRole('textbox', { name: t('operator.composer.label') })).toBeNull();
 
     fireEvent.click(current);
@@ -91,7 +97,8 @@ describe('the weekly question measure (PM-1192)', () => {
     const row = (label: string) => week.getByText(label).closest('div')!.querySelector('dd')!.textContent;
     expect(row(t('operator.weekly.routes.unscreened'))).toBe('2');
     expect(row(t('operator.weekly.routes.decision'))).toBe('0');
-    expect(row('cost')).toBe('1');
+    expect(row(t('ownerTopics.builtIn.cost.label'))).toBe('1');
+    expect(row(t('ownerTopics.approval'))).toBe('0');
     expect(row(t('operator.weekly.unknownTopic'))).toBe('1');
     expect(week.getByText(t('operator.weekly.integratorTodos')).nextSibling?.textContent).toBe('1');
     expect(loads(project)).toBe(1);
@@ -114,12 +121,20 @@ describe('the weekly question measure (PM-1192)', () => {
     expect(loads(project)).toBe(0);
   });
 
-  it('shows eight zero weeks with the first-use note when nothing reached the owner', async () => {
+  it('shows eight zero weeks with the first-use note, and a zero week only says so', async () => {
     setup();
     fireEvent.click(await entry());
     expect(await screen.findByText(t('operator.weekly.empty', { weeks: 8 }))).toBeTruthy();
     expect(screen.getByText(t('operator.weekly.firstUse'))).toBeTruthy();
     expect(weekRows()).toBe(8);
+
+    const current = screen.getByText(t('operator.weekly.current')).closest('summary')!;
+    fireEvent.click(current);
+    const week = within(current.closest('details')!);
+    expect(week.getByText(t('operator.weekly.emptyWeek'))).toBeTruthy();
+    expect(week.getByText(t('operator.weekly.integratorTodos'))).toBeTruthy();
+    expect(week.queryByText(t('operator.weekly.answeredByOwner'))).toBeNull();
+    expect(week.queryByText(t('operator.weekly.answerHint'))).toBeNull();
   });
 
   it('retries a failed first load, keeps the data on a failed refresh and drops it when access is gone', async () => {

@@ -28,7 +28,8 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
   it.each(['exited', 'failed'] as const)(
     'preserves the pending %s exit code and still records failed cleanup',
     async (state) => {
-      const session = await start();
+      let at = new Date('2026-01-01T00:00:00Z');
+      const session = await start(() => at);
       const info = h.runner.list()[0]!;
       const listing = vi
         .spyOn(h.runner, 'list')
@@ -43,6 +44,9 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
         signal: null,
         cleanup: cleanup('failed'),
       });
+      // The signal waits out the grace period (PM-1204): a retry that still fails after it raises it.
+      at = new Date(at.getTime() + 121_000);
+      h.runner.emit({ type: 'scope_recovered', sessionId: session.id, cleanup: cleanup('failed') });
       await flush();
       const ended = h.domain.timeline
         .list('AR', { taskKey: 'AR-1' })
@@ -207,7 +211,8 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
     }
   });
   it('closes the Operator signal when the owner releases the scope, and refuses another project’s scope', async () => {
-    const session = await start();
+    let at = new Date('2026-01-01T00:00:00Z');
+    const session = await start(() => at);
     h.runner.emit({
       type: 'exit',
       sessionId: session.id,
@@ -215,6 +220,8 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
       signal: null,
       cleanup: cleanup('failed'),
     });
+    at = new Date(at.getTime() + 121_000);
+    h.runner.emit({ type: 'scope_recovered', sessionId: session.id, cleanup: cleanup('failed') });
     await flush();
     const release = { actor: OWNER_ACTOR, reason: 'Checked by hand' };
     expect(() => h.domain.sessions.releaseCleanupScope('ZZ', cleanup('failed').scopeId, release)).toThrow(
@@ -224,10 +231,9 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
     h.domain.sessions.releaseCleanupScope('AR', cleanup('failed').scopeId, release);
     await flush();
     expect(h.repos.sessionCleanups.forSession(session.id)).toEqual([]);
-    expect(
-      h.repos.operatorSignals.list('AR').find((signal) => signal.kind === 'process_cleanup_failed')
-        ?.resolvedAt,
-    ).not.toBeNull();
+    const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'process_cleanup_failed');
+    expect(signal).toBeDefined();
+    expect(signal?.resolvedAt).not.toBeNull();
   });
   it('ignores a retry result that returns after the scope was released', async () => {
     const session = await start();

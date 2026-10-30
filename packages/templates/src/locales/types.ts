@@ -54,6 +54,12 @@ export interface WebPushText {
   title: Record<'question' | 'decision' | 'approval' | 'permission' | 'release' | 'host_request', string>;
   digest: { title: string; body: string };
   test: { title: string; body: string };
+  /** The ntfy message is generic on purpose: the topic name is its only secret (PM-901). */
+  ntfy: {
+    item: { title: string; body: string };
+    digest: { title: string; body: string };
+    test: { title: string; body: string };
+  };
 }
 
 /** Labels the templates may ship; rules live in ../labels.ts, words in the locales. */

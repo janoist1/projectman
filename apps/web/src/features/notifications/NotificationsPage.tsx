@@ -9,6 +9,7 @@ import { useDocumentTitle } from '../../lib/hooks';
 import { endpointHash, currentSubscription } from '../../lib/pushBrowser';
 import { DevicesCard, DevicesSkeleton } from './DevicesCard';
 import { KindsCard } from './KindsCard';
+import { NtfyCard } from './NtfyCard';
 import { QuietHoursCard } from './QuietHoursCard';
 import { ThisDeviceCard } from './ThisDeviceCard';
 import { failText } from './deviceText';
@@ -109,6 +110,16 @@ export function NotificationsPage() {
             onRemoved={removed}
           />
         )}
+      </section>
+
+      <section className={styles.section} aria-labelledby="push-ntfy">
+        <div className={styles.sectionHead}>
+          <h2 id="push-ntfy" className={styles.sectionTitle}>
+            {t('notifications.ntfy.title')}
+          </h2>
+          <span className={styles.hint}>{t('notifications.ntfy.hint')}</span>
+        </div>
+        <NtfyCard />
       </section>
 
       {overview.data ? (

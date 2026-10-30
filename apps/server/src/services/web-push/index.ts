@@ -17,7 +17,7 @@ import type {
 } from '@projectman/shared';
 import { hu } from '@projectman/templates';
 import type { FastifyBaseLogger } from 'fastify';
-import type { PushSendOutcome, PushTransport } from '../../contracts';
+import type { PhoneChannel, PhoneMessage, PushSendOutcome, PushTransport } from '../../contracts';
 import type { PresenceService } from '../../core/members';
 import { projectAccessFor } from '../../core/members';
 import { pushDeviceView } from '../../db';
@@ -32,6 +32,8 @@ interface WebPushOptions {
   standby?: boolean;
   subject?: string;
   transport?: PushTransport;
+  /** The second delivery channel for the same decisions (ntfy, PM-901). */
+  phone?: PhoneChannel;
   repos: Repositories;
   presence: PresenceService;
   config: (key: string) => Promise<ProjectConfig>;
@@ -116,12 +118,15 @@ export function createWebPushService(opts: WebPushOptions) {
     repo.recordResult(row, outcome, now().toISOString());
     opts.logger.info({ deviceId: row.id, result: outcome.result }, 'web push delivery');
   }
-  const sendAll = (userId: string, payload: PushPayload, createdBefore?: string) =>
-    Promise.all(
-      active(userId)
+  /** A user is reachable through a browser device or the phone channel (ntfy, PM-901). */
+  const reachable = (userId: string) => active(userId).length > 0 || !!opts.phone?.active(userId);
+  const sendAll = (userId: string, payload: PushPayload, phone: PhoneMessage, createdBefore?: string) =>
+    Promise.all([
+      ...active(userId)
         .filter((d) => !createdBefore || d.created_at <= createdBefore)
         .map((d) => send(d, payload)),
-    );
+      opts.phone?.deliver(userId, phone),
+    ]);
 
   async function recipients(item: InboxItem) {
     const config = await opts.config(item.projectKey);
@@ -174,14 +179,22 @@ export function createWebPushService(opts: WebPushOptions) {
       });
       const latest = items.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       if (latest)
-        await sendAll(userId, {
-          v: 1,
-          kind: 'digest',
-          title: hu.webPush.digest.title.replace('{n}', String(items.length)),
-          body: hu.webPush.digest.body,
-          tag: 'digest',
-          url: `/p/${encodeURIComponent(latest.projectKey)}/inbox`,
-        });
+        await sendAll(
+          userId,
+          {
+            v: 1,
+            kind: 'digest',
+            title: hu.webPush.digest.title.replace('{n}', String(items.length)),
+            body: hu.webPush.digest.body,
+            tag: 'digest',
+            url: `/p/${encodeURIComponent(latest.projectKey)}/inbox`,
+          },
+          {
+            ...hu.webPush.ntfy.digest,
+            title: hu.webPush.ntfy.digest.title.replace('{n}', String(items.length)),
+            urgent: false,
+          },
+        );
     }
     for (const [id, time] of testTimes) if (now().getTime() - time >= 5000) testTimes.delete(id);
   }
@@ -271,7 +284,7 @@ export function createWebPushService(opts: WebPushOptions) {
     async onItem(item: InboxItem) {
       if (!key || item.state !== 'open' || !pushCategoryOf(item)) return;
       for (const user of await recipients(item)) {
-        if (!active(user.id).length) continue;
+        if (!reachable(user.id)) continue;
         const time = now();
         const category = pushCategoryOf(item)!;
         const settings = repo.settings(user.id);
@@ -312,6 +325,7 @@ export function createWebPushService(opts: WebPushOptions) {
             itemId: item.id,
             projectKey: item.projectKey,
           },
+          { ...hu.webPush.ntfy.item, urgent: true },
           item.createdAt,
         );
       }
@@ -326,7 +340,7 @@ export function createWebPushService(opts: WebPushOptions) {
       request: { requestId: string; projectKey: string; title: string },
     ): Promise<void> {
       const user = opts.repos.users.get(host.userId);
-      if (!key || !user || !active(user.id).length) return;
+      if (!key || !user || !reachable(user.id)) return;
       const settings = repo.settings(user.id);
       if (!settings.categories.host_request || opts.presence.isViewing(user.email)) return;
       if (quietWindowAt(settings.quietHours, now()).quiet) return;
@@ -338,14 +352,18 @@ export function createWebPushService(opts: WebPushOptions) {
           break;
         }
       }
-      await sendAll(user.id, {
-        v: 1,
-        kind: 'item',
-        title: hu.webPush.title.host_request,
-        body: request.title,
-        tag: `host-request-${request.requestId}`,
-        url: home ? `/p/${encodeURIComponent(home)}/settings/owners` : '/',
-      });
+      await sendAll(
+        user.id,
+        {
+          v: 1,
+          kind: 'item',
+          title: hu.webPush.title.host_request,
+          body: request.title,
+          tag: `host-request-${request.requestId}`,
+          url: home ? `/p/${encodeURIComponent(home)}/settings/owners` : '/',
+        },
+        { ...hu.webPush.ntfy.item, urgent: true },
+      );
     },
     sweep(): Promise<void> {
       return (sweeping ??= sweepRound().finally(() => {

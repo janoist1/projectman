@@ -59,6 +59,7 @@ const SERVER_SRC = 'apps/server/src/';
 const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
   { id: 'exec', layer: 'infra', target: 'exec', pass: 'none', sealed: true },
   { id: 'services/web-push', layer: 'service', target: 'services/web-push', pass: 'none', sealed: true },
+  { id: 'services/ntfy', layer: 'service', target: 'services/ntfy', pass: 'none', sealed: true },
   {
     id: 'services/super-operator',
     layer: 'service',

@@ -90,7 +90,7 @@ describe('seniorWaitAnswerOf (PM-1150)', () => {
   };
   const answered = (optionId: string) => ({
     ...asked,
-    resolution: { optionId, by: 'owner', at: '2026-10-18T11:00:00.000Z' },
+    resolution: { optionId, by: 'owner', at: '2026-10-18T11:00:00.000Z', note: null },
   });
 
   it('reads the owners’ choice from the resolution of the item', () => {
@@ -103,12 +103,18 @@ describe('seniorWaitAnswerOf (PM-1150)', () => {
   });
 
   it('knows no answer for an open item, a closing rule or another item', () => {
-    expect(seniorWaitAnswerOf({ ...asked, resolution: undefined })).toBeNull();
+    expect(seniorWaitAnswerOf({ ...asked, resolution: null })).toBeNull();
     expect(
       seniorWaitAnswerOf({
         ...asked,
-        resolution: { rule: 'senior_wait_ended', by: 'system', at: '2026-10-18T11:00:00.000Z' },
-      } as never),
+        resolution: {
+          optionId: 'ended',
+          rule: 'senior_wait_ended',
+          by: 'system',
+          at: '2026-10-18T11:00:00.000Z',
+          note: null,
+        },
+      }),
     ).toBeNull();
     expect(seniorWaitAnswerOf({ ...answered('any_developer'), payload: {} })).toBeNull();
   });

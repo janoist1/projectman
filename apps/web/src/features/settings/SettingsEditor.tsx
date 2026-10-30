@@ -7,6 +7,7 @@ import {
   ProjectManagerLifecycleAction,
   projectManagerLifecycleOf,
   taskCreateAccessOf,
+  DEFAULT_OWNER_DECISION_TOPICS,
 } from '@projectman/shared';
 import type { ProjectConfig, PatchConfigRequest, Pipeline } from '@projectman/shared';
 import { usePatchConfig } from '../../api/queries';
@@ -147,6 +148,10 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     ...(prioritySettersChanged ? { prioritySetters } : {}),
     ...(complexityChanged ? { complexitySetters: [...complexitySetters] } : {}),
     ...(contactsChanged ? { contacts } : {}),
+    ...(JSON.stringify(draft.team.ownerDecisionTopics ?? DEFAULT_OWNER_DECISION_TOPICS) !==
+    JSON.stringify(saved.team.ownerDecisionTopics ?? DEFAULT_OWNER_DECISION_TOPICS)
+      ? { ownerDecisionTopics: draft.team.ownerDecisionTopics ?? [...DEFAULT_OWNER_DECISION_TOPICS] }
+      : {}),
     ...(viewerRecipients ? { viewerRecipients } : {}),
     ...(assigneeFit ? { assigneeFit } : {}),
     ...(repoMerge.length ? { repoMerge } : {}),
@@ -210,7 +215,7 @@ export function useInstantLimits(config: ProjectConfig) {
     setWaitingPast(null);
   }, [view, waitingPast]);
 
-  const commit = (update: (draft: ProjectConfig) => void) => {
+  const commit = (update: (draft: ProjectConfig) => void): Promise<boolean> => {
     const base = optimisticRef.current ?? latest.current?.config ?? config;
     const next = structuredClone(base);
     update(next);
@@ -220,6 +225,7 @@ export function useInstantLimits(config: ProjectConfig) {
     setError(null);
     if (inflight.current === 0) burstStart.current = latest.current?.version ?? null;
     inflight.current += 1;
+    let succeeded = false;
     queue.current = queue.current.then(async () => {
       try {
         if (failed.current || !latest.current) return;
@@ -227,6 +233,7 @@ export function useInstantLimits(config: ProjectConfig) {
           limitsBody(next, latest.current.config, latest.current.version),
         );
         latest.current = result;
+        succeeded = true;
         toast.show(t('settings.edit.saved'));
       } catch (caught) {
         failed.current = true;
@@ -237,7 +244,10 @@ export function useInstantLimits(config: ProjectConfig) {
         const atField =
           isApiError(caught) &&
           (caught.details as { issues?: IssueRef[] } | undefined)?.issues?.some(
-            (issue) => issue.code === 'merger_unresolved' || issue.code.startsWith('mover_'),
+            (issue) =>
+              issue.code === 'merger_unresolved' ||
+              issue.code.startsWith('mover_') ||
+              /^(team\.)?ownerDecisionTopics/.test(issue.path),
           );
         if (!atField) toast.show(conflict ? t('settings.limits.conflict') : errorMessage(caught), 'error');
         if (conflict) await reload?.();
@@ -253,6 +263,7 @@ export function useInstantLimits(config: ProjectConfig) {
         }
       }
     });
+    return queue.current.then(() => succeeded);
   };
   // A saved change moves the version on: the open editor's save would be a conflict, and the duty
   // matrix would be rebuilt without its draft.

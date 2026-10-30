@@ -54,6 +54,7 @@ export const CODEX_TIMING: SessionTiming = {
   /** A busy machine swallows Enter (PM-571): press it on every check within the submit timeout. */
   maxEnterRetries: 4,
   submitTimeoutMs: 8_000,
+  lateSubmitMs: 120_000,
   /** The first prompt waits for the MCP servers and the session to start. */
   argumentSubmitTimeoutMs: 60_000,
   /** Readiness comes from the screen: look often. */

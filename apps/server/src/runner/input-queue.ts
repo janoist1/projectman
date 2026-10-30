@@ -9,8 +9,14 @@ import { ENTER_KEY, messageKeystrokes } from './typing';
  * is idle and settled; then it is typed (typing.ts) and Enter is pressed. Until the CLI
  * reports the prompt (UserPromptSubmit) nothing else is typed: Enter is pressed again if the
  * session stays idle (an autocomplete may have eaten it), and after a timeout the queue moves
- * on anyway. A caller of `enqueueSubmitted` hears whether the CLI took the message: after the
- * timeout it is told it did not (PM-571), and must not count the message as delivered.
+ * on anyway. A caller of `enqueueSubmitted` hears whether the CLI took the message (PM-571). After the
+ * timeout the CLI either showed it was working (a turn hook, or no longer idle): it queued the text or took
+ * it mid-turn, so the message counts as taken, unconfirmed (PM-1205). Or it stayed silent and idle: the
+ * caller keeps waiting for `lateSubmitMs` more and is told the message was not taken only after that.
+ *
+ * A message may carry a `deliveryId` (the hub's key for it): while its text is awaited the same id joins
+ * that wait, and once taken it is never typed again, so a retried call (a lost reply, a hub restart)
+ * cannot type the text twice. A message that was not taken may be typed again.
  *
  * The queue is an Effect program (`makeInputQueue`) that lives as long as its `Scope`; every
  * timer is a fiber in that scope, so closing it is the whole cleanup. `InputQueue` is the plain
@@ -22,7 +28,7 @@ export interface InputQueueHost {
   readonly sessionId: string;
   readonly timing: Pick<
     SessionTiming,
-    'stepDelayMs' | 'enterDelayMs' | 'enterRetryMs' | 'maxEnterRetries' | 'submitTimeoutMs'
+    'stepDelayMs' | 'enterDelayMs' | 'enterRetryMs' | 'maxEnterRetries' | 'submitTimeoutMs' | 'lateSubmitMs'
   >;
   readonly logger: FastifyBaseLogger;
   /** The CLI is ready for input and idle. */
@@ -85,10 +91,14 @@ export interface InputQueueEffects {
   /** A synchronous snapshot. */
   readonly state: () => InputQueueState;
   readonly enqueue: (text: string) => Effect.Effect<void, SessionGoneError>;
-  readonly enqueueSubmitted: (text: string) => Effect.Effect<void, NotSubmittedError | SessionGoneError>;
+  readonly enqueueSubmitted: (
+    text: string,
+    deliveryId?: string,
+  ) => Effect.Effect<void, NotSubmittedError | SessionGoneError>;
   readonly pump: Effect.Effect<void>;
   readonly schedule: (delayMs: number) => Effect.Effect<void>;
   readonly submitted: Effect.Effect<void>;
+  readonly noteTurnActivity: Effect.Effect<void>;
   readonly awaitCommandLinePrompt: (timeoutMs: number) => Effect.Effect<void>;
   readonly hold: Effect.Effect<void>;
   readonly unhold: (first?: string) => Effect.Effect<void>;
@@ -97,13 +107,23 @@ export interface InputQueueEffects {
 type Outcome = Deferred.Deferred<void, NotSubmittedError | SessionGoneError>;
 
 const HELD_WARN_MS = 10 * 60_000;
+/** Delivery ids remembered per process; when full, the oldest settled one is forgotten. */
+const MAX_DELIVERIES = 100;
 
-interface QueuedMessage {
+/** A caller waiting to hear about its message; `deliveryId` is set only for a tracked `enqueueSubmitted`. */
+interface Waiter {
+  readonly outcome: Outcome;
+  readonly deliveryId?: string;
+}
+
+interface QueuedMessage extends Waiter {
   readonly text: string;
   /** The message counts as done once typed (`enqueue`), or only once the CLI took it (`enqueueSubmitted`). */
   readonly untilSubmitted: boolean;
-  readonly outcome: Outcome;
 }
+
+/** `pending`: queued, typed or awaited; `taken`: the CLI took it (confirmed or not); `not_taken`: it may be typed again. */
+type DeliveryState = 'pending' | 'taken' | 'not_taken';
 
 interface AwaitedSubmit {
   readonly at: number;
@@ -112,7 +132,7 @@ interface AwaitedSubmit {
   readonly command: boolean;
   readonly timeoutMs: number;
   /** Settles the caller of `enqueueSubmitted`: done when the CLI took the prompt, failed when it did not. */
-  readonly settle?: Outcome;
+  readonly settle?: Waiter;
 }
 
 /** Lives as long as its Scope; closing the Scope is the process exit. */
@@ -134,8 +154,38 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
       closed: false,
       /** Nothing new is typed while held (a pause, PM-218); what is being typed is finished. */
       held: false,
+      /** The CLI's main agent ran a turn hook since the last message started to be typed (PM-1205). */
+      turnActivity: false,
     };
+    /** Callers whose typed message was not reported in time while the CLI sat silent and idle: still awaited. */
+    const late: Waiter[] = [];
+    const deliveries = new Map<string, { state: DeliveryState; readonly outcome: Outcome }>();
     const gone = (reason: 'not_running' | 'exited') => new SessionGoneError(host.sessionId, reason);
+
+    const remember = (deliveryId: string, outcome: Outcome) => {
+      deliveries.delete(deliveryId);
+      if (deliveries.size >= MAX_DELIVERIES) {
+        for (const [id, known] of deliveries) {
+          if (known.state === 'pending') continue;
+          deliveries.delete(id);
+          break;
+        }
+      }
+      deliveries.set(deliveryId, { state: 'pending', outcome });
+    };
+    const record = (waiter: Waiter, state: DeliveryState) => {
+      const known = waiter.deliveryId ? deliveries.get(waiter.deliveryId) : undefined;
+      if (known?.outcome === waiter.outcome) known.state = state;
+    };
+    /** The CLI took the message (or it needs no more waiting for). */
+    const taken = (waiter: Waiter) => {
+      record(waiter, 'taken');
+      Deferred.doneUnsafe(waiter.outcome, Effect.void);
+    };
+    const notTaken = (waiter: Waiter, error: NotSubmittedError | SessionGoneError) => {
+      record(waiter, 'not_taken');
+      Deferred.doneUnsafe(waiter.outcome, Effect.fail(error));
+    };
 
     // Registered last, so it runs first on close: the state is closed before the fibers stop.
     yield* Effect.addFinalizer(() =>
@@ -143,10 +193,9 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
         s.closed = true;
         const pending = s.awaiting;
         s.awaiting = null;
-        const unsettled = [s.current?.outcome, pending?.settle, ...queue.splice(0).map((m) => m.outcome)];
+        const unsettled = [s.current, pending?.settle, ...late.splice(0), ...queue.splice(0)];
         s.current = null;
-        for (const outcome of unsettled)
-          if (outcome) Deferred.doneUnsafe(outcome, Effect.fail(gone('exited')));
+        for (const waiter of unsettled) if (waiter) notTaken(waiter, gone('exited'));
       }),
     );
 
@@ -159,6 +208,7 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
       if (wait === null) return;
       if (wait > 0) return yield* schedule(wait);
       s.typing = true;
+      s.turnActivity = false;
       yield* Effect.forkIn(type(queue.shift()!), scope, { startImmediately: true });
     });
 
@@ -170,6 +220,35 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
         yield* FiberHandle.run(pumpTimer, Effect.andThen(Effect.sleep(delayMs), pump));
       });
 
+    /**
+     * The CLI sat silent and idle past the submit timeout: the caller keeps waiting, for a submission or a turn
+     * hook, until `lateSubmitMs` passed. Does not count as pending input (a pause or stop is not held back).
+     */
+    const awaitLate = (waiter: Waiter): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        late.push(waiter);
+        yield* Effect.forkIn(
+          Effect.andThen(
+            Effect.sleep(timing.lateSubmitMs),
+            Effect.sync(() => {
+              const at = late.indexOf(waiter);
+              if (at < 0 || s.closed) return;
+              late.splice(at, 1);
+              host.logger.warn(
+                {
+                  sessionId: host.sessionId,
+                  lateMs: timing.lateSubmitMs,
+                  ...(waiter.deliveryId ? { deliveryId: waiter.deliveryId } : {}),
+                },
+                'typed message was not taken by the CLI',
+              );
+              notTaken(waiter, new NotSubmittedError(host.sessionId));
+            }),
+          ),
+          scope,
+        );
+      });
+
     /** The CLI did not report the prompt yet: press Enter again, or stop waiting for it. */
     const watchSubmit = (pending: AwaitedSubmit): Effect.Effect<void> =>
       Effect.gen(function* () {
@@ -178,6 +257,13 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
           if (s.awaiting !== pending || s.closed) return;
           const waitMs = (yield* Clock.currentTimeMillis) - pending.at;
           if (waitMs >= pending.timeoutMs) {
+            const waiter = pending.settle;
+            // The CLI was busy (a turn hook came, or it left idle): it queued the text or took it mid-turn.
+            const outcome = waiter
+              ? s.turnActivity || !host.isIdle()
+                ? 'taken_unconfirmed'
+                : 'waiting_late'
+              : null;
             host.logger.warn(
               {
                 ...host.describeStall?.(),
@@ -186,11 +272,16 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
                 waitMs,
                 command: pending.command,
                 idle: host.isIdle(),
+                ...(waiter?.deliveryId ? { deliveryId: waiter.deliveryId } : {}),
+                ...(outcome ? { outcome } : {}),
               },
               'typed message was not reported as submitted',
             );
             s.awaiting = null;
-            if (pending.settle) yield* Deferred.fail(pending.settle, new NotSubmittedError(host.sessionId));
+            if (waiter) {
+              if (outcome === 'taken_unconfirmed') taken(waiter);
+              else yield* awaitLate(waiter);
+            }
             yield* pump;
             host.onChange?.();
             return;
@@ -202,7 +293,7 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
         }
       });
 
-    const awaitSubmit = (command: boolean, timeoutMs: number, settle?: Outcome): Effect.Effect<void> =>
+    const awaitSubmit = (command: boolean, timeoutMs: number, settle?: Waiter): Effect.Effect<void> =>
       Effect.gen(function* () {
         const pending: AwaitedSubmit = {
           at: yield* Clock.currentTimeMillis,
@@ -221,7 +312,7 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
         const steps = messageKeystrokes(message.text);
         if (steps.length === 0) {
           s.current = null;
-          return yield* Deferred.succeed(message.outcome, undefined);
+          return taken(message);
         }
         for (const step of steps) {
           if (s.closed) return;
@@ -236,14 +327,17 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
         s.current = null;
         if (message.untilSubmitted && !command) {
           // Settled by `submitted` (taken), the give-up (not taken) or the close (the process is gone).
-          yield* awaitSubmit(false, timing.submitTimeoutMs, message.outcome);
+          yield* awaitSubmit(false, timing.submitTimeoutMs, message);
         } else {
           yield* awaitSubmit(command, timing.submitTimeoutMs);
-          yield* Deferred.succeed(message.outcome, undefined);
+          taken(message);
         }
       }).pipe(
         // A failing `host.write` is a defect: the caller hears the original error.
-        Effect.catchDefect((defect) => Deferred.die(message.outcome, defect)),
+        Effect.catchDefect((defect) => {
+          record(message, 'not_taken');
+          return Deferred.die(message.outcome, defect);
+        }),
         Effect.ensuring(
           Effect.sync(() => {
             // `current` stays: a close interrupts this fiber first, and the close finalizer fails it.
@@ -256,11 +350,20 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
     const add = (
       text: string,
       untilSubmitted: boolean,
+      deliveryId?: string,
     ): Effect.Effect<void, NotSubmittedError | SessionGoneError> =>
       Effect.gen(function* () {
         if (s.closed) return yield* Effect.fail(gone('not_running'));
+        const known = deliveryId ? deliveries.get(deliveryId) : undefined;
+        if (known?.state === 'taken') {
+          host.logger.info({ sessionId: host.sessionId, deliveryId }, 'repeated delivery skipped');
+          return;
+        }
+        // The same message is already on its way: this call waits for that one instead of typing it again.
+        if (known?.state === 'pending') return yield* Deferred.await(known.outcome);
         const outcome = yield* Deferred.make<void, NotSubmittedError | SessionGoneError>();
-        queue.push({ text, untilSubmitted, outcome });
+        if (deliveryId) remember(deliveryId, outcome);
+        queue.push({ text, untilSubmitted, outcome, ...(deliveryId ? { deliveryId } : {}) });
         yield* pump;
         return yield* Deferred.await(outcome);
       });
@@ -273,14 +376,20 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
         closed: s.closed,
       }),
       enqueue: (text) => add(text, false) as Effect.Effect<void, SessionGoneError>,
-      enqueueSubmitted: (text) => add(text, true),
+      enqueueSubmitted: (text, deliveryId) => add(text, true, deliveryId),
       pump,
       schedule,
       submitted: Effect.gen(function* () {
         const pending = s.awaiting;
         s.awaiting = null;
         yield* FiberHandle.clear(submitWatch);
-        if (pending?.settle) yield* Deferred.succeed(pending.settle, undefined);
+        if (pending?.settle) taken(pending.settle);
+        // A busy CLI submits the text it queued in order: whatever it takes next settles the late ones too.
+        for (const waiter of late.splice(0)) taken(waiter);
+      }),
+      noteTurnActivity: Effect.sync(() => {
+        s.turnActivity = true;
+        for (const waiter of late.splice(0)) taken(waiter);
       }),
       awaitCommandLinePrompt: (timeoutMs) => awaitSubmit(true, timeoutMs),
       hold: Effect.gen(function* () {
@@ -367,10 +476,19 @@ export class InputQueue {
   /**
    * Queues a message like `enqueue`, but resolves only once the CLI took it (UserPromptSubmit); a
    * slash command reports none, so it resolves once typed. Rejects with `NotSubmittedError` when the
-   * CLI did not take the typed message in time (PM-571): it did not reach the agent.
+   * CLI did not take the typed message in time (PM-571): it did not reach the agent. With a `deliveryId`,
+   * a repeated call joins the message still awaited, or resolves at once when it was taken (PM-1205).
    */
-  enqueueSubmitted(text: string): Promise<void> {
-    return runPromise(this.core.enqueueSubmitted(text));
+  enqueueSubmitted(text: string, deliveryId?: string): Promise<void> {
+    return runPromise(this.core.enqueueSubmitted(text, deliveryId));
+  }
+
+  /**
+   * The CLI's main agent ran a turn (a tool, a permission request, a stop): a typed message it did not
+   * report is then taken unconfirmed, and one still awaited late is taken at once.
+   */
+  noteTurnActivity(): void {
+    runSync(this.core.noteTurnActivity);
   }
 
   /** Types the next message if the session can take it now. */

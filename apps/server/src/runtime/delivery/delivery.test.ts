@@ -49,7 +49,7 @@ function setup() {
   const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() };
   const waiting = new Map<string, TeamMessage>();
   const control = { typeInto: 'fail' as 'fail' | 'ok' | 'hang' };
-  const typeInto = vi.fn(async (_session: Session, _text: string) => {
+  const typeInto = vi.fn(async (_session: Session, _text: string, _options?: { deliveryId?: string }) => {
     if (control.typeInto === 'hang') return new Promise<boolean>(() => {});
     if (control.typeInto === 'fail') throw new Error('not taken');
     return true;
@@ -226,6 +226,39 @@ describe('message delivery under the TestClock', () => {
           expect.objectContaining({ err: expect.any(Error) }),
           'team message batch delivery failed',
         );
+      }),
+    );
+  });
+
+  it('gives a retried typing the same delivery id, and another set of messages another one (PM-1205)', async () => {
+    const { deps, typeInto, add } = setup();
+    add('m1');
+    const deliveryIds = () => typeInto.mock.calls.map((call) => call[2]?.deliveryId);
+    await run(deps, (delivery) =>
+      Effect.gen(function* () {
+        yield* delivery.deliverWaiting(session);
+        yield* settled;
+        yield* advance(10_000);
+        const [first, retry] = deliveryIds();
+        expect(first).toMatch(/^dlv_[0-9a-f]{32}$/);
+        expect(retry).toBe(first);
+
+        add('m2');
+        yield* advance(30_000);
+        const latest = deliveryIds().at(-1);
+        expect(latest).toMatch(/^dlv_[0-9a-f]{32}$/);
+        expect(latest).not.toBe(first);
+      }),
+    );
+  });
+
+  it('gives a notice without stored messages no delivery id', async () => {
+    const { deps, typeInto, control } = setup();
+    control.typeInto = 'ok';
+    await run(deps, (delivery) =>
+      Effect.gen(function* () {
+        yield* delivery.notice(session, 'qa', 'FYI', null);
+        expect(typeInto.mock.calls[0]![2]).toBeUndefined();
       }),
     );
   });

@@ -15,6 +15,41 @@ const creation: TimelineEvent = {
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
+it.each([
+  ['question_asked', {}, 'timeline.events.question_asked_topic'],
+  ['question_asked', { unscreened: { reason: 'Again' } }, 'timeline.events.question_asked_unscreened_topic'],
+  ['question_screened', { outcome: 'decision' }, 'timeline.events.question_screened_decision_topic'],
+  ['question_screened', { outcome: 'todo' }, 'timeline.events.question_screened_todo_topic'],
+  [
+    'question_screened',
+    { outcome: 'todo', feedbackId: 'f1' },
+    'timeline.events.question_screened_todo_recorded_topic',
+  ],
+] as const)('names an owner topic for %s %j', (type, extra, key) => {
+  const event = {
+    ...creation,
+    type,
+    data: { ...extra, ownerTopic: 'cost', question: 'Proceed?', note: 'Budget' },
+  };
+  expect(describeEvent(event, context).text).toBe(
+    t(key, {
+      topic: t('ownerTopics.builtIn.cost.label'),
+      question: 'Proceed?',
+      reason: 'Again',
+      note: 'Budget',
+    }),
+  );
+});
+
+it('keeps legacy screened decisions unchanged', () => {
+  expect(
+    describeEvent(
+      { ...creation, type: 'question_screened', data: { outcome: 'decision', note: 'Legacy' } },
+      context,
+    ).text,
+  ).toBe(t('timeline.events.question_screened_decision', { note: 'Legacy' }));
+});
+
 it('renders a PM loop assessment without exposing its private note', () => {
   const event: TimelineEvent = {
     ...creation,

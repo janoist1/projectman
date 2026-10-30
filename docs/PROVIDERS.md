@@ -503,6 +503,11 @@ session then exited at start with "agent CLI exited before it was ready", becaus
 required server that fails to start ends the CLI. Do not set `required` again unless the
 cause of the team MCP start failure is fixed and proven with a real `codex` run.
 
+A CLI that fails before it is ready (PM-1207) says why on its screen only. When such a session exits
+with a failure, the runner keeps the last lines of the screen, with credentials hidden
+(`runner/exit-output.ts`), in the engine log (`output`) and in the failed session's activity,
+so the member and the project manager see the reason.
+
 The bypass flag lets our own hooks run without the one-time review in `/hooks`; it also runs
 any other enabled hooks it loads. Therefore the start refuses (PM-1169) when the user's Codex
 config sets `hooks` or `project_root_markers`, when a `hooks.json` exists (user or `/etc/codex`), or

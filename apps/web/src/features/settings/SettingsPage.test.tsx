@@ -165,6 +165,7 @@ describe('settings section editors', () => {
       const project = mockProject();
       project.backend.config.team.contacts = ['fe-1'];
       project.render(<SettingsTestRoutes initialSection="team" />, '/', {
+        isOwner: false,
         can: { createTasks: false, manageTeam: false, workInSessions: false },
       });
       const section = await teamSection();

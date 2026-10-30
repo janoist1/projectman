@@ -34,7 +34,8 @@
  *   inserts a newline, Enter (CR) submits, Ctrl+C clears the input / interrupts / exits
  *   (twice), Ctrl+D on an empty prompt exits, Esc interrupts a running turn (writes
  *   "[Request interrupted by user]" and sends no Stop hook, like Claude Code).
- * - A submitted prompt: UserPromptSubmit hook (a "block" decision drops it), user entry, then
+ * - A submitted prompt: UserPromptSubmit hook (a "block" decision drops it; it runs
+ *   FAKE_CLAUDE_SUBMIT_HOOK_DELAY_MS after the Enter, default 0, like a CLI that reports late), user entry, then
  *   after FAKE_CLAUDE_WORK_DELAY_MS (default 50; 800 if the prompt contains "SLOW"):
  *   - "LONGTOOL" test gates: FAKE_CLAUDE_WORK_RELEASE_FILE holds the turn before the tool;
  *     FAKE_CLAUDE_TOOL_RELEASE_FILE holds the running tool. Each prints a readiness marker
@@ -825,6 +826,9 @@ async function interactive() {
   async function runTurn(text) {
     turn += 1;
     const myTurn = turn;
+    // A CLI that takes the Enter but reports the prompt late (PM-1205).
+    const submitHookDelay = Number(process.env.FAKE_CLAUDE_SUBMIT_HOOK_DELAY_MS ?? 0);
+    if (submitHookDelay > 0) await sleep(submitHookDelay);
     const outputs = await runHooks('UserPromptSubmit', { prompt: text });
     if (outputs.some((o) => o.decision === 'block')) {
       line('Prompt blocked by hook');

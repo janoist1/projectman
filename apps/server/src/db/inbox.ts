@@ -122,6 +122,13 @@ export function createInboxRepository(db: Db) {
     screenedQuestionsSince: db.prepare(
       `SELECT COUNT(*) AS n FROM inbox_items WHERE ${SCREENED_QUESTION} AND created_at >= ?`,
     ),
+    questionsSince: db.prepare(
+      `SELECT * FROM inbox_items WHERE project_key = ? AND kind = 'question'
+         AND COALESCE(json_extract(payload, '$.screening.at'), created_at) >= ?
+         AND NOT EXISTS (SELECT 1 FROM question_group_items g
+           WHERE g.item_id = inbox_items.id AND g.primary_item_id <> inbox_items.id)
+       ORDER BY seq`,
+    ),
     groupRows: db.prepare(
       `SELECT i.item_id, g.* FROM question_group_items i JOIN question_groups g
          ON g.primary_item_id = i.primary_item_id WHERE i.item_id IN (SELECT value FROM json_each(?))`,
@@ -214,6 +221,13 @@ export function createInboxRepository(db: Db) {
         items: (statements.screenedQuestions.all(projectKey, limit) as InboxRow[]).map(toItem),
         today: (statements.screenedQuestionsSince.get(projectKey, since) as { n: number }).n,
       };
+    },
+    /**
+     * The project's questions screened (else asked) at or after `since`, oldest first, not counting a question
+     * combined into another: what the weekly owner question measure counts (PM-1192).
+     */
+    questionsSince(projectKey: string, since: string): InboxItem[] {
+      return (statements.questionsSince.all(projectKey, since) as InboxRow[]).map(toItem);
     },
     createGroup(input: {
       primaryItemId: string;

@@ -69,7 +69,11 @@ export interface WorkspaceDependencyInstallerOptions {
   heavyLockDir: string;
   worktreesRoot: string;
   denyRead: string[];
-  setupOf(project: string, repo: string): { kind: 'npm_ci'; timeoutMs: number } | null;
+  /**
+   * `implicit` (PM-1203): the engine's default, not an operator's setting. It installs member clones only
+   * where there is a lockfile and a sandbox, and never touches the engine's own checkout.
+   */
+  setupOf(project: string, repo: string): { kind: 'npm_ci'; timeoutMs: number; implicit?: boolean } | null;
   /** The engine's own binding of a repository (`repos[].path`); null: not bound here. */
   repoPathOf(project: string, repo: string): string | null;
   logger: FastifyBaseLogger;
@@ -77,6 +81,18 @@ export interface WorkspaceDependencyInstallerOptions {
   execute?: typeof runSandboxed;
   /** Temporary roots, injectable for tests just like the full-test executor's. */
   tmpDir?: string;
+}
+
+/** Nothing was installed; says whether the clone is left without usable dependencies (PM-1203). */
+async function skipped(
+  reason: 'not_configured' | 'unavailable',
+  repoPath: string,
+): Promise<Extract<WorkspaceDependenciesResult, { status: 'skipped' }>> {
+  const state = await dependencyState(repoPath).catch(() => null);
+  // Without a root lockfile there is nothing to install, so nothing to report either.
+  if (!state || state.lockTime === null) return { status: 'skipped', reason };
+  if (state.installedAt === null) return { status: 'skipped', reason, dependencies: 'missing' };
+  return state.fresh ? { status: 'skipped', reason } : { status: 'skipped', reason, dependencies: 'stale' };
 }
 
 /** Engine-owned preparation: a caller's wait ending never cancels the installation. */
@@ -415,7 +431,8 @@ export function createWorkspaceDependencyInstaller(
   async function refreshCheckout(request: Omit<WorkspaceDependencyRequest, 'member'>) {
     const setup = options.setupOf(request.project, request.repo);
     const bound = options.repoPathOf(request.project, request.repo);
-    if (!setup || !bound || closed) return;
+    // The checkout may be a person's own working directory: only an explicit setting touches it.
+    if (!setup || setup.implicit || !bound || closed) return;
     const [boundReal, checkoutReal] = await Promise.all([realpath(bound), realpath(request.repoPath)]);
     // Only the engine's own checkout of the bound repository; any other worktree is left alone.
     if (boundReal !== checkoutReal || (await dependencyState(checkoutReal)).fresh) return;
@@ -448,7 +465,10 @@ export function createWorkspaceDependencyInstaller(
     },
     async prepare(request, { waitMs }) {
       const setup = options.setupOf(request.project, request.repo);
-      if (!setup) return { status: 'skipped', reason: 'not_configured' };
+      if (!setup) return skipped('not_configured', request.repoPath);
+      // Nothing to install without a lockfile; the default setting stays out of such a repository.
+      if (setup.implicit && (await dependencyState(request.repoPath).catch(() => null))?.lockTime == null)
+        return skipped('not_configured', request.repoPath);
       if (closed) throw new WorkspaceDependencyError('aborted', null);
       let preparation = running.get(request.repoPath);
       if (!preparation) {
@@ -476,6 +496,15 @@ export function createWorkspaceDependencyInstaller(
             );
           }),
         ]);
+      } catch (err) {
+        // The default installation never blocks a start where no sandbox exists; an explicit one does.
+        if (
+          setup.implicit &&
+          err instanceof WorkspaceDependencyError &&
+          err.details.reason === 'sandbox_unavailable'
+        )
+          return skipped('unavailable', request.repoPath);
+        throw err;
       } finally {
         clearTimeout(timer);
       }

@@ -17,6 +17,7 @@ export const queryKeys = {
   checklist: (key: string) => ['project', key, 'checklist'] as const,
   serverVersion: ['server-version'] as const,
   operatorKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
+  ownerQuestions: (key: string) => ['project', key, 'owner-questions'] as const,
   /** The corner member's queue (PM-894, PM-1042); the shorter key is every member and `closedSince` of it. */
   operatorQueueAll: (key: string) => ['project', key, 'operator-queue'] as const,
   operatorQueue: (key: string, handle: string, closedSince: string) =>

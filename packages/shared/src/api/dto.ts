@@ -799,23 +799,6 @@ export function operatorKnowledgeApprovalOf(
   return parsed.success ? parsed.data : null;
 }
 
-/** An agreement of this request must be decided before its suggested operations can run. */
-export function hasPendingOperatorAgreement(
-  items: readonly InboxItem[],
-  projectKey: string,
-  requestId: string,
-): boolean {
-  return items.some((item) => {
-    const proposal = operatorKnowledgeApprovalOf(item);
-    return (
-      item.projectKey === projectKey &&
-      item.state === 'open' &&
-      proposal?.requestId === requestId &&
-      proposal.change.kind === 'agreement_replace'
-    );
-  });
-}
-
 export function operatorKnowledgeContinuationMessageId(proposalId: string): string {
   return `msg_${proposalId}`;
 }
@@ -869,7 +852,7 @@ const OPERATOR_CRITICAL_OPS = ['session_stop', 'message_send'] as const;
 export function operatorCriticalOp(op: OperatorOperation['op']): boolean {
   return OPERATOR_CRITICAL_OPS.some((critical) => critical === op);
 }
-export const OperatorConsequence = z.enum([
+const OperatorConsequence = z.enum([
   'network',
   'permission_mode',
   'pipeline',
@@ -889,7 +872,6 @@ export const OperatorConsequence = z.enum([
   'project',
   'other',
 ]);
-export type OperatorConsequence = z.infer<typeof OperatorConsequence>;
 export const OperatorApprovalPayload = z.object({
   requestId: z.string(),
   stepId: z.string(),

@@ -206,14 +206,9 @@ export interface Resolver {
   access: HumanAccess;
 }
 
-/** Who decides an inbox item another module owns (PM-593). Operator approvals are recognized by operatorApprovalOf. */
+/** Who decides an inbox item another module owns (PM-593). */
 type InboxDeciderKey =
-  | 'merge_request'
-  | 'hand_on'
-  | 'email'
-  | 'operator_approval'
-  | 'operator_knowledge'
-  | 'operator_structural_review';
+  'merge_request' | 'hand_on' | 'email' | 'operator_knowledge' | 'operator_structural_review';
 /** Merge, release and hand-on handlers close their item in their transaction; refusals leave it open.
  * The inbox closes operator approvals after their handler returns. */
 export type InboxDecider = (
@@ -1058,11 +1053,9 @@ export class InboxService {
       }
       relayed = !integratorTodo && members.every(isRelayableQuestionItem);
     }
-    const operator = operatorApprovalOf(item);
+    if (operatorApprovalOf(item)) throw conflict('inbox_item_closed', 'Operator approvals have been retired');
     if (operatorKnowledgeApprovalOf(item)?.stale && req.optionId !== 'dismiss')
       throw conflict('operator_knowledge_stale', 'the knowledge proposal is stale; dismiss it');
-    if (operator?.stale && req.optionId !== 'dismiss')
-      throw conflict('operator_approval_stale', 'the proposal is stale; dismiss it');
     if (!item.options.some((o) => o.id === req.optionId)) {
       throw invalid('unknown_option', `unknown option: ${req.optionId}`);
     }
@@ -1123,11 +1116,6 @@ export class InboxService {
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
-    }
-    if (operator) {
-      const decide = this.deciders.get('operator_approval');
-      if (!decide) throw forbidden('operator_never', 'Operator decisions are unavailable');
-      await decide(item, by, req.optionId, note);
     }
     if (structuralReviewOf(item)) {
       const decide = this.deciders.get('operator_structural_review');

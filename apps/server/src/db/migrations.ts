@@ -2690,4 +2690,26 @@ migrations.push({
     CREATE INDEX compute_job_runs_key ON compute_job_runs(project_key, repo, job_id, commit_sha);
     CREATE INDEX compute_job_runs_status ON compute_job_runs(status);`,
 });
+migrations.push({
+  version: 134,
+  name: 'the dead Operator approval path is retired',
+  // PM-1158: nothing creates an Operator approval any more (decision 66), and the code that decided, rechecked and
+  // expired one is gone. What a restart of the old code would have settled is settled here, as a safety net:
+  // the open approvals are cancelled; the steps still waiting on one are stale; an execution that was prepared but
+  // never committed has failed, as `recover` ended it (the step refused, nothing replayed). The tables, the
+  // closed rows and the timeline stay, so the old items and `operator_*` events keep rendering. A step that was
+  // approved is final and is not touched, nor are the knowledge proposals (`$.operatorKnowledge`).
+  sql: `UPDATE operator_steps SET status = 'stale'
+      WHERE status = 'awaiting_approval' AND inbox_item_id IN (
+        SELECT id FROM inbox_items WHERE kind = 'approval' AND json_extract(payload, '$.operator') IS NOT NULL);
+    UPDATE operator_steps SET status = 'refused', config_version = NULL,
+        refusal = json_object('code', 'operator_no_request', 'message', 'execution did not commit and was not replayed')
+      WHERE id IN (SELECT id FROM operator_execution_intents WHERE status = 'prepared');
+    UPDATE operator_execution_intents SET status = 'failed', config_version = NULL,
+        refusal = json_object('code', 'operator_no_request', 'message', 'execution did not commit and was not replayed'),
+        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE status = 'prepared';
+    UPDATE inbox_items SET state = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE kind = 'approval' AND state = 'open' AND json_extract(payload, '$.operator') IS NOT NULL;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -41,18 +41,12 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   without relaxing mode or network. Shared fixed invariants reject a nonhuman Operator approver, an Operator
   merger and boundary authorization in its role. These errors are never tolerated on load or preserved by a
   configuration write. The rules run on the server for remote engines too; no new machine-dependent part.
-- **Approval waiver execution (PM-692).** Only an owner's own login can change the switch through
-  `PUT /api/projects/:key/operator/approval-waiver`, with the current configuration and approved agreement
-  versions. Generic configuration edits and reverts cannot change it. The shared waiver rule consumes
-  `waiverEligible`; `services/coordination` supplies the actual open owner message, answer or approved
-  continuation provenance. Signal rounds never qualify. `core/projects` reauthorizes the full diff through
-  `OperatorConfigAuthorization` inside the same lock as knowledge writes. Before saving it persists
-  `operator_execution_intents` (migration 69), bound to an existing step. Server-generated Step, Request-Id,
-  Agreement-Version and Approval-Mode config trailers identify the commit. Startup reconciles prepared
-  intents against paginated private history, without replaying mutations; the step and waived timeline
-  event finish in one database transaction. The Operator receives a summary of all waived old/new rows
-  from its request's log. Runtime approval paths remain separate. Configuration, knowledge and audit stay
-  on the server; no new engine data or machine-dependent operation is introduced.
+- **Approval waiver switch (PM-692, retired execution PM-1158).** Only an owner's own login can change the switch
+  through `PUT /api/projects/:key/operator/approval-waiver`, with the current configuration and approved agreement
+  versions. Generic configuration edits and reverts cannot change it. Nothing reads the switch any more: the
+  waived execution (`OperatorConfigAuthorization`, the startup reconciliation of `operator_execution_intents`)
+  went with the dead Operator approval path. Removing the switch itself is a visible setting change and a
+  separate card. The old rows (`operator_execution_intents`, steps, timeline events) stay for display.
 - **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
   only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
   priority (people and the connected owner always may; an AI member only when `team.prioritySetters`, PM-1096, covers
@@ -196,22 +190,16 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   channel plus the last 50 requests with their steps, the newest last) to a person's own login (the owners' requests
   to an owner, their own to anyone else; PM-475); no new WebSocket event.
 
-- **Operations and approvals** (PM-464, `services/coordination/actions.ts`). `operate` and `start_task` are Operator-only
-  MCP tools and need an open owner request. Configuration previews reuse the member service's draft mutations;
-  `operatorConfigVerdict` chooses immediate execution, an owner approval item, or refusal. Configuration commits
-  recheck the verdict and the approved change rows under the project's configuration lock. Approval decisions
-  run before inbox closure, require an owner's own login, and are serialized per inbox item. Independent edits
-  preserve proposals; changed rows, ended or restarted sessions, and changed pause identities mark them stale
-  (`operator_approval_stale` 409). Stale items remain open with only `dismiss`. Configuration commits, session
-  ends and pause changes proactively recheck proposals through `BackgroundTasks`, without delaying subsequent
-  event listeners; projects without pending proposals skip this work. Approved/rejected/stale results update the existing step
-  and record a system message without waking the Operator. Configuration history reads `Projectman-Operator`,
-  `Projectman-Request` and `Projectman-Approved-By` trailers, including reverts. Runtime operations reuse session
-  stop and pause/resume; pause freshness is checked inside the existing admission lock.
-  The Operator's Start follows the person's prerequisite override and AI label-setter path, while a fix-limit
-  hold is always refused. When the configured temporary-worker policy permits a hire, Start hires as the system,
-  sponsored by the requesting owner, and names the temporary member in its result and step. Permanent hires
-  remain approval operations.
+- **Operations and approvals (retired, PM-1158).** The `operate` tool is gone (decision 66) and so is the whole
+  Operator approval path that stood behind it: `OperatorActions` and `OperatorApprovals` (`actions.ts`), the
+  `operator_approval` inbox decider, the `operator-approvals` sweep, the three rechecks (`config_changed`,
+  `session_ended`, `pause_changed`) and the startup `recover`. A decision on an old `operator_approval` inbox
+  item answers `inbox_item_closed` 409. Migration 134 cancelled the open ones, marked the steps waiting on one
+  `stale` and failed the `prepared` executions (`operator_no_request`); closed items, steps and `operator_*`
+  timeline events keep rendering (`operatorApprovalOf`, `OperatorApproval.tsx`). Configuration history still
+  reads the `Projectman-Operator`, `Projectman-Request` and `Projectman-Approved-By` trailers of old commits.
+  A knowledge proposal carries no operations (`operations: []`, `changes: []`, `baseConfigVersion: null`);
+  a non-empty `operations` is `invalid_request`.
 
 - **Targeted role configuration (PM-746).** `get_role_configuration` reads one built-in role in the Operator's
   owner general conversation without an open request. It returns the version, stored override (or `null`) and

@@ -50,6 +50,11 @@ export const hu: TemplateLocale = {
     },
     digest: { title: '{n} teendő vár rád', body: 'A csendes órák alatt érkeztek.' },
     test: { title: 'Próbaértesítés', body: 'Ha ezt látod, működik.' },
+    ntfy: {
+      item: { title: 'Rád vár', body: 'Új elem a Rád vár-ban.' },
+      digest: { title: '{n} új elem a Rád vár-ban', body: 'A csendes órák alatt érkeztek.' },
+      test: { title: 'Próbaértesítés', body: 'Ha ezt látod, az ntfy működik.' },
+    },
   },
   structuralReview: {
     details:

@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
-import type { PushDeviceView, PushOverview, PushSettings } from '@projectman/shared';
+import type {
+  NtfyChannelView,
+  NtfyOverview,
+  PushDeviceView,
+  PushOverview,
+  PushSettings,
+} from '@projectman/shared';
 import { api } from '../../api/endpoints';
 import { isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
@@ -75,6 +81,30 @@ export function useTestPushDevice() {
     onError: () => client.invalidateQueries({ queryKey: queryKeys.push }),
   });
 }
+
+/** The person's ntfy phone channel (PM-901). */
+export function useNtfyOverview(enabled = true) {
+  return useQuery({ queryKey: queryKeys.ntfy, queryFn: api.ntfy, staleTime: 30_000, enabled });
+}
+
+/** An ntfy call that answers with the channel (or null once removed): the cached overview takes it over. */
+function useNtfyMutation<Vars>(call: (vars: Vars) => Promise<NtfyChannelView | null>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: call,
+    onSuccess: (channel) =>
+      client.setQueryData<NtfyOverview>(queryKeys.ntfy, (overview) =>
+        overview ? { ...overview, channel } : overview,
+      ),
+    onError: () => client.invalidateQueries({ queryKey: queryKeys.ntfy }),
+  });
+}
+
+export const useSaveNtfy = () =>
+  useNtfyMutation((body: { server: string; enabled: boolean }) => api.saveNtfy(body));
+export const useRenewNtfyTopic = () => useNtfyMutation(() => api.renewNtfyTopic());
+export const useTestNtfy = () => useNtfyMutation(() => api.testNtfy());
+export const useRemoveNtfy = () => useNtfyMutation(() => api.removeNtfy());
 
 export type ThisDeviceState =
   | { kind: 'loading' }

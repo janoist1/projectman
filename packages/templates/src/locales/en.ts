@@ -41,6 +41,11 @@ export const en: TemplateLocale = {
     },
     digest: { title: '{n} items await you', body: 'They arrived during quiet hours.' },
     test: { title: 'Test notification', body: 'If you see this, it works.' },
+    ntfy: {
+      item: { title: 'Waiting for you', body: 'A new item is waiting for you.' },
+      digest: { title: '{n} new items are waiting for you', body: 'They arrived during quiet hours.' },
+      test: { title: 'Test notification', body: 'If you see this, ntfy works.' },
+    },
   },
   structuralReview: {
     details:

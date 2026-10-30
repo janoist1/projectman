@@ -1,10 +1,19 @@
 import {
   DEFAULT_PUSH_SETTINGS,
   PushSettings,
+  SaveNtfyChannelRequest,
   SubscribePushRequest,
   UpdatePushDeviceRequest,
+  ntfyServerOf,
 } from '@projectman/shared';
-import type { ErrorCode, PushDeviceView, PushFailure, PushOverview, PushResult } from '@projectman/shared';
+import type {
+  ErrorCode,
+  NtfyChannelView,
+  PushDeviceView,
+  PushFailure,
+  PushOverview,
+  PushResult,
+} from '@projectman/shared';
 import { mockId, nowIso } from './time';
 
 interface MockResponse {
@@ -20,6 +29,11 @@ const TEST_SPACING_MS = 5000;
 /** What the fake pretends the browser's endpoint hash is; a test replaces `lib/pushBrowser`'s hash with it. */
 export function mockEndpointHash(endpoint: string): string {
   return `hash:${endpoint}`;
+}
+
+/** A made-up secret topic: long and not guessable, like the server's. */
+function mockTopic(): string {
+  return `${mockId('topic')}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 }
 
 function error(status: number, code: ErrorCode, message: string): MockResponse {
@@ -43,6 +57,9 @@ export class MockPush {
   nextResult: { result: PushResult; failure?: PushFailure } = { result: 'ok' };
   /** Every call, in order, as method and path after `/api/me/push`: `GET`, `PATCH /devices/<id>` and so on. */
   readonly calls: string[] = [];
+  /** The person's ntfy channel; null until it is set up. */
+  ntfy: NtfyChannelView | null = null;
+  private ntfyTestedAt = -Infinity;
   private readonly testedAt = new Map<string, number>();
   /** The clock of the test spacing; a test may move it. */
   now: () => number = () => Date.now();
@@ -90,6 +107,7 @@ export class MockPush {
       this.settings = parsed.data;
       return { status: 200, body: this.settings };
     }
+    if (rest === '/ntfy' || rest.startsWith('/ntfy/')) return this.ntfyRoute(method, rest, body);
     if (route === 'POST /devices') return this.subscribe(body);
     if (route === 'POST /unsubscribe') return this.unsubscribe(body);
     if (!id) return undefined;
@@ -107,6 +125,61 @@ export class MockPush {
     }
     if (method === 'POST' && rest === `/devices/${id}/test`) return this.test(device);
     return undefined;
+  }
+
+  /** The ntfy phone channel (PM-901): one per person, a topic made up by the "server", answering like `api/ntfy.ts`. */
+  private ntfyRoute(method: string, rest: string, body: unknown): MockResponse | undefined {
+    const route = `${method} ${rest}`;
+    if (route === 'GET /ntfy')
+      return { status: 200, body: { available: this.available, channel: this.ntfy } };
+    if (!this.available) return error(503, 'ntfy_unavailable', 'ntfy is unavailable');
+    if (route === 'PUT /ntfy') {
+      const parsed = SaveNtfyChannelRequest.safeParse(body ?? {});
+      const server = parsed.success ? ntfyServerOf(parsed.data.server) : null;
+      if (!parsed.success || !server) return error(400, 'ntfy_server_invalid', 'Invalid ntfy server');
+      this.ntfy = this.ntfy
+        ? { ...this.ntfy, server, enabled: parsed.data.enabled }
+        : this.newNtfy(server, parsed.data.enabled);
+      return { status: 200, body: this.ntfy };
+    }
+    if (route === 'DELETE /ntfy') {
+      this.ntfy = null;
+      return { status: 204 };
+    }
+    if (!this.ntfy) return error(409, 'ntfy_not_configured', 'ntfy is not set up');
+    if (route === 'POST /ntfy/topic') {
+      this.ntfy = { ...this.ntfy, topic: mockTopic(), lastSentAt: null, lastResult: null, lastFailure: null };
+      return { status: 200, body: this.ntfy };
+    }
+    if (route === 'POST /ntfy/test') {
+      const time = this.now();
+      if (time - this.ntfyTestedAt < TEST_SPACING_MS)
+        return error(429, 'web_push_test_too_soon', 'Wait before testing again');
+      this.ntfyTestedAt = time;
+      const { result, failure } = this.nextResult;
+      const failed = result !== 'ok';
+      this.ntfy = {
+        ...this.ntfy,
+        lastSentAt: nowIso(),
+        lastResult: failed ? 'failed' : 'ok',
+        lastFailure: failed ? (failure ?? 'network') : null,
+      };
+      return { status: 200, body: this.ntfy };
+    }
+    return undefined;
+  }
+
+  private newNtfy(server: string, enabled: boolean): NtfyChannelView {
+    return {
+      server,
+      topic: mockTopic(),
+      enabled,
+      hasLink: true,
+      lastSentAt: null,
+      lastResult: null,
+      lastFailure: null,
+      createdAt: nowIso(),
+    };
   }
 
   private subscribe(body: unknown): MockResponse {

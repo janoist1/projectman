@@ -487,3 +487,99 @@ describe('quiet hours', () => {
     await waitFor(() => expect(screen.queryByText(t('notifications.quiet.sameTime'))).toBeNull());
   });
 });
+
+describe('ntfy phone channel', () => {
+  const section = () => screen.findByRole('region', { name: t('notifications.ntfy.title') });
+  const setUpChannel = async (project: ReturnType<typeof mockProject>) => {
+    project.render(
+      <ToastProvider>
+        <NotificationsPage />
+      </ToastProvider>,
+      '/p/AC/notifications',
+    );
+    fireEvent.click(
+      await within(await section()).findByRole('button', { name: t('notifications.ntfy.setUp') }),
+    );
+    return screen.findByTestId('ntfy-topic');
+  };
+
+  it('sets up the channel with a server-made topic that stays hidden until revealed and can be copied', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const project = mockProject();
+    const topic = await setUpChannel(project);
+    const secret = project.backend.push.ntfy!.topic;
+    expect(project.backend.push.ntfy).toMatchObject({ server: 'https://ntfy.sh', enabled: true });
+    expect(topic.textContent).not.toContain(secret);
+    fireEvent.click(screen.getByRole('button', { name: t('notifications.ntfy.revealLabel') }));
+    expect(topic.textContent).toBe(secret);
+    fireEvent.click(screen.getByRole('button', { name: t('notifications.ntfy.copyLabel') }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(secret));
+    expect(await screen.findByText(t('notifications.ntfy.copied'))).toBeTruthy();
+  });
+
+  it('sends a test and shows why a failed one failed', async () => {
+    const project = mockProject();
+    await setUpChannel(project);
+    const test = screen.getByRole('button', { name: t('notifications.ntfy.test') });
+    fireEvent.click(test);
+    expect(await screen.findByText(t('notifications.ntfy.testOk'))).toBeTruthy();
+    project.backend.push.now = () => Date.now() + 10_000;
+    project.backend.push.nextResult = { result: 'failed', failure: 'rate_limited' };
+    fireEvent.click(test);
+    expect(await screen.findByText(t('notifications.ntfy.testFailed'))).toBeTruthy();
+    expect(await screen.findByText(t('notifications.ntfy.failure.rate_limited'))).toBeTruthy();
+  });
+
+  it('refuses an unusable server address and saves a good one', async () => {
+    const project = mockProject();
+    await setUpChannel(project);
+    const server = screen.getByLabelText(t('notifications.ntfy.server'));
+    fireEvent.change(server, { target: { value: 'http://127.0.0.1' } });
+    fireEvent.click(screen.getByRole('button', { name: t('notifications.ntfy.save') }));
+    expect(await screen.findByText(codeMessage('ntfy_server_invalid')!)).toBeTruthy();
+    expect(project.backend.push.ntfy!.server).toBe('https://ntfy.sh');
+    fireEvent.change(server, { target: { value: 'https://ntfy.example.org' } });
+    fireEvent.click(screen.getByRole('button', { name: t('notifications.ntfy.save') }));
+    await waitFor(() => expect(project.backend.push.ntfy!.server).toBe('https://ntfy.example.org'));
+  });
+
+  it('pauses the channel with its switch', async () => {
+    const project = mockProject();
+    await setUpChannel(project);
+    fireEvent.click(screen.getByRole('switch', { name: t('notifications.ntfy.switchLabel') }));
+    expect(await screen.findByText(t('notifications.ntfy.pausedToast'))).toBeTruthy();
+    expect(project.backend.push.ntfy!.enabled).toBe(false);
+    expect(screen.queryByRole('button', { name: t('notifications.ntfy.test') })).toBeNull();
+  });
+
+  it('asks before it makes a new topic or deletes the channel', async () => {
+    const project = mockProject();
+    await setUpChannel(project);
+    const before = project.backend.push.ntfy!.topic;
+    fireEvent.click(screen.getByRole('button', { name: t('notifications.ntfy.renew') }));
+    expect(project.backend.push.ntfy!.topic).toBe(before);
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: t('notifications.ntfy.renewConfirm'),
+      }),
+    );
+    await waitFor(() => expect(project.backend.push.ntfy!.topic).not.toBe(before));
+    fireEvent.click(screen.getByRole('button', { name: t('notifications.ntfy.remove') }));
+    expect(project.backend.push.ntfy).not.toBeNull();
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: t('notifications.ntfy.removeConfirm'),
+      }),
+    );
+    await waitFor(() => expect(project.backend.push.ntfy).toBeNull());
+    expect(await screen.findByRole('button', { name: t('notifications.ntfy.setUp') })).toBeTruthy();
+  });
+
+  it('says so when the server has the channel switched off', async () => {
+    const project = mockProject();
+    project.backend.push.available = false;
+    project.render(<NotificationsPage />, '/p/AC/notifications');
+    expect(await screen.findByText(t('notifications.ntfy.unavailable'))).toBeTruthy();
+  });
+});

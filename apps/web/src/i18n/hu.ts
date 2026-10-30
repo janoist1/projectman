@@ -19,6 +19,26 @@ type Locale = MessageTree & {
 };
 
 export const hu = {
+  ownerTopics: {
+    approval: 'Jóváhagyás',
+    why: 'Miért hozzád:',
+    builtIn: {
+      product_direction: { label: 'Termékirány', hint: 'Mit építsünk, mi maradjon ki, mi a fontosabb.' },
+      cost: { label: 'Költség', hint: 'Pénz: előfizetés, fizetős szolgáltatás, keret.' },
+      external_party: {
+        label: 'Ügyfél vagy külső fél',
+        hint: 'Ami ügyfélhez, partnerhez vagy a nyilvánossághoz jut el.',
+      },
+      risk_acceptance: {
+        label: 'Kockázatvállalás',
+        hint: 'Adatvesztés, biztonság vagy visszafordíthatatlan lépés vállalása.',
+      },
+      owner_only_setting: {
+        label: 'Tulajdonosi beállítás',
+        hint: 'Tagok és hozzáférésük, jogosultságok, jóváhagyási szabályok.',
+      },
+    },
+  },
   owners: {
     title: 'Tulajdonosok',
     meta: 'Akik a saját gépükön, a saját előfizetésükkel futtatnak projekteket ezen a chopperen. A projektjeiket csak ők látják.',
@@ -5688,6 +5708,13 @@ export const hu = {
       permission_escalated_unreached: 'A döntnököt nem sikerült elérni, emberi döntésre vár',
       permission_denied: 'Elutasítva',
       question_asked: 'Kérdés: {question}',
+      question_asked_topic: 'Kérdés ({topic}): {question}',
+      question_asked_unscreened_topic:
+        'Kérdés újra, az Operátor szűrése nélkül ({topic}): {question} · indok: {reason}',
+      question_screened_decision_topic: 'Döntésként továbbengedte neked ({topic}): {note}',
+      question_screened_todo_topic: 'Teendőként továbbengedte neked ({topic}): {note}',
+      question_screened_todo_recorded_topic:
+        'Teendőként továbbengedte neked ({topic}): {note} Hiányként rögzítette.',
       question_asked_screening: 'Kérdés: {question} · az Operátornál',
       question_asked_unscreened: 'Kérdés újra, az Operátor szűrése nélkül: {question} · indok: {reason}',
       question_answered: 'Válasz: {answer}',
@@ -6734,6 +6761,33 @@ export const hu = {
       explicitOwners: 'A lépést az alább kiválasztott tagok viszik.',
     },
     team: {
+      ownerTopics: {
+        title: 'Tulajdonosi döntések',
+        help: 'Döntést csak ezekben a témákban kérhet tőled a csapat. Minden mást az Operátor intéz. Jóváhagyást mindig kérhetnek.',
+        enabled: 'Bekapcsolva: {topics}',
+        empty: 'Egyik téma sincs bekapcsolva.',
+        warning: 'Nincs bekapcsolt téma. A csapat csak jóváhagyást kér tőled, más döntést nem.',
+        edit: 'Témák szerkesztése',
+        builtIn: 'Beépített témák',
+        custom: 'Saját témák',
+        noCustom: 'Még nincs saját téma.',
+        add: 'Saját téma',
+        submit: 'Hozzáadás',
+        cancel: 'Mégse',
+        remove: 'Törlés',
+        removeLabel: '{label} törlése',
+        label: 'Megnevezés',
+        labelPlaceholder: 'pl. Jogi kérdés',
+        hint: 'Mikor jöjjön hozzád?',
+        hintPlaceholder: 'pl. Szerződés, adatvédelem, felhasználási feltételek.',
+        hintHelp: 'Ebből érti az Operátor, mi tartozik ide. Egy-két mondat elég.',
+        labelRequired: 'Adj nevet a témának.',
+        hintRequired: 'Írd le, mikor jöjjön hozzád.',
+        limit: 'Legfeljebb 12 téma lehet bekapcsolva. Kapcsolj ki vagy törölj egyet, ha újat vennél fel.',
+        readOnly: 'Ezekben kérhet döntést a csapat a tulajdonostól',
+        none: 'Egyikben sem, csak jóváhagyást kérhet.',
+        ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+      },
       role: 'Szerep',
       manage: 'Tagok kezelése a Csapat oldalon',
       /** Who the members who write only to the contacts can message (PM-985). */

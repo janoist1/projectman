@@ -984,6 +984,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `PROJECTMAN_MODE=engine` (`npm run engine -- start`) runs the machine-dependent parts on the Mac
   beside the CLIs and connects outward to the cloud's `/engine/link` with its machine key. There is
   no database, no `/api`, no web app and no control socket; only `index.ts` reads the environment.
+  The engine guards the sandbox boundary itself (PM-1176): `engine-app.ts` hands the runner an `engineGuard`
+  (absent in single mode), and `runner/session.ts` refuses, at PreToolUse, a Claude file-writing tool outside the
+  session's write zone and a read under `deniedPaths`, a Gemini edit outside it, and an allow carrying
+  `updatedInput`, whatever the cloud decided; the zone comes from the session's own policy on this machine
+  (`runner/tool-decision.ts`, `engineWriteZone`). Each refusal is a `tool.guard` line (`refused`, the code
+  `outside_writable_roots`, `denied_path` or `updated_input`) in `logs/engine-audit.jsonl` and a `refused` event
+  with `by: engine_guard` to the cloud. The hub's strict frame schema needs the hub deployed before the engine.
   Stopping (PM-1159): `pauseForShutdown` asks the cloud first (`engine.pause_for_shutdown`, engine → cloud), which
   records the pause and resumes it at the engine's next connection; the engine pauses its sessions itself only when the
   cloud cannot take the call (`link_down`, `unknown_method` from an older cloud, timeout), and then nothing is recorded.

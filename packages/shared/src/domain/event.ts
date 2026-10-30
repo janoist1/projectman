@@ -443,13 +443,14 @@ export interface TimelineEventData {
   };
   /**
    * A request that never became an inbox item (PM-165): the member's approver is nobody
-   * (`by: 'approver_none'`) or the agent's own auto mode refused it (`by: 'classifier'`). `reason`
-   * is the agent's raw (English) explanation, shown behind "Részletek".
+   * (`by: 'approver_none'`), the agent's own auto mode refused it (`by: 'classifier'`) or the engine's
+   * own guard did (`by: 'engine_guard'`, PM-1176; `reason` is its code). `reason` is otherwise the agent's
+   * raw (English) explanation, shown behind "Részletek".
    */
   permission_refused: {
     toolName: string;
     summary: string;
-    by: 'approver_none' | 'classifier';
+    by: 'approver_none' | 'classifier' | 'engine_guard';
     reason?: string;
   };
   /**

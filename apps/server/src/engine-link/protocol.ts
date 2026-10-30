@@ -92,6 +92,7 @@ const RefusedInfo: z.ZodType<PermissionRefusedInfo> = z.strictObject({
   toolName: text,
   toolInput: z.unknown(),
   reason: text.optional(),
+  by: z.literal('engine_guard').optional(),
 });
 const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_data' }>> = z.discriminatedUnion(
   'type',

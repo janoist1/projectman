@@ -3,6 +3,7 @@ import type { SessionState } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   DependencyGate,
+  EngineGuard,
   PermissionBroker,
   PermissionDecision,
   RunnerEvent,
@@ -297,6 +298,7 @@ function start(
     refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
     logger?: ReturnType<typeof silentLogger>;
     transcriptRoot?: string;
+    engineGuard?: EngineGuard;
   } = {},
 ) {
   const pty = new FakePty();
@@ -310,6 +312,7 @@ function start(
     deps: {
       logger: opts.logger ?? silentLogger(),
       transcriptRoot: opts.transcriptRoot,
+      ...(opts.engineGuard ? { engineGuard: opts.engineGuard } : {}),
       refreshDependencies: opts.refreshDependencies,
       broker: opts.broker ?? { decide: () => new Promise(() => undefined) },
       permissionTimeoutMs: PERMISSION_TIMEOUT_MS,
@@ -550,6 +553,143 @@ describe('a reader’s read boundary (PM-425)', () => {
       tool_input: { command: 'ls' },
     });
     expect(decide).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the engine guard (PM-1176)', () => {
+  const guardSpec = (): Partial<StartSessionSpec> => {
+    const policy = geminiSpec().policy!;
+    policy.filesystem.deniedPaths = ['/engine-secrets'];
+    return { policy, member: 'dev-8', allowedTools: ['Edit(/outside/**)'] };
+  };
+  const preTool = (tool_name: string, tool_input: unknown) => ({
+    hook_event_name: 'PreToolUse',
+    tool_name,
+    tool_input,
+    tool_use_id: 'toolu_guard',
+  });
+  const refusedPreTool = {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: expect.any(String),
+    },
+  };
+  /** A started session; the broker would approve anything, remembered for the session and with a changed input. */
+  async function guarded(decision: PermissionDecision = { behavior: 'allow', rememberForSession: true }) {
+    const decide = vi.fn(async () => decision);
+    const refused = vi.fn();
+    const engineGuard = { refused: vi.fn() };
+    const s = await ready({ spec: guardSpec(), broker: { decide, refused }, engineGuard });
+    return { ...s, decide, refused, engineGuard };
+  }
+
+  it.each([
+    ['Write', { file_path: '/outside/a.ts' }],
+    ['Edit', { file_path: '/home/x/.zshrc', old_string: 'a', new_string: 'b' }],
+    ['MultiEdit', { file_path: '/outside/a.ts', edits: [] }],
+    ['NotebookEdit', { notebook_path: '/outside/n.ipynb' }],
+  ])(
+    'turns a %s outside the write zone away at PreToolUse, whatever was allowed before',
+    async (tool, input) => {
+      const { hook, decide, refused, engineGuard } = await guarded();
+      expect(await hook(preTool(tool, input))).toEqual(refusedPreTool);
+      expect(decide).not.toHaveBeenCalled();
+      expect(engineGuard.refused).toHaveBeenCalledOnce();
+      expect(engineGuard.refused).toHaveBeenCalledWith({
+        sessionId: 'ses_1',
+        member: 'dev-8',
+        code: 'outside_writable_roots',
+      });
+      expect(refused).toHaveBeenCalledWith(
+        expect.objectContaining({ toolName: tool, by: 'engine_guard', reason: 'outside_writable_roots' }),
+      );
+    },
+  );
+
+  it('turns a read below a denied path away at PreToolUse', async () => {
+    const { hook, decide, engineGuard } = await guarded();
+    expect(await hook(preTool('Read', { file_path: '/engine-secrets/key' }))).toEqual(refusedPreTool);
+    expect(engineGuard.refused).toHaveBeenCalledWith(expect.objectContaining({ code: 'denied_path' }));
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('holds at the permission request too, when no PreToolUse came before it', async () => {
+    const { hook, decide, engineGuard } = await guarded();
+    expect(
+      await hook({
+        ...preTool('Write', { file_path: '/outside/a.ts' }),
+        hook_event_name: 'PermissionRequest',
+      }),
+    ).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'deny', message: expect.any(String) },
+      },
+    });
+    expect(decide).not.toHaveBeenCalled();
+    expect(engineGuard.refused).toHaveBeenCalledOnce();
+  });
+
+  it('turns an approval that changes the tool input into a denial', async () => {
+    const { hook, decide, engineGuard, refused } = await guarded({
+      behavior: 'allow',
+      updatedInput: { file_path: '/outside/a.ts' },
+    });
+    const inside = { file_path: '/work/a.ts' };
+    expect(await hook({ ...preTool('Write', inside), hook_event_name: 'PermissionRequest' })).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'deny', message: expect.any(String) },
+      },
+    });
+    expect(decide).toHaveBeenCalledOnce();
+    expect(engineGuard.refused).toHaveBeenCalledWith(expect.objectContaining({ code: 'updated_input' }));
+    expect(refused).toHaveBeenCalledWith(
+      expect.objectContaining({ by: 'engine_guard', reason: 'updated_input' }),
+    );
+  });
+
+  it('lets a write inside the roots go on, and an approval without a changed input stand', async () => {
+    const { hook, decide, engineGuard } = await guarded({ behavior: 'allow' });
+    expect(await hook(preTool('Write', { file_path: '/work/a.ts' }))).toBeNull();
+    expect(
+      await hook({ ...preTool('Write', { file_path: '/work/a.ts' }), hook_event_name: 'PermissionRequest' }),
+    ).toEqual({
+      hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } },
+    });
+    expect(decide).toHaveBeenCalledOnce();
+    expect(engineGuard.refused).not.toHaveBeenCalled();
+  });
+
+  it('does not run without an engine guard (single mode)', async () => {
+    const decide = vi.fn(async (): Promise<PermissionDecision> => ({ behavior: 'allow' }));
+    const { hook } = await ready({ spec: guardSpec(), broker: { decide } });
+    expect(await hook(preTool('Write', { file_path: '/outside/a.ts' }))).toBeNull();
+  });
+
+  it('denies a Gemini edit outside the roots, or without a path, instead of asking', async () => {
+    const decide = vi.fn();
+    const refused = vi.fn();
+    const engineGuard = { refused: vi.fn() };
+    const s = start({
+      adapter: createGeminiAdapter({ bin: 'unused', logger: silentLogger() }),
+      spec: geminiSpec(),
+      broker: { decide, refused },
+      engineGuard,
+    });
+    const edit = (gemini_args: Record<string, unknown>) => ({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Write',
+      tool_input: {},
+      gemini_tool: 'write_to_file',
+      gemini_args,
+    });
+    expect(await s.hook(edit({ TargetFile: '/outside/a.ts' }))).toMatchObject({ decision: 'deny' });
+    expect(await s.hook(edit({}))).toMatchObject({ decision: 'deny' });
+    expect(decide).not.toHaveBeenCalled();
+    expect(engineGuard.refused).toHaveBeenCalledTimes(2);
+    expect(refused).toHaveBeenCalledWith(expect.objectContaining({ by: 'engine_guard' }));
   });
 });
 

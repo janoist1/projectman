@@ -28,6 +28,8 @@ import { TEAM_SETTING_KEYS, TEAM_SETTING_POLICY, teamSettingValue } from './team
  *   a new AI member that starts with other than the defaults;
  * - `review_test`: a repository's full test, `reviewTest` (the shell command the server runs in the
  *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538);
+ * - `compute_jobs`: a repository's compute jobs, `computeJobs`: their commands run on GitHub with the right to
+ *   attest their outputs (PM-1148);
  * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548);
  * - `operator_approval_waiver`: whether eligible Operator changes may skip the approval click (PM-691);
  * - `email_send_policy`: whether an AI member can send email without human approval (PM-940), except
@@ -45,6 +47,7 @@ const OWNER_ONLY_CHANGES = [
   'owners',
   'permissions',
   'review_test',
+  'compute_jobs',
   'operator_watch',
   'operator_approval_waiver',
   'email_send_policy',
@@ -71,6 +74,7 @@ export function ownerOnlyChanges(
     owners: () => ownersSignature(previous) !== ownersSignature(next),
     permissions: () => permissionsChanged(previous, next),
     review_test: () => reviewTestSignature(previous) !== reviewTestSignature(next),
+    compute_jobs: () => computeJobsSignature(previous) !== computeJobsSignature(next),
     email_send_policy: () => emailSendPolicyChanged(previous, next),
     machine_access: () => machineAccessChanged(previous, next),
   };
@@ -111,6 +115,15 @@ function machineAccessChanged(previous: ProjectConfig, next: ProjectConfig): boo
 }
 
 /** The repositories that have a full test or run it only at the merge, with those two settings. */
+function computeJobsSignature(config: ProjectConfig): string {
+  return canonical(
+    config.project.repos
+      .filter((repo) => (repo.computeJobs?.length ?? 0) > 0)
+      .map((repo) => ({ name: repo.name, computeJobs: repo.computeJobs ?? [] }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  );
+}
+
 function reviewTestSignature(config: ProjectConfig): string {
   return canonical(
     config.project.repos

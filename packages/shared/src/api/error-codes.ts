@@ -337,6 +337,11 @@ export const ERROR_CODES = [
   'release_already_published',
   'release_tag_taken',
   'release_publish_failed',
+  // The team tool `run_compute_job` (PM-1148): the repository has no such job, two jobs run already, the commit
+  // is not on the repository's GitHub default branch.
+  'compute_job_unknown',
+  'compute_job_busy',
+  'compute_job_commit_unpublished',
   // The hybrid release's durable deployment (PM-752): another attempt or a different request holds the
   // slot, the target or the engine is not the configured one, a foreign pause is open, the work is not
   // drained, the deployment waits for a person's recovery, the protocol is not available for this

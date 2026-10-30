@@ -36,6 +36,7 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   duplicate_stage: 'settings.issues.duplicate_stage',
   duplicate_repo: 'errors.codes.duplicate_repo',
   review_test_runner_github: 'settings.issues.review_test_runner_github',
+  compute_jobs_github: 'settings.issues.compute_jobs_github',
   duplicate_feedback_surface: 'errors.codes.duplicate_feedback_surface',
   sponsor_not_human: 'settings.issues.sponsor_not_human',
   codex_bypass_not_allowed: 'settings.issues.codex_bypass_not_allowed',

@@ -1,5 +1,9 @@
 import {
+  COMPUTE_JOB_COMMAND_MAX,
+  COMPUTE_JOB_NODE_VERSION,
+  COMPUTE_JOB_TIMEOUT_MINUTES_MAX,
   COMPUTE_JOB_WORKFLOW,
+  GITHUB_REPO_PATTERN,
   ComputeJobCommit,
   ComputeJobId,
   ComputeJobOutputPath,
@@ -32,12 +36,7 @@ import { outputTail } from './output';
  * touches the step cache or the heavy-run queue.
  */
 
-const REPO = /^[\w.-]+\/[\w.-]+$/;
-const NODE_VERSION = /^\d{1,3}$/;
 const OUTPUTS_MAX = 10;
-const TIMEOUT_MINUTES_MAX = 360;
-/** GitHub takes the inputs of a dispatch in one request of at most 65 535 characters. */
-const COMMAND_MAX = 10_000;
 const SHA256 = /^[0-9a-f]{64}$/;
 const OUTPUT_LINE = /^projectman-job output (\S+) (\S+) (\S+)\s*$/;
 
@@ -51,12 +50,12 @@ function problemOf(spec: FullTestSpec, job: GithubJobRun): string | null {
     return 'A compute job carries no checkout, installation or lock.';
   if (!ComputeJobRunId.safeParse(spec.runId).success) return 'The run id is not a compute job run id.';
   if (!Number.isFinite(spec.timeoutMs) || spec.timeoutMs <= 0) return 'The time limit is not positive.';
-  if (!REPO.test(job.repo)) return 'The GitHub repository is not owner/name.';
+  if (!GITHUB_REPO_PATTERN.test(job.repo)) return 'The GitHub repository is not owner/name.';
   if (!ComputeJobCommit.safeParse(job.commit).success) return 'The commit is not a 40 digit commit id.';
   if (job.workflow !== COMPUTE_JOB_WORKFLOW) return `The workflow is not ${COMPUTE_JOB_WORKFLOW}.`;
   if (!ComputeJobId.safeParse(job.job).success) return 'The job is not a compute job name.';
-  if (job.command.trim() === '' || job.command.length > COMMAND_MAX)
-    return `The command is empty or longer than ${COMMAND_MAX} characters.`;
+  if (job.command.trim() === '' || job.command.length > COMPUTE_JOB_COMMAND_MAX)
+    return `The command is empty or longer than ${COMPUTE_JOB_COMMAND_MAX} characters.`;
   if (!GithubJobRunner.safeParse(job.runsOn).success) return 'The runner is not one the workflow offers.';
   if (
     job.outputs.length < 1 ||
@@ -65,14 +64,14 @@ function problemOf(spec: FullTestSpec, job: GithubJobRun): string | null {
     !job.outputs.every((path) => ComputeJobOutputPath.safeParse(path).success)
   )
     return `The outputs are not 1 to ${OUTPUTS_MAX} different relative paths.`;
-  if (job.node !== undefined && !NODE_VERSION.test(job.node))
+  if (job.node !== undefined && !COMPUTE_JOB_NODE_VERSION.test(job.node))
     return 'The node version is not a major version.';
   if (
     !Number.isInteger(job.timeoutMinutes) ||
     job.timeoutMinutes < 1 ||
-    job.timeoutMinutes > TIMEOUT_MINUTES_MAX
+    job.timeoutMinutes > COMPUTE_JOB_TIMEOUT_MINUTES_MAX
   )
-    return `The job time limit is not 1 to ${TIMEOUT_MINUTES_MAX} minutes.`;
+    return `The job time limit is not 1 to ${COMPUTE_JOB_TIMEOUT_MINUTES_MAX} minutes.`;
   return null;
 }
 

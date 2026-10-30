@@ -12,7 +12,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import { ComputeJobDefinition, SelectablePermissionMode } from '@projectman/shared';
+import { ComputeJobDefinitions, SelectablePermissionMode } from '@projectman/shared';
 import { isLoopbackHostname, isWithin } from '../kernel/pure';
 import { readInstanceMarker } from '../instance';
 
@@ -57,14 +57,7 @@ export const EngineConfig = z.strictObject({
        * PM-1147: the compute jobs (GitHub Actions) this repository may run; the owner sets them by hand. A job
        * request that is not one of these, value for value, is refused.
        */
-      computeJobs: z
-        .array(ComputeJobDefinition)
-        .max(20)
-        .refine(
-          (jobs) => new Set(jobs.map((job) => job.id)).size === jobs.length,
-          'The job ids are not unique',
-        )
-        .optional(),
+      computeJobs: ComputeJobDefinitions.optional(),
       workspaceSetup: z
         .discriminatedUnion('kind', [
           z.strictObject({
@@ -262,7 +255,7 @@ export interface ResolvedEngineConfig extends Omit<EngineConfig, 'repos'> {
     path: string;
     fullTestCommand?: string;
     regenerateCommand?: string;
-    computeJobs?: ComputeJobDefinition[];
+    computeJobs?: ComputeJobDefinitions;
     workspaceSetup: { kind: 'npm_ci'; timeoutMs: number } | null;
     mergeBranch?: string;
   }>;

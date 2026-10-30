@@ -29,6 +29,7 @@ export { HISTORY_INDEX_VERSION, historyDocumentEntityId, historySourceId } from 
 export type { HistoryDirtyRow, HistoryDocStateRow, HistoryDocumentRow } from './history';
 export { createHistorySemanticRepository, historyContentHash, historyFullText } from './history-semantic';
 import { createHistorySearchRepository } from './history-searches';
+import { createComputeJobRunRepository } from './compute-job-runs';
 import { createFullTestRunRepository } from './full-test-runs';
 import { createMergeCheckRunRepository } from './merge-check-runs';
 import { createEmailLoginRepository } from './email-login';
@@ -152,6 +153,7 @@ export function createRepositories(db: Db) {
     obligations: createObligationRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),
+    computeJobRuns: createComputeJobRunRepository(db),
     mergeCheckRuns: createMergeCheckRunRepository(db),
     docWrites: createDocWriteRepository(db),
     decisionOffers: createDecisionOfferRepository(db),

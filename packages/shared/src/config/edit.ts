@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ComputeJobDefinitions } from '../domain/compute-job';
 import { FeedbackConfig } from '../domain/feedback';
 import { normalizeFeedbackOrigin } from '../domain/feedback-origin';
 import { LabelColor, LabelDefinition, LabelId } from '../domain/label';
@@ -118,6 +119,11 @@ export const PatchConfigRequest = z
       .array(z.object({ repo: z.string(), fullTestAtMerge: z.boolean().nullable() }).strict())
       .max(20)
       .optional(),
+    /** Per repository: the compute jobs the hub may start (`computeJobs`, PM-1148); a list replaces the whole list, null removes it. Owner-only (`compute_jobs`). */
+    repoComputeJobs: z
+      .array(z.strictObject({ repo: z.string(), computeJobs: ComputeJobDefinitions.nullable() }))
+      .max(20)
+      .optional(),
     boundary: ProjectConfig.shape.team.shape.boundary,
     /** The feedback tool (PM-506): each list present replaces the whole list. */
     feedback: z
@@ -204,8 +210,8 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
 }
 
 /**
- * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoReviewTest` or `repoFullTestAtMerge` (in this order)
- * that the configuration does not know (the edit answers `unknown_repo`); null: none.
+ * The first repository of `repoMerge`, `repoDocs`, `repoHeavyChecks`, `repoReviewTest`, `repoFullTestAtMerge` or
+ * `repoComputeJobs` (in this order) that the configuration does not know (the edit answers `unknown_repo`); null: none.
  */
 export function unknownPatchRepo(
   config: Pick<ProjectConfig, 'project'>,
@@ -218,6 +224,7 @@ export function unknownPatchRepo(
     patch.repoHeavyChecks?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoReviewTest?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoFullTestAtMerge?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoComputeJobs?.find((entry) => !known.has(entry.repo))?.repo ??
     null
   );
 }
@@ -263,6 +270,8 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   const repoFullTestAtMerge =
     patch.repoFullTestAtMerge &&
     new Map(patch.repoFullTestAtMerge.map((e) => [e.repo, e.fullTestAtMerge] as const));
+  const repoComputeJobs =
+    patch.repoComputeJobs && new Map(patch.repoComputeJobs.map((e) => [e.repo, e.computeJobs] as const));
   const feedback = patch.feedback
     ? {
         surfaces: (patch.feedback.surfaces ?? config.project.feedback?.surfaces ?? []).map((surface) => ({
@@ -280,7 +289,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.email ? { email: patch.email } : {}),
       ...(feedback ? { feedback } : {}),
       repos:
-        repoMerge || repoDocs || repoHeavyChecks || repoReviewTest || repoFullTestAtMerge
+        repoMerge || repoDocs || repoHeavyChecks || repoReviewTest || repoFullTestAtMerge || repoComputeJobs
           ? config.project.repos.map((repo) => {
               let changed = repo;
               const merge = repoMerge?.get(repo.name);
@@ -307,6 +316,11 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
               if (fullTestAtMerge !== undefined) {
                 const { fullTestAtMerge: _previous, ...rest } = changed;
                 changed = fullTestAtMerge === null ? rest : { ...rest, fullTestAtMerge };
+              }
+              const computeJobs = repoComputeJobs?.get(repo.name);
+              if (computeJobs !== undefined) {
+                const { computeJobs: _previous, ...rest } = changed;
+                changed = computeJobs === null ? rest : { ...rest, computeJobs };
               }
               return changed;
             })

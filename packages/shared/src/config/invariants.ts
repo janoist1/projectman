@@ -38,6 +38,7 @@ export interface ConfigIssue {
     | 'duplicate_stage'
     | 'duplicate_repo'
     | 'review_test_runner_github'
+    | 'compute_jobs_github'
     | 'duplicate_feedback_surface'
     | 'sponsor_not_human'
     | 'codex_bypass_not_allowed'
@@ -167,6 +168,12 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
       issues.push({
         code: 'review_test_runner_github',
         path: `project.repos[${i}].reviewTest.beforeReview`,
+        detail: repo.name,
+      });
+    if ((repo.computeJobs?.length ?? 0) > 0 && !repo.github)
+      issues.push({
+        code: 'compute_jobs_github',
+        path: `project.repos[${i}].computeJobs`,
         detail: repo.name,
       });
   });

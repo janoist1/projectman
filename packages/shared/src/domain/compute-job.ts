@@ -7,6 +7,13 @@ import { z } from 'zod';
  */
 export const COMPUTE_JOB_WORKFLOW = 'projectman-job.yml';
 
+/** The limits of a job definition, shared by the hub's settings, the engine's registration and the wire. */
+export const COMPUTE_JOB_COMMAND_MAX = 2000;
+export const COMPUTE_JOB_TIMEOUT_MINUTES_MAX = 360;
+export const COMPUTE_JOB_NODE_VERSION = /^\d{1,2}$/;
+/** A GitHub repository, `owner/name`. */
+export const GITHUB_REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/;
+
 /** The name of a job kind, for example `cloud-image`. */
 export const ComputeJobId = z.string().regex(/^[a-z][a-z0-9-]{0,39}$/);
 export type ComputeJobId = z.infer<typeof ComputeJobId>;
@@ -38,20 +45,56 @@ export type GithubJobRunner = z.infer<typeof GithubJobRunner>;
  */
 export const ComputeJobDefinition = z.strictObject({
   id: ComputeJobId,
-  command: z.string().min(1).max(2000),
+  command: z.string().min(1).max(COMPUTE_JOB_COMMAND_MAX),
   runsOn: GithubJobRunner,
   outputs: z
     .array(ComputeJobOutputPath)
     .min(1)
     .max(10)
     .refine((paths) => new Set(paths).size === paths.length, 'The outputs are not unique'),
-  node: z
-    .string()
-    .regex(/^\d{1,2}$/)
-    .optional(),
-  timeoutMinutes: z.number().int().min(1).max(360).default(60),
+  node: z.string().regex(COMPUTE_JOB_NODE_VERSION).optional(),
+  timeoutMinutes: z.number().int().min(1).max(COMPUTE_JOB_TIMEOUT_MINUTES_MAX).default(60),
 });
 export type ComputeJobDefinition = z.infer<typeof ComputeJobDefinition>;
+
+/** The jobs of one repository: at most 20, with unique ids. */
+export const ComputeJobDefinitions = z
+  .array(ComputeJobDefinition)
+  .max(20)
+  .refine((jobs) => new Set(jobs.map((job) => job.id)).size === jobs.length, 'The job ids are not unique');
+export type ComputeJobDefinitions = z.infer<typeof ComputeJobDefinitions>;
+
+export const ComputeJobRunStatus = z.enum(['queued', 'running', 'succeeded', 'failed', 'error', 'cancelled']);
+export type ComputeJobRunStatus = z.infer<typeof ComputeJobRunStatus>;
+
+/** Where a run goes: the repository's GitHub workflow today; `engine` is reserved for a later runner. */
+export const ComputeJobRunner = z.enum(['github_actions', 'engine']);
+export type ComputeJobRunner = z.infer<typeof ComputeJobRunner>;
+
+/** One recorded run of a compute job, as the hub shows it (PM-1148). */
+export const ComputeJobRunView = z.strictObject({
+  id: ComputeJobRunId,
+  projectKey: z.string(),
+  repo: z.string(),
+  job: ComputeJobId,
+  commit: ComputeJobCommit,
+  runner: ComputeJobRunner,
+  status: ComputeJobRunStatus,
+  reason: z.string().nullable(),
+  requestedBy: z.string(),
+  taskKey: z.string().nullable(),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  queuedMs: z.number().int().nullable(),
+  durationMs: z.number().int().nullable(),
+  billableMs: z.number().int().nullable(),
+  externalUrl: z.string().nullable(),
+  outputTail: z.string().nullable(),
+  outputs: z.array(z.strictObject({ path: z.string(), sha256: z.string(), bytes: z.number().int() })),
+  artifact: z.strictObject({ name: z.string(), expiresAt: z.string().nullable() }).nullable(),
+});
+export type ComputeJobRunView = z.infer<typeof ComputeJobRunView>;
 
 /** The title of a run (the workflow's `run-name`). */
 export function computeJobRunTitle(job: string, commit: string, runId: string): string {

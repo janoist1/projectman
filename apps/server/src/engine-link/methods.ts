@@ -2,8 +2,11 @@ import { z } from 'zod';
 import { TaskKey } from '@projectman/shared';
 import {
   AgentProvider,
+  COMPUTE_JOB_COMMAND_MAX,
+  COMPUTE_JOB_NODE_VERSION,
   ComputeJobOutputPath,
   FullTestErrorReason,
+  GITHUB_REPO_PATTERN,
   GithubJobRunner,
   HANDOFF_SUMMARY_MAX,
   HandoffSummary,
@@ -95,7 +98,7 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
     .strictObject({
       ref: mergeRef,
       mergeId: mergeText,
-      repo: text.max(100).regex(/^[\w.-]+\/[\w.-]+$/),
+      repo: text.max(100).regex(GITHUB_REPO_PATTERN),
       base: mergeText,
       commit: z.string().regex(/^[0-9a-f]{40}$/),
       workflow: text.max(100),
@@ -106,15 +109,15 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   githubJob: z
     .strictObject({
       ref: mergeRef,
-      repo: text.max(100).regex(/^[\w.-]+\/[\w.-]+$/),
+      repo: text.max(100).regex(GITHUB_REPO_PATTERN),
       base: mergeText,
       workflow: text.max(100),
       job: text.max(40),
       commit: z.string().regex(/^[0-9a-f]{40}$/),
-      command: text.max(10_000),
+      command: text.max(COMPUTE_JOB_COMMAND_MAX),
       runsOn: GithubJobRunner,
       outputs: z.array(ComputeJobOutputPath).min(1).max(10),
-      node: text.max(3).optional(),
+      node: z.string().regex(COMPUTE_JOB_NODE_VERSION).optional(),
       timeoutMinutes: int,
     })
     .optional(),

@@ -2519,8 +2519,11 @@ assumption or remote-engine RPC.
   shown as `github_unavailable`. A job runs only when it is registered in the engine's own `engine.json`
   (`repos[].computeJobs`, set by the owner by hand: id, command, runner, outputs, Node, timeout) and the request
   matches it value for value; otherwise it is refused as `command_not_allowed` (see `docs/SECURITY.md`
-  "Compute jobs on GitHub Actions"). The project-level setting that tells the hub what to ask for comes with
-  PM-1148.
+  "Compute jobs on GitHub Actions"). PM-1148: the hub's `services/compute-jobs` (`ComputeJobService`) starts a
+  job on the project's engine through `engines.projectEngine` (the `merger` asks whether the commit is on the
+  remote default branch, the `fullTestExecutor` runs `full_test.run` with `githubJob`) from the repository's
+  `computeJobs` setting and records the run in `compute_job_runs`. The hub part is machine-independent: no
+  path, process or `gh` call of its own; the engine alone holds the GitHub access.
   PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.

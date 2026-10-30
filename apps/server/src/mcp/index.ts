@@ -19,6 +19,7 @@ export { TaskTools } from './tasks';
 export { AttachmentTools } from './attachments';
 export { MergeTools } from './merges';
 export { ReleaseTools } from './releases';
+export { ComputeJobTools } from './compute-jobs';
 export { ToolCaller } from './caller';
 export { GithubTools } from './github';
 export { ScreenshotTools } from './full-tests';

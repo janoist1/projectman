@@ -65,6 +65,8 @@ import {
   unique,
 } from '../../kernel';
 import type { HostRequestsService } from '../../services/host-requests';
+import type { ComputeJobService } from '../../services/compute-jobs';
+import { asToolError } from '../compute-jobs';
 import type { ProjectState, StructuralReviews } from '../../services/coordination';
 import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
@@ -112,6 +114,7 @@ interface ExternalToolsDeps {
     'readInstanceKnowledge' | 'compareAndSwapInstanceKnowledge'
   >;
   hostRequests: Pick<HostRequestsService, 'listForHost' | 'answer'>;
+  computeJobs: Pick<ComputeJobService, 'start' | 'get' | 'list'>;
 }
 
 /**
@@ -466,6 +469,25 @@ export class ExternalTools implements ExternalToolsHandler {
     return {
       operation: await this.deps.superOperations.operate(ctx.projectKey, request, this.access(ctx)),
     };
+  }
+
+  async runComputeJob(ctx: ExternalToolContext, args: Parameters<ExternalToolsHandler['runComputeJob']>[1]) {
+    try {
+      return await this.deps.computeJobs.start(ctx.actor, { projectKey: ctx.projectKey, ...args });
+    } catch (err) {
+      throw asToolError(err);
+    }
+  }
+
+  async getComputeJob(ctx: ExternalToolContext, args: { id: string }) {
+    return this.deps.computeJobs.get(ctx.projectKey, args.id);
+  }
+
+  async listComputeJobs(
+    ctx: ExternalToolContext,
+    args: Parameters<ExternalToolsHandler['listComputeJobs']>[1],
+  ) {
+    return this.deps.computeJobs.list(ctx.projectKey, args);
   }
 
   async getSuperOperation(ctx: ExternalToolContext, operationId: string) {

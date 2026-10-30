@@ -1,5 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GithubJobRunner } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
@@ -67,6 +69,49 @@ describe('the projectman-job workflow', () => {
       'if-no-files-found': 'error',
     });
     expect(uses('actions/checkout@')?.with?.['persist-credentials']).toBe(false);
+  });
+
+  describe('default branch step', () => {
+    const names = steps.map((step) => step.name ?? step.uses ?? '');
+    const check = steps.find((step) => step.name === 'Commit on the default branch')!;
+
+    it('comes after a full checkout and before the command runs', () => {
+      const checkout = steps.findIndex((step) => step.uses?.startsWith('actions/checkout@'));
+      expect(steps[checkout]?.with?.['fetch-depth']).toBe(0);
+      expect(names.indexOf('Commit on the default branch')).toBeGreaterThan(checkout);
+      expect(names.indexOf('Commit on the default branch')).toBeLessThan(names.indexOf('Run'));
+    });
+
+    describe('in a clone', () => {
+      const git = (cwd: string, ...args: string[]) =>
+        spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], {
+          cwd,
+          encoding: 'utf8',
+        });
+      const commitOf = (cwd: string) => git(cwd, 'rev-parse', 'HEAD').stdout.trim();
+      const runCheck = (cwd: string, commit: string) =>
+        spawnSync('bash', ['-e', '-c', check.run!], {
+          cwd,
+          env: { PATH: process.env['PATH'] ?? '', COMMIT: commit, DEFAULT_BRANCH: 'main' },
+          encoding: 'utf8',
+        });
+
+      it('lets a commit of the default branch through and refuses one that is not on it', () => {
+        const dir = mkdtempSync(path.join(tmpdir(), 'projectman-job-'));
+        try {
+          git(dir, 'init', '-q', '-b', 'main');
+          git(dir, 'commit', '-q', '--allow-empty', '-m', 'on main');
+          const onMain = commitOf(dir);
+          git(dir, 'update-ref', 'refs/remotes/origin/main', onMain);
+          git(dir, 'commit', '-q', '--allow-empty', '-m', 'only local');
+          const notOnMain = commitOf(dir);
+          expect(runCheck(dir, onMain).status).toBe(0);
+          expect(runCheck(dir, notOnMain).status).toBe(1);
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      });
+    });
   });
 
   describe('guard step', () => {

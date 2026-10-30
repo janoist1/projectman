@@ -898,6 +898,32 @@ describe('review_test_runner_github (PM-900)', () => {
   });
 });
 
+describe('compute_jobs_github (PM-1148)', () => {
+  const withJobs = (github: string | undefined) => (input: ProjectConfigInput) => {
+    const repo = input.project.repos[0]!;
+    repo.github = github;
+    repo.computeJobs = [
+      { id: 'cloud-image', command: 'npm run build', runsOn: 'ubuntu-24.04-arm', outputs: ['image.tar'] },
+    ];
+  };
+
+  it('reports compute jobs on a repository without a github owner/name', () => {
+    expect(issuesOf('compute_jobs_github', withJobs(undefined))).toEqual([
+      { code: 'compute_jobs_github', path: 'project.repos[0].computeJobs', detail: 'web' },
+    ]);
+  });
+
+  it('accepts compute jobs with a github owner/name and an empty list without one', () => {
+    expect(issuesOf('compute_jobs_github', withJobs('acme/web'))).toEqual([]);
+    expect(
+      issuesOf('compute_jobs_github', (input) => {
+        input.project.repos[0]!.github = undefined;
+        input.project.repos[0]!.computeJobs = [];
+      }),
+    ).toEqual([]);
+  });
+});
+
 describe('errors a stored configuration may keep', () => {
   it('tolerates the rules added after configurations were written, and nothing else', () => {
     const tolerated = [

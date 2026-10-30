@@ -197,9 +197,17 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     expect(existsSync(folder)).toBe(false);
   });
 
-  it('has no screenshot scope for a session without a folder, or one that only reads (PM-351)', async () => {
+  it('gives a session whose sandbox only reads the folder a scope that writes only the folder (PM-1202)', async () => {
     const { session } = await start({});
-    expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
+    const spec = h!.runner.lastStarted();
+    const folder = spec.policy!.filesystem.sessionFolder!;
+    const browsers = join(appHome, 'browsers');
+    const scope = h!.domain.sessions.screenshotScope(session.id)!;
+    expect(scope).toMatchObject({ cwd: spec.cwd, sessionDir: folder, browsersDir: browsers });
+    expect(scope.sandbox.allowWrite).toEqual([folder]);
+    expect(scope.sandbox.denyWrite).toContain(spec.cwd);
+    // The browsers are read although the session's own sandbox was not given them.
+    expect(scope.sandbox.allowRead).toEqual(expect.arrayContaining([spec.cwd, browsers]));
   });
 
   describe('take_screenshots and get_screenshot_run (PM-351)', () => {
@@ -259,14 +267,20 @@ describe('the session folder and the temporary directory of a Codex session (PM-
       },
     );
 
-    it('is forbidden for a session without a folder (read-only sandbox)', async () => {
-      const f = fake();
-      const { session } = await start({ screenshots: f.executor });
-      const ctx = { sessionId: session.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
-      const err = await rejection(tools().takeScreenshots(ctx, { scenario: 'a.mjs' }), TeamToolError);
-      expect(err.code).toBe('forbidden');
-      expect(f.specs).toHaveLength(0);
-    });
+    it.runIf(process.platform === 'darwin')(
+      'is forbidden for a read-only placement, naming the cause',
+      async () => {
+        const f = fake();
+        await start({ screenshots: f.executor });
+        const { session } = await h!.domain.sessions.ensureSession('AR', 'cr', task);
+        expect(h!.runner.lastStarted().policy!.access).toBe('read_only');
+        const ctx = { sessionId: session.id, projectKey: 'AR', member: 'cr', taskKey: 'AR-1' };
+        const err = await rejection(tools().takeScreenshots(ctx, { scenario: 'a.mjs' }), TeamToolError);
+        expect(err.code).toBe('forbidden');
+        expect(err.message).toContain('worktree or review copy');
+        expect(f.specs).toHaveLength(0);
+      },
+    );
 
     it('is forbidden when the server has no screenshot executor', async () => {
       const { session } = await start({ mode: 'acceptEdits' });
@@ -294,7 +308,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     expect(spec.policy!.permissions.sandbox).toBe('read-only');
     const folder = expectReadOnlyFolder(spec);
     expect(readdirSync(h!.sessionTmpDir!)).toEqual([]);
-    // Its commands do not write the folder, and the browser run is not for it.
+    // Its own commands do not write the folder; only the server's browser run does (the scope below).
     const { args } = buildCodexArgs({
       spec,
       hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
@@ -305,10 +319,10 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     const profile = args.find((arg) => arg.startsWith('permissions.projectman='))!;
     expect(profile).not.toContain(`"${folder}"="write"`);
     expect(args.join('\n')).toContain(`shell_environment_policy.set.PROJECTMAN_SESSION_DIR="${folder}"`);
-    expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
     await h!.runner.stop(session.id);
     await h!.domain.sessions.settleFolderRemovals();
     expect(existsSync(folder)).toBe(false);
+    expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
   });
 
   it('gives a plan-mode session a folder it only reads, and no tmp (PM-522)', async () => {
@@ -368,24 +382,17 @@ describe('the session folder and the temporary directory of a Codex session (PM-
       expect(existsSync(tmpDir!)).toBe(false);
     });
 
-    it('gives a default-mode session a folder it only reads, and may not take screenshots', async () => {
-      const executor: ScreenshotExecutor = {
-        run: () => Promise.resolve({ exitCode: 0, timedOut: false, aborted: false, output: '' }),
-      };
+    it('gives a default-mode session a folder it only reads, and a scope that writes only the folder', async () => {
       const { session } = await start({
-        screenshots: executor,
         adjust: (config) => {
           const dev = config.team.members.find((m) => m.handle === 'dev-1');
           if (dev?.kind === 'ai') dev.provider = 'nanogpt';
         },
       });
-      expectReadOnlyFolder(h!.runner.lastStarted());
-      const ctx = { sessionId: session.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
-      const err = await rejection(
-        h!.domain.teamTools.takeScreenshots(ctx, { scenario: 'a.mjs' }),
-        TeamToolError,
-      );
-      expect(err.code).toBe('forbidden');
+      const folder = expectReadOnlyFolder(h!.runner.lastStarted());
+      const scope = h!.domain.sessions.screenshotScope(session.id)!;
+      expect(scope.sandbox.allowWrite).toEqual([folder]);
+      expect(scope.sandbox.denyWrite).toContain(scope.cwd);
     });
 
     it('gives no folder to a writing session without a safe temporary root', async () => {

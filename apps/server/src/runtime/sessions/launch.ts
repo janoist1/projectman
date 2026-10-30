@@ -14,6 +14,7 @@ import {
   repoOf,
   routes,
   autoCompactWindowOf,
+  screenshotPlacement,
   usesCodexCli,
 } from '@projectman/shared';
 import type {
@@ -599,19 +600,29 @@ export class SessionLauncher {
     // The temporary directory is not made by `preparePortablePaths`: a recursive mkdir takes a path
     // that exists (a link). `make` makes it new, with the folder.
     await this.preparePortablePaths(engine, sandbox?.portable?.allowWrite);
-    // Only where the sandbox writes the folder: a read-only Codex or NanoGPT sandbox and Gemini take no screenshots.
-    if (sandboxWritesFolder && sessionFolder && sandbox && policy.access === 'task_worktree') {
-      const browsers = sandbox.env?.[BROWSERS_PATH_VARIABLE];
+    // A session in a checkout of the card (worktree or review copy) with a folder of its own, on Claude or a
+    // Codex CLI sandbox (Gemini takes none, PM-522). A reading sandbox does not write the folder: the run
+    // then writes only the folder, never the checkout (PM-1202).
+    if (
+      sessionFolder &&
+      sandbox &&
+      screenshotPlacement(policy.access) &&
+      (provider === 'claude' || usesCodexCli(provider))
+    ) {
+      const browsers = sandbox.env?.[BROWSERS_PATH_VARIABLE] ?? paths.browsersDir ?? undefined;
       this.screenshotScopes.set(sessionId, {
         cwd,
         sessionDir: sessionFolder,
         ...(browsers ? { browsersDir: browsers } : {}),
         sandbox: {
-          allowWrite: [...sandbox.allowWrite],
-          denyWrite: [...(sandbox.denyWrite ?? [])],
+          allowWrite: sandboxWritesFolder ? [...sandbox.allowWrite] : [sessionFolder],
+          denyWrite: sandboxWritesFolder
+            ? [...(sandbox.denyWrite ?? [])]
+            : [...new Set([...(sandbox.denyWrite ?? []), cwd])],
           denyRead: [...(sandbox.denyRead ?? [])],
-          // The run reads the worktree it runs in, whatever the home's closure says.
-          allowRead: [...new Set([cwd, ...(sandbox.allowRead ?? [])])],
+          // The run reads the checkout it runs in, whatever the home's closure says; the browsers too, which
+          // a reading session's own sandbox may not have been given.
+          allowRead: [...new Set([cwd, ...(sandbox.allowRead ?? []), ...(browsers ? [browsers] : [])])],
         },
       });
     }

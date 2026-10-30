@@ -796,6 +796,74 @@ describe('buildCodexArgs', () => {
     });
   });
 
+  describe("the outbound network through Codex's proxy (PM-1172)", () => {
+    const withNetwork = (
+      sandboxMode: 'read-only' | 'workspace-write',
+      outbound?: 'open' | 'allowlist',
+    ): NonNullable<StartSessionSpec['policy']> => ({
+      version: 1,
+      enforcement: 'legacy',
+      access: 'task_worktree',
+      placement: { kind: 'task_worktree', path: '/work' },
+      tools: { team: { all: true, names: [] }, files: [], shell: [] },
+      filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
+      deniedOperations: [],
+      network: {
+        allowedDomains: [],
+        allowLocalBinding: false,
+        deniedHosts: ['localhost', '127.0.0.1'],
+        ...(outbound ? { outbound } : {}),
+      },
+      outsideSandbox: 'ask',
+      permissions: { claude: 'acceptEdits', sandbox: sandboxMode, approval: 'on-request' },
+    });
+    const build = (
+      policy: NonNullable<StartSessionSpec['policy']>,
+      platform: NodeJS.Platform,
+    ): { args: string[]; c: Map<string, string> } => {
+      const { args } = buildCodexArgs({ ...input, spec: { ...spec, policy }, platform });
+      return { args, c: overrides(args) };
+    };
+
+    it.each(['workspace-write', 'read-only'] as const)(
+      'adds the proxy and a network part to the %s profile on macOS, leaving the file rules alone',
+      (mode) => {
+        const open = build(withNetwork(mode, 'open'), 'darwin');
+        const off = build(withNetwork(mode, 'allowlist'), 'darwin');
+        const profile = open.c.get('permissions.projectman')!;
+        expect(open.c.get('features.network_proxy')).toBe('true');
+        expect(profile).toContain(
+          'network={enabled=true,domains={"*"="allow",localhost="deny","127.0.0.1"="deny"}}',
+        );
+        for (const forbidden of ['mode', 'unix_sockets', 'allow_local_binding', 'proxy_url'])
+          expect(profile).not.toContain(forbidden);
+        // Everything but the network part is the profile of a closed network.
+        expect(profile.replace(/,network=\{.*\}\}$/, '}')).toBe(off.c.get('permissions.projectman'));
+      },
+    );
+
+    it('never sets the proxy without the network part, nor the network part without the proxy', () => {
+      for (const [policy, platform] of [
+        [withNetwork('workspace-write', 'open'), 'darwin'],
+        [withNetwork('workspace-write', 'open'), 'linux'],
+        [withNetwork('workspace-write', 'allowlist'), 'darwin'],
+        [withNetwork('workspace-write'), 'darwin'],
+      ] as const) {
+        const { c } = build(policy, platform);
+        expect(c.has('features.network_proxy')).toBe(c.get('permissions.projectman')!.includes('network='));
+      }
+    });
+
+    it.each([
+      ['a closed network on macOS', withNetwork('workspace-write', 'allowlist'), 'darwin'],
+      ['an open network on Linux', withNetwork('workspace-write', 'open'), 'linux'],
+    ] as const)('leaves the command line as it was for %s', (_name, policy, platform) => {
+      // A policy without the `outbound` field is the command line from before the setting existed.
+      const { outbound: _outbound, ...network } = policy.network;
+      expect(build(policy, platform).args).toEqual(build({ ...policy, network }, platform).args);
+    });
+  });
+
   it('never turns off the sandbox or the questions, even for bypassPermissions, and passes a Codex model', () => {
     const args = buildCodexArgs({
       ...input,

@@ -2297,6 +2297,14 @@ assumption or remote-engine RPC.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
   the adapter's Codex home denied (PM-356).
+  PM-1172: with the outbound network on, a macOS engine and not a NanoGPT member, the profile also
+  carries Codex's `network` part and `features.network_proxy=true`. Codex's network proxy runs on
+  the engine, on its own loopback port per session; the denied hosts are the engine's own loopback,
+  private and link-local addresses (the hook and MCP listeners among them) and the Unix sockets
+  (the `control.sock` among them) stay closed. Verified on macOS 14.6 arm64 with codex-cli 0.159.1
+  only; on a Linux engine (bubblewrap, seccomp) the runner leaves the network closed, because no
+  probe covers it. `SessionPolicy` crosses to the engine as data in `session.start`; the platform
+  guard decides on the engine.
   PM-360 adds the shared `SessionReadBoundary` schema and optional
   `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. Under the owner's
   2026-10-26 scope decision, developer runtime paths do not automatically populate it:

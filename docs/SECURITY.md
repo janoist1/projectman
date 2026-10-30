@@ -158,6 +158,12 @@ tenants into separate OS accounts or machines.
   `sensitivePaths` (PM-324). Environment delivery (PM-329) is restricted to NanoGPT
   sessions. The local Codex/NanoGPT permission profile denies these paths to sandboxed
   commands as well (PM-356); explicitly approved host commands remain outside that boundary.
+  A Codex member with the outbound network on (the default, macOS engine, PM-1172) can send the
+  working copy's content out through Codex's network proxy. Reading the secrets stays denied
+  (PM-356), and the proxy refuses the loopback, private and link-local addresses; Unix sockets are
+  closed too (PM-1172 probe, `docs/SANDBOX-PROBE.md`). A NanoGPT member stays without network, because
+  its commands may see the Codex process's environment, the key included, until a canary probe
+  shows otherwise.
   The adapter excludes the key from
   member shell environments, disables Codex notification commands, and rejects ambient
   configuration that can override provider, permissions, hooks or MCP servers before

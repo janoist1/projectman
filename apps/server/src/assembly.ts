@@ -7,6 +7,7 @@ import {
   AttachmentTools,
   MergeTools,
   ReleaseTools,
+  ComputeJobTools,
   ToolCaller,
   GithubTools,
   ScreenshotTools,
@@ -149,6 +150,7 @@ import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
 import { createPermissionBroker, engineIdOf, fullTestSandbox, StartHolds } from './runtime/sessions';
 import { ReleasePublishService } from './services/releases';
+import { ComputeJobService } from './services/compute-jobs';
 import { LoopWatch } from './runtime/watchers';
 import { HumanQuestions, OpenQuestionLabel } from './core/inbox';
 import { ApprovalQuestions } from './core/inbox';
@@ -1238,6 +1240,7 @@ export function createDomain(opts: DomainOptions) {
     // The repository is where the publishing member works.
     engineId: (projectKey, member) => engines.engineFor(projectKey, member) ?? LOCAL_ENGINE_ID,
   });
+  const computeJobs = new ComputeJobService({ ctx, projects, tasks, timeline, engines });
 
   // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
   const feedbackNotices = new FeedbackNotices({ ctx, projects, messaging });
@@ -1627,6 +1630,7 @@ export function createDomain(opts: DomainOptions) {
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
       releases: new ReleaseTools({ calls: toolCaller, publications: releasePublications }),
+      computeJobs: new ComputeJobTools({ calls: toolCaller, jobs: computeJobs }),
       tasks: new TaskTools({
         calls: toolCaller,
         ctx,
@@ -2294,6 +2298,7 @@ export function createDomain(opts: DomainOptions) {
     docWrites,
     decisionCandidates,
     releasePublications,
+    computeJobs,
     loopWatch,
     questionScreening,
     seniorDecisions,
@@ -2366,6 +2371,7 @@ export function createDomain(opts: DomainOptions) {
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
       // and the pins that still need one are queued, before the hand-overs that wait for them come back.
       await fullTests.init();
+      computeJobs.init();
       // The Operator's document writes the last server left are resumed before the merges queue starts.
       await docWrites.init();
       await merges.init();
@@ -2562,6 +2568,7 @@ export function createDomain(opts: DomainOptions) {
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
+      computeJobs.stop();
       await docWrites.stop();
       await merges.stop();
       await screenshotRuns?.stop();
@@ -2611,6 +2618,7 @@ export function createDomain(opts: DomainOptions) {
         history,
         operatorKnowledge: opts.operatorKnowledge,
         hostRequests,
+        computeJobs,
       }).backend();
     },
 

@@ -241,6 +241,7 @@ const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
   owners: 'member',
   permissions: 'member',
   review_test: 'repos',
+  compute_jobs: 'repos',
   operator_watch: 'project',
   operator_approval_waiver: 'project',
 };

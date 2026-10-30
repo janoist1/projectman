@@ -229,6 +229,12 @@ modules:
     summary: A teljes tesztek és a képernyőkép-futtatások vezénylése.
     paths:
       - apps/server/src/services/full-tests/
+  - id: services/compute-jobs
+    area: service
+    name: Gépi feladatok
+    summary: A projekt gépi feladatainak indítása a GitHubon, futásrekorddal és a kártyára írt jegyzettel.
+    paths:
+      - apps/server/src/services/compute-jobs/
   - id: services/releases
     area: service
     name: Kiadások

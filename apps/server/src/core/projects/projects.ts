@@ -131,6 +131,7 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   owners: 'only an owner may change who is an owner',
   permissions: 'only an owner may change the permission mode or the approver of an AI member',
   review_test: 'only an owner may change the full test of a repository',
+  compute_jobs: 'only an owner may change the compute jobs of a repository',
   operator_watch: 'only an owner may change how much the Operator does on its own on a signal',
   operator_approval_waiver: 'only an owner may change the Operator approval waiver',
   task_create_access: 'only an owner may change who may open new cards',

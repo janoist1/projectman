@@ -186,6 +186,14 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   call finishes an interrupted publication; a commit that is published already, a taken tag, a repository without
   `github` and a caller without the duty are refused (`release_*` codes). `cloud deploy` is
   unchanged. Handler method: `publishRelease(ctx, args)`.
+- `run_compute_job { job, commit, repo?, force?, task_key? }`, `get_compute_job { id }` and
+  `list_compute_jobs { repo?, job?, limit? }` (PM-1148) are the deployment duty holder's tools (the integrator in super
+  mode starts, super and read mode read). `run_compute_job` starts a job the repository's `computeJobs` declare on
+  GitHub Actions, through the project's engine, on a commit that is on the remote default branch, and answers with the
+  queued run at once; the run row follows it, and `task_key` gets a note at its end. The same commit's live run or
+  artifact is returned unless `force`; at most two runs go at a time (`compute_job_busy`); an unknown job and an
+  unpublished commit are refused (`compute_job_*` codes). Handler methods: `runComputeJob`, `getComputeJob`,
+  `listComputeJobs` (members and the integrator).
 - `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
   (PM-495) are Operator tools for the decision log and the roadmap: the first reads the file at the fresh head of
   the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text

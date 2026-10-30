@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ComplexityPoints, DEFAULT_TEMP_MAX_POINTS } from '../domain/complexity';
+import { ComputeJobDefinitions, GITHUB_REPO_PATTERN } from '../domain/compute-job';
 import { DutyId } from '../domain/duty';
 import { LabelId } from '../domain/label';
 import { AgentEffort, CheapSubagentModel } from '../domain/member';
@@ -394,11 +395,13 @@ export const RepoConfig = z.object({
   /** Path relative to the workspace root ("." for the root itself). */
   path: z.string(),
   /** GitHub "owner/name", if the repo is on GitHub. */
-  github: z
-    .string()
-    .regex(/^[\w.-]+\/[\w.-]+$/)
-    .optional(),
+  github: z.string().regex(GITHUB_REPO_PATTERN).optional(),
   defaultBranch: z.string().default('main'),
+  /**
+   * The compute jobs (GitHub Actions) the hub may start for this repository (PM-1148); only with `github`.
+   * The engine also registers them in its `engine.json` and refuses a request that differs, value for value.
+   */
+  computeJobs: ComputeJobDefinitions.optional(),
   /**
    * The full test the server runs on the pinned commit before a task is reviewed (PM-217), in a
    * sandbox of its own with PTYs. Absent: the feature is off for this repository.

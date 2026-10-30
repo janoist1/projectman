@@ -61,6 +61,7 @@ import type {
   ExternalDocWriteState,
   ExternalQuestionRead,
   StructuralReviewResult,
+  ComputeJobRunView,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -621,6 +622,32 @@ export interface ReleaseToolsHandler {
   publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease>;
 }
 
+/** What run_compute_job takes (PM-1148). */
+export interface RunComputeJobArgs {
+  job: string;
+  commit: string;
+  repo?: string;
+  force?: boolean;
+  taskKey?: string;
+}
+
+/** What list_compute_jobs takes (PM-1148). */
+export interface ListComputeJobsArgs {
+  repo?: string;
+  job?: string;
+  limit?: number;
+}
+
+/** The tools of services/compute-jobs (PM-1148). */
+export interface ComputeJobToolsHandler {
+  /** run_compute_job: starts a job of the repository settings on GitHub Actions; answers with the queued run at once. */
+  runComputeJob(ctx: ToolContext, args: RunComputeJobArgs): Promise<ComputeJobRunView>;
+  /** get_compute_job: one run of the project. */
+  getComputeJob(ctx: ToolContext, args: { id: string }): Promise<ComputeJobRunView>;
+  /** list_compute_jobs: the project's runs, newest first. */
+  listComputeJobs(ctx: ToolContext, args: ListComputeJobsArgs): Promise<ComputeJobRunView[]>;
+}
+
 /** The tools of services/email-channel (PM-941). */
 export interface EmailToolsHandler {
   sendEmail(
@@ -683,6 +710,7 @@ export interface TeamToolsHandler
     GithubToolsHandler,
     ScreenshotToolsHandler,
     ReleaseToolsHandler,
+    ComputeJobToolsHandler,
     EmailToolsHandler,
     HostRequestToolsHandler,
     OperatorToolsHandler,
@@ -1176,6 +1204,10 @@ export interface ExternalToolsHandler {
     request: SuperOperateRequest,
   ): Promise<{ operation: SuperOperation }>;
   getSuperOperation(ctx: ExternalToolContext, operationId: string): Promise<SuperOperationDetail>;
+  /** run_compute_job (PM-1148): the same as the member tool, as the integrator or the Operator. */
+  runComputeJob(ctx: ExternalToolContext, args: RunComputeJobArgs): Promise<ComputeJobRunView>;
+  getComputeJob(ctx: ExternalToolContext, args: { id: string }): Promise<ComputeJobRunView>;
+  listComputeJobs(ctx: ExternalToolContext, args: ListComputeJobsArgs): Promise<ComputeJobRunView[]>;
   querySuperDiagnostics(
     ctx: ExternalToolContext,
     request: SuperDiagnosticsRequest,

@@ -284,7 +284,8 @@ describe('operator_signals migration', () => {
   it('carries every signal row over untouched, cancels the old stall alerts and leaves pm_told_at empty (PM-1152)', () => {
     const db = new Database(':memory:');
     try {
-      const before = migrations.filter((item) => item.version < LATEST_SCHEMA_VERSION);
+      // Migration 132 (PM-1152) is the one under test: stop right before it, whatever comes later.
+      const before = migrations.filter((item) => item.version < 132);
       for (const migration of before) db.exec(migration.sql);
       db.pragma(`user_version = ${Math.max(...before.map((item) => item.version))}`);
       db.exec(

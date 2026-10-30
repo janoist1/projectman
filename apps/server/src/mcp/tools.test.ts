@@ -190,7 +190,7 @@ describe('tool audience', () => {
       ...developerAudience,
       duties: new Set(holdsDuty ? ['deployment'] : []),
     });
-    for (const name of ['publish_release']) {
+    for (const name of ['publish_release', 'run_compute_job', 'get_compute_job', 'list_compute_jobs']) {
       expect(result.tools.some((tool) => tool.name === name)).toBe(holdsDuty);
     }
   });
@@ -350,6 +350,7 @@ describe('team tool registration', () => {
       'runtime/sessions': ['get_guide', 'set_current_work'],
       'core/members': ['list_members', 'save_memory'],
       'services/releases': ['publish_release'],
+      'services/compute-jobs': ['run_compute_job', 'get_compute_job', 'list_compute_jobs'],
       'core/tasks': ['list_tasks', 'get_task', 'update_task', 'create_task'],
       'core/attachments': [
         'list_attachments',

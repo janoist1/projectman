@@ -16,6 +16,7 @@ import type {
   FeedbackToolsHandler,
   GithubToolsHandler,
   ReleaseToolsHandler,
+  ComputeJobToolsHandler,
   OperatorToolsHandler,
   ProjectDocToolsHandler,
   SystemFeedbackToolsHandler,
@@ -28,6 +29,8 @@ import type {
   MessageAttachmentReading,
   PublishedRelease,
   PublishReleaseArgs,
+  ListComputeJobsArgs,
+  RunComputeJobArgs,
   ScreenshotRun,
   MemberStartResult,
   TakeScreenshotsInput,
@@ -105,6 +108,7 @@ export class TeamToolsService implements TeamToolsHandler {
     github: GithubToolsHandler;
     screenshots: ScreenshotToolsHandler;
     releases: ReleaseToolsHandler;
+    computeJobs: ComputeJobToolsHandler;
     operator: OperatorToolsHandler;
     projectDocs: ProjectDocToolsHandler;
     systemFeedback: SystemFeedbackToolsHandler;
@@ -169,6 +173,7 @@ export class TeamToolsService implements TeamToolsHandler {
       github: GithubToolsHandler;
       screenshots: ScreenshotToolsHandler;
       releases: ReleaseToolsHandler;
+      computeJobs: ComputeJobToolsHandler;
       operator: OperatorToolsHandler;
       projectDocs: ProjectDocToolsHandler;
       systemFeedback: SystemFeedbackToolsHandler;
@@ -352,6 +357,18 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease> {
     return this.tools.releases.publishRelease(ctx, args);
+  }
+
+  async runComputeJob(ctx: ToolContext, args: RunComputeJobArgs) {
+    return this.tools.computeJobs.runComputeJob(ctx, args);
+  }
+
+  async getComputeJob(ctx: ToolContext, args: { id: string }) {
+    return this.tools.computeJobs.getComputeJob(ctx, args);
+  }
+
+  async listComputeJobs(ctx: ToolContext, args: ListComputeJobsArgs) {
+    return this.tools.computeJobs.listComputeJobs(ctx, args);
   }
 
   async updateTask(

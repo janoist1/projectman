@@ -2672,4 +2672,22 @@ migrations.push({
         json_extract(payload, '$.alert') = 'work_stalled'
         OR (json_extract(payload, '$.alert') = 'refinement' AND json_extract(payload, '$.reason') = 'stalled'));`,
 });
+migrations.push({
+  version: 133,
+  name: 'compute job runs',
+  // PM-1148: one row per run of a repository's compute job (a GitHub Actions workflow run started through the
+  // `run_compute_job` team tool). A new table; no existing row is touched.
+  sql: `CREATE TABLE compute_job_runs (
+      id TEXT NOT NULL PRIMARY KEY, project_key TEXT NOT NULL REFERENCES projects(key),
+      repo TEXT NOT NULL, job_id TEXT NOT NULL, commit_sha TEXT NOT NULL,
+      runner TEXT NOT NULL CHECK (runner IN ('github_actions','engine')),
+      status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed','error','cancelled')),
+      reason TEXT, requested_by TEXT NOT NULL, task_key TEXT REFERENCES tasks(key),
+      created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT,
+      queued_ms INTEGER, duration_ms INTEGER, billable_ms INTEGER,
+      external_url TEXT, output_tail TEXT, outputs_json TEXT, artifact_name TEXT, artifact_expires_at TEXT
+    );
+    CREATE INDEX compute_job_runs_key ON compute_job_runs(project_key, repo, job_id, commit_sha);
+    CREATE INDEX compute_job_runs_status ON compute_job_runs(status);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

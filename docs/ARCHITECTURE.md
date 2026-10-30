@@ -776,6 +776,7 @@ A module's detailed behaviour lives in its own file under [modules/](modules/), 
 - [`services/super-operator`](modules/services-super-operator.md) — super mode: owner-bound operations, the
   external MCP endpoint, diagnostics
 - [`services/releases`](modules/services-releases.md) — release publication and the running version
+- [`services/compute-jobs`](modules/services-compute-jobs.md) — compute jobs on GitHub Actions: setting, run record, tools (PM-1148)
 - [`scripts`](modules/scripts.md) — the heavy-run queue (PM-332)
 
 Machine-dependent parts (local paths, processes, sockets, accounts, OS features) are inventoried in

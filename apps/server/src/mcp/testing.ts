@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  ComputeJobRunView,
   DutyId,
   FeedbackMarkDetail,
   MemberView,
@@ -186,6 +187,31 @@ function event(
   };
 }
 
+function fakeComputeJobRun(job: string, commit: string, id = 'job_fake'): ComputeJobRunView {
+  return {
+    id,
+    projectKey: 'FAKE',
+    repo: 'fake',
+    job,
+    commit,
+    runner: 'github_actions',
+    status: 'queued',
+    reason: null,
+    requestedBy: 'fake',
+    taskKey: null,
+    createdAt: '2026-10-30T10:00:00.000Z',
+    startedAt: null,
+    finishedAt: null,
+    queuedMs: null,
+    durationMs: null,
+    billableMs: null,
+    externalUrl: null,
+    outputTail: null,
+    outputs: [],
+    artifact: null,
+  };
+}
+
 export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
   const calls: RecordedCall[] = [];
   const failures = new Map<Method, Error | 'hang'>();
@@ -308,6 +334,18 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         url: args.preview ? null : `https://github.com/fake/fake/releases/tag/${tag}`,
         tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
       };
+    },
+    async runComputeJob(ctx, args) {
+      await enter('runComputeJob', ctx, args);
+      return fakeComputeJobRun(args.job, args.commit);
+    },
+    async getComputeJob(ctx, args) {
+      await enter('getComputeJob', ctx, args);
+      return fakeComputeJobRun('fake-job', '0'.repeat(40), args.id);
+    },
+    async listComputeJobs(ctx, args) {
+      await enter('listComputeJobs', ctx, args);
+      return [];
     },
     async getRoleConfiguration(ctx, args) {
       await enter('getRoleConfiguration', ctx, args);

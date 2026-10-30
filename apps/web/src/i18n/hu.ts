@@ -1642,6 +1642,9 @@ export const hu = {
       release_already_published: 'Ezt a commitot már kiadták.',
       release_tag_taken: 'Ez a címke már egy másik commitra mutat.',
       release_publish_failed: 'A címke vagy a GitHub-kiadás nem készült el.',
+      compute_job_unknown: 'A repóhoz nincs ilyen gépi feladat beállítva.',
+      compute_job_busy: 'Már fut két gépi feladat; várj, amíg valamelyik befejeződik.',
+      compute_job_commit_unpublished: 'A commit nincs a GitHub alapágán.',
       release_deployment_conflict: 'A kiadás telepítését egy másik kísérlet vagy kérés tartja.',
       release_target_mismatch: 'A kiadás célja nem az, amire ez a példány be van kötve.',
       release_pause_conflict: 'A példányt egy másik szüneteltetés tartja.',
@@ -6945,6 +6948,7 @@ export const hu = {
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
       review_test_runner_github:
         'A GitHub Actions futtatóhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
+      compute_jobs_github: 'A gépi feladatokhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
     },
     problems: {
       count: '{n} hiba van a mentett beállításokban.',

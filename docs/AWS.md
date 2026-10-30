@@ -49,7 +49,20 @@ An engine starts this job (PM-1147) only when the owner has registered it in the
 ]
 ```
 
-Start it for the accepted full SHA (the `run_id` is `manual-<first 8 of the SHA>-<time>`):
+The hub knows the same job from the repository settings: the owner sets the values above with a `repoComputeJobs`
+patch (`computeJobs` of the repository, which needs a `github` owner/name). Start it for the accepted full SHA
+with the team tool, as a member with the `deployment` duty or through the owner's integrator:
+
+```
+run_compute_job job=cloud-image commit=<SHA40> [task_key=<card>] [force=true]
+get_compute_job id=<run id>
+```
+
+The commit must already be on the remote default branch (the workflow also refuses any other commit). The hub
+records the run (state, times, GitHub run link, billable time, the outputs' digests, the artifact, the log tail)
+and puts a note on the card at its end; a live run or artifact of the same commit is returned instead of a new
+one unless `force`. Without the tool, start it by hand for the accepted full SHA (the `run_id` is
+`manual-<first 8 of the SHA>-<time>`):
 
 ```sh
 SHA=<SHA40>

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  COMPUTE_JOB_COMMAND_MAX,
+  COMPUTE_JOB_TIMEOUT_MINUTES_MAX,
+  ComputeJobDefinition,
+  ComputeJobDefinitions,
   ComputeJobId,
   ComputeJobOutputPath,
   ComputeJobRunId,
@@ -55,5 +59,32 @@ describe('compute job patterns', () => {
   ])('accepts and refuses the edge cases', (schema, good, bad) => {
     for (const value of good) expect(schema.safeParse(value).success, value).toBe(true);
     for (const value of bad) expect(schema.safeParse(value).success, value).toBe(false);
+  });
+});
+
+describe('compute job definitions', () => {
+  const job = (over: object = {}) => ({
+    id: 'cloud-image',
+    command: 'npm run build',
+    runsOn: 'ubuntu-24.04-arm',
+    outputs: ['image.tar'],
+    ...over,
+  });
+
+  it('defaults the time limit and refuses duplicate ids', () => {
+    expect(ComputeJobDefinitions.parse([job()])[0]?.timeoutMinutes).toBe(60);
+    expect(ComputeJobDefinitions.safeParse([job(), job()]).success).toBe(false);
+    expect(ComputeJobDefinitions.safeParse([job(), job({ id: 'other' })]).success).toBe(true);
+  });
+
+  it.each([
+    ['a command over the limit', { command: 'x'.repeat(COMPUTE_JOB_COMMAND_MAX + 1) }],
+    ['a three-digit node version', { node: '100' }],
+    ['a time limit over six hours', { timeoutMinutes: COMPUTE_JOB_TIMEOUT_MINUTES_MAX + 1 }],
+    ['an unknown runner', { runsOn: 'self-hosted' }],
+    ['no outputs', { outputs: [] }],
+    ['an unknown key', { extra: 1 }],
+  ])('refuses %s', (_name, change) => {
+    expect(ComputeJobDefinition.safeParse(job(change)).success).toBe(false);
   });
 });

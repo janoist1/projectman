@@ -505,6 +505,7 @@ export const hu = {
     titleMany: 'Motorok',
     none: 'Nincs motor',
     noDefault: 'Nincs alapértelmezett motor',
+    noProjectEngine: 'Nincs motor a projekthez',
     offlineSuffix: 'nem elérhető',
     /** The accessible name of the top bar button. */
     labelOnline: 'Motor: {name}, csatlakozva. Részletek',
@@ -512,6 +513,7 @@ export const hu = {
     labelOfflineUnknown: 'Motor: {name}, nem elérhető. Részletek',
     labelNone: 'Nincs motor: az AI-munka vár. Részletek',
     labelNoDefault: 'Nincs alapértelmezett motor: az új AI-munka vár. Részletek',
+    labelNoProjectEngine: 'Nincs motor a projekthez: az új AI-munka vár. Részletek',
     defaultChip: 'alapértelmezett',
     defaultChipCap: 'Alapértelmezett',
     online: 'Csatlakozva',
@@ -526,6 +528,9 @@ export const hu = {
     panelNoDefault: 'Nincs alapértelmezett motor, ezért az új AI-munka vár.',
     panelPickOwner: 'Jelölj ki egyet a Beállításokban.',
     panelPickMember: 'A tulajdonos jelölhet ki egyet.',
+    panelNoProjectEngine: 'Ehhez a projekthez nincs motor kötve, ezért az új AI-munka vár.',
+    panelBindOwner: 'Köss hozzá egyet a Beállításokban.',
+    panelBindMember: 'A projekt tulajdonosa köthet hozzá egyet.',
     panelWaiting: 'Ami rá vár, magától elindul, amint újra csatlakozik.',
     panelManage: 'Motorok kezelése',
     /** The work on an engine (the owner's counts). */

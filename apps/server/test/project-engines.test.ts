@@ -97,6 +97,20 @@ describe('the engines of a project', () => {
     expect(registry.projectEngine('AR')).toBe(engA);
   });
 
+  it("tells each viewer where their projects' new sessions go, without the host's global default (PM-1093)", async () => {
+    const projectEngines = async (who: string) =>
+      ((await inject(h.app, 'GET', routes.engineStatus(), who)).json() as { projectEngines?: unknown })
+        .projectEngines;
+    // Unbound, the project falls back to the host's global default, which its owner is.
+    expect(await projectEngines(cookie)).toEqual({ AR: engA, BR: engA });
+    const patEngine = registry.create('Pat Mac', 'usr_pat').engine.id;
+    registry.setDefault(registry.create('Dev box', 'usr_dev1').engine.id);
+    // The global default is now a stranger's: unbound projects have no engine; a bound one has its own.
+    await put('AR', patEngine, patCookie);
+    expect(await projectEngines(patCookie)).toEqual({ AR: patEngine });
+    expect(await projectEngines(cookie)).toEqual({ AR: patEngine, BR: null });
+  });
+
   it('does not move a project off its revoked base engine, and the owner picks a new base', async () => {
     await put('AR', engA);
     await put('AR', engB);

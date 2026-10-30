@@ -1,4 +1,4 @@
-import type { EngineStatusView, EngineView } from '@projectman/shared';
+import type { EngineStatusResponse, EngineStatusView, EngineView } from '@projectman/shared';
 import { formatAgo } from '../../i18n/format';
 import { t } from '../../i18n/t';
 
@@ -19,6 +19,30 @@ export function defaultEngine<T extends Pick<EngineStatusView, 'isDefault'>>(
 /** The default engine first, then the order the server gave. */
 export function defaultFirst<T extends Pick<EngineStatusView, 'isDefault'>>(engines: readonly T[]): T[] {
   return [...engines].sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
+}
+
+/**
+ * The engine of this project's new sessions (PM-1093). `source: 'project'`: the server answered for the
+ * project (main null = nothing can take its work); `'default'`: an older server or a missing key, so the
+ * global default as before.
+ */
+export function projectMainEngine(
+  status: EngineStatusResponse,
+  projectKey: string,
+): { main: EngineStatusView | null; source: 'project' | 'default' } {
+  const projectEngines = status.projectEngines;
+  if (!projectEngines || !(projectKey in projectEngines))
+    return { main: defaultEngine(status.engines), source: 'default' };
+  const id = projectEngines[projectKey];
+  return { main: status.engines.find((engine) => engine.id === id) ?? null, source: 'project' };
+}
+
+/** The main engine first, the rest in their order. */
+export function mainFirst<T extends Pick<EngineStatusView, 'id'>>(
+  engines: readonly T[],
+  mainId: string | null,
+): T[] {
+  return [...engines].sort((a, b) => Number(b.id === mainId) - Number(a.id === mainId));
 }
 
 /** Engine names by id, for texts that name the engine a card waits for. */

@@ -185,6 +185,11 @@ export class EngineRegistry {
     });
   }
 
+  /** Where each of these projects' new sessions go (PM-1093); the same rule the admission uses. */
+  projectEnginesOf(projectKeys: readonly string[]): Record<string, EngineId | null> {
+    return Object.fromEntries(projectKeys.map((key) => [key, this.projectEngine(key)]));
+  }
+
   /** The project's engine (`projectEngine`) reported the project in its hello (PM-1069); online or not. */
   projectEngineHolds(projectKey: string): boolean {
     const id = this.projectEngine(projectKey);

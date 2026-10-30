@@ -72,7 +72,7 @@ export function createDocFiles(options: DocFileOptions): Pick<BranchMerger, 'rea
     if (!isMergeMessage(input.message) || input.message.trim().length === 0)
       invalidInput('Not a commit message');
     if (!isCommitFileSet(input.files))
-      invalidInput('Not a set of 1 to 2 different files inside the repository, each text under 1 MiB');
+      invalidInput('Not a set of 1 to 2 different project documents, each text under 1 MiB');
     await requireCommit(repo, onto, 'The base commit');
     const identity = await identityOf(repo);
     // The index is a file of its own in a temporary directory: the repository's index, refs and working tree stay as they are.

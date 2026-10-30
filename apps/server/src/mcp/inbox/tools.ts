@@ -32,7 +32,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
       description:
         'Ask a human for a decision or information you cannot find or decide yourself. The answer arrives ' +
         'later as a team message: do not wait or poll; continue with independent work or end your turn. The ' +
-        'Operator screens it first (within 10 minutes) and tells you what became of it.',
+        "team's coordinating member screens it first (within 10 minutes) and tells you what became of it.",
       input: {
         question: z
           .string()
@@ -121,7 +121,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .max(100)
           .optional()
           .describe(
-            'Only when the Operator answered, forwarded or closed your earlier question and you still need a ' +
+            "Only when the team's coordinating member answered, forwarded or closed your earlier question and you still need a " +
               "person's answer: its id. The new one goes to the people unscreened; needs reask_reason.",
           ),
         reask_reason: z

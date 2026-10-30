@@ -29,6 +29,27 @@ function migrate(config: unknown) {
 }
 
 describe('project configuration migrations', () => {
+  it('drops and logs invalid document paths while keeping valid Markdown documents', () => {
+    const legacy = {
+      ...raw(),
+      project: {
+        ...testConfig().project,
+        repos: [
+          { name: 'web', path: '.', docs: { decisions: '.github/x.md', roadmap: 'docs/R.md' } },
+          { name: 'api', path: 'api', docs: { lessons: 'CLAUDE.md' } },
+        ],
+      },
+    };
+    const { config, warn } = migrate(legacy);
+    expect(config.project.repos[0]!.docs).toEqual({ roadmap: 'docs/R.md' });
+    expect(config.project.repos[1]).not.toHaveProperty('docs');
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', repo: 'web', doc: 'decisions' },
+      expect.any(String),
+    );
+    expect(warn).toHaveBeenCalledWith({ projectKey: 'AR', repo: 'api', doc: 'lessons' }, expect.any(String));
+    expect(migrate(config).warn).not.toHaveBeenCalled();
+  });
   it('gives a configuration without its stored team settings their defaults', () => {
     const legacy = raw();
     for (const key of Object.keys(storedTeamDefaults())) delete legacy.team[key];

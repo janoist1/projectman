@@ -376,6 +376,10 @@ describe('the project manager screens AI members’ questions', () => {
       expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
       const added = typedInto(devSession).slice(before).join('\n');
       expect(added).toContain('Use Inter.');
+      const answer = h.repos.messages
+        .list('AR', { between: ['pm', dev.member] })
+        .find((message) => message.body.includes('Use Inter.'));
+      expect(answer?.body).toContain('pm');
       expect(added).toContain('reask_of');
       expect(timelineOf('question_screened')[0]?.data).toMatchObject({
         inboxItemId,

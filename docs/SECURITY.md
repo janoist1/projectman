@@ -27,6 +27,9 @@ tenants into separate OS accounts or machines.
 
 ## Protection
 
+- Human chat input and delivered messages neutralize forged team-message header lines with `> `
+  (PM-417, PM-463). The web PTY terminal is a raw channel: direct typing there is not neutralized.
+
 - Engine machine keys (PM-313) start with `pme_` and contain 32 random bytes.
   The cloud stores only their SHA-256 hash and display prefix; the full key is
   returned once at creation and never logged. A key authenticates only
@@ -679,7 +682,10 @@ the regular `.git` file must point to a direct child of the configured repositor
 must point back to the worktree's `.git`. Invalid links fail with `not_a_worktree` before git runs;
 reads use `SAFE_GIT_SETTINGS` with no hooks or fsmonitor and isolated global/system configuration.
 Removal validates links too. Independent member clones reject `.git/commondir` and a common git
-directory other than their own (`workspace_invalid`). Claude and Codex protect the same git
+directory other than their own (`workspace_invalid`). A Claude session can still write a sibling
+worktree's admin directory from its sandbox (PM-403, PM-1175): this can redirect that sibling within
+its sandbox or cause denial of service. PM-1171's host-side git link validation rejects or cleans up
+those links; this does not grant code execution outside the sandbox. Claude and Codex protect the same git
 configuration, hook, alternates and link paths; this is defense in depth, not a native provider
 probe. Repository-level checkout operations still trust the configured project's hooks and
 configuration. The whole shared git directory must
@@ -1091,9 +1097,10 @@ do not apply: nothing here uses a cookie).
   is turned on again, does not bring an old token back; the person needs a new code. A configuration
   that cannot be read only refuses that request.
 - **Limits.** Per session and hour: 30 marks, 120 comments (in memory, so a server restart
-  resets them); per project and day: 500 marks (counted from the database). Over a limit: `429`
+  resets them); per project and day: 500 marks (counted from the database plus pending marks, so
+  concurrent requests together cannot exceed the limit). Over a limit: `429`
   with `Retry-After`. Request bodies: 3 MiB for a mark (screenshot), 64 KiB for everything else.
-  A screenshot is checked by its content (a real PNG or JPEG of bounded size), not by its label.
+  A screenshot is checked by its content (a real PNG, JPEG or WebP of bounded size), not by its label.
 - **Remaining risks.** A stolen token works until it ends (up to 30 days idle) from the same site
   address; there is no per-device binding. A page can send an `Origin` only from a browser, so a
   script off the browser (curl) with a stolen token can send any `Origin` it likes: the token,

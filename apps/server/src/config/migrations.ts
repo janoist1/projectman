@@ -9,6 +9,7 @@ import {
   defaultMerger,
   FALLBACK_PERMISSION_MODE,
   isProjectManager,
+  isProjectDocPath,
   LabelDefinition,
   MAX_COMPLEXITY,
   type MemberConfig,
@@ -31,6 +32,27 @@ import {
 interface MigrationContext {
   projectKey: string;
   logger: Pick<FastifyBaseLogger, 'warn'>;
+}
+
+/** Disable legacy document paths that are not plain Markdown project documents. */
+function dropInvalidDocPaths(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const repos = asRecord(asRecord(raw)?.project)?.repos;
+  if (!Array.isArray(repos)) return raw;
+  for (const entry of repos) {
+    const repo = asRecord(entry);
+    const docs = asRecord(repo?.docs);
+    if (!repo || !docs) continue;
+    for (const doc of ['decisions', 'roadmap', 'lessons']) {
+      if (typeof docs[doc] !== 'string' || isProjectDocPath(docs[doc])) continue;
+      delete docs[doc];
+      logger.warn(
+        { projectKey, repo: repo.name, doc },
+        'Dropped a project document path that is not a Markdown document',
+      );
+    }
+    if (Object.keys(docs).length === 0) delete repo.docs;
+  }
+  return raw;
 }
 
 /** The AI member objects of a raw configuration. */
@@ -391,6 +413,7 @@ function addTempMaxPoints(raw: unknown): unknown {
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
+ *   - invalid project document paths are dropped with a warning (above);
  *   - a custom role with a built-in role's id becomes that role's override (above);
  *   - the removed `scheduled` AI role becomes `maintainer` (above);
  *   - a Codex member in `bypassPermissions` becomes `acceptEdits` (above);
@@ -414,6 +437,7 @@ function addTempMaxPoints(raw: unknown): unknown {
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
+  raw = dropInvalidDocPaths(raw, context);
   return addTempMaxPoints(
     addFeedbackProcessing(
       addMerger(

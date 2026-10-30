@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { applyConfigPatch, PatchConfigRequest, unknownPatchRepo } from './edit';
 import { operatorConfigVerdict } from './operator';
-import { isLessonsOnly, isRepoFilePath, ProjectDoc, projectDocsOf, RepoDocs } from './project-docs';
+import {
+  isLessonsOnly,
+  isRepoFilePath,
+  isProjectDocPath,
+  ProjectDoc,
+  projectDocsOf,
+  RepoDocs,
+} from './project-docs';
 import { ProjectConfig } from './schema';
 
 function config(repos: object[]): ProjectConfig {
@@ -89,6 +96,22 @@ describe('isRepoFilePath', () => {
 });
 
 describe('RepoDocs', () => {
+  it.each([
+    ['docs/D.md', true],
+    ['docs/D.MD', true],
+    ['../D.md', false],
+    ['docs/D.txt', false],
+    ['.github/x.md', false],
+    ['docs/.hidden/x.md', false],
+    ['CLAUDE.md', false],
+    ['claude.local.md', false],
+    ['sub/agents.MD', false],
+    ['agents.override.md', false],
+    ['GEMINI.md', false],
+  ])('classifies project document path %s', (path, expected) => {
+    expect(isProjectDocPath(path as string)).toBe(expected);
+    expect(RepoDocs.safeParse({ decisions: path }).success).toBe(expected);
+  });
   it('takes paths for the supported documents, or none', () => {
     expect(RepoDocs.parse({})).toEqual({});
     expect(RepoDocs.parse({ decisions: 'docs/D.md' })).toEqual({ decisions: 'docs/D.md' });

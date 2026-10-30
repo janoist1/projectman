@@ -18,6 +18,7 @@ import {
   NANOGPT_CODEX_PROVIDER,
 } from '../codex/args';
 import { writeHookConfig } from '../../session-config';
+import { writeMcpBridgeConfig } from '../../mcp-bridge';
 import type { ProviderAdapter } from '../types';
 
 const SubscriptionUsage = z.object({
@@ -171,6 +172,7 @@ export function createNanogptAdapter(opts: {
         cliPath: input.cliPath,
         spec: input.spec,
         hookConfigPath: await writeHookConfig(input.sessionConfigDir, input.hookUrl),
+        mcpConfigPath: await writeMcpBridgeConfig(input.sessionConfigDir, input.spec.mcpUrl),
         permissionTimeoutMs: input.permissionTimeoutMs,
         realCwd,
         codexHome: opts.codexHome,

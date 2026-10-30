@@ -9,6 +9,7 @@ import { resolveCommand, runQuietly } from '../../cli';
 import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
 import { parseCodexLoginStatus } from '../login';
 import { writeHookConfig } from '../../session-config';
+import { writeMcpBridgeConfig } from '../../mcp-bridge';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
 import { buildCodexArgs, codexCliReadRoot, codexCliDenials, validateCodexReadBoundary } from './args';
 import type { ReadBoundaryProblem } from './args';
@@ -205,6 +206,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
       const { args, initialMessageSent } = buildCodexArgs({
         spec,
         hookConfigPath: await writeHookConfig(sessionConfigDir, hookUrl),
+        mcpConfigPath: await writeMcpBridgeConfig(sessionConfigDir, spec.mcpUrl),
         permissionTimeoutMs,
         realCwd,
         codexHome: opts.codexHome,

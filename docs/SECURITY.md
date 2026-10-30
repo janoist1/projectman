@@ -1135,12 +1135,17 @@ sandboxed commands included, so neither token may be on one.
   exclusively without following a link. Claude Code gets the paths with `--mcp-config` and `--settings`; the hook commands of Claude
   (sandboxed), Codex, NanoGPT and Gemini run the forwarder with the path of a target file (`curl
 --config <file>`, or the Node fallback reading the same line), never the URL. The forwarder refuses a relative path; a missing or malformed file posts
-  nothing (Gemini's PreToolUse prints its deny fallback).
+  nothing (Gemini's PreToolUse prints its deny fallback). Codex and NanoGPT start the team MCP
+  server as a stdio bridge (`runner/mcp-bridge.ts`, PM-1170) whose arguments carry the path of
+  `codex-mcp.json`, never the URL; the bridge reads the URL from it and keeps it out of its output
+  and error messages.
 - **Closed to the session.** The root is in `sensitivePaths` (`SESSION_CONFIG_DIR`) and the runner adds
   it, as configured and as canonical, to the policy's denied paths and to the sandbox's
   `denyRead`/`denyWrite`; so the file tools (`Read`/`Edit` rules) and the shell cannot read it. A spec
   without a policy gets the matching `deniedTools` rules. Claude Code and the forwarder read the files
-  outside that sandbox.
+  outside that sandbox, and so does the Codex bridge, which Codex starts as its own child, outside
+  its command sandbox (to be confirmed with a real `codex` after deployment: if the bridge cannot
+  read its file, the team tools are missing while the session runs, PM-1070).
 - **When they go.** The runner removes the folder after the process has exited (also when the launch or
   the spawn fails). At server start a sweep removes the folders whose runner is provably gone: the
   owner record's pid and start time match no process, no process of the user names the folder or
@@ -1149,9 +1154,6 @@ sandboxed commands included, so neither token may be on one.
   record, a name that does not match, a non-directory). It never follows a link and never touches the
   folder of a running session.
 - **Residual risk.**
-  - Codex and NanoGPT still pass the team MCP URL as a `-c mcp_servers.team=...` argument; it stays
-    visible in `ps` until their MCP configuration moves to a file (PM-812). Their hook commands are
-    token-free.
   - Gemini's provider folder (`config/mcp_config.json`) holds the MCP URL in a 0600 file that
     outlives the session; the token is dead once the session is gone, and the hooks file holds none.
   - A session that is already running when the server is updated keeps its old command line until

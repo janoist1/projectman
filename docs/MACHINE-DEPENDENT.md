@@ -2027,7 +2027,8 @@ assumption or remote-engine RPC.
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
   **Codex team server stays optional (PM-1070):** `runner/providers/codex/args.ts` passes
-  `mcp_servers.team` with only its `url` and tool approvals. PM-1055 had set
+  `mcp_servers.team` with only its stdio bridge (`command`/`args`, PM-1170; the `url` until then)
+  and tool approvals. PM-1055 had set
   `required = true`, a 20-second startup timeout and `mcp_optional_startup_grace_ms = 0`;
   from that deploy every Codex session exited at start ("agent CLI exited before it was
   ready"), so it was reverted. A failing team MCP must cost the tools, not the session.
@@ -2063,12 +2064,15 @@ assumption or remote-engine RPC.
   not on a command line: the runner writes them to `<app home>/run/<session id>.<random>/` (the folder
   0700, files 0600, one folder per start, removed when the session's process has exited, orphans swept
   at start-up) and gives the CLI the file paths (`--settings`, `--mcp-config`) or the forwarder the
-  path of its target file. **Machine assumption:** POSIX file modes and ownership on the disk of the
+  path of its target file. Codex and NanoGPT get `codex-mcp.json` (PM-1170): the team MCP server is a
+  Node stdio bridge (`runner/mcp-bridge.ts`, the runner's own Node binary) that Codex starts as a child
+  and that reads the URL from that file. **Machine assumption:** POSIX file modes and ownership on the disk of the
   machine that runs the CLI, and the machine's process list (`ScopeProcessSource`) for the sweep; the
   sandbox rules keep the session's own commands and file tools out of the root.
   **Remote engine (engine mode):** the folder, the files and the sweep live on the engine that spawns
   the CLI: `engine-app.ts` passes `<engine home>/run` as `sessionConfigRoot`, and the sandbox rules name
   the engine's own paths, so nothing crosses the server/engine boundary and the cloud never sees a file.
+  The Codex bridge runs on the engine too and reaches the same engine-built `mcpUrl` Codex used to reach.
   The cloud's runner (`engine-link/remote`) creates no real runner and needs no root.
   **Cloud mode (PM-315):** unchanged; the token still arrives with the start command and is written on the
   engine. Related: "Session output folders", "Hooks and team MCP over loopback", "Native sandbox and

@@ -121,6 +121,12 @@ describe('NanoGPT adapter', () => {
     expect(await readFile(path.join(h.input.sessionConfigDir, 'hook.curl'), 'utf8')).toBe(
       'url = "http://localhost/hook"\n',
     );
+    // The team MCP bridge reads its URL from the session's folder too (PM-1170).
+    expect(JSON.stringify(launch.cliArgs)).not.toContain('http://localhost/mcp');
+    expect(JSON.stringify(launch.cliArgs)).toContain(path.join(h.input.sessionConfigDir, 'codex-mcp.json'));
+    expect(await readFile(path.join(h.input.sessionConfigDir, 'codex-mcp.json'), 'utf8')).toBe(
+      '{"url":"http://localhost/mcp"}',
+    );
     expect(launch.env).toEqual({ CODEX_HOME: h.codexHome, NANOGPT_API_KEY: 'private-test-sentinel' });
     expect((await stat(h.codexHome)).mode & 0o777).toBe(0o700);
     expect(await h.adapter.planUsage.get()).toBeNull();

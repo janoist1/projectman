@@ -70,6 +70,7 @@ describe('the heavy-run queue folder of a Codex developer session (PM-346)', () 
     const { args } = buildCodexArgs({
       spec: { ...spec, policy },
       hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
+      mcpConfigPath: '/run/ses_1.0123456789abcdef/codex-mcp.json',
       permissionTimeoutMs: 40_000,
       realCwd: spec.cwd,
     });

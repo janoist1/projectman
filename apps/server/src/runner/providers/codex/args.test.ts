@@ -12,6 +12,10 @@ import {
   tomlValue,
   NANOGPT_CODEX_PROVIDER,
 } from './args';
+import { mcpBridgeCommand } from '../../mcp-bridge';
+
+/** The team MCP token: never on a Codex command line (PM-1170). */
+const MCP_CANARY = 'mcp-canary-5c2e81d4';
 
 const spec: StartSessionSpec = {
   sessionId: 'ses_1',
@@ -23,7 +27,7 @@ const spec: StartSessionSpec = {
   permissionMode: 'default',
   appendSystemPrompt: '- You are fe-1.\n- Speak Hungarian.',
   initialMessage: 'Brief',
-  mcpUrl: 'http://127.0.0.1:4700/mcp/tok',
+  mcpUrl: `http://127.0.0.1:4700/mcp/${MCP_CANARY}`,
   allowedTools: ['mcp__team__*', 'Read', 'Bash(git diff:*)'],
   provider: 'codex',
 };
@@ -31,10 +35,14 @@ const spec: StartSessionSpec = {
 const input = {
   spec,
   hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
+  mcpConfigPath: '/run/ses_1.0123456789abcdef/codex-mcp.json',
   permissionTimeoutMs: 40_000,
   realCwd: '/Users/anna/.projectman/worktrees/AR/AR-1',
   nodePath: '/usr/local/bin/node',
 };
+
+/** The team server as a stdio bridge to the private file, without approvals. */
+const TEAM_BRIDGE = tomlValue(mcpBridgeCommand(input.mcpConfigPath, input.nodePath));
 
 describe('codexPermissionProfile', () => {
   it('closes both homes and reopens typed own paths without downgrading writes', () => {
@@ -224,7 +232,7 @@ describe('TOML values', () => {
     expect([...overrides(args)].filter(([key]) => key.startsWith('mcp_servers'))).toEqual([
       ['mcp_servers.node_repl.enabled', 'false'],
       ['mcp_servers.other-server.enabled', 'false'],
-      ['mcp_servers.team', '{url="http://127.0.0.1:4700/mcp/tok"}'],
+      ['mcp_servers.team', TEAM_BRIDGE],
     ]);
     for (const name of ['team', 'quoted.name', 'bad name'])
       expect(() => buildCodexArgs({ ...input, disabledMcpServers: [name] })).toThrow('Invalid user MCP');
@@ -303,7 +311,16 @@ describe('buildCodexArgs', () => {
     for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
       const c = overrides(buildCodexArgs({ ...input, provider, spec: { ...spec, resume } }).args);
       expect(c.has('mcp_optional_startup_grace_ms')).toBe(false);
-      expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+      expect(c.get('mcp_servers.team')).toBe(TEAM_BRIDGE);
+    }
+  });
+  it('starts the team server as a stdio bridge to the private file, its token on no argument (PM-1170)', () => {
+    for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
+      const { args } = buildCodexArgs({ ...input, provider });
+      for (const arg of args) expect(arg).not.toContain(MCP_CANARY);
+      const team = overrides(args).get('mcp_servers.team')!;
+      expect(team.startsWith('{command="/usr/local/bin/node",args=["-e",')).toBe(true);
+      expect(team.endsWith(',"/run/ses_1.0123456789abcdef/codex-mcp.json"]}')).toBe(true);
     }
   });
   it.each([false, true])(
@@ -415,7 +432,7 @@ describe('buildCodexArgs', () => {
     expect(c.get('projects')).toBe('{"/Users/anna/.projectman/worktrees/AR/AR-1"={trust_level="trusted"}}');
     expect(c.get('project_doc_fallback_filenames')).toBe('["CLAUDE.md"]');
     expect(c.get('developer_instructions')).toBe('"- You are fe-1.\\n- Speak Hungarian."');
-    expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+    expect(c.get('mcp_servers.team')).toBe(TEAM_BRIDGE);
     expect(c.has('notice.hide_full_access_warning')).toBe(false);
     for (const event of CODEX_HOOK_EVENTS) expect(c.has(`hooks.${event}`)).toBe(true);
   });
@@ -774,7 +791,7 @@ describe('buildCodexArgs', () => {
     const c = overrides(args);
     expect(args).not.toContain('danger-full-access');
     expect(c.has('notice.hide_full_access_warning')).toBe(false);
-    expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+    expect(c.get('mcp_servers.team')).toBe(TEAM_BRIDGE);
     expect(args).not.toContain('--sandbox');
     expect(c.get('default_permissions')).toBe('"projectman"');
     expect(c.get('permissions.projectman')).toContain('":workspace_roots"={"."="write"');

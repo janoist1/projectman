@@ -4,6 +4,7 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
+import { ToastProvider } from '../components/Toast';
 import { BoardPage } from '../features/board/BoardPage';
 import { SetupPage } from '../features/auth/SetupPage';
 import { currentLanguage, setCurrentLanguage } from '../i18n/language';
@@ -26,11 +27,13 @@ function Keyed({ children }: { children: React.ReactNode }) {
 function accountMenu() {
   const project = mockProject();
   const view = project.render(
-    <Keyed>
-      <MeContext.Provider value={project.context.me}>
-        <AccountMenu settingsPath={null} />
-      </MeContext.Provider>
-    </Keyed>,
+    <ToastProvider>
+      <Keyed>
+        <MeContext.Provider value={project.context.me}>
+          <AccountMenu settingsPath={null} />
+        </MeContext.Provider>
+      </Keyed>
+    </ToastProvider>,
   );
   view.client.setQueryData(queryKeys.me, project.context.me);
   const open = () =>
@@ -68,6 +71,7 @@ describe('language switch in the account menu', () => {
     fireEvent.click(await screen.findByRole('radio', { name: 'English' }));
     await waitFor(() => expect(currentLanguage()).toBe('hu'));
     expect(document.documentElement.lang).toBe('hu');
+    expect(await screen.findByText(t('language.saveFailed'))).toBeTruthy();
   });
 });
 

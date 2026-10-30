@@ -2,6 +2,7 @@ import { fireEvent, screen } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { setCurrentLanguage } from '../../i18n/language';
 import { t } from '../../i18n/t';
 import { MockBackend } from '../../mocks/backend';
 import { mockProject } from '../../test/mockProject';
@@ -36,9 +37,25 @@ it('creates the account from a name and a password and lands on the first steps'
     {
       name: 'Eszter',
       password: 'correct horse battery',
+      language: 'hu',
     },
   );
   expect(backend.ownerAccountIds.has(backend.user.userId)).toBe(true);
+});
+
+it('sends the language chosen on the page, so the new account is created in it', async () => {
+  setCurrentLanguage('en');
+  const backend = new MockBackend();
+  backend.ownerInvites.push({ token: 'tok3', email: 'new@owner.test', inviterName: 'Ist1', used: false });
+  const project = renderInvite(backend, 'tok3');
+  fireEvent.change(await screen.findByLabelText(t('invites.name')), { target: { value: 'Eszter' } });
+  fireEvent.change(screen.getByLabelText(t('invites.password')), {
+    target: { value: 'correct horse battery' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: t('ownerOnboarding.invite.accept') }));
+  await screen.findByText('welcome page');
+  const body = project.requests.find((request) => request.path === '/api/owner-invites/tok3/accept')?.body;
+  expect(body).toMatchObject({ language: 'en' });
 });
 
 it('shows an invitation that does not exist as invalid, without a form', async () => {

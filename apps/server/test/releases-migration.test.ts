@@ -13,7 +13,7 @@ describe('releases migration', () => {
       db.exec('DROP TABLE task_acceptance_items');
       // The same for migration 133 (PM-1148).
       db.exec('DROP TABLE compute_job_runs');
-      // The same for migration 134 (PM-901).
+      // The same for migration 135 (PM-901).
       db.exec('DROP TABLE ntfy_channels');
       // Migration 131 (PM-1150) drops `senior_waits` and reads it on the way: give it an empty one back.
       db.exec(`CREATE TABLE senior_waits (id TEXT PRIMARY KEY, project_key TEXT, task_key TEXT, since TEXT,

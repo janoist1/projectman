@@ -10,7 +10,6 @@ import {
   ProposeOperatorKnowledgeRequest,
 } from '@projectman/shared';
 import type {
-  ConfigChangeRow,
   InboxItem,
   OperatorKnowledgeApprovalPayload,
   SessionStartCause,
@@ -22,7 +21,6 @@ import { DECISION_OPTIONS, type InboxService, type Resolver } from '../../core/i
 import type { ProjectService } from '../../core/projects';
 import type { TimelineService } from '../../core/timeline';
 import { conflict, forbidden, humanActor, invalid, newId } from '../../kernel';
-import type { OperatorActions } from './actions';
 import type { OperatorRequests, OperatorSteps } from './requests';
 
 /** Owner-approved shared knowledge. File writes and configuration commits share one project lock. */
@@ -35,8 +33,6 @@ export class OperatorKnowledge {
     steps: OperatorSteps;
     inbox: InboxService;
     timeline: TimelineService;
-    preview: OperatorActions['preview'];
-    approved: (item: InboxItem, payload: OperatorKnowledgeApprovalPayload) => void;
   };
   constructor(deps: OperatorKnowledge['deps']) {
     this.deps = deps;
@@ -87,7 +83,7 @@ export class OperatorKnowledge {
     return this.deps.projects.withConfigurationLock(ctx.projectKey, async (loaded) => {
       if (coordinationMemberOf(loaded.config)?.handle !== ctx.member)
         throw forbidden('operator_only', 'only the project manager may propose shared knowledge');
-      // The project manager cannot run operate, so its approval would have no continuation to carry them.
+      // No operate tool exists (decision 66): an approval has no continuation to carry operations.
       if (args.operations.length)
         throw invalid('invalid_request', 'a project manager proposal carries no operations');
       this.session(ctx);
@@ -106,24 +102,15 @@ export class OperatorKnowledge {
         throw conflict('operator_knowledge_stale', 'shared knowledge changed');
       const change = structuredClone(args.change);
       if (change.kind === 'principle_put' && change.principle.id === null) change.principle.id = newId('olp');
-      const changes: ConfigChangeRow[] = [];
-      const operations = [];
-      for (const operation of args.operations) {
-        const preview = await this.deps.preview(ctx.projectKey, ctx.member, request, operation);
-        if (preview.level === 'never')
-          throw forbidden('operator_never', 'a forbidden operation cannot be proposed');
-        changes.push(...preview.changes);
-        operations.push(preview.operation);
-      }
       const payload: OperatorKnowledgeApprovalPayload = {
         id: newId('okp'),
         requestId: request.id,
         stepId: newId('ops'),
         baseRevision: knowledge.revision,
         change,
-        operations,
-        changes,
-        baseConfigVersion: operations.length ? loaded.version : null,
+        operations: [],
+        changes: [],
+        baseConfigVersion: null,
         proposedBy: ctx.member,
         stale: null,
         applying: null,
@@ -146,7 +133,7 @@ export class OperatorKnowledge {
           requestId: request.id,
           action: 'knowledge_change',
           status: 'awaiting_approval',
-          changes,
+          changes: [],
           inboxItemId: created.id,
         });
         return created;
@@ -320,8 +307,7 @@ export class OperatorKnowledge {
           agreementVersion: payload.change.kind === 'agreement_replace' ? document.agreement!.version : null,
         },
       });
-      const closed = this.close(item, applying.by, 'approve', applying.at, note);
-      this.deps.approved(closed, payload);
+      this.close(item, applying.by, 'approve', applying.at, note);
     });
   }
 

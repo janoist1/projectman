@@ -161,7 +161,7 @@ Entries in the order they appear below (search for the bold name).
   GitHub `macos-15` runner (the `engine-app` compute job) and takes the Swift sources and the Info.plist
   template from the runner's checkout of the same commit. The Mac then needs no build: `npm run engine-app --
 fetch --commit <sha> --out <new dir> [--open]` (`scripts/engine-app/fetch.ts`) downloads the run's artifact
-  with the Mac's own `gh` login (read access to the repository's Actions, gh 2.49 or newer for the attestation),
+  (manifest and zip only; the disk image is not an output, PM-1157) with the Mac's own `gh` login (read access to the repository's Actions, gh 2.49 or newer for the attestation),
   verifies it and unpacks it with `ditto` and `codesign --verify`, and `--open` starts the app with `open`; the
   app then installs itself through its own release switch. This runs on the Mac the app goes to, a remote
   engine's too; nothing crosses the server/engine boundary. **Module:** `scripts`, `deploy`.

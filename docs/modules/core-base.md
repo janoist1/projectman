@@ -80,7 +80,7 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   store, the recovery of an interrupted operator execution or audit). A path that finds the record already
   at the version, or changes only its name or time, writes nothing, so a recovery that runs again does not
   repeat the signal. A git commit followed by a crash before the record update is finished by the existing
-  reconciliation (`syncFromStore`, `recoverOperatorExecution`, `settleSuperAudit`), which writes the entry
+  reconciliation (`syncFromStore`, `settleSuperAudit`), which writes the entry
   in the transaction of the record.
 - **Engines.** `engine` entries name the engine registry's changes (`EngineRegistry`,
   `runtime/sessions/engine-registry.ts`): the registry's write (create, revoke, set the default, the first

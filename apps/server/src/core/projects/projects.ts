@@ -805,14 +805,6 @@ export class ProjectService {
     });
   }
 
-  /** The caller holds the configuration lock; a commit may have finished before its save returned. */
-  async recoverOperatorExecution(key: string, stepId: string, version: string, actor: Actor): Promise<void> {
-    const loaded = await this.configStore.load(key).catch(fromConfigError);
-    this.cache.set(key, loaded);
-    this.touchRecord(key, loaded);
-    this.finishOperatorExecution(key, stepId, version, actor);
-  }
-
   private renamed(config: ProjectConfig, renames: Readonly<Record<string, string>>): ProjectConfig {
     return Object.entries(renames).reduce((acc, [from, to]) => renameMemberInConfig(acc, from, to), config);
   }

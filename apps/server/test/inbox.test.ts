@@ -52,6 +52,47 @@ describe('inbox: waiting for an item to close', () => {
   });
 });
 
+describe('inbox: a retired Operator approval', () => {
+  let h: DomainHarness;
+  beforeEach(async () => {
+    h = await createDomainHarness();
+  });
+  afterEach(() => h.cleanup());
+
+  it('refuses a decision with inbox_item_closed instead of an unhandled error', async () => {
+    const item = h.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'approval',
+      assignees: ['owner'],
+      source: 'pm',
+      title: 'Old approval',
+      payload: {
+        operator: {
+          requestId: 'opr_old',
+          stepId: 'ops_old',
+          quote: 'Rename the project.',
+          action: 'config_change',
+          operation: { op: 'config_patch', patch: {} },
+          changes: [],
+          consequence: 'project',
+          baseVersion: null,
+          session: null,
+          stale: null,
+        },
+      },
+      options: [
+        { id: 'approve', label: 'approve', style: 'primary' },
+        { id: 'dismiss', label: 'dismiss', style: 'secondary' },
+      ],
+    });
+    for (const optionId of ['approve', 'dismiss'])
+      await expect(
+        h.domain.inbox.resolve('AR', item.id, { optionId }, { handle: 'owner', access: 'owner' }),
+      ).rejects.toMatchObject({ code: 'inbox_item_closed' });
+    expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+  });
+});
+
 describe('inbox: permission requests', () => {
   let h: DomainHarness;
   let sessionId: string;

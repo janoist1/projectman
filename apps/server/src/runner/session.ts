@@ -51,6 +51,15 @@ const QUESTION_FORWARDED =
 const UPDATED_INPUT_REFUSED =
   'The approval changed the tool input, which this engine does not accept, so the call was denied.';
 
+/** Hooks of the main agent that show the CLI is working on a turn (PM-1205). */
+const TURN_HOOKS: ReadonlySet<string> = new Set([
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionRequest',
+  'Stop',
+]);
+
 /** The key that interrupts a turn in both CLIs. */
 const ESC = '\x1b';
 
@@ -421,10 +430,11 @@ export class AgentSession {
 
   /**
    * Queues a message for the agent; resolves once the CLI took it (UserPromptSubmit), rejects when it
-   * was typed but the CLI did not take it in time (PM-571): it did not reach the agent.
+   * was typed but the CLI did not take it in time (PM-571): it did not reach the agent. A `deliveryId`
+   * keeps a retried call from typing the message again (PM-1205).
    */
-  send(text: string): Promise<void> {
-    return this.input.enqueueSubmitted(text);
+  send(text: string, deliveryId?: string): Promise<void> {
+    return this.input.enqueueSubmitted(text, deliveryId);
   }
 
   /** A message is still on its way to the agent (queued, being typed, or not yet submitted). */
@@ -795,6 +805,9 @@ export class AgentSession {
       void this.readSubagentUsage(payload.agent_transcript_path);
     }
     if (!subagent) this.noteProviderSessionId(payload);
+    // The main agent working shows the CLI took a typed message it did not report (PM-1205); Notification
+    // says the CLI is idle and a subagent may run in the background, so neither counts.
+    if (!subagent && TURN_HOOKS.has(payload.hook_event_name)) this.input.noteTurnActivity();
     const authError = this.adapter.hookAuthError(payload);
     if (authError) {
       this.authFailed(authError);

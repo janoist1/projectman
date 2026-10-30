@@ -252,8 +252,15 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
         startingSessions.delete(spec.sessionId);
       }
     },
-    async sendUserMessage(sessionId, text) {
-      await hub.call(needEngine(sessionId), 'session.send', { sessionId, message: text });
+    async sendUserMessage(sessionId, text, sendOptions) {
+      const engineId = needEngine(sessionId);
+      // An older engine does not know the id (a strict schema): it gets the plain call, as before (PM-1205).
+      const deliveryId = hub.dedupsDeliveries(engineId) ? sendOptions?.deliveryId : undefined;
+      await hub.call(engineId, 'session.send', {
+        sessionId,
+        message: text,
+        ...(deliveryId ? { deliveryId } : {}),
+      });
     },
     async compact(sessionId, instruction) {
       return hub.call(needEngine(sessionId), 'session.compact', { sessionId, instruction });

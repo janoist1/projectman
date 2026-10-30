@@ -2071,9 +2071,17 @@ assumption or remote-engine RPC.
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last
   15 terminal rows. Message bodies are not logged separately. This assumes the runner owns
-  the terminal and receives the CLI hooks; it changes neither delivery nor retry semantics.
-  On a remote engine these diagnostics run and are logged on that engine; no new message or
-  diagnostic payload crosses the server/engine boundary.
+  the terminal and receives the CLI hooks.
+  **Idempotent delivery (PM-1205):** the wait for the submit report builds on the timing of these
+  loopback hooks. A typed message the CLI did not report within `submitTimeoutMs` is taken as
+  unconfirmed when the main agent's turn hooks (or a busy CLI) show it worked, and is otherwise
+  awaited `lateSubmitMs` longer (`runner/input-queue.ts`, `runner/session.ts`, `runner/providers/*`).
+  The hub keys each delivery (`deliveryId`, `runtime/delivery/delivery.ts`), `session.send` carries it
+  across the server/engine boundary (`engine-link/{methods,protocol,engine-handlers}.ts`,
+  `engine-link/remote/{hub,runner}.ts`; the engine advertises `deliveryIds` in its hello, an older
+  engine gets none), and the engine's runner does not type a taken id again, per process.
+  On a remote engine these diagnostics run and are logged on that engine; the only new
+  thing that crosses the server/engine boundary is the `deliveryId` of a message.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
   and MCP while preserving token isolation and the internal endpoint guard.
   `runtime/sessions/permission-broker.ts` owns the broker and uses the command policy

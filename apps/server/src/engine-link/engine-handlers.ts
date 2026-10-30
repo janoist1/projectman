@@ -204,8 +204,8 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
         ? deps.nanogptStart(spec.sessionId, start)
         : start();
     },
-    async 'session.send'({ sessionId, message }) {
-      await runner.sendUserMessage(sessionId, message);
+    async 'session.send'({ sessionId, message, deliveryId }) {
+      await runner.sendUserMessage(sessionId, message, deliveryId ? { deliveryId } : undefined);
       return none;
     },
     async 'session.compact'({ sessionId, instruction }) {

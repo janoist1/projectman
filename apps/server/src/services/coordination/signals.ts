@@ -85,6 +85,17 @@ const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
   'answer_stalled',
 ]);
 
+/**
+ * The kinds of the stall detectors PM-1152 removed: nothing raises them any more, so an open row an older build
+ * left is resolved by the sweep (state, event and the questions asked about it, as for any ended case).
+ */
+const RETIRED_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
+  'idle',
+  'merge_waiting',
+  'ready_waiting',
+  'refinement_stalled',
+]);
+
 /** The card events of a member that prove a step of work (PM-694); an incoming message, a transition and a question do not. */
 const MEMBER_WORK_EVENTS: ReadonlySet<TimelineEvent['type']> = new Set([
   'task_note',
@@ -658,6 +669,7 @@ export class OperatorSignals {
         !active.has(signal.caseKey)
       )
         this.resolve(key, signal.caseKey);
+      if (RETIRED_KINDS.has(signal.kind)) this.resolve(key, signal.caseKey);
       // The step was done, ended or handed over to a person: nothing is left to tell the project manager.
       if (signal.kind === 'obligation_overdue' && !this.caseHolds(config, signal))
         this.resolve(key, signal.caseKey);

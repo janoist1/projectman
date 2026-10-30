@@ -123,6 +123,41 @@ describe('merge_blocked signal', () => {
     for (const kind of ['idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled'] as const)
       expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind)).toEqual([]);
   });
+
+  it('resolves the open rows of the retired kinds an older build left, and keeps the closed one', async () => {
+    await setup();
+    const row = (id: string, kind: OperatorSignalKind, state: 'pending' | 'open' | 'resolved') => ({
+      id,
+      projectKey: 'AR',
+      caseKey: `${kind}:AR-1`,
+      kind,
+      state,
+      actionable: false,
+      taskKey: 'AR-1',
+      subject: null,
+      inboxItemId: null,
+      messageId: null,
+      raisedAt: '2026-10-10T10:00:00.000Z',
+      decidedBy: null,
+      decidedAt: null,
+      resolvedAt: state === 'resolved' ? '2026-10-10T11:00:00.000Z' : null,
+      deliveredAt: null,
+      followUpAt: null,
+      decisionNote: null,
+      deliveredTo: null,
+    });
+    h.repos.operatorSignals.insert(row('ops_idle', 'idle', 'pending'));
+    h.repos.operatorSignals.insert(row('ops_ready', 'ready_waiting', 'open'));
+    h.repos.operatorSignals.insert(row('ops_stalled', 'refinement_stalled', 'open'));
+    h.repos.operatorSignals.insert(row('ops_old', 'merge_waiting', 'resolved'));
+    await sweep();
+    const byId = (id: string) => h.repos.operatorSignals.get(id)!;
+    for (const id of ['ops_idle', 'ops_ready', 'ops_stalled']) {
+      expect(byId(id).state).toBe('resolved');
+      expect(byId(id).resolvedAt).not.toBeNull();
+    }
+    expect(byId('ops_old')).toMatchObject({ state: 'resolved', resolvedAt: '2026-10-10T11:00:00.000Z' });
+  });
 });
 
 describe('obligation_overdue signal: the dismissal', () => {
@@ -246,7 +281,7 @@ describe('operator_signals migration', () => {
     }
   });
 
-  it('closes the open rows of the retired kinds, keeps the closed ones, and cancels the old stall alerts (PM-1152)', () => {
+  it('carries every signal row over untouched, cancels the old stall alerts and leaves pm_told_at empty (PM-1152)', () => {
     const db = new Database(':memory:');
     try {
       const before = migrations.filter((item) => item.version < LATEST_SCHEMA_VERSION);
@@ -262,6 +297,10 @@ describe('operator_signals migration', () => {
       insert.run('ops_ready', 'ready_waiting', 'ready_waiting:AR-2', 'open', null);
       insert.run('ops_old', 'merge_waiting', 'merge_waiting:AR-3', 'resolved', '2026-01-02T00:00:00.000Z');
       insert.run('ops_blocked', 'merge_blocked', 'merge_blocked:AR-4', 'pending', null);
+      db.exec(
+        `INSERT INTO obligations (id, project_key, task_key, kind, responsible, subject, opened_at, due_at, state, updated_at)
+         VALUES ('obl_old', 'AR', 'AR-1', 'work', 'dev-1', 'AR-1', '2026-01-01', '2026-01-01', 'open', '2026-01-01');`,
+      );
       const alert = db.prepare(
         `INSERT INTO inbox_items (id, project_key, kind, assignees, source, title, payload, options, state, created_at, updated_at)
          VALUES (?, 'AR', 'alert', '["owner"]', 'system', 'Alert', ?, '[]', ?, '2026-01-01', '2026-01-01')`,
@@ -279,13 +318,16 @@ describe('operator_signals migration', () => {
       ]);
       const repos = createRepositories(db);
       const byId = (id: string) => repos.operatorSignals.get(id)!;
-      expect(byId('ops_idle').resolvedAt).not.toBeNull();
-      expect(byId('ops_ready').resolvedAt).not.toBeNull();
+      // The open rows of the retired kinds are resolved by the signal sweep (it closes their questions too).
+      expect(byId('ops_idle')).toMatchObject({ kind: 'idle', state: 'pending', resolvedAt: null });
+      expect(byId('ops_ready')).toMatchObject({ kind: 'ready_waiting', state: 'open', resolvedAt: null });
       expect(byId('ops_old')).toMatchObject({
         kind: 'merge_waiting',
+        state: 'resolved',
         resolvedAt: '2026-01-02T00:00:00.000Z',
       });
-      expect(byId('ops_blocked').resolvedAt).toBeNull();
+      expect(byId('ops_blocked')).toMatchObject({ state: 'pending', resolvedAt: null });
+      expect(repos.obligations.get('obl_old')).toMatchObject({ state: 'open', pmToldAt: null });
     } finally {
       db.close();
     }

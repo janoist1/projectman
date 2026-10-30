@@ -2646,9 +2646,10 @@ migrations.push({
   // `obligation_overdue` operator signal. The four duplicate stall detectors (idle, merge_waiting, ready_waiting,
   // refinement_stalled) and the owner alerts of the same stalls are retired. operator_signals is rebuilt like
   // version 120 (the kind CHECK grows by 'obligation_overdue'; every row is carried over unchanged, the old kinds
-  // stay valid so closed rows and events keep rendering). Open rows of the retired kinds are resolved and the
-  // open `work_stalled` and refinement 'stalled' alerts are cancelled: the obligation row of the stuck step
-  // watches it now. Obligation rows carry no data rewrite (`pm_told_at` is NULL).
+  // stay valid so closed rows and events keep rendering). Open rows of the retired kinds are not touched here:
+  // the signal sweep resolves them (`RETIRED_KINDS`), which also closes the questions asked about them, a
+  // step SQL cannot do. The open `work_stalled` and refinement 'stalled' alerts are cancelled: the obligation
+  // row of the stuck step watches it now. Obligation rows carry no data rewrite (`pm_told_at` is NULL).
   sql: `ALTER TABLE obligations ADD COLUMN pm_told_at TEXT;
     DROP INDEX operator_signals_open;
     DROP INDEX operator_signals_delivery;
@@ -2666,8 +2667,6 @@ migrations.push({
     DROP TABLE operator_signals_old;
     CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;
     CREATE INDEX operator_signals_delivery ON operator_signals(project_key, kind, delivered_at);
-    UPDATE operator_signals SET resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-      WHERE resolved_at IS NULL AND kind IN ('idle','merge_waiting','ready_waiting','refinement_stalled');
     UPDATE inbox_items SET state = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
       WHERE kind = 'alert' AND state IN ('open','screening') AND (
         json_extract(payload, '$.alert') = 'work_stalled'

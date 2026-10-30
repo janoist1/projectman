@@ -260,7 +260,8 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   the 60-second sweep resolves the row once the obligation is fulfilled, closed or handed over. The four
   former detectors (`idle`, `merge_waiting`, `ready_waiting` with its in-memory stall clock and the owner
   `work_stalled` alert, and the `refinement_stalled` event branch) are gone; their kinds stay in the union
-  only so old rows and timeline events keep rendering, and nothing opens a new row of them. The Operator
+  only so old rows and timeline events keep rendering, and nothing opens a new row of them (the sweep
+  resolves an open row an older build left, with the questions asked about it; migration 132 leaves them to it). The Operator
   may use `dismiss_signal { signal_id, note }` without an owner request at every watch level, for a
   delivered, unpresented, still valid `obligation_overdue`, `structural_pattern` or `milestone_closed`
   signal and outside guest conversations. It stores the reason in `decision_note` (migration 59, outside

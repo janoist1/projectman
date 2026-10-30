@@ -10,6 +10,7 @@ import type {
   PublicInviteView,
   ProjectConfig,
   HumanMemberConfig,
+  UiLanguage,
 } from '@projectman/shared';
 import type { InvitationAccounts, InvitationUser } from './ports';
 import { findHumanByEmail, requireMemberAccess } from './access';
@@ -194,6 +195,7 @@ export class InvitationService {
   acceptOpenClientInvites(
     email: string,
     newAccountName: string | null,
+    language?: UiLanguage,
   ): Promise<{ userId: string | null; accepted: number }> {
     return this.lock.run('invitations', async () => {
       const invites = this.ctx.repos.invitations
@@ -206,7 +208,11 @@ export class InvitationService {
       for (const invite of invites) {
         if (!account) {
           if (!newAccountName) break;
-          account = this.accounts.preparePasswordlessUser({ name: newAccountName, email: invite.email });
+          account = this.accounts.preparePasswordlessUser({
+            name: newAccountName,
+            email: invite.email,
+            language,
+          });
         }
         try {
           await this.commitAcceptance(invite, account, !stored);
@@ -308,7 +314,7 @@ export class InvitationService {
         throw invalid('invalid_request', 'invalid invitation acceptance body');
       let user = existing;
       if (!user) {
-        const input = AcceptInviteRequest.required().safeParse(body ?? {});
+        const input = AcceptInviteRequest.required({ name: true, password: true }).safeParse(body ?? {});
         if (!input.success)
           throw invalid('invalid_request', 'name and a password of at least eight characters are required');
         user = await this.accounts.prepareUser({ ...input.data, email: invite.email });

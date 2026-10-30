@@ -254,6 +254,7 @@ describe('the owner-account flag of the project manager context (PM-1069)', () =
       email: hostEmail,
       passwordHash: 'unused-test-hash',
       createdAt: '2026-10-28T10:00:00.000Z',
+      language: 'hu',
     });
     await h.domain.sessions.previewContext('AR', handle, { viewer: 'owner' });
     expect(h.contextBuilder.inputs.at(-1)!.hostOutsideOwners).toBe(flagged ? true : undefined);

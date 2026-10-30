@@ -238,6 +238,7 @@ describe('PM authorization', () => {
       email: OWNER.email,
       passwordHash: 'unused-test-hash',
       createdAt: now.toISOString(),
+      language: 'hu',
     });
     await expect(
       h.domain.teamTools.operate(pm, {

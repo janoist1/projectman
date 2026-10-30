@@ -1,3 +1,5 @@
+import type { UiLanguage } from '@projectman/shared';
+
 /**
  * The mailer of the one-time e-mail login code (PM-664, PM-669). The adapter only delivers a code the
  * caller made; it keeps no state and decides nothing about accounts, limits or the HTTP answer.
@@ -5,6 +7,8 @@
 export interface EmailCodeMailInput {
   to: string;
   code: string;
+  /** The language the mail is written in: the account's, else the request's, else the default (PM-1177). */
+  language: UiLanguage;
   /** UTC ISO date-time (`2026-10-14T17:42:00.000Z`) after which the code no longer works. */
   expiresAt: string;
 }
@@ -27,6 +31,8 @@ export type EmailLoginStanding =
       openClientInvites: number;
       /** The first non-empty display name of the open client invitations, oldest first. */
       inviteDisplayName: string | null;
+      /** The existing account's system language; null when the first login creates the account. */
+      language: UiLanguage | null;
     };
 
 export interface EmailLoginDirectory {
@@ -37,6 +43,7 @@ export interface EmailLoginDirectory {
   acceptOpenClientInvites(
     email: string,
     newAccountName: string | null,
+    language?: UiLanguage,
   ): Promise<{ userId: string | null; accepted: number }>;
 }
 

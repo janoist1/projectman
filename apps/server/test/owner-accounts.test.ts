@@ -166,6 +166,7 @@ describe('owner accounts', () => {
         email: 'nopw@example.test',
         passwordHash: null,
         createdAt: now.toISOString(),
+        language: 'hu',
       });
       const cookie = `${SESSION_COOKIE}=${encodeURIComponent(h.app.signCookie(auth.createSession('usr_nopw')))}`;
       const res = await accept(await invite('nopw@example.test'), cookie, {});

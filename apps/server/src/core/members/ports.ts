@@ -1,12 +1,17 @@
-import type { CapacityHolder, ProjectConfig, Session } from '@projectman/shared';
+import type { CapacityHolder, ProjectConfig, Session, UiLanguage } from '@projectman/shared';
 import type { UserRecord } from '../../db';
 
-export type InvitationUser = Pick<UserRecord, 'id' | 'name' | 'email'>;
+export type InvitationUser = Pick<UserRecord, 'id' | 'name' | 'email' | 'language'>;
 
 export interface InvitationAccounts {
-  prepareUser(input: { name: string; email: string; password: string }): Promise<UserRecord>;
+  prepareUser(input: {
+    name: string;
+    email: string;
+    password: string;
+    language?: UiLanguage;
+  }): Promise<UserRecord>;
   /** A new account without a password, for an invited client who logs in with an e-mail code (PM-670). */
-  preparePasswordlessUser(input: { name: string; email: string }): UserRecord;
+  preparePasswordlessUser(input: { name: string; email: string; language?: UiLanguage }): UserRecord;
   /** The initial host owner, whom no e-mail login may touch. */
   isHostOwner(userId: string): boolean;
   /** The host owner's account, or null before the first-run setup (PM-1064). */

@@ -2778,4 +2778,13 @@ migrations.push({
     CREATE INDEX session_pauses_pause ON session_pauses(pause_id, resumed_at);
     ${V136_REBUILT_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
+migrations.push({
+  version: 137,
+  name: 'account system language',
+  // PM-1177: the account stores its system language. Every account that exists now is Hungarian (the owner's
+  // decision); an account created from now on gets the column default, English. No CHECK: a new language would
+  // need a table rebuild, and `toUser` reads an unknown value as the default.
+  sql: `ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'en';
+    UPDATE users SET language = 'hu';`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

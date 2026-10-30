@@ -4,7 +4,7 @@ import type { Me } from '@projectman/shared';
 import { parseBody } from '../http';
 import { clientAddress, DomainError, unavailable } from '../kernel';
 import type { EmailLoginService } from '../services/email-login';
-import type { AuthService } from './auth-service';
+import type { AuthService, AuthUser } from './auth-service';
 
 /**
  * The e-mail login of invited clients (PM-670): a code request and its redemption. Both are public
@@ -18,11 +18,7 @@ export function registerEmailLoginRoutes(
     emailLogin: EmailLoginService | null;
     clientIpHeader?: string;
     /** Starts the session of the user (the old one is revoked) and returns the `Me` the login answers. */
-    startSessionFor(
-      request: FastifyRequest,
-      reply: FastifyReply,
-      user: { id: string; name: string; email: string },
-    ): Promise<Me>;
+    startSessionFor(request: FastifyRequest, reply: FastifyReply, user: AuthUser): Promise<Me>;
   },
 ): void {
   const { auth, emailLogin, clientIpHeader, startSessionFor } = deps;

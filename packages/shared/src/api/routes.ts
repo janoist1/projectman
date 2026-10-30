@@ -89,6 +89,8 @@ export const routes = {
   emailLoginVerify: () => '/api/auth/email/verify',
   logout: () => '/api/auth/logout',
   me: () => '/api/me',
+  /** PUT (a logged-in user, not an integrator key): saves the account's system language (`SetLanguageRequest`); 200 `Me` (PM-1177). */
+  myLanguage: () => '/api/auth/language',
 
   projects: () => '/api/projects',
   board: (key: string) => `/api/projects/${key}/board`,

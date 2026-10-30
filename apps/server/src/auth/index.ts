@@ -4,6 +4,7 @@ import {
   IntegratorKeyAuditQuery,
   LoginRequest,
   routes,
+  SetLanguageRequest,
   SetupRequest,
 } from '@projectman/shared';
 import type { IntegratorChannel, Me, SetupStatus } from '@projectman/shared';
@@ -108,6 +109,7 @@ export async function meOf(domain: AuthDomain, user: AuthUser, auth?: AuthServic
     userId: user.id,
     name: user.name,
     email: user.email,
+    language: user.language,
     handles: await domain.handlesFor(user.email),
     projects: await domain.projectsFor(user.email),
     instanceOwner: await domain.instanceOwner(user.email),
@@ -281,7 +283,12 @@ export function registerAuth(
         );
       }
     }
-    const user = await auth.createFirstUser({ name: body.name, email: body.email, password: body.password });
+    const user = await auth.createFirstUser({
+      name: body.name,
+      email: body.email,
+      password: body.password,
+      language: body.language,
+    });
     setupCode?.consume();
     startSession(auth, request, reply, user.id);
     return reply.code(201).send(await meOf(domain, user, auth));
@@ -310,6 +317,12 @@ export function registerAuth(
     ...(await meOf(domain, request.user!, auth)),
     ...(request.via ? { via: request.via } : {}),
   }));
+
+  app.put(routes.myLanguage(), async (request) => {
+    const body = parseBody(SetLanguageRequest, request.body);
+    const user = auth.setLanguage(request.user!.id, body.language);
+    return meOf(domain, user, auth);
+  });
 
   const keyOwner = (request: FastifyRequest): string => {
     if (request.via)

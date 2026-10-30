@@ -177,6 +177,41 @@ describe('e-mail login of invited clients (PM-670)', () => {
       await inviteClient('kata@acme.test', { displayName: 'Kata' });
     });
 
+    it.each([
+      [undefined, 'en'],
+      ['hu', 'hu'],
+    ] as const)(
+      'writes the letter to a person without an account in the request language %s and creates the account in it (PM-1177)',
+      async (language, expected) => {
+        const extra: Record<string, string> = language ? { language } : {};
+        await requestCode({ email: 'kata@acme.test', ...extra });
+        expect(mailer.sent.at(-1)!.language).toBe(expected);
+        const ok = await verify({
+          email: 'kata@acme.test',
+          code: mailer.codeFor('kata@acme.test'),
+          ...extra,
+        });
+        expect(ok.statusCode, ok.body).toBe(200);
+        expect((await me(cookieOf(ok))).language).toBe(expected);
+      },
+    );
+
+    it('writes the letter to an existing account in its own language, whatever the request says (PM-1177)', async () => {
+      const first = await login('kata@acme.test', { language: 'hu' });
+      expect(first.statusCode, first.body).toBe(200);
+      now = new Date(now.getTime() + 2 * MINUTE);
+      await requestCode({ email: 'kata@acme.test', language: 'en' });
+      expect(mailer.sent).toHaveLength(2);
+      expect(mailer.sent.at(-1)!.language).toBe('hu');
+      const again = await verify({
+        email: 'kata@acme.test',
+        code: mailer.codeFor('kata@acme.test'),
+        language: 'en',
+      });
+      expect(again.statusCode, again.body).toBe(200);
+      expect((await me(cookieOf(again))).language).toBe('hu');
+    });
+
     it('logs a new client in with the right code, once', async () => {
       const requested = await requestCode({ email: 'kata@acme.test' });
       expect([requested.statusCode, requested.json()]).toEqual([
@@ -654,6 +689,7 @@ describe('e-mail login of invited clients (PM-670)', () => {
           clientProjects: 0,
           openClientInvites: 1,
           inviteDisplayName: 'Kata',
+          language: null,
         }),
         inviteEmail: () => null,
         acceptOpenClientInvites: async () => ({ userId: null, accepted: 0 }),

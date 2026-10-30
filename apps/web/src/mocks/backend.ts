@@ -79,6 +79,7 @@ import {
   INLINE_MEDIA_TYPES,
   InvitationView,
   LoginRequest,
+  SetLanguageRequest,
   MAX_ATTACHMENT_BYTES,
   MAX_UNSENT_MESSAGE_ATTACHMENTS,
   canDeleteMessageAttachment,
@@ -331,6 +332,7 @@ import type {
   TimelineEvent,
   TimelineEventData,
   TimelineEventType,
+  UiLanguage,
   WorkOutage,
 } from '@projectman/shared';
 import {
@@ -504,6 +506,8 @@ export class MockBackend {
   liveSuperKey = true;
   private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
   user = { ...fixtures.mockUser };
+  /** The system language of whoever is logged in (PM-1177); the mock keeps one for all its accounts. */
+  language: UiLanguage = 'hu';
   config: ProjectConfig = fixtures.buildConfig();
   structure = clone(fixtures.structureFixture);
   configVersion = fixtures.projectSummary.configVersion;
@@ -2160,6 +2164,12 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/auth/language' && method === 'PUT') {
+      const input = parseBody(SetLanguageRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid language');
+      this.language = input.language;
+      return ok(this.me());
+    }
     if (method === 'GET' && path === '/api/version') return ok(this.serverVersion);
     if (path === '/api/me/push' || path.startsWith('/api/me/push/'))
       return (
@@ -2399,6 +2409,7 @@ export class MockBackend {
     const member = memberOf(this.config, this.viewerHandle);
     return {
       ...this.user,
+      language: this.language,
       hostOwner: this.isHostOwner(),
       ...(this.ownerAccountIds.has(this.user.userId) ? { ownerAccount: true } : {}),
       instanceOwner: this.isHostOwner(),
@@ -3572,7 +3583,9 @@ export class MockBackend {
       return error(409, 'login_required', 'Log in as the invited account');
     if (account && !parseBody(AcceptInviteRequest, body))
       return error(400, 'invalid_request', 'Invalid invitation acceptance body');
-    const input = account ? null : parseBody(AcceptInviteRequest.required(), body);
+    const input = account
+      ? null
+      : parseBody(AcceptInviteRequest.required({ name: true, password: true }), body);
     if (!account && !input)
       return error(400, 'invalid_request', 'Name and eight-character password required');
     return this.acceptInvite(invite, account ?? { name: input!.name, password: input!.password });
@@ -3593,7 +3606,9 @@ export class MockBackend {
       });
     if (account && (this.auth !== 'ready' || this.user.userId !== account.userId))
       return error(409, 'login_required', 'Log in as the invited account');
-    const input = account ? null : parseBody(AcceptInviteRequest.required(), body);
+    const input = account
+      ? null
+      : parseBody(AcceptInviteRequest.required({ name: true, password: true }), body);
     if (!account && !input)
       return error(400, 'invalid_request', 'Name and eight-character password required');
     const user = account ?? {

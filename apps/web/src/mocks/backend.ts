@@ -252,6 +252,8 @@ import {
   createsInFirstStageOnly,
   taskCreateAccessOf,
   taskWait,
+  cardSteps,
+  visibleCardStepsInput,
   waitHolders,
   waitWorkers,
 } from '@projectman/shared';
@@ -260,6 +262,7 @@ import type {
   EmailApprovalPayload,
   EmailParkedAlert,
   MemberQueueItem,
+  Obligation,
   TaskDetail,
   PartsClosed,
   MessageAttachment,
@@ -621,6 +624,8 @@ export class MockBackend {
   operatorSignals: OperatorSignal[] = [];
   /** The member queues (PM-894), every AI member's items in one list; a test fills it, the views are computed from it. */
   queueItems: MemberQueueItem[] = [];
+  /** The open obligations of the cards (PM-806); a test fills it, the card's steps are computed from it. */
+  obligations: Obligation[] = [];
   /** The grant of machine operations the Operator works with (PM-890): off, and the viewer can manage it. */
   memories: Record<string, string> = {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
@@ -4129,10 +4134,26 @@ export class MockBackend {
     });
   }
 
+  /** The card's open system steps by the shared `cardSteps`, as the server serves them to the viewer (PM-1151). */
+  private cardStepsOf(task: Task) {
+    return cardSteps(
+      visibleCardStepsInput(this.taskViewer(), {
+        obligations: this.obligations.filter((row) => row.taskKey === task.key),
+        queueItems: this.queueItems.filter(
+          (item) => item.place.type === 'task' && item.place.taskKey === task.key,
+        ),
+        startWaiting: task.startWaiting ?? null,
+        openItems: this.inbox.filter((item) => item.taskKey === task.key),
+        viewer: this.viewerHandle,
+      }),
+    );
+  }
+
   taskDetail(task: Task): TaskDetail {
     const wait = this.taskWaitOf(task);
     return {
       ...(wait ? { wait } : {}),
+      ...(isTheme(task) ? {} : { steps: this.cardStepsOf(task) }),
       task: clone(task),
       parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
       subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),

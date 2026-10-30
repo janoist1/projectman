@@ -48,7 +48,8 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
       (id) => domain.messages.get(id),
     );
     const wait = domain.taskWaits.ofCard(await domain.projects.config(key), detail.task, access.handle);
-    return wait ? { ...detail, wait } : detail;
+    const steps = domain.taskWaits.stepsOf(detail.task, access);
+    return { ...detail, ...(wait ? { wait } : {}), ...(steps ? { steps } : {}) };
   };
   app.get<ProjectParams>(routes.tasks(':key'), async (request): Promise<Task[]> => {
     const access = await requireAccess(domain, request, request.params.key);

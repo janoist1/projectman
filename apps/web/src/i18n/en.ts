@@ -459,6 +459,8 @@ export const en = {
       question_group_incompatible: "These questions can't be combined into one decision.",
       invalid_outcome_fields: 'A field of the outcome is missing or superfluous.',
       reask_not_allowed: "This question can't be asked again without screening.",
+      owner_topic_required: 'An owner decision can only be requested with an owner topic.',
+      owner_topic_unknown: "This owner topic isn't in the project's list.",
       invalid_credentials: 'Wrong email address or password.',
       integrator_key_invalid:
         'The Claude Code key has been revoked or has expired. The owner can issue a new one in Settings.',

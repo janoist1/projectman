@@ -169,7 +169,7 @@ export class MemberQueue {
   }
 
   /** The obligation's one reminder is committed with the deadline and wakes through the start lane. */
-  remindObligation(row: Obligation, text: string): void {
+  remindObligation(row: Obligation & { responsible: string }, text: string): void {
     const task = this.ctx.repos.tasks.get(row.taskKey);
     const config = this.projects.cachedConfig(row.projectKey);
     const stage = task && config ? stageOf(config, task.stageId) : null;

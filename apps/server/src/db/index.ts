@@ -73,7 +73,6 @@ export { mergeState, mergedState } from './task-merges';
 export type { MergeRecord } from './task-merges';
 import { createScheduleRepository } from './schedules';
 import { createObligationRepository } from './obligations';
-import { createSeniorWaitRepository } from './senior-waits';
 import { createSessionRepository } from './sessions';
 import { createSessionCleanupRepository } from './session-cleanups';
 export type { SessionCleanupFailure } from './session-cleanups';
@@ -103,7 +102,6 @@ export type { FullTestRunRecord } from './full-test-runs';
 export type { MergeCheckRunQuery, MergeCheckRunStart } from './merge-check-runs';
 export type { TaskLoopRecord } from './task-loops';
 export type { TaskHandoffRow } from './task-handoffs';
-export type { SeniorWaitEndReason, SeniorWaitRecord } from './senior-waits';
 export type { UserRecord } from './users';
 export type { ProjectRecord } from './projects';
 export type { TaskPatch } from './tasks';
@@ -152,7 +150,6 @@ export function createRepositories(db: Db) {
     projectChanges: createProjectChangeEventRepository(db),
     operatorRequests: createOperatorRequestRepository(db),
     operatorSignals: createOperatorSignalRepository(db),
-    seniorWaits: createSeniorWaitRepository(db),
     obligations: createObligationRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),

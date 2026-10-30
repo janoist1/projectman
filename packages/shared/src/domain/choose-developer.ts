@@ -1,8 +1,10 @@
 import { stageOwners } from '../config/duties';
 import { complexityLimitOf } from '../config/complexity';
+import { memberOf, stageOf } from '../config/lookup';
 import type { AiMemberConfig, HumanMemberConfig, ProjectConfig } from '../config/schema';
 import type { ComplexityPoints } from './complexity';
 import type { Stage } from './pipeline';
+import { isOpenTask } from './task';
 import type { Task } from './task';
 
 /** An AI owner of the work stage and the largest card it takes (its complexity limit). */
@@ -108,6 +110,34 @@ export function reachingDevelopers(
 ): string[] {
   if (points === null) return [];
   return developers.filter((d) => fitsCard(d, points, labels)).map((d) => d.handle);
+}
+
+/** Why a card's wait for a developer whose limit reaches its points ended (PM-348). */
+export type SeniorWaitEndReason = 'senior' | 'assigned' | 'moved' | 'closed' | 'level_changed' | 'no_senior';
+
+/**
+ * Why a card no longer waits for a developer whose limit reaches its points, or null when it still does:
+ * it closed, left the work stage, got an assignee (`senior`: one whose limit reaches the points), lost its
+ * points, or the work stage has no developer that reaches them.
+ */
+export function seniorWaitEndReasonOf(
+  task: Pick<Task, 'status' | 'stageId' | 'assignee' | 'complexity' | 'labels'>,
+  config: ProjectConfig,
+): SeniorWaitEndReason | null {
+  if (!isOpenTask(task)) return 'closed';
+  const stage = stageOf(config, task.stageId);
+  if (stage?.kind !== 'work') return 'moved';
+  const points = complexityOf(task);
+  if (task.assignee) {
+    const assignee = memberOf(config, task.assignee);
+    const reaches =
+      points !== null && assignee?.kind === 'ai' && complexityLimitOf(config, assignee) >= points;
+    return reaches ? 'senior' : 'assigned';
+  }
+  if (points === null) return 'level_changed';
+  if (reachingDevelopers(stageDevelopers(config, stage), points, task.labels).length === 0)
+    return 'no_senior';
+  return null;
 }
 
 export type AssigneeFitRefusal = {

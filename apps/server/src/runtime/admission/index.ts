@@ -17,7 +17,7 @@ export {
   isDeferrableCode,
   waitingOf,
 } from './rules';
-export { SeniorWaits } from './senior-waits';
+export { SeniorDecisions } from './senior-decisions';
 export { TaskStarts } from './task-starts';
 export { WorkStarts } from './work-starts';
 export { HandoffService } from './handoffs';

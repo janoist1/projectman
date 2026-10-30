@@ -103,6 +103,10 @@ describe('planObligation', () => {
     expect(planObligation(woken, facts(), '2026-10-01T11:00:00.000Z', 30)).toEqual({ kind: 'hand_over' });
   });
 
+  test('a step without the wake rung hands over at the first expiry', () => {
+    expect(planObligation(row(), facts(), DUE, 30, ['hand_over'])).toEqual({ kind: 'hand_over' });
+  });
+
   test('the number of minutes sets the deadline length', () => {
     expect(planObligation(row(), facts(), DUE, 5)).toEqual({
       kind: 'wake',

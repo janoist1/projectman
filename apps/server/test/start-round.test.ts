@@ -44,7 +44,7 @@ describe('intentional ready waits', () => {
       }),
       projects,
       tasks: h.domain.tasks,
-      seniorWaits: h.domain.seniorWaits,
+      seniorDecisions: h.domain.seniorDecisions,
       admission: h.domain.admission,
       messaging: h.domain.messaging,
       waits: h.domain.taskWaits,

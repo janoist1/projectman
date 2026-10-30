@@ -6,7 +6,7 @@ interface ObligationRow {
   project_key: string;
   task_key: string;
   kind: ObligationKind;
-  responsible: string;
+  responsible: string | null;
   subject: string;
   opened_at: string;
   due_at: string;
@@ -48,8 +48,9 @@ interface ObligationPatch {
 }
 
 /**
- * The obligations (PM-806): open steps with a responsible and a deadline. The tuple (card, kind, responsible,
- * subject) is unique for ever, so a step that was once closed does not open again.
+ * The obligations (PM-806): open steps with a responsible (none for a step nobody holds, PM-1150) and a
+ * deadline. The tuple (card, kind, responsible, subject) is unique for ever, so a step that was once closed
+ * does not open again.
  */
 export function createObligationRepository(db: Db) {
   const statements = {
@@ -61,7 +62,12 @@ export function createObligationRepository(db: Db) {
     byId: db.prepare('SELECT * FROM obligations WHERE id = ?'),
     byTuple: db.prepare(
       `SELECT * FROM obligations
-       WHERE project_key = ? AND task_key = ? AND kind = ? AND responsible = ? AND subject = ?`,
+       WHERE project_key = ? AND task_key = ? AND kind = ? AND COALESCE(responsible, '') = ? AND subject = ?`,
+    ),
+    liveOfKind: db.prepare(
+      `SELECT * FROM obligations
+       WHERE project_key = ? AND task_key = ? AND kind = ? AND state IN ('open','handed_over')
+       ORDER BY opened_at, rowid`,
     ),
     byInboxItem: db.prepare('SELECT * FROM obligations WHERE inbox_item_id = ?'),
     live: db.prepare(
@@ -99,10 +105,14 @@ export function createObligationRepository(db: Db) {
       projectKey: string,
       taskKey: string,
       kind: ObligationKind,
-      responsible: string,
+      responsible: string | null,
       subject: string,
     ): Obligation | null {
-      return one(statements.byTuple.get(projectKey, taskKey, kind, responsible, subject));
+      return one(statements.byTuple.get(projectKey, taskKey, kind, responsible ?? '', subject));
+    },
+    /** The card's open or handed-over row of a kind, the oldest first; null when it has none. */
+    liveOfKind(projectKey: string, taskKey: string, kind: ObligationKind): Obligation | null {
+      return one(statements.liveOfKind.get(projectKey, taskKey, kind));
     },
     /** The row whose integrator todo this is, or null. */
     ofInboxItem(itemId: string): Obligation | null {

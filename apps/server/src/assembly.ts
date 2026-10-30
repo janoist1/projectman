@@ -107,7 +107,7 @@ import {
   MessageStarts,
   queueItemWaiting,
   RefinementSteps,
-  SeniorWaits,
+  SeniorDecisions,
   StageHandOver,
   TaskStarts,
   WorkStarts,
@@ -376,8 +376,6 @@ export interface DomainOptions {
   screenQuestions?: boolean;
   /** How often the open steps of the AI members are looked at for their deadlines (default 60 s, PM-806). */
   obligationSweepMs?: number;
-  /** How often the cards that wait for the Senior are looked at for the wait limit (default 60 s, PM-348). */
-  seniorWaitMs?: number;
   /**
    * The free bytes of the disk the installation's data is on (PM-243); null: not measurable. Without
    * it nothing is measured, so no start is refused for disk space.
@@ -942,28 +940,21 @@ export function createDomain(opts: DomainOptions) {
     messageRouter,
     delivery,
   });
-  // The wait of a card recommended for the Senior (PM-348); an answer tries the deferred starts again.
-  const seniorWaits = new SeniorWaits({
-    ctx,
-    projects,
-    tasks,
-    inbox,
-    timeline,
-    retry: () => retryDeferredStarts(),
-  });
-  const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission, seniorWaits });
+  // The owners' answer about the wait of a card recommended for the Senior (PM-348); it tries the deferred starts again.
+  const seniorDecisions = new SeniorDecisions({ ctx, tasks, timeline, retry: () => retryDeferredStarts() });
+  const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission, seniorDecisions });
   const workStarts = new WorkStarts({ projects, tasks, sessions, admission, starts: taskStarts });
   // The start that waits for the labels an AI member sets runs as a work start, which needs the starts.
   taskStarts.useLabelWait(workStarts);
   taskStarts.useSeniorWait(workStarts);
   // Free developers take urgent cards ahead of their turn, at the end of every retry round (PM-436).
-  admission.usePull(new UrgentPull({ ctx, projects, tasks, admission, seniorWaits, starts: workStarts }));
+  admission.usePull(new UrgentPull({ ctx, projects, tasks, admission, seniorDecisions, starts: workStarts }));
   const taskWaits = new TaskWaits({ ctx, members });
   const startRound = new StartRound({
     ctx,
     projects,
     tasks,
-    seniorWaits,
+    seniorDecisions,
     admission,
     messaging,
     waits: taskWaits,
@@ -1836,10 +1827,6 @@ export function createDomain(opts: DomainOptions) {
   events.on('config_changed', () => {
     setImmediate(() => usage.refresh()).unref();
   });
-  // A card that waits for the Senior: the wait ends with its card's assignment, move, closure or level, or
-  // with the team's Senior, and the owners' answer to the question is kept (PM-348). These run before the
-  // listeners that retry the deferred starts, so a retry sees the wait settled.
-  events.on('task_assigned', ({ task }) => seniorWaits.settleCard(task));
   // A message from an AI member that waits for a member with no role on the card starts nothing (PM-426).
   // The new assignee has a role: their waiting messages wake them now, unless the card holds them back.
   events.on('task_assigned', ({ task }) => {
@@ -1858,16 +1845,11 @@ export function createDomain(opts: DomainOptions) {
         opts.logger.warn({ err, taskKey: task.key }, 'could not wake the new assignee for waiting messages'),
     );
   });
-  events.on('task_stage_changed', (change) => seniorWaits.settleCard(change.task));
-  events.on('task_cancelled', (task) => seniorWaits.settleCard(task));
-  events.on('task_complexity_changed', ({ task }) => {
-    seniorWaits.settleCard(task);
-    retryDeferredStarts();
-  });
-  events.on('config_changed', (change) => {
-    seniorWaits.configurationChanged(change);
-  });
-  events.on('inbox_resolved', (item) => seniorWaits.decided(item));
+  // A card that waits for the Senior (the `senior_wait` obligation, PM-348, PM-1150): the owners' answer is
+  // kept, and a changed roster, wait limit or level tries the deferred starts again.
+  events.on('task_complexity_changed', () => retryDeferredStarts());
+  events.on('config_changed', (change) => seniorDecisions.configurationChanged(change));
+  events.on('inbox_resolved', (item) => seniorDecisions.decided(item));
   // Human decisions.
   events.on('inbox_resolved', (item) =>
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
@@ -2313,7 +2295,7 @@ export function createDomain(opts: DomainOptions) {
     releasePublications,
     loopWatch,
     questionScreening,
-    seniorWaits,
+    seniorDecisions,
     obligations,
     fixLimit,
     autoAdvance,
@@ -2514,13 +2496,6 @@ export function createDomain(opts: DomainOptions) {
             atStart: true,
             run: () => questionScreening.sweep(),
             onError: (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
-          },
-          // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
-          {
-            name: 'senior-waits',
-            everyMs: opts.seniorWaitMs ?? 60_000,
-            run: async () => seniorWaits.sweep(),
-            onError: (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
           },
           // An open step of an AI member past its deadline: one reminder, then an integrator todo (PM-806).
           {

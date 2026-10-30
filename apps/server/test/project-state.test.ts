@@ -152,7 +152,16 @@ describe('project state from server records', () => {
       reason: 'passed_on',
       inboxItemId: null,
     });
-    h.repos.seniorWaits.create({ id: 'senior_test', projectKey: 'AR', taskKey: 'AR-1', since: at });
+    h.repos.obligations.insert({
+      id: 'obl_senior_test',
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      kind: 'senior_wait',
+      responsible: null,
+      subject: `senior_busy@${at}`,
+      openedAt: at,
+      dueAt: at,
+    });
     h.repos.taskLoops.create({
       triage: null,
       id: 'loop_test',

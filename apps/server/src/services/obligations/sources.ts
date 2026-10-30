@@ -12,6 +12,7 @@ import {
 import type {
   Obligation,
   ObligationKind,
+  ObligationRung,
   ProjectConfig,
   QuestionTodo,
   Task,
@@ -33,10 +34,10 @@ export interface ProjectView {
   live: readonly Obligation[];
 }
 
-/** A step that is open now and has an AI responsible. */
+/** A step that is open now: it has an AI responsible, or none (a wait for the owners' decision). */
 export interface DerivedObligation {
   taskKey: string;
-  responsible: string;
+  responsible: string | null;
   subject: string;
   /** When the step began: the first deadline is `since` + N minutes. */
   since: string;
@@ -54,14 +55,25 @@ export interface ObligationSource {
   kind: ObligationKind;
   /** The source derives its steps whatever holds the card: a step it does not derive has ended, paused or not. */
   derivesWhilePaused?: boolean;
+  /** The rungs of the ladder the kind climbs (all of them when absent). */
+  rungs?: readonly ObligationRung[];
+  /** The kind's own N minutes for its deadline (the project's obligation minutes when absent). */
+  minutesOf?(config: ProjectConfig): number;
+  /** False: no hold on the card or the responsible stops the clock (true when absent). */
+  pausable?: boolean;
   /** The open steps of the project, or null when they cannot be read now (the rows then stay as they are). */
   derive(project: ProjectView): ReadonlyArray<DerivedObligation> | null;
   /** How a row that is not derived any more ended. */
   closedAs(row: Obligation, project: ProjectView): 'fulfilled' | 'cancelled';
-  /** The one reminder to the responsible (English; `waited` minutes since the step began, `minutes` is N). */
-  wakeText(row: Obligation, minutes: number, waited: number, project: ProjectView): string;
-  /** Transfer a decision instead of opening a todo; null means it already ended. */
-  handOver?(row: Obligation): Promise<{ decisionItemId: string } | null>;
+  /** The row has just been closed (its card is the project's view of it): what the end of the step has to say or close. */
+  onClosed?(row: Obligation, outcome: 'fulfilled' | 'cancelled', project: ProjectView): void;
+  /** The one reminder to the responsible (English; `waited` minutes since the step began, `minutes` is N). A kind without the `wake` rung has none. */
+  wakeText?(row: Obligation, minutes: number, waited: number, project: ProjectView): string;
+  /**
+   * Transfer a decision instead of opening a todo; null means it already ended, `'settled'` that the source
+   * has written the row and its own record of the hand-over.
+   */
+  handOver?(row: Obligation, project: ProjectView): Promise<{ decisionItemId: string } | 'settled' | null>;
   /** Whether the transferred step still waits for its new responsible. */
   keepsHandedOver?(row: Obligation, project: ProjectView): boolean;
   /** The integrator todo, after the second deadline. */
@@ -93,6 +105,9 @@ interface SourceDeps {
 const isAi = (config: ProjectConfig, handle: string): boolean => memberOf(config, handle)?.kind === 'ai';
 
 const stageEntered = (task: Task): string => task.stageEnteredAt ?? task.updatedAt;
+
+/** The responsible of a row of a kind that always has one (every kind but `senior_wait`). */
+const responsibleOf = (row: Obligation): string => row.responsible ?? '';
 
 const latest = (times: readonly (string | null)[]): string | null =>
   times.reduce<string | null>((best, at) => (at && (!best || at > best) ? at : best), null);
@@ -264,7 +279,7 @@ function reviewSource(deps: SourceDeps): ObligationSource {
       const { config } = project;
       const stage = stageOf(config, stageIdOf(row));
       if (!task || task.status === 'cancelled' || stage?.kind !== 'step') return 'cancelled';
-      if (!stageOwners(config, stage).includes(row.responsible)) return 'cancelled';
+      if (!stageOwners(config, stage).includes(responsibleOf(row))) return 'cancelled';
       const subjectIndex = stageIndex(config.pipeline, stage.id);
       const nowIndex = stageIndex(config.pipeline, task.stageId);
       if (nowIndex > subjectIndex) return 'fulfilled';
@@ -273,7 +288,7 @@ function reviewSource(deps: SourceDeps): ObligationSource {
       const since = row.subject.slice(row.subject.indexOf('@') + 1);
       if (stageEntered(task) !== since) return 'cancelled';
       if (deps.importedEntry(task.projectKey, task.key, since)) return 'cancelled';
-      const result = stepResult(config, task, row.responsible);
+      const result = stepResult(config, task, responsibleOf(row));
       if (!result) return 'cancelled';
       const done =
         result.gate.some((label) => task.labels.includes(label)) ||
@@ -305,7 +320,7 @@ const stageNameOf = (row: Obligation, project: ProjectView): string =>
 /** The labels that end a review step for its responsible, as text (`a, b or c`). */
 function resultsOf(row: Obligation, project: ProjectView): string {
   const task = project.tasks.get(row.taskKey);
-  const labels = task ? (stepResult(project.config, task, row.responsible)?.results ?? []) : [];
+  const labels = task ? (stepResult(project.config, task, responsibleOf(row))?.results ?? []) : [];
   if (labels.length === 0) return 'the result label';
   return labels.length === 1 ? labels[0]! : `${labels.slice(0, -1).join(', ')} or ${labels.at(-1)}`;
 }
@@ -404,7 +419,7 @@ function fixLimitSource(deps: SourceDeps): ObligationSource {
         return { decisionItemId: owner.inboxItemId };
       const held = deps.fixLimits.get(row.taskKey);
       if (!held || row.subject !== `${held.heldAt}:${held.holdPhase}`) return null;
-      return deps.fixLimit.timeOut(row.projectKey, row.taskKey, row.responsible);
+      return deps.fixLimit.timeOut(row.projectKey, row.taskKey, responsibleOf(row));
     },
     wakeText(row, minutes, waited) {
       const taskRounds = deps.roundsOf(row.projectKey, row.taskKey);

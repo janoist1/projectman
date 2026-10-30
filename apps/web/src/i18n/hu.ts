@@ -5268,6 +5268,7 @@ export const hu = {
       review_step: 'átnézési lépés',
       work: 'munka',
       start: 'indítás',
+      senior_wait: 'Senior-várakozás',
       step: 'lépés',
     },
     refinement: {

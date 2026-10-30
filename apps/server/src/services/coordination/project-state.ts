@@ -187,7 +187,9 @@ export class ProjectState {
       session: session ? sessionReport(session) : null,
       holds: [
         ...(open && task.fixLimit ? ['fix_limit' as const] : []),
-        ...(open && ctx.repos.seniorWaits.open(projectKey, taskKey) ? ['senior_wait' as const] : []),
+        ...(open && ctx.repos.obligations.liveOfKind(projectKey, taskKey, 'senior_wait')
+          ? ['senior_wait' as const]
+          : []),
         ...(open && task.loop && task.loop.phase !== 'let_run' ? ['loop' as const] : []),
         ...(open && (pause.project || pause.instance) ? ['paused' as const] : []),
       ],

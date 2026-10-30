@@ -57,7 +57,7 @@ import type { StageChange, TaskService, WorkEntryCheck } from '../../core/tasks'
 import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../../kernel';
 import type { Admission } from './admission';
 import { assertPrerequisitesClosed } from './rules';
-import type { SeniorWaits } from './senior-waits';
+import type { SeniorDecisions } from './senior-decisions';
 
 interface StartTaskOptions {
   /** Explicit assignee; omitted = the current assignee, else a free developer, else a temp worker. */
@@ -194,7 +194,7 @@ export class TaskStarts implements WorkEntryCheck {
   private readonly members: MemberService;
   private readonly sessions: SessionOrchestrator;
   private readonly admission: Admission;
-  private readonly seniorWaits: SeniorWaits;
+  private readonly seniorDecisions: SeniorDecisions;
   private labelWait: LabelWait | undefined;
   private seniorWait: SeniorWait | undefined;
   private fixLimit: FixLimitStart | undefined;
@@ -211,14 +211,14 @@ export class TaskStarts implements WorkEntryCheck {
     members: MemberService;
     sessions: SessionOrchestrator;
     admission: Admission;
-    seniorWaits: SeniorWaits;
+    seniorDecisions: SeniorDecisions;
   }) {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.members = deps.members;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
-    this.seniorWaits = deps.seniorWaits;
+    this.seniorDecisions = deps.seniorDecisions;
   }
 
   async start(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
@@ -400,7 +400,7 @@ export class TaskStarts implements WorkEntryCheck {
       !!this.fixLimit?.humanStart(task, opts.actor);
     if (task.assignee !== member.handle) {
       // Said before the assignment, which ends a wait for a Senior as "assigned".
-      if (chosen.noneReaches) this.seniorWaits.noSenior(task);
+      if (chosen.noneReaches) this.seniorDecisions.noSenior(task);
       task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor, { handoff: 'auto_assign' });
       opts.onAssigned?.(member.handle);
     }
@@ -492,10 +492,9 @@ export class TaskStarts implements WorkEntryCheck {
     }
     const current = this.tasks.get(projectKey, task.key);
     if (opts.stillWanted && !opts.stillWanted(current)) return { task: current, session: null, hired: null };
-    const decision = this.seniorWaits.decisionFor(projectKey, task.key);
+    const decision = this.seniorDecisions.decisionFor(projectKey, task.key);
     const waitDecidedBy = decision?.decision === 'wait' ? decision.by : undefined;
     if (opts.automatic) {
-      this.seniorWaits.open(task, seniors);
       throw conflict('senior_busy', `task ${task.key} waits for a developer whose limit reaches its points`, {
         seniors,
         waitDecidedBy,
@@ -511,7 +510,6 @@ export class TaskStarts implements WorkEntryCheck {
       waitDecidedBy,
       despitePrerequisites: opts.despitePrerequisites,
     });
-    this.seniorWaits.open(task, seniors);
     return {
       task: this.tasks.get(projectKey, task.key),
       session: null,
@@ -672,7 +670,7 @@ export class TaskStarts implements WorkEntryCheck {
           task,
           workStage: stage,
           member: member.handle,
-          anyDecided: this.seniorWaits.decisionFor(projectKey, task.key)?.decision === 'any',
+          anyDecided: this.seniorDecisions.decisionFor(projectKey, task.key)?.decision === 'any',
         });
       return given(member);
     }
@@ -720,7 +718,7 @@ export class TaskStarts implements WorkEntryCheck {
     const pick = chooseDeveloper({
       points,
       labels: task.labels,
-      anyDecided: this.seniorWaits.decisionFor(projectKey, task.key)?.decision === 'any',
+      anyDecided: this.seniorDecisions.decisionFor(projectKey, task.key)?.decision === 'any',
       reaching,
       free,
       tempMaxPoints: tempMaxPointsOf(config),

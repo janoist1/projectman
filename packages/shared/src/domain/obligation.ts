@@ -17,6 +17,8 @@ export const ObligationKind = z.enum([
   'work',
   /** The offer to start a ready card (PM-804): its responsible is asked to move it to development. */
   'start',
+  /** A scored card that waits for a developer whose limit reaches its points (PM-348, PM-1150): nobody holds the step. */
+  'senior_wait',
 ]);
 export type ObligationKind = z.infer<typeof ObligationKind>;
 
@@ -46,7 +48,8 @@ export const Obligation = z.object({
   projectKey: ProjectKey,
   taskKey: TaskKey,
   kind: ObligationKind,
-  responsible: MemberHandle,
+  /** Null: nobody holds the step, the system waits for it (`senior_wait`). */
+  responsible: MemberHandle.nullable(),
   /** What opened it (the merge id, `<stage>@<time>`, ...): with the card, kind and responsible it is unique. */
   subject: z.string().max(200),
   openedAt: IsoDateTime,
@@ -66,7 +69,7 @@ export type Obligation = z.infer<typeof Obligation>;
 export const ObligationRef = z.object({
   id: z.string(),
   kind: ObligationKind,
-  responsible: MemberHandle,
+  responsible: MemberHandle.nullable(),
   openedAt: IsoDateTime,
 });
 export type ObligationRef = z.infer<typeof ObligationRef>;
@@ -91,18 +94,24 @@ export type ObligationStep =
 const plusMinutes = (at: string, minutes: number): string =>
   new Date(Date.parse(at) + minutes * 60_000).toISOString();
 
+/** The rungs of the ladder a kind climbs: the one reminder, then the hand-over. */
+export const ObligationRung = z.enum(['wake', 'hand_over']);
+export type ObligationRung = z.infer<typeof ObligationRung>;
+
 /**
  * The next step of an obligation (PM-806). The order is the rule:
  * 1. only an open row moves; 2. a pause starts once; 3. when it ends the clock restarts for N minutes;
  * 4. before the deadline nothing happens; 5. recent activity of the responsible moves the deadline to
  * activity + N; 6. a responsible at work gets N more minutes; 7. the first expiry is the one reminder;
- * 8. the second expiry hands the step to the integrator.
+ * 8. the second expiry hands the step to the integrator. A kind without the `wake` rung (`rungs`) hands
+ * the step over at the first expiry.
  */
 export function planObligation(
   row: Obligation,
   facts: ObligationFacts,
   now: string,
   minutes: number,
+  rungs: readonly ObligationRung[] = ['wake', 'hand_over'],
 ): ObligationStep {
   if (row.state !== 'open') return { kind: 'none' };
   if (facts.paused) {
@@ -116,7 +125,8 @@ export function planObligation(
     if (activityDue > nowMs) return { kind: 'extend', dueAt: new Date(activityDue).toISOString() };
   }
   if (facts.active) return { kind: 'extend', dueAt: plusMinutes(now, minutes) };
-  if (row.wokenAt === null) return { kind: 'wake', dueAt: plusMinutes(now, minutes) };
+  if (row.wokenAt === null && rungs.includes('wake'))
+    return { kind: 'wake', dueAt: plusMinutes(now, minutes) };
   return { kind: 'hand_over' };
 }
 

@@ -89,6 +89,7 @@ import { TaskAcceptance } from './acceptance';
 import { BoardOrder } from './board-order';
 import { BoardGroupMove } from './group-move';
 import { assertAssigneeFits } from './assignee-fit';
+import { seniorWaitDecisionFor } from './senior-decision';
 import { planComplexity } from './complexity';
 import type { ComplexityChange } from './complexity';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
@@ -634,10 +635,9 @@ export class TaskService implements TaskSchedulingReader {
     return task;
   }
 
-  /** The owners released the card to any developer: the same condition as `SeniorWaits.decisionFor` (it needs `decidedBy`). */
+  /** The owners released the card to any developer (see `seniorWaitDecisionFor`). */
   private anyDecided(task: Task): boolean {
-    const wait = this.ctx.repos.seniorWaits.open(task.projectKey, task.key);
-    return wait?.decision === 'any' && Boolean(wait.decidedBy);
+    return seniorWaitDecisionFor(this.ctx, task.projectKey, task.key)?.decision === 'any';
   }
 
   private inColumn(config: ProjectConfig, task: Task, columnId: string): boolean {

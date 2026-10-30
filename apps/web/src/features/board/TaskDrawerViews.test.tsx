@@ -45,12 +45,12 @@ const attach = (project: ReturnType<typeof mockProject>, ...names: string[]) =>
   );
 
 describe('the views of the open card (PM-487)', () => {
-  it('has four views in a row, the attachments with their count', async () => {
+  it('has five views in a row, the attachments with their count', async () => {
     const project = mockProject();
     attach(project, 'a.pdf', 'b.pdf');
     project.render(card, '/p/AC/tasks/AC-21');
     const group = await views();
-    await waitFor(() => expect(within(group).getAllByRole('button')).toHaveLength(4));
+    await waitFor(() => expect(within(group).getAllByRole('button')).toHaveLength(5));
     expect(
       within(group)
         .getAllByRole('button')
@@ -59,6 +59,7 @@ describe('the views of the open card (PM-487)', () => {
       t('task.view.card'),
       t('task.view.thread'),
       t('task.view.attachments'),
+      t('task.view.steps'),
       t('task.view.timeline'),
     ]);
     await waitFor(() => expect(within(viewButton(t('task.view.attachments'))).getByText('2')).toBeTruthy());

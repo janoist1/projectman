@@ -1,13 +1,20 @@
 import {
+  cardSteps,
+  isTheme,
+  memberQueueSourceOf,
   openPrerequisites,
   PENDING_INBOX_STATES,
   taskWait,
+  visibleCardStepsInput,
   waitHolders,
   waitWorkers,
 } from '@projectman/shared';
-import type { InboxItem, ProjectConfig, Task, TaskWait } from '@projectman/shared';
+import type { CardStep, InboxItem, ProjectConfig, Task, TaskWait } from '@projectman/shared';
 import type { DomainContext } from '../base';
-import type { MemberService } from '../members';
+import type { MemberService, ProjectAccess } from '../members';
+
+/** Who reads the steps: the requester, as the card's other parts are read for them. */
+type StepsViewer = Pick<ProjectAccess, 'access' | 'handle' | 'via'>;
 
 /**
  * Why cards stand still (PM-460), from the shared rule `taskWait`: this is the server's side of it, the
@@ -81,6 +88,28 @@ export class TaskWaits {
             viewer,
           }),
         ];
+      }),
+    );
+  }
+
+  /**
+   * The card's open system steps (PM-1151) for the viewer: its open obligations, the queue items placed on
+   * it, its waiting start and its pending inbox items, each read for this one card by an indexed query and
+   * mapped by the shared `cardSteps`. A theme has none (undefined).
+   */
+  stepsOf(task: Task, viewer: StepsViewer): CardStep[] | undefined {
+    if (isTheme(task)) return undefined;
+    const projectKey = task.projectKey;
+    return cardSteps(
+      visibleCardStepsInput(viewer, {
+        obligations: this.ctx.repos.obligations.listLive(projectKey, task.key),
+        queueItems: this.ctx.repos.memberQueue.listOpenOfCard(projectKey, task.key).map((item) => ({
+          ...item,
+          source: memberQueueSourceOf(item.source.type, item.source.id),
+        })),
+        startWaiting: task.startWaiting ?? null,
+        openItems: this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES, taskKey: task.key }),
+        viewer: viewer.handle,
       }),
     );
   }

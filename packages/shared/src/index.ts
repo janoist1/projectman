@@ -47,6 +47,7 @@ export * from './domain/loop-watch';
 export * from './domain/fix-extra-rounds';
 export * from './domain/fix-limit';
 export * from './domain/obligation';
+export * from './domain/card-step';
 export * from './domain/full-test';
 export * from './domain/merge';
 export * from './domain/merge-input';

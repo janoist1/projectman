@@ -736,9 +736,11 @@ export class ToolCaller {
     const handle = workItem?.type === 'general' ? workItem.with : undefined;
     if (handle === undefined) return null;
     const person = memberOf(config, handle);
-    // Someone no longer in the team sees nothing: the narrowest access there is.
-    const access = person?.kind === 'human' ? person.access : 'client';
-    return { handle, viewer: { access, handle } };
+    // Someone no longer in the team sees nothing: a client reads the whole project since PM-79, so no
+    // access level is narrow enough to stand for them.
+    if (person?.kind !== 'human')
+      throw new TeamToolError('forbidden', `${OWNER_ONLY}: ${handle} is not a member of the team.`);
+    return { handle, viewer: { access: person.access, handle } };
   }
 }
 

@@ -696,6 +696,16 @@ describe('the project manager screens AI members’ questions', () => {
       expect(err.message).toContain('reask_not_allowed');
       expect(humanQueue()).toHaveLength(1);
     });
+
+    it('lets only one of two concurrent re-asks of a question through', async () => {
+      const first = await answered();
+      const results = await Promise.allSettled([
+        reask(first, 'The brand guide is out of date.'),
+        reask(first, 'Once more.'),
+      ]);
+      expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+      expect(humanQueue()).toHaveLength(1);
+    });
   });
 
   describe('when the project manager cannot take the question', () => {

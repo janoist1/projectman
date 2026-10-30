@@ -5,6 +5,7 @@ import type { AiMemberConfig, ProjectConfig, Session } from '@projectman/shared'
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { canSeeProjectEvent } from '../src/core/projects';
+import { humanActor } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
@@ -166,6 +167,24 @@ describe('the PM only reads and answers in a guest’s conversation', () => {
       await refusal(h.domain.teamTools.sendMessage(ctx, { to: ['owner'], text: 'Psst', kind: 'info' })),
     ).toMatch(/^operator_owner_only:/);
     await h.domain.teamTools.sendMessage(ctx, { to: ['cleo'], text: 'It is under review.', kind: 'info' });
+  });
+
+  it('reads nothing for a person who left the team while the conversation stayed open (PM-1012)', async () => {
+    await setup();
+    await say('cleo');
+    const ctx = toolOf(conversationWith('cleo'));
+    expect(await h.domain.teamTools.getTask(ctx, { taskKey: 'AR-1' })).toBeDefined();
+    await h.domain.projects.update(
+      'AR',
+      { actor: humanActor('owner'), author: { name: 'Owner', email: 'owner@example.com' } },
+      (config) => {
+        config.team.members = config.team.members.filter((m) => m.handle !== 'cleo');
+        return 'Remove the client';
+      },
+    );
+    expect(await refusal(h.domain.teamTools.getTask(ctx, { taskKey: 'AR-1' }))).toMatch(
+      /^operator_owner_only:/,
+    );
   });
 });
 

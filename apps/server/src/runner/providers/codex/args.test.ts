@@ -376,6 +376,19 @@ describe('buildCodexArgs', () => {
     },
   );
 
+  // The Codex permission profile names no network and no Unix socket (PM-293): the control socket is not
+  // granted, and the outbound-network setting of the Claude sandbox does not reach Codex.
+  it.each(['default', 'plan', 'acceptEdits', 'auto', 'bypassPermissions'])(
+    'grants no network or Unix socket permission in the %s profile',
+    (permissionMode) => {
+      const c = overrides(buildCodexArgs({ ...input, spec: { ...spec, permissionMode } }).args);
+      const profile = c.get('permissions.projectman') ?? '';
+      expect(profile).not.toMatch(/network|socket/i);
+      expect(c.has('sandbox_workspace_write.network_access')).toBe(false);
+      expect([...c.keys()].filter((key) => /network|socket/i.test(key))).toEqual([]);
+    },
+  );
+
   it('runs the TUI inline, without the daemon, with our hooks trusted and the brief as the prompt', () => {
     const args = buildCodexArgs(input).args;
     expect(args.slice(0, 6)).toEqual([

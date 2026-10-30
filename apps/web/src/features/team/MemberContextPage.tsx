@@ -10,21 +10,22 @@ import { Fold } from '../../components/Fold';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, Spinner } from '../../components/States';
 import { useToast } from '../../components/toastContext';
+import { intlLocale, numberFormat } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { aiRoleView } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
 import { TaskPicker } from './TaskPicker';
 import styles from './MemberContextPage.module.css';
 
-const number = (value: number) => new Intl.NumberFormat('hu-HU').format(value).replace(/\s/g, '\u202f');
+const number = (value: number) => numberFormat().format(value).replace(/\s/g, '\u202f');
 const firstUseKey = 'memberContext.introductionDismissed';
 type Part = 'intro' | 'guides' | 'tools';
 
 function generatedTime(stamp: string) {
   const date = new Date(stamp);
   return date.toDateString() === new Date().toDateString()
-    ? t('memberContext.today', { time: date.toLocaleTimeString('hu-HU') })
-    : date.toLocaleString('hu-HU');
+    ? t('memberContext.today', { time: date.toLocaleTimeString(intlLocale()) })
+    : date.toLocaleString(intlLocale());
 }
 
 export function MemberContextPage() {

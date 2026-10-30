@@ -3,6 +3,7 @@ import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { ErrorState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
+import { intlLocale } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
 import styles from '../invites/Invites.module.css';
@@ -31,7 +32,9 @@ export function PendingInvites() {
                 <p>
                   {invite.email} · {humanRoleName(invite.access)}
                 </p>
-                <p>{t('invites.expires', { date: new Date(invite.expiresAt).toLocaleString('hu-HU') })}</p>
+                <p>
+                  {t('invites.expires', { date: new Date(invite.expiresAt).toLocaleString(intlLocale()) })}
+                </p>
               </div>
               <Button
                 aria-label={t('invites.revokeFor', { email: invite.email })}

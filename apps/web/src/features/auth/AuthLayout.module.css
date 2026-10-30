@@ -1,10 +1,31 @@
 .page {
+  position: relative;
   min-height: 100%;
+  box-sizing: border-box;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 14px;
   padding: 32px 16px;
   background: var(--c-page);
+}
+
+/* Outside the card: it has no room for it at 390 px. On a phone it sits above the card and the page scrolls. */
+.language {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-ink-3);
+}
+
+@media (min-width: 768px) {
+  .language {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+  }
 }
 
 .card {

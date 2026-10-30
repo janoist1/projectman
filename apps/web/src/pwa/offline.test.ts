@@ -2,10 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { en } from '../i18n/en';
 import { hu } from '../i18n/hu';
 import { buildOfflineHtml, OFFLINE_TOKENS } from './offline';
 
-const text = { name: hu.app.name, ...hu.pwa.offline };
+const english = { name: en.app.name, ...en.pwa.offline };
+const hungarian = { name: hu.app.name, ...hu.pwa.offline };
+const text = { en: english, hu: hungarian };
 
 /** Renders the offline page in jsdom and runs its inline script. */
 function mount() {
@@ -22,21 +25,38 @@ function mount() {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.localStorage.clear();
   document.documentElement.innerHTML = '';
 });
 
 describe('offline page', () => {
-  it('shows the locale texts with the product name', () => {
+  it('is English without a script, with the product name filled in', () => {
     const html = buildOfflineHtml(text);
-    expect(html).toContain('<html lang="hu">');
-    expect(html).toContain('<h1>Nincs kapcsolat</h1>');
-    expect(html).toContain('A projectman most nem éri el a szervert.');
+    expect(html).toContain('<html lang="en">');
+    expect(html).toContain('>No connection</h1>');
+    expect(html).toContain("projectman can't reach the server right now.");
     expect(html).not.toContain('{name}');
   });
 
   it('escapes text from the locale file', () => {
-    const html = buildOfflineHtml({ ...text, title: '<b>"x"</b>' });
-    expect(html).toContain('<h1>&lt;b&gt;&quot;x&quot;&lt;/b&gt;</h1>');
+    const html = buildOfflineHtml({ ...text, en: { ...english, title: '<b>"x"</b>' } });
+    expect(html).toContain('>&lt;b&gt;&quot;x&quot;&lt;/b&gt;</h1>');
+  });
+
+  it('reads the stored UI language, then the browser language', () => {
+    window.localStorage.setItem('pm:language', 'hu');
+    mount();
+    expect(document.getElementById('title')?.textContent).toBe(hungarian.title);
+    expect(document.documentElement.lang).toBe('hu');
+
+    window.localStorage.clear();
+    vi.stubGlobal('navigator', { language: 'hu-HU' });
+    mount();
+    expect(document.getElementById('title')?.textContent).toBe(hungarian.title);
+
+    vi.stubGlobal('navigator', { language: 'de-DE' });
+    mount();
+    expect(document.getElementById('title')?.textContent).toBe(english.title);
   });
 
   it('uses the token colours and fits a 44 px button', () => {
@@ -63,10 +83,10 @@ describe('offline page', () => {
     expect(status.getAttribute('aria-live')).toBe('polite');
     button.click();
     expect(button.getAttribute('aria-busy')).toBe('true');
-    expect(button.textContent).toBe('Próbálom…');
-    await vi.waitFor(() => expect(status.textContent).toBe('Még mindig nincs kapcsolat.'));
+    expect(button.textContent).toBe(english.retrying);
+    await vi.waitFor(() => expect(status.textContent).toBe(english.stillOffline));
     expect(button.hasAttribute('aria-busy')).toBe(false);
-    expect(button.textContent).toBe('Újra');
+    expect(button.textContent).toBe(english.retry);
     expect(fetchMock).toHaveBeenCalledWith('/', { method: 'HEAD', cache: 'no-store', redirect: 'manual' });
   });
 

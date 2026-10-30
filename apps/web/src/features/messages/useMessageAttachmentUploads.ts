@@ -4,7 +4,7 @@ import type { MessageAttachment } from '@projectman/shared';
 import { api } from '../../api/endpoints';
 import { isApiError } from '../../api/client';
 import { t } from '../../i18n/t';
-import { formatBytes, LOCALE } from '../../i18n/format';
+import { formatBytes, numberFormat } from '../../i18n/format';
 
 export interface MessageUpload {
   id: number;
@@ -86,9 +86,7 @@ export function useMessageAttachmentUploads(projectKey: string) {
         const size =
           roundedSize === max
             ? t('attachments.size.megabytes', {
-                value: new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 6 }).format(
-                  original.size / 1_000_000,
-                ),
+                value: numberFormat({ maximumFractionDigits: 6 }).format(original.size / 1_000_000),
               })
             : roundedSize;
         setError(

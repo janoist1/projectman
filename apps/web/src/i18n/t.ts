@@ -1,12 +1,23 @@
+import { en } from './en';
 import { hu } from './hu';
+import { currentLanguage } from './language';
 
 /**
  * Type-safe translation. Keys are dot paths into `hu` ("board.filters.all"); placeholders
  * in the message ("{count} napja") become required params. Missing keys fail the
  * typecheck, so every key used in the code exists in the locale file.
+ *
+ * `hu` is the source of the key set and the placeholder types; `en` translates it section by
+ * section (PM-1168) and a section it does not hold yet falls back to Hungarian.
  */
 
 export type Messages = typeof hu;
+
+/** The same tree as `T` with string leaves, so a locale can be checked against `hu` without its literals. */
+type LocaleShape<T> = { readonly [K in keyof T]: T[K] extends string ? string : LocaleShape<T[K]> };
+
+/** A top-level section is either missing or complete: a started section must hold every key. */
+export type PartialLocale = { readonly [K in keyof Messages]?: LocaleShape<Messages[K]> };
 
 type Leaves<T, Prefix extends string = ''> = {
   [K in keyof T & string]: T[K] extends string ? `${Prefix}${K}` : Leaves<T[K], `${Prefix}${K}.`>;
@@ -22,7 +33,10 @@ type ValueAt<T, K extends string> = K extends `${infer Head}.${infer Rest}`
     ? T[K]
     : never;
 
-type Placeholders<S> = S extends `${string}{${infer Name}}${infer Rest}` ? Name | Placeholders<Rest> : never;
+/** `{name}` and the plural form `{count|# card|# cards}` (placeholder `count`) both name a placeholder. */
+type Placeholders<S> = S extends `${string}{${infer Name}}${infer Rest}`
+  ? (Name extends `${infer Plain}|${string}` ? Plain : Name) | Placeholders<Rest>
+  : never;
 
 export type MessageParams<K extends MessageKey> = Placeholders<ValueAt<Messages, K>>;
 
@@ -35,8 +49,8 @@ export type PlainMessageKey = {
   [K in MessageKey]: [MessageParams<K>] extends [never] ? K : never;
 }[MessageKey];
 
-function resolve(key: string): string | undefined {
-  let node: unknown = hu;
+function lookup(catalog: unknown, key: string): string | undefined {
+  let node: unknown = catalog;
   for (const part of key.split('.')) {
     if (node === null || typeof node !== 'object') return undefined;
     node = (node as Record<string, unknown>)[part];
@@ -44,10 +58,46 @@ function resolve(key: string): string | undefined {
   return typeof node === 'string' ? node : undefined;
 }
 
+const warnedFallbacks = new Set<string>();
+
+/** The message in the current language; an English message that is not written yet reads in Hungarian. */
+function resolve(key: string): string | undefined {
+  if (currentLanguage() === 'en') {
+    const message = lookup(en, key);
+    if (message !== undefined) return message;
+    if (import.meta.env.DEV && !warnedFallbacks.has(key)) {
+      warnedFallbacks.add(key);
+      console.warn(`[i18n] no English message yet: ${key}`);
+    }
+  }
+  return lookup(hu, key);
+}
+
+const pluralRules = new Map<string, Intl.PluralRules>();
+
+function pluralForm(count: number, one: string, other: string): string {
+  const language = currentLanguage();
+  let rules = pluralRules.get(language);
+  if (!rules) {
+    rules = new Intl.PluralRules(language);
+    pluralRules.set(language, rules);
+  }
+  return (rules.select(count) === 'one' ? one : other).replace(/#/g, String(count));
+}
+
+/**
+ * Fills `{name}` and the plural form `{count|# card|# cards}` (the first form for the language's "one",
+ * the second for every other number; `#` stands for the number; the forms hold no braces).
+ */
 function interpolate(template: string, params: Record<string, string | number> | undefined): string {
   if (!params) return template;
-  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
-    Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match,
+  return template.replace(
+    /\{(\w+)(?:\|([^|{}]*)\|([^|{}]*))?\}/g,
+    (match, name: string, one: string | undefined, other: string | undefined) => {
+      if (!Object.prototype.hasOwnProperty.call(params, name)) return match;
+      const value = params[name]!;
+      return one !== undefined && other !== undefined ? pluralForm(Number(value), one, other) : String(value);
+    },
   );
 }
 
@@ -74,14 +124,14 @@ export function tDynamic(key: string, fallback: string, params?: Record<string, 
   return template === undefined ? fallback : interpolate(template, params);
 }
 
-/** Joins alternatives the Hungarian way: "a, b vagy c" (whoever of them may do it). */
+/** Joins alternatives with the language's words: "a, b vagy c" / "a, b or c" (whoever of them may do it). */
 export function joinAlternatives(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? '';
   const head = names.slice(0, -1).join(t('common.listSeparator'));
   return `${head}${t('common.or')}${names[names.length - 1]}`;
 }
 
-/** Joins names the Hungarian way: "a, b és c". */
+/** Joins names with the language's words: "a, b és c" / "a, b and c". */
 export function joinNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? '';
   const head = names.slice(0, -1).join(t('common.listSeparator'));

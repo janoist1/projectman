@@ -4,6 +4,7 @@ import { isApiError, onUnauthorized } from '../api/client';
 import { useMe, useSetupStatus } from '../api/queries';
 import { SocketProvider } from '../api/SocketProvider';
 import { ErrorState, LoadingState } from '../components/States';
+import { setCurrentLanguage } from '../i18n/language';
 import { MeContext } from './contexts';
 import { loginPath } from './paths';
 import styles from './AuthGate.module.css';
@@ -20,6 +21,12 @@ export function AuthGate() {
   const [expired, setExpired] = useState(false);
 
   useEffect(() => onUnauthorized(() => setExpired(true)), []);
+
+  // The account's language wins over the one stored in this browser (PM-1168); it is stored for the next login page.
+  const accountLanguage = me.data?.language;
+  useEffect(() => {
+    if (accountLanguage) setCurrentLanguage(accountLanguage);
+  }, [accountLanguage]);
 
   const next = `${location.pathname}${location.search}`;
   if (setup.isPending) return <LoadingState className={styles.full} />;

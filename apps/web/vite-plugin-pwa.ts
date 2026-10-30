@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
+import { en } from './src/i18n/en';
 import { hu } from './src/i18n/hu';
 import { buildManifest } from './src/pwa/manifest';
 import { buildOfflineHtml } from './src/pwa/offline';
@@ -11,15 +12,18 @@ const SW_SOURCE = resolve(dirname(fileURLToPath(import.meta.url)), 'src/pwa/sw.j
 const MANIFEST_FILE = 'manifest.webmanifest';
 const APP_NAME_PLACEHOLDER = '{{appName}}';
 
-/** The files the app needs to be installable, built from the locale file (hu.ts). */
+/** The files the app needs to be installable: the manifest from the English locale, the offline page from both. */
 export function buildPwaFiles(): {
   manifest: string;
   offline: string;
   serviceWorker: (buildId?: string) => string;
 } {
-  const name = hu.app.name;
-  const manifest = JSON.stringify(buildManifest({ name, description: hu.pwa.description }), null, 2) + '\n';
-  const offline = buildOfflineHtml({ name, ...hu.pwa.offline });
+  const name = en.app.name;
+  const manifest = JSON.stringify(buildManifest({ name, description: en.pwa.description }), null, 2) + '\n';
+  const offline = buildOfflineHtml({
+    en: { name, ...en.pwa.offline },
+    hu: { name: hu.app.name, ...hu.pwa.offline },
+  });
   const template = readFileSync(SW_SOURCE, 'utf8');
   // The id changes with the offline page or the worker, so a release that changes either updates the cache.
   const hashed = createHash('sha256').update(offline).update(template).digest('hex').slice(0, 12);
@@ -36,7 +40,7 @@ export function pwaPlugin(): Plugin {
     name: 'projectman-pwa',
     transformIndexHtml: {
       order: 'pre',
-      handler: (html) => html.replaceAll(APP_NAME_PLACEHOLDER, hu.app.name),
+      handler: (html) => html.replaceAll(APP_NAME_PLACEHOLDER, en.app.name),
     },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {

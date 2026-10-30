@@ -7,6 +7,7 @@ import {
   useResetPassword,
   useVerifyEmailLogin,
 } from '../../api/queries';
+import { currentLanguage } from '../../i18n/language';
 import { t } from '../../i18n/t';
 import { retryAfterOf, useCountdown, useSingleFlight } from './emailLogin';
 
@@ -82,7 +83,7 @@ export function useEmailCodeFlow(identity: CodeIdentity, purpose: 'login' | 'pas
         const answer =
           purpose === 'password' && 'email' in identity
             ? await requestPasswordCode.mutateAsync(identity)
-            : await requestLoginCode.mutateAsync(identity);
+            : await requestLoginCode.mutateAsync({ ...identity, language: currentLanguage() });
         setResendUntil(Date.now() + answer.resendAfterSeconds * 1000);
         setLifetimeSeconds(answer.expiresInSeconds);
         setCodeInvalid(false);
@@ -108,7 +109,9 @@ export function useEmailCodeFlow(identity: CodeIdentity, purpose: 'login' | 'pas
 
   /** Redeems the code (already normalized); the name goes along when the account is new. */
   function verify(code: string, name?: string): Promise<VerifyOutcome | undefined> {
-    return redeem(() => verifyCode.mutateAsync({ ...identity, code, ...(name ? { name } : {}) }));
+    return redeem(() =>
+      verifyCode.mutateAsync({ ...identity, code, language: currentLanguage(), ...(name ? { name } : {}) }),
+    );
   }
 
   /** Redeems a password code (already normalized) and sets the new password (PM-946). */

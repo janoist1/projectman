@@ -73,6 +73,23 @@ public_check board.example.com ${scenario === 'legacy' ? '' : 'machine.example.c
     },
   );
 
+  it('keeps the data size when du fails because a file vanished during the walk', () => {
+    const fixture = `
+set -euo pipefail
+du() {
+  echo "du: cannot access '$2/ltx/0/x.ltx.tmp': No such file or directory" >&2
+  printf '4096\\t%s\\n' "$2"
+  return 1
+}
+${shellFunction(hostScript, 'data_size_bytes')}
+data_bytes=$(data_size_bytes /data)
+echo "$data_bytes"
+`;
+    const result = spawnSync('bash', ['-c', fixture], { encoding: 'utf8', env: { PATH: process.env.PATH } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('4096');
+  });
+
   it.each(['deploy/aws/host.sh', 'deploy/cloudflare/check.sh'])('%s parses', (file) => {
     const result = spawnSync('bash', ['-n', join(root, file)], {
       encoding: 'utf8',

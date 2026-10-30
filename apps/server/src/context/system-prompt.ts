@@ -591,16 +591,40 @@ function approverText(member: ContextPackInput['member']): string {
   return 'Permission questions: when the CLI asks for a permission, a human decides in their inbox. Wait for the answer and do not ask again in another form.';
 }
 
-function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInput): string {
+/**
+ * What the member does about `node_modules` (PM-1203). A worktree that is not a member workspace is
+ * cloned from an installed checkout and its member installs the rest; a member workspace is installed
+ * by the engine, so only a shortfall it reports is mentioned. Readers and Codex (which cannot leave its
+ * sandbox on an engine) never install: they ask.
+ */
+function dependenciesLines({
+  sessionPolicy: policy,
+  member,
+  workspaceDependencies,
+}: ContextPackInput): string[] {
+  if (!policy) return [];
+  const { placement } = policy;
+  if (placement.kind === 'task_worktree' && !placement.workspace)
+    return [
+      'node_modules is cloned automatically from an installed checkout with the same lockfile. If node_modules is missing or the lockfile changed, run npm ci here (a routine step).',
+    ];
+  if (!workspaceDependencies) return [];
+  const state =
+    workspaceDependencies === 'missing' ? 'are not installed' : 'are older than package-lock.json';
+  if (policy.access === 'task_worktree' && !isCodex(member))
+    return [`The dependencies in this workspace ${state}: run npm ci here first (a routine step).`];
+  return [
+    `The dependencies in this workspace ${state}. Do not try to install them; if you need them, tell a human with ask_human (the integrator can install them).`,
+  ];
+}
+
+function sessionPolicySection(input: ContextPackInput): string {
+  const { sessionPolicy: policy, member } = input;
   if (!policy) return '';
   return [
     '# Session policy',
     `Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
-    ...(policy.access === 'task_worktree'
-      ? [
-          `${policy.placement.kind === 'task_worktree' && !policy.placement.workspace ? 'node_modules is cloned automatically from an installed checkout with the same lockfile. ' : ''}If node_modules is missing or the lockfile changed, run npm ci here (a routine step).`,
-        ]
-      : []),
+    ...dependenciesLines(input),
     ...(policy.access === 'review_copy' ? [`Review copy mode: ${policy.reviewCopyMode ?? 'inherit'}.`] : []),
     `Readable roots for automatic command decisions: ${codeList(policy.filesystem.readableRoots)}.`,
     `Writable workspace roots: ${codeList(policy.filesystem.writableRoots)}.`,

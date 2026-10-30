@@ -554,6 +554,7 @@ export class SessionLauncher {
     const pack = this.deps.contextBuilder.build({
       ...input,
       sessionPolicy: startPolicy,
+      ...(ws?.dependencies ? { workspaceDependencies: ws.dependencies } : {}),
       ...(sandbox ? { sandbox } : {}),
       ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
       ...(previousConversation && task ? { previousConversation } : {}),

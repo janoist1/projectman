@@ -2,7 +2,9 @@ import { z } from 'zod';
 import { TaskKey } from '@projectman/shared';
 import {
   AgentProvider,
+  ComputeJobOutputPath,
   FullTestErrorReason,
+  GithubJobRunner,
   HANDOFF_SUMMARY_MAX,
   HandoffSummary,
   MemoryPressure,
@@ -101,6 +103,21 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
       all: z.boolean().optional(),
     })
     .optional(),
+  githubJob: z
+    .strictObject({
+      ref: mergeRef,
+      repo: text.max(100).regex(/^[\w.-]+\/[\w.-]+$/),
+      base: mergeText,
+      workflow: text.max(100),
+      job: text.max(40),
+      commit: z.string().regex(/^[0-9a-f]{40}$/),
+      command: text.max(10_000),
+      runsOn: GithubJobRunner,
+      outputs: z.array(ComputeJobOutputPath).min(1).max(10),
+      node: text.max(3).optional(),
+      timeoutMinutes: int,
+    })
+    .optional(),
 });
 const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outcome: z.enum(['passed', 'failed', 'error']),
@@ -111,6 +128,15 @@ const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outputTail: text,
   // Only a githubActions run has one, so an older hub never receives it.
   externalUrl: text.max(500).optional(),
+  // Only a githubJob run has these, so an older hub never receives them.
+  outputs: z
+    .array(
+      z.strictObject({ path: ComputeJobOutputPath, sha256: z.string().regex(/^[0-9a-f]{64}$/), bytes: int }),
+    )
+    .max(10)
+    .optional(),
+  artifact: z.strictObject({ name: text.max(100), expiresAt: text.max(40).nullable() }).optional(),
+  cost: z.strictObject({ queuedMs: int.nullable(), billableMs: int.nullable() }).optional(),
 });
 const fullAttachResult = z.discriminatedUnion('state', [
   z.strictObject({ state: z.literal('ended'), result: fullResult }),

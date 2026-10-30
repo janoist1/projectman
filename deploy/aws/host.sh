@@ -9,8 +9,13 @@
 #   bootstrap                 install Docker, git, swap, the directories and the systemd unit (idempotent);
 #                             the unit file comes on the standard input
 #   receive-env               replace /etc/projectman/cloud.env with the standard input (root only, 600)
-#   receive-image <sha40> <platform> <bytes> <sha256> <image-id>
-#                             verify/import one native Docker archive on stdin; strict metadata JSON only
+#   receive-image <sha40> <platform> <bytes> <sha256> <image-id> [<stage>]
+#                             verify/import one native Docker archive on stdin (or, with a <stage> that
+#                             stage-image made, from the stage); strict metadata JSON only
+#   stage-image <max-bytes>   download a GitHub Actions artifact (a zip) from the pre-signed https link that is the
+#                             one line on the standard input (a credential: never an argument, never printed),
+#                             unpack bundle/manifest.json and bundle/linux-arm64.tar into $STATE_DIR/.stage/<id>
+#                             and answer {"stage":"<id>","manifest":"<base64>"} (PM-1154)
 #   start <sha40> [ref] <imageId>
 #                             verify/run the pinned arm64 image, record it in deploy.json
 #   stop                      stop and disable the unit, record when it stopped
@@ -35,6 +40,11 @@ IMAGE_ENV="$ETC_DIR/image.env"
 STATE_DIR=/var/lib/projectman
 DATA_DIR="$STATE_DIR/data"
 DEPLOY_JSON="$STATE_DIR/deploy.json"
+STAGE_ROOT="$STATE_DIR/.stage"
+# The two files of the GitHub artifact (CLOUD_IMAGE_JOB.outputs, scripts/cloud/image-fetch.ts) and the manifest's cap.
+ARTIFACT_MANIFEST=bundle/manifest.json
+ARTIFACT_ARCHIVE=bundle/linux-arm64.tar
+MAX_MANIFEST_BYTES=65536
 UNIT=projectman-cloud
 UNIT_FILE="/etc/systemd/system/$UNIT.service"
 DOCKER_DIR=/etc/docker
@@ -197,7 +207,7 @@ bootstrap() {
     fi
   fi
   configure_docker_store
-  for package in docker.io docker-buildx git unattended-upgrades; do
+  for package in docker.io docker-buildx git unattended-upgrades curl unzip; do
     dpkg -s "$package" >/dev/null 2>&1 || missing+=("$package")
   done
   if [ "${#missing[@]}" -gt 0 ]; then
@@ -278,13 +288,20 @@ verify_image() {
 
 # A bounded, root-only stream; validate the archive and its sole tag before Docker may change any image.
 receive_image() (
-  [ "$#" -eq 5 ] || die "receive-image needs five arguments"
-  local sha=$1 platform=$2 bytes=$3 hash=$4 image_id=$5 free existing tmp config config_hash
+  [ "$#" -eq 5 ] || [ "$#" -eq 6 ] || die "receive-image needs five or six arguments"
+  local sha=$1 platform=$2 bytes=$3 hash=$4 image_id=$5 stage=${6:-} stage_dir="" free existing tmp config config_hash
   check_sha "$sha"
   [ "$platform" = linux/arm64 ] || die "invalid platform"
   [[ "$bytes" =~ ^[1-9][0-9]{0,15}$ ]] && [ "$bytes" -le 9007199254740991 ] || die "invalid archive size"
   [[ "$hash" =~ ^[0-9a-f]{64}$ ]] || die "invalid archive hash"
   check_image_id "$image_id"
+  if [ "$#" -eq 6 ]; then
+    # A stage that stage-image made: this call consumes it, whether the import works or not.
+    [[ "$stage" =~ ^[0-9a-f]{32}$ ]] || die "invalid stage"
+    stage_dir="$STAGE_ROOT/$stage"
+    trap 'rm -rf "$stage_dir"' EXIT
+    trap 'exit 1' HUP INT TERM
+  fi
   umask 077
   exec 9>"$STATE_DIR/.image.lock"
   flock -x 9
@@ -299,13 +316,18 @@ receive_image() (
   }
   existing=$(docker image inspect -f '{{.Id}}' "$IMAGE_REPO:$sha" 2>/dev/null || true)
   [ -z "$existing" ] || [ "$existing" = "$image_id" ] || refuse "source tag already names another image"
-  free=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
-  [ "$free" -ge "$((bytes + MIN_FREE_BYTES))" ] || refuse "insufficient disk for image stream"
-  umask 077
-  tmp=$(mktemp "$STATE_DIR/.image.XXXXXX")
-  trap 'rm -f "$tmp"' EXIT
-  trap 'exit 1' HUP INT TERM
-  head -c "$((bytes + 1))" >"$tmp"
+  if [ -n "$stage_dir" ]; then
+    tmp="$stage_dir/archive.tar"
+    [ -d "$stage_dir" ] && [ ! -L "$stage_dir" ] && [ -f "$tmp" ] && [ ! -L "$tmp" ] || die "the stage is missing"
+  else
+    free=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
+    [ "$free" -ge "$((bytes + MIN_FREE_BYTES))" ] || refuse "insufficient disk for image stream"
+    umask 077
+    tmp=$(mktemp "$STATE_DIR/.image.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT
+    trap 'exit 1' HUP INT TERM
+    head -c "$((bytes + 1))" >"$tmp"
+  fi
   [ "$(stat -c %s "$tmp")" = "$bytes" ] || die "truncated or oversized image stream"
   [ "$(sha256sum "$tmp" | cut -d ' ' -f1)" = "$hash" ] || die "image archive hash mismatch"
   free=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
@@ -323,6 +345,53 @@ receive_image() (
   docker load --input "$tmp" >&2 || die "Docker image import failed"
   verify_image "$sha" "$platform" "$image_id"
   printf '{"imageId":"%s","platform":"%s","revision":"%s"}\n' "$image_id" "$platform" "$sha"
+)
+
+# Downloads the artifact zip of a GitHub run from the pre-signed link on the standard input and unpacks exactly its
+# two files. The link is a credential (about one minute): it is read from stdin, handed to curl on stdin, and
+# never appears in an argument, a message or a file. No GitHub login exists on this machine.
+stage_image() (
+  [ "$#" -eq 1 ] || die "stage-image needs the size limit"
+  local max=$1 url="" free id stage zip entries size
+  local url_pattern="^https://[A-Za-z0-9._~:/?#@!\$&'()*+,;=%-]+\$"
+  [[ "$max" =~ ^[1-9][0-9]{0,15}$ ]] && [ "$max" -le 9007199254740991 ] || die "invalid artifact size"
+  [ ! -t 0 ] || die "stage-image needs the download link on the standard input"
+  IFS= read -r -n 4200 url || true
+  [ "${#url}" -le 4096 ] && [[ "$url" =~ $url_pattern ]] || die "invalid download link"
+  umask 077
+  mkdir -p "$STATE_DIR"
+  exec 9>"$STATE_DIR/.image.lock"
+  flock -x 9
+  free=$(df -B1 --output=avail "$STATE_DIR" | tail -n 1 | tr -d ' ')
+  [ "$free" -ge "$((2 * max + MIN_FREE_BYTES))" ] || refuse "insufficient disk for the artifact"
+  # One stage at a time: the earlier ones (a failed or abandoned deploy) go.
+  rm -rf "$STAGE_ROOT"
+  install -d -m 700 "$STAGE_ROOT"
+  id=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  [[ "$id" =~ ^[0-9a-f]{32}$ ]] || die "no random stage id"
+  stage="$STAGE_ROOT/$id"
+  install -d -m 700 "$stage"
+  trap 'rm -rf "$stage"' EXIT
+  trap 'exit 1' HUP INT TERM
+  zip="$stage/artifact.zip"
+  printf 'url = "%s"\n' "$url" | curl --fail --silent --show-error --proto =https --proto-redir =https \
+    --location --max-redirs 3 --max-filesize "$max" --connect-timeout 30 --max-time 1800 \
+    --output "$zip" --config - || die "the artifact download failed"
+  unset url
+  size=$(stat -c %s "$zip")
+  [ "$size" -ge 1 ] && [ "$size" -le "$max" ] || die "the artifact has an unexpected size"
+  # Exactly the two declared files (a zip-slip name or an extra entry is refused); a directory entry is harmless.
+  entries=$({ unzip -Z1 "$zip" || true; } | { grep -v '^bundle/$' || true; } | LC_ALL=C sort)
+  [ "$entries" = "$ARTIFACT_ARCHIVE"$'\n'"$ARTIFACT_MANIFEST" ] || refuse "the artifact does not hold exactly the bundle manifest and archive"
+  { unzip -p "$zip" "$ARTIFACT_MANIFEST" || true; } | head -c "$((MAX_MANIFEST_BYTES + 1))" >"$stage/manifest.json"
+  size=$(stat -c %s "$stage/manifest.json")
+  [ "$size" -ge 1 ] && [ "$size" -le "$MAX_MANIFEST_BYTES" ] || die "the bundle manifest is empty or too large"
+  { unzip -p "$zip" "$ARTIFACT_ARCHIVE" || true; } | head -c "$((max + 1))" >"$stage/archive.tar"
+  size=$(stat -c %s "$stage/archive.tar")
+  [ "$size" -ge 1 ] && [ "$size" -le "$max" ] || die "the bundle archive is empty or larger than the artifact"
+  rm -f "$zip"
+  printf '{"stage":"%s","manifest":"%s"}\n' "$id" "$(base64 -w0 "$stage/manifest.json")"
+  trap - EXIT
 )
 
 start() {
@@ -486,6 +555,7 @@ main() {
     bootstrap) bootstrap ;;
     receive-env) receive_env ;;
     receive-image) receive_image "$@" ;;
+    stage-image) stage_image "$@" ;;
     start) start "$@" ;;
     stop) stop ;;
     status) status ;;
@@ -495,7 +565,7 @@ main() {
     send-data) send_data ;;
     guard-check) guard_check "$@" ;;
     public-check) public_check "$@" ;;
-    *) die "usage: host.sh bootstrap|receive-env|receive-image|start|stop|status|logs|rehearse|seed-check|send-data|guard-check|public-check" ;;
+    *) die "usage: host.sh bootstrap|receive-env|receive-image|stage-image|start|stop|status|logs|rehearse|seed-check|send-data|guard-check|public-check" ;;
   esac
 }
 

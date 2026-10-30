@@ -20,6 +20,7 @@ import {
 import { OperatorConfigPatch } from '../config/edit';
 import { ERROR_CODES } from './error-codes';
 import { TaskWait } from '../config/task-wait';
+import { CardStep } from '../domain/card-step';
 import { Actor, TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem, InboxOption } from '../domain/inbox';
@@ -1073,6 +1074,8 @@ export const TaskDetail = z.object({
   wait: TaskWait.nullable().optional(),
   /** The card's acceptance items (PM-1135), in order; absent: none were read. */
   acceptance: z.array(AcceptanceItem).optional(),
+  /** The card's open system steps (PM-1151); absent: they were not read. */
+  steps: z.array(CardStep).optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 

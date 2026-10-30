@@ -67,6 +67,7 @@ import { useBoardModel } from './useBoardModel';
 import { useCanAttach, useUploadQueue } from './attachmentUploads';
 import { useFileDrop } from './useFileDrop';
 import { TaskAttachments } from './TaskAttachments';
+import { TaskSteps } from './TaskSteps';
 import { TaskTimeline } from './TimelineAttachment';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
@@ -233,7 +234,7 @@ function StartPanel({
 const WIDE_QUERY = '(min-width: 1104px)';
 
 /** The views of the open card (PM-487): the sub-paths of its route, `card` being none. */
-type CardView = 'card' | 'thread' | 'attachments' | 'timeline';
+type CardView = 'card' | 'thread' | 'attachments' | 'steps' | 'timeline';
 
 /**
  * The open card (PM-283): the quick view is the drawer on the right of the board, the large window (`?size=large`)
@@ -284,11 +285,12 @@ export function TaskDrawer() {
   const hasThread = Boolean(task && !isTheme(task) && entry);
   // The views of the open card (PM-487) are sub-paths of it; an unknown one, and a theme's `/thread`, is the card.
   // An older link to one event (`/tasks/KEY#timeline-<id>`, shared before the timeline had a view) opens the timeline.
+  // The Process view (PM-1151) is a card's, like the conversation: a theme has none.
   const view: CardView =
     subPath === 'attachments' || subPath === 'timeline'
       ? subPath
-      : subPath === 'thread' && hasThread
-        ? 'thread'
+      : (subPath === 'thread' || subPath === 'steps') && hasThread
+        ? subPath
         : !subPath && eventLink
           ? 'timeline'
           : 'card';
@@ -298,6 +300,8 @@ export function TaskDrawer() {
   // The same query (and so the same request) as the list of the Attachments view.
   const attachmentList = useAttachments(key, taskKey, Boolean(access && myHandle));
   const attachmentCount = attachmentList.data?.attachments.length ?? 0;
+  // The Process tab counts the open steps; none, or not read, shows no count.
+  const stepCount = detail.data?.steps?.length ?? 0;
   const cardScroll = useRef(0);
   const viewsRef = useRef<HTMLDivElement>(null);
   const switchView = (next: CardView) =>
@@ -650,6 +654,36 @@ export function TaskDrawer() {
         />
       </div>
     );
+    // Only the open view is in the tree: it has no draft to keep, and its rows would repeat the card's texts.
+    const stepsView = hasThread ? (
+      <div key="steps" className={styles.group} hidden={view !== 'steps'}>
+        {view === 'steps' ? (
+          <section className={drawer.section}>
+            {/* The tab names the view: the title stays for the screen readers. */}
+            <h2 className={clsx(drawer.sectionTitle, 'visually-hidden')}>{t('task.steps.title')}</h2>
+            {detail.isPending ? (
+              <LoadingState compact />
+            ) : detail.isError ? (
+              <ErrorState
+                compact
+                error={detail.error}
+                message={t('task.steps.loadFailed')}
+                onRetry={() => void detail.refetch()}
+              />
+            ) : (
+              <TaskSteps
+                key={task.key}
+                task={task}
+                state={entry?.state}
+                steps={detail.data.steps}
+                events={detail.data.timeline}
+                ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
+              />
+            )}
+          </section>
+        ) : null}
+      </div>
+    ) : null;
     const timeline = (
       <div key="timeline" className={styles.group} hidden={view !== 'timeline'}>
         <section className={drawer.section}>
@@ -768,6 +802,15 @@ export function TaskDrawer() {
                 label: t('task.view.attachments'),
                 count: attachmentCount > 0 ? attachmentCount : undefined,
               },
+              ...(hasThread
+                ? [
+                    {
+                      value: 'steps' as const,
+                      label: t('task.view.steps'),
+                      count: stepCount > 0 ? stepCount : undefined,
+                    },
+                  ]
+                : []),
               { value: 'timeline', label: t('task.view.timeline') },
             ]}
           />
@@ -787,8 +830,8 @@ export function TaskDrawer() {
           {/* All views stay in the tree: what is typed in a hidden one (a message, a comment, a description) is kept. */}
           {[
             ...(twoColumns
-              ? [signals, content, attachments, timeline, more, side]
-              : [signals, side, content, attachments, timeline, more]),
+              ? [signals, content, attachments, stepsView, timeline, more, side]
+              : [signals, side, content, attachments, stepsView, timeline, more]),
             hasThread ? (
               <div key="thread" className={styles.thread} hidden={!thread}>
                 <TaskThread

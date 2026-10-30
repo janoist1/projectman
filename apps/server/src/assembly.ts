@@ -143,7 +143,7 @@ import { GithubSync } from './services/github';
 import { OperatorActions, OperatorApprovals } from './services/coordination';
 import { FixLimitWatch } from './runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from './services/full-tests';
-import { outputTail, withGithubActions } from './full-test';
+import { outputTail, withGithubRuns } from './full-test';
 import { DecisionCandidates, DocWrites } from './services/project-docs';
 import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
@@ -547,10 +547,10 @@ export function createDomain(opts: DomainOptions) {
         {
           worktrees: opts.worktrees,
           memberWorkspaces: opts.memberWorkspaces,
-          // The merge check as a GitHub Actions workflow (PM-900) is run by this engine's own executor.
+          // The merge check as a GitHub Actions workflow (PM-900) and the compute jobs (PM-1147) are run by this engine's own executor.
           fullTestExecutor:
             opts.fullTestExecutor && opts.githubActions
-              ? withGithubActions(opts.fullTestExecutor, {
+              ? withGithubRuns(opts.fullTestExecutor, {
                   actions: opts.githubActions,
                   branches: createCheckBranchGit({ repoPath: localRepoPath, networkTimeoutMs: 60_000 }),
                   logger: opts.logger,

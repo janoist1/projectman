@@ -4,7 +4,8 @@
 
 The PM-675 target is Frankfurt (`eu-central-1`), `t4g.micro`, Canonical Ubuntu 24.04 arm64,
 20 GiB gp3. Only arm64 is supported (PM-1116): `aws.ec2.architecture` is `"arm64"` (the default) and
-`deployment.imageBundle` is required for an `ec2` config. AMI name/architecture, instance type
+`deployment.imageBundle` is required for an `ec2` config (unless `deployment.imageSource` is `"github"`, see
+below). AMI name/architecture, instance type
 capabilities and the existing instance must agree; the ownership, IMDS, SSM and empty-inbound guards
 stay in force. The imageBundle directory is relative to the config file, or absolute. It need not exist
 when config is first written; preflight and deploy verify it before remote writes.
@@ -23,14 +24,30 @@ the artifact `projectman-job-<run_id>` (7 days). The title of the run is
 The cloud image is the first job. Its values (the same ones that are in `CLOUD_IMAGE_JOB`,
 `scripts/cloud/image-fetch.ts`; after PM-1148 they live in the project settings):
 
-| Input             | Value                                                                                                                                                                                                                |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `job`             | `cloud-image`                                                                                                                                                                                                        |
-| `runs_on`         | `ubuntu-24.04-arm`                                                                                                                                                                                                   |
-| `node`            | `22`                                                                                                                                                                                                                 |
-| `timeout_minutes` | `60`                                                                                                                                                                                                                 |
-| `outputs`         | `bundle/manifest.json bundle/linux-arm64.tar`                                                                                                                                                                        |
-| `command`         | `npm ci && docker buildx create --name projectman --driver docker-container --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"` (`image-build` needs no config) |
+| Input             | Value                                                                                                                                                                                                                            |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `job`             | `cloud-image`                                                                                                                                                                                                                    |
+| `runs_on`         | `ubuntu-24.04-arm`                                                                                                                                                                                                               |
+| `node`            | `22`                                                                                                                                                                                                                             |
+| `timeout_minutes` | `60`                                                                                                                                                                                                                             |
+| `outputs`         | `bundle/manifest.json bundle/linux-arm64.tar`                                                                                                                                                                                    |
+| `command`         | `npm ci && docker buildx create --name projectman --driver docker-container --bootstrap --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"` (`image-build` needs no config) |
+
+An engine starts this job (PM-1147) only when the owner has registered it in the engine's `engine.json`, in the
+`computeJobs` of the repository entry, with exactly the values above:
+
+```json
+"computeJobs": [
+  {
+    "id": "cloud-image",
+    "runsOn": "ubuntu-24.04-arm",
+    "node": "22",
+    "timeoutMinutes": 60,
+    "outputs": ["bundle/manifest.json", "bundle/linux-arm64.tar"],
+    "command": "npm ci && docker buildx create --name projectman --driver docker-container --bootstrap --use && npm run cloud -- image-build --ref \"$PROJECTMAN_JOB_COMMIT\" --out \"$PROJECTMAN_JOB_OUT/bundle\""
+  }
+]
+```
 
 Start it for the accepted full SHA (the `run_id` is `manual-<first 8 of the SHA>-<time>`):
 
@@ -39,7 +56,7 @@ SHA=<SHA40>
 gh workflow run projectman-job.yml --ref main -f job=cloud-image -f run_id="manual-${SHA:0:8}-$(date -u +%Y%m%d%H%M%S)" \
   -f commit="$SHA" -f runs_on=ubuntu-24.04-arm -f node=22 -f timeout_minutes=60 \
   -f outputs='bundle/manifest.json bundle/linux-arm64.tar' \
-  -f command='npm ci && docker buildx create --name projectman --driver docker-container --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"'
+  -f command='npm ci && docker buildx create --name projectman --driver docker-container --bootstrap --use && npm run cloud -- image-build --ref "$PROJECTMAN_JOB_COMMIT" --out "$PROJECTMAN_JOB_OUT/bundle"'
 ```
 
 Then fetch and verify the bundle on the admin machine (needs `gh` logged in, with read access to the repository's
@@ -64,6 +81,37 @@ writes, so `deploy` and the host are unchanged; there is no registry. The report
 platform=linux/arm64 archiveSha256=... imageId=... run=<url>`.
 
 One-time owner setting: Settings → Actions → General → Workflow permissions → "Read repository contents".
+
+### The machine downloads the artifact itself (PM-1154)
+
+With `"deployment": { "imageSource": "github" }` the 460 MB image no longer passes through the admin Mac:
+`deploy` has the EC2 machine download and verify the artifact, and the Mac only conducts. The default is
+`"imageSource": "bundle"` (the old behaviour: a local `imageBundle` directory, which stays required then); an
+old configuration is valid unchanged. With `github`, `deploy --ref <commit>` and preflight do not ask for
+`imageBundle`, and `deploy --run <run number>` names the run instead of finding it. The run must already exist
+(start it as above; `deploy` starts no run, that is PM-1148).
+
+1. **The Mac** finds the run and its live artifact `projectman-job-<run_id>` with the same checks as
+   `image-fetch` (workflow, event, default branch, result, title), then asks GitHub for the artifact's
+   pre-signed download link (`gh auth token`, one request that is not redirected). The link is valid for one
+   minute and is a credential: it is registered with the report and is in no message, error or argument.
+2. **`host.sh stage-image <max-bytes>`** receives the link on the standard input only, hands it to `curl` on
+   its standard input (`--proto =https`, `--max-filesize`, a time limit), and unpacks exactly `bundle/manifest.json`
+   (at most 64 KiB) and `bundle/linux-arm64.tar` into `/var/lib/projectman/.stage/<random id>` (mode 700). Any
+   other or missing zip entry is refused. It answers `{"stage":"<id>","manifest":"<base64>"}`. The machine holds
+   no GitHub credential and no `gh`; it needs outbound HTTPS to GitHub's artifact storage, `curl` and `unzip`
+   (the bootstrap installs both).
+3. **The Mac** verifies the returned `manifest.json`: its attestation against the exact workflow identity and
+   this run (the same code as `image-fetch`), the schema, and `sourceSha` equal to the commit. On any error it
+   stops: `receive-image` is never called.
+4. **`host.sh receive-image <sha> <platform> <bytes> <sha256> <image-id> <stage>`** then imports from the stage
+   with the checks of the stream form (size, hash, the archive's manifest, the config digest, platform,
+   revision, version; then `docker load`). The tar's hash is checked against the attested manifest here, so
+   the 460 MB never needs to be read by the Mac. The stage is consumed whether the import works or not; the
+   next `stage-image` also removes any older stage.
+
+`deploy --dry-run` only does step 1 (the run and the artifact) and touches nothing. `image-fetch` and the local
+`image-build` remain as the fallbacks.
 
 Measuring (PM-1144): on the same SHA, before: `/usr/bin/time -l npm run cloud -- image-build --ref <SHA> --out <new>`
 with the Docker VM's memory peak and the Memory Pressure from Activity Monitor, then `time npm run cloud -- deploy

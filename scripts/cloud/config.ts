@@ -181,13 +181,21 @@ const configSchema = z
     access: accessSchema,
     route53: route53Schema.prefault({}),
     ses: sesSchema.optional(),
-    deployment: z.strictObject({ imageBundle: z.string().trim().min(1) }).optional(),
+    deployment: z
+      .strictObject({
+        imageBundle: z.string().trim().min(1).optional(),
+        /** Where `deploy` gets the image: a bundle directory, or the artifact of the GitHub run (PM-1154). */
+        imageSource: z.enum(['bundle', 'github']).default('bundle'),
+      })
+      .optional(),
   })
   .superRefine((config, context) => {
     const issue = (pathParts: (string | number)[], message: string) =>
       context.addIssue({ code: 'custom', path: pathParts, message });
     const { aws, cloudflare, access } = config;
     if (aws.ec2 && !config.deployment) issue(['deployment', 'imageBundle'], 'required for the arm64 machine');
+    if (config.deployment?.imageSource === 'bundle' && !config.deployment.imageBundle)
+      issue(['deployment', 'imageBundle'], 'required while deployment.imageSource is "bundle"');
     if (config.ses) {
       if (config.ses.from.split('@')[1] !== config.ses.domain)
         issue(['ses', 'from'], 'must be an address of exactly ses.domain');
@@ -248,7 +256,7 @@ export type ParsedCloudConfig = z.output<typeof configSchema>;
 
 /** The configuration with every default filled in. */
 export interface CloudConfig {
-  deployment?: { imageBundle: string };
+  deployment?: { imageSource: 'bundle' | 'github'; imageBundle?: string };
   /** Legacy configuration, ignored with a warning (PM-1113). */
   releaseTarget?: { projectKey: string; repo: string };
   /** Legacy configuration, ignored with a warning (PM-1113). */
@@ -334,7 +342,10 @@ export function parseConfig(raw: unknown, homeDir: string, configDir = process.c
     ...(parsed.deployment
       ? {
           deployment: {
-            imageBundle: path.resolve(configDir, expandHome(parsed.deployment.imageBundle, homeDir)),
+            imageSource: parsed.deployment.imageSource,
+            ...(parsed.deployment.imageBundle
+              ? { imageBundle: path.resolve(configDir, expandHome(parsed.deployment.imageBundle, homeDir)) }
+              : {}),
           },
         }
       : {}),

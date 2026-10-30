@@ -1,0 +1,296 @@
+/* The card's Process view (PM-1151): now, the open steps, what ran. */
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.count {
+  font-weight: 700;
+  color: var(--c-ink-4);
+}
+
+/* Now */
+.now {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--c-subtle);
+}
+
+.nowDone {
+  background: var(--c-ok-bg);
+}
+
+.nowText {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--c-ink);
+}
+
+.nowSince {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+}
+
+/* Open steps */
+.stepList,
+.ranList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stepList {
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.step + .step {
+  border-top: 1px solid var(--c-line);
+}
+
+.stepInner {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.stepLink:hover {
+  background: var(--c-subtle);
+}
+
+.stepLink:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+
+.stateDot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--c-ink-4);
+}
+
+.stateDot[data-state='running'] {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  animation: stepPulse 1.6s ease-in-out infinite;
+}
+
+.stateDot[data-state='reminded'] {
+  border-color: var(--c-needs);
+}
+
+.stateDot[data-state='handed_over'] {
+  border-color: var(--c-needs);
+  background: var(--c-needs);
+}
+
+@keyframes stepPulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stateDot[data-state='running'] {
+    animation: none;
+  }
+}
+
+.stepBody {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.stepHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.stepName {
+  font-weight: 800;
+  color: var(--c-ink);
+  white-space: nowrap;
+}
+
+.holder {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--c-ink-2);
+  font-size: var(--text-sm);
+}
+
+.holderName {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stepWait {
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+}
+
+.stepMeta {
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+}
+
+.overdue {
+  font-weight: 800;
+  color: var(--c-needs);
+}
+
+.openEmpty {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--c-line-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+/* Ran */
+.ranSummary {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.failedCount {
+  font-weight: 800;
+  color: var(--c-blocked);
+}
+
+.handedCount {
+  font-weight: 800;
+  color: var(--c-needs);
+}
+
+.ranRow {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+
+.ranRow[data-outcome='failed'] {
+  background: color-mix(in srgb, var(--c-blocked-bg) 40%, transparent);
+}
+
+.ranDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 50%;
+  background: var(--c-ink-4);
+}
+
+.ranDot[data-outcome='ran'] {
+  background: var(--c-ok);
+}
+
+.ranDot[data-outcome='failed'] {
+  background: var(--c-blocked);
+}
+
+.ranDot[data-outcome='handed_over'] {
+  background: var(--c-needs);
+}
+
+.ranBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ranText {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+  overflow-wrap: anywhere;
+}
+
+.ranFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.toTimeline {
+  font-size: var(--text-xs);
+  color: var(--c-accent-text);
+}
+
+.toTimeline:focus-visible,
+.earlier:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.ranTime {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+  white-space: nowrap;
+}
+
+.earlier {
+  align-self: flex-start;
+  padding: 6px 4px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-accent-text);
+  cursor: pointer;
+}
+
+/* First use */
+.first {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.firstTitle {
+  margin: 0;
+  font-weight: 800;
+  color: var(--c-ink);
+}
+
+.firstBody {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+  max-width: 56ch;
+}

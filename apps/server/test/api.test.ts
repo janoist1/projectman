@@ -779,6 +779,23 @@ describe('REST API', () => {
       });
       const asked = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', cookie);
       expect(asked.body.wait).toMatchObject({ reason: 'inbox', inboxItemId: 'inb_mine' });
+      // The card's open system steps come with the detail, to a client too (PM-1151).
+      h.app.projectman.repos.obligations.insert({
+        id: 'obl_mine',
+        projectKey: 'AR',
+        taskKey: 'AR-2',
+        kind: 'work',
+        responsible: 'dev-1',
+        subject: 'AR-2@x',
+        openedAt: '2026-09-30T09:00:00.000Z',
+        dueAt: '2026-09-30T09:30:00.000Z',
+      });
+      const stepsOf = async (as: string) =>
+        (await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', as)).body.steps?.map(
+          (step) => step.ref,
+        );
+      expect(await stepsOf(cookie)).toEqual(['obl_mine', 'inb_mine']);
+      expect(await stepsOf(clientCookie)).toEqual(['obl_mine', 'inb_mine']);
       expect((await call<ApiError>('GET', '/api/projects/AR/config', clientCookie)).status).toBe(200);
       expect((await call('POST', '/api/projects/AR/tasks', clientCookie, { title: 'x' })).status).toBe(403);
     });

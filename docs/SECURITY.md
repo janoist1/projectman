@@ -1285,6 +1285,21 @@ commit that is pushed to a public `main`. The channel is narrow:
   it into the commit. The patterns and the command are the owner's to choose; the merge check, code review
   and the diff of the merge commit are the safeguards after that. Keep tokens out of remote URLs.
 
+## Compute jobs on GitHub Actions (PM-1147)
+
+The general workflow `projectman-job.yml` runs with `id-token: write` and `attestations: write`, so its
+outputs carry the official identity `projectman-job.yml@refs/heads/main`. A run titled
+`projectman-job cloud-image <commit> <run id>` is accepted by `image-fetch` and by the cloud deploy as the
+cloud image. A compromised hub that could ask an engine for a job with any command would therefore get an
+artifact of its choosing attested, which opens the whole trust chain of the cloud image. The engine does not
+rely on the hub's request: a `full_test.run` with `githubJob` is accepted only when the repository's
+`computeJobs` in this engine's `engine.json` (set by the owner by hand, like `fullTestCommand` and
+`regenerateCommand`) holds a job with the same id and exactly the same command, runner, outputs (in order), Node
+version and timeout; otherwise it is refused as `command_not_allowed`. The base must also be the repository's
+`mergeBranch`, the workflow the fixed one, and the request carries no checkout, installation or lock. Only the
+run id is free (a pattern). The engine dispatches nothing else, and owner-only configuration is the only place a
+command can be added.
+
 ## Web push, the service worker and the member context preview (PM-814, PM-815, PM-827, PM-1000, PM-1013)
 
 **The VAPID private key.** The installation key lives in `~/.projectman/secrets/web-push.json`: a 0600 file in a

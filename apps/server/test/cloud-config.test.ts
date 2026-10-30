@@ -41,7 +41,7 @@ describe('the defaults', () => {
         databaseBucket: 'acme-projectman-db',
         backupBucket: 'acme-projectman-backup',
       },
-      deployment: { imageBundle: expect.stringMatching(/\/bundle$/) },
+      deployment: { imageSource: 'bundle', imageBundle: expect.stringMatching(/\/bundle$/) },
       repository: { url: 'https://github.com/janoist1/projectman.git' },
       cloudflare: {
         tokenFile: '/home/owner/.config/projectman/cloud/cloudflare-token',
@@ -148,6 +148,19 @@ describe('the validation', () => {
     expect(refusal({ ...withBundle, deployment: { imageBundle: ' ' } })).toContain('deployment.imageBundle');
     expect(refusal({ ...withBundle, deployment: { imageBundle: 'bundle', registry: 'refused' } })).toContain(
       'deployment',
+    );
+  });
+  it('takes the image from GitHub without a local bundle, and keeps the bundle source the default (PM-1154)', () => {
+    const raw = config((value) => {
+      delete value.deployment;
+    });
+    const github = parseConfig({ ...(raw as object), deployment: { imageSource: 'github' } }, HOME, '/c');
+    expect(github.deployment).toEqual({ imageSource: 'github' });
+    expect(refusal({ ...(raw as object), deployment: { imageSource: 'bundle' } })).toContain(
+      'deployment.imageBundle',
+    );
+    expect(refusal({ ...(raw as object), deployment: { imageSource: 'registry' } })).toContain(
+      'deployment.imageSource',
     );
   });
   it.each([undefined, 'i', ''])('refuses EC2 profile %s before any AWS call', async (profile) => {

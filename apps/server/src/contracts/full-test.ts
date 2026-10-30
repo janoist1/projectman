@@ -1,4 +1,4 @@
-import type { FullTestErrorReason, MergeTestReport } from '@projectman/shared';
+import type { FullTestErrorReason, GithubJobRunner, MergeTestReport } from '@projectman/shared';
 import type { MergeRepoRef } from './engine';
 
 /**
@@ -59,7 +59,35 @@ export interface GithubActionsCheck {
   all?: boolean;
 }
 
+/**
+ * A compute job run as the repository's `projectman-job.yml` workflow (PM-1144, PM-1147), not on this engine:
+ * the result is a `FullTestResult` with the declared outputs, the artifact and the cost.
+ */
+export interface GithubJobRun {
+  /** The repository on the engine; its base's upstream remote must be `repo`. */
+  ref: MergeRepoRef;
+  /** GitHub "owner/name" (`repos[].github`); the engine checks that the upstream remote is this repository. */
+  repo: string;
+  /** The default branch: the workflow is dispatched from it. */
+  base: string;
+  /** COMPUTE_JOB_WORKFLOW. */
+  workflow: string;
+  /** The job kind (`ComputeJobId`). */
+  job: string;
+  /** The commit the job runs on (40 hex). */
+  commit: string;
+  /** The shell command the workflow runs. */
+  command: string;
+  runsOn: GithubJobRunner;
+  /** 1–10 `ComputeJobOutputPath`s under `$PROJECTMAN_JOB_OUT`. */
+  outputs: string[];
+  /** Node.js major version to set up; absent: none. */
+  node?: string;
+  timeoutMinutes: number;
+}
+
 export interface FullTestSpec {
+  /** The caller's run id; for a `githubJob` it is the `ComputeJobRunId` and the workflow's `run_id` input. */
   runId: string;
   /** The root of the developer's checkout: read-only for the command. */
   cwd: string;
@@ -89,6 +117,12 @@ export interface FullTestSpec {
    * and neither `requireHeavyLock` nor `npmCi` is set.
    */
   githubActions?: GithubActionsCheck;
+  /**
+   * A compute job runs as GitHub Actions (PM-1147), exclusive with `githubActions`. The local executor
+   * refuses it as `github_unavailable`; `cwd` only informs, `sandbox` is empty, and neither `requireHeavyLock`
+   * nor `npmCi` is set.
+   */
+  githubJob?: GithubJobRun;
 }
 
 export interface FullTestResult {
@@ -112,6 +146,12 @@ export interface FullTestResult {
   report?: MergeTestReport | null;
   /** The GitHub Actions run page (PM-900); only a githubActions run has one. */
   externalUrl?: string;
+  /** A passed `githubJob` run: the declared output files with the digests the workflow attested. */
+  outputs?: { path: string; sha256: string; bytes: number }[];
+  /** A `githubJob` run that uploaded its outputs: the artifact `projectman-job-<runId>`. */
+  artifact?: { name: string; expiresAt: string | null };
+  /** A `githubJob` run: how long it waited in the queue and what GitHub billed; null: not known. */
+  cost?: { queuedMs: number | null; billableMs: number | null };
 }
 
 /**

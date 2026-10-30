@@ -213,6 +213,11 @@ export function createMemberQueueRepository(db: Db) {
       `SELECT * FROM member_queue_items
        WHERE source_type = 'message' AND state IN ('queued','processing') ORDER BY queued_at, rowid`,
     ),
+    // Served by the partial index `member_queue_items_place` (project_key, place_task_key).
+    openOfPlace: db.prepare(
+      `SELECT * FROM member_queue_items
+       WHERE project_key = ? AND place_task_key = ? AND state IN ('queued','processing') ORDER BY queued_at, rowid`,
+    ),
     // Served by the partial index `member_queue_items_waiting`: its terms are these ones.
     waiting: db.prepare(
       `SELECT * FROM member_queue_items
@@ -322,6 +327,10 @@ export function createMemberQueueRepository(db: Db) {
     /** The open message items of one card, for every member (the card's place, or its message's card). */
     listOpenMessagesOfTask(projectKey: string, taskKey: string): StoredMemberQueueItem[] {
       return all(statements.openMessagesOfTask.all(projectKey, taskKey, taskKey));
+    },
+    /** The open items placed on one card, of every kind and member. */
+    listOpenOfCard(projectKey: string, taskKey: string): StoredMemberQueueItem[] {
+      return all(statements.openOfPlace.all(projectKey, taskKey));
     },
     /** Every open message item, for every project and member. */
     listOpenMessages(): StoredMemberQueueItem[] {

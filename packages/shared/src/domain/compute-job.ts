@@ -31,6 +31,28 @@ export type ComputeJobOutputPath = z.infer<typeof ComputeJobOutputPath>;
 export const GithubJobRunner = z.enum(['ubuntu-24.04', 'ubuntu-24.04-arm', 'macos-15']);
 export type GithubJobRunner = z.infer<typeof GithubJobRunner>;
 
+/**
+ * A compute job a repository may run (PM-1147): what the owner registers in the engine's `engine.json`. The
+ * workflow runs with the right to attest its outputs, so an engine starts only a job it has registered, with
+ * exactly these values.
+ */
+export const ComputeJobDefinition = z.strictObject({
+  id: ComputeJobId,
+  command: z.string().min(1).max(2000),
+  runsOn: GithubJobRunner,
+  outputs: z
+    .array(ComputeJobOutputPath)
+    .min(1)
+    .max(10)
+    .refine((paths) => new Set(paths).size === paths.length, 'The outputs are not unique'),
+  node: z
+    .string()
+    .regex(/^\d{1,2}$/)
+    .optional(),
+  timeoutMinutes: z.number().int().min(1).max(360).default(60),
+});
+export type ComputeJobDefinition = z.infer<typeof ComputeJobDefinition>;
+
 /** The title of a run (the workflow's `run-name`). */
 export function computeJobRunTitle(job: string, commit: string, runId: string): string {
   return `projectman-job ${job} ${commit} ${runId}`;

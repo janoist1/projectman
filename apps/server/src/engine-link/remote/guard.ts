@@ -73,7 +73,8 @@ const SCOPES: Scopes = {
   'github.unwatch': 'open',
   // Only the merge check names its project; a diagnostics run on the host's machine carries no ref.
   'full_test.run': {
-    project: ({ spec }) => (spec.npmCi ?? spec.regenerate ?? spec.githubActions)?.ref.projectKey,
+    project: ({ spec }) =>
+      (spec.npmCi ?? spec.regenerate ?? spec.githubActions ?? spec.githubJob)?.ref.projectKey,
   },
   'full_test.attach': 'open',
   'full_test.report': 'open',

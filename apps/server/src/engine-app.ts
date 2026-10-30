@@ -47,7 +47,7 @@ import {
   createWorkspaceDependencyInstaller,
   defaultHeavyLockDir,
   readHeavyRunSessions,
-  withGithubActions,
+  withGithubRuns,
 } from './full-test';
 import { createCheckBranchGit, createKeepAwake, freeBytesOf, spawnKeepAwakeProcess } from './engine-host';
 import { nonLocalReason } from './kernel';
@@ -461,8 +461,9 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     {
       worktrees,
       memberWorkspaces,
-      // The merge check as a GitHub Actions workflow (PM-900) is run by this engine, with its own gh login.
-      fullTestExecutor: withGithubActions(
+      // The merge check (PM-900) and the compute jobs (PM-1147) as GitHub Actions workflows are run by this
+      // engine, with its own gh login.
+      fullTestExecutor: withGithubRuns(
         modules.createFullTestExecutor?.({
           heavyLockDir,
           worktreesRoot: roots.worktrees,

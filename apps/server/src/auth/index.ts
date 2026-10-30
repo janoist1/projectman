@@ -72,6 +72,8 @@ const PUBLIC_ROUTES = new Set([
   `POST ${routes.login()}`,
   `POST ${routes.emailLoginRequest()}`,
   `POST ${routes.emailLoginVerify()}`,
+  `POST ${routes.passwordCodeRequest()}`,
+  `POST ${routes.passwordReset()}`,
   `POST ${routes.logout()}`,
 ]);
 

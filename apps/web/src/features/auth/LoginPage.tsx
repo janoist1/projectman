@@ -10,7 +10,8 @@ import styles from './AuthLayout.module.css';
 
 /**
  * The login page: e-mail and password only. A client without a password gets in through the
- * invitation page (the e-mail code lives there), never from here.
+ * invitation page (the e-mail code lives there); a client who has an account but no (or a forgotten)
+ * password sets one with an e-mailed code, on the page the link below the password field leads to (PM-946).
  */
 export function LoginPage() {
   useDocumentTitle(t('auth.login.title'));
@@ -30,7 +31,12 @@ export function LoginPage() {
           <span className="visually-hidden">{t('app.loading')}</span>
         </div>
       ) : (
-        <PasswordLoginForm email={email} onEmailChange={setEmail} next={next} />
+        <PasswordLoginForm
+          email={email}
+          onEmailChange={setEmail}
+          next={next}
+          passwordCodes={status.data?.emailLoginEnabled === true}
+        />
       )}
     </AuthLayout>
   );

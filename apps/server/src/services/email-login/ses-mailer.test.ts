@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import type { IncomingHttpHeaders, Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { hu } from '@projectman/templates';
 import { EMAIL_CODE_DELIVERY_FAILED, EmailCodeDeliveryError } from '../../contracts';
 import { createSesEmailCodeMailer } from './index';
 
@@ -78,6 +79,15 @@ describe('the SES e-mail code mailer', () => {
     expect(text).toContain('19:42');
     expect(text).toContain('2026');
     expect(body.Content.Simple.Body.Text.Charset).toBe('UTF-8');
+  });
+
+  it('chooses the template by the purpose of the code', async () => {
+    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, purpose: 'password' });
+    await mailer().send({ to: TO, code: CODE, expiresAt: EXPIRES_AT, purpose: 'login' });
+    const subjects = requests.map((r) => JSON.parse(r.body).Content.Simple.Subject.Data);
+    expect(subjects).toEqual([hu.passwordResetCode.subject, hu.emailLoginCode.subject]);
+    const text: string = JSON.parse(requests[0]!.body).Content.Simple.Body.Text.Data;
+    expect(text).toContain(CODE);
   });
 
   it('signs for the region with the explicit keys and the session token', async () => {

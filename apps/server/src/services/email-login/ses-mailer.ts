@@ -77,7 +77,7 @@ export function createSesEmailCodeMailer(options: SesEmailCodeMailerOptions): Em
       if (!input.code) throw new TypeError('the code is empty');
       const { SESv2Client, SendEmailCommand } = await (ses ??= import('@aws-sdk/client-sesv2'));
       client ??= new SESv2Client(clientOptions);
-      const text = hu.emailLoginCode;
+      const text = input.purpose === 'password' ? hu.passwordResetCode : hu.emailLoginCode;
       const command = new SendEmailCommand({
         FromEmailAddress: options.from,
         Destination: { ToAddresses: [input.to] },

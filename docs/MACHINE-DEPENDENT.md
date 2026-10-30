@@ -638,7 +638,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `127.0.0.1` and shares the IP limits). For this service, `kernel/local-request.ts`'s `ipRateLimitKey`
   groups IPv6 addresses by canonical /64 and keeps IPv4 addresses whole, including mapped IPv4 (PM-703);
   other limiters retain their existing keys. The `secret` file in the home and the SQLite database
-  are also local assumptions. **Does this
+  are also local assumptions. **Password codes (PM-946):** `POST /api/auth/password/request` and
+  `/password/reset` (public, same file) use the same table, the same limits and the same constant 202
+  answer. A code is bound to its purpose by the HMAC label (`password-code` against `code`), so a
+  password code never logs in and a login code never sets a password; an address has one live code, and
+  a new one of either purpose replaces the other. Only an existing client account (never the host owner,
+  an owner account or a colleague) gets the letter; a good code replaces the password and deletes every
+  session of the account before the new session starts. No new machine assumption. **Does this
   work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
   and no engine protocol or payload changes.
 

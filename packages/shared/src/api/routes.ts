@@ -87,6 +87,10 @@ export const routes = {
   emailLoginRequest: () => '/api/auth/email/request',
   /** POST: redeems the code (`EmailLoginVerifyRequest`); 200 `Me` and a new session cookie (PM-670). */
   emailLoginVerify: () => '/api/auth/email/verify',
+  /** POST: asks for a password-reset code (`PasswordCodeRequest`); always 202 `EmailLoginCodeRequested` (PM-946). */
+  passwordCodeRequest: () => '/api/auth/password/request',
+  /** POST: redeems the code and sets the password (`PasswordResetRequest`); 200 `Me` and a new session cookie (PM-946). */
+  passwordReset: () => '/api/auth/password/reset',
   logout: () => '/api/auth/logout',
   me: () => '/api/me',
 

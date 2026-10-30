@@ -3920,26 +3920,68 @@ describe('who decides a permission question (the approver, PM-165)', () => {
 });
 
 describe('member workspaces (PM-138)', () => {
-  it.each([false, true])(
-    'gives one installation rule in a worktree with member workspace %s',
-    (workspace) => {
-      const source = input({ handle: 'fe-1' });
+  it('gives the installation rule in a worktree that is not a member workspace', () => {
+    const source = input({ handle: 'fe-1' });
+    source.sessionPolicy = buildSessionPolicy({
+      config: source.project,
+      role: 'developer',
+      task: source.task!,
+      placement: { kind: 'task_worktree', path: '/work/task' },
+    });
+    const text = section(builder.build(source).appendSystemPrompt, '# Session policy');
+    expect(text).toContain('npm ci');
+    expect(text).toContain('cloned automatically');
+    expect(text).not.toContain('install in the default checkout');
+  });
+
+  describe('dependencies the engine left out (PM-1203)', () => {
+    const promptFor = (
+      handle: string,
+      role: 'developer' | 'qa',
+      workspaceDependencies?: 'missing' | 'stale',
+      provider?: 'codex',
+    ) => {
+      const base = input({ handle });
+      const source = provider
+        ? input({ handle, member: { ...aiMember(base.project, handle), provider } })
+        : base;
       source.sessionPolicy = buildSessionPolicy({
         config: source.project,
-        role: 'developer',
+        role,
         task: source.task!,
-        placement: {
-          kind: 'task_worktree',
-          path: '/work/task',
-          ...(workspace ? { workspace: { branch: 'AR-21', baseCommit: null } } : {}),
-        },
+        placement:
+          role === 'developer'
+            ? { kind: 'task_worktree', path: '/work/task', workspace: { branch: 'AR-21', baseCommit: null } }
+            : { kind: 'read_only', path: '/work/task' },
       });
-      const text = section(builder.build(source).appendSystemPrompt, '# Session policy');
-      expect(text).toContain('npm ci');
-      expect(text.includes('cloned automatically')).toBe(!workspace);
-      expect(text).not.toContain('install in the default checkout');
-    },
-  );
+      return section(
+        builder.build({ ...source, ...(workspaceDependencies ? { workspaceDependencies } : {}) })
+          .appendSystemPrompt,
+        '# Session policy',
+      );
+    };
+
+    it('says nothing about installing when the workspace is installed', () => {
+      expect(promptFor('fe-1', 'developer')).not.toContain('npm ci');
+    });
+
+    it.each(['missing', 'stale'] as const)('tells a writer to run npm ci when they are %s', (state) => {
+      const text = promptFor('fe-1', 'developer', state);
+      expect(text).toContain('run npm ci');
+      expect(text).not.toContain('Do not try to install');
+    });
+
+    it('tells a reader and a Codex writer to ask a human, without trying to install', () => {
+      for (const text of [
+        promptFor('code-review', 'qa', 'missing'),
+        promptFor('fe-1', 'developer', 'missing', 'codex'),
+      ]) {
+        expect(text).toContain('Do not try to install');
+        expect(text).toContain('ask_human');
+        expect(text).not.toContain('run npm ci');
+      }
+    });
+  });
   it('tells a developer which branch of its own workspace it works on, and that switching needs committed work', () => {
     const project = buildLocalOnlyProject('.');
     const task = makeTask({ stageId: 'dev', repo: 'app' });

@@ -502,7 +502,11 @@ const workspaces = {
     z.tuple([key]),
     z.discriminatedUnion('status', [
       z.strictObject({ status: z.literal('ready'), key: z.string().min(1).max(128), changed: z.boolean() }),
-      z.strictObject({ status: z.literal('skipped'), reason: z.literal('not_configured') }),
+      z.strictObject({
+        status: z.literal('skipped'),
+        reason: z.enum(['not_configured', 'unavailable']),
+        dependencies: z.enum(['missing', 'stale']).optional(),
+      }),
     ]),
   ),
   findTaskBranch: method(

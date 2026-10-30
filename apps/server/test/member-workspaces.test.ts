@@ -477,6 +477,21 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     },
   );
 
+  it('hands the dependency shortfall the engine reported to the session context (PM-1203)', async () => {
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        prepareDependencies: async () => ({
+          status: 'skipped',
+          reason: 'not_configured',
+          dependencies: 'missing',
+        }),
+      }),
+    });
+    await startTask('AR-1', 'dev-1');
+    expect(h.contextBuilder.inputs.at(-1)).toMatchObject({ workspaceDependencies: 'missing' });
+  });
+
   it('prepares review dependencies after checking out the snapshot commit and before launching', async () => {
     let ready!: () => void;
     // Create the gate before checkout so finally can release even a late preparation.

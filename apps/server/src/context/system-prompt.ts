@@ -46,7 +46,7 @@ import {
   describeSessionTmpDir,
   describeUnattendedCommands,
 } from '../runtime/permissions';
-import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
+import { isHumanOnlyLabel, labelHolders, screenshotPlacement } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
 import { ROLE_PURPOSES } from './role-purposes';
@@ -487,7 +487,10 @@ function sessionFolderSection({ member, sandbox, sessionPolicy }: ContextPackInp
   if (isGemini(member)) return ['# Your session folder', describeSessionFolder(folder, 'gemini')].join('\n');
   if (!isCodex(member)) return '';
   if (sessionPolicy?.permissions.sandbox === 'read-only')
-    return ['# Your session folder', describeReadOnlySessionFolder(folder)].join('\n');
+    return [
+      '# Your session folder',
+      describeReadOnlySessionFolder(folder, { screenshots: screenshotPlacement(sessionPolicy.access) }),
+    ].join('\n');
   const tmpDir = sandbox?.portable?.tmpDir;
   return [
     '# Your session folder',

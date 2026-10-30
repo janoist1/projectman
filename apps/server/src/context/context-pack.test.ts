@@ -3785,6 +3785,29 @@ describe("the CLI's own sandbox (PM-167)", () => {
     }
   });
 
+  it('tells a read-only Codex developer in a worktree to make screenshots with take_screenshots (PM-1202)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
+    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
+    const worktreePolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      permissionMode: 'default',
+      placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+    });
+    const policy = withSessionFolders(worktreePolicy, {
+      own: folder,
+      root: '/tmp/projectman-sessions/abc123',
+    });
+    expect(policy.permissions.sandbox).toBe('read-only');
+    const prompt = builder.build(
+      input({ project, member, handle: 'fe-1', task, sessionPolicy: policy }),
+    ).appendSystemPrompt;
+    const text = section(prompt, '# Your session folder');
+    expect(text).toContain('`take_screenshots` tool');
+    expect(text).not.toContain('you make no screenshots');
+  });
+
   it('tells a Gemini member its session folder: file tools, view_file, no screenshots (PM-522)', () => {
     const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'gemini' };
     const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';

@@ -1908,6 +1908,11 @@ assumption or remote-engine RPC.
   the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
   member as the same `TeamToolError('invalid', …)` texts as before.
+  **Which sessions get a screenshot scope (PM-1202):** a Claude or Codex CLI (Codex, NanoGPT) session in a
+  checkout of the card (`screenshotPlacement`: `task_worktree` or `review_copy`) that has a session
+  folder; `read_only` placement and Gemini get none. Where the session's own sandbox writes the folder,
+  the run has its limits; for a reading Codex or NanoGPT sandbox the run writes only the session folder
+  (`denyWrite` includes the checkout), and the browser directory comes from `EnginePaths.browsersDir` with a read exception.
   Scenario resolution sends only `{ cwd, sessionDir }` as roots, without the browser directory
   or sandbox settings, matching the strict `files.resolve_scenario` contract in hybrid mode
   (PM-785). This adds no machine-dependent operation and leaves the engine boundary unchanged.

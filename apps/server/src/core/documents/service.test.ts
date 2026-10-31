@@ -38,7 +38,7 @@ describe('DocumentService', () => {
     const { service, publish } = setup();
     await service.list('AR', viewer('developer'));
     expect(publish).not.toHaveBeenCalled();
-    await service.create('AR', viewer('developer'), { title: 'Plan', content: 'x' }, by);
+    await service.create('AR', viewer('developer'), { title: 'Plan', content: 'x', message: 'Start' }, by);
     expect(publish).toHaveBeenCalledWith({ type: 'documents_changed', projectKey: 'AR', slug: 'plan' });
   });
 
@@ -46,7 +46,7 @@ describe('DocumentService', () => {
     const { service, store, publish } = setup();
     await expect(service.list('AR', viewer('client'))).rejects.toMatchObject({ status: 403 });
     await expect(
-      service.create('AR', viewer('viewer'), { title: 'Plan', content: '' }, by),
+      service.create('AR', viewer('viewer'), { title: 'Plan', content: '', message: 'Start' }, by),
     ).rejects.toMatchObject({
       status: 403,
     });
@@ -61,13 +61,15 @@ describe('DocumentService', () => {
     ['an owner through the integrator', viewer('owner', true)],
   ])('does not let %s delete', async (_who, who) => {
     const { service, store } = setup();
-    await expect(service.remove('AR', 'plan', who, VERSION, by)).rejects.toMatchObject({ status: 403 });
+    await expect(service.remove('AR', 'plan', who, VERSION, 'Gone', by)).rejects.toMatchObject({
+      status: 403,
+    });
     expect(store.remove).not.toHaveBeenCalled();
   });
 
   it('lets an owner delete and reports the deleting version', async () => {
     const { service, publish } = setup();
-    await expect(service.remove('AR', 'plan', viewer('owner'), VERSION, by)).resolves.toEqual({
+    await expect(service.remove('AR', 'plan', viewer('owner'), VERSION, 'Gone', by)).resolves.toEqual({
       slug: 'plan',
       deleted: true,
       version: VERSION,
@@ -80,12 +82,13 @@ describe('DocumentService', () => {
     ['conflict', 409, 'document_conflict'],
     ['too_large', 413, 'document_too_large'],
     ['invalid_title', 400, 'invalid_request'],
+    ['message_required', 400, 'document_message_required'],
   ] as const)('maps the store error %s to %s', async (code, status, apiCode) => {
     const { service, publish } = setup({
       update: vi.fn().mockRejectedValue(new DocumentStoreError(code, 'no', { currentVersion: VERSION })),
     });
     await expect(
-      service.update('AR', 'plan', viewer('ai'), { content: 'y' }, VERSION, by),
+      service.update('AR', 'plan', viewer('ai'), { content: 'y', message: 'Fix' }, VERSION, by),
     ).rejects.toMatchObject({
       status,
       code: apiCode,

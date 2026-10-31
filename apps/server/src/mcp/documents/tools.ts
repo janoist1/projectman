@@ -55,7 +55,7 @@ export const DOCUMENT_TOOL_GROUP: TeamToolGroup = {
       title: 'Create or edit a project document',
       readOnly: false,
       description:
-        'Create a document (title and content, no slug) or edit one (slug, base_version, new content and/or title). Content replaces the whole text: read first. Stale base_version is refused with the current one. No delete. Never put a secret in a document.',
+        'Create a document (title and content, no slug) or edit one (slug, base_version, new content and/or title). Every write needs message: a one-line reason. Content replaces the whole text: read first. Stale base_version is refused with the current one. No delete. Never put a secret in a document.',
       input: {
         slug: DocumentSlug.optional().describe('The document to edit; none: create.'),
         title: z.string().trim().min(1).max(200).optional().describe('Required to create.'),
@@ -67,8 +67,9 @@ export const DOCUMENT_TOOL_GROUP: TeamToolGroup = {
           .min(1)
           .max(200)
           .regex(/^[^\r\n]*$/, 'One line.')
-          .optional()
-          .describe('A one-line note for the history.'),
+          .describe(
+            'Required: one line saying why you change the document; it shows in the history beside you.',
+          ),
       },
       async run({ ctx, args, handler }) {
         const result = await handler.writeDocument(ctx, {
@@ -76,7 +77,7 @@ export const DOCUMENT_TOOL_GROUP: TeamToolGroup = {
           ...(args.title !== undefined ? { title: args.title } : {}),
           ...(args.content !== undefined ? { content: args.content } : {}),
           ...(args.base_version !== undefined ? { baseVersion: args.base_version } : {}),
-          ...(args.message !== undefined ? { message: args.message } : {}),
+          message: args.message,
         });
         return `${result.created ? 'created' : 'updated'} ${summaryLine(result.document)}`;
       },

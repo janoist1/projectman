@@ -25,6 +25,8 @@ function domainError(err: unknown): unknown {
       return new DomainError('document_conflict', err.message, { status: 409, details: err.details });
     case 'too_large':
       return new DomainError('document_too_large', err.message, { status: 413, details: err.details });
+    case 'message_required':
+      return new DomainError('document_message_required', err.message, { status: 400 });
     default:
       return new DomainError('invalid_request', err.message, { status: 400 });
   }
@@ -65,7 +67,7 @@ export class DocumentService {
   create(
     projectKey: string,
     viewer: DocumentViewer,
-    input: { title: string; content: string; message?: string },
+    input: { title: string; content: string; message: string },
     by: DocumentWriter,
   ): Promise<StoredDocument> {
     return this.changed(
@@ -80,7 +82,7 @@ export class DocumentService {
     projectKey: string,
     slug: string,
     viewer: DocumentViewer,
-    change: { title?: string; content?: string; message?: string },
+    change: { title?: string; content?: string; message: string },
     baseVersion: string,
     by: DocumentWriter,
   ): Promise<StoredDocument> {
@@ -98,12 +100,13 @@ export class DocumentService {
     viewer: DocumentViewer,
     version: string,
     baseVersion: string,
+    message: string,
     by: DocumentWriter,
   ): Promise<StoredDocument> {
     return this.changed(
       projectKey,
       this.edit(viewer),
-      () => this.store.restore(projectKey, slug, version, baseVersion, by),
+      () => this.store.restore(projectKey, slug, version, baseVersion, message, by),
       () => slug,
     );
   }
@@ -114,6 +117,7 @@ export class DocumentService {
     slug: string,
     viewer: DocumentViewer,
     baseVersion: string,
+    message: string,
     by: DocumentWriter,
   ): Promise<DeleteDocumentResponse> {
     const denied = canDeleteDocument(viewer)
@@ -125,7 +129,7 @@ export class DocumentService {
     const { version } = await this.changed(
       projectKey,
       denied,
-      () => this.store.remove(projectKey, slug, baseVersion, by),
+      () => this.store.remove(projectKey, slug, baseVersion, message, by),
       () => slug,
     );
     return { slug, deleted: true, version };

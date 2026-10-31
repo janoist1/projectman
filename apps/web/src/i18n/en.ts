@@ -120,7 +120,7 @@ export const en = {
       contentLabel: 'Text',
       secretWarning:
         'Don’t write passwords, keys or other secrets here: every member can see the document, and it stays in the history.',
-      messageLabel: 'What changed?',
+      messageLabel: 'Why are you changing it?',
       bytes: '{used} / {limit} bytes',
       save: 'Save',
       create: 'Create',
@@ -162,6 +162,7 @@ export const en = {
       restoreTitle: 'Restore this version?',
       restoreBody:
         'The document gets this content as a new version; the current version stays in the history.',
+      reasonLabel: 'Why are you restoring it?',
       restored: 'Restored',
       restoreStale: 'The document changed in the meantime. Check the history and try again.',
     },
@@ -169,6 +170,7 @@ export const en = {
       action: 'Delete',
       title: 'Delete this document?',
       body: '“{title}” disappears from the list, but its history is kept.',
+      reasonLabel: 'Why are you deleting it?',
       done: 'Deleted: {title}',
     },
   },
@@ -397,6 +399,7 @@ export const en = {
       document_conflict:
         'Someone changed the document meanwhile. Your own text is kept: load the new version and merge.',
       document_too_large: 'A document can be at most 200,000 bytes.',
+      document_message_required: 'Say in one line why you change the document.',
       message_attachment_unavailable: 'A file is no longer available: remove it and attach it again.',
       message_attachment_limit: 'You can have at most 20 unsent attachments at a time.',
       cover_not_an_image: 'A cover image has to be one of the card’s images.',

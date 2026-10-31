@@ -116,13 +116,22 @@ describe('writing a document', () => {
     fireEvent.change(screen.getByRole('textbox', { name: t('documents.editor.contentLabel') }), {
       target: { value: '# Új terv\n\nSzöveg.' },
     });
-    fireEvent.click(screen.getByRole('button', { name: t('documents.editor.create') }));
+    const create = screen.getByRole('button', { name: t('documents.editor.create') });
+    expect((create as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByRole('textbox', { name: new RegExp(t('documents.editor.messageLabel')) }), {
+      target: { value: 'Első vázlat' },
+    });
+    fireEvent.click(create);
     await waitFor(() => expect(where()).toBe('/p/AC/docs/uj-terv'));
     expect(await screen.findByRole('heading', { level: 1, name: 'Új terv' })).toBeTruthy();
     const post = p.requests.find(
       (request) => request.method === 'POST' && request.path.endsWith('/documents'),
     );
-    expect(post?.body).toMatchObject({ title: 'Új terv', content: '# Új terv\n\nSzöveg.' });
+    expect(post?.body).toMatchObject({
+      title: 'Új terv',
+      content: '# Új terv\n\nSzöveg.',
+      message: 'Első vázlat',
+    });
   });
 
   it('saves against the version it read and keeps the slug when the title changes', async () => {
@@ -130,11 +139,14 @@ describe('writing a document', () => {
     p.render(<Pages />, `/p/AC/docs/${slug}?edit=1`);
     const title = await screen.findByRole('textbox', { name: t('documents.editor.titleLabel') });
     fireEvent.change(title, { target: { value: 'Projekt terv v2' } });
+    fireEvent.change(screen.getByRole('textbox', { name: new RegExp(t('documents.editor.messageLabel')) }), {
+      target: { value: 'Átnevezés' },
+    });
     fireEvent.click(screen.getByRole('button', { name: t('documents.editor.save') }));
     expect(await screen.findByRole('heading', { level: 1, name: 'Projekt terv v2' })).toBeTruthy();
     const patch = p.requests.find((request) => request.method === 'PATCH');
     expect(patch?.path).toContain(`/documents/${slug}`);
-    expect(patch?.body).toMatchObject({ title: 'Projekt terv v2' });
+    expect(patch?.body).toMatchObject({ title: 'Projekt terv v2', message: 'Átnevezés' });
     expect((patch?.body as { baseVersion: string }).baseVersion).toMatch(/^[0-9a-f]{40}$/);
     expect(where()).toBe(`/p/AC/docs/${slug}`);
   });
@@ -145,6 +157,9 @@ describe('writing a document', () => {
     const content = await screen.findByRole('textbox', { name: t('documents.editor.contentLabel') });
     fireEvent.change(content, { target: { value: 'Az én szövegem' } });
     p.backend.documents.changeElsewhere(slug, 'Más szövege', 'devops');
+    fireEvent.change(screen.getByRole('textbox', { name: new RegExp(t('documents.editor.messageLabel')) }), {
+      target: { value: 'Javítás' },
+    });
     fireEvent.click(screen.getByRole('button', { name: t('documents.editor.save') }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain(t('documents.conflict.title'));
@@ -242,11 +257,22 @@ describe('the history', () => {
     expect(await screen.findByText('Bevezető.')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('button', { name: t('documents.version.restore') })[0]!);
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: t('documents.version.restore') }));
+    const confirm = within(dialog).getByRole('button', { name: t('documents.version.restore') });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(
+      within(dialog).getByRole('textbox', { name: new RegExp(t('documents.version.reasonLabel')) }),
+      {
+        target: { value: 'Rossz szerkesztés' },
+      },
+    );
+    fireEvent.click(confirm);
     await waitFor(() => expect(where()).toBe(`/p/AC/docs/${slug}`));
     expect(await screen.findByText('Bevezető.')).toBeTruthy();
     const restore = p.requests.find((request) => request.path.endsWith('/restore'));
-    expect(restore?.body).toMatchObject({ version: expect.stringMatching(/^[0-9a-f]{40}$/) });
+    expect(restore?.body).toMatchObject({
+      version: expect.stringMatching(/^[0-9a-f]{40}$/),
+      message: 'Rossz szerkesztés',
+    });
   });
 });
 
@@ -257,10 +283,19 @@ describe('deleting', () => {
     fireEvent.click(await screen.findByRole('button', { name: t('documents.more') }));
     fireEvent.click(await screen.findByRole('button', { name: t('documents.delete.action') }));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: t('documents.delete.action') }));
+    const confirm = within(dialog).getByRole('button', { name: t('documents.delete.action') });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(
+      within(dialog).getByRole('textbox', { name: new RegExp(t('documents.delete.reasonLabel')) }),
+      {
+        target: { value: 'Elavult' },
+      },
+    );
+    fireEvent.click(confirm);
     await waitFor(() => expect(where()).toBe('/p/AC/docs'));
     const removal = p.requests.find((request) => request.method === 'DELETE');
     expect(removal?.path).toMatch(/baseVersion=[0-9a-f]{40}/);
+    expect(removal?.path).toContain('message=');
   });
 
   it('offers a developer no deletion', async () => {

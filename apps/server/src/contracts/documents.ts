@@ -26,32 +26,34 @@ export interface DocumentStore {
   read(projectKey: string, slug: string, version?: string): Promise<StoredDocument>;
   create(
     projectKey: string,
-    input: { title: string; content: string; message?: string },
+    input: { title: string; content: string; message: string },
     by: DocumentWriter,
   ): Promise<StoredDocument>;
   /** A stale `baseVersion` → conflict with the current version. Nothing changed → no commit. */
   update(
     projectKey: string,
     slug: string,
-    change: { title?: string; content?: string; message?: string },
+    change: { title?: string; content?: string; message: string },
     baseVersion: string,
     by: DocumentWriter,
   ): Promise<StoredDocument>;
-  /** Removes the file in a commit; the history stays. */
+  /** Removes the file in a commit (`message`: its reason); the history stays. */
   remove(
     projectKey: string,
     slug: string,
     baseVersion: string,
+    message: string,
     by: DocumentWriter,
   ): Promise<{ version: string }>;
   /** Newest first; `limit` 50 by default, 200 at most; a deleted document's history can be read too. */
   history(projectKey: string, slug: string, limit?: number): Promise<DocumentVersion[]>;
-  /** A new commit with the content and the title of `version`. */
+  /** A new commit with the content and the title of `version`; `message`: its reason. */
   restore(
     projectKey: string,
     slug: string,
     version: string,
     baseVersion: string,
+    message: string,
     by: DocumentWriter,
   ): Promise<StoredDocument>;
 }

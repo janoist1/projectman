@@ -27,6 +27,8 @@ type DocumentStoreErrorCode =
   | 'too_large'
   | 'invalid_slug'
   | 'invalid_title'
+  /** A write without its reason (PM-1215). */
+  | 'message_required'
   /** A symbolic link where the store writes or reads. */
   | 'unsafe_path';
 

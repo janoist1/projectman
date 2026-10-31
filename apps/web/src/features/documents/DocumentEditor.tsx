@@ -84,22 +84,14 @@ export function DocumentEditor({ slug, initial, latestVersion, gone, onSaved, on
   };
 
   const submit = () => {
-    if (saving || gone || !title.trim()) return;
+    if (saving || gone || !title.trim() || !message.trim()) return;
     setConflict(false);
     if (!slug) {
-      create.mutate(
-        { title: title.trim(), content, ...(message.trim() ? { message: message.trim() } : {}) },
-        { onSuccess: onSaved },
-      );
+      create.mutate({ title: title.trim(), content, message: message.trim() }, { onSuccess: onSaved });
       return;
     }
     update.mutate(
-      {
-        baseVersion: base,
-        title: title.trim(),
-        content,
-        ...(message.trim() ? { message: message.trim() } : {}),
-      },
+      { baseVersion: base, title: title.trim(), content, message: message.trim() },
       {
         onSuccess: onSaved,
         onError: (failure) => {
@@ -219,7 +211,7 @@ export function DocumentEditor({ slug, initial, latestVersion, gone, onSaved, on
       </p>
       <TextField
         label={t('documents.editor.messageLabel')}
-        optional
+        required
         value={message}
         maxLength={200}
         disabled={saving}
@@ -243,7 +235,13 @@ export function DocumentEditor({ slug, initial, latestVersion, gone, onSaved, on
         >
           {t('common.cancel')}
         </Button>
-        <Button type="submit" variant="primary" size="md" loading={saving} disabled={gone || !title.trim()}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="md"
+          loading={saving}
+          disabled={gone || !title.trim() || !message.trim()}
+        >
           {slug ? t('documents.editor.save') : t('documents.editor.create')}
         </Button>
       </div>

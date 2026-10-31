@@ -189,13 +189,20 @@ export function parseDocumentRef(ref: string): { slug: string; section?: string 
   return section ? { slug: ref.slice(0, hash), section } : { slug: ref.slice(0, hash) };
 }
 
-/** A change's short message: one line. */
+/** The reason of a change (PM-1215): one line, required for every write (create, edit, rename, restore, delete). */
 const DocumentCommitMessage = z
   .string()
   .trim()
   .min(1)
   .max(200)
   .regex(/^[^\r\n]*$/);
+
+/** Whether a refused write request failed because its `message` is missing or blank (the `document_message_required` error). */
+export function lacksDocumentMessage(error: z.ZodError): boolean {
+  return error.issues.some(
+    (issue) => issue.path[0] === 'message' && (issue.code === 'invalid_type' || issue.code === 'too_small'),
+  );
+}
 
 const DocumentTitle = z.string().trim().min(1).max(MAX_DOCUMENT_TITLE_LENGTH);
 
@@ -208,7 +215,7 @@ export type DocumentListResponse = z.infer<typeof DocumentListResponse>;
 export const CreateDocumentRequest = z.object({
   title: DocumentTitle,
   content: z.string(),
-  message: DocumentCommitMessage.optional(),
+  message: DocumentCommitMessage,
 });
 export type CreateDocumentRequest = z.infer<typeof CreateDocumentRequest>;
 
@@ -217,7 +224,7 @@ export const UpdateDocumentRequest = z
     baseVersion: DocumentVersionId,
     title: DocumentTitle.optional(),
     content: z.string().optional(),
-    message: DocumentCommitMessage.optional(),
+    message: DocumentCommitMessage,
   })
   .refine((request) => request.title !== undefined || request.content !== undefined, {
     path: ['content'],
@@ -228,8 +235,16 @@ export type UpdateDocumentRequest = z.infer<typeof UpdateDocumentRequest>;
 export const RestoreDocumentRequest = z.object({
   version: DocumentVersionId,
   baseVersion: DocumentVersionId,
+  message: DocumentCommitMessage,
 });
 export type RestoreDocumentRequest = z.infer<typeof RestoreDocumentRequest>;
+
+/** A delete carries its parameters in the query string. */
+export const DeleteDocumentQuery = z.object({
+  baseVersion: DocumentVersionId,
+  message: DocumentCommitMessage,
+});
+export type DeleteDocumentQuery = z.infer<typeof DeleteDocumentQuery>;
 
 export const DeleteDocumentResponse = z.object({
   slug: DocumentSlug,

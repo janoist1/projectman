@@ -15,6 +15,7 @@ import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
 import type { HeadingLinks } from '../../components/Markdown';
 import { MoreMenu } from '../../components/MoreMenu';
+import { TextField } from '../../components/Field';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
 import { formatStamp } from '../../i18n/format';
@@ -60,6 +61,8 @@ export function DocumentPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [restoreReason, setRestoreReason] = useState('');
+  const [deleteReason, setDeleteReason] = useState('');
   const [missingSection, setMissingSection] = useState<string | null>(null);
 
   const detail = shownQ.data;
@@ -198,11 +201,12 @@ export function DocumentPage() {
 
   const confirmRestore = () =>
     restore.mutate(
-      { version: summary.version, baseVersion: currentVersion },
+      { version: summary.version, baseVersion: currentVersion, message: restoreReason.trim() },
       {
         onSuccess: () => {
           toast.show(t('documents.version.restored'));
           setRestoreOpen(false);
+          setRestoreReason('');
           void navigate(documentsPath(key, slug));
         },
         onError: (failure) => {
@@ -216,13 +220,17 @@ export function DocumentPage() {
     );
 
   const confirmDelete = () =>
-    remove.mutate(currentVersion, {
-      onSuccess: () => {
-        toast.show(t('documents.delete.done', { title: summary.title }));
-        setDeleteOpen(false);
-        void toList();
+    remove.mutate(
+      { baseVersion: currentVersion, message: deleteReason.trim() },
+      {
+        onSuccess: () => {
+          toast.show(t('documents.delete.done', { title: summary.title }));
+          setDeleteOpen(false);
+          setDeleteReason('');
+          void toList();
+        },
       },
-    });
+    );
 
   return (
     <div className={styles.page}>
@@ -359,13 +367,27 @@ export function DocumentPage() {
         size="sm"
       >
         <p>{t('documents.version.restoreBody')}</p>
+        <TextField
+          label={t('documents.version.reasonLabel')}
+          required
+          value={restoreReason}
+          maxLength={200}
+          disabled={restore.isPending}
+          onChange={(event) => setRestoreReason(event.target.value.replace(/[\r\n]+/g, ' '))}
+        />
         <DialogActions
           error={restore.error ? <ErrorBanner>{errorMessage(restore.error)}</ErrorBanner> : null}
         >
           <Button variant="secondary" size="md" onClick={() => setRestoreOpen(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant="primary" size="md" loading={restore.isPending} onClick={confirmRestore}>
+          <Button
+            variant="primary"
+            size="md"
+            loading={restore.isPending}
+            disabled={!restoreReason.trim()}
+            onClick={confirmRestore}
+          >
             {t('documents.version.restore')}
           </Button>
         </DialogActions>
@@ -378,11 +400,25 @@ export function DocumentPage() {
         size="sm"
       >
         <p>{t('documents.delete.body', { title: summary.title })}</p>
+        <TextField
+          label={t('documents.delete.reasonLabel')}
+          required
+          value={deleteReason}
+          maxLength={200}
+          disabled={remove.isPending}
+          onChange={(event) => setDeleteReason(event.target.value.replace(/[\r\n]+/g, ' '))}
+        />
         <DialogActions error={remove.error ? <ErrorBanner>{errorMessage(remove.error)}</ErrorBanner> : null}>
           <Button variant="secondary" size="md" onClick={() => setDeleteOpen(false)}>
             {t('common.cancel')}
           </Button>
-          <Button variant="dangerSolid" size="md" loading={remove.isPending} onClick={confirmDelete}>
+          <Button
+            variant="dangerSolid"
+            size="md"
+            loading={remove.isPending}
+            disabled={!deleteReason.trim()}
+            onClick={confirmDelete}
+          >
             {t('documents.delete.action')}
           </Button>
         </DialogActions>

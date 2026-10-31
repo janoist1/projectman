@@ -118,9 +118,11 @@ function validSlug(slug: string): string {
   return slug;
 }
 
-function commitMessage(message: string | undefined, fallback: string): string {
-  const line = (message ?? '').replace(/[\r\n]+/g, ' ').trim();
-  return line ? line.slice(0, MAX_MESSAGE_LENGTH) : fallback;
+/** The reason of a write is its commit's subject; a write without one is refused (PM-1215). */
+function commitMessage(message: string): string {
+  const line = message.replace(/[\r\n]+/g, ' ').trim();
+  if (!line) throw new DocumentStoreError('message_required', 'a document change needs its reason');
+  return line.slice(0, MAX_MESSAGE_LENGTH);
 }
 
 export function createDocumentStore(opts: DocumentStoreOptions): DocumentStore {
@@ -330,44 +332,41 @@ export function createDocumentStore(opts: DocumentStoreOptions): DocumentStore {
     },
 
     async create(projectKey, input, by) {
+      const message = commitMessage(input.message);
       const title = validTitle(input.title);
       const content = validContent(input.content);
       return write(projectKey, by, async () => {
         const slug = documentSlugOf(title, await takenSlugs(projectKey));
         await writeFileChecked(projectKey, slug, title, content);
-        await commitFile(projectKey, slug, commitMessage(input.message, `Create ${slug}`), by);
+        await commitFile(projectKey, slug, message, by);
         return currentOrThrow(projectKey, slug);
       });
     },
 
     async update(projectKey, slug, change, baseVersion, by) {
       validSlug(slug);
+      const message = commitMessage(change.message);
       return write(projectKey, by, async () => {
         await assertBase(projectKey, slug, baseVersion);
         const current = await currentOrThrow(projectKey, slug);
         const title = change.title === undefined ? current.title : validTitle(change.title);
         const content = change.content === undefined ? current.content : validContent(change.content);
         if (title === current.title && content === current.content) return current;
-        const renamedOnly = content === current.content;
         await writeFileChecked(projectKey, slug, title, content);
-        await commitFile(
-          projectKey,
-          slug,
-          commitMessage(change.message, `${renamedOnly ? 'Rename' : 'Update'} ${slug}`),
-          by,
-        );
+        await commitFile(projectKey, slug, message, by);
         return currentOrThrow(projectKey, slug);
       });
     },
 
-    async remove(projectKey, slug, baseVersion, by) {
+    async remove(projectKey, slug, baseVersion, message, by) {
       validSlug(slug);
+      const reason = commitMessage(message);
       return write(projectKey, by, async () => {
         await assertBase(projectKey, slug, baseVersion);
         await currentOrThrow(projectKey, slug);
         await assertNotSymlink(join(repoDirOf(projectKey), fileOf(slug)));
         await gitIn(projectKey, ['rm', '-q', '-f', '--', fileOf(slug)]);
-        return { version: await commitFile(projectKey, slug, `Delete ${slug}`, by) };
+        return { version: await commitFile(projectKey, slug, reason, by) };
       });
     },
 
@@ -396,8 +395,9 @@ export function createDocumentStore(opts: DocumentStoreOptions): DocumentStore {
       );
     },
 
-    async restore(projectKey, slug, version, baseVersion, by) {
+    async restore(projectKey, slug, version, baseVersion, message, by) {
       validSlug(slug);
+      const reason = commitMessage(message);
       return write(projectKey, by, async () => {
         await assertBase(projectKey, slug, baseVersion);
         const target = await documentAt(projectKey, slug, await resolveVersion(projectKey, slug, version));
@@ -405,7 +405,7 @@ export function createDocumentStore(opts: DocumentStoreOptions): DocumentStore {
         const current = await documentAt(projectKey, slug);
         if (current && current.title === target.title && current.content === target.content) return current;
         await writeFileChecked(projectKey, slug, target.title, target.content);
-        await commitFile(projectKey, slug, `Restore ${slug} to ${target.version.slice(0, 12)}`, by);
+        await commitFile(projectKey, slug, reason, by);
         return currentOrThrow(projectKey, slug);
       });
     },

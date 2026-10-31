@@ -20,7 +20,7 @@ describe('documents API', () => {
   });
 
   const create = async (cookie = owner, title = 'Project plan', content = '# Plan\n\n## Steps\n1. one') =>
-    inject(h.app, 'POST', documents, cookie, { title, content });
+    inject(h.app, 'POST', documents, cookie, { title, content, message: 'Start' });
 
   it('creates, edits, reads an old version, restores and deletes a document', async () => {
     const created = await create();
@@ -31,6 +31,7 @@ describe('documents API', () => {
     const edited = await inject(h.app, 'PATCH', routes.document('AR', 'project-plan'), owner, {
       baseVersion: first.document.version,
       content: '# Plan\n\nnew text',
+      message: 'Rewrite',
     });
     expect(edited.statusCode, edited.body).toBe(200);
     const second = edited.json<DocumentDetail>();
@@ -49,11 +50,15 @@ describe('documents API', () => {
     expect(old.json<DocumentDetail>().content).toContain('1. one');
 
     const history = await inject(h.app, 'GET', routes.documentHistory('AR', 'project-plan'), owner);
-    expect(history.json<DocumentHistoryResponse>().versions).toHaveLength(2);
+    expect(history.json<DocumentHistoryResponse>().versions.map((v) => v.message)).toEqual([
+      'Rewrite',
+      'Start',
+    ]);
 
     const restored = await inject(h.app, 'POST', routes.documentRestore('AR', 'project-plan'), owner, {
       version: first.document.version,
       baseVersion: second.document.version,
+      message: 'Back to the first',
     });
     expect(restored.statusCode, restored.body).toBe(200);
     const third = restored.json<DocumentDetail>();
@@ -62,7 +67,7 @@ describe('documents API', () => {
     const deleted = await inject(
       h.app,
       'DELETE',
-      `${routes.document('AR', 'project-plan')}?baseVersion=${third.document.version}`,
+      `${routes.document('AR', 'project-plan')}?baseVersion=${third.document.version}&message=Obsolete`,
       owner,
     );
     expect(deleted.statusCode, deleted.body).toBe(200);
@@ -70,7 +75,34 @@ describe('documents API', () => {
       (await inject(h.app, 'GET', documents, owner)).json<DocumentListResponse>().documents,
     ).toHaveLength(0);
     const after = await inject(h.app, 'GET', routes.documentHistory('AR', 'project-plan'), owner);
-    expect(after.json<DocumentHistoryResponse>().versions[0]?.deleted).toBe(true);
+    expect(after.json<DocumentHistoryResponse>().versions[0]).toMatchObject({
+      deleted: true,
+      message: 'Obsolete',
+    });
+  });
+
+  it('refuses every write without its reason, with its own error code, and writes nothing', async () => {
+    const first = (await create()).json<DocumentDetail>();
+    const slug = routes.document('AR', 'project-plan');
+    const base = first.document.version;
+    const refused = [
+      await inject(h.app, 'POST', documents, owner, { title: 'No reason', content: 'x' }),
+      await inject(h.app, 'POST', documents, owner, { title: 'Blank', content: 'x', message: '   ' }),
+      await inject(h.app, 'PATCH', slug, owner, { baseVersion: base, content: 'y' }),
+      await inject(h.app, 'POST', routes.documentRestore('AR', 'project-plan'), owner, {
+        version: base,
+        baseVersion: base,
+      }),
+      await inject(h.app, 'DELETE', `${slug}?baseVersion=${base}`, owner),
+    ];
+    expect(refused.map((r) => [r.statusCode, r.json().error.code])).toEqual(
+      refused.map(() => [400, 'document_message_required']),
+    );
+    const history = await inject(h.app, 'GET', routes.documentHistory('AR', 'project-plan'), owner);
+    expect(history.json<DocumentHistoryResponse>().versions).toHaveLength(1);
+    expect(
+      (await inject(h.app, 'GET', documents, owner)).json<DocumentListResponse>().documents,
+    ).toHaveLength(1);
   });
 
   it('answers a stale base version with 409 and the current version', async () => {
@@ -78,10 +110,12 @@ describe('documents API', () => {
     await inject(h.app, 'PATCH', routes.document('AR', 'project-plan'), owner, {
       baseVersion: first.document.version,
       content: 'newer',
+      message: 'Update',
     });
     const stale = await inject(h.app, 'PATCH', routes.document('AR', 'project-plan'), owner, {
       baseVersion: first.document.version,
       content: 'mine',
+      message: 'Update',
     });
     expect(stale.statusCode).toBe(409);
     expect(stale.json().error).toMatchObject({ code: 'document_conflict' });
@@ -113,7 +147,7 @@ describe('documents API', () => {
       const del = await inject(
         h.app,
         'DELETE',
-        `${routes.document('AR', 'project-plan')}?baseVersion=${documentVersion}`,
+        `${routes.document('AR', 'project-plan')}?baseVersion=${documentVersion}&message=Remove`,
         developer,
       );
       expect([del.statusCode, del.json().error.code]).toEqual([403, 'insufficient_access']);
@@ -128,6 +162,7 @@ describe('documents API', () => {
       const patch = await inject(h.app, 'PATCH', routes.document('AR', 'project-plan'), viewer, {
         baseVersion: documentVersion,
         content: 'x',
+        message: 'Edit',
       });
       expect(patch.statusCode).toBe(403);
     });

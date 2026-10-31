@@ -84,12 +84,16 @@ describe('DocumentTools', () => {
 
   it('creates with a title and content, authored by the member', async () => {
     const { tools, documents } = setup();
-    const result = await tools.writeDocument(ctx, { title: 'Plan', content: CONTENT });
+    const result = await tools.writeDocument(ctx, {
+      title: 'Plan',
+      content: CONTENT,
+      message: 'First draft',
+    });
     expect(result.created).toBe(true);
     expect(documents.create).toHaveBeenCalledWith(
       'AR',
       expect.anything(),
-      { title: 'Plan', content: CONTENT },
+      { title: 'Plan', content: CONTENT, message: 'First draft' },
       expect.objectContaining({ actor: { kind: 'ai', handle: 'dev' } }),
     );
   });
@@ -100,7 +104,9 @@ describe('DocumentTools', () => {
     ['an edit that changes nothing', { slug: 'plan', baseVersion: VERSION }],
   ])('refuses %s', async (_name, args) => {
     const { tools, documents } = setup();
-    await expect(tools.writeDocument(ctx, args)).rejects.toMatchObject({ code: 'invalid' });
+    await expect(tools.writeDocument(ctx, { ...args, message: 'Why' })).rejects.toMatchObject({
+      code: 'invalid',
+    });
     expect(documents.create).not.toHaveBeenCalled();
     expect(documents.update).not.toHaveBeenCalled();
   });
@@ -116,7 +122,7 @@ describe('DocumentTools', () => {
       ),
     });
     const err = await tools
-      .writeDocument(ctx, { slug: 'plan', content: 'x', baseVersion: VERSION })
+      .writeDocument(ctx, { slug: 'plan', content: 'x', baseVersion: VERSION, message: 'Fix' })
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(TeamToolError);
     expect((err as Error).message).toContain(current);

@@ -13,6 +13,7 @@ import {
 } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { en } from './en';
+import { formatTokens } from './format';
 import { hu } from './hu';
 import { setCurrentLanguage } from './language';
 import { hasMessage, joinNames, t, tDynamic } from './t';
@@ -191,6 +192,14 @@ describe('en locale', () => {
     expect(t('time.daysAgo', { count: 1 })).toBe('1 day ago');
     expect(t('time.daysAgo', { count: 3 })).toBe('3 days ago');
     expect(t('time.daysAgo', { count: 0 })).toBe('0 days ago');
+  });
+
+  it('shows a formatted token count in the limits summary, not NaN', () => {
+    setCurrentLanguage('en');
+    // The caller passes the grouped string ("200,000"): a plural form would turn it into NaN.
+    const count = formatTokens(200_000);
+    expect(t('settings.limits.warnAboveSessionTokensValue', { count })).toBe(`${count} tokens`);
+    expect(t('settings.limits.autoCompactWindowValue', { count })).toBe(`${count} tokens`);
   });
 
   it('joins names the English way', () => {

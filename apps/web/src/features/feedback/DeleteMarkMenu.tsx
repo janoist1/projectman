@@ -72,10 +72,12 @@ export function DeleteMarkMenu({ mark, search }: { mark: FeedbackMarkDetail; sea
           </>
         }
       >
-        <p className={styles.info}>{t('feedback.delete.info')}</p>
-        {mark.card ? (
-          <p className={styles.info}>{t('feedback.delete.keepsCard', { key: mark.card.key })}</p>
-        ) : null}
+        <div className={styles.form}>
+          <p className={styles.info}>{t('feedback.delete.info')}</p>
+          {mark.card ? (
+            <p className={styles.info}>{t('feedback.delete.keepsCard', { key: mark.card.key })}</p>
+          ) : null}
+        </div>
       </Dialog>
     </>
   );

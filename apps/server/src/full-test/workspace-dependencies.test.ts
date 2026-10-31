@@ -367,19 +367,23 @@ describe('engine-owned member dependency preparation', () => {
     expect(await prepare()).toMatchObject({ status: 'ready', changed: false });
   });
 
-  it('revokes an older marker before a failed replacement, and keeps process output out of logs and errors', async () => {
+  it('revokes an older marker before a failed replacement, and logs only the end of the process output', async () => {
     const info = vi.spyOn(logger, 'info');
     await prepare();
     rmSync(path.join(request.repoPath, 'apps/server/node_modules'), { recursive: true });
+    const lines = Array.from({ length: 40 }, (_, index) => `fixture-line-${index}`);
     install = async (run) => {
       trees(run.cwd);
-      return end({ exitCode: 23, output: 'fixture-secret-output' });
+      return end({ exitCode: 23, output: lines.join('\n') });
     };
-    await expect(prepare()).rejects.toMatchObject({ details: { reason: 'install_failed', exitCode: 23 } });
+    await expect(prepare()).rejects.toMatchObject({
+      details: { reason: 'install_failed', exitCode: 23, outputTail: lines.slice(-10).join('\n') },
+    });
     expect(existsSync(marker())).toBe(false);
     await expect(prepare()).rejects.toMatchObject({ details: { reason: 'install_failed' } });
     expect(installs()).toHaveLength(2);
-    expect(JSON.stringify(info.mock.calls)).not.toContain('fixture-secret-output');
+    expect(JSON.stringify(info.mock.calls)).toContain('fixture-line-39');
+    expect(JSON.stringify(info.mock.calls)).not.toContain('fixture-line-29');
     expect(info.mock.calls.at(-1)?.[0]).toMatchObject({
       project: 'PM',
       member: 'dev',
@@ -495,6 +499,29 @@ describe('engine-owned member dependency preparation', () => {
         });
       expect(calls).toHaveLength(0);
     });
+
+    it('skips instead of failing when the install fails, and keeps the shortfall', async () => {
+      await installer.close();
+      installer = make(true, 'implicit');
+      install = async () => end({ exitCode: 255, output: 'npm error errno -1' });
+      for (let attempt = 0; attempt < 2; attempt++)
+        expect(await prepare()).toEqual({
+          status: 'skipped',
+          reason: 'unavailable',
+          dependencies: 'missing',
+        });
+      expect(installs()).toHaveLength(1);
+    });
+  });
+
+  it('starts srt away from the clone, so its mandatory write denials do not cover node_modules (PM-1213)', async () => {
+    await prepare();
+    expect(calls.length).toBeGreaterThan(0);
+    for (const run of calls) {
+      expect(run.cwd).toBe(request.repoPath);
+      expect(run.anchorDir).toBeDefined();
+      expect(run.anchorDir!.startsWith(`${request.repoPath}${path.sep}`)).toBe(false);
+    }
   });
 
   describe('the engine checkout (PM-1083)', () => {

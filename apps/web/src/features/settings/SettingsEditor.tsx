@@ -278,10 +278,13 @@ export function useInstantLimits(config: ProjectConfig) {
 export function EditableSection({
   section,
   editor,
+  onStartEdit,
   children,
 }: {
   section: Section;
   editor: (props: SectionEditorProps) => ReactNode;
+  /** Called when the edit button is pressed, e.g. to close a side panel the editor replaces. */
+  onStartEdit?: () => void;
   children: ReactNode;
 }) {
   const context = useContext(EditingContext);
@@ -308,6 +311,7 @@ export function EditableSection({
               disabled={edit !== null}
               onClick={() => {
                 save.reset();
+                onStartEdit?.();
                 setEdit({
                   section,
                   draft: structuredClone(view.config),

@@ -228,10 +228,13 @@ describe('settings navigation', () => {
       </>,
       '/p/AC/settings/pipeline',
     );
-    await screen.findByRole('heading', { name: t('settings.sections.pipeline') });
+    const heading = await screen.findByRole('heading', { name: t('settings.sections.pipeline') });
     const opener = screen.getByText('Select item');
     opener.focus();
     fireEvent.click(opener);
-    expect(document.activeElement).toBe(opener);
+    // The selected stage's panel takes the focus; the section heading does not.
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(heading);
   });
 });

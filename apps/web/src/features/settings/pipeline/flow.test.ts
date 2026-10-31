@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest';
+import { defaultBoardColumnColor } from '@projectman/shared';
+import type { Pipeline, Stage } from '@projectman/shared';
+import { columnColor, columnRuns, emptyColumns } from './flow';
+
+function stage(id: string, columnId: string): Stage {
+  return { id, name: id, kind: 'work', owners: [], columnId };
+}
+
+function pipeline(stages: Stage[], columns: string[]): Pipeline {
+  return {
+    columns: columns.map((id) => ({ id, name: id })),
+    stages,
+    labels: [],
+  } as Pipeline;
+}
+
+describe('columnRuns', () => {
+  it('puts consecutive stages of one column into one run', () => {
+    const runs = columnRuns(pipeline([stage('a', 'x'), stage('b', 'x'), stage('c', 'y')], ['x', 'y']));
+    expect(runs.map((run) => [run.column.id, run.stages.map((s) => s.id), run.start])).toEqual([
+      ['x', ['a', 'b'], 0],
+      ['y', ['c'], 2],
+    ]);
+  });
+
+  it('gives a scattered column one run for each stretch', () => {
+    const runs = columnRuns(pipeline([stage('a', 'x'), stage('b', 'y'), stage('c', 'x')], ['x', 'y']));
+    expect(runs.map((run) => [run.column.id, run.start])).toEqual([
+      ['x', 0],
+      ['y', 1],
+      ['x', 2],
+    ]);
+  });
+});
+
+describe('emptyColumns', () => {
+  it('lists the columns no stage uses, in column order', () => {
+    const empty = emptyColumns(pipeline([stage('a', 'y')], ['x', 'y', 'z']));
+    expect(empty.map((column) => column.id)).toEqual(['x', 'z']);
+  });
+});
+
+describe('columnColor', () => {
+  it('uses the column own colour, else the default of its place', () => {
+    const base = pipeline([stage('a', 'x')], ['x', 'y']);
+    base.columns[1]!.color = 'teal';
+    expect(columnColor(base, base.columns[1]!)).toBe('teal');
+    expect(columnColor(base, base.columns[0]!)).toBe(defaultBoardColumnColor(0));
+  });
+});

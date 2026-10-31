@@ -103,10 +103,12 @@ export function PipelineFlow({ config, map, selected, problemStages, onSelect }:
                             <FlowRow key={loop.toStageId} className={styles.subRow}>
                               <span className={styles.loop}>
                                 <Icon name="undo" size={14} strokeWidth={2} />
-                                {t('howWeWork.flow.loop', {
-                                  stage: stageNames.get(loop.toStageId) ?? loop.toStageId,
-                                  limit: map.fixRounds.limit,
-                                })}
+                                <span>
+                                  {t('howWeWork.flow.loop', {
+                                    stage: stageNames.get(loop.toStageId) ?? loop.toStageId,
+                                    limit: map.fixRounds.limit,
+                                  })}
+                                </span>
                               </span>
                             </FlowRow>
                           ))}
@@ -114,8 +116,12 @@ export function PipelineFlow({ config, map, selected, problemStages, onSelect }:
                           <FlowRow className={styles.subRow}>
                             <span className={styles.refine}>
                               <Icon name="list" size={15} />
-                              {t('settings.pipeline.refineRow')}{' '}
-                              <Link to={`/p/${key}/how-we-work`}>{t('settings.pipeline.howWeWorkLink')}</Link>
+                              <span>
+                                {t('settings.pipeline.refineRow')}{' '}
+                                <Link to={`/p/${key}/how-we-work`}>
+                                  {t('settings.pipeline.howWeWorkLink')}
+                                </Link>
+                              </span>
                             </span>
                           </FlowRow>
                         ) : null}

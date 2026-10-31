@@ -192,11 +192,17 @@
 .loop,
 .refine {
   display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-wrap: nowrap;
+  align-items: flex-start;
   gap: 5px;
   font-size: 12.5px;
   color: var(--c-ink-2);
+}
+
+.loop svg,
+.refine svg {
+  flex: none;
+  margin-top: 1px;
 }
 
 .loop {

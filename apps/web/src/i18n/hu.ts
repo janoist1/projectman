@@ -1299,8 +1299,9 @@ export const hu = {
       copy: 'Hivatkozás másolása: {title}',
       copied: 'Hivatkozás másolva: {ref}',
       copyFailed: 'A másolás nem sikerült',
-      missingTitle: 'Nincs „{section}” nevű fejezet ebben a dokumentumban.',
-      missingBody: 'Lehet, hogy azóta átírták a címét. A dokumentum elejét mutatjuk.',
+      missingTitle:
+        'A keresett fejezet („{section}”) nincs meg ebben a dokumentumban, ezért az elejét látod.',
+      missingBody: 'Lehet, hogy azóta átírták a címét.',
     },
     editor: {
       newTitle: 'Új dokumentum',

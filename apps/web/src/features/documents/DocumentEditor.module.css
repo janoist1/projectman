@@ -20,9 +20,9 @@
 
 /* A save that did not go through: the warning tone of the app's "needs you" states, not the neutral info bar. */
 .barAlert {
-  border-color: var(--c-needs-border);
-  background: var(--c-needs-bg);
-  color: var(--c-needs-strong);
+  border-color: var(--c-blocked-text);
+  background: var(--c-blocked-bg);
+  color: var(--c-blocked-text);
 }
 
 .barActions {

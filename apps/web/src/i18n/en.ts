@@ -107,8 +107,9 @@ export const en = {
       copy: 'Copy link: {title}',
       copied: 'Link copied: {ref}',
       copyFailed: 'Couldn’t copy',
-      missingTitle: 'There’s no “{section}” section in this document.',
-      missingBody: 'Its title may have been changed since. Showing the start of the document.',
+      missingTitle:
+        'The section you were looking for (“{section}”) isn’t in this document, so you’re seeing the start.',
+      missingBody: 'Its title may have been changed since.',
     },
     editor: {
       newTitle: 'New document',

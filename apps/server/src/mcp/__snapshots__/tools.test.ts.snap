@@ -1005,6 +1005,23 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": true,
+      "title": "Read the version of the hub and the engines",
+    },
+    "description": "Which version the hub runs and, per engine, whether it is connected, which version it reports, whether that differs from the hub and when it was last seen. Reads only. Use it in a release to check that the hub is on the new version and that every engine has followed.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "name": "get_release_status",
+    "title": "Read the version of the hub and the engines",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": true,
       "title": "Read one built-in role configuration",
     },
     "description": "Read one built-in role's configuration version, stored override (null when absent) and effective full bundle, in your own general conversation during an open owner request. Read it before editing a role; preserve its existing instructions and other bundle fields.",

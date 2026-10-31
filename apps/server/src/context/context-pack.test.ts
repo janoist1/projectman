@@ -1843,7 +1843,8 @@ describe('system prompt', () => {
         if (level) project.team.operatorWatch = level;
         return builder.build(input({ project, handle: 'pm' })).guide.role!;
       };
-      const ban = 'You change nothing until an owner says yes.';
+      const ban = 'You change nothing until an owner says yes';
+      const unreleased = 'On an unreleased signal, at any level, start the deployment duty member';
       const step = 'the tool named in its step field (start_task or start_member)';
 
       it('lets a project that sets no level only report, and bans every change until an owner says yes', () => {
@@ -1853,6 +1854,13 @@ describe('system prompt', () => {
         expect(report).not.toContain(step);
         expect(report).not.toContain('steps_left');
       });
+
+      it.each(['report', 'unblock', 'drive'] as const)(
+        'lets the PM start the release owner on an unreleased signal at level %s (PM-1201)',
+        (level) => {
+          expect(promptAt(level)).toContain(unreleased);
+        },
+      );
 
       it('lets the unblock level take one step on an idle or merge signal, with no general ban', () => {
         const unblock = promptAt('unblock');
@@ -1868,17 +1876,15 @@ describe('system prompt', () => {
         expect(unblock).toContain('It is one step per signal (steps_left).');
         expect(unblock).toContain('follow_up true');
         expect(unblock).not.toContain(ban);
-        expect(unblock).not.toContain('start the release owner');
       });
 
-      it('lets the drive level take up to three steps and start the release owner', () => {
+      it('lets the drive level take up to three steps', () => {
         const drive = promptAt('drive');
         expect(drive).toContain(step);
         expect(drive).toContain(
           'up to three steps per signal, at least 30 minutes apart (steps_left, next_step_at)',
         );
-        expect(drive).toContain('start the release owner on an unreleased signal (propose a release)');
-        expect(drive).toContain('When steps_left is 0, bring the signal to the owners.');
+        expect(drive).toContain('When steps_left is 0 on any other signal, bring the signal to the owners.');
         expect(drive).not.toContain(ban);
       });
 
@@ -3298,6 +3304,15 @@ describe('the designer round on a UI card (PM-235)', () => {
 });
 
 describe('duty prompt composition', () => {
+  it('gives the deployment duty the release chain, its one question and the preview’s commit (PM-1201)', () => {
+    const project = buildProject();
+    const member = { ...aiMember(project, 'fe-1'), role: 'devops' };
+    const prompt = builder.build(input({ project, member, handle: 'fe-1' })).appendSystemPrompt;
+    expect(prompt).toContain(DUTIES.deployment.prompt);
+    for (const key of ['publish_release', 'preview: true', 'docs/DEPLOY.md', 'exactly the previewed commit'])
+      expect(DUTIES.deployment.prompt).toContain(key);
+  });
+
   it('orders duty fragments, role extra responsibilities and member instructions for overridden and custom bundles', () => {
     const project = buildProject();
     project.team.roleOverrides = {

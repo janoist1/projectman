@@ -225,7 +225,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'release',
     holders: 'both',
     prompt:
-      'Deploy the exact approved change and verify health; production changes require an explicit human decision. Record environment and version.',
+      'Deploy the exact approved change and verify health; production changes require an explicit human decision. Record environment and version. On a request to propose a release, run publish_release with preview: true and ask the owner one question with that preview (tag, commit, cards, steps); after a yes, run the chain in docs/DEPLOY.md ("Release (PM-1193)") on exactly the previewed commit and tag, and on any failure turn to the integrator with the error and the run link instead of retrying.',
     toolPolicy: 'read_only',
     meetings: [],
     events: ['task_stage_changed'],

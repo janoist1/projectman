@@ -206,6 +206,8 @@ export const OPERATOR_ANSWER_STALL_GRACE_MS = 120_000;
 /** The least time between two wake-ups carrying `answer_stalled` signals in one project (PM-694). */
 export const OPERATOR_ANSWER_STALL_WAKE_MS = 60_000;
 export const OPERATOR_SILENT_WORK_MINUTES = 30;
+/** A merge on the default branch that stood unreleased this long opens an `unreleased` signal (PM-1201). */
+export const OPERATOR_UNRELEASED_HOURS = 24;
 /**
  * `idle`, `merge_waiting`, `ready_waiting` and `refinement_stalled` are no longer raised (PM-1152: the
  * obligation ladder watches those stalls, its project manager rung is `obligation_overdue`); they stay in

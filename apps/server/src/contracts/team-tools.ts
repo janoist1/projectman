@@ -406,6 +406,31 @@ export interface PublishReleaseArgs {
   preview?: boolean;
 }
 
+/** The merges of a repository since its last release (PM-1201): what the `unreleased` signal reads. */
+export interface UnreleasedWork {
+  repo: string;
+  /** The commit the previous release ended at. */
+  base: string;
+  /** The cards merged since. */
+  count: number;
+  /** When the oldest of those merges finished. */
+  oldestAt: string;
+  taskKeys: string[];
+}
+
+/** What get_release_status answers (PM-1201): the version the hub runs and where each engine stands against it. */
+export interface ReleaseStatus {
+  hub: { version: string };
+  engines: {
+    id: string;
+    name: string;
+    connected: boolean;
+    version: string | null;
+    versionMismatch: boolean;
+    lastSeenAt: string | null;
+  }[];
+}
+
 /** What became of the Operator's start of a member on work without a card (PM-541). */
 export interface MemberStartResult {
   messageId: string;
@@ -620,6 +645,8 @@ export interface ReleaseToolsHandler {
    * approval; `preview` records nothing. Repeating a call finishes an interrupted publication.
    */
   publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease>;
+  /** get_release_status (PM-1201): reads the hub's version and every engine's, for the deployment duty only. */
+  getReleaseStatus(ctx: ToolContext): Promise<ReleaseStatus>;
 }
 
 /** What run_compute_job takes (PM-1148). */

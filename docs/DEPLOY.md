@@ -222,9 +222,57 @@ admins, the instance's owners).
 A pause made by hand survives a restart and is not lifted by the start: the team waits until someone resumes
 it. Only the pause of the stop itself ends with the start.
 
+## Release (PM-1193)
+
+The release chain runs on GitHub and is driven by the devops member (the deployment duty), with the owner's one yes.
+Every release still needs the owner's yes (decision 26): the chain only removes the manual steps after it.
+
+**When it starts.** The hub raises an `unreleased` signal for a repository (`caseKey` `unreleased:<repo>:<base>`)
+when the oldest merge on its default branch since the previous release is at least `OPERATOR_UNRELEASED_HOURS`
+(24) hours old. The base is the commit of the last published release, else of the last live release; the signal ends
+when `publish_release` moves it. At any watch level, `report` included, the project manager may then start the
+deployment member once per 24 hours per case (`start_member`, with no count limit) unless that member still has an
+open question to a person. The step starts one question and changes nothing live. The owner may also ask for a
+release at any time.
+
+**The chain**, run by the devops in one session:
+
+1. Proposal. Run `publish_release` with `preview: true`. If it names no cards, stop. Otherwise send exactly one
+   `ask_human` with `owner_topic: risk_acceptance` and `response_purpose: owner_decision`: the tag, the commit SHA,
+   the cards and the steps of this chain. The options are "Indulhat" (recommended) and "Most nem". After "Most nem"
+   the session ends; the signal may start it again after 24 hours, with a new preview.
+2. After the yes the answer arrives in the same session. From here on the chain runs on exactly the commit and tag
+   of the preview, never on the current head of the default branch (a later merge is the next release).
+3. `run_compute_job job=cloud-image commit=<SHA>` builds the image bundle.
+4. `run_compute_job job=cloud-deploy commit=<SHA>` deploys it (PM-1197, see "Deploy from GitHub Actions").
+5. `get_release_status`: the hub shows the new version. It is read-only and gives the hub's version and, per engine,
+   `connected`, `version`, `versionMismatch` and `lastSeenAt`.
+6. `publish_release commit=<SHA> tag=<the preview's tag>` tags the commit and creates the GitHub release.
+7. `run_compute_job job=engine-release commit=<SHA>` builds and attests the engine app for that tag (PM-1198).
+8. Poll `get_release_status` until every connected engine shows the new version and no `versionMismatch`, for at most
+   2 hours (the menu bar apps check for an update every 30 minutes, PM-1199).
+9. Cleanup runs by itself: the cloud keeps the current and the previous image (`prune-images`), each engine prunes
+   its old app versions (keeps the current and the previous), and the run artifacts expire after 7 days.
+
+**On failure** (a rollback of the deploy, a timeout, `env_missing`, `app_asset_conflict`, `job_not_registered`, or any
+other error), the devops stops, turns to the integrator with the error and the run link, and does not retry. A chain
+that stopped after step 6 is finished by the integrator from the failing step with the same commit and tag.
+
+**One-time rollout**, by the integrator and only after the owner's yes:
+
+1. `npm run cloud -- github-deploy-setup --dry-run`, then without `--dry-run` (see "Deploy from GitHub Actions").
+2. Register the `cloud-deploy` and `engine-release` jobs in the engine's `engine.json` (`repos[].computeJobs`) and in
+   the hub's `repoComputeJobs`, with the values given under "Deploy from GitHub Actions" and "On GitHub, for a release".
+3. Install the first attestation-mode app by hand: `npm run engine-app -- fetch --open`. Older apps verify the manifest
+   only, so the first update across that boundary is the manual one.
+4. The first release that contains this chain is issued by the integrator by hand, with the fallback below. The
+   integrator then retires its own earlier release script, which lives outside this repository.
+
 ## Release (PM-1113)
 
-The supported release path is an owner-requested cloud deployment followed by publication.
+This is the by-hand procedure, the fallback: the release chain above is the normal path. Use this one when the chain
+cannot run (GitHub down, a job not yet registered, a commit before the chain). It is an owner-requested cloud
+deployment followed by publication.
 There is no release watcher or administration supervisor, and no in-app proposal or approval
 that waits for one. Pipeline release gates remain the project's human approval gates.
 

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_ENGINE_ID, MemberConfig, RepoConfig } from '@projectman/shared';
-import type { ProjectConfig } from '@projectman/shared';
+import type { EngineView, ProjectConfig } from '@projectman/shared';
 import { MergeError } from '../src/contracts';
 import type { BranchMerger, MergeBaseState } from '../src/contracts';
 import { LocalEngineDirectory } from '../src/runtime/sessions';
+import { releaseStatusOf } from '../src/services/releases';
 import { OWNER_ACTOR, createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -255,6 +256,40 @@ describe('publish_release', () => {
     ]);
   });
 
+  describe('unreleased (PM-1201)', () => {
+    it('counts the cards merged after the base of the previous release, from the records alone', async () => {
+      await setup();
+      await publish({ commit: sha(1) });
+      vi.mocked(git.merger.prepare).mockClear();
+
+      expect(h.domain.releasePublications.unreleased('AR')).toEqual([
+        {
+          repo: 'web',
+          base: sha(1),
+          count: 2,
+          oldestAt: '2026-01-02T00:00:00.000Z',
+          taskKeys: ['AR-2', 'AR-3'],
+        },
+      ]);
+      expect(git.merger.prepare).not.toHaveBeenCalled();
+      expect(git.merger.isAncestor).not.toHaveBeenCalled();
+    });
+
+    it('is empty while the base is unknown: no release yet, or one that is no recorded merge', async () => {
+      await setup();
+      expect(h.domain.releasePublications.unreleased('AR')).toEqual([]);
+
+      recordLiveRelease(sha(9));
+      expect(h.domain.releasePublications.unreleased('AR')).toEqual([]);
+    });
+
+    it('is empty when the previous release already holds every merge', async () => {
+      await setup();
+      await publish({ commit: sha(3) });
+      expect(h.domain.releasePublications.unreleased('AR')).toEqual([]);
+    });
+  });
+
   it('uses the publishing member’s registered engine instead of the local engine', async () => {
     await setup();
     const engineId = 'eng_aaaaaaaaaaaa';
@@ -321,5 +356,58 @@ describe('publish_release', () => {
     vi.mocked(git.merger.remoteTags).mockRejectedValueOnce(new MergeError('no_remote', 'no upstream'));
 
     await expect(publish()).rejects.toMatchObject({ code: 'release_publish_failed' });
+  });
+});
+
+describe('get_release_status (PM-1201)', () => {
+  const engine = (over: Partial<EngineView>): EngineView => ({
+    id: 'eng_1',
+    name: 'Mac',
+    isDefault: true,
+    online: true,
+    lastSeenAt: '2026-10-30T10:00:00.000Z',
+    keyPrefix: 'pm_',
+    createdAt: '2026-10-01T10:00:00.000Z',
+    createdBy: 'Owner',
+    revokedAt: null,
+    lastSeenIp: null,
+    hostname: null,
+    platform: 'darwin',
+    version: '1.2.3',
+    versionMismatch: false,
+    providers: [],
+    runningSessions: 0,
+    waitingStarts: 0,
+    waitingMessages: 0,
+    ...over,
+  });
+
+  it('shows the hub version and each engine’s connection, version and mismatch, without a revoked engine', () => {
+    const status = releaseStatusOf('1.2.4', [
+      engine({}),
+      engine({ id: 'eng_2', name: 'Old', online: false, version: '1.2.3', versionMismatch: true }),
+      engine({ id: 'eng_3', name: 'Gone', revokedAt: '2026-10-02T10:00:00.000Z' }),
+    ]);
+    expect(status).toEqual({
+      hub: { version: '1.2.4' },
+      engines: [
+        {
+          id: 'eng_1',
+          name: 'Mac',
+          connected: true,
+          version: '1.2.3',
+          versionMismatch: false,
+          lastSeenAt: '2026-10-30T10:00:00.000Z',
+        },
+        {
+          id: 'eng_2',
+          name: 'Old',
+          connected: false,
+          version: '1.2.3',
+          versionMismatch: true,
+          lastSeenAt: '2026-10-30T10:00:00.000Z',
+        },
+      ],
+    });
   });
 });

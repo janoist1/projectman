@@ -231,6 +231,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'task_attachments_changed':
       invalidateAttachments(client, event.projectKey, event.taskKey);
       return;
+    case 'documents_changed':
+      // The list and the open document (every version of it, its history too): the prefix covers all.
+      void client.invalidateQueries({ queryKey: queryKeys.documents(event.projectKey) });
+      return;
     case 'engine_changed': {
       invalidate(queryKeys.ownerAccounts);
       // The status list of every internal member, then the owner's list (counts, hello data) where it is on screen.

@@ -351,6 +351,7 @@ import * as fixtures from './fixtures';
 import { t } from '../i18n/t';
 import { MockEmailLogin } from './email-login';
 import { MockEmail } from './email';
+import { MockDocuments } from './documents';
 import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
 import { MockPush } from './push';
@@ -606,6 +607,13 @@ export class MockBackend {
     findTask: (key) => this.findTask(key),
     createCard: (input) => this.createTask(input),
     addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
+    emit: (event) => this.emit(event),
+  });
+  /** The project's living documents (PM-150); a project starts without any, a test or scenario seeds them. */
+  readonly documents: MockDocuments = new MockDocuments({
+    config: () => this.config,
+    viewerHandle: () => this.viewerHandle,
+    delegated: () => this.integratorMode !== null,
     emit: (event) => this.emit(event),
   });
   /** The e-mail channel (PM-942): its contacts' choices and its log; a test or a scenario fills the log. */
@@ -2863,6 +2871,11 @@ export class MockBackend {
     if (rest === '/feedback' || rest.startsWith('/feedback/'))
       return (
         this.feedback.handle(method, rest.slice('/feedback'.length), body, query) ??
+        error(404, 'not_found', 'Unknown route')
+      );
+    if (rest === '/documents' || rest.startsWith('/documents/'))
+      return (
+        this.documents.handle(method, rest.slice('/documents'.length), body, query) ??
         error(404, 'not_found', 'Unknown route')
       );
     if (rest === '/schedules' && method === 'GET') return ok(this.schedulesView());

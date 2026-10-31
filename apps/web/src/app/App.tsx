@@ -56,6 +56,8 @@ const notificationsPage = lazyPage(
   () => import('../features/notifications/NotificationsPage'),
   'NotificationsPage',
 );
+const documentsPage = lazyPage(() => import('../features/documents/routes'), 'DocumentsRoute');
+const documentPage = lazyPage(() => import('../features/documents/routes'), 'DocumentRoute');
 const howWeWorkPage = lazyPage(() => import('../features/how-we-work/HowWeWorkPage'), 'HowWeWorkPage');
 const settingsPage = lazyPage(() => import('../features/settings/SettingsPage'), 'SettingsPage');
 
@@ -113,6 +115,8 @@ export function AppRoutes() {
           <Route path="feedback" element={feedbackPage} />
           <Route path="feedback/:markId" element={feedbackPage} />
           <Route path="notifications" element={notificationsPage} />
+          <Route path="docs" element={documentsPage} />
+          <Route path="docs/:slug" element={documentPage} />
           <Route path="how-we-work" element={howWeWorkPage} />
           <Route path="settings" element={settingsPage} />
           <Route path="settings/:section" element={settingsPage} />

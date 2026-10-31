@@ -21,6 +21,66 @@
   font-weight: 800;
 }
 
+/* A document's heading with its anchor and the copy-reference button (PM-150). */
+.anchoredHeading {
+  margin: 10px 0 0;
+  font-size: var(--text-lg);
+  font-weight: 800;
+  line-height: 1.3;
+  scroll-margin-top: 72px;
+  border-radius: 6px;
+  outline: none;
+}
+
+.anchoredHeading:focus-visible,
+.anchoredHeading[data-active] {
+  background: var(--c-accent-bg);
+}
+
+/* The level shows in the size: # is the page title, so ## is the largest here. */
+h2.anchoredHeading {
+  margin-top: 22px;
+  font-size: var(--text-2xl);
+}
+
+h3.anchoredHeading {
+  margin-top: 16px;
+  font-size: var(--text-xl);
+}
+
+h5.anchoredHeading {
+  font-weight: 700;
+}
+
+.headingLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--c-ink-4);
+  cursor: pointer;
+  vertical-align: middle;
+  opacity: 0.55;
+}
+
+.anchoredHeading:hover .headingLink,
+.headingLink:focus-visible {
+  opacity: 1;
+}
+
+/* On a phone the chain is a 40 px target; the negative margin keeps the heading's line height. */
+@media (max-width: 767px) {
+  .headingLink {
+    min-width: 40px;
+    min-height: 40px;
+    margin-top: -12px;
+    margin-bottom: -12px;
+  }
+}
+
 .inlineCode {
   font-size: 0.88em;
   padding: 1px 5px;

@@ -17,3 +17,26 @@ export class ConfigStoreError extends Error {
     this.details = details;
   }
 }
+
+type DocumentStoreErrorCode =
+  /** No such document or version (or the project key is not valid). */
+  | 'not_found'
+  /** The base version is not the document's latest; details: { currentVersion }. */
+  | 'conflict'
+  /** The markdown is over the limit; details: { limitBytes }. */
+  | 'too_large'
+  | 'invalid_slug'
+  | 'invalid_title'
+  /** A symbolic link where the store writes or reads. */
+  | 'unsafe_path';
+
+export class DocumentStoreError extends Error {
+  readonly code: DocumentStoreErrorCode;
+  readonly details: unknown;
+  constructor(code: DocumentStoreErrorCode, message: string, details?: unknown) {
+    super(message);
+    this.name = 'DocumentStoreError';
+    this.code = code;
+    this.details = details;
+  }
+}

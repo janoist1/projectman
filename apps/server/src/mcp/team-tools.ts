@@ -17,11 +17,14 @@ import type {
   GithubToolsHandler,
   ReleaseToolsHandler,
   ComputeJobToolsHandler,
+  DocumentToolsHandler,
   OperatorToolsHandler,
   ProjectDocToolsHandler,
   SystemFeedbackToolsHandler,
   HistoryToolsHandler,
   AttachmentPage,
+  ReadDocumentArgs,
+  WriteDocumentArgs,
   ListMergeChecksInput,
   ListTasksInput,
   LocatedAttachmentForTool,
@@ -110,6 +113,7 @@ export class TeamToolsService implements TeamToolsHandler {
     screenshots: ScreenshotToolsHandler;
     releases: ReleaseToolsHandler;
     computeJobs: ComputeJobToolsHandler;
+    documents: DocumentToolsHandler;
     operator: OperatorToolsHandler;
     projectDocs: ProjectDocToolsHandler;
     systemFeedback: SystemFeedbackToolsHandler;
@@ -175,6 +179,7 @@ export class TeamToolsService implements TeamToolsHandler {
       screenshots: ScreenshotToolsHandler;
       releases: ReleaseToolsHandler;
       computeJobs: ComputeJobToolsHandler;
+      documents: DocumentToolsHandler;
       operator: OperatorToolsHandler;
       projectDocs: ProjectDocToolsHandler;
       systemFeedback: SystemFeedbackToolsHandler;
@@ -374,6 +379,22 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async listComputeJobs(ctx: ToolContext, args: ListComputeJobsArgs) {
     return this.tools.computeJobs.listComputeJobs(ctx, args);
+  }
+
+  async listDocuments(ctx: ToolContext) {
+    return this.tools.documents.listDocuments(ctx);
+  }
+
+  async readDocument(ctx: ToolContext, args: ReadDocumentArgs) {
+    return this.tools.documents.readDocument(ctx, args);
+  }
+
+  async writeDocument(ctx: ToolContext, args: WriteDocumentArgs) {
+    return this.tools.documents.writeDocument(ctx, args);
+  }
+
+  async documentHistory(ctx: ToolContext, args: { slug: string; limit?: number }) {
+    return this.tools.documents.documentHistory(ctx, args);
   }
 
   async updateTask(

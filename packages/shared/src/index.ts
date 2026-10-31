@@ -38,6 +38,7 @@ export * from './domain/external-tool-origin';
 export * from './domain/event';
 export * from './domain/super-audit';
 export * from './domain/attachment';
+export * from './domain/document';
 export * from './domain/message';
 export * from './domain/message-attachment';
 export * from './domain/message-wake';

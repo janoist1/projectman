@@ -11,6 +11,7 @@ import type {
   Actor,
   AiMemberConfig,
   Attachment,
+  DocumentSummary,
   DutyId,
   HandoffSummary,
   MemberView,
@@ -5030,5 +5031,40 @@ describe('handover and previous conversation (PM-342)', () => {
     expect(builder.handoffCancelled({ taskKey: 'AR-21' })).toBe(
       'The handover of AR-21 is called off: the card stays with you. Carry on where you left off.',
     );
+  });
+});
+
+describe('project documents (PM-149)', () => {
+  const documentsOf = (count: number): DocumentSummary[] =>
+    Array.from({ length: count }, (_, i) => ({
+      slug: `doc-${i}`,
+      title: `Document ${i}`,
+      version: 'a'.repeat(40),
+      updatedAt: '2026-10-31T10:00:00.000Z',
+      updatedBy:
+        i === 0
+          ? { kind: 'human', name: 'Ann Example', handle: null }
+          : { kind: 'ai', name: 'Dev', handle: 'dev' },
+    }));
+  const promptOf = (documents?: DocumentSummary[]) =>
+    builder.build(input({ ...(documents ? { documents } : {}) })).appendSystemPrompt;
+
+  it('lists the documents with slug, last change and who, without any text', () => {
+    const list = section(promptOf(documentsOf(2)), '# Project documents');
+    expect(list).toContain('- Document 0 (doc-0), updated 2026-10-31 by Ann Example');
+    expect(list).toContain('- Document 1 (doc-1), updated 2026-10-31 by dev');
+    expect(list).toContain('read_document');
+  });
+
+  it('leaves the section out when there are no documents', () => {
+    expect(promptOf()).not.toContain('# Project documents');
+    expect(promptOf([])).not.toContain('# Project documents');
+  });
+
+  it('names the first thirty and points to list_documents for the rest', () => {
+    const list = section(promptOf(documentsOf(32)), '# Project documents');
+    expect(list).toContain('(doc-29)');
+    expect(list).not.toContain('(doc-30)');
+    expect(list).toContain('… and 2 more: list_documents shows them all.');
   });
 });

@@ -159,6 +159,13 @@ modules:
     summary: Kártya- és üzenetmellékletek tárolása és feldolgozása.
     paths:
       - apps/server/src/core/attachments/
+  - id: core/documents
+    area: core
+    kind: core
+    name: Dokumentumok
+    summary: A projekt élő dokumentumai, jogosultsággal, hibaleképezéssel és értesítéssel a tároló fölött.
+    paths:
+      - apps/server/src/core/documents/
 
   # Server: runtime
   - id: runtime/admission
@@ -441,6 +448,12 @@ modules:
     summary: A motorok és a gépek állapotának nézete.
     paths:
       - apps/web/src/features/engines/
+  - id: web/documents
+    area: ui
+    name: Dokumentumok
+    summary: A projekt élő dokumentumainak oldala, szerkesztővel és előzményekkel.
+    paths:
+      - apps/web/src/features/documents/
   - id: web/feedback
     area: ui
     name: Visszajelzések
@@ -680,6 +693,8 @@ links:
   - from: api
     to: core/attachments
   - from: api
+    to: core/documents
+  - from: api
     to: runtime/admission
   - from: api
     to: services/merges
@@ -687,6 +702,8 @@ links:
     to: services/structure
   - from: mcp
     to: core/tasks
+  - from: mcp
+    to: core/documents
   - from: mcp
     to: core/messages
   - from: mcp

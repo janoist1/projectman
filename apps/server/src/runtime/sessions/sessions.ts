@@ -63,6 +63,7 @@ import type {
   ContextPackBuilder,
   ContextPack,
   ContextPackInput,
+  DocumentStore,
   MemberMemoryStore,
   MemberWorkspaceManager,
   EngineDirectory,
@@ -199,6 +200,8 @@ export interface SessionOrchestratorDeps {
   doneTurnLimitMs?: number;
   /** The task's attachments, listed in the kick-off brief (as the member may read them). */
   attachments?: Pick<AttachmentOperations, 'list'>;
+  /** The project's documents, listed (title, slug, last change) in the context pack (PM-149). */
+  documents?: Pick<DocumentStore, 'list'>;
   /** The attachment directory of a task (`AttachmentStorage.taskDirectory`): its session reads it without asking. */
   attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   /** A standby copy of the installation (`instance.json`): every session start is refused. */

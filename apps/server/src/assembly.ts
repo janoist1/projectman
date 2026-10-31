@@ -8,6 +8,7 @@ import {
   MergeTools,
   ReleaseTools,
   ComputeJobTools,
+  DocumentTools,
   ToolCaller,
   GithubTools,
   ScreenshotTools,
@@ -71,6 +72,7 @@ import type { EngineCounters } from './runtime/sessions';
 import type {
   AttachmentStorage,
   ConfigStore,
+  DocumentStore,
   ContextPackBuilder,
   EngineAttachments,
   EngineDirectory,
@@ -115,6 +117,7 @@ import {
 } from './runtime/admission';
 import type { QueueWait } from './runtime/admission';
 import { AttachmentService } from './core/attachments';
+import { DocumentService } from './core/documents';
 import { MessageAttachmentService } from './core/attachments';
 import { BackgroundTasks } from './kernel';
 import { BoardService } from './core/tasks';
@@ -237,6 +240,8 @@ export interface DomainOptions {
   appTag?: () => Promise<string | null>;
   repos: Repositories;
   configStore: ConfigStore;
+  /** The project's living documents (PM-147): a git submodule of the customization repository. */
+  documentStore: DocumentStore;
   logger: FastifyBaseLogger;
   /** Base URL the claude CLI reaches this server at (MCP endpoint), e.g. http://127.0.0.1:4700. */
   publicBaseUrl: string;
@@ -700,6 +705,7 @@ export function createDomain(opts: DomainOptions) {
     storage: opts.attachmentStorage,
     onDeleted: (a) => inbox.attachmentGone(a.projectKey, a.id, isoNow(ctx)),
   });
+  const documents = new DocumentService({ ctx, store: opts.documentStore });
   const feedback = new FeedbackService({
     ctx,
     projects,
@@ -771,6 +777,7 @@ export function createDomain(opts: DomainOptions) {
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
     doneTurnLimitMs: opts.doneTurnLimitMs,
     attachments,
+    documents: opts.documentStore,
     attachmentDirectory,
     standby: opts.standby,
     usageAlerts: new UsageAlerts({ ctx, projects, inbox }),
@@ -1589,6 +1596,7 @@ export function createDomain(opts: DomainOptions) {
         status: () => releaseStatusOf(opts.appVersion ?? 'dev', opts.engineRegistry?.list() ?? []),
       }),
       computeJobs: new ComputeJobTools({ calls: toolCaller, jobs: computeJobs }),
+      documents: new DocumentTools({ calls: toolCaller, documents }),
       tasks: new TaskTools({
         calls: toolCaller,
         ctx,
@@ -2233,6 +2241,7 @@ export function createDomain(opts: DomainOptions) {
     operatorSignals,
     tasks,
     attachments,
+    documents,
     feedback,
     feedbackWidget,
     systemFeedback,

@@ -9,6 +9,7 @@ import { AvatarStack } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import type { IconName } from '../components/Icon';
+import { useDocumentAccess } from '../features/documents/access';
 import { useFeedbackNav } from '../features/feedback/useFeedbackNav';
 import { openPauses } from '../features/pause/pauseView';
 import { OperatorButton } from '../features/operator/OperatorButton';
@@ -53,6 +54,8 @@ function useNavItems(inboxCount: number): {
   main: NavItem[];
   /** The "how we work" page: on the rail and in the phone's account menu, not in the tab bar; a client has none. */
   howWeWork: NavItem | null;
+  /** The project's documents (PM-150): on the rail and in the phone's account menu, not in the tab bar; a client has none. */
+  documents: NavItem | null;
   /** The feedback marks (PM-511): on the rail and in the phone's account menu, not in the tab bar. */
   feedback: NavItem | null;
   settings: NavItem;
@@ -61,6 +64,7 @@ function useNavItems(inboxCount: number): {
   // The server counts the viewer's unread messages across their conversations (PM-78).
   const unread = useTeamThreads(key).data?.unreadCount ?? 0;
   const feedbackNav = useFeedbackNav();
+  const documentAccess = useDocumentAccess();
   const { pathname } = useLocation();
   const base = `/p/${key}`;
   const under = (path: string) => pathname === path || pathname.startsWith(`${path}/`);
@@ -86,6 +90,14 @@ function useNavItems(inboxCount: number): {
         badge: unread,
       },
     ],
+    documents: documentAccess.read
+      ? {
+          to: `${base}/docs`,
+          icon: 'doc',
+          label: t('nav.documents'),
+          active: under(`${base}/docs`),
+        }
+      : null,
     feedback: feedbackNav.visible
       ? {
           to: `${base}/feedback`,
@@ -124,7 +136,7 @@ function BadgeText({ count, kind }: { count: number; kind?: NavItem['badgeText']
 /** Left navigation rail (desktop and tablet). */
 export function NavRail({ inboxCount }: { inboxCount: number }) {
   const { key, openPause, can } = useProject();
-  const { main, feedback, howWeWork, settings } = useNavItems(inboxCount);
+  const { main, documents, feedback, howWeWork, settings } = useNavItems(inboxCount);
   const pause = useBoard(key).data?.pause;
   const canPause = can.pauseTeam && pause !== undefined && openPauses(pause).length === 0;
   return (
@@ -132,15 +144,21 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
       <Link to={`/p/${key}`} className={styles.logo} aria-label={t('app.name')}>
         <Icon name="logo" size={20} strokeWidth={2.4} />
       </Link>
-      {(feedback ? [...main, feedback] : main).map((item) => (
+      {[...main, ...(documents ? [documents] : []), ...(feedback ? [feedback] : [])].map((item) => (
         <Link
           key={item.to}
           to={item.to}
-          className={clsx(styles.railItem, item.active && styles.railItemActive)}
+          className={clsx(
+            styles.railItem,
+            item === documents && styles.railItemTall,
+            item.active && styles.railItemActive,
+          )}
           aria-current={item.active ? 'page' : undefined}
         >
           <Icon name={item.icon} size={20} strokeWidth={1.8} />
-          <span className={styles.railLabel}>{item.label}</span>
+          <span className={clsx(styles.railLabel, item === documents && styles.railLabelWrap)}>
+            {item.label}
+          </span>
           {item.badge ? (
             <>
               <span className={styles.railBadge} aria-hidden="true">
@@ -409,6 +427,7 @@ export function MobileHeader({
   const [searching, setSearching] = useState(search !== '');
   const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
   const feedbackNav = useFeedbackNav();
+  const documentAccess = useDocumentAccess();
   if (searching) {
     return (
       <header className={styles.mobileHeader}>
@@ -463,6 +482,7 @@ export function MobileHeader({
         settingsPath={`/p/${key}/settings`}
         notificationsPath={`/p/${key}/notifications`}
         howWeWorkPath={can.readConfig ? `/p/${key}/how-we-work` : null}
+        documentsPath={documentAccess.read ? `/p/${key}/docs` : null}
         feedback={feedbackNav.visible ? { to: `/p/${key}/feedback`, badge: feedbackNav.badge } : null}
         placement="below"
         onPause={canPause ? openPause : undefined}

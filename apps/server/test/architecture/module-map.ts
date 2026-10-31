@@ -10,6 +10,7 @@ import { coreMessages } from './modules/core-messages';
 import { coreInbox } from './modules/core-inbox';
 import { coreMemberQueue } from './modules/core-member-queue';
 import { coreAttachments } from './modules/core-attachments';
+import { coreDocuments } from './modules/core-documents';
 
 export type Layer =
   'contracts' | 'infra' | 'core' | 'runtime' | 'service' | 'engine' | 'connector' | 'assembly';
@@ -133,6 +134,7 @@ const definitions: readonly Omit<ModuleEntry, 'paths'>[] = [
   coreInbox,
   coreMemberQueue,
   coreAttachments,
+  coreDocuments,
   {
     id: 'runtime/admission',
     layer: 'runtime',

@@ -63,7 +63,7 @@ describe('tool audience', () => {
       code_review: 40_000,
       security_review: 40_000,
       qa: 40_000,
-      devops: 44_000,
+      devops: 45_000,
       communication: 40_000,
       support: 40_000,
       researcher: 40_000,
@@ -376,6 +376,7 @@ describe('team tool registration', () => {
         'attach_file',
         'delete_attachment',
       ],
+      'core/documents': ['list_documents', 'read_document', 'write_document', 'document_history'],
       'services/project-docs': [
         'read_project_doc',
         'write_project_docs',

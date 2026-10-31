@@ -17,6 +17,19 @@ describe('Markdown task lists', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelectorAll('li')).toHaveLength(4);
   });
+  it('gives headings anchors only where the page asks for them, and reads ~~~ fences like the outline', () => {
+    const text = '# Cím\n\n~~~\n# nem fejezet\n~~~\n\n## Áttekintés\n\n## Áttekintés';
+    const links = { copyLabel: (heading: { text: string }) => heading.text, onCopy: () => {} };
+    const { container, rerender } = render(<Markdown text={text} headingLinks={links} />);
+    expect([...container.querySelectorAll('h2, h3')].map((heading) => heading.id)).toEqual([
+      'cim',
+      'attekintes',
+      'attekintes-2',
+    ]);
+    expect(container.querySelector('pre')?.textContent).toBe('# nem fejezet');
+    rerender(<Markdown text={text} />);
+    expect(container.querySelectorAll('[id]')).toHaveLength(0);
+  });
   it('keeps task syntax literal inside fenced code and ordered lists', () => {
     const { container } = render(<Markdown text={'```\n- [x] code\n```\n1. [ ] ordered'} />);
     expect(screen.queryByRole('checkbox')).toBeNull();

@@ -1,6 +1,7 @@
 import type {
   Attachment,
   ComputeJobRunView,
+  DocumentSummary,
   DutyId,
   FeedbackMarkDetail,
   MemberView,
@@ -187,6 +188,16 @@ function event(
   };
 }
 
+function fakeDocumentSummary(slug: string): DocumentSummary {
+  return {
+    slug,
+    title: 'Fake document',
+    version: '0'.repeat(40),
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    updatedBy: { kind: 'ai', handle: 'dev', name: 'dev' },
+  };
+}
+
 function fakeComputeJobRun(job: string, commit: string, id = 'job_fake'): ComputeJobRunView {
   return {
     id,
@@ -361,6 +372,22 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     },
     async listComputeJobs(ctx, args) {
       await enter('listComputeJobs', ctx, args);
+      return [];
+    },
+    async listDocuments(ctx) {
+      await enter('listDocuments', ctx, {});
+      return [];
+    },
+    async readDocument(ctx, args) {
+      await enter('readDocument', ctx, args);
+      return { document: fakeDocumentSummary(args.ref), content: '# Fake\n\ntext' };
+    },
+    async writeDocument(ctx, args) {
+      await enter('writeDocument', ctx, args);
+      return { document: fakeDocumentSummary(args.slug ?? 'fake'), created: args.slug === undefined };
+    },
+    async documentHistory(ctx, args) {
+      await enter('documentHistory', ctx, args);
       return [];
     },
     async getRoleConfiguration(ctx, args) {

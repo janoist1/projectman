@@ -100,14 +100,14 @@ export class DocumentTools implements DocumentToolsHandler {
     args: WriteDocumentArgs,
   ): Promise<{ document: DocumentSummary; created: boolean }> {
     return this.run(ctx, 'write_document', async ({ viewer, by }) => {
-      const message = args.message === undefined ? {} : { message: args.message };
+      const { message } = args;
       if (args.slug === undefined) {
         if (args.title === undefined || args.content === undefined)
           throw new TeamToolError('invalid', 'A new document needs a title and its markdown (content).');
         const created = await this.documents.create(
           ctx.projectKey,
           viewer,
-          { title: args.title, content: args.content, ...message },
+          { title: args.title, content: args.content, message },
           by,
         );
         const { content: _text, ...document } = created;
@@ -127,7 +127,7 @@ export class DocumentTools implements DocumentToolsHandler {
         {
           ...(args.title !== undefined ? { title: args.title } : {}),
           ...(args.content !== undefined ? { content: args.content } : {}),
-          ...message,
+          message,
         },
         args.baseVersion,
         by,

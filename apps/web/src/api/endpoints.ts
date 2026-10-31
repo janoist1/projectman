@@ -87,6 +87,7 @@ import {
 } from '@projectman/shared';
 import type {
   CreateDocumentRequest,
+  DeleteDocumentQuery,
   RestoreDocumentRequest,
   UpdateDocumentRequest,
   CreateOwnerInviteRequest,
@@ -322,8 +323,8 @@ export const api = {
     apiRequest(routes.documents(key), { method: 'POST', body, schema: DocumentDetail }),
   updateDocument: (key: string, slug: string, body: UpdateDocumentRequest) =>
     apiRequest(routes.document(key, slug), { method: 'PATCH', body, schema: DocumentDetail }),
-  deleteDocument: (key: string, slug: string, baseVersion: string) =>
-    apiRequest(`${routes.document(key, slug)}?baseVersion=${encodeURIComponent(baseVersion)}`, {
+  deleteDocument: (key: string, slug: string, { baseVersion, message }: DeleteDocumentQuery) =>
+    apiRequest(`${routes.document(key, slug)}?${new URLSearchParams({ baseVersion, message })}`, {
       method: 'DELETE',
       schema: DeleteDocumentResponse,
     }),

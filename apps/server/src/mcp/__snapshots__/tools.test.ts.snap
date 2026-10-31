@@ -5491,7 +5491,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Create or edit a project document",
     },
-    "description": "Create a document (title and content, no slug) or edit one (slug, base_version, new content and/or title). Content replaces the whole text: read first. Stale base_version is refused with the current one. No delete. Never put a secret in a document.",
+    "description": "Create a document (title and content, no slug) or edit one (slug, base_version, new content and/or title). Every write needs message: a one-line reason. Content replaces the whole text: read first. Stale base_version is refused with the current one. No delete. Never put a secret in a document.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -5507,7 +5507,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "message": {
-          "description": "A one-line note for the history.",
+          "description": "Required: one line saying why you change the document; it shows in the history beside you.",
           "maxLength": 200,
           "minLength": 1,
           "pattern": "^[^\\r\\n]*$",
@@ -5525,6 +5525,9 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
       },
+      "required": [
+        "message",
+      ],
       "type": "object",
     },
     "name": "write_document",

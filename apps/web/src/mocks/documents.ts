@@ -6,6 +6,8 @@ import {
   documentSlugOf,
   DocumentSlug,
   DocumentVersionId,
+  DeleteDocumentQuery,
+  lacksDocumentMessage,
   MAX_DOCUMENT_BYTES,
   RestoreDocumentRequest,
   UpdateDocumentRequest,
@@ -21,6 +23,7 @@ import type {
   ProjectConfig,
   ServerEvent,
 } from '@projectman/shared';
+import type { z } from 'zod';
 import { nowIso } from './time';
 
 interface MockResponse {
@@ -57,6 +60,12 @@ export interface MockDocumentSeed {
   /** Minutes ago the last change was made. */
   ageMinutes?: number;
 }
+
+/** A refused write: a missing reason has its own code, as on the server. */
+const invalidWrite = (failure: z.ZodError, text: string): MockResponse =>
+  lacksDocumentMessage(failure)
+    ? error(400, 'document_message_required', 'A document change needs its reason')
+    : error(400, 'invalid_request', text);
 
 const error = (status: number, code: ErrorCode, message: string, details?: unknown): MockResponse => ({
   status,
@@ -123,7 +132,7 @@ export class MockDocuments {
     if (!path[2]) {
       if (method === 'GET') return this.read(slug, query.get('version') ?? undefined);
       if (method === 'PATCH') return this.update(viewer, slug, body);
-      if (method === 'DELETE') return this.remove(viewer, slug, query.get('baseVersion') ?? '');
+      if (method === 'DELETE') return this.remove(viewer, slug, query);
     }
     if (path[2] === 'history' && method === 'GET') return this.history(slug);
     if (path[2] === 'restore' && method === 'POST') return this.restore(viewer, slug, body);
@@ -233,14 +242,14 @@ export class MockDocuments {
     const denied = this.notEditor(viewer);
     if (denied) return denied;
     const parsed = CreateDocumentRequest.safeParse(body);
-    if (!parsed.success) return error(400, 'invalid_request', 'Invalid document');
+    if (!parsed.success) return invalidWrite(parsed.error, 'Invalid document');
     const large = this.tooLarge(parsed.data.content);
     if (large) return large;
     const slug = documentSlugOf(parsed.data.title, new Set(this.documents.keys()));
     const made = this.commit(
       parsed.data.title,
       parsed.data.content,
-      parsed.data.message ?? `Create ${slug}`,
+      parsed.data.message,
       this.authorOf(viewer.handle),
     );
     this.documents.set(slug, [made]);
@@ -252,20 +261,14 @@ export class MockDocuments {
     const denied = this.notEditor(viewer);
     if (denied) return denied;
     const parsed = UpdateDocumentRequest.safeParse(body);
-    if (!parsed.success) return error(400, 'invalid_request', 'Invalid change');
+    if (!parsed.success) return invalidWrite(parsed.error, 'Invalid change');
     const last = this.base(slug, parsed.data.baseVersion);
     if ('status' in last) return last;
     const content = parsed.data.content ?? last.content;
     const large = this.tooLarge(content);
     if (large) return large;
     const title = parsed.data.title ?? last.title;
-    const made = this.commit(
-      title,
-      content,
-      parsed.data.message ??
-        `${title !== last.title && content === last.content ? 'Rename' : 'Update'} ${slug}`,
-      this.authorOf(viewer.handle),
-    );
+    const made = this.commit(title, content, parsed.data.message, this.authorOf(viewer.handle));
     this.documents.get(slug)!.push(made);
     this.changed(slug);
     return ok(this.detailOf(made, slug));
@@ -275,32 +278,29 @@ export class MockDocuments {
     const denied = this.notEditor(viewer);
     if (denied) return denied;
     const parsed = RestoreDocumentRequest.safeParse(body);
-    if (!parsed.success) return error(400, 'invalid_request', 'Invalid restore');
+    if (!parsed.success) return invalidWrite(parsed.error, 'Invalid restore');
     const last = this.base(slug, parsed.data.baseVersion);
     if ('status' in last) return last;
     const old = this.documents.get(slug)?.find((entry) => entry.version === parsed.data.version);
     if (!old || old.deleted) return error(404, 'document_not_found', 'No such version');
-    const made = this.commit(
-      old.title,
-      old.content,
-      `Restore ${slug} to ${old.version.slice(0, 12)}`,
-      this.authorOf(viewer.handle),
-    );
+    const made = this.commit(old.title, old.content, parsed.data.message, this.authorOf(viewer.handle));
     this.documents.get(slug)!.push(made);
     this.changed(slug);
     return ok(this.detailOf(made, slug));
   }
 
-  private remove(viewer: DocumentViewer, slug: string, baseVersion: string): MockResponse {
+  private remove(viewer: DocumentViewer, slug: string, query: URLSearchParams): MockResponse {
     if (!canDeleteDocument(viewer))
       return error(
         403,
         'insufficient_access',
         'Only an owner or an admin, with their own login, deletes a document',
       );
-    const last = this.base(slug, baseVersion);
+    const parsed = DeleteDocumentQuery.safeParse(Object.fromEntries(query));
+    if (!parsed.success) return invalidWrite(parsed.error, 'Invalid delete');
+    const last = this.base(slug, parsed.data.baseVersion);
     if ('status' in last) return last;
-    const made = this.commit(last.title, '', `Delete ${slug}`, this.authorOf(viewer.handle), 0, true);
+    const made = this.commit(last.title, '', parsed.data.message, this.authorOf(viewer.handle), 0, true);
     this.documents.get(slug)!.push(made);
     this.changed(slug);
     return ok({ slug, deleted: true, version: made.version });

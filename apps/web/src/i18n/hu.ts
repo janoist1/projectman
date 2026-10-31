@@ -1312,7 +1312,7 @@ export const hu = {
       contentLabel: 'Szöveg',
       secretWarning:
         'Ne írj ide jelszót, kulcsot vagy más titkot: a dokumentum minden tag számára látszik, és az előzményekben megmarad.',
-      messageLabel: 'Mi változott?',
+      messageLabel: 'Miért változtatod?',
       bytes: '{used} / {limit} bájt',
       save: 'Mentés',
       create: 'Létrehozás',
@@ -1354,6 +1354,7 @@ export const hu = {
       restoreTitle: 'Visszaállítod ezt a változatot?',
       restoreBody:
         'A szöveg új változatként ezzel a tartalommal készül el; a mostani változat megmarad az előzmények között.',
+      reasonLabel: 'Miért állítod vissza?',
       restored: 'Visszaállítva',
       restoreStale: 'Közben megváltozott a dokumentum. Nézd meg az előzményeket, és próbáld újra.',
     },
@@ -1361,6 +1362,7 @@ export const hu = {
       action: 'Törlés',
       title: 'Törlöd a dokumentumot?',
       body: '„{title}” eltűnik a listából, de az előzményei megmaradnak.',
+      reasonLabel: 'Miért törlöd?',
       done: 'Törölve: {title}',
     },
   },
@@ -1759,6 +1761,7 @@ export const hu = {
       document_conflict:
         'Közben valaki módosította a dokumentumot. A saját szöveged megmaradt: töltsd be az újat, és egyesítsd.',
       document_too_large: 'A dokumentum legfeljebb 200 000 bájt lehet.',
+      document_message_required: 'Add meg egy sorban, miért változtatod a dokumentumot.',
       message_attachment_unavailable: 'Egy fájl már nem érhető el: vedd ki, és csatold újra.',
       message_attachment_limit: 'Egyszerre legfeljebb 20 el nem küldött csatolmányod lehet.',
       cover_not_an_image: 'Borítóképnek a kártya egyik képét lehet választani.',

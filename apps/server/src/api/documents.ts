@@ -2,10 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   CreateDocumentRequest,
+  DeleteDocumentQuery,
   DocumentSlug,
   DocumentVersionId,
   RestoreDocumentRequest,
   UpdateDocumentRequest,
+  lacksDocumentMessage,
   routes,
 } from '@projectman/shared';
 import type {
@@ -25,7 +27,6 @@ import type { ApiDomain } from './ports';
 type DocumentParams = { Params: { key: string; slug: string } };
 
 const VersionQuery = z.object({ version: DocumentVersionId.optional() });
-const BaseVersionQuery = z.object({ baseVersion: DocumentVersionId });
 const HistoryQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).optional() });
 
 /** The slug of the path; anything else is not a document and is refused before the store sees it. */
@@ -33,6 +34,15 @@ function slugOf(params: { slug: string }): string {
   const parsed = DocumentSlug.safeParse(params.slug);
   if (!parsed.success) throw invalid('invalid_request', 'the document slug is invalid');
   return parsed.data;
+}
+
+/** A write's body or query: a missing or blank `message` is its own error code (PM-1215), not a generic invalid request. */
+function parseWrite<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
+  const result = schema.safeParse(value ?? {});
+  if (result.success) return result.data;
+  if (lacksDocumentMessage(result.error))
+    throw invalid('document_message_required', 'a document change needs its reason (message)');
+  return parseBody(schema, value);
 }
 
 const viewerOf = (access: ProjectAccess): DocumentViewer => ({
@@ -67,7 +77,7 @@ export function registerDocumentRoutes(app: FastifyInstance, domain: ApiDomain):
     async (request, reply): Promise<DocumentDetail> => {
       const { key } = request.params;
       const access = await requireAccess(domain, request, key);
-      const body = parseBody(CreateDocumentRequest, request.body);
+      const body = parseWrite(CreateDocumentRequest, request.body);
       const created = await domain.documents.create(key, viewerOf(access), body, writerOf(request, access));
       void reply.code(201);
       return detailOf(created);
@@ -84,7 +94,7 @@ export function registerDocumentRoutes(app: FastifyInstance, domain: ApiDomain):
   app.patch<DocumentParams>(routes.document(':key', ':slug'), async (request): Promise<DocumentDetail> => {
     const { key } = request.params;
     const access = await requireAccess(domain, request, key);
-    const { baseVersion, ...change } = parseBody(UpdateDocumentRequest, request.body);
+    const { baseVersion, ...change } = parseWrite(UpdateDocumentRequest, request.body);
     return detailOf(
       await domain.documents.update(
         key,
@@ -102,12 +112,13 @@ export function registerDocumentRoutes(app: FastifyInstance, domain: ApiDomain):
     async (request): Promise<DeleteDocumentResponse> => {
       const { key } = request.params;
       const access = await requireAccess(domain, request, key);
-      const { baseVersion } = parseBody(BaseVersionQuery, request.query);
+      const { baseVersion, message } = parseWrite(DeleteDocumentQuery, request.query);
       return domain.documents.remove(
         key,
         slugOf(request.params),
         viewerOf(access),
         baseVersion,
+        message,
         writerOf(request, access),
       );
     },
@@ -130,7 +141,7 @@ export function registerDocumentRoutes(app: FastifyInstance, domain: ApiDomain):
     async (request): Promise<DocumentDetail> => {
       const { key } = request.params;
       const access = await requireAccess(domain, request, key);
-      const { version, baseVersion } = parseBody(RestoreDocumentRequest, request.body);
+      const { version, baseVersion, message } = parseWrite(RestoreDocumentRequest, request.body);
       return detailOf(
         await domain.documents.restore(
           key,
@@ -138,6 +149,7 @@ export function registerDocumentRoutes(app: FastifyInstance, domain: ApiDomain):
           viewerOf(access),
           version,
           baseVersion,
+          message,
           writerOf(request, access),
         ),
       );

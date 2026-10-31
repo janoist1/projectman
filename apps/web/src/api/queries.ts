@@ -9,6 +9,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { SESSION_CHAT_WINDOW } from '@projectman/shared';
 import type {
   CreateDocumentRequest,
+  DeleteDocumentQuery,
   RestoreDocumentRequest,
   UpdateDocumentRequest,
   Task,
@@ -1525,5 +1526,5 @@ export function useRestoreDocument(key: string, slug: string) {
 }
 
 export function useDeleteDocument(key: string, slug: string) {
-  return useDocumentMutation(key, (baseVersion: string) => api.deleteDocument(key, slug, baseVersion));
+  return useDocumentMutation(key, (body: DeleteDocumentQuery) => api.deleteDocument(key, slug, body));
 }

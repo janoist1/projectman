@@ -699,7 +699,8 @@ export interface WriteDocumentArgs {
   title?: string;
   content?: string;
   baseVersion?: string;
-  message?: string;
+  /** The reason of the change: required (PM-1215). */
+  message: string;
 }
 
 /** The tools of core/documents (PM-149). */

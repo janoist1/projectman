@@ -120,9 +120,13 @@ export const hu = {
     refresh: 'Frissítés',
     onLeave: 'Most szabadságon van; ha visszajön, ezt kapja.',
     noDuties: 'Nincs külön duty-ja.',
-    parts: { intro: 'karakteres bevezető', guides: 'útmutató kérésre', tools: 'csapateszköz' },
-    sections: '{count} szakasz',
-    chars: '{count} kar.',
+    parts: {
+      intro: '{count|karakteres bevezető|karakteres bevezető}',
+      guides: '{count|útmutató kérésre|útmutató kérésre}',
+      tools: '{count|csapateszköz|csapateszköz}',
+    },
+    sections: '{shown} {count|szakasz|szakasz}',
+    chars: '{shown} {count|kar.|kar.}',
     introTitle: 'Bevezető',
     guidesTitle: 'Útmutatók',
     toolsTitle: 'Csapateszközök',
@@ -133,7 +137,7 @@ export const hu = {
     copyFailed: 'A másolás nem sikerült. A vágólap most nem érhető el.',
     kickoff: 'Induló üzenet',
     kickoffTask: 'Induló üzenet (a kártya összefoglalója)',
-    promptLead: 'Rendszerprompt, {count} szakasz. A szöveg angol, ahogy a tag kapja.',
+    promptLead: 'Rendszerprompt, {shown} {count|szakasz|szakasz}. A szöveg angol, ahogy a tag kapja.',
     placementNote:
       'Ami csak induláskor dől el (munkaterület, munkamenet-szabályok, Claude-tagnál a sandbox), az előnézetben nem szerepel.',
     guidesLead:

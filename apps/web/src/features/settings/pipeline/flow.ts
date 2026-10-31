@@ -1,5 +1,5 @@
 import { defaultBoardColumnColor } from '@projectman/shared';
-import type { BoardColumn, BoardColumnColor, Pipeline, Stage } from '@projectman/shared';
+import type { BoardColumn, BoardColumnColor, Pipeline, Stage, TeamMapStage } from '@projectman/shared';
 
 export interface ColumnRun {
   column: BoardColumn;
@@ -30,6 +30,11 @@ export function columnRuns(pipeline: Pipeline): ColumnRun[] {
 export function emptyColumns(pipeline: Pipeline): BoardColumn[] {
   const used = new Set(pipeline.stages.map((stage) => stage.columnId));
   return pipeline.columns.filter((column) => !used.has(column.id));
+}
+
+/** Work, intermediate and release stages need someone to carry them; a queue and the end do not. */
+export function needsOwner(entry: TeamMapStage): boolean {
+  return entry.stage.kind === 'work' || entry.stage.kind === 'step' || entry.stage.kind === 'release';
 }
 
 /** The colour a column shows in: its own, else the default of its place in the board. */

@@ -15,7 +15,7 @@ import { labelName } from '../../../lib/labels';
 import { memberLike } from '../../how-we-work/MapContext';
 import { labelViews } from '../../how-we-work/model';
 import type { SettingsShow } from '../selection';
-import { columnColor, columnRuns, emptyColumns } from './flow';
+import { columnColor, columnRuns, emptyColumns, needsOwner } from './flow';
 import styles from './PipelineFlow.module.css';
 
 /** The owners shown as avatars in a stage's row (a phone shows nothing else). */
@@ -258,11 +258,6 @@ function Station({
       {stage.description ? <span className={styles.stSub}>{stage.description}</span> : null}
     </FlowStation>
   );
-}
-
-/** Work, intermediate and release stages need someone to carry them; a queue and the end do not. */
-function needsOwner(entry: TeamMapStage): boolean {
-  return entry.stage.kind === 'work' || entry.stage.kind === 'step' || entry.stage.kind === 'release';
 }
 
 function Owners({ entry, members }: { entry: TeamMapStage; members: ReadonlyMap<string, MemberConfig> }) {

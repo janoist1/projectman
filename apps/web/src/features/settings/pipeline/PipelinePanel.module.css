@@ -45,6 +45,19 @@
   gap: 8px;
 }
 
+/* The same marks as the stage's row. */
+.noOwner {
+  composes: noOwner from './PipelineFlow.module.css';
+}
+
+.avatar {
+  composes: avatar from './PipelineFlow.module.css';
+}
+
+.onLeave {
+  composes: onLeave from './PipelineFlow.module.css';
+}
+
 .muted {
   color: var(--c-ink-3);
 }

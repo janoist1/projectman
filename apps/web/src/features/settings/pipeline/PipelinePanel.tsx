@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
+import clsx from 'clsx';
 import { Link } from 'react-router';
-import { isTheme, teamMap } from '@projectman/shared';
+import { isOnLeave, isTheme, teamMap } from '@projectman/shared';
 import type { ProjectConfig, StageKind, TeamMap, TeamMapStage } from '@projectman/shared';
 import { useBoard } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
@@ -14,7 +15,7 @@ import { memberLike } from '../../how-we-work/MapContext';
 import { labelViews } from '../../how-we-work/model';
 import { DetailPanel, MissingSettingsElement } from '../DetailPanel';
 import type { SettingsShow } from '../selection';
-import { columnColor } from './flow';
+import { columnColor, needsOwner } from './flow';
 import styles from './PipelinePanel.module.css';
 
 const STAGE_KINDS: readonly StageKind[] = ['queue', 'work', 'step', 'release', 'done'];
@@ -184,12 +185,21 @@ function StageDetail({
         ) : null}
         <Field title={t('settings.pipeline.fields.owners')}>
           {owners.length === 0 ? (
-            <span className={styles.muted}>{t('howWeWork.flow.noOwner')}</span>
+            needsOwner(entry) ? (
+              <span className={styles.noOwner}>
+                <Icon name="exclamation" size={14} />
+                {t('howWeWork.flow.noOwner')}
+              </span>
+            ) : (
+              <span className={styles.muted}>{t('howWeWork.flow.noOwner')}</span>
+            )
           ) : (
             <ul className={styles.list}>
               {owners.map((member) => (
                 <li key={member.handle} className={styles.person}>
-                  <Avatar member={memberLike(member)} size="xs" />
+                  <span className={clsx(styles.avatar, isOnLeave(member) && styles.onLeave)}>
+                    <Avatar member={memberLike(member)} size="sm" variant="initials" ring />
+                  </span>
                   {member.displayName}
                   <LeaveChip member={member} />
                 </li>

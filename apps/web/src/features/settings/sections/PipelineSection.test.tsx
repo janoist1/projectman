@@ -79,6 +79,14 @@ describe('pipeline section', () => {
     );
   });
 
+  it('says in the panel that a work stage has no handler', async () => {
+    const project = mockProject();
+    project.backend.config.pipeline.stages.find((stage) => stage.id === 'dev')!.owners = [];
+    project.render(<SettingsTestRoutes initialSection="pipeline" />, `${PIPELINE}?show=stage:dev`);
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(dialog.getByText(t('howWeWork.flow.noOwner'))).toBeTruthy();
+  });
+
   it('opens the panel of a column from its heading, listing its stages', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes initialSection="pipeline" />, PIPELINE);

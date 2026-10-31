@@ -120,17 +120,27 @@ English word, and the same thing is never called two names.
 
 ## Settings, machine, owners
 
-| Hungarian                    | English                                    | Note                                                      |
-| ---------------------------- | ------------------------------------------ | --------------------------------------------------------- |
-| Beállítások                  | Settings                                   |                                                           |
-| gép                          | machine                                    |                                                           |
-| motor                        | engine                                     | The app file name stays `projectman motor.app` (PM-1168). |
-| tulajdonosok                 | owners                                     |                                                           |
-| értesítések                  | notifications                              |                                                           |
-| fiók                         | account                                    |                                                           |
-| rendszernyelv; csapat nyelve | language (your UI language); team language | Settings label: "Team language".                          |
-| időzóna                      | time zone                                  |                                                           |
-| integrátorkulcs              | integrator key                             |                                                           |
+| Hungarian                                                | English                                           | Note                                                                                                |
+| -------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Beállítások                                              | Settings                                          |                                                                                                     |
+| gép                                                      | machine                                           |                                                                                                     |
+| motor                                                    | engine                                            | The app file name stays `projectman motor.app` (PM-1168).                                           |
+| tulajdonosok                                             | owners                                            |                                                                                                     |
+| értesítések                                              | notifications                                     |                                                                                                     |
+| fiók                                                     | account                                           |                                                                                                     |
+| rendszernyelv; csapat nyelve                             | language (your UI language); team language        | Settings label: "Team language".                                                                    |
+| időzóna                                                  | time zone                                         |                                                                                                     |
+| integrátorkulcs                                          | integrator key                                    |                                                                                                     |
+| lépés gazdája                                            | handler                                           | Settings > Board: "Handlers", "no handler". Not "owner": owner is a person with the `owner` access. |
+| Keretek; {percent}% keret                                | Limits; {percent}% of plan                        |                                                                                                     |
+| ntfy téma                                                | topic                                             |                                                                                                     |
+| Rád vár (list)                                           | For you                                           |                                                                                                     |
+| Munkaterület                                             | Workspace                                         |                                                                                                     |
+| Operátor jogosítványa                                    | Operator permissions                              |                                                                                                     |
+| chopper                                                  | chopper                                           | Stays untranslated.                                                                                 |
+| Napló (integrator key); e-mail napló                     | Activity log; Log                                 |                                                                                                     |
+| belépő                                                   | access file                                       |                                                                                                     |
+| Ütemezés; Élesítés jóváhagyása; Visszajelzés-feldolgozás | Scheduling; Release approval; Feedback processing | Duty names, from the template's `en` locale.                                                        |
 
 ## Shell (PM-1178)
 

@@ -20,8 +20,8 @@ should confirm still goes to them as a question.
   `deploy/mac/menubar/Resources/{hu,en}.lproj/Localizable.strings` (native engine menu bar
   app). Components use `t('some.key')`; the native app uses `L10n`. Never hardcode UI text.
   A new key goes into both files of its place, `errors.codes` entries included. `hu` is the
-  source of the key set; the web `en.ts` is translated section by section, and a section it
-  does not hold yet shows Hungarian (the English wording follows `docs/design/glossary.md`).
+  source of the key set; the web `en.ts` must hold every key of it (the type and the i18n test
+  check this; `t()` has no Hungarian fallback), and its wording follows `docs/design/glossary.md`.
   Exception: the names, summaries and link labels in `projectman.structure.yaml` are UI text
   in the project's language (Hungarian here); its ids stay English.
 - Prompt text for AI members (role instructions, context pack) is English; it tells the

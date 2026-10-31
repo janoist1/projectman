@@ -11,7 +11,7 @@ import {
   TaskLinkKind,
   TaskStatus,
 } from '@projectman/shared';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { en } from './en';
 import { formatTokens } from './format';
 import { hu } from './hu';
@@ -175,16 +175,21 @@ describe('en locale', () => {
     expect(leaves(en).filter(([, value]) => accented.test(String(value)))).toEqual([]);
   });
 
-  it('reads English messages in English and the rest in Hungarian', () => {
+  it('has exactly the keys of hu, in both directions', () => {
+    const huKeys = new Set(leaves(hu).map(([key]) => key));
+    const enKeys = new Set(leaves(en).map(([key]) => key));
+    expect({
+      missingInEn: [...huKeys].filter((key) => !enKeys.has(key)),
+      missingInHu: [...enKeys].filter((key) => !huKeys.has(key)),
+    }).toEqual({ missingInEn: [], missingInHu: [] });
+  });
+
+  it('reads each language from its own catalog, with no fallback to the other', () => {
     setCurrentLanguage('en');
     expect(t('app.retry')).toBe('Try again');
-    const untranslated = Object.keys(hu).find((section) => !(section in en))!;
-    const [key, huText] = leaves((hu as Record<string, unknown>)[untranslated]).at(0)!;
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(tDynamic(`${untranslated}.${key}`, 'fallback')).toBe(huText);
-    warn.mockRestore();
     setCurrentLanguage('hu');
     expect(t('app.retry')).toBe('Újra');
+    expect(tDynamic('no.such.key', 'fallback')).toBe('fallback');
   });
 
   it('chooses the singular and the plural form of a count', () => {

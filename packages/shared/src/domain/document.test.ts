@@ -7,6 +7,7 @@ import {
   documentOutline,
   documentSection,
   documentSlugOf,
+  lacksDocumentMessage,
   parseDocumentRef,
   sectionAnchor,
 } from './document';
@@ -105,9 +106,26 @@ describe('sectionAnchor and parseDocumentRef', () => {
 
 describe('UpdateDocumentRequest', () => {
   const base = 'a'.repeat(40);
+  const message = 'Fix a typo';
   it('needs a title or a content', () => {
-    expect(UpdateDocumentRequest.safeParse({ baseVersion: base }).success).toBe(false);
-    expect(UpdateDocumentRequest.safeParse({ baseVersion: base, content: '' }).success).toBe(true);
+    expect(UpdateDocumentRequest.safeParse({ baseVersion: base, message }).success).toBe(false);
+    expect(UpdateDocumentRequest.safeParse({ baseVersion: base, content: '', message }).success).toBe(true);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['blank', '   '],
+  ])('refuses a %s reason, which lacksDocumentMessage names', (_name, reason) => {
+    const parsed = UpdateDocumentRequest.safeParse({ baseVersion: base, content: 'x', message: reason });
+    expect(parsed.success).toBe(false);
+    expect(!parsed.success && lacksDocumentMessage(parsed.error)).toBe(true);
+  });
+
+  it('does not take a reason of more than one line for a missing one', () => {
+    const parsed = UpdateDocumentRequest.safeParse({ baseVersion: base, content: 'x', message: 'a\nb' });
+    expect(parsed.success).toBe(false);
+    expect(!parsed.success && lacksDocumentMessage(parsed.error)).toBe(false);
   });
 });
 

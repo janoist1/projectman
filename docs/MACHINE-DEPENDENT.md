@@ -1655,7 +1655,14 @@ assumption or remote-engine RPC.
   (PM-741) is `implicit: false`. The default installs only where the clone has a root `package-lock.json`
   and never blocks a start: with no sandbox (not macOS, no srt, node/npm inside the user home) the result
   is `skipped` / `unavailable` instead of `sandbox_unavailable`, while an explicit setting still fails
-  as before. `full-test/workspace-dependencies.ts` runs fixed `npm ci` outside the
+  as before. Any other failed default installation (PM-1213) also ends as `skipped` / `unavailable` with
+  the dependency shortfall, so the member starts and is told; the end of the installer's output (last ten
+  lines, 1500 characters) is in the `workspace dependency preparation ended` log entry (`outputTail`)
+  and in the error details of an explicit setting. srt is started in the run's own sandbox directory
+  (`anchorDir`) and the command changes into the clone: srt anchors its mandatory write denials (`.idea`,
+  `.vscode`, `.claude/commands`, `.git/hooks`, `.git/config` at any depth) at its own working directory,
+  and a package's `.idea` folder under the clone's `node_modules` made `npm ci` exit 255 (EPERM).
+  `full-test/workspace-dependencies.ts` runs fixed `npm ci` outside the
   member session, in srt on macOS only: package trees and a private run home/tmp/cache are writable;
   only registry.npmjs.org and nodejs.org are reachable, with no local binding. The entire user home,
   app home, engine secrets and shared session temporary roots (Claude roots and the parents of

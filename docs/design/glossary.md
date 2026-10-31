@@ -18,8 +18,13 @@ English word, and the same thing is never called two names.
   organise, licence (noun). Dates and numbers come from `i18n/format.ts`, never hand-written.
 - **Voice:** short, direct, "you". Errors say what happened and what to do:
   "Couldn't save the priority. Try again." Contractions are fine (can't, couldn't, don't).
-- **Punctuation:** quotes “ ”, apostrophe ’ is not required (plain ' is fine), ellipsis "…"
-  (one character), the `·` separator stays, en dash "–" for ranges.
+- **Punctuation:** quotes “ ”, apostrophe ’ (typographic, in every text of `en.ts`: “Couldn’t”,
+  “You’d”; code, placeholders and key names keep the plain '), ellipsis "…" (one character),
+  the `·` separator stays, en dash "–" for ranges.
+- **Time abbreviations** have one form, as in the shell `time` section: “{count}s ago”, “10 min”,
+  “2 h”.
+- **The word “task” does not appear** in a shown text: card, sub-card, work. A to-do is
+  always “to-do”, with a hyphen.
 - **Plural:** every number + noun uses `{count|# card|# cards}`. `{done}/{total}` needs none.
 - **No article helper:** `withArticle` returns the bare name in English. Hungarian "a(z) {x}"
   becomes "{x}" or "the {x}". Suffixed fragments ("{time}-kor", "{name} részére") become

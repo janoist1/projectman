@@ -84,7 +84,7 @@ export default async ({ instance, open, shoot, step, log }) => {
       await page.setViewportSize({ width, height: width > 800 ? 982 : 844 });
       await accountButton().click();
       await page.getByRole('radio', { name: 'Magyar' }).click();
-      const toast = page.getByText("Couldn't save the language", { exact: false });
+      const toast = page.getByText('Couldn’t save the language', { exact: false });
       await toast.first().waitFor();
       await shoot(page, `save-failed-en-${width}`, { widths: [width] });
       await language('en');

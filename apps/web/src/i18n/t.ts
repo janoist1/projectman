@@ -7,17 +7,14 @@ import { currentLanguage } from './language';
  * in the message ("{count} napja") become required params. Missing keys fail the
  * typecheck, so every key used in the code exists in the locale file.
  *
- * `hu` is the source of the key set and the placeholder types; `en` translates it section by
- * section (PM-1168) and a section it does not hold yet falls back to Hungarian.
+ * `hu` is the source of the key set and the placeholder types; `en` must hold every one of its
+ * keys (PM-1168), so the lookup never falls back to the other language.
  */
 
 export type Messages = typeof hu;
 
 /** The same tree as `T` with string leaves, so a locale can be checked against `hu` without its literals. */
-type LocaleShape<T> = { readonly [K in keyof T]: T[K] extends string ? string : LocaleShape<T[K]> };
-
-/** A top-level section is either missing or complete: a started section must hold every key. */
-export type PartialLocale = { readonly [K in keyof Messages]?: LocaleShape<Messages[K]> };
+export type LocaleShape<T> = { readonly [K in keyof T]: T[K] extends string ? string : LocaleShape<T[K]> };
 
 type Leaves<T, Prefix extends string = ''> = {
   [K in keyof T & string]: T[K] extends string ? `${Prefix}${K}` : Leaves<T[K], `${Prefix}${K}.`>;
@@ -58,19 +55,9 @@ function lookup(catalog: unknown, key: string): string | undefined {
   return typeof node === 'string' ? node : undefined;
 }
 
-const warnedFallbacks = new Set<string>();
-
-/** The message in the current language; an English message that is not written yet reads in Hungarian. */
+/** The message in the current language. */
 function resolve(key: string): string | undefined {
-  if (currentLanguage() === 'en') {
-    const message = lookup(en, key);
-    if (message !== undefined) return message;
-    if (import.meta.env.DEV && !warnedFallbacks.has(key)) {
-      warnedFallbacks.add(key);
-      console.warn(`[i18n] no English message yet: ${key}`);
-    }
-  }
-  return lookup(hu, key);
+  return lookup(currentLanguage() === 'en' ? en : hu, key);
 }
 
 const pluralRules = new Map<string, Intl.PluralRules>();

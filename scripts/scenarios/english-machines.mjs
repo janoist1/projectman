@@ -190,11 +190,11 @@ export default async ({ instance, open, shoot, step }) => {
     page = await open({ path: '/welcome' });
     await page.getByText('Name your machine').first().waitFor();
     await shoot(page, 'welcome-1-en', { widths: WIDTHS });
-    await page.getByLabel("The machine's name").fill("Eszter's MacBook");
+    await page.getByLabel('The machine’s name').fill("Eszter's MacBook");
     await page.getByRole('button', { name: 'Create key' }).click();
     await page.getByText(DEMO_KEY).first().waitFor();
     await shoot(page, 'welcome-2-assistant-en', { widths: WIDTHS });
-    await page.getByText("I'll do it myself", { exact: true }).first().click();
+    await page.getByText('I’ll do it myself', { exact: true }).first().click();
     // The engine app's manual steps have no fixed text to wait for: the assistant's instruction goes away.
     await page
       .getByText('Paste it into the Claude or Codex desktop app')

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { formatStamp } from './format';
+import { formatDayRange, formatStamp } from './format';
+
+describe('formatDayRange', () => {
+  it('gives the years only when asked for or when the range crosses a year', () => {
+    expect(formatDayRange('2026-10-26', '2026-11-01')).toBe('okt. 26. – nov. 1.');
+    expect(formatDayRange('2026-09-07', '2026-11-01', true)).toBe('2026. szept. 7. – 2026. nov. 1.');
+    expect(formatDayRange('2025-12-29', '2026-01-04')).toBe('2025. dec. 29. – 2026. jan. 4.');
+  });
+});
 
 describe('formatStamp', () => {
   const now = new Date(2026, 9, 4, 12, 0);

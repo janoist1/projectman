@@ -51,6 +51,8 @@ export interface RemoteHub {
   ownedByHost(id: EngineId): boolean;
   /** The engine holds its own NanoGPT key (its hello says so); the cloud's key never goes to it (PM-1068). */
   ownNanogptKey(id: EngineId): boolean;
+  /** The engine's last hello advertised `deliveryIds`: `session.send` takes a `deliveryId` (PM-1205). */
+  dedupsDeliveries(id: EngineId): boolean;
   /** The engine is the project's: its fallback engine, or a binding that is not revoked (PM-1061). */
   isBound(id: EngineId, projectKey: string): boolean;
   /** Throws `engine_not_bound` unless the engine is the project's (PM-1061); `call` does this for project methods. */
@@ -312,6 +314,7 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
     hostEngine: () => registry.hostEngine(),
     ownedByHost: (id) => registry.ownedByHost(id),
     ownNanogptKey: (id) => registry.ownNanogptKey(id),
+    dedupsDeliveries: (id) => mirrors.get(id)?.hello?.deliveryIds === true,
     isBound: (id, projectKey) => registry.isBound(id, projectKey),
     assertBound: (id, projectKey) => guard.assertBound(id, projectKey),
     projectEngine: (projectKey) => registry.projectEngine(projectKey),

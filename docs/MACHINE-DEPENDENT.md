@@ -1634,8 +1634,13 @@ assumption or remote-engine RPC.
   It shares the clone lock, preserves recent copies and never traverses linked workspace parents.
   This is engine-local filesystem housekeeping; no paths or files cross the remote-engine boundary.
   No npm install runs outside a sandbox.
-  Member clones may opt in through engine-local `repos[].workspaceSetup: {kind: 'npm_ci', timeoutMs?}`
-  (PM-741, owner option 1). `full-test/workspace-dependencies.ts` runs fixed `npm ci` outside the
+  Member clones install by default (PM-1203, owner decision): an engine-local `repos[].workspaceSetup`
+  that is absent resolves to `{kind: 'npm_ci', timeoutMs: 600000, implicit: true}` in
+  `engine-link/engine-config.ts`; `{kind: 'none'}` opts out, and an explicit `{kind: 'npm_ci', timeoutMs?}`
+  (PM-741) is `implicit: false`. The default installs only where the clone has a root `package-lock.json`
+  and never blocks a start: with no sandbox (not macOS, no srt, node/npm inside the user home) the result
+  is `skipped` / `unavailable` instead of `sandbox_unavailable`, while an explicit setting still fails
+  as before. `full-test/workspace-dependencies.ts` runs fixed `npm ci` outside the
   member session, in srt on macOS only: package trees and a private run home/tmp/cache are writable;
   only registry.npmjs.org and nodejs.org are reachable, with no local binding. The entire user home,
   app home, engine secrets and shared session temporary roots (Claude roots and the parents of
@@ -1654,8 +1659,8 @@ assumption or remote-engine RPC.
   (a changed key retries immediately); queue and abort errors are not memoized.
   `workspace.prepareDependencies` runs after checkout and before binding/launch for work and review,
   including resumes. Pending/failed preparations release the session reservation and defer its start;
-  checkout refuses while preparation is busy. Single mode and unconfigured/older engines skip it;
-  a configured non-macOS engine fails with `sandbox_unavailable`. All files, copies, subprocesses
+  checkout refuses while preparation is busy. Single mode, repositories with `{kind: 'none'}` and
+  older engines skip it; an explicitly configured non-macOS engine fails with `sandbox_unavailable`. All files, copies, subprocesses
   and queue operations stay on the execution engine; only the key-bound request and result cross RPC.
   A running session is gated too (PM-743): before a command tool (`needsDependencies` in `runner/tools.ts`;
   not file, search, web or team tools) the PreToolUse path of `runner/session.ts` calls
@@ -1668,8 +1673,8 @@ assumption or remote-engine RPC.
   refuse: the command waits at most 80 s and then runs (warn). Gemini's PreToolUse hook timeout grows by
   80 s. A command already running when an install starts is not stopped. A clone the registry does not
   know takes the worktree path above.
-  The same `workspaceSetup` switch also keeps the engine's own checkout of the repository (`repos[].path`)
-  installed (PM-1083, replacing the operator's polling `deps-watch.sh`): `refreshCheckout` in
+  An explicit `workspaceSetup` (not the default) also keeps the engine's own checkout of the repository
+  (`repos[].path`, possibly a person's own working directory) installed (PM-1083, replacing the operator's polling `deps-watch.sh`): `refreshCheckout` in
   `full-test/workspace-dependencies.ts` runs for each configured repository at engine start
   (`engine-app.ts`) and after a merge `advance` that fast-forwarded a checked-out default branch
   (`onCheckoutAdvanced` in `engine-host/branch-merger.ts`, passed through `local-engine.ts`); it
@@ -1682,15 +1687,19 @@ assumption or remote-engine RPC.
   merge: a failure is a log line and the next advance or start retries (10-minute memo). A newer advance
   during the install changes the key, so the run publishes nothing and starts over. Machine assumption:
   macOS/srt, npm and the repository checkout on the engine's own disk; a remote engine does the same
-  locally, behind the same `workspaceSetup` switch. Other worktrees are never touched.
+  locally, behind the same explicit `workspaceSetup`. Other worktrees are never touched.
   Target workspace ancestors must be real directories: component-wise `lstat` checks run
   during selection and immediately before every copy, rename and removal, including rollback
   and cleanup. Symlinked workspace paths skip the clone as unsupported. Node has no `openat`,
   so a small check-to-operation race remains; checks never deliberately traverse a replaced parent.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.refreshDependencies` (PM-313), find reference checkouts and probe the filesystem on the engine;
-  retain the existing skip/install fallback on other platforms. The member prompt asks for
-  `npm ci` locally when dependencies are missing or stale (PM-1112); member workspaces have
-  no automatic clone. The server's installation
+  retain the existing skip/install fallback on other platforms. When the engine installs nothing for a
+  member workspace (`skipped`), `workspace.prepareDependencies` adds the optional
+  `dependencies: 'missing' | 'stale'` (PM-1203; set only when the clone has a root `package-lock.json`
+  and `dependencyState` is not fresh). The hub passes it to the context input, and the member prompt then
+  asks a writer (not Codex) to run `npm ci` and a reader or Codex to `ask_human` without trying (PM-1112
+  asked every writer unconditionally). The result is additive on the strict wire schema: install the
+  hub first, then the engine. Member workspaces have no automatic clone. The server's installation
   cannot be cloned across machines, and native dependencies must match the engine. Keep the
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
@@ -1908,6 +1917,11 @@ assumption or remote-engine RPC.
   the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
   member as the same `TeamToolError('invalid', …)` texts as before.
+  **Which sessions get a screenshot scope (PM-1202):** a Claude or Codex CLI (Codex, NanoGPT) session in a
+  checkout of the card (`screenshotPlacement`: `task_worktree` or `review_copy`) that has a session
+  folder; `read_only` placement and Gemini get none. Where the session's own sandbox writes the folder,
+  the run has its limits; for a reading Codex or NanoGPT sandbox the run writes only the session folder
+  (`denyWrite` includes the checkout), and the browser directory comes from `EnginePaths.browsersDir` with a read exception.
   Scenario resolution sends only `{ cwd, sessionDir }` as roots, without the browser directory
   or sandbox settings, matching the strict `files.resolve_scenario` contract in hybrid mode
   (PM-785). This adds no machine-dependent operation and leaves the engine boundary unchanged.
@@ -2071,9 +2085,17 @@ assumption or remote-engine RPC.
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last
   15 terminal rows. Message bodies are not logged separately. This assumes the runner owns
-  the terminal and receives the CLI hooks; it changes neither delivery nor retry semantics.
-  On a remote engine these diagnostics run and are logged on that engine; no new message or
-  diagnostic payload crosses the server/engine boundary.
+  the terminal and receives the CLI hooks.
+  **Idempotent delivery (PM-1205):** the wait for the submit report builds on the timing of these
+  loopback hooks. A typed message the CLI did not report within `submitTimeoutMs` is taken as
+  unconfirmed when the main agent's turn hooks (or a busy CLI) show it worked, and is otherwise
+  awaited `lateSubmitMs` longer (`runner/input-queue.ts`, `runner/session.ts`, `runner/providers/*`).
+  The hub keys each delivery (`deliveryId`, `runtime/delivery/delivery.ts`), `session.send` carries it
+  across the server/engine boundary (`engine-link/{methods,protocol,engine-handlers}.ts`,
+  `engine-link/remote/{hub,runner}.ts`; the engine advertises `deliveryIds` in its hello, an older
+  engine gets none), and the engine's runner does not type a taken id again, per process.
+  On a remote engine these diagnostics run and are logged on that engine; the only new
+  thing that crosses the server/engine boundary is the `deliveryId` of a message.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
   and MCP while preserving token isolation and the internal endpoint guard.
   `runtime/sessions/permission-broker.ts` owns the broker and uses the command policy

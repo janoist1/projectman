@@ -204,6 +204,41 @@ describe('engine handlers', () => {
     expect(names.sort()).toEqual(engineMethods.sort());
   });
 
+  it('hands the delivery id of a sent message to the runner, and takes only well-formed ids (PM-1205)', async () => {
+    const handlers = new Map<string, (params: unknown, context: unknown) => Promise<unknown>>();
+    const rpc = {
+      handle: (method: string, handler: never) => {
+        handlers.set(method, handler);
+        return () => undefined;
+      },
+    } as unknown as EngineRpc;
+    const sendUserMessage = vi.fn(async () => undefined);
+    createEngineHandlers({
+      limit: { check: async (_method: string, params: unknown) => params } as never,
+      audit: { record: () => undefined } as never,
+      runner: { sendUserMessage } as never,
+      transcripts: {} as never,
+      planUsageFor: (() => ({})) as never,
+      engine: {} as never,
+      github: {} as never,
+      probe: {} as never,
+      transfers: {} as never,
+      mcpBase: 'http://127.0.0.1:4801',
+      emit: () => undefined,
+      terminals: new Set(),
+      exportDir: '/nonexistent',
+    }).register(rpc);
+    const deliveryId = 'dlv_0123456789abcdef0123456789abcdef';
+    await handlers.get('session.send')!({ sessionId: 's1', message: 'hi', deliveryId }, { id: 'r1' });
+    expect(sendUserMessage).toHaveBeenLastCalledWith('s1', 'hi', { deliveryId });
+    await handlers.get('session.send')!({ sessionId: 's1', message: 'hi' }, { id: 'r2' });
+    expect(sendUserMessage).toHaveBeenLastCalledWith('s1', 'hi', undefined);
+
+    const params = methods['session.send'].params;
+    expect(params.safeParse({ sessionId: 's1', message: 'hi', deliveryId }).success).toBe(true);
+    expect(params.safeParse({ sessionId: 's1', message: 'hi', deliveryId: 'not-an-id' }).success).toBe(false);
+  });
+
   it('tells the cloud when a full test gets its turn, by the run id', async () => {
     const handlers = new Map<string, (params: unknown, context: unknown) => Promise<unknown>>();
     const rpc = {

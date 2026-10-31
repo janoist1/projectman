@@ -6,6 +6,7 @@ import {
   Me,
   MemberProfile,
   MemberView,
+  OwnerQuestionsReport,
   ProjectManagerCorner,
   ProjectSummary,
   RolesView,
@@ -63,6 +64,7 @@ describe('web GET contracts and SQL budgets', () => {
     [routes.schedules('AR'), SchedulesView, 12],
     [routes.teamMessages('AR'), TeamMessagesView, 12],
     [routes.teamThreads('AR'), TeamThreadsView, 10],
+    [routes.operatorOwnerQuestions('AR'), OwnerQuestionsReport, 10],
   ] as const)('%s matches its web contract within its SQL budget', async (url, schema, budget) => {
     const meter = instrumentSql(undefined, true);
     try {

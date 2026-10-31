@@ -31,6 +31,7 @@ export const CLAUDE_TIMING: SessionTiming = {
   /** A busy machine swallows Enter (PM-571): press it on every check within the submit timeout. */
   maxEnterRetries: 4,
   submitTimeoutMs: 8_000,
+  lateSubmitMs: 120_000,
   argumentSubmitTimeoutMs: 30_000,
   startupCheckMs: 1_000,
   startupTimeoutMs: 20_000,

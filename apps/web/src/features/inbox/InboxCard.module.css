@@ -526,3 +526,17 @@
   align-items: center;
   min-height: 44px;
 }
+.ownerTopic {
+  color: var(--c-ink-3);
+  font-size: 12.5px;
+}
+.ownerTopic::before {
+  content: '· ';
+}
+.mobile .ownerTopic {
+  order: 10;
+  flex-basis: 100%;
+}
+.mobile .ownerTopic::before {
+  content: none;
+}

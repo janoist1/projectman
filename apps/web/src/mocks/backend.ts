@@ -49,6 +49,10 @@ import {
   CreateIntegratorAccessKeyRequest,
   IntegratorKeyAuditQuery,
   SuperAuditQuery,
+  OwnerQuestionsQuery,
+  weeklyOwnerQuestions,
+  isLinkedQuestion,
+  coordinationMemberOf,
   InvolvementQuery,
   canManageProviderKeys,
   SetProviderKeyRequest,
@@ -2770,6 +2774,23 @@ export class MockBackend {
       if (!verdict.allowed) return error(403, verdict.code, 'Credential access refused');
     }
     let m: RegExpExecArray | null;
+    if (rest === '/operator/owner-questions' && method === 'GET') {
+      if (this.viewerAccess() !== 'owner' || this.integratorMode)
+        return error(403, 'insufficient_access', 'Own owner login required');
+      const input = OwnerQuestionsQuery.safeParse(Object.fromEntries(query));
+      if (!input.success) return error(400, 'invalid_request', 'Invalid weeks');
+      return ok(
+        weeklyOwnerQuestions(
+          this.inbox.filter((item) => !isLinkedQuestion(item)),
+          {
+            timezone: this.config.project.timezone,
+            now: new Date(nowIso()),
+            weeks: input.data.weeks,
+            coordinatorHandle: coordinationMemberOf(this.config)?.handle ?? null,
+          },
+        ),
+      );
+    }
     if (rest === '/operator-super/audit') {
       if (this.viewerAccess() !== 'owner' || this.integratorMode)
         return error(403, 'owner_only', 'Own owner login required');

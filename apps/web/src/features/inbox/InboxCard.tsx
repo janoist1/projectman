@@ -2,6 +2,8 @@ import clsx from 'clsx';
 import { useQuery } from '@tanstack/react-query';
 import { ProjectContext } from '../../app/contexts';
 import { api } from '../../api/endpoints';
+import { useConfig } from '../../api/queries';
+import { ownerTopicLabel } from '../../lib/ownerTopics';
 import { Fragment, useContext, useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
@@ -211,6 +213,10 @@ export function InboxCard({
   const operatorKnowledge = operatorKnowledgeApprovalOf(item);
   const question = questionPayloadOf(item);
   const project = useContext(ProjectContext);
+  const topicConfig = useConfig(
+    item.projectKey,
+    project?.can.readConfig === true && item.kind === 'question' && !!question?.ownerTopic,
+  );
   const operationPayload = question?.superOperation;
   const operation = useQuery({
     queryKey: ['project', item.projectKey, 'super-operation', operationPayload?.operationId],
@@ -462,6 +468,12 @@ export function InboxCard({
                 : nameOf(item.source, members, myHandle)}
         </span>
       </span>
+      {item.kind === 'question' && question?.ownerTopic ? (
+        <span className={styles.ownerTopic}>
+          {t('ownerTopics.why')}{' '}
+          <strong>{ownerTopicLabel(question.ownerTopic, topicConfig.data?.config)}</strong>
+        </span>
+      ) : null}
       <span className={styles.spacer} />
       <time className={styles.time} dateTime={item.createdAt}>
         {formatAgo(item.createdAt)}

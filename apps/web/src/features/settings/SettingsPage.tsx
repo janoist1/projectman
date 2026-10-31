@@ -156,6 +156,8 @@ export function SettingsPage() {
     open: hostRequests.data?.requests.length ?? 0,
   };
   const location = useLocation();
+  const ownerTopicTarget =
+    new URLSearchParams(location.search).get('field')?.startsWith('ownerDecisionTopics') === true;
   const main = useRef<HTMLDivElement>(null);
   const previousSection = useRef(section);
   const base = `/p/${key}/settings`;
@@ -170,6 +172,11 @@ export function SettingsPage() {
     config.data?.config.project.name ?? me.projects.find((p) => p.key === key)?.name,
   );
   useEffect(() => {
+    // The topic editor opens and focuses its own field for a configuration problem link.
+    if (section === 'team' && ownerTopicTarget) {
+      previousSection.current = section;
+      return;
+    }
     main.current?.closest('main')?.scrollTo?.(0, 0);
     if (wide && location.state?.settingsIssueTarget && section) {
       main.current?.querySelector<HTMLElement>(`#settings-${section}`)?.focus();
@@ -194,6 +201,7 @@ export function SettingsPage() {
     Boolean(config.data),
     location.state?.settingsIssueTarget,
     location.state?.settingsReturn,
+    ownerTopicTarget,
   ]);
 
   if (isSettingsSection(legacy))

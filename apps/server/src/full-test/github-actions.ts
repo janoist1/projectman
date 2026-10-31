@@ -39,7 +39,7 @@ export const RUN_APPEAR_MAX_MS = 120_000;
 const RUN_POLL_MS = 10_000;
 /** GitHub may finish the run before its shard jobs expose their terminal states. */
 export const JOB_WAIT_MAX_MS = 120_000;
-/** During a GitHub incident the jobs API gives finished jobs no steps; they may show up minutes later. */
+/** During a GitHub incident the jobs API gives finished jobs no steps (or an unfinished test step); they may settle minutes later. */
 export const STEPS_WAIT_MAX_MS = 300_000;
 /** How long the logs of a finished run are waited for (GitHub has them a little later). */
 const LOG_WAIT_MAX_MS = 30_000;
@@ -141,7 +141,7 @@ export interface FollowRequest {
   onStarted?: () => void;
   /** Whether to wait for the jobs of a completed run to settle; default: always. */
   settleJobs?: (run: WorkflowRunInfo) => boolean;
-  /** Whether to also wait (up to `STEPS_WAIT_MAX_MS`) for finished jobs that list no steps; default: no. */
+  /** Whether to also wait (up to `STEPS_WAIT_MAX_MS`) for finished jobs that list no steps or an unfinished test step; default: no. */
   settleSteps?: boolean;
 }
 

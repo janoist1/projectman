@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { TimelineEvent } from '@projectman/shared';
+import { setCurrentLanguage } from '../i18n/language';
 import { t } from '../i18n/t';
 import { describeEvent, shortCommit } from './timeline';
 
@@ -14,6 +15,41 @@ const creation: TimelineEvent = {
   createdAt: '2024-03-12T09:15:00.000Z',
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
+
+it.each([
+  ['question_asked', {}, 'timeline.events.question_asked_topic'],
+  ['question_asked', { unscreened: { reason: 'Again' } }, 'timeline.events.question_asked_unscreened_topic'],
+  ['question_screened', { outcome: 'decision' }, 'timeline.events.question_screened_decision_topic'],
+  ['question_screened', { outcome: 'todo' }, 'timeline.events.question_screened_todo_topic'],
+  [
+    'question_screened',
+    { outcome: 'todo', feedbackId: 'f1' },
+    'timeline.events.question_screened_todo_recorded_topic',
+  ],
+] as const)('names an owner topic for %s %j', (type, extra, key) => {
+  const event = {
+    ...creation,
+    type,
+    data: { ...extra, ownerTopic: 'cost', question: 'Proceed?', note: 'Budget' },
+  };
+  expect(describeEvent(event, context).text).toBe(
+    t(key, {
+      topic: t('ownerTopics.builtIn.cost.label'),
+      question: 'Proceed?',
+      reason: 'Again',
+      note: 'Budget',
+    }),
+  );
+});
+
+it('keeps legacy screened decisions unchanged', () => {
+  expect(
+    describeEvent(
+      { ...creation, type: 'question_screened', data: { outcome: 'decision', note: 'Legacy' } },
+      context,
+    ).text,
+  ).toBe(t('timeline.events.question_screened_decision', { note: 'Legacy' }));
+});
 
 it('renders a PM loop assessment without exposing its private note', () => {
   const event: TimelineEvent = {
@@ -1068,5 +1104,57 @@ describe('the project focus on the timeline (PM-427)', () => {
     expect(describeEvent(pulled(undefined), context).text).toBe(
       t('timeline.events.task_stage_changed', { from: 'ready', to: 'dev' }),
     );
+  });
+});
+
+describe('the timeline in English (PM-1180)', () => {
+  afterEach(() => setCurrentLanguage('hu'));
+  const accented = /[áéíóöőúüű]/i;
+  const system = { kind: 'system', handle: null } as const;
+
+  it('draws the key-drawn rows, an old check row included, in English', () => {
+    setCurrentLanguage('en');
+    const rows: TimelineEvent[] = [
+      { ...creation, type: 'task_check_changed', data: { check: 'qa', to: 'retest_needed' } },
+      {
+        ...creation,
+        actor: system,
+        type: 'obligation_woken',
+        data: { kind: 'merge', responsible: 'dev-1', minutes: 30 },
+      },
+      {
+        ...creation,
+        actor: { kind: 'ai', handle: 'pm' },
+        type: 'loop_triaged',
+        data: { loopId: 'loop_1', generation: 0, outcome: 'progress', evidenceIds: [], headCommit: null },
+      },
+    ];
+    for (const row of rows) expect(describeEvent(row, context).text).not.toMatch(accented);
+  });
+
+  it('keeps a free-text note as it was written', () => {
+    setCurrentLanguage('en');
+    const line = describeEvent(
+      { ...creation, type: 'task_assigned', data: { assignee: 'dev-1', note: 'dev-2 elfoglalt' } },
+      context,
+    ).text;
+    expect(line).toContain('dev-2 elfoglalt');
+  });
+
+  it('uses the singular for one minute and the plural for more', () => {
+    setCurrentLanguage('en');
+    const row = (minutes: number) =>
+      describeEvent(
+        {
+          ...creation,
+          actor: system,
+          type: 'obligation_woken',
+          data: { kind: 'merge', responsible: 'dev-1', minutes },
+        },
+        context,
+      ).text;
+    expect(row(1)).toContain('1 minute');
+    expect(row(1)).not.toContain('1 minutes');
+    expect(row(30)).toContain('30 minutes');
   });
 });

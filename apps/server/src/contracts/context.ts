@@ -45,6 +45,11 @@ export interface ContextPackInput {
   /** Rebuilt from actual placement for every start, including resumes. */
   sessionPolicy?: SessionPolicy;
   /**
+   * The member's workspace was left without usable `node_modules` (PM-1203): the engine installs nothing
+   * for it and it has none (`missing`) or older than the lockfile (`stale`). Omitted when it is installed.
+   */
+  workspaceDependencies?: WorkspaceDependencyShortfall;
+  /**
    * The CLI's own sandbox the session's shell commands run in (PM-167), as the runner gets it;
    * absent when they are not sandboxed. A Claude member is told its boundary instead of the
    * server's command forms.
@@ -451,8 +456,20 @@ export type MemberWorkspaceErrorCode =
   | 'workspace_source_missing'
   | 'workspace_invalid';
 
+/**
+ * `skipped`: nothing was installed. `not_configured`: the engine installs nothing for this repository;
+ * `unavailable`: the default installation could not run here (no sandbox). `dependencies` (PM-1203) is
+ * set when the clone has a root `package-lock.json` and its `node_modules` is missing or older than it.
+ */
 export type WorkspaceDependenciesResult =
-  { status: 'ready'; key: string; changed: boolean } | { status: 'skipped'; reason: 'not_configured' };
+  | { status: 'ready'; key: string; changed: boolean }
+  | {
+      status: 'skipped';
+      reason: 'not_configured' | 'unavailable';
+      dependencies?: WorkspaceDependencyShortfall;
+    };
+
+export type WorkspaceDependencyShortfall = 'missing' | 'stale';
 
 export type WorkspaceDependencyFailure =
   | 'invalid_inputs'

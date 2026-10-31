@@ -102,8 +102,14 @@ export function describeSessionFolder(sessionFolder: string, provider: AgentProv
  * The line about the session folder of a Codex or NanoGPT member whose sandbox does not write
  * (PM-522): only the server puts files there, for example what `read_message_attachment` cannot show.
  */
-export function describeReadOnlySessionFolder(sessionFolder: string): string {
-  return `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}): the server puts files there for you, for example what ${code('read_message_attachment')} cannot show in its result (a PDF, a binary file, a long text, an image your tool results do not carry); the tool answers with the file's path. Read it with shell commands, and open an image with ${code('view_image')} (the shell does not show images). Your sandbox does not write it, and you make no screenshots. The other members' session folders next to it (below ${code(path.dirname(sessionFolder))}) are readable too. A folder is deleted when its session's process stops (a stop, a restart), and a resumed session gets a new folder: a path from earlier in this conversation no longer exists, so call ${code('read_message_attachment')} again.`;
+export function describeReadOnlySessionFolder(
+  sessionFolder: string,
+  { screenshots = false }: { screenshots?: boolean } = {},
+): string {
+  const makes = screenshots
+    ? `Make screenshots with the ${code('take_screenshots')} tool, not by running the shots script in the shell: the browser does not start in your sandbox, so the server runs the scenario (written as in ${code('docs/SCREENSHOTS.md')}) in its own and the images land in ${code('shots/')} of this folder; if the tool answers ${code('running')}, wait for the end with ${code('get_screenshot_run')}. Your sandbox itself does not write the folder.`
+    : 'Your sandbox does not write it, and you make no screenshots.';
+  return `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}): the server puts files there for you, for example what ${code('read_message_attachment')} cannot show in its result (a PDF, a binary file, a long text, an image your tool results do not carry); the tool answers with the file's path. Read it with shell commands, and open an image with ${code('view_image')} (the shell does not show images). ${makes} The other members' session folders next to it (below ${code(path.dirname(sessionFolder))}) are readable too. A folder is deleted when its session's process stops (a stop, a restart), and a resumed session gets a new folder: a path from earlier in this conversation no longer exists, so call ${code('read_message_attachment')} again.`;
 }
 
 /** The line about a Codex member's own temporary directory (PM-339). */

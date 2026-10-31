@@ -1,8 +1,13 @@
 import clsx from 'clsx';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
 import { Link, useLocation } from 'react-router';
-import { canSeeOperatorSessions, canReadOperatorKnowledge, hasAccess } from '@projectman/shared';
+import {
+  OWNER_QUESTION_WEEKS_DEFAULT,
+  canSeeOperatorSessions,
+  canReadOperatorKnowledge,
+  hasAccess,
+} from '@projectman/shared';
 import type { UiLocation } from '@projectman/shared';
 import { useBoard, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -21,6 +26,7 @@ import { OperatorKnowledgeView } from './OperatorKnowledgeView';
 import { OperatorQueueStrip, OperatorQueueView } from './OperatorQueueView';
 import type { FailedOperatorMessage } from './OperatorThread';
 import { OperatorWaitBanner } from './OperatorWaitBanner';
+import { OperatorWeeklyView } from './OperatorWeeklyView';
 import { operatorStatusText } from './operatorChannel';
 import { useUiLocation } from './places';
 import { useOperator } from './useOperator';
@@ -52,14 +58,31 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const knowledgeButton = useRef<HTMLButtonElement>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const queueButton = useRef<HTMLButtonElement>(null);
+  const [weeklyOpen, setWeeklyOpen] = useState(false);
+  const weeklyButton = useRef<HTMLButtonElement>(null);
+  const [weeklyLeft, setWeeklyLeft] = useState(0);
+  // The message being written outlives the subviews that replace the composer for a while.
+  const draft = useRef('');
+  const keepDraft = useCallback((text: string) => {
+    draft.current = text;
+  }, []);
   // Keep handled checklist requests across the conversation view's unmounts.
   const appliedChecklistRequest = useRef<number | null>(null);
   useEffect(() => {
     if (!operatorChecklistRequest) return;
     setKnowledgeOpen(false);
     setQueueOpen(false);
+    setWeeklyOpen(false);
   }, [operatorChecklistRequest]);
+  // Back from the weekly measure the focus returns to its entry, which is drawn again only then; the
+  // composer drawn with it does not take the focus (its own effect may run after this one).
+  useEffect(() => {
+    if (weeklyLeft > 0) weeklyButton.current?.focus();
+  }, [weeklyLeft]);
   const access = me.projects.find((project) => project.key === key)?.access;
+  // The weekly question measure is the owner's own (PM-1192): never an integrator key, not even an owner's.
+  const weeklyVisible = isOwner && !me.via;
+  const subviewOpen = queueOpen || knowledgeOpen || (weeklyOpen && weeklyVisible);
   // The queue is for a person's own login with developer access (the server's rule), not for an integrator key.
   const queueVisible = !me.via && access !== undefined && hasAccess(access, 'developer');
   const queueLength = state?.queue.open ?? 0;
@@ -81,6 +104,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
     if (!operatorPrefill) return;
     setKnowledgeOpen(false);
     setQueueOpen(false);
+    setWeeklyOpen(false);
     setPrefill((previous) => ({ text: operatorPrefill.text, id: (previous?.id ?? 0) + 1 }));
   }, [operatorPrefill]);
 
@@ -223,6 +247,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
               onClick={() => {
                 setQueueOpen(!queueOpen);
                 setKnowledgeOpen(false);
+                setWeeklyOpen(false);
               }}
             />
             {queueLength > 0 ? (
@@ -246,6 +271,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             onClick={() => {
               setKnowledgeOpen(!knowledgeOpen);
               setQueueOpen(false);
+              setWeeklyOpen(false);
             }}
           />
         ) : null}
@@ -259,11 +285,36 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         />
       </header>
 
-      {!queueOpen && !knowledgeOpen ? (
-        <OperatorChecklist key={key} appliedRequest={appliedChecklistRequest} />
+      {!subviewOpen && weeklyVisible ? (
+        <button
+          ref={weeklyButton}
+          type="button"
+          className={styles.weeklyEntry}
+          onClick={() => {
+            setWeeklyOpen(true);
+            setQueueOpen(false);
+            setKnowledgeOpen(false);
+          }}
+        >
+          <span className={styles.weeklyEntryText}>
+            {t('operator.weekly.entry')}
+            <small>{t('operator.weekly.entryHint', { weeks: OWNER_QUESTION_WEEKS_DEFAULT })}</small>
+          </span>
+          <Icon name="chevronRight" size={16} strokeWidth={2.2} />
+        </button>
       ) : null}
 
-      {queueOpen && queueVisible ? (
+      {!subviewOpen ? <OperatorChecklist key={key} appliedRequest={appliedChecklistRequest} /> : null}
+
+      {weeklyOpen && weeklyVisible ? (
+        <OperatorWeeklyView
+          key={key}
+          onBack={() => {
+            setWeeklyOpen(false);
+            setWeeklyLeft((count) => count + 1);
+          }}
+        />
+      ) : queueOpen && queueVisible ? (
         <OperatorQueueView
           onBack={() => {
             setQueueOpen(false);
@@ -347,7 +398,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
           ) : null}
           <div className={styles.composer}>
             <Composer
-              autoFocus={!operatorChecklistRequest?.focus}
+              autoFocus={!operatorChecklistRequest?.focus && weeklyLeft === 0}
               label={t('operator.composer.label')}
               placeholder={
                 readOnly ? t('operator.composer.placeholderOther') : t('operator.composer.placeholder')
@@ -355,6 +406,8 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
               disabled={send.isPending}
               attachments={uploads}
               prefill={prefill}
+              initialText={draft.current}
+              onTextChange={keepDraft}
               onSend={(text) =>
                 post(
                   text,

@@ -3914,7 +3914,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "additionalProperties": false,
       "properties": {
         "ref": {
-          "description": "The slug, or "slug#section".",
+          "description": "The slug, "slug#section", or a card link’s doc:slug#section.",
           "maxLength": 200,
           "minLength": 1,
           "type": "string",
@@ -5491,7 +5491,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Create or edit a project document",
     },
-    "description": "Create a document (title and content, no slug) or edit one (slug, base_version, new content and/or title). Every write needs message: a one-line reason. Content replaces the whole text: read first. Stale base_version is refused with the current one. No delete. Never put a secret in a document.",
+    "description": "Create a document (title and content, no slug) or edit one (slug, base_version, new content and/or title). Every write needs message: a one-line reason. Content replaces the whole text: read first. Stale base_version is refused. No delete. No secrets. Answer: doc: link, section anchors.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

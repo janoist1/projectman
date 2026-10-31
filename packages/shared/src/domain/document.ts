@@ -120,9 +120,9 @@ interface HeadingAt extends DocumentHeading {
   line: number;
 }
 
-function headingsOf(lines: readonly string[]): HeadingAt[] {
-  const headings: HeadingAt[] = [];
-  const used = new Set<string>();
+/** The lines outside fenced code blocks (``` or ~~~), with their index; the fence lines themselves are left out. */
+function linesOutsideCode(lines: readonly string[]): { line: string; index: number }[] {
+  const outside: { line: string; index: number }[] = [];
   let fence: string | null = null;
   lines.forEach((line, index) => {
     const marker = /^(`{3,}|~{3,})/.exec(line)?.[1];
@@ -134,16 +134,25 @@ function headingsOf(lines: readonly string[]): HeadingAt[] {
       fence = marker;
       return;
     }
+    outside.push({ line, index });
+  });
+  return outside;
+}
+
+function headingsOf(lines: readonly string[]): HeadingAt[] {
+  const headings: HeadingAt[] = [];
+  const used = new Set<string>();
+  for (const { line, index } of linesOutsideCode(lines)) {
     // The same rule as the page's markdown view (`apps/web/src/components/Markdown.tsx`).
     const match = /^(#{1,4})\s+(.*)$/.exec(line);
-    if (!match) return;
+    if (!match) continue;
     const text = (match[2] ?? '').trim();
     const base = sectionAnchor(text);
     let anchor = base;
     for (let n = 2; used.has(anchor); n++) anchor = `${base}-${n}`;
     used.add(anchor);
     headings.push({ level: (match[1] ?? '#').length as DocumentHeading['level'], text, anchor, line: index });
-  });
+  }
   return headings;
 }
 
@@ -181,12 +190,58 @@ export function documentSection(
   return { heading: { level: found.level, text: found.text, anchor: found.anchor }, content };
 }
 
-/** 'projektterv#2-a-munka-utja' → { slug: 'projektterv', section: '2-a-munka-utja' }; without '#' (or after an empty one) no section. */
+/**
+ * 'projektterv#2-a-munka-utja' → { slug: 'projektterv', section: '2-a-munka-utja' }; without '#' (or after an empty one)
+ * no section. A leading 'doc:' (a card link's target) is cut.
+ */
 export function parseDocumentRef(ref: string): { slug: string; section?: string } {
-  const hash = ref.indexOf('#');
-  if (hash < 0) return { slug: ref };
-  const section = ref.slice(hash + 1);
-  return section ? { slug: ref.slice(0, hash), section } : { slug: ref.slice(0, hash) };
+  const bare = ref.startsWith('doc:') ? ref.slice(4) : ref;
+  const hash = bare.indexOf('#');
+  if (hash < 0) return { slug: bare };
+  const section = bare.slice(hash + 1);
+  return section ? { slug: bare.slice(0, hash), section } : { slug: bare.slice(0, hash) };
+}
+
+/** A link from markdown to a document or one of its sections (PM-1223). */
+export interface DocumentLink {
+  text: string;
+  slug: string;
+  section?: string;
+}
+
+const DOCUMENT_LINK_SOURCE = String.raw`\[([^\]\n]+)\]\(doc:([a-z0-9][a-z0-9-]{0,63})(?:#([a-z0-9-]{1,200}))?\)`;
+const DOCUMENT_LINK = new RegExp(`^${DOCUMENT_LINK_SOURCE}$`);
+
+/** One whole token `[text](doc:slug)` or `[text](doc:slug#anchor)`; anything else → null. */
+export function documentLinkOf(token: string): DocumentLink | null {
+  const match = DOCUMENT_LINK.exec(token);
+  if (!match) return null;
+  const [, text = '', slug = '', section] = match;
+  return section ? { text, slug, section } : { text, slug };
+}
+
+/** The links of a markdown text in order, each slug#section once; fenced code and inline code are skipped. */
+export function documentLinksOf(markdown: string): DocumentLink[] {
+  const links: DocumentLink[] = [];
+  const seen = new Set<string>();
+  for (const { line } of linesOutsideCode(linesOf(markdown))) {
+    const withoutCode = line.replace(/`[^`]*`/g, '');
+    for (const match of withoutCode.matchAll(new RegExp(DOCUMENT_LINK_SOURCE, 'g'))) {
+      const link = documentLinkOf(match[0]);
+      if (!link) continue;
+      const key = `${link.slug}#${link.section ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      links.push(link);
+    }
+  }
+  return links;
+}
+
+/** `[text](doc:slug#section)`: brackets and white space runs (line breaks) in text become one space; empty text → slug. */
+export function documentLinkMarkdown(text: string, slug: string, section?: string): string {
+  const label = text.replace(/[[\]\s]+/g, ' ').trim() || slug;
+  return `[${label}](doc:${slug}${section ? `#${section}` : ''})`;
 }
 
 /** The reason of a change (PM-1215): one line, required for every write (create, edit, rename, restore, delete). */

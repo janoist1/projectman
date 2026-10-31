@@ -5067,4 +5067,53 @@ describe('project documents (PM-149)', () => {
     expect(list).not.toContain('(doc-30)');
     expect(list).toContain('… and 2 more: list_documents shows them all.');
   });
+
+  describe('links on a card (PM-1223)', () => {
+    const briefOf = (description: string, documents?: DocumentSummary[]) =>
+      builder.build(input({ task: makeTask({ description }), ...(documents ? { documents } : {}) }))
+        .initialMessage ?? '';
+    const linked = (brief: string) => section(brief, '## Linked documents');
+
+    it('lists the linked documents with the ref to read, and only when the description has links', () => {
+      const brief = briefOf('Plan: [Plan › 1. Goal](doc:doc-0#1-goal) and [all](doc:doc-1).', documentsOf(2));
+      expect(linked(brief)).toContain('- `doc-0#1-goal`: "Plan › 1. Goal"');
+      expect(linked(brief)).toContain('- `doc-1` (whole document): "all"');
+      expect(linked(brief)).toContain('only that section');
+      expect(briefOf('No links here.', documentsOf(2))).not.toContain('## Linked documents');
+    });
+
+    it('skips a sample quoted in code, marks an unknown slug, and names the links beyond ten', () => {
+      expect(briefOf('Write `[text](doc:slug#anchor)` like this.')).not.toContain('## Linked documents');
+      expect(linked(briefOf('[gone](doc:doc-9)', documentsOf(2)))).toContain('no such document now');
+      const many = Array.from({ length: 12 }, (_, i) => `[d](doc:doc-${i})`).join(' ');
+      const list = linked(briefOf(many, documentsOf(12)));
+      expect(list).toContain('`doc-9`');
+      expect(list).not.toContain('`doc-10`');
+      expect(list).toContain('… and 2 more in the description.');
+    });
+
+    it('describes the doc: link in the documents section and offers saving a plan, with no rule', () => {
+      const list = section(promptOf(documentsOf(1)), '# Project documents');
+      expect(list).toContain('doc:slug');
+      expect(list).toContain('you may save it with write_document');
+    });
+
+    it('offers the architect and the analyst a document for a long plan only where documents exist', () => {
+      for (const [role, offer] of [
+        ['architect', 'A long plan may go into a project document'],
+        ['business_analyst', 'A long analysis may go into a project document'],
+      ] as const) {
+        const project = buildProject();
+        addMember(project, 'member', role);
+        const task = makeTask({ stageId: 'ready', assignee: null });
+        const stepsOf = (documents?: DocumentSummary[]) =>
+          doneSteps(
+            builder.build(input({ project, handle: 'member', task, ...(documents ? { documents } : {}) }))
+              .appendSystemPrompt,
+          );
+        expect(stepsOf(documentsOf(1)), role).toContain(offer);
+        expect(stepsOf(), role).not.toContain(offer);
+      }
+    });
+  });
 });

@@ -4,6 +4,9 @@ import {
   canDeleteDocument,
   canEditDocuments,
   canReadDocuments,
+  documentLinkMarkdown,
+  documentLinkOf,
+  documentLinksOf,
   documentOutline,
   documentSection,
   documentSlugOf,
@@ -99,8 +102,51 @@ describe('sectionAnchor and parseDocumentRef', () => {
     ['plan#intro', { slug: 'plan', section: 'intro' }],
     ['plan#', { slug: 'plan' }],
     ['plan#a#b', { slug: 'plan', section: 'a#b' }],
+    ['doc:plan#intro', { slug: 'plan', section: 'intro' }],
+    ['doc:plan', { slug: 'plan' }],
   ])('splits %j', (ref, parsed) => {
     expect(parseDocumentRef(ref)).toEqual(parsed);
+  });
+});
+
+describe('document links', () => {
+  it('reads a whole link with and without a section', () => {
+    expect(documentLinkOf('[Plan](doc:plan)')).toEqual({ text: 'Plan', slug: 'plan' });
+    expect(documentLinkOf('[Plan › 1. Goal](doc:plan#1-goal)')).toEqual({
+      text: 'Plan › 1. Goal',
+      slug: 'plan',
+      section: '1-goal',
+    });
+  });
+
+  it.each([
+    '[x](doc:Plan)',
+    '[x](doc:)',
+    '[](doc:plan)',
+    '[x](doc:plan#)',
+    'a [x](doc:plan)',
+    '[x](https://a.b)',
+  ])('refuses %j', (token) => {
+    expect(documentLinkOf(token)).toBeNull();
+  });
+
+  it('lists the links in order, each target once', () => {
+    const text = 'See [A](doc:a#x) and [B](doc:b)\n[A again](doc:a#x) [A whole](doc:a)';
+    expect(documentLinksOf(text).map((link) => `${link.slug}#${link.section ?? ''}`)).toEqual([
+      'a#x',
+      'b#',
+      'a#',
+    ]);
+  });
+
+  it('skips fenced code and inline code', () => {
+    const text = ['`[q](doc:quoted#x)`', '```', '[f](doc:fenced)', '```', '[real](doc:real)'].join('\n');
+    expect(documentLinksOf(text)).toEqual([{ text: 'real', slug: 'real' }]);
+  });
+
+  it('writes the markdown, turning brackets and line breaks into spaces', () => {
+    expect(documentLinkMarkdown('A [b]\nc', 'plan', 'intro')).toBe('[A b c](doc:plan#intro)');
+    expect(documentLinkMarkdown('  ', 'plan')).toBe('[plan](doc:plan)');
   });
 });
 

@@ -1,6 +1,48 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { t } from '../i18n/t';
+import { mockProject } from '../test/mockProject';
 import { Markdown } from './Markdown';
+
+describe('Markdown document links', () => {
+  const text = 'Lásd [Terv › 1. Cél](doc:terv#1-cel) és [a terv](doc:terv).';
+
+  it('draws a link to the project documents page in the same tab, with the section as hash', () => {
+    const p = mockProject();
+    p.render(<Markdown text={text} />, '/p/AC');
+    const section = screen.getByRole('link', { name: 'Terv › 1. Cél' });
+    expect(section.getAttribute('href')).toBe('/p/AC/docs/terv#1-cel');
+    expect(section.getAttribute('target')).toBeNull();
+    expect(section.getAttribute('title')).toBe(t('documentLink.open', { ref: 'terv#1-cel' }));
+    expect(section.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    expect(screen.getByRole('link', { name: 'a terv' }).getAttribute('href')).toBe('/p/AC/docs/terv');
+  });
+
+  it('shows only the text outside a project and for a viewer who may not read documents', () => {
+    const p = mockProject();
+    const { unmount } = render(<Markdown text={text} />);
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByText('a terv').getAttribute('title')).toBe('terv');
+    unmount();
+    p.render(<Markdown text={text} />, '/p/AC', {
+      me: { ...p.context.me, projects: [{ ...p.context.me.projects[0]!, access: 'client' }] },
+    });
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByText('Terv › 1. Cél')).toBeTruthy();
+  });
+
+  it('leaves an invalid slug as plain text and keeps a document link out of code', () => {
+    const p = mockProject();
+    const { container } = p.render(
+      <Markdown text={'[bad](doc:Bad Slug) `[code](doc:terv)` [web](https://example.com)'} />,
+      '/p/AC',
+    );
+    expect(container.textContent).toContain('[bad](doc:Bad Slug)');
+    expect(container.querySelector('code')?.textContent).toBe('[code](doc:terv)');
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+    expect(screen.getByRole('link').getAttribute('target')).toBe('_blank');
+  });
+});
 
 describe('Markdown task lists', () => {
   it('renders unchecked and checked items as disabled read-only checkboxes with safe inline text', () => {

@@ -14,6 +14,7 @@ import { useToast } from '../../components/toastContext';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { useDocumentLinkTool } from '../documents/DocumentLinkDialog';
 import { openThemes } from './themeModel';
 import styles from './NewTaskDialog.module.css';
 
@@ -44,6 +45,7 @@ function NewTaskForm({
   const config = useConfig(key);
   const board = useBoard(key);
   const create = useCreateTask(key);
+  const documentLinkTool = useDocumentLinkTool();
   const toast = useToast();
   const navigate = useNavigate();
   const titleInput = useRef<HTMLInputElement>(null);
@@ -132,6 +134,7 @@ function NewTaskForm({
         value={description}
         onChange={setDescription}
         disabled={create.isPending}
+        insertTool={documentLinkTool}
       />
       {!isTheme ? (
         <Fold summary={t('newTask.more')} plain peek={peek}>

@@ -11,7 +11,7 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle } from '../../lib/hooks';
 import { useDocumentAccess } from './access';
 import { DocumentEditor } from './DocumentEditor';
-import { documentsPath } from './paths';
+import { documentsPath } from '../../app/documents';
 import styles from './DocumentsPage.module.css';
 
 /**

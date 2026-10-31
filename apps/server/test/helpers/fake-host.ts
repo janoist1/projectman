@@ -17,6 +17,12 @@ export const SHA_OLD = 'a'.repeat(40);
 export const SHA_NEW = 'b'.repeat(40);
 export const SHA_NEWEST = 'c'.repeat(40);
 export const IMAGE_ID = `sha256:${'1'.repeat(64)}`;
+const REQUIRED_ENV_NAMES = [
+  'LITESTREAM_BUCKET',
+  'LITESTREAM_ACCESS_KEY_ID',
+  'RESTIC_REPOSITORY',
+  'RESTIC_PASSWORD',
+];
 
 interface DeployEntry {
   sha: string;
@@ -152,6 +158,24 @@ class FakeMachine {
       case 'receive-env':
         this.envText = input ?? null;
         return done();
+      case 'env-check': {
+        // The machine's own cloud.env must hold the four names; only names are answered, never a value.
+        const names = REQUIRED_ENV_NAMES.filter((name) =>
+          new RegExp(`^${name}=.`, 'm').test(this.envText ?? ''),
+        );
+        if (names.length < REQUIRED_ENV_NAMES.length)
+          return refuse('env_missing: /etc/projectman/cloud.env is missing or incomplete');
+        return done(`${names.join('\n')}\n`);
+      }
+      case 'prune-images': {
+        const keep = [this.deploy?.current?.sha, this.deploy?.previous?.sha].filter(
+          (sha): sha is string => sha !== undefined,
+        );
+        if (keep.length === 0) return refuse('no deploy is recorded in deploy.json; nothing is pruned');
+        const removed = [...this.imported.keys()].filter((sha) => !keep.includes(sha));
+        for (const sha of removed) this.imported.delete(sha);
+        return done(JSON.stringify({ removed, kept: keep }) + '\n');
+      }
       case 'stage-image': {
         // The GitHub artifact: the machine downloads it from the link on stdin and answers with the manifest.
         this.stagedLinks.push(input ?? '');
@@ -274,6 +298,8 @@ export class HostWorld extends CloudWorld {
     { name: 'not-a-release', sha: '1'.repeat(40) },
   ];
   lsRemoteFails = false;
+  /** The commits that are not on the default branch (`git merge-base --is-ancestor` answers 1). */
+  readonly offBranchShas = new Set<string>();
   /** The folder of the pulled data: the fake `tar -x` writes a db.sqlite here. */
   pullWritesFiles = true;
   pipeCode = 0;
@@ -358,6 +384,10 @@ export class HostWorld extends CloudWorld {
 
   private git(args: string[]): RunResult {
     this.gitCalls.push(args);
+    // `git -C <root> merge-base --is-ancestor <sha> origin/<branch>` (the deploy from a runner)
+    const mergeBase = args.indexOf('merge-base');
+    if (mergeBase !== -1)
+      return { code: this.offBranchShas.has(args[mergeBase + 2]!) ? 1 : 0, stdout: '', stderr: '' };
     if (args[0] !== 'ls-remote') return { code: 1, stdout: '', stderr: `fake git: ${args[0]}\n` };
     if (this.lsRemoteFails)
       return { code: 128, stdout: '', stderr: 'fatal: unable to access the repository\n' };

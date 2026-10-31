@@ -4,7 +4,7 @@ import { runCheck } from './cloudflare-check';
 import { runPublish } from './cloudflare-publish';
 import { cloudflareApi, cloudflarePreflight, findZone, resolveAccount, runEdge } from './cloudflare';
 import { defaultConfigPath, expandHome, loadConfig } from './config';
-import type { CloudContext } from './context';
+import type { CloudContext, DeployContext } from './context';
 import type { CloudDeps } from './deps';
 import { badUsage, CloudError } from './errors';
 import { runDnsStatus } from './dns';
@@ -20,7 +20,9 @@ import {
   runStop,
 } from './machine';
 import { Report } from './report';
+import { runRunnerDeploy } from './runner-deploy';
 import type { ComputeJobContext } from './compute-job-run';
+import { runGithubDeploySetup } from './github-deploy-setup';
 import { runImageFetch } from './image-fetch';
 import { imagePreflight } from './image-github';
 import { runImageBuild, type ImageBuildContext } from './images';
@@ -36,6 +38,12 @@ commands:
   image-fetch --ref <SHA40> --out <new directory> [--run <id>] [--dry-run]
                                      fetch and verify the arm64 image bundle that the GitHub workflow projectman-job.yml
                                      built (finds or follows the run, never starts one; no Docker, no cloud configuration)
+  runner-deploy --ref <SHA40> --repository <owner/name> --region <region> --instance <name> --out <report.json>
+                                     the deploy of the GitHub Actions job projectman-deploy.yml: AWS through the job's OIDC
+                                     role, the image of the commit's GitHub run, the machine's own cloud.env (checked, never
+                                     sent); no cloud configuration, no AWS profile (docs/AWS.md "Deploy from GitHub Actions")
+  github-deploy-setup [--dry-run]    one-off: the IAM OIDC provider and role projectman-cloud-deploy, the GitHub environment
+                                     cloud-production and its variables (a production change; only after the owner's yes)
   preflight                          check the aws CLI, the login, the region, the machine type and the secrets store
   aws [--dry-run] [--rotate-keys]    create the EC2 machine, the S3 buckets, the IAM users and their keys
   deploy [--ref <tag|sha>] [--run <id>] [--dry-run]
@@ -78,7 +86,17 @@ exit status: 0 done, 1 failed, 2 refused (a precondition is missing or the state
 `;
 
 type Flag = 'dry-run' | 'rotate-keys' | 'rotate-engine-token' | 'rotate-integrator-token' | 'feedback';
-type ValueOption = 'ref' | 'lines' | 'to' | 'login-json' | 'out' | 'run' | 'rotate-owner-token';
+type ValueOption =
+  | 'ref'
+  | 'lines'
+  | 'to'
+  | 'login-json'
+  | 'out'
+  | 'run'
+  | 'rotate-owner-token'
+  | 'repository'
+  | 'region'
+  | 'instance';
 
 interface Invocation {
   dryRun: boolean;
@@ -161,6 +179,26 @@ export const COMMANDS: Record<string, CommandSpec> = {
         run: invocation.values.run,
         dryRun: invocation.dryRun,
       }),
+  },
+  'runner-deploy': {
+    summary: 'deploy from a GitHub Actions job',
+    configless: true,
+    flags: [],
+    values: ['ref', 'repository', 'region', 'instance', 'out'],
+    required: ['ref', 'repository', 'region', 'instance', 'out'],
+    run: (context: DeployContext, invocation) =>
+      runRunnerDeploy(context, {
+        ref: invocation.values.ref!,
+        repository: invocation.values.repository!,
+        region: invocation.values.region!,
+        instance: invocation.values.instance!,
+        out: invocation.values.out!,
+      }),
+  },
+  'github-deploy-setup': {
+    summary: 'set up the OIDC role and the GitHub environment of the Actions deploy',
+    flags: ['dry-run'],
+    run: (context, invocation) => runGithubDeploySetup(context, invocation.dryRun),
   },
   'ses plan': { summary: 'preview SES provisioning', flags: [], run: runSesPlan },
   'ses configure': {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AwsCli } from './aws-cli';
+import { AwsCli, profileTarget } from './aws-cli';
 import { sameJson } from './cloudflare-api';
 import type { CloudContext } from './context';
 import { CloudError, refused } from './errors';
@@ -209,7 +209,7 @@ async function gather(context: CloudContext, readOnly: boolean): Promise<State> 
   if (!replyDomain)
     throw refused('ses.inbound is missing from config.json; receiving is not enabled automatically');
   const env = localEnv(context);
-  const cli = new AwsCli(context.deps, { profile: ses.profile, region: ses.region });
+  const cli = new AwsCli(context.deps, profileTarget(ses));
   const { Account: account } = await cli.callAs(['sts', 'get-caller-identity'], callerSchema);
   context.report.line(
     `SES receiving profile ${ses.profile}, account ${account}, region ${ses.region}, reply domain ${replyDomain}`,

@@ -6,11 +6,22 @@ import { CloudError } from './errors';
  * The `aws` CLI v2 as the cloud commands use it (PM-534): always argv, never a shell, `--output json`, and the
  * profile and region from the configuration on every call. No AWS SDK. A secret never goes into `args`; the
  * only secrets that pass here come back on the standard output of `iam create-access-key`.
+ *
+ * Two ways to authenticate (PM-1197): a named profile of this computer (every command but one), or the ambient
+ * credentials of the environment (`runner-deploy` on a GitHub runner, where `configure-aws-credentials` has put
+ * the OIDC session into the environment); the ambient mode adds no `--profile`.
  */
 
+type AwsAuth = { kind: 'profile'; profile: string } | { kind: 'ambient' };
+
 interface AwsTarget {
-  profile: string;
+  auth: AwsAuth;
   region: string;
+}
+
+/** The target of a call made with a named profile. */
+export function profileTarget(target: { profile: string; region: string }): AwsTarget {
+  return { auth: { kind: 'profile', profile: target.profile }, region: target.region };
 }
 
 interface AwsCallOptions {
@@ -48,7 +59,15 @@ export class AwsCli {
 
   /** The argv of a call: the global options first, so the profile and the region are never forgotten. */
   argv(args: readonly string[]): string[] {
-    return ['--profile', this.target.profile, '--region', this.target.region, '--output', 'json', ...args];
+    const { auth, region } = this.target;
+    return [
+      ...(auth.kind === 'profile' ? ['--profile', auth.profile] : []),
+      '--region',
+      region,
+      '--output',
+      'json',
+      ...args,
+    ];
   }
 
   private async exec(args: readonly string[]): Promise<RunResult> {

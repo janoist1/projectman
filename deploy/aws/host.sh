@@ -9,6 +9,12 @@
 #   bootstrap                 install Docker, git, swap, the directories and the systemd unit (idempotent);
 #                             the unit file comes on the standard input
 #   receive-env               replace /etc/projectman/cloud.env with the standard input (root only, 600)
+#   env-check                 the machine's own cloud.env holds the four required names (the deploy from a GitHub
+#                             runner sends no cloud.env, PM-1197); prints the names, never a value; refused
+#                             (`env_missing`) otherwise
+#   prune-images              after a healthy deploy: remove the projectman-cloud images that deploy.json names
+#                             neither as current nor as previous, and the downloaded bundles; answers
+#                             {"removed":[<tags>],"kept":[<tags>]} (PM-1197)
 #   receive-image <sha40> <platform> <bytes> <sha256> <image-id> [<stage>]
 #                             verify/import one native Docker archive on stdin (or, with a <stage> that
 #                             stage-image made, from the stage); strict metadata JSON only
@@ -263,6 +269,44 @@ receive_env() {
   fi
   mv "$tmp" "$ENV_FILE"
   echo "cloud.env received"
+}
+
+# The names a board cannot start without (scripts/cloud/machine.ts checks the same four before it sends cloud.env).
+REQUIRED_ENV_NAMES=(LITESTREAM_BUCKET LITESTREAM_ACCESS_KEY_ID RESTIC_REPOSITORY RESTIC_PASSWORD)
+
+env_check() {
+  local name missing=""
+  [ -s "$ENV_FILE" ] || refuse "env_missing: $ENV_FILE is missing or empty"
+  for name in "${REQUIRED_ENV_NAMES[@]}"; do
+    grep -q "^${name}=." "$ENV_FILE" || missing="$missing $name"
+  done
+  [ -z "$missing" ] || refuse "env_missing: $ENV_FILE has no value for${missing}"
+  printf '%s\n' "${REQUIRED_ENV_NAMES[@]}"
+}
+
+# Keeps the images deploy.json names as current and previous (what a rollback needs) and removes the other
+# projectman-cloud:<sha> images and the downloaded bundles. Docker itself refuses to remove an image that a
+# container uses, which is the last guard; a failed removal is simply not listed.
+prune_images() {
+  local tag keep_text
+  local -a keep=() removed=()
+  [ -d "$STATE_DIR" ] || die "$STATE_DIR does not exist"
+  umask 077
+  exec 9>"$STATE_DIR/.image.lock"
+  flock -x 9
+  require_classic_docker_store
+  keep_text=$(read_deploy | jq -r '[.current.sha?, .previous.sha?] | map(select(. != null)) | .[]')
+  [ -n "$keep_text" ] || refuse "no deploy is recorded in deploy.json; nothing is pruned"
+  while IFS= read -r tag; do keep+=("$tag"); done <<<"$keep_text"
+  while IFS= read -r tag; do
+    [[ "$tag" =~ ^[0-9a-f]{40}$ ]] || continue
+    [[ " ${keep[*]} " == *" $tag "* ]] && continue
+    if docker rmi "$IMAGE_REPO:$tag" >/dev/null 2>&1; then removed+=("$tag"); fi
+  done < <(docker image ls "$IMAGE_REPO" --format '{{.Tag}}')
+  # The staged bundles and the half-written streams of earlier deploys.
+  rm -rf "$STAGE_ROOT"
+  rm -f "$STATE_DIR"/.image.??????
+  jq -n '{removed: $ARGS.positional, kept: ($keep | split(" "))}' --arg keep "${keep[*]}" --args ${removed[@]+"${removed[@]}"}
 }
 
 host_platform() {
@@ -560,9 +604,11 @@ main() {
   case "$subcommand" in
     bootstrap) bootstrap ;;
     receive-env) receive_env ;;
+    env-check) env_check ;;
     receive-image) receive_image "$@" ;;
     stage-image) stage_image "$@" ;;
     start) start "$@" ;;
+    prune-images) prune_images ;;
     stop) stop ;;
     status) status ;;
     logs) logs "$@" ;;
@@ -571,7 +617,7 @@ main() {
     send-data) send_data ;;
     guard-check) guard_check "$@" ;;
     public-check) public_check "$@" ;;
-    *) die "usage: host.sh bootstrap|receive-env|receive-image|stage-image|start|stop|status|logs|rehearse|seed-check|send-data|guard-check|public-check" ;;
+    *) die "usage: host.sh bootstrap|receive-env|env-check|receive-image|stage-image|start|prune-images|stop|status|logs|rehearse|seed-check|send-data|guard-check|public-check" ;;
   esac
 }
 

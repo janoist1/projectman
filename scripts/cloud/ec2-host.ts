@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import { AwsCli } from './aws-cli';
-import type { CloudContext } from './context';
+import { AwsCli, profileTarget } from './aws-cli';
+import type { HostAws, HostContext } from './context';
 import type { RunResult } from './deps';
 import { CloudError, CloudTransportError, refused } from './errors';
 import { createHostSession, READ_ONLY_SUBCOMMANDS, shellQuote } from './host';
@@ -73,12 +73,17 @@ export function ec2PublicKey(text: string): string {
   return `ssh-ed25519 ${encoded}`;
 }
 
-function checkTarget(context: CloudContext): void {
+/** How the machine's AWS calls authenticate: the named profile, or (only `runner-deploy`) the ambient credentials. */
+function awsTarget(aws: HostAws) {
+  return aws.ambient ? { auth: { kind: 'ambient' } as const, region: aws.region } : profileTarget(aws);
+}
+
+function checkTarget(context: HostContext): void {
   const { aws } = context.config;
   // ProxyCommand is interpreted by a shell and by OpenSSH's percent expansion. Refuse either syntax.
+  // The ambient mode has no profile: the runner's OIDC role is the only identity there is.
   if (
-    aws.profile === 'i' ||
-    !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/.test(aws.profile) ||
+    (!aws.ambient && (aws.profile === 'i' || !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/.test(aws.profile))) ||
     !/^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/.test(aws.region) ||
     aws.region.length > 63 ||
     !/^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/.test(aws.instanceName)
@@ -87,8 +92,8 @@ function checkTarget(context: CloudContext): void {
 }
 
 /** AWS transport errors deliberately omit raw output, including unsuccessful RunCommand responses. */
-function awsCall(context: CloudContext, signal?: AbortSignal) {
-  const cli = new AwsCli(context.deps, context.config.aws);
+function awsCall(context: HostContext, signal?: AbortSignal) {
+  const cli = new AwsCli(context.deps, awsTarget(context.config.aws));
   return async <S extends z.ZodType>(
     args: string[],
     schema: S,
@@ -125,7 +130,7 @@ function awsCall(context: CloudContext, signal?: AbortSignal) {
 }
 
 /** Name lookup also sees foreign and stopped namesakes; it must never silently choose one instance. */
-export async function readEc2HostInstance(context: CloudContext, signal?: AbortSignal) {
+export async function readEc2HostInstance(context: HostContext, signal?: AbortSignal) {
   checkTarget(context);
   const answer = (await awsCall(context, signal)(
     ['ec2', 'describe-instances', '--filters', `Name=tag:Name,Values=${context.config.aws.instanceName}`],
@@ -162,7 +167,7 @@ interface SsmRead<T> {
 }
 
 async function runSsmRead<T>(
-  context: CloudContext,
+  context: HostContext,
   instanceId: string,
   signal: AbortSignal,
   read: SsmRead<T>,
@@ -210,7 +215,7 @@ async function runSsmRead<T>(
   throw read.timedOut();
 }
 
-async function readHostKey(context: CloudContext, instanceId: string, signal: AbortSignal): Promise<string> {
+async function readHostKey(context: HostContext, instanceId: string, signal: AbortSignal): Promise<string> {
   return runSsmRead(context, instanceId, signal, {
     commands: [HOST_KEY_COMMAND],
     timeoutSeconds: 120,
@@ -316,7 +321,7 @@ function describeMeasurements(diagnostics: Ec2HostDiagnostics): string {
 
 /** One read of the diagnostics. Failures are transport errors; only a foreign target is final (no retry). */
 export async function readEc2HostDiagnostics(
-  context: CloudContext,
+  context: HostContext,
   instanceId: string,
   signal: AbortSignal,
   budgetMs = DIAGNOSTICS_BUDGET_MS,
@@ -351,7 +356,7 @@ export async function readEc2HostDiagnostics(
 
 /** Closes only this invocation's sessions; the random reason never carries a payload or credential. */
 async function closeSessions(
-  context: CloudContext,
+  context: HostContext,
   instanceId: string,
   reasons: ReadonlySet<string>,
 ): Promise<void> {
@@ -503,7 +508,7 @@ function classifySsh(result: RunResult, label: string, mutating: boolean): Cloud
  * passes in: never a state-changing command, never a stream.
  */
 async function boundedRetry<T>(
-  context: CloudContext,
+  context: HostContext,
   signal: AbortSignal,
   attempt: (timeoutMs: number) => Promise<T>,
   explain: (
@@ -545,7 +550,7 @@ function elapsedText(attempts: number, elapsedMs: number): string {
  * hint at). `auth_timeout` is claimed only when SSH rejected the key and the host's own journal shows EIC timeouts.
  */
 async function explainSshFailure(
-  context: CloudContext,
+  context: HostContext,
   instanceId: string,
   signal: AbortSignal,
   last: CloudTransportError,
@@ -599,7 +604,7 @@ async function explainSshFailure(
 
 /** The EC2 transport of a session: classification, the bounded read retry and the pre-mutation load check. */
 function createEc2Transport(
-  context: CloudContext,
+  context: HostContext,
   instanceId: string,
   signal: AbortSignal,
   sshArgs: () => Promise<string[]>,
@@ -681,7 +686,7 @@ function createEc2Transport(
 
 /** SSH encryption carries stdin/streams through SSM; RunCommand reads only the public host key. */
 export async function withEc2Host<T>(
-  context: CloudContext,
+  context: HostContext,
   fn: (session: HostSession) => Promise<T>,
 ): Promise<T> {
   checkTarget(context);
@@ -806,7 +811,7 @@ export async function withEc2Host<T>(
       if (!published.Success) throw refused('EC2 Instance Connect rejected the temporary public key');
       const reason = `projectman-cloud-${randomUUID()}`;
       reasons.add(reason);
-      const proxyArgs = new AwsCli(deps, context.config.aws).argv([
+      const proxyArgs = new AwsCli(deps, awsTarget(context.config.aws)).argv([
         '--no-cli-pager',
         '--no-cli-auto-prompt',
         'ssm',

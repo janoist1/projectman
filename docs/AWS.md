@@ -271,6 +271,10 @@ resource guide below. The `i` login needs only the registrar/Route 53 rights for
 DNS reads; it receives no EC2, S3 or host IAM call. SES provisioning uses `ses.profile` (PM-729), which
 may be `i`, and only its SES and narrow-user IAM calls.
 
+`github-deploy-setup` (PM-1197, "Deploy role for GitHub Actions" below) needs, on top of the above, in the
+central profile only: `sts:GetCallerIdentity`, IAM `GetOpenIDConnectProvider`, `CreateOpenIDConnectProvider`,
+`GetRole`, `CreateRole`, `UpdateAssumeRolePolicy`, `GetRolePolicy` and `PutRolePolicy`.
+
 ## EC2 host operation through SSM (PM-677)
 
 All host commands (`deploy`, `rollback`, `status`, `logs`, `stop`, `start`, `rehearse`,
@@ -399,6 +403,57 @@ outbound connectivity/agent through the approved EC2 recovery procedure instead.
 
 This is the owner's central-server administration connection, independent of the Mac engine link.
 The engine receives no AWS login, new RPC, host private key or cloud-admin payload.
+
+## Deploy role for GitHub Actions (PM-1197, part of PM-1193)
+
+The cloud deploy also runs in a GitHub Actions job (`.github/workflows/projectman-deploy.yml`, started with
+`run_compute_job job=cloud-deploy commit=<SHA40>`, see docs/DEPLOY.md "Deploy from GitHub Actions"). The job has no
+AWS key, no AWS profile on any Mac and no `cloud.env`: GitHub's OIDC token is exchanged for a session of one IAM role.
+
+**The role** `projectman-cloud-deploy` (in the central account) is made by `npm run cloud -- github-deploy-setup`:
+
+- **Trust.** `sts:AssumeRoleWithWebIdentity` for the IAM OIDC provider `token.actions.githubusercontent.com`
+  (client id `sts.amazonaws.com`), under two exact conditions: `aud` = `sts.amazonaws.com` and `sub` =
+  `repo:<owner>/<name>:environment:cloud-production`. So only a job of this repository that runs in the
+  `cloud-production` environment can assume it, and that environment accepts the default branch only. A job on
+  another branch, in a fork or without the environment gets no session.
+- **Session.** At most one hour (`MaxSessionDuration` 3600; the workflow asks for 3600 s). Setup refuses an existing
+  role that allows longer.
+- **Policy** (inline, same name): exactly the caller rights of "EC2 host operation through SSM", and nothing else:
+  `ec2:DescribeInstances`, `ssm:DescribeInstanceInformation`, `ssm:GetCommandInvocation`, `ssm:DescribeSessions` (lookups
+  AWS cannot scope; resource `*`, read only); `ec2-instance-connect:SendSSHPublicKey` on the one instance with
+  `ec2:osuser=ubuntu`; `ssm:SendCommand` on the one instance and the `AWS-RunShellScript` document; `ssm:StartSession`
+  on the one instance and the `AWS-StartSSHSession` document; `ssmmessages:OpenDataChannel` on
+  `session/${aws:userid}-*`; `ssm:TerminateSession` on `*` only under the AWS tag conditions
+  `aws:ssmmessages:session-id` = `${aws:userid}*` (an assumed role's own sessions) and `aws:ssmmessages:target-id` = the
+  one instance. No IAM, no S3, no other machine, no secret.
+
+**The GitHub side** is made by the same command: the environment `cloud-production` limited to the default branch, and
+three environment **variables** (not secrets): `PROJECTMAN_DEPLOY_ROLE_ARN`, `PROJECTMAN_AWS_REGION`,
+`PROJECTMAN_INSTANCE_NAME`. The workflow reads them with `vars.*`; none of them is secret.
+
+**`github-deploy-setup [--dry-run]`** runs on the owner's computer with the central profile and the owner's `gh` login
+(`gh` needs admin rights on the repository to write environments). Every step first reads and writes only what is
+missing or different, so it is safe to repeat; a second run changes nothing. `--dry-run` reads only and prints what it
+would do. **It changes the live AWS account and the repository, so it is a production change: the integrator runs it
+once, after the owner's yes (PM-1193 F).**
+
+**`runner-deploy`** is the command the job runs (`npm run cloud -- runner-deploy --ref <SHA40> --repository <owner>/<name>
+--region <region> --instance <name> --out <report.json>`). It needs no `config.json`, no profile and no `cloud.env`:
+
+- AWS calls use the ambient credentials `configure-aws-credentials` put into the environment (the argument vector has no
+  `--profile`), and the connection is the same SSH through SSM with an ephemeral key.
+- The image always comes from the GitHub run of the commit (the machine downloads and verifies it, "The machine downloads
+  the artifact itself"); the commit must be on the default branch and the run must belong to `--repository`.
+- The machine keeps the `cloud.env` it has. The job never sends one: `env-check` runs first on the machine and
+  answers only the names, and a missing or incomplete file stops everything with `env_missing` before anything
+  starts (exit 2). The four required names are `LITESTREAM_BUCKET`, `LITESTREAM_ACCESS_KEY_ID`, `RESTIC_REPOSITORY`
+  and `RESTIC_PASSWORD`. The first deploy of a new machine therefore still needs `deploy` from the owner's computer.
+- Then the usual `bootstrap`, `receive-image`, `start`, health check and, after a healthy start, `prune-images`; on an
+  unhealthy start the existing rollback runs.
+- The report `deploy/report.json` is `{commit, image, previous, healthy, rolledBack, finishedAt, pruned}`; it is
+  written on every outcome after the image was found. The command fails (exit 1) when the board is not healthy, also
+  after a successful rollback (`rolledBack: true`), so the job is red and the devops sees what happened.
 
 ## Common backup/Cloudflare guide (PM-532)
 
@@ -620,12 +675,17 @@ the systemd unit `projectman-cloud.service`.
    daemon needs no restart. Repeated bootstrap is safe.
    It also installs git, turns on unattended upgrades, makes a 2 GB swap file, and installs the unit file.
 4. **`receive-image`** imports the bundle's archive of the commit (see "Prebuilt ARM images"); the
-   machine never builds an image. Old images beyond the current and the previous one are removed.
+   machine never builds an image.
 5. **`start`** writes `/etc/projectman/image.env` (`IMAGE=projectman-cloud:<sha>`) and
    `/var/lib/projectman/deploy.json` (`current`, `previous`, `lastStoppedAt`), then restarts the unit.
 6. **Health.** The command polls the container's health check every 5 s for 180 s. If it never
    becomes healthy, it prints the last 200 log lines and, when there is an earlier image, starts it
    again (and exits 1 either way).
+7. **`prune-images`** (PM-1197), only after a healthy deploy: the machine removes every
+   `projectman-cloud:<sha>` image except the two `deploy.json` names as `current` and `previous` (what a
+   rollback needs), and the downloaded bundles and half-written streams. Docker itself refuses to remove an
+   image a container uses. A failed cleanup is a printed note, never a failed deploy. After a rollback nothing is
+   removed.
 
 An older build refuses a database a newer build has migrated. Therefore every `deploy` that has to
 go back, and every `rollback`, prints when the board last stopped before the update

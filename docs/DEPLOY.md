@@ -73,6 +73,25 @@ engine's `engine.json`, in the `computeJobs` of the repository entry (`repos[].c
 ]
 ```
 
+A registration may also name a **dedicated workflow** with the optional `workflow` field (PM-1196): one of
+`projectman-deploy.yml` or `projectman-engine-release.yml`, a fixed list in `DEDICATED_COMPUTE_JOB_WORKFLOWS`. A
+dedicated workflow has its own environment and rights (an AWS OIDC role, `contents: write`), which the general
+workflow, that runs any command, never gets. Without the field the general `projectman-job.yml` runs, so older
+registrations stay valid. The engine starts a dedicated workflow only for a job registered with exactly that
+workflow (and every other value as above): a different workflow is `command_not_allowed`, one off the list
+`invalid_params`; an older engine refuses a dedicated job with `invalid_params` and the link stays up. The dedicated
+workflow takes the same inputs, run title, `projectman-job output ...` lines and `projectman-job-<run_id>` artifact.
+
+```json
+{
+  "id": "cloud-deploy",
+  "workflow": "projectman-deploy.yml",
+  "runsOn": "ubuntu-24.04",
+  "outputs": ["deploy.json"],
+  "command": "..."
+}
+```
+
 Start it for a commit of the default branch (the workflow runs only those) either with the team tool,
 `run_compute_job job=engine-app commit=<SHA40>`, or by hand with the `gh workflow run` line that
 `engine-app fetch` prints when it finds no run. Then, on the Mac the app goes to:

@@ -1377,6 +1377,70 @@ describe('engine local limit', () => {
       await refused(limit, 'full_test.run', job({ requireHeavyLock: true }), 'invalid_params');
     });
 
+    it('runs a dedicated workflow only for a job registered with exactly that workflow (PM-1196)', async () => {
+      const registered = {
+        id: 'cloud-deploy',
+        command: 'npm run deploy',
+        runsOn: 'ubuntu-24.04' as const,
+        outputs: ['deploy.json'],
+        timeoutMinutes: 30,
+      };
+      const githubJob = {
+        ref: { projectKey: 'PM', repo: 'projectman' },
+        repo: 'owner/projectman',
+        base: 'main',
+        workflow: 'projectman-deploy.yml',
+        job: 'cloud-deploy',
+        commit: 'a'.repeat(40),
+        command: registered.command,
+        runsOn: registered.runsOn,
+        outputs: registered.outputs,
+        timeoutMinutes: 30,
+      };
+      const job = (change: Record<string, unknown> = {}) =>
+        fullTest({
+          cwd: 'github-job:owner/projectman',
+          command: githubJob.command,
+          githubJob: { ...githubJob, ...change },
+        });
+      const limitWith = (computeJobs: object[]) =>
+        make({
+          repos: [
+            {
+              project: 'PM',
+              repo: 'projectman',
+              path: repo,
+              fullTestCommand: 'npm test',
+              mergeBranch: 'main',
+              workspaceSetup: null,
+              computeJobs: computeJobs as never,
+            },
+          ],
+        });
+      const dedicated = limitWith([{ ...registered, workflow: 'projectman-deploy.yml' }]);
+      await expect(dedicated.check('full_test.run', job() as never)).resolves.toBeDefined();
+      // The registered workflow must match: the general one, another dedicated one, or one off the list.
+      await refused(
+        dedicated,
+        'full_test.run',
+        job({ workflow: 'projectman-job.yml' }),
+        'command_not_allowed',
+      );
+      await refused(
+        dedicated,
+        'full_test.run',
+        job({ workflow: 'projectman-engine-release.yml' }),
+        'command_not_allowed',
+      );
+      await refused(dedicated, 'full_test.run', job({ workflow: 'other.yml' }), 'invalid_params');
+      // A job registered without a workflow is the general one: it never gets a dedicated workflow.
+      const general = limitWith([registered]);
+      await refused(general, 'full_test.run', job(), 'command_not_allowed');
+      await expect(
+        general.check('full_test.run', job({ workflow: 'projectman-job.yml' }) as never),
+      ).resolves.toBeDefined();
+    });
+
     it('keeps the engine’s key and configuration out of the test and screenshot sandboxes', async () => {
       const limit = make({ linkHeadersFile: path.join(base, 'keys', 'headers.json') });
       type Denials = { spec: { sandbox: { denyRead: string[]; denyWrite?: string[] } } };

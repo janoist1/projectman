@@ -2959,6 +2959,11 @@ assumption or remote-engine RPC.
   filtered PATH answer that).
   Heavy machine work (the first one is the cloud image build) runs on a GitHub-hosted runner through one general
   workflow, started by hand with `gh workflow run`, so the owner's Mac needs no Docker Desktop (its 8 GB VM).
+  **Dedicated workflows (PM-1196):** a registered job may carry `workflow`, one of
+  `DEDICATED_COMPUTE_JOB_WORKFLOWS` (`projectman-deploy.yml`, `projectman-engine-release.yml`), and then runs that
+  workflow (own environment and rights) instead of the general one; the engine's `full_test.run` guard requires the
+  registration's workflow to equal the request's. The dispatch still runs on the engine with its own `gh` login, so
+  nothing new is tied to a machine and it works on a remote engine.
   **What runs where:** the runner is one of `ubuntu-24.04`, `ubuntu-24.04-arm` or `macos-15` (the cloud image
   uses `ubuntu-24.04-arm`); it checks out one commit, runs the declared shell command, attests the declared
   output files (`actions/attest-build-provenance`) and uploads them as the artifact `projectman-job-<run_id>`

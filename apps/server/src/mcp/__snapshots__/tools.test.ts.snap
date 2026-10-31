@@ -2782,6 +2782,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                                         "minimum": 1,
                                         "type": "integer",
                                       },
+                                      "workflow": {
+                                        "enum": [
+                                          "projectman-deploy.yml",
+                                          "projectman-engine-release.yml",
+                                        ],
+                                        "type": "string",
+                                      },
                                     },
                                     "required": [
                                       "id",

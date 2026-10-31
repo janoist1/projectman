@@ -39,6 +39,10 @@ import {
   MachineView,
   StopOrphansResult,
   AttachmentListResponse,
+  DeleteDocumentResponse,
+  DocumentDetail,
+  DocumentHistoryResponse,
+  DocumentListResponse,
   BoardMoveResult,
   ChangeTaskLabelsRequest,
   DeleteAttachmentResponse,
@@ -82,6 +86,9 @@ import {
   InvolvementsResponse,
 } from '@projectman/shared';
 import type {
+  CreateDocumentRequest,
+  RestoreDocumentRequest,
+  UpdateDocumentRequest,
   CreateOwnerInviteRequest,
   AnswerHostRequestRequest,
   SetChecklistItemStateRequest,
@@ -304,6 +311,26 @@ export const api = {
       method: 'DELETE',
       schema: DeleteAttachmentResponse,
     }),
+
+  documents: (key: string) => apiRequest(routes.documents(key), { schema: DocumentListResponse }),
+  /** `version`: an older commit of the document (its history). */
+  document: (key: string, slug: string, version?: string) =>
+    apiRequest(`${routes.document(key, slug)}${version ? `?version=${encodeURIComponent(version)}` : ''}`, {
+      schema: DocumentDetail,
+    }),
+  createDocument: (key: string, body: CreateDocumentRequest) =>
+    apiRequest(routes.documents(key), { method: 'POST', body, schema: DocumentDetail }),
+  updateDocument: (key: string, slug: string, body: UpdateDocumentRequest) =>
+    apiRequest(routes.document(key, slug), { method: 'PATCH', body, schema: DocumentDetail }),
+  deleteDocument: (key: string, slug: string, baseVersion: string) =>
+    apiRequest(`${routes.document(key, slug)}?baseVersion=${encodeURIComponent(baseVersion)}`, {
+      method: 'DELETE',
+      schema: DeleteDocumentResponse,
+    }),
+  documentHistory: (key: string, slug: string) =>
+    apiRequest(routes.documentHistory(key, slug), { schema: DocumentHistoryResponse }),
+  restoreDocument: (key: string, slug: string, body: RestoreDocumentRequest) =>
+    apiRequest(routes.documentRestore(key, slug), { method: 'POST', body, schema: DocumentDetail }),
 
   roles: (key: string) => apiRequest(routes.roles(key), { schema: RolesView }),
   createRole: (key: string, body: CustomRoleRequest) =>

@@ -1,6 +1,9 @@
 import clsx from 'clsx';
 import { memo } from 'react';
 import type { ReactNode } from 'react';
+import { documentOutline } from '@projectman/shared';
+import type { DocumentHeading } from '@projectman/shared';
+import { Icon } from './Icon';
 import styles from './Markdown.module.css';
 
 /**
@@ -21,10 +24,14 @@ function parseBlocks(source: string): Block[] {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i]!;
-    if (/^```/.test(line)) {
+    // A fence opens with ``` or ~~~ and closes with the same character, at least as long (as `documentOutline` reads it).
+    const fence = /^(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
       const code: string[] = [];
       i += 1;
-      while (i < lines.length && !/^```/.test(lines[i]!)) {
+      while (i < lines.length) {
+        const closing = /^(`{3,}|~{3,})/.exec(lines[i]!)?.[1];
+        if (closing && closing[0] === fence[0] && closing.length >= fence.length) break;
         code.push(lines[i]!);
         i += 1;
       }
@@ -56,7 +63,7 @@ function parseBlocks(source: string): Block[] {
     while (
       i < lines.length &&
       lines[i]!.trim() !== '' &&
-      !/^```/.test(lines[i]!) &&
+      !/^(`{3,}|~{3,})/.test(lines[i]!) &&
       !/^#{1,4}\s/.test(lines[i]!) &&
       !/^\s*([-*•]|\d+[.)])\s+/.test(lines[i]!)
     ) {
@@ -146,18 +153,32 @@ export function InlineMarkdown({ text }: { text: string }) {
   return <>{withBreaks(text, 'i')}</>;
 }
 
+/**
+ * A document's headings (PM-150): real heading elements with the anchor `documentOutline` gives, so a link means
+ * the same section the AI reads; `#` is an h2 (the page's title is the h1). Only the documents page asks for it.
+ */
+export interface HeadingLinks {
+  /** The accessible name of the button that copies a heading's reference. */
+  copyLabel: (heading: DocumentHeading) => string;
+  onCopy: (heading: DocumentHeading) => void;
+}
+
 /** Memoized: a long chat re-renders on every live event, and its unchanged texts need no new parse (PM-1116). */
 export const Markdown = memo(function Markdown({
   text,
   className,
   cardKey,
+  headingLinks,
 }: {
   text: string;
   className?: string;
   /** Renders each card key (like `PM-372`) found in the plain text, e.g. as a link. */
   cardKey?: CardKeyRenderer;
+  headingLinks?: HeadingLinks;
 }) {
   const blocks = parseBlocks(text);
+  const outline = headingLinks ? documentOutline(text) : [];
+  let headingIndex = 0;
   return (
     <div className={clsx(styles.markdown, className)}>
       {blocks.map((block, i) => {
@@ -169,12 +190,30 @@ export const Markdown = memo(function Markdown({
                 <code>{block.text}</code>
               </pre>
             );
-          case 'heading':
+          case 'heading': {
+            const anchored = headingLinks ? outline[headingIndex++] : undefined;
+            if (headingLinks && anchored) {
+              const Tag = `h${Math.min(anchored.level + 1, 5)}` as 'h2' | 'h3' | 'h4' | 'h5';
+              return (
+                <Tag key={key} id={anchored.anchor} tabIndex={-1} className={styles.anchoredHeading}>
+                  {renderInline(block.text, key, cardKey)}
+                  <button
+                    type="button"
+                    className={styles.headingLink}
+                    aria-label={headingLinks.copyLabel(anchored)}
+                    onClick={() => headingLinks.onCopy(anchored)}
+                  >
+                    <Icon name="link" size={15} strokeWidth={2} />
+                  </button>
+                </Tag>
+              );
+            }
             return (
               <p key={key} className={styles.heading}>
                 {renderInline(block.text, key, cardKey)}
               </p>
             );
+          }
           case 'list': {
             const items = block.items.map((item, j) => {
               const task = !block.ordered ? /^\[([ xX])\]\s+(.*)$/.exec(item) : null;

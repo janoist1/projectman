@@ -448,6 +448,12 @@ modules:
     summary: A motorok és a gépek állapotának nézete.
     paths:
       - apps/web/src/features/engines/
+  - id: web/documents
+    area: ui
+    name: Dokumentumok
+    summary: A projekt élő dokumentumainak oldala, szerkesztővel és előzményekkel.
+    paths:
+      - apps/web/src/features/documents/
   - id: web/feedback
     area: ui
     name: Visszajelzések

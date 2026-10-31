@@ -86,6 +86,7 @@ export function AccountMenu({
   notificationsPath = null,
   howWeWorkPath = null,
   feedback = null,
+  documentsPath = null,
   placement = 'right',
   onPause,
 }: {
@@ -96,6 +97,8 @@ export function AccountMenu({
   howWeWorkPath?: string | null;
   /** The feedback marks (PM-511): like the "how we work" page, only the phone's menu has it; `badge` is what is owed. */
   feedback?: { to: string; badge: number } | null;
+  /** The project's documents (PM-150): the phone's menu has it (the rail has an item); a client has none. */
+  documentsPath?: string | null;
   placement?: 'right' | 'below';
   /** Pause the team (PM-220): in this menu at every width; the top bar has the button on wide windows too. */
   onPause?: (() => void) | undefined;
@@ -189,6 +192,12 @@ export function AccountMenu({
             <Link to={notificationsPath} className={styles.item} onClick={() => setOpen(false)}>
               <Icon name="bell" size={16} />
               <span className={styles.itemText}>{t('nav.notifications')}</span>
+            </Link>
+          ) : null}
+          {documentsPath ? (
+            <Link to={documentsPath} className={styles.item} onClick={() => setOpen(false)}>
+              <Icon name="doc" size={16} />
+              <span className={styles.itemText}>{t('nav.documents')}</span>
             </Link>
           ) : null}
           {feedback ? (

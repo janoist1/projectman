@@ -190,7 +190,7 @@ export function parseDocumentRef(ref: string): { slug: string; section?: string 
 }
 
 /** A change's short message: one line. */
-export const DocumentCommitMessage = z
+const DocumentCommitMessage = z
   .string()
   .trim()
   .min(1)

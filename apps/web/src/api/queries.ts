@@ -8,6 +8,9 @@ import {
 import type { QueryClient } from '@tanstack/react-query';
 import { SESSION_CHAT_WINDOW } from '@projectman/shared';
 import type {
+  CreateDocumentRequest,
+  RestoreDocumentRequest,
+  UpdateDocumentRequest,
   Task,
   CreateOwnerInviteRequest,
   CreatedOwnerInvitation,
@@ -1441,4 +1444,59 @@ export function useUnreadTeamMessages(key: string, enabled: boolean) {
     queryFn: () => api.teamMessages(key, undefined, true),
     enabled,
   });
+}
+
+/* ---------- documents (PM-150) ---------- */
+
+export function useDocuments(key: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.documents(key),
+    queryFn: () => api.documents(key),
+    enabled,
+    retry: retryUnlessRefused,
+  });
+}
+
+/** One document; `version`: an older commit of it. A gone document (404) is final. */
+export function useDocument(key: string, slug: string, version?: string) {
+  return useQuery({
+    queryKey: queryKeys.document(key, slug, version),
+    queryFn: () => api.document(key, slug, version),
+    enabled: Boolean(slug),
+    retry: retryUnlessRefused,
+  });
+}
+
+export function useDocumentHistory(key: string, slug: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.documentHistory(key, slug),
+    queryFn: () => api.documentHistory(key, slug),
+    enabled: enabled && Boolean(slug),
+    retry: retryUnlessRefused,
+  });
+}
+
+/** A write changes the list, the document and its history: the live event would do it too, this is the quick path. */
+function useDocumentMutation<T, V>(key: string, run: (variables: V) => Promise<T>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.documents(key) }),
+  });
+}
+
+export function useCreateDocument(key: string) {
+  return useDocumentMutation(key, (body: CreateDocumentRequest) => api.createDocument(key, body));
+}
+
+export function useUpdateDocument(key: string, slug: string) {
+  return useDocumentMutation(key, (body: UpdateDocumentRequest) => api.updateDocument(key, slug, body));
+}
+
+export function useRestoreDocument(key: string, slug: string) {
+  return useDocumentMutation(key, (body: RestoreDocumentRequest) => api.restoreDocument(key, slug, body));
+}
+
+export function useDeleteDocument(key: string, slug: string) {
+  return useDocumentMutation(key, (baseVersion: string) => api.deleteDocument(key, slug, baseVersion));
 }

@@ -18,6 +18,13 @@
   font-size: var(--text-sm);
 }
 
+/* A save that did not go through: the warning tone of the app's "needs you" states, not the neutral info bar. */
+.barAlert {
+  border-color: var(--c-needs-border);
+  background: var(--c-needs-bg);
+  color: var(--c-needs-strong);
+}
+
 .barActions {
   margin-left: auto;
   display: inline-flex;
@@ -81,4 +88,21 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* On a phone the editor is tall: the buttons stay above the tab bar. */
+@media (max-width: 767px) {
+  .actions {
+    position: sticky;
+    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom));
+    z-index: 2;
+    margin: 0 -14px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--c-line);
+    background: var(--c-page);
+  }
+
+  .actions > * {
+    flex: 1;
+  }
 }

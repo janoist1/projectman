@@ -100,13 +100,15 @@ export const en = {
       copied: 'Document ID copied',
     },
     toc: {
+      label: 'Contents',
       count: 'Contents ({count})',
     },
     section: {
       copy: 'Copy link: {title}',
       copied: 'Link copied: {ref}',
       copyFailed: 'Couldn’t copy',
-      missing: 'The “{section}” section isn’t in the document, so you’re seeing the top.',
+      missingTitle: 'There’s no “{section}” section in this document.',
+      missingBody: 'Its title may have been changed since. Showing the start of the document.',
     },
     editor: {
       newTitle: 'New document',
@@ -129,8 +131,8 @@ export const en = {
       discardConfirm: 'Discard',
     },
     conflict: {
-      title: 'Someone else changed this document in the meantime.',
-      body: 'Your text isn’t lost: copy it, or load the latest version.',
+      title: 'Not saved: someone else changed this document in the meantime.',
+      body: 'Your text is still here. Load the latest version; yours stays beside it so you can carry your changes over.',
       copy: 'Copy my text',
       copied: 'The text is on the clipboard',
       reload: 'Load the latest version',
@@ -146,6 +148,11 @@ export const en = {
       viewAt: 'View the version from {time}',
       viewing: 'Viewing this',
       renamed: 'Renamed: {title}',
+      created: 'Created',
+      updated: 'Updated',
+      renamedChange: 'Renamed',
+      deleted: 'Deleted',
+      restoredChange: 'Restored an earlier version',
     },
     version: {
       banner: 'You’re viewing an older version ({time}, {name}).',

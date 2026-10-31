@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useEffect, useState } from 'react';
 import { MAX_DOCUMENT_BYTES, MAX_DOCUMENT_TITLE_LENGTH } from '@projectman/shared';
 import type { DocumentDetail } from '@projectman/shared';
@@ -137,12 +138,12 @@ export function DocumentEditor({ slug, initial, latestVersion, gone, onSaved, on
       }}
     >
       {gone ? (
-        <p className={styles.bar} role="alert">
+        <p className={clsx(styles.bar, styles.barAlert)} role="alert">
           {t('documents.gone')}
         </p>
       ) : null}
       {conflict ? (
-        <div className={styles.bar} role="alert">
+        <div className={clsx(styles.bar, styles.barAlert)} role="alert">
           <strong>{t('documents.conflict.title')}</strong>
           <span>{t('documents.conflict.body')}</span>
           <span className={styles.barActions}>

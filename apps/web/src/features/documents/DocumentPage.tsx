@@ -117,6 +117,24 @@ export function DocumentPage() {
     window.history.replaceState(null, '', `${location.pathname}${location.search}#${heading.anchor}`);
   };
 
+  const tocList = (
+    <ul className={styles.tocList}>
+      {outline.map((heading) => (
+        <li key={heading.anchor} style={{ paddingLeft: `${(heading.level - 1) * 14}px` }}>
+          <a
+            href={`#${heading.anchor}`}
+            onClick={(event) => {
+              event.preventDefault();
+              jumpTo(heading);
+            }}
+          >
+            {heading.text}
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+
   const copySlug = async () => {
     try {
       await navigator.clipboard.writeText(slug);
@@ -290,38 +308,37 @@ export function DocumentPage() {
 
       {missingSection ? (
         <div className={styles.banner} role="status">
-          <span>{t('documents.section.missing', { section: missingSection })}</span>
+          <span className={styles.bannerText}>
+            <strong>{t('documents.section.missingTitle', { section: missingSection })}</strong>
+            <span>{t('documents.section.missingBody')}</span>
+          </span>
           <Button size="sm" variant="ghost" onClick={() => setMissingSection(null)}>
             {t('common.close')}
           </Button>
         </div>
       ) : null}
 
-      {outline.length >= 3 ? (
-        <Fold summary={t('documents.toc.count', { count: outline.length })} className={styles.toc}>
-          <ul className={styles.tocList}>
-            {outline.map((heading) => (
-              <li key={heading.anchor} style={{ paddingLeft: `${(heading.level - 1) * 14}px` }}>
-                <a
-                  href={`#${heading.anchor}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    jumpTo(heading);
-                  }}
-                >
-                  {heading.text}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </Fold>
-      ) : null}
+      <div className={styles.layout}>
+        <div className={styles.main}>
+          {outline.length >= 3 ? (
+            <Fold summary={t('documents.toc.count', { count: outline.length })} className={styles.tocFold}>
+              {tocList}
+            </Fold>
+          ) : null}
 
-      {detail.content.trim() ? (
-        <Markdown text={detail.content} className={styles.body} headingLinks={headingLinks} />
-      ) : (
-        <p className={styles.emptyContent}>{t('documents.emptyContent')}</p>
-      )}
+          {detail.content.trim() ? (
+            <Markdown text={detail.content} className={styles.body} headingLinks={headingLinks} />
+          ) : (
+            <p className={styles.emptyContent}>{t('documents.emptyContent')}</p>
+          )}
+        </div>
+        {outline.length >= 3 ? (
+          <nav className={styles.tocSide} aria-label={t('documents.toc.label')}>
+            <h2 className={styles.tocTitle}>{t('documents.toc.label')}</h2>
+            {tocList}
+          </nav>
+        ) : null}
+      </div>
 
       {historyOpen ? (
         <HistoryDrawer

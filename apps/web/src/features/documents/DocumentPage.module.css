@@ -78,8 +78,41 @@
   gap: 8px;
 }
 
-.toc {
+.bannerText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.layout {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.tocFold {
   align-self: stretch;
+}
+
+/* From 1200 px the contents sit in a sticky column to the right of the reading column. */
+.tocSide {
+  display: none;
+}
+
+.tocTitle {
+  margin: 0 0 8px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-ink-4);
 }
 
 .tocList {
@@ -94,6 +127,34 @@
 
 .body {
   padding-top: 4px;
+  max-width: 720px;
+  font-size: var(--text-lg);
+  line-height: 1.65;
+}
+
+@media (min-width: 1200px) {
+  .page {
+    max-width: 1040px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 720px) 240px;
+    gap: 32px;
+    align-items: start;
+  }
+
+  .tocFold {
+    display: none;
+  }
+
+  .tocSide {
+    display: block;
+    position: sticky;
+    top: 80px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+  }
 }
 
 .emptyContent {

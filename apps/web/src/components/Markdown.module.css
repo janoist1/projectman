@@ -37,7 +37,25 @@
   background: var(--c-accent-bg);
 }
 
+/* The level shows in the size: # is the page title, so ## is the largest here. */
+h2.anchoredHeading {
+  margin-top: 22px;
+  font-size: var(--text-2xl);
+}
+
+h3.anchoredHeading {
+  margin-top: 16px;
+  font-size: var(--text-xl);
+}
+
+h5.anchoredHeading {
+  font-weight: 700;
+}
+
 .headingLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-left: 6px;
   padding: 2px;
   border: 0;
@@ -51,6 +69,16 @@
 .anchoredHeading:hover .headingLink,
 .headingLink:focus-visible {
   opacity: 1;
+}
+
+/* On a phone the chain is a 40 px target; the negative margin keeps the heading's line height. */
+@media (max-width: 767px) {
+  .headingLink {
+    min-width: 40px;
+    min-height: 40px;
+    margin-top: -12px;
+    margin-bottom: -12px;
+  }
 }
 
 .inlineCode {

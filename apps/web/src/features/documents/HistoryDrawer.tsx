@@ -5,6 +5,7 @@ import { Button } from '../../components/Button';
 import { ErrorState, LoadingState } from '../../components/States';
 import { formatStamp } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { changeMessage } from './changeMessage';
 import styles from './HistoryDrawer.module.css';
 
 interface Props {
@@ -66,7 +67,7 @@ export function HistoryDrawer({ slug, currentVersion, viewingVersion, onView, on
                   <span className={styles.current}>{t('documents.history.current')}</span>
                 ) : null}
               </div>
-              <p className={styles.message}>{version.message}</p>
+              <p className={styles.message}>{changeMessage(version, slug)}</p>
               {renamed ? (
                 <p className={styles.renamed}>{t('documents.history.renamed', { title: version.title })}</p>
               ) : null}

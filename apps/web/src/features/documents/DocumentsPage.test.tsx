@@ -204,7 +204,7 @@ describe('reading a document', () => {
   it('shows the top and says so when the section is gone', async () => {
     const { p, slug } = seeded();
     p.render(<Pages />, `/p/AC/docs/${slug}#nincs-ilyen`);
-    const note = await screen.findByText(t('documents.section.missing', { section: 'nincs-ilyen' }));
+    const note = await screen.findByText(t('documents.section.missingTitle', { section: 'nincs-ilyen' }));
     expect(note.closest('[role="status"]')).toBeTruthy();
   });
 
@@ -232,6 +232,9 @@ describe('the history', () => {
     fireEvent.click(screen.getByRole('button', { name: t('documents.history.title') }));
     const drawer = await screen.findByRole('complementary', { name: t('documents.history.title') });
     expect(await within(drawer).findByText(t('documents.history.current'))).toBeTruthy();
+    // The store's English default messages show in the UI language.
+    expect(within(drawer).getByText(t('documents.history.created'))).toBeTruthy();
+    expect(within(drawer).getByText(t('documents.history.updated'))).toBeTruthy();
     fireEvent.click(
       within(drawer).getAllByRole('button', { name: /Változat megnézése|View the version/ })[0]!,
     );

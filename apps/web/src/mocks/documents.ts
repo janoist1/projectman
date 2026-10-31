@@ -90,7 +90,7 @@ export class MockDocuments {
       this.commit(
         input.title,
         input.content,
-        `Update ${input.title}`,
+        versions.length === 0 ? `Create ${slug}` : `Update ${slug}`,
         this.authorOf(input.by ?? this.host.viewerHandle()),
         input.ageMinutes ?? 0,
       ),
@@ -104,7 +104,7 @@ export class MockDocuments {
     const versions = this.documents.get(slug);
     const last = versions?.at(-1);
     if (!versions || !last) return;
-    versions.push(this.commit(last.title, content, `Update ${last.title}`, this.authorOf(by), 0));
+    versions.push(this.commit(last.title, content, `Update ${slug}`, this.authorOf(by), 0));
     this.host.emit({ type: 'documents_changed', projectKey: this.host.config().project.key, slug });
   }
 
@@ -240,7 +240,7 @@ export class MockDocuments {
     const made = this.commit(
       parsed.data.title,
       parsed.data.content,
-      parsed.data.message ?? `Add ${parsed.data.title}`,
+      parsed.data.message ?? `Create ${slug}`,
       this.authorOf(viewer.handle),
     );
     this.documents.set(slug, [made]);
@@ -262,7 +262,8 @@ export class MockDocuments {
     const made = this.commit(
       title,
       content,
-      parsed.data.message ?? `Update ${title}`,
+      parsed.data.message ??
+        `${title !== last.title && content === last.content ? 'Rename' : 'Update'} ${slug}`,
       this.authorOf(viewer.handle),
     );
     this.documents.get(slug)!.push(made);
@@ -282,7 +283,7 @@ export class MockDocuments {
     const made = this.commit(
       old.title,
       old.content,
-      `Restore ${old.title} to ${old.version.slice(0, 7)}`,
+      `Restore ${slug} to ${old.version.slice(0, 12)}`,
       this.authorOf(viewer.handle),
     );
     this.documents.get(slug)!.push(made);
@@ -299,7 +300,7 @@ export class MockDocuments {
       );
     const last = this.base(slug, baseVersion);
     if ('status' in last) return last;
-    const made = this.commit(last.title, '', `Delete ${last.title}`, this.authorOf(viewer.handle), 0, true);
+    const made = this.commit(last.title, '', `Delete ${slug}`, this.authorOf(viewer.handle), 0, true);
     this.documents.get(slug)!.push(made);
     this.changed(slug);
     return ok({ slug, deleted: true, version: made.version });

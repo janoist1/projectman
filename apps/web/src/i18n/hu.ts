@@ -1292,13 +1292,15 @@ export const hu = {
       copied: 'Azonosító másolva',
     },
     toc: {
+      label: 'Tartalom',
       count: 'Tartalom ({count})',
     },
     section: {
       copy: 'Hivatkozás másolása: {title}',
       copied: 'Hivatkozás másolva: {ref}',
       copyFailed: 'A másolás nem sikerült',
-      missing: 'A(z) „{section}” fejezet nincs a dokumentumban, ezért az elejét látod.',
+      missingTitle: 'Nincs „{section}” nevű fejezet ebben a dokumentumban.',
+      missingBody: 'Lehet, hogy azóta átírták a címét. A dokumentum elejét mutatjuk.',
     },
     editor: {
       newTitle: 'Új dokumentum',
@@ -1321,8 +1323,8 @@ export const hu = {
       discardConfirm: 'Elvetés',
     },
     conflict: {
-      title: 'Közben valaki más is módosította ezt a dokumentumot.',
-      body: 'A te szöveged nem veszett el: másold ki, vagy töltsd be a friss változatot.',
+      title: 'Nem mentettük: közben valaki más módosította ezt a dokumentumot.',
+      body: 'A szöveged megmaradt. Töltsd be a friss változatot; a tiéd addig itt marad, és átvezetheted rajta a módosításaidat.',
       copy: 'Szövegem másolása',
       copied: 'A szöveg a vágólapon van',
       reload: 'Friss változat betöltése',
@@ -1338,6 +1340,11 @@ export const hu = {
       viewAt: 'Változat megnézése: {time}',
       viewing: 'Ezt nézed',
       renamed: 'Átnevezve: {title}',
+      created: 'Létrehozva',
+      updated: 'Módosítva',
+      renamedChange: 'Átnevezve',
+      deleted: 'Törölve',
+      restoredChange: 'Visszaállítva egy korábbi változatra',
     },
     version: {
       banner: 'Régebbi változatot látsz ({time}, {name}).',

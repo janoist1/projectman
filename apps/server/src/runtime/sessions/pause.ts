@@ -7,6 +7,7 @@ import {
   pauseStateOf,
   RESTART_POINTS,
   coordinatorSuperActorOf,
+  stageOf,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -708,7 +709,7 @@ export class PauseService {
       try {
         if (this.sessions.isRunning(session.id)) this.letGo(session, row);
         // No point: the process was cut before it answered (the stop of the server), in a turn.
-        else if (row.needsRestart || row.point === null)
+        else if (row.needsRestart || row.point === null || (await this.holdsOpenWork(session)))
           await this.restart(session, row, pause.kind, actors.get(session.projectKey));
         else {
           // It stopped between turns and its process is gone: what came for it meanwhile wakes it as usual.
@@ -721,6 +722,19 @@ export class PauseService {
       this.publishSession(session.id);
     }
     this.publishChanged(this.coveredProjects(targetOf(pause)));
+  }
+
+  /**
+   * The session's member is the assignee of its open card in a work stage (PM-1212). Such a session that stopped between
+   * turns must not wait for a waking message after its process is gone: a message that does not wake (an info) came
+   * for the process the stop took away, and would never reach the work.
+   */
+  private async holdsOpenWork(session: Session): Promise<boolean> {
+    if (session.workItem.type !== 'task') return false;
+    const task = this.ctx.repos.tasks.get(session.workItem.taskKey);
+    if (!task || task.status !== 'active' || task.assignee !== session.member) return false;
+    const config = await this.projects.config(session.projectKey);
+    return stageOf(config, task.stageId)?.kind === 'work';
   }
 
   /** The session's engine is not connected: nothing can start or release its process now. */

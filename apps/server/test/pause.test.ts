@@ -154,6 +154,23 @@ describe('pause of the team', () => {
     expect(h.repos.pauses.openSession(session.id)).toBeNull();
   });
 
+  it('starts the assignee of a work card again that was stopped between turns (PM-1212)', async () => {
+    h = await createDomainHarness();
+    const task = await h.domain.tasks.create('AR', { title: 'Fictional work' }, OWNER_ACTOR);
+    await h.domain.tasks.moveToStage('AR', task.key, 'development', OWNER_ACTOR);
+    const place = { type: 'task', taskKey: task.key } as const;
+    const session = await waitFor(() => h.domain.sessions.findRunning('AR', 'dev-1', place));
+    h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fictional/transcript.jsonl' });
+    h.runner.pauseOutcomes.set(session.id, { point: 'idle', tool: null });
+    await h.domain.pauses.pause(PROJECT, BY);
+    await waitFor(() => h.domain.sessions.get('AR', session.id).pause?.point);
+    h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+    await h.domain.pauses.resume(PROJECT, BY);
+    // The work goes on by the resume itself, not by a message: one that does not wake would leave it stopped.
+    expect(h.runner.started).toHaveLength(2);
+    expect(h.runner.started[1]).toMatchObject({ sessionId: session.id, resume: true });
+  });
+
   it('takes a second pause and a second resume as no change', async () => {
     h = await createDomainHarness();
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);

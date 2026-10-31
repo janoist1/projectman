@@ -423,8 +423,10 @@ AWS key, no AWS profile on any Mac and no `cloud.env`: GitHub's OIDC token is ex
   `ec2:DescribeInstances`, `ssm:DescribeInstanceInformation`, `ssm:GetCommandInvocation`, `ssm:DescribeSessions` (lookups
   AWS cannot scope; resource `*`, read only); `ec2-instance-connect:SendSSHPublicKey` on the one instance with
   `ec2:osuser=ubuntu`; `ssm:SendCommand` on the one instance and the `AWS-RunShellScript` document; `ssm:StartSession`
-  on the one instance and the `AWS-StartSSHSession` document; `ssm:TerminateSession` on its own sessions. No IAM, no S3,
-  no other machine, no secret.
+  on the one instance and the `AWS-StartSSHSession` document; `ssmmessages:OpenDataChannel` on
+  `session/${aws:userid}-*`; `ssm:TerminateSession` on `*` only under the AWS tag conditions
+  `aws:ssmmessages:session-id` = `${aws:userid}*` (an assumed role's own sessions) and `aws:ssmmessages:target-id` = the
+  one instance. No IAM, no S3, no other machine, no secret.
 
 **The GitHub side** is made by the same command: the environment `cloud-production` limited to the default branch, and
 three environment **variables** (not secrets): `PROJECTMAN_DEPLOY_ROLE_ARN`, `PROJECTMAN_AWS_REGION`,

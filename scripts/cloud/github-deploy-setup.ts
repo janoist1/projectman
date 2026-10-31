@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AwsCli, profileTarget } from './aws-cli';
+import { sameJson } from './cloudflare-api';
 import type { CloudContext } from './context';
 import { CloudError, refused } from './errors';
 import { readEc2HostInstance } from './ec2-host';
@@ -48,21 +49,6 @@ const branchPoliciesSchema = z.looseObject({
 });
 const variableSchema = z.looseObject({ value: z.string() });
 const defaultBranchSchema = z.looseObject({ default_branch: z.string().min(1) });
-
-/** Key order and spacing aside, are the two JSON values the same? */
-function sameJson(a: unknown, b: unknown): boolean {
-  const canonical = (value: unknown): unknown =>
-    Array.isArray(value)
-      ? value.map(canonical)
-      : value !== null && typeof value === 'object'
-        ? Object.fromEntries(
-            Object.entries(value as Record<string, unknown>)
-              .sort(([x], [y]) => x.localeCompare(y))
-              .map(([key, item]) => [key, canonical(item)]),
-          )
-        : value;
-  return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
-}
 
 /** Only the environment of this repository, in the workflow's job, may assume the role. */
 function trustPolicy(input: { account: string; repository: string }): unknown {
@@ -125,10 +111,25 @@ function deployPolicy(input: { account: string; region: string; instanceId: stri
         Resource: [instance, document('AWS-StartSSHSession')],
       },
       {
+        // Data channel of the session this role started (docs: "Sample IAM policies for Session Manager").
+        Sid: 'SshDataChannel',
+        Effect: 'Allow',
+        Action: 'ssmmessages:OpenDataChannel',
+        Resource: 'arn:aws:ssm:*:*:session/${aws:userid}-*',
+      },
+      {
+        // For an assumed role the session id is `<role id>:<session name>`, so the own-sessions rule is the AWS tag
+        // condition, and only on sessions to this machine (docs: "Allow a user to end only sessions they started").
         Sid: 'CloseOwnSessions',
         Effect: 'Allow',
         Action: 'ssm:TerminateSession',
-        Resource: 'arn:aws:ssm:*:*:session/${aws:userid}-*',
+        Resource: '*',
+        Condition: {
+          StringLike: {
+            'ssm:resourceTag/aws:ssmmessages:session-id': '${aws:userid}*',
+            'ssm:resourceTag/aws:ssmmessages:target-id': input.instanceId,
+          },
+        },
       },
     ],
   };

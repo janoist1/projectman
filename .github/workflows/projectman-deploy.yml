@@ -143,7 +143,8 @@ jobs:
         with:
           role-to-assume: ${{ vars.PROJECTMAN_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.PROJECTMAN_AWS_REGION }}
-          role-session-name: projectman-deploy-${{ inputs.run_id }}
+          # The run id of GitHub, not the input: a session name has at most 64 characters.
+          role-session-name: projectman-deploy-${{ github.run_id }}
           role-duration-seconds: 3600
       - name: Deploy
         shell: bash

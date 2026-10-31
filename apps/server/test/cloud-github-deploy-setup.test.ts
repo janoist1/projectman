@@ -90,7 +90,11 @@ const run = (...argv: string[]) => runCloud(['github-deploy-setup', ...argv], de
 const role = () => world.aws.roles.get(DEPLOY_ROLE_NAME)!;
 const policy = () =>
   role().policies.get(DEPLOY_ROLE_NAME) as {
-    Statement: { Action: string | string[]; Resource: string | string[] }[];
+    Statement: {
+      Action: string | string[];
+      Resource: string | string[];
+      Condition?: { StringLike?: Record<string, string> };
+    }[];
   };
 
 describe('github-deploy-setup', () => {
@@ -141,13 +145,24 @@ describe('github-deploy-setup', () => {
   it('gives the role only SSM and connection rights, on the one machine', async () => {
     expect(await run()).toBe(0);
     const actions = policy().Statement.flatMap((statement) => [statement.Action].flat());
-    expect(actions.every((action) => /^(ssm|ec2|ec2-instance-connect):/.test(action))).toBe(true);
-    // Only the lookups that AWS cannot scope to a resource may name every resource, and they only read.
+    expect(actions.every((action) => /^(ssm|ssmmessages|ec2|ec2-instance-connect):/.test(action))).toBe(true);
+    // Only the read-only lookups may name every resource, and ending a session only with a condition that pins the
+    // machine and the role's own sessions.
     for (const statement of policy().Statement)
-      if ([statement.Resource].flat().includes('*'))
-        expect(
-          [statement.Action].flat().every((action) => /^(ec2:Describe|ssm:(Describe|Get))/.test(action)),
-        ).toBe(true);
+      if ([statement.Resource].flat().includes('*')) {
+        const lookups = [statement.Action]
+          .flat()
+          .every((action) => /^(ec2:Describe|ssm:(Describe|Get))/.test(action));
+        const ownSessions = statement.Condition?.StringLike;
+        expect(lookups || ownSessions !== undefined).toBe(true);
+        if (!lookups)
+          expect(ownSessions).toEqual({
+            'ssm:resourceTag/aws:ssmmessages:session-id': '${aws:userid}*',
+            'ssm:resourceTag/aws:ssmmessages:target-id': EC2_HOST_ID,
+          });
+      }
+    // The data channel of the SSH session is allowed, on the role's own sessions only.
+    expect(actions).toContain('ssmmessages:OpenDataChannel');
     const instance = `arn:aws:ec2:eu-west-1:${ACCOUNT}:instance/${EC2_HOST_ID}`;
     expect(JSON.stringify(policy())).toContain(instance);
     expect(JSON.stringify(policy())).not.toMatch(/"iam:|"s3:|"sts:/);

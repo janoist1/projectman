@@ -119,6 +119,7 @@ public struct Installer {
             try? files.removeItem(at: destination)
             do {
                 try copy(bundleEngine, partial)
+                try layout.shareNode(in: partial)
                 try files.moveItem(at: partial, to: destination)
             } catch {
                 try? files.removeItem(at: partial)

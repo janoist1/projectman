@@ -100,9 +100,11 @@ decides by `SwitchPolicy.candidate` only whether the packaged version and the ru
 opened (`--open`, or `open "<out>/projectman motor.app"`), copies itself into `/Applications` and stops the old
 one; its own release switch (`Installer.switchEngine`) stages the package in `engine/versions/<version>`, runs
 `service switch --to`, moves `current` and cleans up. An idle engine switches at once; with work running the menu
-offers "Update now…". The `gh` and `ditto` downloads carry no quarantine attribute, so the ad-hoc app starts; the
-LuLu firewall still asks to allow each new engine version's `bin/node` until the app is signed. The Team ID is
-empty, so the updater is off.
+offers "Update now…". The `gh` and `ditto` downloads carry no quarantine attribute, so the ad-hoc app starts. The
+staging moves `bin/node` to `engine/runtimes/<sha256>/node` and leaves a relative link in its place (PM-1200), so
+the same Node runs from the same path in every version: the LuLu firewall asks once and again only when the pinned
+Node changes (`scripts/engine-app/node-pin.ts`), not for every engine version. The Team ID is empty, so the
+updater is off.
 
 **Measuring (PM-1157).** Compare before (local `package` then `build --ad-hoc` on the Mac, about 3.5 minutes,
 with `npm ci` and Spotlight indexing loading the machine) and after (GitHub), both from the start to the app

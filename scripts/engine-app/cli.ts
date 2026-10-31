@@ -3,6 +3,7 @@
 //   npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>]
 //   npm run engine-app -- build --package <dir> --out <dir> [--ad-hoc]
 //   npm run engine-app -- publish --tag <tag> --config <absolute-file>
+//   npm run engine-app -- upload --tag <tag> --dir <build output>  (PM-1198: the ad-hoc build of GitHub Actions)
 //   npm run engine-app -- fetch --commit <sha> --out <new dir> [--run <number>] [--dry-run] [--open]  (PM-1156)
 //
 // The package lands in <dir>/<sha> (printed as the last line: the input of `build --package`); see package.ts for its layout. Exit status: 0 done, 1 failed, 2 refused
@@ -15,6 +16,7 @@ import { fetchEngineApp } from './fetch';
 import { buildEnginePackage } from './package';
 import { buildEngineApp } from './build';
 import { publishEngineApp } from './publish';
+import { uploadEngineApp } from './upload';
 
 const deps = realDeps();
 const abort = new AbortController();
@@ -54,6 +56,7 @@ runEngineAppCli(process.argv.slice(2), {
       request,
       abort.signal,
     ),
+  upload: (request) => uploadEngineApp({ run: deps.run }, request, abort.signal),
   fetch: (request) => fetchEngineApp({ deps, report: new Report((line) => console.log(line)) }, request),
   originUrl: async () => {
     const result = await deps.run('git', ['-C', deps.repoRoot, 'remote', 'get-url', 'origin']);

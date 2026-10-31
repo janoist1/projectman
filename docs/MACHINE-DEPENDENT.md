@@ -175,7 +175,16 @@ fetch --commit <sha> --out <new dir> [--open]` (`scripts/engine-app/fetch.ts`) d
   (manifest and zip only; the disk image is not an output, PM-1157) with the Mac's own `gh` login (read access to the repository's Actions, gh 2.49 or newer for the attestation),
   verifies it and unpacks it with `ditto` and `codesign --verify`, and `--open` starts the app with `open`; the
   app then installs itself through its own release switch. This runs on the Mac the app goes to, a remote
-  engine's too; nothing crosses the server/engine boundary. **Module:** `scripts`, `deploy`.
+  engine's too; nothing crosses the server/engine boundary. **PM-1198:** the release assets are built on GitHub
+  as well. The dedicated workflow `.github/workflows/projectman-engine-release.yml` (the registered compute job
+  `engine-release`, started by `run_compute_job` after `publish_release`) checks out the commit of the release tag
+  with its full history, so `package` finds the tag and `bundleVersion` is the tag's `YYYYMMDD.N`; it runs
+  `build --ad-hoc`, attests the zip, the image and the manifest, and `engine-app upload --tag --dir`
+  (`scripts/engine-app/{upload,release-assets}.ts`, the uploading half shared with `publish`) puts them on the tag's
+  release with the run's `GITHUB_TOKEN`. It uses no Mac and no `gh` login of ours; same upload rules as `publish`
+  (identical asset skipped, different one `app_asset_conflict`, manifest last). **Remote engine:** the build and
+  the upload run on GitHub; the engine only dispatches the run, and every engine downloads the same release assets.
+  **Module:** `scripts`, `deploy`.
 
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
   sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
@@ -2598,7 +2607,7 @@ assumption or remote-engine RPC.
   crosses, in the separate `full_test.report` call (the `run`/`attach` schemas are unchanged). An older
   engine answers `unknown_method`, so its checks show unknown steps. Related task: PM-876.
   **Module:** `full-test`, `engine-link`, `services/merges`
-- **GitHub Actions runs (merge check, compute jobs) (PM-900, PM-907, PM-1147)** — `full-test/{github-actions,github-verdict,github-job}.ts`
+- **GitHub Actions runs (merge check, compute jobs) (PM-900, PM-907, PM-1147, PM-1198)** — `full-test/{github-actions,github-verdict,github-job}.ts`
   (`withGithubActions`, `withGithubJob`, composed as `withGithubRuns` in `full-test/index.ts`), `engine-host/check-branch.ts` (`createCheckBranchGit`),
   `services/github/actions.ts` (`createGithubActionsClient`), wired in `assembly.ts` (single machine) and
   `engine-app.ts` (engine process), and the repository's `.github/workflows/merge-check.yml`. For a
@@ -2643,6 +2652,10 @@ assumption or remote-engine RPC.
   remote default branch, the `fullTestExecutor` runs `full_test.run` with `githubJob`) from the repository's
   `computeJobs` setting and records the run in `compute_job_runs`. The hub part is machine-independent: no
   path, process or `gh` call of its own; the engine alone holds the GitHub access.
+  PM-1198: the dedicated `projectman-engine-release.yml` is one such run (job `engine-release`) and is the only
+  workflow with `contents: write`: it builds the engine app at a release tag's commit and uploads it to that tag's
+  release itself, so the executing engine's `gh` only dispatches and follows the run (see "Engine app release
+  build"). Its machine assumptions are the runner's (`macos-15`, Node 22, the run's `GITHUB_TOKEN`).
   PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.

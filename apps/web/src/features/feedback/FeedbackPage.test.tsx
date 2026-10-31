@@ -311,7 +311,7 @@ describe('deleting a mark (PM-1189)', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: t('feedback.delete.submit') }));
     expect(await screen.findByText(t('feedback.delete.done'))).toBeTruthy();
     expect(DELETES(p)).toHaveLength(1);
-    expect(where()).toBe('/p/AC/feedback?f=all');
+    await waitFor(() => expect(where()).toBe('/p/AC/feedback?f=all'));
     expect(screen.queryByText(/A főoldali banner képe/)).toBeNull();
   });
 
@@ -340,7 +340,7 @@ describe('deleting a mark (PM-1189)', () => {
     p.backend.feedback.marks = p.backend.feedback.marks.filter((mark) => !mark.body.includes('főoldali'));
     fireEvent.click(within(dialog).getByRole('button', { name: t('feedback.delete.submit') }));
     expect(await screen.findByText(t('feedback.delete.gone'))).toBeTruthy();
-    expect(where()).toBe('/p/AC/feedback?f=all');
+    await waitFor(() => expect(where()).toBe('/p/AC/feedback?f=all'));
   });
 
   it('keeps the dialog open with the error when the server refuses', async () => {

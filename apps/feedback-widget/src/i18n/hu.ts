@@ -90,7 +90,7 @@ export const hu = {
   'thread.deleteAsk': 'Törlöd a jelölésedet?',
   'thread.deleteAskOf': 'Törlöd {name} jelölését?',
   'thread.deleteInfo': 'A jelölés a hozzászólásokkal és a képernyőképpel együtt végleg törlődik.',
-  'thread.deleteKeepsCard': 'A {key} kártya megmarad.',
+  'thread.deleteKeepsCard': 'A kártya ({key}) megmarad.',
   'thread.deleteConfirm': 'Törlöm',
   'thread.deleting': 'Törlés…',
   'thread.deleteError': 'Nem sikerült törölni. Próbáld újra.',

@@ -6366,7 +6366,7 @@ export const hu = {
       headingOwn: 'Törlöd a jelölésedet?',
       headingOf: 'Törlöd {name} jelölését?',
       info: 'A jelölés a hozzászólásokkal és a képernyőképpel együtt végleg törlődik, és a weboldalon sem látszik többé.',
-      keepsCard: 'A {key} kártya megmarad; az idővonalán látszik, hogy a jelölést törölték.',
+      keepsCard: 'A kártya ({key}) megmarad; az idővonalán látszik, hogy a jelölést törölték.',
       submit: 'Törlöm',
       done: 'Törölted a jelölést.',
       gone: 'Ezt a jelölést már törölték.',

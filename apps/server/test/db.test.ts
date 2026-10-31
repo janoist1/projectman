@@ -22,45 +22,22 @@ describe('legacy task check migration', () => {
     const db = new Database(':memory:');
     for (const migration of migrations.filter((item) => item.version <= 114)) db.exec(migration.sql);
     db.pragma('user_version = 114');
-    // The repositories prepare statements for the current schema: add the columns of migration 116
-    // (PM-1071) for that, and drop them again below so that migrating can add them.
-    db.exec('ALTER TABLE team_messages ADD COLUMN location TEXT');
-    db.exec('ALTER TABLE team_messages ADD COLUMN places TEXT');
-    // The same for migration 119 (PM-1062).
-    db.exec('ALTER TABLE projects ADD COLUMN created_by TEXT');
-    // And for migration 122 (PM-1064): the handle rename prepares an update of its table.
-    db.exec('CREATE TABLE host_requests (opened_by TEXT, project_key TEXT)');
-    // And for migration 130 (PM-1135): the acceptance repository prepares its statements.
-    db.exec(migrations.find((item) => item.version === 130)!.sql);
-    // And for migration 132 (PM-1152): the obligation repository prepares its `pm_told_at` update.
-    db.exec('ALTER TABLE obligations ADD COLUMN pm_told_at TEXT');
-    // And for migration 133 (PM-1148): the compute job run repository prepares its statements.
-    db.exec(migrations.find((item) => item.version === 133)!.sql);
-    // And for migration 136 (PM-1159): the pause repository prepares its `engine_id` insert.
-    db.exec('ALTER TABLE pauses ADD COLUMN engine_id TEXT');
-    // And for migration 138 (PM-1189): the feedback repository prepares its deletion trace statements.
-    db.exec(migrations.find((item) => item.version === 138)!.sql);
-    const repos = createRepositories(db);
-    repos.projects.insert({
-      key: 'AR',
-      name: 'Acme',
-      templateId: null,
-      configVersion: 'v1',
-      createdAt: now,
-      updatedAt: now,
-    });
-    repos.tasks.insert(sampleTask({ labels }));
-    db.prepare('UPDATE tasks SET checks = ? WHERE key = ?').run(checks, 'AR-1');
-    db.exec('DROP TABLE host_requests');
-    db.exec('DROP TABLE task_acceptance_items');
-    db.exec('DROP TABLE compute_job_runs');
-    db.exec('DROP TABLE feedback_deletions');
-    db.exec('ALTER TABLE pauses DROP COLUMN engine_id');
-    db.exec('ALTER TABLE obligations DROP COLUMN pm_told_at');
-    db.exec('ALTER TABLE team_messages DROP COLUMN location');
-    db.exec('ALTER TABLE team_messages DROP COLUMN places');
-    db.exec('ALTER TABLE projects DROP COLUMN created_by');
-    return repos;
+    // The old rows go in as raw SQL: the repositories prepare statements for the current schema, so
+    // they are created only after migrating (see `reposAfterMigrating`).
+    db.prepare(
+      'INSERT INTO projects (key, name, template_id, config_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('AR', 'Acme', null, 'v1', now, now);
+    db.prepare(
+      `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, labels, checks,
+         visibility, created_by, created_at, updated_at)
+       VALUES ('tsk_1', 'AR', 'AR-1', 1, 'Login page', 'Build it', 'backlog', 'active', ?, ?, 'internal', 'owner', ?, ?)`,
+    ).run(JSON.stringify(labels), checks, now, now);
+    return db;
+  }
+
+  function reposAfterMigrating(db: Database.Database) {
+    migrate(db);
+    return createRepositories(db);
   }
 
   it.each([
@@ -76,9 +53,8 @@ describe('legacy task check migration', () => {
       qa: state,
       client_test: state,
     });
-    const repos = legacyTask(checks, ['frontend', 'frontend', ...expected.slice(0, 1)]);
+    const repos = reposAfterMigrating(legacyTask(checks, ['frontend', 'frontend', ...expected.slice(0, 1)]));
     try {
-      migrate(repos.db);
       expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend', ...expected]);
       expect(repos.db.prepare('SELECT checks FROM tasks WHERE key = ?').get('AR-1')).toEqual({
         checks: '{}',
@@ -91,9 +67,8 @@ describe('legacy task check migration', () => {
   it.each(['{"unknown":"passed","qa":"unknown"}', 'invalid json', '{}'])(
     'preserves labels when checks have no known state: %s',
     (checks) => {
-      const repos = legacyTask(checks, ['frontend']);
+      const repos = reposAfterMigrating(legacyTask(checks, ['frontend']));
       try {
-        migrate(repos.db);
         expect(repos.tasks.get('AR-1')!.labels).toEqual(['frontend']);
         expect(repos.db.prepare('SELECT checks FROM tasks WHERE key = ?').get('AR-1')).toEqual({
           checks: '{}',

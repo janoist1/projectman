@@ -1,0 +1,212 @@
+# The cloud deploy as a dedicated compute job (PM-1197, PM-1193 B): the devops starts it with
+# `run_compute_job job=cloud-deploy commit=<SHA40>`; it takes the same inputs and leaves the same run title, output
+# lines and `projectman-job-<run_id>` artifact as projectman-job.yml, so the engine reads it the same way (PM-1196).
+# Docs: docs/DEPLOY.md "Deploy from GitHub Actions", docs/AWS.md "Deploy role for GitHub Actions".
+#
+# The job holds no AWS key and no secret: `aws-actions/configure-aws-credentials` exchanges GitHub's OIDC token for a
+# one-hour session of the role `projectman-cloud-deploy`, which only the `cloud-production` environment of this
+# repository may assume (made by `npm run cloud -- github-deploy-setup`) and which may only call SSM on the one machine.
+# The board's own secrets stay in /etc/projectman/cloud.env on the machine; the job only checks that the file is there.
+#
+# Only the default branch may run it (the environment is limited to it too), the command and the output are fixed, the
+# commit must be on the default branch, and two deploys never run at the same time. Every input reaches the shell
+# through the environment, never through the text of a command.
+name: projectman-deploy
+run-name: projectman-job ${{ inputs.job }} ${{ inputs.commit }} ${{ inputs.run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Job kind (a-z, 0-9 and -; at most 40 characters), cloud-deploy
+        required: true
+        type: string
+      run_id:
+        description: Id of this run (a-z, 0-9, - and _; at most 64 characters); the artifact is projectman-job-<run_id>
+        required: true
+        type: string
+      commit:
+        description: The commit to deploy (40 lowercase hexadecimal characters)
+        required: true
+        type: string
+      command:
+        description: Must be cloud-deploy
+        required: true
+        type: string
+      runs_on:
+        description: Must be ubuntu-24.04
+        required: true
+        type: choice
+        options:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+      outputs:
+        description: Must be deploy/report.json
+        required: true
+        type: string
+      node:
+        description: Node.js major version to set up; empty = 22
+        required: false
+        default: ''
+        type: string
+      timeout_minutes:
+        description: Ignored; the job has its own limit of 30 minutes
+        required: false
+        default: '30'
+        type: string
+concurrency:
+  group: projectman-deploy
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  deploy:
+    name: ${{ inputs.job }} (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    environment: cloud-production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Guard
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          JOB: ${{ inputs.job }}
+          RUN_ID: ${{ inputs.run_id }}
+          COMMIT: ${{ inputs.commit }}
+          COMMAND: ${{ inputs.command }}
+          RUNS_ON: ${{ inputs.runs_on }}
+          OUTPUTS: ${{ inputs.outputs }}
+          NODE_VERSION: ${{ inputs.node }}
+          DEPLOY_ROLE_ARN: ${{ vars.PROJECTMAN_DEPLOY_ROLE_ARN }}
+          AWS_REGION_NAME: ${{ vars.PROJECTMAN_AWS_REGION }}
+          INSTANCE_NAME: ${{ vars.PROJECTMAN_INSTANCE_NAME }}
+        run: |
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          [[ "$REF_NAME" == "$DEFAULT_BRANCH" ]] || fail "the workflow must run from the default branch"
+          [[ "$JOB" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "job does not match its pattern"
+          [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || fail "run_id does not match its pattern"
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "commit must be 40 lowercase hexadecimal characters"
+          [[ "$COMMAND" == "cloud-deploy" ]] || fail "command must be cloud-deploy"
+          [[ "$RUNS_ON" == "ubuntu-24.04" ]] || fail "runs_on must be ubuntu-24.04"
+          [[ "$OUTPUTS" == "deploy/report.json" ]] || fail "outputs must be deploy/report.json"
+          [[ "$NODE_VERSION" =~ ^([0-9]{1,2})?$ ]] || fail "node must be empty or a major version"
+          [[ "$DEPLOY_ROLE_ARN" =~ ^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_-]{1,64}$ ]] \
+            || fail "the environment variable PROJECTMAN_DEPLOY_ROLE_ARN is missing or not a role ARN (run github-deploy-setup)"
+          [[ "$AWS_REGION_NAME" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]$ ]] || fail "the environment variable PROJECTMAN_AWS_REGION is missing or not a region"
+          [[ "$INSTANCE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail "the environment variable PROJECTMAN_INSTANCE_NAME is missing or not a machine name"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          # The whole history: the next step asks whether the commit is on the default branch.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Commit on the default branch
+        shell: bash
+        env:
+          COMMIT: ${{ inputs.commit }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git merge-base --is-ancestor "$COMMIT" "origin/$DEFAULT_BRANCH" || {
+            echo "::error::the commit is not on the default branch"
+            exit 1
+          }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ inputs.node != '' && inputs.node || '22' }}
+          cache: npm
+      - name: npm ci
+        shell: bash
+        run: npm ci
+      # The SSM plugin carries the SSH connection to the machine (docs/AWS.md "EC2 host operation through SSM"); the
+      # version and the checksum are pinned.
+      - name: Install session-manager-plugin
+        shell: bash
+        env:
+          PLUGIN_VERSION: 1.2.707.0
+          PLUGIN_SHA256: 91cc9a1a8df6f730622d5e11a8610be6e06d5858408e8029b56d0d63aedd0a68
+        run: |
+          file="$RUNNER_TEMP/session-manager-plugin.deb"
+          curl -fsSL --retry 3 -o "$file" "https://s3.amazonaws.com/session-manager-downloads/plugin/$PLUGIN_VERSION/ubuntu_64bit/session-manager-plugin.deb"
+          echo "$PLUGIN_SHA256  $file" | sha256sum --check --strict -
+          sudo dpkg -i "$file"
+          session-manager-plugin --version
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.PROJECTMAN_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.PROJECTMAN_AWS_REGION }}
+          role-session-name: projectman-deploy-${{ inputs.run_id }}
+          role-duration-seconds: 3600
+      - name: Deploy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ inputs.commit }}
+          AWS_REGION_NAME: ${{ vars.PROJECTMAN_AWS_REGION }}
+          INSTANCE_NAME: ${{ vars.PROJECTMAN_INSTANCE_NAME }}
+        run: |
+          rm -rf "$RUNNER_TEMP/projectman-job"
+          mkdir -p "$RUNNER_TEMP/projectman-job/out"
+          export PROJECTMAN_JOB_OUT="$RUNNER_TEMP/projectman-job/out"
+          export PROJECTMAN_JOB_COMMIT="$COMMIT"
+          npm run cloud -- runner-deploy \
+            --ref "$COMMIT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --region "$AWS_REGION_NAME" \
+            --instance "$INSTANCE_NAME" \
+            --out "$PROJECTMAN_JOB_OUT/deploy/report.json"
+      # A deploy that rolled back still leaves its report, so the outputs also run after a failed Deploy step.
+      - name: Outputs
+        id: outputs
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          OUTPUTS: ${{ inputs.outputs }}
+        run: |
+          out="$RUNNER_TEMP/projectman-job/out"
+          stage="$RUNNER_TEMP/projectman-job/stage"
+          real_out="$(realpath "$out")"
+          mkdir -p "$stage"
+          set -f
+          subjects=""
+          for path in $OUTPUTS; do
+            file="$out/$path"
+            # A regular file, reached through no symlink at all.
+            if [[ ! -f "$file" || -L "$file" || "$(realpath "$file")" != "$real_out/$path" ]]; then
+              echo "::error::the declared output $path is missing or not a regular file"
+              exit 1
+            fi
+            mkdir -p "$(dirname "$stage/$path")"
+            cp "$file" "$stage/$path"
+            sha256="$(shasum -a 256 "$stage/$path" | cut -d' ' -f1)"
+            bytes="$(wc -c < "$stage/$path" | tr -d ' ')"
+            line="projectman-job output $path $sha256 $bytes"
+            echo "$line"
+            echo "$line" >> "$GITHUB_STEP_SUMMARY"
+            subjects+="$stage/$path"$'\n'
+          done
+          {
+            echo 'subjects<<PROJECTMAN_JOB_SUBJECTS'
+            printf '%s' "$subjects"
+            echo 'PROJECTMAN_JOB_SUBJECTS'
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        if: ${{ !cancelled() && steps.outputs.outcome == 'success' }}
+        with:
+          subject-path: ${{ steps.outputs.outputs.subjects }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() && steps.outputs.outcome == 'success' }}
+        with:
+          name: projectman-job-${{ inputs.run_id }}
+          path: ${{ runner.temp }}/projectman-job/stage
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

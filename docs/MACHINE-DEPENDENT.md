@@ -410,6 +410,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   sessions' sandboxes deny. No state file: resources are found by name/ownership tags. **Remote engine:** nothing runs on
   an engine; this is the owner's tool and the cloud machine it provisions is the server side. The
   `cloud.env` it writes is what the container of "Cloud deployment and backup" reads.
+  PM-1197 (part of PM-1193): `github-deploy-setup [--dry-run]` (`scripts/cloud/github-deploy-setup.ts`) creates, once, the
+  AWS side of the GitHub deploy (the OIDC provider `token.actions.githubusercontent.com` and the role
+  `projectman-cloud-deploy`: trust by `aud` and by the `cloud-production` environment's `sub`, SSM/EIC rights on the one
+  machine only) and, through `gh`, the repository's `cloud-production` environment with its three variables. It is
+  idempotent and `--dry-run` changes nothing. **Machine assumption:** the owner's/integrator's `aws` profile with the IAM
+  setup rights (docs/AWS.md) and a `gh` login with admin rights on the repository; the command is a live change, run only
+  after the owner's yes. **Remote engine:** none; it runs on the administration machine.
   **Module:** `scripts`
 
 - **EC2 provisioning and account boundary (PM-676, part of PM-664)** — `scripts/cloud/{config,aws,aws-cli,ec2,commands}.ts`,
@@ -467,6 +474,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   the same. **Remote engine:** this runs only on the owner's administration machine for the central
   server; no AWS credentials or new RPC/payload crosses the server/engine boundary. It works
   independently of the Mac engine link. Live execution/recovery remains an approved owner round.
+  PM-1197: the same host operation also runs on a GitHub-hosted `ubuntu-24.04` runner
+  (`scripts/cloud/runner-deploy.ts`, `npm run cloud -- runner-deploy`): the AWS CLI authenticates with the ambient
+  OIDC session of the workflow (no `--profile`; `AwsCli` has an `ambient` mode), session-manager-plugin is installed
+  by the workflow at a pinned version and checksum, and the host calls are the same `host.sh` subcommands, plus
+  `env-check` (names only) and `prune-images`. `cloud.env` is never sent from the runner; the host's own
+  `/etc/projectman/cloud.env` is checked. **Remote engine:** no AWS credentials cross the server/engine boundary; the
+  runner holds a one-hour role session of its own.
   PM-748 adds fault tolerance to the same transport (`scripts/cloud/{ec2-host,host,errors}.ts`): a second
   fixed read-only `AWS-RunShellScript` reads `Ec2HostDiagnostics` (CPU count, 1-minute load, available
   memory, free disk, cumulative OOM kills, EIC status-124 journal count of the last 10 minutes) on EC2;
@@ -1223,6 +1237,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-674's [rollback runbook](CLOUD-CUTOVER.md) closes the public edge and stops the cloud
   before downloading final data for Mac single activation. Deployment and backup remain on EC2;
   the single-mode recovery service does not update either the cloud or the separate engine checkout.
+  PM-1197 (part of PM-1193): `deploy/aws/host.sh` gains `prune-images` (after a healthy deploy only the current and the
+  previous image stay on the host; the Mac `deploy` calls it too) and `env-check` (reports which required names are
+  missing from `/etc/projectman/cloud.env`, never a value; a missing name stops the deploy as `env_missing` before
+  anything starts). The deploy itself can run from GitHub Actions (`scripts/cloud/runner-deploy.ts`,
+  `.github/workflows/projectman-deploy.yml`, docs/DEPLOY.md "Deploy from GitHub Actions"). **Machine assumption:** the
+  host keeps `/etc/projectman/cloud.env` and the Docker images in its own storage; a failed health check still runs the
+  existing rollback, then the job fails. **Remote engine:** nothing runs on an engine.
   On AWS EC2 the same image runs under systemd on one Ubuntu machine, installed and operated by
   `npm run cloud` (the entry "The cloud machine and its operation (PM-535)").
   PM-775 (part of PM-772) adds to the same entry: `apps/server/src/logging/memory-log.ts`
@@ -2643,6 +2664,13 @@ assumption or remote-engine RPC.
   remote default branch, the `fullTestExecutor` runs `full_test.run` with `githubJob`) from the repository's
   `computeJobs` setting and records the run in `compute_job_runs`. The hub part is machine-independent: no
   path, process or `gh` call of its own; the engine alone holds the GitHub access.
+  PM-1197: the cloud deploy is a dedicated workflow, `.github/workflows/projectman-deploy.yml` (listed in
+  `DEDICATED_COMPUTE_JOB_WORKFLOWS`, PM-1196), registered as the compute job `cloud-deploy` (command `cloud-deploy`,
+  runner `ubuntu-24.04`, output `deploy/report.json`). It runs on a GitHub-hosted runner, in the `cloud-production`
+  environment (limited to the default branch), and exchanges the run's OIDC token for the AWS role
+  `projectman-cloud-deploy`; no AWS key and no GitHub secret exist. **Machine assumption:** none on the engine's
+  machine beyond the existing `gh` login that dispatches the run; the AWS access is the runner's. **Remote engine:**
+  the same as any compute job; the descriptor and the result cross the existing `full_test.run` request, nothing new.
   PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.

@@ -87,8 +87,9 @@ workflow takes the same inputs, run title, `projectman-job output ...` lines and
   "id": "cloud-deploy",
   "workflow": "projectman-deploy.yml",
   "runsOn": "ubuntu-24.04",
-  "outputs": ["deploy.json"],
-  "command": "..."
+  "timeoutMinutes": 30,
+  "outputs": ["deploy/report.json"],
+  "command": "cloud-deploy"
 }
 ```
 
@@ -443,6 +444,31 @@ tunnel, Litestream (the database) and restic (the rest of the home) inside it. I
 port: the only way in is the outbound tunnel. The whole guide is [HYBRID.md](HYBRID.md): the image,
 the storage, the first setup from a browser (a one-time setup code from the log), the backup, the
 restore rehearsal and the update.
+
+### Deploy from GitHub Actions (PM-1197)
+
+The cloud can also be deployed by a GitHub Actions job, with no AWS profile or key on the Mac and no `cloud.env` on
+GitHub. The devops starts it for a commit of the default branch with the team tool:
+
+```
+run_compute_job job=cloud-deploy commit=<SHA40>
+```
+
+It runs the dedicated workflow `.github/workflows/projectman-deploy.yml` (a registration with
+`"workflow": "projectman-deploy.yml"`, the values of the `cloud-deploy` example above: `runsOn` `ubuntu-24.04`,
+`outputs` `["deploy/report.json"]`, `command` `cloud-deploy`; the workflow refuses any other command, runner or
+output). The image is the one the `cloud-image` job built for the same commit, so that job must have run first
+(`run_compute_job job=cloud-image commit=<SHA40>`). The job assumes the OIDC role `projectman-cloud-deploy` for an hour
+(docs/AWS.md "Deploy role for GitHub Actions"), deploys, keeps the current and the previous image on the machine
+and removes the older ones, and leaves `deploy/report.json` (commit, image, previous, `healthy`, `rolledBack`, `pruned`)
+as the attested artifact `projectman-job-<run_id>`. A deploy that did not become healthy rolls back as `npm run cloud --
+deploy` does, reports `rolledBack: true` and fails the job.
+
+One-off setup, by the integrator and only after the owner's yes: `npm run cloud -- github-deploy-setup --dry-run`, then
+without `--dry-run`. It makes the IAM role, the `cloud-production` environment (default branch only) and its three
+variables, and is safe to repeat. Until then the workflow stops in its guard for the missing variables.
+`npm run cloud -- deploy` from the owner's computer keeps working, and is still how a new machine gets its first
+`cloud.env`; the job refuses with `env_missing` when the machine has none.
 
 # Integrator access
 

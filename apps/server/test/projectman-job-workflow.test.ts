@@ -177,6 +177,73 @@ describe('the projectman-job workflow', () => {
   });
 });
 
+/** The dedicated cloud-deploy workflow (PM-1197): the contract of a compute job, a narrow OIDC role, no AWS key. */
+describe('the projectman-deploy workflow', () => {
+  interface DeployWorkflow extends Workflow {
+    concurrency: { group: string; 'cancel-in-progress': boolean };
+    jobs: Record<
+      string,
+      {
+        'runs-on': string;
+        environment: string;
+        permissions: Record<string, string>;
+        steps: Step[];
+      }
+    >;
+  }
+  const deploySource = sources['projectman-deploy.yml']!;
+  const deploy = parse(deploySource) as DeployWorkflow;
+  const job = deploy.jobs['deploy']!;
+  const guard = job.steps.find((step) => step.name === 'Guard')!;
+
+  it('takes the inputs of projectman-job.yml and keeps its run title', () => {
+    expect(Object.keys(deploy.on)).toEqual(['workflow_dispatch']);
+    expect(deploy['run-name']).toBe(workflow['run-name']);
+    expect(Object.keys(deploy.on['workflow_dispatch']!.inputs!)).toEqual(
+      Object.keys(workflow.on['workflow_dispatch']!.inputs!),
+    );
+  });
+
+  it('runs one deploy at a time, in the cloud-production environment, with only the OIDC and attestation rights', () => {
+    expect(deploy.concurrency).toEqual({ group: 'projectman-deploy', 'cancel-in-progress': false });
+    expect(job['runs-on']).toBe('ubuntu-24.04');
+    expect(job.environment).toBe('cloud-production');
+    expect(job.permissions).toEqual({
+      contents: 'read',
+      actions: 'read',
+      'id-token': 'write',
+      attestations: 'write',
+    });
+  });
+
+  it('refuses anything but the fixed command, runner and output, and a commit off the default branch', () => {
+    expect(guard.run).toContain('"$COMMAND" == "cloud-deploy"');
+    expect(guard.run).toContain('"$RUNS_ON" == "ubuntu-24.04"');
+    expect(guard.run).toContain('"$OUTPUTS" == "deploy/report.json"');
+    expect(guard.run).toContain('"$REF_NAME" == "$DEFAULT_BRANCH"');
+    const ancestor = job.steps.find((step) => step.run?.includes('merge-base --is-ancestor'));
+    expect(ancestor?.run).toContain('"origin/$DEFAULT_BRANCH"');
+  });
+
+  it('assumes the role from the environment variables, for an hour at most, and holds no AWS key', () => {
+    const credentials = job.steps.find((step) =>
+      step.uses?.startsWith('aws-actions/configure-aws-credentials@'),
+    );
+    expect(credentials?.with).toMatchObject({
+      'role-to-assume': '${{ vars.PROJECTMAN_DEPLOY_ROLE_ARN }}',
+      'aws-region': '${{ vars.PROJECTMAN_AWS_REGION }}',
+      'role-duration-seconds': 3600,
+    });
+    expect(deploySource).not.toMatch(
+      /AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|aws-access-key/i,
+    );
+  });
+
+  it('never puts an input into a command', () => {
+    for (const step of job.steps) expect(step.run ?? '').not.toContain('${{');
+  });
+});
+
 describe('every workflow of the repository', () => {
   it.each(Object.keys(sources))('%s has no privileged trigger and no secret', (file) => {
     expect(sources[file]).not.toContain('pull_request_target');

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { z } from 'zod';
-import { AwsCallError, AwsCli } from './aws-cli';
+import { AwsCallError, AwsCli, profileTarget } from './aws-cli';
 import type { CloudContext } from './context';
 import { ec2Preflight, runEc2 } from './ec2';
 import { CloudError, refused } from './errors';
@@ -141,7 +141,7 @@ function normalisePolicy(document: unknown): string {
 /** The AWS part of `preflight`: the CLI, the login, the region, the machine type and the image, the secrets store. */
 export async function awsPreflight(context: CloudContext): Promise<void> {
   const { config, report, deps } = context;
-  const cli = new AwsCli(deps, config.aws);
+  const cli = new AwsCli(deps, profileTarget(config.aws));
   let failed = false;
   const check = async (name: string, body: () => Promise<StepResult>): Promise<boolean> => {
     try {
@@ -227,7 +227,7 @@ const USERS: UserSpec[] = [
 
 export async function runAws(context: CloudContext, options: AwsOptions): Promise<void> {
   const { config, report, deps } = context;
-  const cli = new AwsCli(deps, config.aws);
+  const cli = new AwsCli(deps, profileTarget(config.aws));
   // The secrets store is checked before anything is created: a new access key is written to it at once.
   checkSecretsDir(context.secretsDir);
   readEnvFile(context.envFile);

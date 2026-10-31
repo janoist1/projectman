@@ -36,6 +36,19 @@ function renderCard(
 }
 
 describe('InboxCard', () => {
+  it.each(['cost', 'approval', undefined])('shows the owner topic only when recorded: %s', (ownerTopic) => {
+    const original = plainLanguageQuestion();
+    const entry = { ...original, payload: { ...original.payload, ...(ownerTopic ? { ownerTopic } : {}) } };
+    const { card } = renderCard(entry);
+    expect(within(card).queryByText(t('ownerTopics.why'), { exact: false }) !== null).toBe(!!ownerTopic);
+    if (ownerTopic)
+      expect(
+        within(card).getByText(
+          ownerTopic === 'approval' ? t('ownerTopics.approval') : t('ownerTopics.builtIn.cost.label'),
+          { selector: 'strong' },
+        ),
+      ).toBeTruthy();
+  });
   it('keeps a historical release readable without decision actions', () => {
     const entry: InboxItem = {
       ...item('inb_perm_push'),

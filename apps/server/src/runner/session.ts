@@ -20,6 +20,7 @@ import type {
 } from '../contracts';
 import type { OpenScope, ProcessScopeDriver } from './process-scope';
 import type { HookPayload } from './hook-payload';
+import { exitOutputTail, OutputTail } from './exit-output';
 import { InputQueue, NotSubmittedError } from './input-queue';
 import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL, PauseState } from './pause';
 import { PermissionGate } from './permission-gate';
@@ -50,6 +51,15 @@ const QUESTION_FORWARDED =
 /** What the agent is told when the broker's approval carried a changed tool input (PM-1176). */
 const UPDATED_INPUT_REFUSED =
   'The approval changed the tool input, which this engine does not accept, so the call was denied.';
+
+/** Hooks of the main agent that show the CLI is working on a turn (PM-1205). */
+const TURN_HOOKS: ReadonlySet<string> = new Set([
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionRequest',
+  'Stop',
+]);
 
 /** The key that interrupts a turn in both CLIs. */
 const ESC = '\x1b';
@@ -146,6 +156,8 @@ export class AgentSession {
   private stopRequested = false;
   private readonly startedAt = Date.now();
 
+  /** The end of the CLI's raw output: the reason it leaves when it exits before it is ready (PM-1207). */
+  private readonly outputTail = new OutputTail();
   /** First SessionStart seen (or other proof that the prompt is up). */
   private ready = false;
   private readyAt = 0;
@@ -332,6 +344,7 @@ export class AgentSession {
     if (proc.pid <= 1 && this.scope) this.cleanup ??= this.scope.close('start_failed', { force: true });
     proc.onData((data) => {
       this.screen.write(data);
+      this.outputTail.push(data);
       this.quotaScreenNeedsFlush = true;
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
       // PTY chunks may split the error from its reset duration. Read the rendered screen
@@ -421,10 +434,11 @@ export class AgentSession {
 
   /**
    * Queues a message for the agent; resolves once the CLI took it (UserPromptSubmit), rejects when it
-   * was typed but the CLI did not take it in time (PM-571): it did not reach the agent.
+   * was typed but the CLI did not take it in time (PM-571): it did not reach the agent. A `deliveryId`
+   * keeps a retried call from typing the message again (PM-1205).
    */
-  send(text: string): Promise<void> {
-    return this.input.enqueueSubmitted(text);
+  send(text: string, deliveryId?: string): Promise<void> {
+    return this.input.enqueueSubmitted(text, deliveryId);
   }
 
   /** A message is still on its way to the agent (queued, being typed, or not yet submitted). */
@@ -795,6 +809,9 @@ export class AgentSession {
       void this.readSubagentUsage(payload.agent_transcript_path);
     }
     if (!subagent) this.noteProviderSessionId(payload);
+    // The main agent working shows the CLI took a typed message it did not report (PM-1205); Notification
+    // says the CLI is idle and a subagent may run in the background, so neither counts.
+    if (!subagent && TURN_HOOKS.has(payload.hook_event_name)) this.input.noteTurnActivity();
     const authError = this.adapter.hookAuthError(payload);
     if (authError) {
       this.authFailed(authError);
@@ -1540,16 +1557,24 @@ export class AgentSession {
 
     const failed =
       this.rateLimitFailure !== null || (!this.stopRequested && (exitCode !== 0 || (signal ?? 0) !== 0));
+    // A CLI that fails before it is ready says why in its output only (PM-1207): keep the last of it
+    // (redacted and bounded) in the log and in the session's last state.
+    const earlyExit = this.ready ? null : exitOutputTail(this.outputTail.plainText());
     // Leave a trace in the terminal, so its snapshot shows why the session is gone.
     const note = `\r\n\x1b[2m[session ended: exit code ${exitCode}${signal ? `, signal ${signal}` : ''}]\x1b[0m\r\n`;
     this.screen.write(note);
     this.deps.emit({ type: 'terminal_data', sessionId: this.id, data: note });
     if (!this.ready)
       this.log.warn(
-        { sessionId: this.id, exitCode, signal, provider: this.adapter.provider },
+        { sessionId: this.id, exitCode, signal, provider: this.adapter.provider, output: earlyExit },
         'agent CLI exited before it was ready',
       );
-    this.apply({ kind: 'exit', failed, message: this.rateLimitFailure ?? undefined });
+    const message =
+      this.rateLimitFailure ??
+      (failed && earlyExit !== null
+        ? `${this.adapter.label} exited before it was ready (exit code ${exitCode}${signal ? `, signal ${signal}` : ''})${earlyExit ? `: ${earlyExit}` : ''}`
+        : undefined);
+    this.apply({ kind: 'exit', failed, message });
     // A pause still stopping the session ends with it.
     const p = this.pauseState;
     if (p?.phase === 'stopping') {

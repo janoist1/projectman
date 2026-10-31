@@ -182,6 +182,8 @@ export const Hello = z.strictObject({
   administration: z.array(z.string()).optional(),
   /** 'engine': NanoGPT sessions use the engine's own key file; absent: the cloud's key (or an older engine). */
   nanogptKey: z.literal('engine').optional(),
+  /** true: `session.send` takes a `deliveryId` and does not type a repeated one again (PM-1205); absent: an older engine. */
+  deliveryIds: z.literal(true).optional(),
 });
 export type Hello = z.infer<typeof Hello>;
 export const EngineErrorCode = z.enum([

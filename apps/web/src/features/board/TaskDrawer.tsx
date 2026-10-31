@@ -644,7 +644,7 @@ export function TaskDrawer() {
           state={theme ? undefined : entry?.state}
           theme={theme}
           detail={detail}
-          ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
+          ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds, config }}
           fullMessageHref={fullMessageHref}
           composer={
             can.comment && myHandle ? (

@@ -9,7 +9,8 @@ import {
   TaskRelationKind,
   TaskPriority,
 } from '@projectman/shared';
-import type { LabelView, MergeBlockReason, TimelineEvent } from '@projectman/shared';
+import type { LabelView, MergeBlockReason, TimelineEvent, ProjectConfig } from '@projectman/shared';
+import { ownerTopicLabel } from './ownerTopics';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { fixRoundParts } from './fixLimit';
 import { fallbackReasonText, handoffEndName, noteExcerpt, providerName } from './handoff';
@@ -25,6 +26,7 @@ import { closureTexts, eventClosure } from './sessions';
 import { describeStart, describeStop, involvementText } from './involvement';
 
 export interface TimelineContext {
+  config?: Pick<ProjectConfig, 'team'>;
   pipeline: PipelineIndex | null;
   /** The project's label definitions, for label names. */
   labels?: readonly LabelView[];
@@ -954,10 +956,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         d.screening === true
           ? 'timeline.events.question_asked_screening'
           : unscreened
-            ? 'timeline.events.question_asked_unscreened'
-            : 'timeline.events.question_asked';
+            ? d.ownerTopic
+              ? 'timeline.events.question_asked_unscreened_topic'
+              : 'timeline.events.question_asked_unscreened'
+            : d.ownerTopic
+              ? 'timeline.events.question_asked_topic'
+              : 'timeline.events.question_asked';
       return {
-        text: t(key, { question: str(d.question), reason: str(unscreened?.reason) }),
+        text: t(key, {
+          question: str(d.question),
+          reason: str(unscreened?.reason),
+          topic: ownerTopicLabel(str(d.ownerTopic), ctx.config),
+        }),
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
       };
     }
@@ -1042,7 +1052,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             }),
           );
         case 'decision':
-          return normal(t('timeline.events.question_screened_decision', { note }));
+          return normal(
+            t(
+              d.ownerTopic
+                ? 'timeline.events.question_screened_decision_topic'
+                : 'timeline.events.question_screened_decision',
+              { note, topic: ownerTopicLabel(str(d.ownerTopic), ctx.config) },
+            ),
+          );
         case 'todo':
           // A machine step no integrator could take went to the technical decider, not to the owners (PM-1139).
           if (str(d.forwardedTo))
@@ -1058,9 +1075,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           return normal(
             t(
               str(d.feedbackId)
-                ? 'timeline.events.question_screened_todo_recorded'
-                : 'timeline.events.question_screened_todo',
-              { note },
+                ? d.ownerTopic
+                  ? 'timeline.events.question_screened_todo_recorded_topic'
+                  : 'timeline.events.question_screened_todo_recorded'
+                : d.ownerTopic
+                  ? 'timeline.events.question_screened_todo_topic'
+                  : 'timeline.events.question_screened_todo',
+              { note, topic: ownerTopicLabel(str(d.ownerTopic), ctx.config) },
             ),
           );
         default:

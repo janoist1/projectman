@@ -180,7 +180,7 @@ function sentenceEnd(line: string): number {
     if (abbreviations().includes(word.toLowerCase())) continue;
     const next = line.slice(cut).trimStart().charAt(0);
     // The next sentence starts with a capital or a mark.
-    if (next && !/[\p{Lu}*`„"\d]/u.test(next)) continue;
+    if (next && !/[\p{Lu}*`„“"\d]/u.test(next)) continue;
     return cut;
   }
   return line.length;

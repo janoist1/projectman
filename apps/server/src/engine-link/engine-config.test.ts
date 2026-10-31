@@ -95,12 +95,12 @@ describe('engine configuration', () => {
   });
 
   it.each([
-    [undefined, null],
+    [undefined, { kind: 'npm_ci', timeoutMs: 600_000, implicit: true }],
     [{ kind: 'none' }, null],
-    [{ kind: 'npm_ci' }, { kind: 'npm_ci', timeoutMs: 600_000 }],
+    [{ kind: 'npm_ci' }, { kind: 'npm_ci', timeoutMs: 600_000, implicit: false }],
     [
       { kind: 'npm_ci', timeoutMs: 1_000 },
-      { kind: 'npm_ci', timeoutMs: 1_000 },
+      { kind: 'npm_ci', timeoutMs: 1_000, implicit: false },
     ],
   ])('resolves the optional workspace setup %j', (workspaceSetup, expected) => {
     const workspace = path.join(dir, 'workspace');

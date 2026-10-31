@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   formatInjectedTeamMessage,
   formatTeamMessageBatch,
@@ -128,6 +129,12 @@ function recipientKey(projectKey: string, handle: string, workItem: WorkItemRef)
   return `${projectKey}:${handle}:${wi.type}:${wi.ref}`;
 }
 
+/** The key of one delivery: the same stored messages with the same text give the same id, in any process (PM-1205). */
+function deliveryIdOf(messageIds: readonly string[], text: string): string {
+  const key = JSON.stringify([[...new Set(messageIds)].sort(), text]);
+  return `dlv_${createHash('sha256').update(key).digest('hex').slice(0, 32)}`;
+}
+
 /** Lives as long as its Scope; closing the Scope stops every retry and background delivery. */
 export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryEffects, never, Scope.Scope> =>
   Effect.gen(function* () {
@@ -160,9 +167,19 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
      */
     const held = new Map<string, HeldNotice[]>();
 
-    const typeInto = (session: Session, text: string) =>
+    /**
+     * Types `text` into the session. A text that holds stored messages carries a `deliveryId` made of those
+     * messages and the text, so a retry (a lost reply, a hub restart) is the same delivery and the engine does
+     * not type it twice (PM-1205). Text without stored messages (a notice) has no id: nothing retries it.
+     */
+    const typeInto = (session: Session, text: string, messageIds: readonly string[]) =>
       Effect.tryPromise({
-        try: () => sessions.typeInto(session, text),
+        try: () =>
+          sessions.typeInto(
+            session,
+            text,
+            messageIds.length ? { deliveryId: deliveryIdOf(messageIds, text) } : undefined,
+          ),
         catch: (cause) => new TypeIntoFailed({ cause }),
       });
 
@@ -295,7 +312,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
                     message.location,
                   )),
           );
-          yield* typeInto(session, typed).pipe(
+          yield* typeInto(session, typed, [message.id, ...messageIds]).pipe(
             Effect.tapError(() => Effect.sync(() => restoreHeld(session, kept))),
           );
           typedOk(session);
@@ -470,7 +487,11 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
             taken++;
           }
           // Not taken by the session (PM-571), or it ended: the messages stay waiting, and are tried again.
-          yield* typeInto(fresh, text).pipe(Effect.tapError(() => retryLater(fresh)));
+          const typedIds = [
+            ...batch.messages.map((message) => message.id),
+            ...heldNotices.slice(0, taken).flatMap((notice) => (notice.messageId ? [notice.messageId] : [])),
+          ];
+          yield* typeInto(fresh, text, typedIds).pipe(Effect.tapError(() => retryLater(fresh)));
           typedOk(fresh);
           // Keep notices on failure, and preserve ones appended while the input was being typed.
           const remaining = (held.get(fresh.id) ?? []).slice(taken);
@@ -527,7 +548,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
           messageIds,
           kept,
         } = withHeld(session, formatInjectedTeamMessage(from, text, taskKey));
-        yield* typeInto(session, typed).pipe(
+        yield* typeInto(session, typed, messageIds).pipe(
           Effect.tapError(() => Effect.sync(() => restoreHeld(session, kept))),
         );
         for (const id of messageIds) messages.markRecipientDelivered(id, session.member);

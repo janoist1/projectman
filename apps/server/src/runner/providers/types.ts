@@ -68,6 +68,11 @@ export interface SessionTiming {
   maxEnterRetries: number;
   /** A typed message that never produced UserPromptSubmit stops blocking the queue after this. */
   submitTimeoutMs: number;
+  /**
+   * A typed message the CLI took no notice of (no turn hook, still idle) is still awaited this long after
+   * `submitTimeoutMs`: a busy CLI queues the text and submits it later. Past it the message counts as not taken.
+   */
+  lateSubmitMs: number;
   /** The same for a first prompt passed on the command line (the CLI may take a while to start). */
   argumentSubmitTimeoutMs: number;
   /** How often the screen is checked for blocking dialogs (while starting, or while one is up). */

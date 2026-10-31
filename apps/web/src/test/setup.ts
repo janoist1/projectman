@@ -4,8 +4,8 @@ import { setCurrentLanguage } from '../i18n/language';
 import { server } from './msw/server';
 import { takeContractViolations } from './msw/contract';
 
+// Initialise before test modules build translated fixtures, and reset between tests.
 // The UI tests read Hungarian (the mock account's language too); an English test sets its own language.
-// Set at load too: a test file's top-level `t(...)` runs before the first `beforeEach`.
 setCurrentLanguage('hu');
 beforeEach(() => {
   setCurrentLanguage('hu');

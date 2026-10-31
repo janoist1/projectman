@@ -1140,12 +1140,13 @@ export class SessionOrchestrator {
   /**
    * Types text into a running session (queued by the runner until the session is idle). Resolves once
    * the session took it; rejects when it did not (PM-571), so the caller leaves the message waiting.
+   * A `deliveryId` keeps a repeated call from typing the same message twice (PM-1205).
    */
-  typeInto(session: Session, text: string): Promise<void> {
+  typeInto(session: Session, text: string, options?: { deliveryId?: string }): Promise<void> {
     this.assertProviderCooldown(session.provider ?? DEFAULT_AGENT_PROVIDER, engineIdOf(session));
     // The session is being closed (PM-288): the message stays waiting, and its wake-up resumes the session.
     if (this.closeStates.isClosing(session.id)) throw new Error(`session ${session.id} is closing`);
-    return this.deps.runner.sendUserMessage(session.id, text);
+    return this.deps.runner.sendUserMessage(session.id, text, options);
   }
 
   async memory(projectKey: string, handle: string): Promise<string> {

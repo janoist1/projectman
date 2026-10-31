@@ -84,7 +84,7 @@ Entries in the order they appear below (search for the bold name).
   engine runs) takes about 0.17 s CPU per `status --json` instead of 0.29 s; a checkout engine
   running through tsx still pays its transform cost. `lazy-packages.test.ts` pins the eagerly
   loaded packages of the CLI bundle to `@projectman/shared`, `execa` and `zod`.
-  **PM-1126, self-update:** at launch, every 6 hours, when the engine's version differs from the
+  **PM-1126, self-update:** at launch, every 30 minutes (PM-1199), when the engine's version differs from the
   bundled one and when the status schema is too new, the app reads
   `https://github.com/<ProjectmanReleaseRepo>/releases/latest/download/projectman-motor.json`
   (`Info.plist` keys `ProjectmanReleaseRepo`, `ProjectmanTeamId`, `CFBundleVersion`). A newer
@@ -93,7 +93,15 @@ Entries in the order they appear below (search for the bold name).
   `ditto -x -k`, verified with `SecStaticCodeCheckValidity` (identifier `com.projectman.engine-app`
   and the Team ID leaf OU of the running app), replaced with `FileManager.replaceItemAt` and
   relaunched by a detached `/bin/sh -c 'sleep 1; open …'`; the engine keeps running. An ad-hoc
-  build (empty `ProjectmanTeamId`) never updates. A failure keeps the old app and shows menu state k.
+  build (empty `ProjectmanTeamId`) with `ProjectmanUpdateTrust = github-attestation` and
+  `ProjectmanUpdateSourceRef` (PM-1199) trusts the GitHub build attestation instead: after size and
+  sha256 it runs `gh attestation verify` (`--repo`, `--signer-workflow
+<repo>/.github/workflows/projectman-engine-release.yml`, `--source-ref`,
+  `--deny-self-hosted-runners`) with the machine's own `gh` login, found on the engine's PATH
+  (`gh` 2.49+; `gh_missing` / `attestation_invalid`), checks the ad-hoc signature (identifier only) and
+  that the bundled `engine-package.json` commit equals the manifest `version`. A build without a tag
+  (`CFBundleVersion` `0`) or without either trust never updates. A failure keeps the old app and
+  shows menu state k.
   **PM-1126, release switch:** an app-managed (`manager: "app"`) engine whose bundled package
   version differs from the running one is staged under `engine/versions/<ver>`, switched with the
   new package's `service switch --to <root>` (automatically when `work` is 0, after a confirmation

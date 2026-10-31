@@ -34,7 +34,11 @@ The identity and profile are keychain names; provision the Developer ID certific
 private key and notary credentials in the release machine's login keychain, with access
 for the background release process. No secrets belong in command arguments or the repo.
 The ad-hoc build skips hardened runtime, notarization, DMG signing and Gatekeeper assessment
-and records an empty Team ID (the updater must remain disabled). Without hardened runtime,
+and records an empty Team ID. With `--update-ref refs/heads/<branch>` (only with `--ad-hoc`; the release workflow
+passes `${{ github.ref }}`) and a tagged package, the Info.plist also gets `ProjectmanUpdateTrust =
+github-attestation` and `ProjectmanUpdateSourceRef = <ref>` (PM-1199): the app then updates itself on the GitHub
+build attestation instead of an Apple signature (see "Engine menu bar app"). Developer ID and untagged builds get
+neither key. Without hardened runtime,
 Node can load ad-hoc native modules that have no Team ID. Signing options cannot be combined
 with `--ad-hoc`. Node receives JIT and unsigned executable memory entitlements in both modes;
 signed release builds keep hardened runtime and library validation enabled. Verify real Node/native module
@@ -122,8 +126,10 @@ one; its own release switch (`Installer.switchEngine`) stages the package in `en
 offers "Update now…". The `gh` and `ditto` downloads carry no quarantine attribute, so the ad-hoc app starts. The
 staging moves `bin/node` to `engine/runtimes/<sha256>/node` and leaves a relative link in its place (PM-1200), so
 the same Node runs from the same path in every version: the LuLu firewall asks once and again only when the pinned
-Node changes (`scripts/engine-app/node-pin.ts`), not for every engine version. The Team ID is empty, so the
-updater is off.
+Node changes (`scripts/engine-app/node-pin.ts`), not for every engine version. The Team ID is empty, but the
+build of GitHub Actions carries the attestation trust keys (PM-1199), so the app updates itself from the next
+release on (see "Engine menu bar app"); the app installed by hand once must be one of these releases
+(`engine-app fetch --open`), an older ad-hoc app (`CFBundleVersion` `0`) never updates itself.
 
 **Measuring (PM-1157).** Compare before (local `package` then `build --ad-hoc` on the Mac, about 3.5 minutes,
 with `npm ci` and Spotlight indexing loading the machine) and after (GitHub), both from the start to the app
@@ -382,6 +388,21 @@ never touched. macOS asks for the background item to be allowed: the app opens S
 and waits (checking every 2 seconds). When a step fails, the app undoes the half-done parts and shows the
 `REFUSED [code]` line with a copy button; running the app again retries. When the engine is not set up yet
 (no `engine.json` or key), the app waits until it is wired and then installs the service itself.
+
+**Self-update (PM-1126, PM-1199).** At launch and every 30 minutes (when idle) the app reads the manifest of
+`releases/latest` (not an API call) and installs a newer `bundleVersion`. The trust is `team` (Developer ID:
+the signature must carry the app's Team ID) or, for the ad-hoc build, `attestation`: after the size and sha256
+the app runs `gh attestation verify <zip> --repo <repo> --signer-workflow <repo>/.github/workflows/projectman-engine-release.yml
+--source-ref <ref> --deny-self-hosted-runners` with the user's own `gh` (2.49+, logged in, found on the engine's
+PATH), then checks the unpacked app's signature (valid, identifier `com.projectman.engine-app`), its
+`bundleVersion` and that the bundled `engine-package.json` commit equals the manifest `version`
+(`version_mismatch`). The attestation mode takes only an ad-hoc release (a manifest with a Team ID is
+`team_mismatch`: install a Developer ID release by hand once). Failure codes show in the menu:
+`attestation_invalid`, `gh_missing`, `signature_invalid`, `version_mismatch`, `size_mismatch`, `sha256_mismatch`.
+A build without a tag (`CFBundleVersion` `0`) never updates itself. The downloaded zip has no quarantine
+attribute (the app does not set `LSFileQuarantineEnabled`). The trust is the same as `engine-app fetch`: whoever
+can merge to the default branch, and GitHub/Sigstore. The running engine then switches by the usual release
+switch rules (idle at once, otherwise "Update now…").
 
 **Switching from PM-1088.** On launch the app removes the old `com.projectman.engine-menubar` agent, its
 plist, its app and `menubar.json`. When the engine is already installed this happens silently; a deletion

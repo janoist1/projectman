@@ -10,7 +10,7 @@ const FETCH_USAGE =
   'usage: npm run engine-app -- fetch --commit <sha> --out <new directory> [--run <number>] [--dry-run] [--open]';
 const UPLOAD_USAGE = 'usage: npm run engine-app -- upload --tag <tag> --dir <build output directory>';
 const USAGE =
-  'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>] | build --package <dir> --out <dir> [--ad-hoc | --identity <name> --team-id <id> --notary-profile <name>] | publish --tag <tag> --config <absolute-file> | upload --tag <tag> --dir <dir> | fetch --commit <sha> --out <new directory> [--run <number>] [--dry-run] [--open]';
+  'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>] | build --package <dir> --out <dir> [--ad-hoc [--update-ref refs/heads/<branch>] | --identity <name> --team-id <id> --notary-profile <name>] | publish --tag <tag> --config <absolute-file> | upload --tag <tag> --dir <dir> | fetch --commit <sha> --out <new directory> [--run <number>] [--dry-run] [--open]';
 
 export interface EngineAppCliDeps {
   /** The remote the commit is fetched from when `--repo` is absent: `origin` of the source checkout. */
@@ -110,7 +110,14 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
       return 0;
     }
     if (command === 'build') {
-      const allowed = new Set(['--package', '--out', '--identity', '--team-id', '--notary-profile']);
+      const allowed = new Set([
+        '--package',
+        '--out',
+        '--identity',
+        '--team-id',
+        '--notary-profile',
+        '--update-ref',
+      ]);
       const seen = new Set<string>();
       for (let index = 0; index < args.length; index++) {
         const key = args[index]!;
@@ -125,6 +132,7 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
         ['--identity', '--team-id', '--notary-profile'].some((key) => seen.has(key))
       )
         throw badUsage('--ad-hoc cannot be combined with signing options');
+      if (seen.has('--update-ref') && !seen.has('--ad-hoc')) throw badUsage('--update-ref needs --ad-hoc');
       const packageDir = option(args, '--package');
       const outDir = option(args, '--out');
       if (!packageDir || !outDir || !deps.buildApp) throw badUsage(USAGE);
@@ -139,6 +147,7 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
         identity: option(args, '--identity'),
         teamId: option(args, '--team-id'),
         notaryProfile: option(args, '--notary-profile'),
+        updateRef: option(args, '--update-ref'),
       });
       deps.out(root);
       return 0;

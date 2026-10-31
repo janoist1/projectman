@@ -22,11 +22,11 @@ final class Maintenance {
         self.state = state; self.idle = idle; self.changed = changed
     }
 
-    /// At launch, then every 6 hours.
+    /// At launch, then every 30 minutes, so a release reaches an idle engine within the half hour (`latest/download` is no API call).
     func start() {
         state.bundled = BundledEngine.isAvailable ? BundledPackage.read(at: BundledEngine.url) : nil
         check()
-        let repeating = Timer(timeInterval: 6 * 3600, repeats: true) { [weak self] _ in self?.check() }
+        let repeating = Timer(timeInterval: 30 * 60, repeats: true) { [weak self] _ in self?.check() }
         RunLoop.main.add(repeating, forMode: .common)
         timer = repeating
     }

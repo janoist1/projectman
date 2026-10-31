@@ -58,30 +58,52 @@ public struct UpdateManifest: Decodable, Equatable {
     public static func requirement(teamId: String) -> String {
         "anchor apple generic and identifier \"\(AppIdentity.bundleIdentifier)\" and certificate leaf[subject.OU] = \"\(teamId)\""
     }
+
+    /// An ad-hoc signature has no chain to anchor to (PM-1199): the trust is the GitHub attestation, the signature only
+    /// has to be valid and carry our bundle identifier.
+    public static let adHocRequirement = "identifier \"\(AppIdentity.bundleIdentifier)\""
 }
 
-/// What the app knows about itself from its Info.plist. An ad-hoc build (empty `ProjectmanTeamId`) has no
-/// signature to check against, so it never updates itself.
+/// Why the app trusts a release: Apple's signature of our team (`team`), the GitHub build attestation of the release
+/// workflow (`attestation`, PM-1199) or nothing, so it never updates itself (`none`).
+public enum UpdateTrust: Equatable { case team, attestation, none }
+
+/// What the app knows about itself from its Info.plist. A build with neither a team id nor the attestation trust has
+/// nothing to check a release against, so it never updates itself.
 public struct AppIdentity: Equatable {
     public static let bundleIdentifier = "com.projectman.engine-app"
+    /// The workflow that builds and attests the ad-hoc release (`.github/workflows/`).
+    public static let releaseWorkflow = "projectman-engine-release.yml"
     public let bundleVersion: String
     /// `owner/name` of the release repository.
     public let releaseRepo: String?
     /// The 10-character Apple team id; nil for an ad-hoc build.
     public let teamId: String?
+    /// `refs/heads/<branch>` the attested workflow must have run from; nil unless the build trusts the attestation.
+    public let sourceRef: String?
 
-    public init(bundleVersion: String, releaseRepo: String?, teamId: String?) {
+    public init(bundleVersion: String, releaseRepo: String?, teamId: String?, updateTrust: String? = nil, sourceRef: String? = nil) {
         self.bundleVersion = bundleVersion
         self.releaseRepo = releaseRepo.flatMap { AppIdentity.isRepo($0) ? $0 : nil }
         self.teamId = teamId.flatMap { $0.range(of: "^[A-Z0-9]{10}$", options: .regularExpression) != nil ? $0 : nil }
+        self.sourceRef = updateTrust == "github-attestation"
+            ? sourceRef.flatMap { $0.range(of: "^refs/heads/[A-Za-z0-9._/-]+$", options: .regularExpression) != nil ? $0 : nil } : nil
     }
     public init(info: [String: Any]) {
         self.init(bundleVersion: info["CFBundleVersion"] as? String ?? "", releaseRepo: info["ProjectmanReleaseRepo"] as? String,
-                  teamId: info["ProjectmanTeamId"] as? String)
+                  teamId: info["ProjectmanTeamId"] as? String, updateTrust: info["ProjectmanUpdateTrust"] as? String,
+                  sourceRef: info["ProjectmanUpdateSourceRef"] as? String)
     }
     static func isRepo(_ text: String) -> Bool { text.range(of: "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", options: .regularExpression) != nil }
 
-    public var canSelfUpdate: Bool { releaseRepo != nil && teamId != nil && BuildNumber(bundleVersion) != nil }
+    /// The Team ID is the primary trust; the attestation applies to a build without one.
+    public var updateTrust: UpdateTrust { teamId != nil ? .team : sourceRef != nil ? .attestation : .none }
+    /// `owner/name/.github/workflows/projectman-engine-release.yml`, the signer workflow `gh attestation verify` pins.
+    public var signerWorkflow: String? { releaseRepo.map { "\($0)/.github/workflows/\(AppIdentity.releaseWorkflow)" } }
+    /// A build without a tag (`"0"`) never updates, so a development build someone installed on purpose stays.
+    public var canSelfUpdate: Bool {
+        releaseRepo != nil && updateTrust != .none && (BuildNumber(bundleVersion).map { $0 > BuildNumber("0")! } ?? false)
+    }
     public var manifestURL: URL? { releaseRepo.flatMap { URL(string: "https://github.com/\($0)/releases/latest/download/projectman-motor.json") } }
     /// The page "Letöltés kézzel…" opens.
     public var latestReleaseURL: URL? { releaseRepo.flatMap { URL(string: "https://github.com/\($0)/releases/latest") } }

@@ -3258,6 +3258,8 @@ export const en = {
     attachmentAdded: 'Attachment added: {fileName}',
     feedbackCreated: 'The card was created from a mark',
     feedbackLinked: 'A mark was linked to this card',
+    feedbackDeletedCreated: 'Deleted the mark this card was created from',
+    feedbackDeletedLinked: 'Deleted the mark linked to this card',
     openMark: 'Open it',
     /** The words before the file’s link on the timeline row. */
     attachmentAddedLead: 'Attachment added:',
@@ -4021,6 +4023,16 @@ export const en = {
       info: 'Once closed, {name} can’t comment any more, but the mark stays.',
       submit: 'Close',
       done: 'The mark is closed',
+    },
+    delete: {
+      menu: 'Delete mark',
+      headingOwn: 'Delete your mark?',
+      headingOf: 'Delete {name}’s mark?',
+      info: 'The mark is deleted for good, with its comments and screenshot, and it no longer shows on the website.',
+      keepsCard: 'Card {key} stays; its timeline shows that the mark was deleted.',
+      submit: 'Delete',
+      done: 'You deleted the mark.',
+      gone: 'This mark was already deleted.',
     },
   },
 

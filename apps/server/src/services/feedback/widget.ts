@@ -306,6 +306,11 @@ export class FeedbackWidgetService {
     );
   }
 
+  async deleteMark(session: FeedbackWidgetSession, markId: string): Promise<void> {
+    this.requireMark(session, markId);
+    await this.feedback.deleteMark(session.projectKey, markId, humanActor(session.handle));
+  }
+
   async markRead(session: FeedbackWidgetSession, markId: string): Promise<void> {
     this.requireMark(session, markId);
     await this.feedback.markRead(session.projectKey, markId, humanActor(session.handle));

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import {
   ALERT_SEEN_OPTION,
+  canDeleteFeedback,
   canMarkFeedback,
   canProcessFeedback,
   feedbackCardRef,
@@ -394,6 +395,52 @@ export class FeedbackService {
     });
     if (detail.wake) await this.ctx.events.emit('feedback_needs_processor', { projectKey, markId });
     return detail.detail;
+  }
+
+  /**
+   * The mark's author, an owner or an admin deletes it (PM-1189): the mark, its thread and its
+   * screenshot go; a card tied to it stays and shows in its timeline that the mark was deleted. A
+   * content-free row keeps who deleted whose mark and when.
+   */
+  async deleteMark(projectKey: string, markId: string, actor: Actor): Promise<void> {
+    const viewer = await this.viewerOf(projectKey, actor);
+    await this.marks.run(markId, async () => {
+      const mark = this.requireMark(projectKey, markId);
+      if (!canDeleteFeedback(viewer.member, mark))
+        throw forbidden('insufficient_access', 'only the author, an owner or an admin may delete this mark');
+      const at = isoNow(this.ctx);
+      const task = mark.taskKey ? this.tasks.find(projectKey, mark.taskKey) : null;
+      this.ctx.unitOfWork(() => {
+        const { feedback } = this.ctx.repos;
+        feedback.insertDeletion({
+          id: newId('fbd'),
+          projectKey,
+          markId,
+          author: mark.author,
+          deletedBy: viewer.handle,
+          taskKey: mark.taskKey,
+          deletedAt: at,
+        });
+        if (task)
+          this.timeline.append({
+            projectKey,
+            taskKey: task.key,
+            actor,
+            type: 'feedback_deleted',
+            data: { markId, author: mark.author, created: mark.outcome === 'card_created' },
+          });
+        // The alert asked the owner to decide on a mark that is gone now.
+        if (mark.status === 'waiting_owner' && mark.inboxItemId)
+          this.inbox.resolveByRule(mark.inboxItemId, ALERT_SEEN_OPTION.id, 'feedback_handled');
+        feedback.deleteMark(markId);
+        this.changed(projectKey, markId);
+      });
+      // After the commit: a file that stays behind is only reported, the mark is gone either way.
+      if (mark.screenshot)
+        await this.screenshots.remove(projectKey, mark.screenshot).catch((err: unknown) => {
+          this.ctx.logger.warn({ err, mark: markId }, 'the screenshot of a deleted feedback mark stays');
+        });
+    });
   }
 
   // ---- deciding ----
@@ -845,6 +892,7 @@ export class FeedbackService {
       commentCount: stats?.commentCount ?? 0,
       unread: stats?.unread ?? false,
       hasScreenshot: record.screenshot !== null,
+      canDelete: canDeleteFeedback(view.viewer.member, record),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       lastActivityAt: stats?.lastEventAt ?? record.createdAt,

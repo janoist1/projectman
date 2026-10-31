@@ -55,6 +55,7 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
     columns: ['actor'],
     scope: 'mark_id IN (SELECT id FROM feedback_marks WHERE project_key = @project)',
   },
+  { table: 'feedback_deletions', columns: ['author', 'deleted_by'] },
   { table: 'feedback_launch_codes', columns: ['member'] },
   { table: 'feedback_sessions', columns: ['member', 'revoked_by'] },
   { table: 'feedback_marker_colors', columns: ['member'] },

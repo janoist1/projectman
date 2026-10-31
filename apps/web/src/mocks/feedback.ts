@@ -1,4 +1,5 @@
 import {
+  canDeleteFeedback,
   canMarkFeedback,
   canProcessFeedback,
   CloseFeedbackRequest,
@@ -422,6 +423,7 @@ export class MockFeedback {
       commentCount: comments,
       unread: mark.unreadBy.has(viewer.handle),
       hasScreenshot: mark.hasScreenshot,
+      canDelete: canDeleteFeedback(viewer.member, mark),
       createdAt: mark.createdAt,
       updatedAt: mark.updatedAt,
       lastActivityAt: mark.events.at(-1)?.createdAt ?? mark.createdAt,
@@ -485,6 +487,7 @@ export class MockFeedback {
     if (!mark) return error(404, 'feedback_mark_not_found', `mark not found: ${match[1]}`);
     const action = match[2];
     if (!action && method === 'GET') return ok(this.detail(mark, viewer));
+    if (!action && method === 'DELETE') return this.remove(mark, viewer);
     if (method !== 'POST') return null;
     switch (action) {
       case 'read':
@@ -654,6 +657,24 @@ export class MockFeedback {
       projectKey: viewer.config.project.key,
       markId: mark.id,
     });
+  }
+
+  /** Deletes the mark for good; a card it led to stays and gets a line on its timeline. */
+  private remove(
+    mark: MockFeedbackMark,
+    viewer: NonNullable<ReturnType<MockFeedback['viewer']>>,
+  ): MockResponse {
+    if (!canDeleteFeedback(viewer.member, mark))
+      return error(403, 'insufficient_access', 'you may not delete this mark');
+    this.marks = this.marks.filter((entry) => entry.id !== mark.id);
+    if (mark.taskKey)
+      this.host.addTimeline(mark.taskKey, viewer.handle, 'feedback_deleted', {
+        markId: mark.id,
+        author: mark.author,
+        created: mark.outcome === 'card_created',
+      });
+    this.host.emit({ type: 'feedback_changed', projectKey: viewer.config.project.key, markId: mark.id });
+    return ok();
   }
 
   private comment(

@@ -800,6 +800,33 @@ export function useReopenFeedback(key: string, markId: string) {
   return useFeedbackMutation<void>(key, () => api.feedbackReopen(key, markId));
 }
 
+/**
+ * Deletes a mark. The answer says whether it was already gone (someone else deleted it first): that is
+ * the same end state, so the view treats it as done with a different notice.
+ */
+export function useDeleteFeedback(key: string, markId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<{ alreadyGone: boolean }> => {
+      try {
+        await api.feedbackDelete(key, markId);
+        return { alreadyGone: false };
+      } catch (error) {
+        if (isApiError(error) && error.status === 404) return { alreadyGone: true };
+        throw error;
+      }
+    },
+    onSuccess: async () => {
+      client.removeQueries({ queryKey: queryKeys.feedbackMark(key, markId) });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.feedback(key) }),
+        // The card keeps its own line about the deletion.
+        client.invalidateQueries({ queryKey: queryKeys.taskDetails(key) }),
+      ]);
+    },
+  });
+}
+
 /** The viewer has read the thread of a mark: the unread dot and the badge come off. */
 export function useReadFeedback(key: string) {
   const client = useQueryClient();

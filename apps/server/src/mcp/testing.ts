@@ -969,6 +969,7 @@ function sampleFeedbackMark(): FeedbackMarkDetail {
     commentCount: 1,
     unread: false,
     hasScreenshot: true,
+    canDelete: false,
     createdAt: '2026-10-12T08:00:00.000Z',
     updatedAt: '2026-10-12T08:00:00.000Z',
     lastActivityAt: '2026-10-12T08:05:00.000Z',

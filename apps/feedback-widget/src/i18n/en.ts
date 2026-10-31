@@ -88,6 +88,14 @@ export const en: Record<TextKey, string> = {
   'thread.event.closed': 'Closed the mark',
   'thread.event.reopened': 'Reopened the mark',
   'thread.commentCount': '{count|# comment|# comments}',
+  'thread.delete': 'Delete',
+  'thread.deleteAsk': 'Delete your mark?',
+  'thread.deleteAskOf': 'Delete {name}’s mark?',
+  'thread.deleteInfo': 'The mark is deleted for good, with its comments and screenshot.',
+  'thread.deleteKeepsCard': 'Card {key} stays.',
+  'thread.deleteConfirm': 'Delete',
+  'thread.deleting': 'Deleting…',
+  'thread.deleteError': 'Couldn’t delete it. Try again.',
 
   'pin.aria': '{name}’s mark: {text}',
   'pin.ariaChanged': '{name}’s mark: {text}, the element has changed since',
@@ -162,4 +170,6 @@ export const en: Record<TextKey, string> = {
 
   'notice.sentNoShot': 'Sent. The screenshot didn’t work, so we sent it without one.',
   'notice.shareStopped': 'Sharing has stopped. Screenshots are automatic again.',
+  'notice.deleted': 'You deleted the mark.',
+  'notice.deletedElsewhere': 'This mark was deleted.',
 };

@@ -81,6 +81,10 @@ export interface ThreadState {
   detail: FeedbackMarkDetail | null;
   sending: boolean;
   sendError: boolean;
+  /** The delete confirmation is open. */
+  deleteAsk?: boolean;
+  deleting?: boolean;
+  deleteError?: boolean;
 }
 
 export type Card = { type: 'new' } | { type: 'thread'; markId: string };
@@ -158,6 +162,9 @@ export interface Controller {
   closeCard(): void;
   sendComment(markId: string, body: string): Promise<boolean>;
   reloadThread(markId: string): Promise<void>;
+  /** Opens (`true`) or closes the delete confirmation of a mark. */
+  askDelete(markId: string, ask: boolean): void;
+  deleteMark(markId: string): Promise<void>;
   openPanel(): void;
   closePanel(): void;
   setTab(tab: 'here' | 'all'): void;
@@ -385,7 +392,13 @@ export function createController(deps: Deps): Controller {
       set({
         threads: {
           ...state.threads,
-          [markId]: { status: 'loading', detail: current?.detail ?? null, sending: false, sendError: false },
+          [markId]: {
+            ...current,
+            status: 'loading',
+            detail: current?.detail ?? null,
+            sending: false,
+            sendError: false,
+          },
         },
       });
     }
@@ -402,6 +415,7 @@ export function createController(deps: Deps): Controller {
         threads: {
           ...state.threads,
           [markId]: {
+            ...kept,
             status: 'ready',
             detail,
             sending: kept?.sending ?? false,
@@ -410,15 +424,39 @@ export function createController(deps: Deps): Controller {
         },
       });
     } catch (error) {
-      if (onFailure(error) || silent) return;
+      if (onFailure(error)) return;
+      if (error instanceof ApiFailure && error.status === 404) {
+        markGone(markId, 'notice.deletedElsewhere');
+        return;
+      }
+      if (silent) return;
       const kept = state.threads[markId];
       set({
         threads: {
           ...state.threads,
-          [markId]: { status: 'error', detail: kept?.detail ?? null, sending: false, sendError: false },
+          [markId]: {
+            ...kept,
+            status: 'error',
+            detail: kept?.detail ?? null,
+            sending: false,
+            sendError: false,
+          },
         },
       });
     }
+  }
+
+  /** The mark no longer exists: it leaves the pins and the lists, and its open card or thread closes. */
+  function markGone(markId: string, notice: 'notice.deleted' | 'notice.deletedElsewhere'): void {
+    const { [markId]: _mark, ...marks } = state.marks;
+    const { [markId]: _thread, ...threads } = state.threads;
+    set({
+      marks,
+      threads,
+      card: state.card?.type === 'thread' && state.card.markId === markId ? null : state.card,
+      panel: state.panel?.markId === markId ? { tab: state.panel.tab, markId: null } : state.panel,
+    });
+    flash(t(notice));
   }
 
   /** A detail carries everything a list entry does; the list entry drops the thread. */
@@ -865,6 +903,32 @@ export function createController(deps: Deps): Controller {
     }
   }
 
+  /** Opens or closes the delete confirmation of a mark. */
+  function askDelete(markId: string, ask: boolean): void {
+    const open = state.threads[markId];
+    if (!open || open.deleting) return;
+    set({ threads: { ...state.threads, [markId]: { ...open, deleteAsk: ask, deleteError: false } } });
+  }
+
+  async function deleteMark(markId: string): Promise<void> {
+    const open = state.threads[markId];
+    if (!open || open.deleting) return;
+    set({ threads: { ...state.threads, [markId]: { ...open, deleting: true, deleteError: false } } });
+    try {
+      await api.deleteMark(markId);
+      markGone(markId, 'notice.deleted');
+    } catch (error) {
+      if (onFailure(error)) return;
+      if (error instanceof ApiFailure && error.status === 404) {
+        markGone(markId, 'notice.deletedElsewhere');
+        return;
+      }
+      const kept = state.threads[markId];
+      if (kept)
+        set({ threads: { ...state.threads, [markId]: { ...kept, deleting: false, deleteError: true } } });
+    }
+  }
+
   const openPanel = (): void =>
     set({
       panel: { tab: 'here', markId: null },
@@ -913,6 +977,11 @@ export function createController(deps: Deps): Controller {
   }
 
   function escape(): boolean {
+    const openId = state.card?.type === 'thread' ? state.card.markId : (state.panel?.markId ?? null);
+    if (openId && state.threads[openId]?.deleteAsk) {
+      askDelete(openId, false);
+      return true;
+    }
     if (state.card) {
       closeCard();
       return true;
@@ -975,6 +1044,8 @@ export function createController(deps: Deps): Controller {
     closeCard,
     sendComment,
     reloadThread: (markId) => loadThread(markId),
+    askDelete,
+    deleteMark,
     openPanel,
     closePanel,
     setTab,

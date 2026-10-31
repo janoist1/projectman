@@ -45,6 +45,7 @@ const base = {
   commentCount: 0,
   unread: false,
   hasScreenshot: false,
+  canDelete: false,
   closedAt: null,
 };
 const anchorOf = (fields) => ({
@@ -181,6 +182,18 @@ export async function run({ instance, open, shoot: takeShots, step, log }, lang)
     }),
   ];
 
+  // The viewer's own mark with a card (PM-1189): shown only by the delete step, so the other shots stay as they are.
+  const deletable = mark('fbm_delete00001', {
+    author: anna,
+    kind: 'point',
+    body: 'A szállítási díj nem látszik a kosárban.',
+    anchor: anchorOf({ kind: 'point', pagePoint: { x: 480, y: 300 } }),
+    status: 'handled',
+    outcome: 'card_created',
+    card: { visible: true, key: 'PM-512', title: 'Szállítási díj a kosárban', stageName: 'Fejlesztés' },
+    canDelete: true,
+  });
+
   const comment = (id, actor, body, minutes) => ({
     id,
     type: 'comment',
@@ -231,7 +244,7 @@ export async function run({ instance, open, shoot: takeShots, step, log }, lang)
   };
 
   // What the pretend server answers; a step changes it before it triggers the widget.
-  const server = { exchange: 'ok', list: 'ok', create: 'ok', visibleMarks: marks };
+  const server = { exchange: 'ok', list: 'ok', create: 'ok', remove: 'ok', visibleMarks: marks };
   const reply = (route, status, body, headers = {}) =>
     route.fulfill({
       status,
@@ -303,8 +316,13 @@ export async function run({ instance, open, shoot: takeShots, step, log }, lang)
       }
       const detail = /^\/marks\/(fbm_[a-z0-9]+)$/.exec(path);
       if (detail && method === 'GET') {
-        const view = marks.find((m) => m.id === detail[1]);
+        const view = server.visibleMarks.find((m) => m.id === detail[1]);
         return view ? reply(route, 200, detailOf(view)) : failure(route, 404, 'not_found');
+      }
+      if (detail && method === 'DELETE') {
+        if (server.remove === 'error') return failure(route, 500, 'internal');
+        server.visibleMarks = server.visibleMarks.filter((m) => m.id !== detail[1]);
+        return reply(route, 204);
       }
       if (/\/read$/.test(path)) return reply(route, 204);
       return failure(route, 404, 'not_found');
@@ -636,6 +654,31 @@ export async function run({ instance, open, shoot: takeShots, step, log }, lang)
     await settle(app);
     await shoot(app, 'widget-thread-internal-card', { widths: [1512, 390] });
     await cancelCard(app);
+  });
+
+  // Deleting one's own mark (PM-1189): the button, the confirmation, the error with a retry, the notice.
+  await step('deleting a mark', async () => {
+    server.visibleMarks = [...marks, deletable];
+    await refresh(app);
+    await app.locator('.pin[aria-label*="szállítási díj"]').click();
+    await app.waitForSelector('[role="dialog"]');
+    await settle(app);
+    await shoot(app, 'widget-delete-button', { widths: [1512, 390] });
+    await app.locator('[role="dialog"] .link.danger').click();
+    await settle(app, 500);
+    await shoot(app, 'widget-delete-confirm', { widths: [1512, 390] });
+    server.remove = 'error';
+    await app.locator('[role="group"] .btn.danger').click();
+    await app.waitForSelector('[role="group"] [role="alert"]');
+    await settle(app, 300);
+    await shoot(app, 'widget-delete-error', { widths: [1512, 390] });
+    server.remove = 'ok';
+    await app.locator('[role="group"] .btn.danger').click();
+    await app.waitForSelector('[role="dialog"]', { state: 'detached' });
+    await settle(app, 400);
+    await shoot(app, 'widget-delete-done', { widths: [1512, 390] });
+    server.visibleMarks = marks;
+    await refresh(app);
   });
 
   await step('list panel', async () => {

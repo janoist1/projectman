@@ -2673,6 +2673,10 @@ assumption or remote-engine RPC.
   remote default branch, the `fullTestExecutor` runs `full_test.run` with `githubJob`) from the repository's
   `computeJobs` setting and records the run in `compute_job_runs`. The hub part is machine-independent: no
   path, process or `gh` call of its own; the engine alone holds the GitHub access.
+  PM-1198: the dedicated `projectman-engine-release.yml` is one such run (job `engine-release`) and is the only
+  workflow with `contents: write`: it builds the engine app at a release tag's commit and uploads it to that tag's
+  release itself, so the executing engine's `gh` only dispatches and follows the run (see "Engine app release
+  build"). Its machine assumptions are the runner's (`macos-15`, Node 22, the run's `GITHUB_TOKEN`).
   PM-1197: the cloud deploy is a dedicated workflow, `.github/workflows/projectman-deploy.yml` (listed in
   `DEDICATED_COMPUTE_JOB_WORKFLOWS`, PM-1196), registered as the compute job `cloud-deploy` (command `cloud-deploy`,
   runner `ubuntu-24.04`, output `deploy/report.json`). It runs on a GitHub-hosted runner, in the `cloud-production`
@@ -2680,10 +2684,6 @@ assumption or remote-engine RPC.
   `projectman-cloud-deploy`; no AWS key and no GitHub secret exist. **Machine assumption:** none on the engine's
   machine beyond the existing `gh` login that dispatches the run; the AWS access is the runner's. **Remote engine:**
   the same as any compute job; the descriptor and the result cross the existing `full_test.run` request, nothing new.
-  PM-1198: the dedicated `projectman-engine-release.yml` is one such run (job `engine-release`) and is the only
-  workflow with `contents: write`: it builds the engine app at a release tag's commit and uploads it to that tag's
-  release itself, so the executing engine's `gh` only dispatches and follows the run (see "Engine app release
-  build"). Its machine assumptions are the runner's (`macos-15`, Node 22, the run's `GITHUB_TOKEN`).
   PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.

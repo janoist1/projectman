@@ -86,6 +86,14 @@ export const hu = {
   'thread.event.closed': 'Lezárta a jelölést',
   'thread.event.reopened': 'Újranyitotta a jelölést',
   'thread.commentCount': '{count} hozzászólás',
+  'thread.delete': 'Törlés',
+  'thread.deleteAsk': 'Törlöd a jelölésedet?',
+  'thread.deleteAskOf': 'Törlöd {name} jelölését?',
+  'thread.deleteInfo': 'A jelölés a hozzászólásokkal és a képernyőképpel együtt végleg törlődik.',
+  'thread.deleteKeepsCard': 'A {key} kártya megmarad.',
+  'thread.deleteConfirm': 'Törlöm',
+  'thread.deleting': 'Törlés…',
+  'thread.deleteError': 'Nem sikerült törölni. Próbáld újra.',
 
   'pin.aria': '{name} jelölése: {text}',
   'pin.ariaChanged': '{name} jelölése: {text}, az elem azóta megváltozott',
@@ -161,6 +169,8 @@ export const hu = {
 
   'notice.sentNoShot': 'Elküldve. A képernyőkép nem készült el, kép nélkül küldtük.',
   'notice.shareStopped': 'A megosztás leállt. A képek újra automatikusan készülnek.',
+  'notice.deleted': 'Törölted a jelölést.',
+  'notice.deletedElsewhere': 'Ezt a jelölést törölték.',
 } as const;
 
 export type TextKey = keyof typeof hu;

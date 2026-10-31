@@ -89,6 +89,18 @@ h5.anchoredHeading {
   border: 1px solid var(--c-line-soft);
 }
 
+/* A link to a project document (PM-1223): inline, wraps with a long title. */
+.docLink {
+  display: inline;
+  overflow-wrap: anywhere;
+}
+
+.docLink svg {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
 .code {
   margin: 0;
   padding: 10px 12px;

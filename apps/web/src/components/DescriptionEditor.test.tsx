@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { t } from '../i18n/t';
 import { DescriptionEditor } from './DescriptionEditor';
+import type { EditorInsertTool } from './DescriptionEditor';
 
 function Editor({ initial = 'alpha beta\ngamma' }: { initial?: string }) {
   const [value, setValue] = useState(initial);
@@ -80,6 +81,51 @@ describe('DescriptionEditor', () => {
     fireEvent.click(toggle);
     expect(textarea().value).toBe(source);
     expect((tool('bold') as HTMLButtonElement).disabled).toBe(false);
+  });
+  describe('a tool from the caller', () => {
+    function ToolEditor() {
+      const [value, setValue] = useState('alpha beta\ngamma');
+      const insertTool: EditorInsertTool = {
+        icon: 'doc',
+        label: 'Pick',
+        render: ({ selected, insert, close, returnFocusRef }) => (
+          <div>
+            <output data-testid="selected">{selected}</output>
+            <output data-testid="returns-to">{returnFocusRef.current?.getAttribute('aria-label')}</output>
+            <button type="button" onClick={() => insert('[X](doc:x)')}>
+              put
+            </button>
+            <button type="button" onClick={close}>
+              cancel
+            </button>
+          </div>
+        ),
+      };
+      return (
+        <DescriptionEditor
+          label={t('task.description')}
+          value={value}
+          onChange={setValue}
+          insertTool={insertTool}
+        />
+      );
+    }
+
+    it('replaces the selection it was opened with, and leaves the text alone when closed', () => {
+      render(<ToolEditor />);
+      textarea().setSelectionRange(6, 10);
+      fireEvent.click(screen.getByRole('button', { name: 'Pick' }));
+      expect(screen.getByTestId('selected').textContent).toBe('beta');
+      expect(screen.getByTestId('returns-to').textContent).toBe('Pick');
+      fireEvent.click(screen.getByRole('button', { name: 'cancel' }));
+      expect(textarea().value).toBe('alpha beta\ngamma');
+      expect(screen.queryByTestId('selected')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Pick' }));
+      fireEvent.click(screen.getByRole('button', { name: 'put' }));
+      expect(textarea().value).toBe('alpha [X](doc:x)\ngamma');
+      expect(textarea().selectionStart).toBe('alpha [X](doc:x)'.length);
+      expect(screen.queryByTestId('selected')).toBeNull();
+    });
   });
   it('puts the label first, then the one-row toolbar, then the field', () => {
     render(<Editor />);

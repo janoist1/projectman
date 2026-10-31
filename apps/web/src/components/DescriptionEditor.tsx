@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { useLayoutEffect, useRef, useState } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { t } from '../i18n/t';
 import { useIsMobile } from '../lib/hooks';
 import { Button } from './Button';
@@ -73,16 +74,34 @@ export function formatSelection(value: string, start: number, end: number, actio
   };
 }
 
+/** A toolbar tool the caller renders (PM-1223: the document link picker); it inserts markdown at the selection. */
+export interface EditorInsertTool {
+  icon: IconName;
+  /** The button's accessible name and tooltip. */
+  label: string;
+  render: (tool: {
+    /** The text selected when the tool opened. */
+    selected: string;
+    /** Replaces that selection with `markdown`, puts the caret after it, then closes. */
+    insert: (markdown: string) => void;
+    close: () => void;
+    /** The toolbar button: focus goes back to it on close. */
+    returnFocusRef: RefObject<HTMLButtonElement | null>;
+  }) => ReactNode;
+}
+
 export function DescriptionEditor({
   label,
   value,
   onChange,
   disabled = false,
+  insertTool,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  insertTool?: EditorInsertTool;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
   const mobile = useIsMobile();
@@ -112,10 +131,11 @@ export function DescriptionEditor({
     };
   }, [value, preview]);
 
-  const apply = (action: Action) => {
-    const node = input.current;
-    if (!node || disabled) return;
-    const edit = formatSelection(value, node.selectionStart, node.selectionEnd, action);
+  /** Replaces `start`..`end` with `text` and selects `selectionStart`..`selectionEnd` afterwards. */
+  const replaceRange = (
+    node: HTMLTextAreaElement,
+    edit: { start: number; end: number; text: string; selectionStart: number; selectionEnd: number },
+  ) => {
     node.focus();
     node.setSelectionRange(edit.start, edit.end);
     // Native insertion retains the browser's undo stack where supported.
@@ -125,6 +145,24 @@ export function DescriptionEditor({
     if (!inserted) node.setRangeText(edit.text, edit.start, edit.end, 'end');
     change(node.value);
     node.setSelectionRange(edit.selectionStart, edit.selectionEnd);
+  };
+
+  const apply = (action: Action) => {
+    const node = input.current;
+    if (!node || disabled) return;
+    replaceRange(node, formatSelection(value, node.selectionStart, node.selectionEnd, action));
+  };
+
+  // The caller's tool (PM-1223): the selection is kept while it is open, since the dialog takes the focus.
+  const [toolOpen, setToolOpen] = useState<{ start: number; end: number } | null>(null);
+  const toolButton = useRef<HTMLButtonElement>(null);
+  const insertAtSelection = (markdown: string) => {
+    const node = input.current;
+    if (node && toolOpen) {
+      const caret = toolOpen.start + markdown.length;
+      replaceRange(node, { ...toolOpen, text: markdown, selectionStart: caret, selectionEnd: caret });
+    }
+    setToolOpen(null);
   };
 
   const formatDisabled = disabled || preview;
@@ -149,6 +187,23 @@ export function DescriptionEditor({
     <div className={styles.toolbar} role="toolbar" aria-label={t('editor.toolbar')}>
       <div className={styles.tools}>
         {(mobile ? mobileActions : actions).map(formatButton)}
+        {insertTool ? (
+          <button
+            ref={toolButton}
+            type="button"
+            className={clsx(styles.tool, styles.insertTool)}
+            disabled={formatDisabled}
+            aria-label={insertTool.label}
+            title={insertTool.label}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              const node = input.current;
+              if (node) setToolOpen({ start: node.selectionStart, end: node.selectionEnd });
+            }}
+          >
+            <Icon name={insertTool.icon} size={17} strokeWidth={2.1} />
+          </button>
+        ) : null}
         {mobile ? (
           <MoreMenu label={t('editor.more')}>
             {(close) =>
@@ -223,6 +278,14 @@ export function DescriptionEditor({
           <Markdown text={value} />
         </div>
       ) : null}
+      {insertTool && toolOpen
+        ? insertTool.render({
+            selected: value.slice(toolOpen.start, toolOpen.end),
+            insert: insertAtSelection,
+            close: () => setToolOpen(null),
+            returnFocusRef: toolButton,
+          })
+        : null}
     </div>
   );
 }

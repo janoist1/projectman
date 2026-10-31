@@ -16,6 +16,7 @@ import { useToast } from '../../components/toastContext';
 import { numberFormat } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { useDocumentLinkTool } from './DocumentLinkDialog';
 import styles from './DocumentEditor.module.css';
 
 const BYTES_SHOWN_FROM = MAX_DOCUMENT_BYTES * 0.8;
@@ -48,6 +49,7 @@ export function DocumentEditor({ slug, initial, latestVersion, gone, onSaved, on
   const { key } = useProject();
   const toast = useToast();
   const create = useCreateDocument(key);
+  const documentLinkTool = useDocumentLinkTool();
   const update = useUpdateDocument(key, slug ?? '');
   const [title, setTitle] = useState(initial.title);
   const [content, setContent] = useState(initial.content);
@@ -204,6 +206,7 @@ export function DocumentEditor({ slug, initial, latestVersion, gone, onSaved, on
         value={content}
         onChange={setContent}
         disabled={saving}
+        insertTool={documentLinkTool}
       />
       <p className={styles.secrets}>
         <Icon name="lock" size={15} strokeWidth={2.2} />

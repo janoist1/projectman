@@ -119,16 +119,24 @@ describe('document links', () => {
     });
   });
 
-  it.each(['[x](doc:Plan)', '[x](doc:)', '[](doc:plan)', '[x](doc:plan#)', 'a [x](doc:plan)', '[x](https://a.b)'])(
-    'refuses %j',
-    (token) => {
-      expect(documentLinkOf(token)).toBeNull();
-    },
-  );
+  it.each([
+    '[x](doc:Plan)',
+    '[x](doc:)',
+    '[](doc:plan)',
+    '[x](doc:plan#)',
+    'a [x](doc:plan)',
+    '[x](https://a.b)',
+  ])('refuses %j', (token) => {
+    expect(documentLinkOf(token)).toBeNull();
+  });
 
   it('lists the links in order, each target once', () => {
     const text = 'See [A](doc:a#x) and [B](doc:b)\n[A again](doc:a#x) [A whole](doc:a)';
-    expect(documentLinksOf(text).map((link) => `${link.slug}#${link.section ?? ''}`)).toEqual(['a#x', 'b#', 'a#']);
+    expect(documentLinksOf(text).map((link) => `${link.slug}#${link.section ?? ''}`)).toEqual([
+      'a#x',
+      'b#',
+      'a#',
+    ]);
   });
 
   it('skips fenced code and inline code', () => {

@@ -1,8 +1,12 @@
 import clsx from 'clsx';
-import { memo } from 'react';
+import { memo, useContext } from 'react';
 import type { ReactNode } from 'react';
-import { documentOutline } from '@projectman/shared';
-import type { DocumentHeading } from '@projectman/shared';
+import { Link } from 'react-router';
+import { documentLinkOf, documentOutline } from '@projectman/shared';
+import type { DocumentHeading, DocumentLink } from '@projectman/shared';
+import { ProjectContext } from '../app/contexts';
+import { documentAccessOf, documentRef, documentsPath } from '../app/documents';
+import { t } from '../i18n/t';
 import { Icon } from './Icon';
 import styles from './Markdown.module.css';
 
@@ -75,11 +79,21 @@ function parseBlocks(source: string): Block[] {
   return blocks;
 }
 
+// The `doc:` branch comes before the https link, so a document link is never read as a plain one (PM-1223).
 const INLINE =
-  /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s)]+)/g;
+  /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]\n]+\]\(doc:[^)\s]*\)|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s)]+)/g;
 
 /** Renders a card key found in plain text (PM-429: the project manager's replies link the cards they name). */
 export type CardKeyRenderer = (cardKey: string) => ReactNode;
+
+/** Renders a link to a document or one of its sections (PM-1223); `key` is the React key. */
+export type DocumentLinkRenderer = (link: DocumentLink, key: string) => ReactNode;
+
+/** What the inline renderer can make of the text beyond plain markdown. */
+interface InlineOptions {
+  cardKey?: CardKeyRenderer;
+  docLink?: DocumentLinkRenderer;
+}
 
 const CARD_KEY = /\b[A-Z][A-Z0-9]{1,9}-\d+\b/g;
 
@@ -98,7 +112,8 @@ function plainText(text: string, keyPrefix: string, cardKey: CardKeyRenderer | u
   return nodes;
 }
 
-function renderInline(text: string, keyPrefix: string, cardKey?: CardKeyRenderer): ReactNode[] {
+function renderInline(text: string, keyPrefix: string, options: InlineOptions = {}): ReactNode[] {
+  const { cardKey, docLink } = options;
   const nodes: ReactNode[] = [];
   let last = 0;
   let index = 0;
@@ -117,6 +132,11 @@ function renderInline(text: string, keyPrefix: string, cardKey?: CardKeyRenderer
       nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
     } else if (token.startsWith('*')) {
       nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
+    } else if (token.startsWith('[') && token.includes('](doc:')) {
+      const link = documentLinkOf(token);
+      // Not a valid document link (a bad slug): plain text, never a broken link.
+      if (link && docLink) nodes.push(docLink(link, key));
+      else nodes.push(...plainText(token, key, cardKey));
     } else if (token.startsWith('[')) {
       const label = /^\[([^\]]+)\]/.exec(token)?.[1] ?? token;
       const href = match[2] ?? '#';
@@ -138,19 +158,50 @@ function renderInline(text: string, keyPrefix: string, cardKey?: CardKeyRenderer
   return nodes;
 }
 
-function withBreaks(text: string, keyPrefix: string, cardKey?: CardKeyRenderer): ReactNode[] {
+function withBreaks(text: string, keyPrefix: string, options?: InlineOptions): ReactNode[] {
   return text
     .split('\n')
     .flatMap((line, i) =>
       i === 0
-        ? renderInline(line, `${keyPrefix}-${i}`, cardKey)
-        : [<br key={`${keyPrefix}-br-${i}`} />, ...renderInline(line, `${keyPrefix}-${i}`, cardKey)],
+        ? renderInline(line, `${keyPrefix}-${i}`, options)
+        : [<br key={`${keyPrefix}-br-${i}`} />, ...renderInline(line, `${keyPrefix}-${i}`, options)],
     );
+}
+
+/**
+ * How a document link is drawn here (PM-1223): in a project the viewer may read documents of, a router link in the
+ * same tab (like a card key); anywhere else just its text, so the route guard never throws the viewer home.
+ */
+function useDocumentLink(): DocumentLinkRenderer {
+  const project = useContext(ProjectContext);
+  const projectKey = project?.key;
+  const canRead = documentAccessOf(project).read;
+  return (link, key) => {
+    const ref = documentRef(link.slug, link.section);
+    if (!projectKey || !canRead)
+      return (
+        <span key={key} title={ref}>
+          {link.text}
+        </span>
+      );
+    return (
+      <Link
+        key={key}
+        className={styles.docLink}
+        to={{ pathname: documentsPath(projectKey, link.slug), hash: link.section }}
+        title={t('documentLink.open', { ref })}
+      >
+        <Icon name="doc" size={14} />
+        {link.text}
+      </Link>
+    );
+  };
 }
 
 /** Inline markdown only (bold, italics, code, links, line breaks), for a sentence inside another element. */
 export function InlineMarkdown({ text }: { text: string }) {
-  return <>{withBreaks(text, 'i')}</>;
+  const docLink = useDocumentLink();
+  return <>{withBreaks(text, 'i', { docLink })}</>;
 }
 
 /**
@@ -176,6 +227,8 @@ export const Markdown = memo(function Markdown({
   cardKey?: CardKeyRenderer;
   headingLinks?: HeadingLinks;
 }) {
+  const docLink = useDocumentLink();
+  const inline: InlineOptions = { cardKey, docLink };
   const blocks = parseBlocks(text);
   const outline = headingLinks ? documentOutline(text) : [];
   let headingIndex = 0;
@@ -196,7 +249,7 @@ export const Markdown = memo(function Markdown({
               const Tag = `h${Math.min(anchored.level + 1, 5)}` as 'h2' | 'h3' | 'h4' | 'h5';
               return (
                 <Tag key={key} id={anchored.anchor} tabIndex={-1} className={styles.anchoredHeading}>
-                  {renderInline(block.text, key, cardKey)}
+                  {renderInline(block.text, key, inline)}
                   <button
                     type="button"
                     className={styles.headingLink}
@@ -210,7 +263,7 @@ export const Markdown = memo(function Markdown({
             }
             return (
               <p key={key} className={styles.heading}>
-                {renderInline(block.text, key, cardKey)}
+                {renderInline(block.text, key, inline)}
               </p>
             );
           }
@@ -222,10 +275,10 @@ export const Markdown = memo(function Markdown({
                   {task ? (
                     <label>
                       <input type="checkbox" checked={task[1]!.toLowerCase() === 'x'} disabled readOnly />{' '}
-                      {renderInline(task[2]!, `${key}-${j}`, cardKey)}
+                      {renderInline(task[2]!, `${key}-${j}`, inline)}
                     </label>
                   ) : (
-                    renderInline(item, `${key}-${j}`, cardKey)
+                    renderInline(item, `${key}-${j}`, inline)
                   )}
                 </li>
               );
@@ -233,7 +286,7 @@ export const Markdown = memo(function Markdown({
             return block.ordered ? <ol key={key}>{items}</ol> : <ul key={key}>{items}</ul>;
           }
           case 'paragraph':
-            return <p key={key}>{withBreaks(block.text, key, cardKey)}</p>;
+            return <p key={key}>{withBreaks(block.text, key, inline)}</p>;
         }
       })}
     </div>

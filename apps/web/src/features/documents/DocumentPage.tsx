@@ -25,7 +25,7 @@ import { useDocumentTitle } from '../../lib/hooks';
 import { useDocumentAccess } from './access';
 import { DocumentEditor } from './DocumentEditor';
 import { HistoryDrawer } from './HistoryDrawer';
-import { documentRef, documentsPath } from './paths';
+import { documentRef, documentsPath } from '../../app/documents';
 import styles from './DocumentPage.module.css';
 
 const HIGHLIGHT_MS = 2000;

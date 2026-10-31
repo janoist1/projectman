@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, SERVER_INFO, visibleTeamTools } from './server';
 import { createFakeTeamToolsHandler, devContext, fullAudience } from './testing';
 import type { MemberAudience } from '../contracts';
-import { toolVisible, type ToolAudience } from './kit';
+import { toolOutputText, toolVisible, type ToolAudience } from './kit';
 import { TEAM_TOOL_GROUPS, TEAM_TOOL_NAMES, TEAM_TOOLS } from './tools';
 import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_DUTIES } from '@projectman/shared';
 
@@ -210,6 +210,34 @@ describe('tool audience', () => {
     const status = await handler.getReleaseStatus(devContext);
     expect(text).toContain(`hub version=${status.hub.version}`);
     for (const engine of status.engines) expect(text).toContain(`${engine.id} ${engine.name} connected=`);
+  });
+
+  describe('write_document answer (PM-1223)', () => {
+    const write = async (content: string | undefined) => {
+      const tool = TEAM_TOOLS.find((candidate) => candidate.name === 'write_document')!;
+      return toolOutputText(
+        await tool.run({
+          ctx: devContext,
+          handler: createFakeTeamToolsHandler(),
+          args: { slug: 'plan', ...(content !== undefined ? { content } : {}), message: 'why' },
+        }),
+      );
+    };
+
+    it('gives the ready doc: link and the section anchors of the written text', async () => {
+      const text = await write('# Plan\n\n## 1. Goal\n\n## 1. Goal');
+      expect(text).toContain('link: [Fake document](doc:plan)');
+      expect(text.split('\n').slice(-3)).toEqual(['plan — Plan', '1-goal — 1. Goal', '1-goal-2 — 1. Goal']);
+    });
+
+    it('lists at most 40 anchors and counts the rest, and none without content or headings', async () => {
+      const many = Array.from({ length: 45 }, (_, i) => `## S${i}`).join('\n');
+      const text = await write(many);
+      expect(text.match(/^s\d+ — /gm)).toHaveLength(40);
+      expect(text).toContain('5 more');
+      expect(await write(undefined)).not.toContain('sections');
+      expect(await write('no headings')).not.toContain('sections');
+    });
   });
 
   it.each([true, false])(

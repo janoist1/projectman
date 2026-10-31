@@ -457,11 +457,20 @@ function preparing(askedStep: string, steps: string[] | ((c: StepContext) => str
   };
 }
 
+/**
+ * An offer, never a rule (PM-1223): a long plan or analysis may live in a project document, and the description then
+ * holds its link and a short summary. Only where the project has documents.
+ */
+function documentOffer({ documents }: ContextPackInput, kind: 'plan' | 'analysis'): string {
+  if (!documents || documents.length === 0) return '';
+  return ` A long ${kind} may go into a project document instead (write_document); the description then holds its \`[text](doc:slug#anchor)\` link and a short summary.`;
+}
+
 /** The work of the requirements analysis: the same in the queue and in refinement. */
-function requirementsWork(): string[] {
+function requirementsWork({ input }: StepContext): string[] {
   return [
     'Read the request with get_task; ask with ask_human about anything unclear before work starts.',
-    'Rewrite the description with update_task: the goal and the expected behaviour; keep the original request quoted at the end.',
+    `Rewrite the description with update_task: the goal and the expected behaviour; keep the original request quoted at the end.${documentOffer(input, 'analysis')}`,
     'Write the acceptance criteria as acceptance items, each checkable on its own: update_task with acceptance `add` (create_task takes an acceptance list). The assignee marks them with evidence and the reviewer confirms them.',
     'If the request holds several independent pieces of work, create one task per piece with create_task and note the split on this task.',
   ];
@@ -471,7 +480,7 @@ function requirementsWork(): string[] {
 function technicalWork(c: StepContext): string[] {
   return [
     'Read the task with get_task and the code it touches; read only, never edit, commit or push.',
-    'Add the technical plan to the description with update_task, under its own heading: approach, affected parts, data or API changes, risks, how to test.',
+    `Add the technical plan to the description with update_task, under its own heading: approach, affected parts, data or API changes, risks, how to test.${documentOffer(c.input, 'plan')}`,
     ...partSteps(c),
   ];
 }
@@ -829,7 +838,7 @@ function refinementSteps(
       ? breakdownWork(c, step)
       : [
           ...(duty === 'requirements_analysis'
-            ? requirementsWork()
+            ? requirementsWork(c)
             : duty === 'ux_design'
               ? designPlanWork(input)
               : technicalWork(c)),

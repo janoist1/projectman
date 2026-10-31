@@ -5604,6 +5604,8 @@ export const hu = {
     attachmentAdded: 'Csatolmány hozzáadva: {fileName}',
     feedbackCreated: 'A kártya egy jelölésből készült',
     feedbackLinked: 'Egy jelölés ehhez a kártyához lett kötve',
+    feedbackDeletedCreated: 'Törölte a jelölést, amelyből a kártya nyílt',
+    feedbackDeletedLinked: 'Törölte a kártyához kötött jelölést',
     openMark: 'Megnyitom',
     /** The words before the file's link on the timeline row. */
     attachmentAddedLead: 'Csatolmány hozzáadva:',
@@ -6358,6 +6360,16 @@ export const hu = {
       info: 'A lezárás után {name} már nem tud hozzászólni, de a jelölés megmarad.',
       submit: 'Lezárom',
       done: 'A jelölés lezárva',
+    },
+    delete: {
+      menu: 'Törlöm a jelölést',
+      headingOwn: 'Törlöd a jelölésedet?',
+      headingOf: 'Törlöd {name} jelölését?',
+      info: 'A jelölés a hozzászólásokkal és a képernyőképpel együtt végleg törlődik, és a weboldalon sem látszik többé.',
+      keepsCard: 'A {key} kártya megmarad; az idővonalán látszik, hogy a jelölést törölték.',
+      submit: 'Törlöm',
+      done: 'Törölted a jelölést.',
+      gone: 'Ezt a jelölést már törölték.',
     },
   },
 

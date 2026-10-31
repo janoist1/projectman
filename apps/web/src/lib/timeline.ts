@@ -762,6 +762,10 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'feedback_linked':
       return normal(t(d.created === true ? 'timeline.feedbackCreated' : 'timeline.feedbackLinked'));
+    case 'feedback_deleted':
+      return normal(
+        t(d.created === true ? 'timeline.feedbackDeletedCreated' : 'timeline.feedbackDeletedLinked'),
+      );
     case 'schedule_started':
       return normal(t('schedules.startedEvent'));
     case 'schedule_skipped':

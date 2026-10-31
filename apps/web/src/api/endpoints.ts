@@ -497,6 +497,8 @@ export const api = {
     apiRequest<FeedbackMarkDetail>(routes.feedbackClose(key, markId), { method: 'POST', body }),
   feedbackReopen: (key: string, markId: string) =>
     apiRequest<FeedbackMarkDetail>(routes.feedbackReopen(key, markId), { method: 'POST', body: {} }),
+  feedbackDelete: (key: string, markId: string) =>
+    apiRequest<null>(routes.feedbackMark(key, markId), { method: 'DELETE' }),
 
   /** The e-mail channel (PM-942): owner and admin only; `before` is the cursor of the log's older page. */
   emailChannel: (key: string) => apiRequest(routes.emailChannel(key), { schema: EmailChannelView }),

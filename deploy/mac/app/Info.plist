@@ -15,4 +15,5 @@
 <key>ProjectmanEngineVersion</key><string>{{version}}</string>
 <key>ProjectmanReleaseRepo</key><string>{{repo}}</string>
 <key>ProjectmanTeamId</key><string>{{teamId}}</string>
+<!--updateKeys-->
 </dict></plist>

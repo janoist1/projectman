@@ -1,7 +1,7 @@
 // Builds a self-contained engine package and its distributable macOS app (PM-1104, PM-1121, PM-1122):
 //
 //   npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>]
-//   npm run engine-app -- build --package <dir> --out <dir> [--ad-hoc]
+//   npm run engine-app -- build --package <dir> --out <dir> [--ad-hoc [--update-ref refs/heads/<branch>]]
 //   npm run engine-app -- publish --tag <tag> --config <absolute-file>
 //   npm run engine-app -- upload --tag <tag> --dir <build output>  (PM-1198: the ad-hoc build of GitHub Actions)
 //   npm run engine-app -- fetch --commit <sha> --out <new dir> [--run <number>] [--dry-run] [--open]  (PM-1156)

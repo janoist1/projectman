@@ -17,7 +17,14 @@ export interface EngineAppBuildRequest {
   identity?: string;
   teamId?: string;
   notaryProfile?: string;
+  /**
+   * `refs/heads/<branch>` the release workflow runs from (PM-1199). With `--ad-hoc` and a tagged package it makes the
+   * app update itself on the GitHub build attestation of that ref (`ProjectmanUpdateTrust`).
+   */
+  updateRef?: string;
 }
+
+const UPDATE_REF = /^refs\/heads\/[A-Za-z0-9._\/-]+$/;
 
 const NOTARY_TIMEOUT = 30 * 60 * 1000;
 const MACH_MAGICS = new Set([
@@ -73,6 +80,8 @@ export async function buildEngineApp(
       !request.notaryProfile?.trim())
   )
     throw refused('signed builds require --identity, --team-id and --notary-profile (keychain names only)');
+  if (request.updateRef !== undefined && (!request.adHoc || !UPDATE_REF.test(request.updateRef)))
+    throw refused('--update-ref refs/heads/<branch> belongs to an ad-hoc build');
   const pkg = path.resolve(request.packageDir);
   const out = path.resolve(request.outDir);
   if (out === pkg || out.startsWith(pkg + path.sep) || pkg.startsWith(out + path.sep))
@@ -190,10 +199,22 @@ export async function buildEngineApp(
       repo,
       teamId,
     };
+    // A tagged ad-hoc release trusts the GitHub attestation of its workflow; a Developer ID or untagged build never updates this way.
+    const attested = request.adHoc && request.updateRef && manifest.tag;
+    const updateKeys = attested
+      ? [
+          ['ProjectmanUpdateTrust', 'github-attestation'],
+          ['ProjectmanUpdateSourceRef', request.updateRef!],
+        ]
+          .map(([key, value]) => `<key>${key}</key><string>${xml(value!)}</string>\n`)
+          .join('')
+      : '';
     const template = fs.readFileSync(path.join(request.sourceRepo, 'deploy/mac/app/Info.plist'), 'utf8');
     fs.writeFileSync(
       path.join(app, 'Contents/Info.plist'),
-      template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => xml(values[key]!)),
+      template
+        .replace(/\{\{(\w+)\}\}/g, (_, key: string) => xml(values[key]!))
+        .replace('<!--updateKeys-->\n', updateKeys),
     );
     const files = binaries(engine);
     const node = path.join(engine, 'bin/node');

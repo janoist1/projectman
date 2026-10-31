@@ -133,12 +133,13 @@ jobs:
         shell: bash
         env:
           COMMIT: ${{ inputs.commit }}
+          UPDATE_REF: ${{ github.ref }}
         run: |
           rm -rf "$RUNNER_TEMP/projectman-job"
           mkdir -p "$RUNNER_TEMP/projectman-job/out"
           npm ci
           npm run engine-app -- package --commit "$COMMIT" --out "$RUNNER_TEMP/engine-package"
-          npm run engine-app -- build --package "$RUNNER_TEMP/engine-package/$COMMIT" --out "$RUNNER_TEMP/projectman-job/out/app" --ad-hoc
+          npm run engine-app -- build --package "$RUNNER_TEMP/engine-package/$COMMIT" --out "$RUNNER_TEMP/projectman-job/out/app" --ad-hoc --update-ref "$UPDATE_REF"
       - name: Outputs
         id: outputs
         shell: bash

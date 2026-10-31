@@ -148,11 +148,17 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
         <Link
           key={item.to}
           to={item.to}
-          className={clsx(styles.railItem, item.active && styles.railItemActive)}
+          className={clsx(
+            styles.railItem,
+            item === documents && styles.railItemTall,
+            item.active && styles.railItemActive,
+          )}
           aria-current={item.active ? 'page' : undefined}
         >
           <Icon name={item.icon} size={20} strokeWidth={1.8} />
-          <span className={styles.railLabel}>{item.label}</span>
+          <span className={clsx(styles.railLabel, item === documents && styles.railLabelWrap)}>
+            {item.label}
+          </span>
           {item.badge ? (
             <>
               <span className={styles.railBadge} aria-hidden="true">

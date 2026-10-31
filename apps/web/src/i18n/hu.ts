@@ -1259,7 +1259,8 @@ export const hu = {
     account: 'Fiók: {name}',
     inboxCount: '{count} tétel vár rád',
     feedbackCount: '{count} jelölés vár rád',
-    documents: 'Dokumentumok',
+    // The soft hyphen lets the 64 px rail break the word in two lines instead of clipping it.
+    documents: 'Doku­mentumok',
   },
 
   /** The project's living documents (PM-150). */

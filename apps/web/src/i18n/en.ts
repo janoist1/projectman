@@ -2265,7 +2265,7 @@ export const en = {
     kindHints: {
       queue: 'Cards wait here for the next stage.',
       work: 'The work gets done here: the card’s assignee works on it.',
-      step: 'Its owners do a step and record the result with a label.',
+      step: 'Its handlers do a step and record the result with a label.',
       release: 'Release: always after a person’s approval.',
       done: 'Closed cards.',
     },
@@ -4931,7 +4931,7 @@ export const en = {
       saveFailed: 'Couldn’t save. Try again.',
       loadFailed: 'The getting-started list didn’t load right now.',
       indicator: {
-        text: 'Getting started {settled}/{total}',
+        text: 'Setup {settled}/{total}',
         label:
           'Getting-started list: {settled} of {total} items sorted. Open it on the project manager’s panel.',
         title: 'Getting-started list',
@@ -6799,7 +6799,7 @@ export const en = {
         release: 'Release; add a gate that needs a person’s approval before saving.',
         done: 'Finished work; the last stage of the board must be like this.',
       },
-      stepOf: 'Step · {duty}',
+      stepOf: 'Intermediate · {duty}',
       addStage: 'New stage',
       createStage: 'Add stage',
       afterStage: 'Insert after this stage',

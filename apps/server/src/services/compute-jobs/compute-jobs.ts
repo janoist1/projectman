@@ -247,7 +247,7 @@ export class ComputeJobService {
         ref: { projectKey: run.projectKey, repo: run.repo.name },
         repo: run.github,
         base: run.repo.defaultBranch,
-        workflow: COMPUTE_JOB_WORKFLOW,
+        workflow: def.workflow ?? COMPUTE_JOB_WORKFLOW,
         job: def.id,
         commit: run.commit,
         command: def.command,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ComputeJobDefinition, isComputeJobWorkflow } from '../domain/compute-job';
 import { applyConfigPatch, PatchConfigRequest, unknownPatchRepo } from './edit';
 import { operatorConfigVerdict } from './operator';
 import { ownerOnlyChanges } from './owner-only';
@@ -67,6 +68,18 @@ describe('repoComputeJobs patch (PM-1148)', () => {
       PatchConfigRequest.safeParse({ baseVersion: 'v1', repoComputeJobs: [entry] });
     expect(safe({ repo: 'web', computeJobs: [JOB, JOB] }).success).toBe(false);
     expect(safe({ repo: 'web', computeJobs: null, extra: 1 }).success).toBe(false);
+  });
+
+  it('takes a dedicated workflow only from the fixed list, and an old job without one unchanged (PM-1196)', () => {
+    expect(ComputeJobDefinition.parse(JOB)).not.toHaveProperty('workflow');
+    expect(ComputeJobDefinition.parse({ ...JOB, workflow: 'projectman-deploy.yml' }).workflow).toBe(
+      'projectman-deploy.yml',
+    );
+    for (const workflow of ['projectman-job.yml', 'other.yml', ''])
+      expect(ComputeJobDefinition.safeParse({ ...JOB, workflow }).success).toBe(false);
+    expect(isComputeJobWorkflow('projectman-job.yml')).toBe(true);
+    expect(isComputeJobWorkflow('projectman-engine-release.yml')).toBe(true);
+    expect(isComputeJobWorkflow('merge-check.yml')).toBe(false);
   });
 
   it('names an unknown repository', () => {

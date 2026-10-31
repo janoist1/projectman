@@ -70,7 +70,7 @@ export interface GithubJobRun {
   repo: string;
   /** The default branch: the workflow is dispatched from it. */
   base: string;
-  /** COMPUTE_JOB_WORKFLOW. */
+  /** COMPUTE_JOB_WORKFLOW or one of DEDICATED_COMPUTE_JOB_WORKFLOWS. */
   workflow: string;
   /** The job kind (`ComputeJobId`). */
   job: string;

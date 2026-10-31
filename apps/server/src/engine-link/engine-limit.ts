@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   COMPUTE_JOB_WORKFLOW,
+  isComputeJobWorkflow,
   isRegeneratedPath,
   isRegeneratedPathPattern,
   isReleaseTagName,
@@ -656,13 +657,14 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         const job = spec.githubJob;
         const entry = await mergeBase(job.ref, job.base);
         commitIds(job.commit);
-        if (job.workflow !== COMPUTE_JOB_WORKFLOW)
-          refuse('invalid_params', 'The workflow is not the general compute job workflow');
+        if (!isComputeJobWorkflow(job.workflow))
+          refuse('invalid_params', 'The workflow is not a compute job workflow');
         if (spec.command !== job.command)
           refuse('invalid_params', 'The command of a compute job is the command of its workflow');
         const registered = entry.computeJobs?.find((candidate) => candidate.id === job.job);
         if (
           !registered ||
+          (registered.workflow ?? COMPUTE_JOB_WORKFLOW) !== job.workflow ||
           registered.command !== job.command ||
           registered.runsOn !== job.runsOn ||
           registered.node !== job.node ||

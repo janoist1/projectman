@@ -7,6 +7,7 @@ export * from './sessions';
 export * from './github';
 export * from './context';
 export * from './config-store';
+export * from './documents';
 export * from './integrator-principal';
 export * from './operator-knowledge';
 export * from './event-bus';

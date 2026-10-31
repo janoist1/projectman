@@ -2787,4 +2787,19 @@ migrations.push({
   sql: `ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'en';
     UPDATE users SET language = 'hu';`,
 });
+migrations.push({
+  version: 138,
+  name: 'feedback deletions',
+  // PM-1189: a deleted mark leaves who made it, who deleted it and when, never its text or image.
+  sql: `CREATE TABLE feedback_deletions (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      mark_id TEXT NOT NULL,
+      author TEXT NOT NULL,
+      deleted_by TEXT NOT NULL,
+      task_key TEXT,
+      deleted_at TEXT NOT NULL
+    );
+    CREATE INDEX feedback_deletions_project ON feedback_deletions (project_key, deleted_at);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

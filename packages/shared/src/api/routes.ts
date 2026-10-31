@@ -233,7 +233,7 @@ export const routes = {
   /** POST (owner, admin): ends every tool session of the member. */
   feedbackMarkerLogout: (key: string, handle: string) =>
     `/api/projects/${key}/feedback/markers/${handle}/logout`,
-  /** GET `FeedbackMarkDetail`. */
+  /** GET `FeedbackMarkDetail`; DELETE the mark (204; its author, an owner or an admin, PM-1189). */
   feedbackMark: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}`,
   /** GET (processors): the screenshot; `?thumb=1` the small one. */
   feedbackScreenshot: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/screenshot`,

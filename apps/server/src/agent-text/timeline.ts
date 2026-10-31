@@ -173,6 +173,10 @@ export function describeEvent(
       return data.created === true
         ? `created this card from the feedback mark ${text('markId') ?? '?'}`
         : `linked the feedback mark ${text('markId') ?? '?'} to this card`;
+    case 'feedback_deleted':
+      return data.created === true
+        ? `deleted the feedback mark ${text('markId') ?? '?'} this card was created from`
+        : `deleted the feedback mark ${text('markId') ?? '?'} linked to this card`;
     case 'team_message': {
       const to = list('to').length > 0 ? list('to') : [text('to')].filter((h): h is string => !!h);
       const recipients = to.length > 0 ? ` to ${to.map((h) => style.code(h)).join(', ')}` : '';

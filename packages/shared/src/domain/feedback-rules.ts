@@ -14,6 +14,16 @@ export function canProcessFeedback(config: Pick<ProjectConfig, 'team'>, member: 
   return memberDuties(config, member).includes('feedback_processing');
 }
 
+/**
+ * Whether the member deletes the mark (PM-1189): its author, or a human owner or admin. A viewer
+ * never deletes, and neither does an AI member, not even a processor.
+ */
+export function canDeleteFeedback(member: MemberConfig, mark: { author: string }): boolean {
+  if (member.kind !== 'human' || member.access === 'viewer') return false;
+  if (member.access === 'owner' || member.access === 'admin') return true;
+  return member.handle === mark.author;
+}
+
 export type FeedbackMarkRefusalReason = 'not_human' | 'viewer' | 'blocked' | 'no_surface';
 
 /** Why the member cannot place marks, or null: a human who is not a viewer, not blocked, with a surface set up. */

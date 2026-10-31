@@ -173,6 +173,11 @@ export function registerFeedbackWidgetRoutes(
         widget.detail(sessionOf(request), markIdOf(request.params.markId)),
       );
 
+      scope.delete<MarkParams>('/marks/:markId', { bodyLimit: SMALL_BODY_LIMIT }, async (request, reply) => {
+        await widget.deleteMark(sessionOf(request), markIdOf(request.params.markId));
+        return reply.code(204).send();
+      });
+
       scope.post<MarkParams>(
         '/marks/:markId/comments',
         { bodyLimit: SMALL_BODY_LIMIT },

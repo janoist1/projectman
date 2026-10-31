@@ -89,6 +89,7 @@ export const TimelineEventType = z.enum([
   'attachment_added',
   'attachment_deleted',
   'feedback_linked',
+  'feedback_deleted',
   'schedule_started',
   'schedule_skipped',
   'session_started',
@@ -376,6 +377,11 @@ export interface TimelineEventData {
   attachment_deleted: { attachmentId: string; fileName: string; size: number; mediaType: string };
   /** A feedback mark was tied to the card (PM-506): `created` the card was opened from it, else it was linked. */
   feedback_linked: { markId: string; created: boolean };
+  /**
+   * A feedback mark tied to the card was deleted (PM-1189): the actor deleted it, `author` made it,
+   * `created` the card was opened from it. No text or image of the mark is kept.
+   */
+  feedback_deleted: { markId: string; author: string; created: boolean };
   schedule_started: { runId: string; member: string; scheduledFor: string };
   schedule_skipped: { runId: string; member: string; scheduledFor: string; reason: string };
   /**

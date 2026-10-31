@@ -69,6 +69,7 @@ export const TEAM_TOOL_NAMES = [
   'prioritize_merge',
   'list_merge_checks',
   'publish_release',
+  'get_release_status',
   'run_compute_job',
   'get_compute_job',
   'list_compute_jobs',

@@ -29,6 +29,7 @@ import type {
   MessageAttachmentReading,
   PublishedRelease,
   PublishReleaseArgs,
+  ReleaseStatus,
   ListComputeJobsArgs,
   RunComputeJobArgs,
   ScreenshotRun,
@@ -357,6 +358,10 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease> {
     return this.tools.releases.publishRelease(ctx, args);
+  }
+
+  async getReleaseStatus(ctx: ToolContext): Promise<ReleaseStatus> {
+    return this.tools.releases.getReleaseStatus(ctx);
   }
 
   async runComputeJob(ctx: ToolContext, args: RunComputeJobArgs) {

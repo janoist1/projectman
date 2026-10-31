@@ -190,9 +190,26 @@ describe('tool audience', () => {
       ...developerAudience,
       duties: new Set(holdsDuty ? ['deployment'] : []),
     });
-    for (const name of ['publish_release', 'run_compute_job', 'get_compute_job', 'list_compute_jobs']) {
+    for (const name of [
+      'publish_release',
+      'get_release_status',
+      'run_compute_job',
+      'get_compute_job',
+      'list_compute_jobs',
+    ]) {
       expect(result.tools.some((tool) => tool.name === name)).toBe(holdsDuty);
     }
+  });
+
+  it('reads the release status of the hub and the engines without writing (PM-1201)', async () => {
+    const tool = TEAM_TOOLS.find((candidate) => candidate.name === 'get_release_status')!;
+    expect(tool.annotations?.readOnlyHint).toBe(true);
+    expect(tool.audience).toEqual({ duties: ['deployment'] });
+    const handler = createFakeTeamToolsHandler();
+    const text = await tool.run({ ctx: devContext, handler, args: {} });
+    const status = await handler.getReleaseStatus(devContext);
+    expect(text).toContain(`hub version=${status.hub.version}`);
+    for (const engine of status.engines) expect(text).toContain(`${engine.id} ${engine.name} connected=`);
   });
 
   it.each([true, false])(
@@ -349,7 +366,7 @@ describe('team tool registration', () => {
       'runtime/watchers': ['decide_fix_limit'],
       'runtime/sessions': ['get_guide', 'set_current_work'],
       'core/members': ['list_members', 'save_memory'],
-      'services/releases': ['publish_release'],
+      'services/releases': ['get_release_status', 'publish_release'],
       'services/compute-jobs': ['run_compute_job', 'get_compute_job', 'list_compute_jobs'],
       'core/tasks': ['list_tasks', 'get_task', 'update_task', 'create_task'],
       'core/attachments': [

@@ -7,6 +7,8 @@ import { conflict } from '../../kernel';
 export interface LandedMerge {
   taskKey: TaskKey;
   commit: string;
+  /** When the merge finished. */
+  at: string;
 }
 
 /** The commit a merge left on the default branch: the merge commit, or the commit that was found merged. */
@@ -18,7 +20,7 @@ function landedCommit(row: MergeRecord): string | null {
 export function landedMerges(rows: readonly MergeRecord[]): LandedMerge[] {
   return rows.flatMap((row) => {
     const commit = landedCommit(row);
-    return commit ? [{ taskKey: row.taskKey, commit }] : [];
+    return commit ? [{ taskKey: row.taskKey, commit, at: row.finishedAt ?? row.updatedAt }] : [];
   });
 }
 
@@ -54,7 +56,7 @@ export async function resolveLandedCommit(input: {
  * of the default branch, which is linear as merges run one after the other per repository. It needs no git
  * when the base is one of the recorded merges; null: it is not, and only git can tell where it stands.
  */
-function landedBetween<T extends { commit: string }>(
+export function landedBetween<T extends { commit: string }>(
   landed: readonly T[],
   baseCommit: string | null,
   commit?: string,

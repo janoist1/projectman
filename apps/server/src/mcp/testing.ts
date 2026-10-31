@@ -335,6 +335,22 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
       };
     },
+    async getReleaseStatus(ctx) {
+      await enter('getReleaseStatus', ctx, {});
+      return {
+        hub: { version: 'dev' },
+        engines: [
+          {
+            id: 'local',
+            name: 'Fake engine',
+            connected: true,
+            version: 'dev',
+            versionMismatch: false,
+            lastSeenAt: null,
+          },
+        ],
+      };
+    },
     async runComputeJob(ctx, args) {
       await enter('runComputeJob', ctx, args);
       return fakeComputeJobRun(args.job, args.commit);

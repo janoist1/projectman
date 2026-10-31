@@ -147,7 +147,7 @@ import { DecisionCandidates, DocWrites } from './services/project-docs';
 import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
 import { createPermissionBroker, engineIdOf, fullTestSandbox, StartHolds } from './runtime/sessions';
-import { ReleasePublishService } from './services/releases';
+import { ReleasePublishService, releaseStatusOf } from './services/releases';
 import { ComputeJobService } from './services/compute-jobs';
 import { LoopWatch } from './runtime/watchers';
 import { HumanQuestions, OpenQuestionLabel } from './core/inbox';
@@ -1364,6 +1364,7 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     startWaitingOf: (task) => tasks.startWaitingOf(task),
     startAttempting: (task) => tasks.startAttempting(task),
+    unreleased: (projectKey) => releasePublications.unreleased(projectKey),
   });
   // A step that stands overdue after its reminder goes to the PM as an `obligation_overdue` signal (PM-1152).
   obligations.usePmNotices({
@@ -1582,7 +1583,11 @@ export function createDomain(opts: DomainOptions) {
         },
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
-      releases: new ReleaseTools({ calls: toolCaller, publications: releasePublications }),
+      releases: new ReleaseTools({
+        calls: toolCaller,
+        publications: releasePublications,
+        status: () => releaseStatusOf(opts.appVersion ?? 'dev', opts.engineRegistry?.list() ?? []),
+      }),
       computeJobs: new ComputeJobTools({ calls: toolCaller, jobs: computeJobs }),
       tasks: new TaskTools({
         calls: toolCaller,

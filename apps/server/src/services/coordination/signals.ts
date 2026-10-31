@@ -15,9 +15,11 @@ import {
   memberQueueSourceId,
   coordinationMemberOf,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
-  OPERATOR_SIGNAL_STEP_KINDS,
   OPERATOR_SIGNAL_STEPS,
+  OPERATOR_UNRELEASED_HOURS,
   operatorSignalBudget,
+  operatorSignalStepAllowed,
+  operatorSignalStepGapMs,
   operatorWatchOf,
   OperatorSignal,
   LoopTriageFacts,
@@ -62,7 +64,7 @@ import type { MemberQueue } from '../../core/member-queue';
 import type { ProjectService } from '../../core/projects';
 import { prerequisiteCards } from '../../core/tasks';
 import type { TaskWaits } from '../../core/tasks';
-import type { TaskSchedulingReader } from '../../contracts';
+import type { TaskSchedulingReader, UnreleasedWork } from '../../contracts';
 import { KeyedMutex, conflict, invalid } from '../../kernel';
 import { newId } from '../../kernel';
 
@@ -125,14 +127,16 @@ const WAKE_LOOP =
   'A loop_suspected signal is report-only: inspect current card, commits, review findings and delivery; call triage_loop with evidence and progress or loop. Message count alone is no loop. Never present it to owners as an authorization request, stop work or choose stop/let_run.';
 const WAKE_STEP =
   'Where a signal has a step, you may take it yourself with its signal_id after weighing it, within steps_left and not before next_step_at; a signal with follow_up true was acted on, so tell the owners what you did and what became of it.';
+const WAKE_UNRELEASED =
+  "An unreleased signal is the one exception at every level: take its step (start_member on the deployment member, once per 24 hours) and do not bring it to the owners; the member asks the owner one question, and nothing live changes before the owner's yes.";
 const WAKE_DISMISS =
   'An obligation_overdue signal says the responsible did not act even after the reminder, and that the step goes to a person at hand_over_at in its facts: check get_task and get_project_state first; when the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners; otherwise take its step or leave it to go to the person.';
 
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_UNRELEASED} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
 };
 
 /** The case key of a card's blocked start: one per card and reason (PM-455). */
@@ -181,6 +185,8 @@ export class OperatorSignals {
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
     startAttempting: (task: Task) => boolean;
+    /** The work merged since each repository's last release (PM-1201); reads only. */
+    unreleased: (projectKey: string) => UnreleasedWork[];
   }) {
     this.deps = privateDeps;
   }
@@ -199,6 +205,8 @@ export class OperatorSignals {
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
     startAttempting: (task: Task) => boolean;
+    /** The work merged since each repository's last release (PM-1201); reads only. */
+    unreleased: (projectKey: string) => UnreleasedWork[];
   };
 
   /** The targeted card reads (PM-771): the periodic work never lists the project's whole card history. */
@@ -405,7 +413,15 @@ export class OperatorSignals {
       allowed.members = merger ? startable([merger]) : [];
       allowed.taskKey = task.key;
     } else if (signal.kind === 'unreleased') {
-      allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle));
+      // A member who still waits for a person's answer is not started again: no second proposal beside an open one.
+      const asking = new Set(
+        this.deps.inbox
+          .list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question' })
+          .map((item) => item.source),
+      );
+      allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle)).filter(
+        (handle) => !asking.has(handle),
+      );
     } else if (signal.kind === 'answer_stalled' && task) {
       const stage = stageOf(config, task.stageId);
       const wait = taskWaits.ofCard(config, task);
@@ -485,7 +501,7 @@ export class OperatorSignals {
 
   /** The one step a signal allows at this level, as the coordinator is told (the budget is told apart). */
   private stepOf(level: OperatorWatch, config: ProjectConfig, signal: OperatorSignalRecord) {
-    if (!OPERATOR_SIGNAL_STEP_KINDS[level].includes(signal.kind)) return null;
+    if (!operatorSignalStepAllowed(level, signal.kind)) return null;
     const allowed = this.stepTargetsOf(config, signal);
     if (allowed.startTask) return { tool: 'start_task' as const, task_key: allowed.startTask, members: [] };
     return allowed.members.length
@@ -493,10 +509,14 @@ export class OperatorSignals {
       : null;
   }
 
-  /** The coordinator took a step on the signal: it is shown again if the case still stands in half an hour. */
+  /** The coordinator took a step on the signal: it is shown again if the case still stands after the step gap (half an hour; a day for `unreleased`). */
   stepTaken(signalId: string): void {
-    const at = this.deps.ctx.now().getTime() + OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000;
-    this.deps.ctx.repos.operatorSignals.followUp(signalId, new Date(at).toISOString());
+    const { ctx } = this.deps;
+    const kind = ctx.repos.operatorSignals.get(signalId)?.kind;
+    const at =
+      ctx.now().getTime() +
+      (kind ? operatorSignalStepGapMs(kind) : OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000);
+    ctx.repos.operatorSignals.followUp(signalId, new Date(at).toISOString());
   }
 
   /** Delivered, unresolved signals still awaiting presentation or a decision, oldest first. */
@@ -809,6 +829,7 @@ export class OperatorSignals {
                   level,
                   steps.filter((step) => step.status !== 'refused').map((step) => step.at),
                   now,
+                  s.kind,
                 );
           return JSON.stringify({
             ...OperatorSignal.parse(s),
@@ -1048,6 +1069,18 @@ export class OperatorSignals {
           subject: row.failure?.reason ?? row.block?.reason ?? state,
         });
       }
+
+    // Work merged on a default branch that waited a day for a release (PM-1201): one case per repository and base,
+    // so a release (which moves the base) ends it.
+    for (const work of this.deps.unreleased(projectKey)) {
+      if (now - Date.parse(work.oldestAt) < OPERATOR_UNRELEASED_HOURS * 3_600_000) continue;
+      add({
+        kind: 'unreleased',
+        caseKey: `unreleased:${work.repo}:${work.base}`,
+        taskKey: null,
+        subject: String(work.count),
+      });
+    }
 
     return { cases: found };
   }

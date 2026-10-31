@@ -1,5 +1,11 @@
 import { TeamToolError } from '../../contracts';
-import type { ToolContext, ReleaseToolsHandler, PublishedRelease, PublishReleaseArgs } from '../../contracts';
+import type {
+  ToolContext,
+  ReleaseToolsHandler,
+  PublishedRelease,
+  PublishReleaseArgs,
+  ReleaseStatus,
+} from '../../contracts';
 import { DomainError } from '../../kernel';
 import type { ReleasePublishService } from '../../services/releases';
 import type { ToolCaller } from '../caller';
@@ -7,10 +13,17 @@ import type { ToolCaller } from '../caller';
 export class ReleaseTools implements ReleaseToolsHandler {
   private readonly calls: ToolCaller;
   private readonly publications: Pick<ReleasePublishService, 'preview' | 'publish'>;
+  private readonly status: () => ReleaseStatus;
 
-  constructor(deps: { calls: ToolCaller; publications: Pick<ReleasePublishService, 'preview' | 'publish'> }) {
+  constructor(deps: {
+    calls: ToolCaller;
+    publications: Pick<ReleasePublishService, 'preview' | 'publish'>;
+    /** The hub's version and the engines' view of it (PM-1201); reads only. */
+    status: () => ReleaseStatus;
+  }) {
     this.calls = deps.calls;
     this.publications = deps.publications;
+    this.status = deps.status;
   }
 
   async publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease> {
@@ -30,6 +43,13 @@ export class ReleaseTools implements ReleaseToolsHandler {
           );
         throw err;
       }
+    });
+  }
+
+  async getReleaseStatus(ctx: ToolContext): Promise<ReleaseStatus> {
+    return this.calls.guard(async () => {
+      await this.calls.caller(ctx, 'get_release_status');
+      return this.status();
     });
   }
 }

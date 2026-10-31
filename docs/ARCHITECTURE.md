@@ -1021,7 +1021,9 @@ a task in it), `task_review_pins` (PM-183: the commit handed over with the task'
 test stage); the feedback tables (PM-506, migration 55): `feedback_marks`, `feedback_events` (the
 thread of a mark), `feedback_reads`, `feedback_marker_colors`, `feedback_launch_codes` (single use,
 two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on customer pages, kept as
-hashes); `member_queue_items` (PM-894, migration 98: one row per item in an AI member's queue, see "Member
+hashes), and `feedback_deletions` (PM-1189, migration 138: who deleted a mark and when, with no
+content; the mark, its thread and its screenshot are deleted for good, a card it led to stays and gets
+a `feedback_deleted` timeline line); `member_queue_items` (PM-894, migration 98: one row per item in an AI member's queue, see "Member
 queue"; not journaled); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 

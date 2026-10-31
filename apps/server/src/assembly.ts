@@ -8,6 +8,7 @@ import {
   MergeTools,
   ReleaseTools,
   ComputeJobTools,
+  DocumentTools,
   ToolCaller,
   GithubTools,
   ScreenshotTools,
@@ -776,6 +777,7 @@ export function createDomain(opts: DomainOptions) {
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
     doneTurnLimitMs: opts.doneTurnLimitMs,
     attachments,
+    documents: opts.documentStore,
     attachmentDirectory,
     standby: opts.standby,
     usageAlerts: new UsageAlerts({ ctx, projects, inbox }),
@@ -1594,6 +1596,7 @@ export function createDomain(opts: DomainOptions) {
         status: () => releaseStatusOf(opts.appVersion ?? 'dev', opts.engineRegistry?.list() ?? []),
       }),
       computeJobs: new ComputeJobTools({ calls: toolCaller, jobs: computeJobs }),
+      documents: new DocumentTools({ calls: toolCaller, documents }),
       tasks: new TaskTools({
         calls: toolCaller,
         ctx,

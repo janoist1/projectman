@@ -5,6 +5,7 @@ import type {
   AgentProvider,
   AiMemberConfig,
   Attachment,
+  DocumentSummary,
   HandoffFallbackReason,
   HandoffSummary,
   MemberView,
@@ -84,6 +85,11 @@ export interface ContextPackInput {
    * the parent has none, or the member may not read the parent.
    */
   parentAttachments?: { taskKey: string; attachments: Attachment[] };
+  /**
+   * The project's living documents (PM-149), newest list as the store gives it (by title); metadata only,
+   * never the text. Omitted when there are none, or in a project manager's guest conversation.
+   */
+  documents?: DocumentSummary[];
   /**
    * The member's other running sessions on cards that belong with this task (PM-184), for the brief
    * and the continue message. Omitted (or empty) when there are none.
@@ -216,6 +222,7 @@ const PROMPT_SECTION_IDS = [
   'checklist',
   'operator_knowledge',
   'operator_preference',
+  'documents',
   'memory',
 ] as const;
 export type PromptSectionId = (typeof PROMPT_SECTION_IDS)[number];

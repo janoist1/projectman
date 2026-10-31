@@ -697,6 +697,8 @@ links:
   - from: mcp
     to: core/tasks
   - from: mcp
+    to: core/documents
+  - from: mcp
     to: core/messages
   - from: mcp
     to: services/merges

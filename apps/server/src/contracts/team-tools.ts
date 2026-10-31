@@ -62,6 +62,9 @@ import type {
   ExternalQuestionRead,
   StructuralReviewResult,
   ComputeJobRunView,
+  DocumentHeading,
+  DocumentSummary,
+  DocumentVersion,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -675,6 +678,42 @@ export interface ComputeJobToolsHandler {
   listComputeJobs(ctx: ToolContext, args: ListComputeJobsArgs): Promise<ComputeJobRunView[]>;
 }
 
+/** What read_document takes (PM-149): `ref` is `slug` or `slug#section`; a `section` argument wins over the ref's. */
+export interface ReadDocumentArgs {
+  ref: string;
+  section?: string;
+  version?: string;
+}
+
+/** A document or one of its sections; `version` of the document is the one read. */
+export interface ReadDocumentResult {
+  document: DocumentSummary;
+  /** The whole markdown, or only the section's when `section` is set. */
+  content: string;
+  section?: DocumentHeading;
+}
+
+/** What write_document takes (PM-149): no `slug` creates (a title and the text are needed), a `slug` edits (`baseVersion` too). */
+export interface WriteDocumentArgs {
+  slug?: string;
+  title?: string;
+  content?: string;
+  baseVersion?: string;
+  message?: string;
+}
+
+/** The tools of core/documents (PM-149). */
+export interface DocumentToolsHandler {
+  /** list_documents: the project's documents, no text. */
+  listDocuments(ctx: ToolContext): Promise<DocumentSummary[]>;
+  /** read_document: a whole document, a section of it, or an old version. */
+  readDocument(ctx: ToolContext, args: ReadDocumentArgs): Promise<ReadDocumentResult>;
+  /** write_document: creates, edits or renames; never deletes. */
+  writeDocument(ctx: ToolContext, args: WriteDocumentArgs): Promise<{ document: DocumentSummary; created: boolean }>;
+  /** document_history: the versions of a document, newest first. */
+  documentHistory(ctx: ToolContext, args: { slug: string; limit?: number }): Promise<DocumentVersion[]>;
+}
+
 /** The tools of services/email-channel (PM-941). */
 export interface EmailToolsHandler {
   sendEmail(
@@ -738,6 +777,7 @@ export interface TeamToolsHandler
     ScreenshotToolsHandler,
     ReleaseToolsHandler,
     ComputeJobToolsHandler,
+    DocumentToolsHandler,
     EmailToolsHandler,
     HostRequestToolsHandler,
     OperatorToolsHandler,

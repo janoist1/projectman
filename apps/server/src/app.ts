@@ -21,7 +21,12 @@ import {
   registerAuth,
 } from './auth';
 import { serializeRequest } from './http';
-import { createConfigStore, createOperatorKnowledgeStore } from './config';
+import {
+  createConfigStore,
+  createCustomizationRepo,
+  createDocumentStore,
+  createOperatorKnowledgeStore,
+} from './config';
 import type { GitConfigStore } from './config';
 import { startControlSocket } from './control';
 import type { ControlPause, ControlSocket } from './control';
@@ -411,10 +416,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     });
 
     repos = createRepositories(openDatabase(options.dbPath ?? join(home, 'db.sqlite')));
+    // One repository object: the configuration and the documents commit in the same serial queue.
+    const customizationRepo = createCustomizationRepo({ rootDir: join(home, 'customization') });
     const configStore = createConfigStore({
       rootDir: join(home, 'customization'),
+      repo: customizationRepo,
       logger: app.log.child({ module: 'config' }),
     });
+    const documentStore = createDocumentStore({ repo: customizationRepo });
     await configStore.init();
 
     const log = app.log;
@@ -537,6 +546,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           }),
       repos,
       configStore,
+      documentStore,
       logger: log.child({ module: 'domain' }),
       publicBaseUrl,
       instanceTag,

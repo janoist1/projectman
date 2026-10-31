@@ -135,6 +135,18 @@ export const routes = {
   attachmentThumbnail: (key: string, taskKey: string, id: string) =>
     `/api/projects/${key}/tasks/${taskKey}/attachments/${id}/thumbnail`,
 
+  /** GET lists (`DocumentListResponse`), POST creates (`CreateDocumentRequest` -> `DocumentDetail`). Not for a client. */
+  documents: (key: string) => `/api/projects/${key}/documents`,
+  /**
+   * GET reads (`?version=` an old one; -> `DocumentDetail`), PATCH edits or renames (`UpdateDocumentRequest`),
+   * DELETE deletes (`?baseVersion=`; owner and admin only, with their own login).
+   */
+  document: (key: string, slug: string) => `/api/projects/${key}/documents/${slug}`,
+  /** GET (`?limit=` -> `DocumentHistoryResponse`), newest first. */
+  documentHistory: (key: string, slug: string) => `/api/projects/${key}/documents/${slug}/history`,
+  /** POST (`RestoreDocumentRequest` -> `DocumentDetail`): an old version becomes a new one. */
+  documentRestore: (key: string, slug: string) => `/api/projects/${key}/documents/${slug}/restore`,
+
   /** PUT chooses the card's cover (`TaskCoverRequest`): a given image, or none; the answer is `{ task }`. */
   taskCover: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/cover`,
 

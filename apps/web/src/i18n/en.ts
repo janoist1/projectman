@@ -291,6 +291,10 @@ export const en = {
       task_not_merged: 'The approved commit isn’t on the main branch yet.',
       attachment_too_large: 'An attachment can be at most 25 MB.',
       attachment_storage_failed: 'The attachment couldn’t be stored or read; try again later.',
+      document_not_found: 'There is no such document or version.',
+      document_conflict:
+        'Someone changed the document meanwhile. Your own text is kept: load the new version and merge.',
+      document_too_large: 'A document can be at most 200,000 bytes.',
       message_attachment_unavailable: 'A file is no longer available: remove it and attach it again.',
       message_attachment_limit: 'You can have at most 20 unsent attachments at a time.',
       cover_not_an_image: 'A cover image has to be one of the card’s images.',

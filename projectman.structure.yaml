@@ -159,6 +159,13 @@ modules:
     summary: Kártya- és üzenetmellékletek tárolása és feldolgozása.
     paths:
       - apps/server/src/core/attachments/
+  - id: core/documents
+    area: core
+    kind: core
+    name: Dokumentumok
+    summary: A projekt élő dokumentumai, jogosultsággal, hibaleképezéssel és értesítéssel a tároló fölött.
+    paths:
+      - apps/server/src/core/documents/
 
   # Server: runtime
   - id: runtime/admission
@@ -679,6 +686,8 @@ links:
     to: core/timeline
   - from: api
     to: core/attachments
+  - from: api
+    to: core/documents
   - from: api
     to: runtime/admission
   - from: api

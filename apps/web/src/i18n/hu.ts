@@ -1651,6 +1651,10 @@ export const hu = {
       task_not_merged: 'A jóváhagyott commit még nincs a fő ágban.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
+      document_not_found: 'Nincs ilyen dokumentum vagy változat.',
+      document_conflict:
+        'Közben valaki módosította a dokumentumot. A saját szöveged megmaradt: töltsd be az újat, és egyesítsd.',
+      document_too_large: 'A dokumentum legfeljebb 200 000 bájt lehet.',
       message_attachment_unavailable: 'Egy fájl már nem érhető el: vedd ki, és csatold újra.',
       message_attachment_limit: 'Egyszerre legfeljebb 20 el nem küldött csatolmányod lehet.',
       cover_not_an_image: 'Borítóképnek a kártya egyik képét lehet választani.',

@@ -134,6 +134,45 @@ the new version runs. Keep the GitHub path only if the Mac's time and load fall 
 If a Developer ID comes later, the same job signs and notarizes and attaches the files as release assets, and the
 self-update takes them from there.
 
+### On GitHub, for a release (PM-1198)
+
+The `engine-app` job above builds a commit that has no tag, so its `bundleVersion` is `0` and the app's updater never
+sees it as newer. The dedicated workflow `.github/workflows/projectman-engine-release.yml` (PM-1196) builds the
+commit of a release tag instead and puts the result on that tag's GitHub release, so the app, the remote engines and
+a manual install all take the same assets. It is registered like any dedicated job, in `engine.json`
+(`repos[].computeJobs`) and in the hub's `repoComputeJobs`:
+
+```json
+{
+  "id": "engine-release",
+  "workflow": "projectman-engine-release.yml",
+  "runsOn": "macos-15",
+  "node": "22",
+  "timeoutMinutes": 60,
+  "outputs": ["app/projectman-motor.json"],
+  "command": "engine-release"
+}
+```
+
+After `publish_release`, the devops member starts it with `run_compute_job job=engine-release commit=<SHA40>`, where
+the commit is the one the tag points at. The workflow runs one fixed procedure (the `command` is only a marker it
+checks) and fails unless: it runs from the default branch; the inputs are exactly the registered ones; the commit is
+on the default branch; exactly one tag of the `RELEASE_TAG_PATTERN` form points at it; and that tag has a GitHub
+release (otherwise `app_release_missing`). Then it checks the commit out with its full history and tags, so
+`engine-app package` finds the tag and the `bundleVersion` is the tag's `YYYYMMDD.N`; builds with `build --ad-hoc`;
+attests the zip, the disk image and the manifest with this workflow's identity (`actions/attest-build-provenance`);
+and runs `npm run engine-app -- upload --tag <tag> --dir <output>` with the run's `GITHUB_TOKEN` (`contents: write`).
+The run's artifact is the manifest (`app/projectman-motor.json`), as for the other compute jobs.
+
+`upload` is the uploading half of `publish`, shared with it (`scripts/engine-app/release-assets.ts`): it refuses a
+manifest whose `tag` is not `--tag` or whose `version` is not the tag's commit, and archives that are not the ones
+the manifest names (`REFUSED [app_manifest_mismatch]`); an existing asset with the same SHA-256 is skipped; a
+different one is `REFUSED [app_asset_conflict]` and is never overwritten; the manifest goes up last. It accepts the
+ad-hoc manifest (empty `teamId`); `publish` still requires its Team ID. Rerunning after an interruption is safe.
+**A tag whose assets an ad-hoc build took cannot get a Developer ID publication later** (`app_asset_conflict`): once
+there is a Developer ID, the signed release gets a new tag. The macOS runner is free for a public repository, and the
+disk image (about 388 MB) goes up inside GitHub.
+
 ## GitHub attribution
 
 Optionally set `githubLogin: acme-developer` on a human or AI member in
@@ -200,9 +239,12 @@ that waits for one. Pipeline release gates remain the project's human approval g
 3. On request, a deployment duty holder calls `publish_release`, first with
    `preview: true`, then with the English release summary. This creates the annotated tag
    and public GitHub release; it does not deploy anything.
-4. On the release Mac, run
-   `npm run engine-app -- publish --tag <tag> --config <absolute-file>` to build the
-   engine and signed app from that remote tag and upload zip, DMG, then manifest.
+4. Either on GitHub (PM-1198, no Mac and no Developer ID needed): `run_compute_job job=engine-release
+commit=<SHA40>` builds the app ad-hoc signed at the commit of the release tag and uploads zip, DMG, then
+   manifest to that tag's release (see "On GitHub, for a release" below). Or on the release Mac, with a Developer
+   ID, run `npm run engine-app -- publish --tag <tag> --config <absolute-file>` to build the
+   engine and signed app from that remote tag and upload zip, DMG, then manifest. Use one of the two for a tag:
+   whichever uploads first owns the assets, the other then ends in `app_asset_conflict`.
 
 Before the first app publication, the owner needs Apple Developer Program membership,
 a Developer ID Application certificate in the administration Mac's login keychain, and

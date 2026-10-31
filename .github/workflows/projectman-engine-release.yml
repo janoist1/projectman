@@ -1,0 +1,190 @@
+# The engine app of one release (PM-1198, PM-1193): built ad-hoc signed on a hosted macOS runner at the commit of a
+# release tag, attested, and uploaded to that tag's GitHub release as projectman-motor.zip, .dmg and .json. It is a
+# dedicated compute-job workflow (PM-1196): it follows the contract of `projectman-job.yml` (the same inputs, the
+# same run title, output line and artifact), but it runs one fixed procedure, never the `command` it is given, and
+# it alone has the right to write a release (`contents: write`). The engine starts it as the registered job
+# `engine-release` (`run_compute_job job=engine-release commit=<SHA40>`) after `publish_release`.
+# Docs: docs/DEPLOY.md "Release" and "On GitHub", docs/MACHINE-DEPENDENT.md "Engine app release build".
+#
+# The guard fails the job unless the workflow runs from the default branch, the inputs are exactly the registered
+# job's, the commit is on the default branch, exactly one release tag points at it and that tag has a GitHub
+# release (`app_release_missing`). Every input reaches the shell through the environment, never through the text
+# of a command. The upload never replaces an asset: a different one under the same name is `app_asset_conflict`.
+name: projectman-engine-release
+run-name: projectman-job ${{ inputs.job }} ${{ inputs.commit }} ${{ inputs.run_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Job kind (a-z, 0-9 and -; at most 40 characters), for example engine-release
+        required: true
+        type: string
+      run_id:
+        description: Id of this run (a-z, 0-9, - and _; at most 64 characters); the artifact is projectman-job-<run_id>
+        required: true
+        type: string
+      commit:
+        description: The commit to check out (40 lowercase hexadecimal characters); a release tag points at it
+        required: true
+        type: string
+      command:
+        description: Must be engine-release (this workflow runs one fixed procedure)
+        required: true
+        type: string
+      runs_on:
+        description: The runner
+        required: true
+        type: choice
+        options:
+          - macos-15
+      outputs:
+        description: Must be app/projectman-motor.json
+        required: true
+        type: string
+      node:
+        description: Node.js major version to set up; empty = none
+        required: false
+        default: ''
+        type: string
+      timeout_minutes:
+        description: Time limit of the job in minutes (1 to 360)
+        required: false
+        default: '60'
+        type: string
+concurrency:
+  group: projectman-engine-release
+  cancel-in-progress: false
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+jobs:
+  release:
+    name: ${{ inputs.job }} (${{ inputs.runs_on }})
+    runs-on: macos-15
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes) }}
+    steps:
+      - name: Guard
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          JOB: ${{ inputs.job }}
+          RUN_ID: ${{ inputs.run_id }}
+          COMMIT: ${{ inputs.commit }}
+          COMMAND: ${{ inputs.command }}
+          RUNS_ON: ${{ inputs.runs_on }}
+          OUTPUTS: ${{ inputs.outputs }}
+          NODE_VERSION: ${{ inputs.node }}
+          TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+        run: |
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          [[ "$REF_NAME" == "$DEFAULT_BRANCH" ]] || fail "the workflow must run from the default branch"
+          [[ "$JOB" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "job does not match its pattern"
+          [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || fail "run_id does not match its pattern"
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "commit must be 40 lowercase hexadecimal characters"
+          [[ "$COMMAND" == "engine-release" ]] || fail "command must be engine-release"
+          [[ "$RUNS_ON" == "macos-15" ]] || fail "runs_on must be macos-15"
+          [[ "$OUTPUTS" == "app/projectman-motor.json" ]] || fail "outputs must be app/projectman-motor.json"
+          [[ "$NODE_VERSION" =~ ^([0-9]{1,2})?$ ]] || fail "node must be empty or a major version"
+          [[ "$TIMEOUT_MINUTES" =~ ^[0-9]{1,3}$ ]] || fail "timeout_minutes must be a number"
+          (( 10#$TIMEOUT_MINUTES >= 1 && 10#$TIMEOUT_MINUTES <= 360 )) || fail "timeout_minutes must be 1 to 360"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.commit }}
+          # The whole history and the tags: the next step asks which tag points at the commit, and
+          # `engine-app package` takes the version of the app from that tag.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Release tag
+        id: tag
+        shell: bash
+        env:
+          COMMIT: ${{ inputs.commit }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          git merge-base --is-ancestor "$COMMIT" "origin/$DEFAULT_BRANCH" || fail "the commit is not on the default branch"
+          # RELEASE_TAG_PATTERN (packages/shared/src/domain/release.ts).
+          tags="$(git tag --points-at "$COMMIT" | grep -E '^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$' || true)"
+          [[ -n "$tags" ]] || fail "app_release_missing: no release tag points at the commit (run publish_release first)"
+          [[ "$(wc -l <<< "$tags" | tr -d ' ')" == "1" ]] || fail "more than one release tag points at the commit"
+          if ! error="$(gh release view "$tags" --repo "$REPO" 2>&1 >/dev/null)"; then
+            if [[ "$error" == *"release not found"* || "$error" == *"HTTP 404"* ]]; then
+              fail "app_release_missing: the tag $tags has no GitHub release (run publish_release first)"
+            fi
+            fail "gh release view failed: $error"
+          fi
+          echo "tag=$tags" >> "$GITHUB_OUTPUT"
+      # No cache: the build must not depend on one.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: inputs.node != ''
+        with:
+          node-version: ${{ inputs.node }}
+      - name: Build
+        shell: bash
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          rm -rf "$RUNNER_TEMP/projectman-job"
+          mkdir -p "$RUNNER_TEMP/projectman-job/out"
+          npm ci
+          npm run engine-app -- package --commit "$COMMIT" --out "$RUNNER_TEMP/engine-package"
+          npm run engine-app -- build --package "$RUNNER_TEMP/engine-package/$COMMIT" --out "$RUNNER_TEMP/projectman-job/out/app" --ad-hoc
+      - name: Outputs
+        id: outputs
+        shell: bash
+        run: |
+          app="$RUNNER_TEMP/projectman-job/out/app"
+          stage="$RUNNER_TEMP/projectman-job/stage"
+          subjects=""
+          for name in projectman-motor.zip projectman-motor.dmg projectman-motor.json; do
+            file="$app/$name"
+            if [[ ! -f "$file" || -L "$file" ]]; then
+              echo "::error::the build left no regular file $name"
+              exit 1
+            fi
+            sha256="$(shasum -a 256 "$file" | cut -d' ' -f1)"
+            bytes="$(wc -c < "$file" | tr -d ' ')"
+            echo "projectman-engine-release asset $name $sha256 $bytes" >> "$GITHUB_STEP_SUMMARY"
+            subjects+="$file"$'\n'
+          done
+          # The declared output (the contract of the compute job): the manifest, which names the other two by hash.
+          mkdir -p "$stage/app"
+          cp "$app/projectman-motor.json" "$stage/app/projectman-motor.json"
+          sha256="$(shasum -a 256 "$stage/app/projectman-motor.json" | cut -d' ' -f1)"
+          bytes="$(wc -c < "$stage/app/projectman-motor.json" | tr -d ' ')"
+          line="projectman-job output app/projectman-motor.json $sha256 $bytes"
+          echo "$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo 'subjects<<PROJECTMAN_JOB_SUBJECTS'
+            printf '%s' "$subjects"
+            echo 'PROJECTMAN_JOB_SUBJECTS'
+          } >> "$GITHUB_OUTPUT"
+      # The identity of the attestation is this workflow file: the zip, the image and the manifest are attested
+      # before they are uploaded, so what the release holds is what was attested.
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: ${{ steps.outputs.outputs.subjects }}
+      - name: Upload to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: npm run engine-app -- upload --tag "$TAG" --dir "$RUNNER_TEMP/projectman-job/out/app"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: projectman-job-${{ inputs.run_id }}
+          path: ${{ runner.temp }}/projectman-job/stage
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

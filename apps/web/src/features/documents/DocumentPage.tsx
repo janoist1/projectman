@@ -312,9 +312,11 @@ export function DocumentPage() {
             <strong>{t('documents.section.missingTitle', { section: missingSection })}</strong>
             <span>{t('documents.section.missingBody')}</span>
           </span>
-          <Button size="sm" variant="ghost" onClick={() => setMissingSection(null)}>
-            {t('common.close')}
-          </Button>
+          <span className={styles.bannerActions}>
+            <Button size="sm" variant="ghost" onClick={() => setMissingSection(null)}>
+              {t('common.close')}
+            </Button>
+          </span>
         </div>
       ) : null}
 

@@ -94,7 +94,8 @@
 @media (max-width: 767px) {
   .actions {
     position: sticky;
-    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom));
+    /* The scroller already ends above the tab bar (the column's padding), so 0 sits right on it. */
+    bottom: 0;
     z-index: 2;
     margin: 0 -14px;
     padding: 10px 14px;

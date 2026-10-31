@@ -57,7 +57,10 @@ Entries in the order they appear below (search for the bold name).
   (`com.projectman.engine-app`) installs itself on first launch: it moves itself to `/Applications`
   (fallback `~/Applications`), checks the prerequisites (Apple Silicon, macOS 13+, command line tools),
   copies the bundled engine package (`ditto` to `.partial`, then rename) into
-  `~/Library/Application Support/projectman/engine/{versions/<ver>,current,bin/projectman-engine}`,
+  `~/Library/Application Support/projectman/engine/{versions/<ver>,current,bin/projectman-engine}`
+  (PM-1200: `bin/node` moves to `engine/runtimes/<sha256>/node`, kept once per content, and
+  `versions/<ver>/bin/node` becomes the relative link `../../../runtimes/<sha256>/node`; `prune` keeps the
+  runtimes the kept versions link to, so the firewall sees the same path for the same Node),
   runs `service install --path <PATH>` (PATH from `$SHELL -l -i -c`, 10 s timeout, fallback list),
   registers the background item (`SMAppService`, approval in System Settings, Login Items) and starts
   the engine; a failed step is undone. The same launch removes the PM-1088 app (`launchctl bootout`
@@ -124,7 +127,10 @@ Entries in the order they appear below (search for the bold name).
   `package.json`, `package-lock.json`, `node_modules/`, `packages/`, `apps/server/{package.json,dist/}`,
   `scripts/engine/cli.js`, `deploy/mac/com.projectman.engine*.plist`. A package has no git: `resolveAppVersion` and
   `resolveAppTag` read `engine-package.json` first, and `engine start` (`scripts/engine/start-command.ts`) runs
-  `bin/node apps/server/dist/index.js` when the file exists (checkout mode is unchanged). **Machine assumptions:**
+  `bin/node apps/server/dist/index.js` when the file exists (checkout mode is unchanged). The app's staging
+  (PM-1200) replaces `bin/node` with a link into `engine/runtimes/<sha256>/node`; the checks that follow it
+  (`service switch` takes `statSync`, `process.execPath` is the resolved runtime path) work unchanged, and the
+  unpacked package still holds a plain file. **Machine assumptions:**
   macOS arm64 only, the Sandbox Runtime, the machine's heavy-run queue, `tar`, network to nodejs.org and the npm
   registry, Xcode Command Line Tools when a native module has no prebuilt binary. **Remote engine:** the package
   runs on the engine's Mac; nothing crosses the server/engine boundary (`installDir` already travels in the

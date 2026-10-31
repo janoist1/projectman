@@ -5,6 +5,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -192,6 +193,25 @@ describe('package service switch', () => {
     expect(readEngineStatus(statusFile())?.version).toBe(NEW);
     expect(Object.values(paths()).some(existsSync)).toBe(false);
     expect(calls.some((call) => call.includes('-k'))).toBe(false);
+  });
+
+  it('accepts a target whose bin/node is a link into the shared runtimes folder', async () => {
+    const runtime = path.join(base, 'runtimes', 'c'.repeat(64), 'node');
+    mkdirSync(path.dirname(runtime), { recursive: true });
+    writeFileSync(runtime, '');
+    rmSync(path.join(next, 'bin/node'));
+    symlinkSync(path.relative(path.join(next, 'bin'), runtime), path.join(next, 'bin/node'));
+    await switchService(options, { to: next });
+    expect(plistString(readFileSync(plistFile(), 'utf8'), 'WorkingDirectory')).toBe(next);
+  });
+
+  it('refuses a target whose bin/node link points at a runtime that is gone', async () => {
+    rmSync(path.join(next, 'bin/node'));
+    symlinkSync('../../../runtimes/gone/node', path.join(next, 'bin/node'));
+    await expect(switchService(options, { to: next })).rejects.toMatchObject({
+      code: 'switch_target_invalid',
+    });
+    expect(calls).toEqual([]);
   });
 
   it('defaults to the calling package root', async () => {

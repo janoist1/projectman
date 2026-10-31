@@ -181,7 +181,7 @@ export default async ({ instance, open, shoot, step }) => {
       route.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'Fixture error' } } }),
     );
     await visit('/p/AC/map');
-    await page.getByText("Couldn't load the structure", { exact: true }).waitFor();
+    await page.getByText('Couldn’t load the structure', { exact: true }).waitFor();
     await shoot(page, 'map-error-en', { widths: WIDTHS });
   });
   await step('Hungarian board unchanged', async () => {

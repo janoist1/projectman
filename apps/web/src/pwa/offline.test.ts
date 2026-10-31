@@ -34,7 +34,7 @@ describe('offline page', () => {
     const html = buildOfflineHtml(text);
     expect(html).toContain('<html lang="en">');
     expect(html).toContain('>No connection</h1>');
-    expect(html).toContain("projectman can't reach the server right now.");
+    expect(html).toContain('projectman can’t reach the server right now.');
     expect(html).not.toContain('{name}');
   });
 

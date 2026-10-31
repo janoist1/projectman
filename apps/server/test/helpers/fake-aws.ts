@@ -43,6 +43,7 @@ interface AwsCall {
   argv: string[];
 }
 
+const DEPLOY_ROLE = 'projectman-cloud-deploy';
 const READ_PREFIXES = ['get-', 'list-', 'head-', 'describe-'];
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -135,20 +136,30 @@ class FakeAws {
       this.calls.push({ args: ['--version'], argv });
       return { code: 0, stdout: `${this.version}\n`, stderr: '' };
     }
-    const args = argv.slice(6);
+    // `--profile <name> --region … --output json …`, or without the profile: the ambient credentials of a runner.
+    const ambient = argv[0] === '--region';
+    const globals = ambient ? 4 : 6;
+    const args = argv.slice(globals);
     this.calls.push({ args, argv });
-    const account = this.accounts.get(argv[1]!);
+    const account = ambient ? ACCOUNT : this.accounts.get(argv[1]!);
+    const options = ambient ? 0 : 2;
     if (
-      argv[0] !== '--profile' ||
+      (!ambient && argv[0] !== '--profile') ||
       !account ||
-      argv[2] !== '--region' ||
-      argv[3] !== 'eu-west-1' ||
-      argv[4] !== '--output' ||
-      argv[5] !== 'json'
+      argv[options] !== '--region' ||
+      argv[options + 1] !== 'eu-west-1' ||
+      argv[options + 2] !== '--output' ||
+      argv[options + 3] !== 'json'
     )
       return { code: 255, stdout: '', stderr: `unexpected global options: ${argv.slice(0, 6).join(' ')}\n` };
     if (args[0] === 'sts' && !this.loginError)
       return ok({ UserId: 'AIDAFAKE', Account: account, Arn: `arn:aws:iam::${account}:user/${argv[1]}` });
+    // The OIDC provider and the deploy role of the GitHub Actions deploy; the EC2 fake keeps the machine's own role.
+    if (
+      args[0] === 'iam' &&
+      (/open-id-connect/.test(args[1]!) || flagValue(args, '--role-name') === DEPLOY_ROLE)
+    )
+      return this.federation(args);
     if (this.ec2.handles(args)) return this.ec2.run(args, account);
     return this.dispatch(args);
   };
@@ -225,6 +236,71 @@ class FakeAws {
         return ok();
       default:
         return { code: 252, stdout: '', stderr: `fake aws: unknown s3api ${operation}\n` };
+    }
+  }
+
+  /** The OIDC provider and the role of the GitHub Actions deploy (PM-1197). */
+  readonly oidcProviders = new Map<string, { ClientIDList: string[] }>();
+  readonly roles = new Map<
+    string,
+    { trust: unknown; maxSessionDuration: number; policies: Map<string, unknown> }
+  >();
+
+  private federation(args: string[]): RunResult {
+    const operation = args[1]!;
+    const arn = flagValue(args, '--open-id-connect-provider-arn');
+    const roleName = flagValue(args, '--role-name');
+    const role = roleName ? this.roles.get(roleName) : undefined;
+    switch (operation) {
+      case 'get-open-id-connect-provider':
+        return this.oidcProviders.has(arn!)
+          ? ok(this.oidcProviders.get(arn!))
+          : failure('NoSuchEntity', 'GetOpenIDConnectProvider', 'not found');
+      case 'create-open-id-connect-provider': {
+        const url = new URL(flagValue(args, '--url')!);
+        this.oidcProviders.set(`arn:aws:iam::${ACCOUNT}:oidc-provider/${url.host}`, {
+          ClientIDList: [flagValue(args, '--client-id-list')!],
+        });
+        return ok({ OpenIDConnectProviderArn: `arn:aws:iam::${ACCOUNT}:oidc-provider/${url.host}` });
+      }
+      case 'create-role':
+        if (role) return failure('EntityAlreadyExists', 'CreateRole', 'exists');
+        this.roles.set(roleName!, {
+          trust: JSON.parse(flagValue(args, '--assume-role-policy-document')!),
+          maxSessionDuration: Number(flagValue(args, '--max-session-duration') ?? 3600),
+          policies: new Map(),
+        });
+        return ok({ Role: { RoleName: roleName, Arn: `arn:aws:iam::${ACCOUNT}:role/${roleName}` } });
+      case 'get-role':
+        return role
+          ? ok({
+              Role: {
+                RoleName: roleName,
+                Arn: `arn:aws:iam::${ACCOUNT}:role/${roleName}`,
+                MaxSessionDuration: role.maxSessionDuration,
+                AssumeRolePolicyDocument: role.trust,
+              },
+            })
+          : failure('NoSuchEntity', 'GetRole', 'not found');
+      case 'update-assume-role-policy':
+        if (!role) return failure('NoSuchEntity', 'UpdateAssumeRolePolicy', 'not found');
+        role.trust = JSON.parse(flagValue(args, '--policy-document')!);
+        return ok();
+      case 'get-role-policy': {
+        const policyName = flagValue(args, '--policy-name')!;
+        return role?.policies.has(policyName)
+          ? ok({ RoleName: roleName, PolicyName: policyName, PolicyDocument: role.policies.get(policyName) })
+          : failure('NoSuchEntity', 'GetRolePolicy', 'not found');
+      }
+      case 'put-role-policy':
+        if (!role) return failure('NoSuchEntity', 'PutRolePolicy', 'not found');
+        role.policies.set(
+          flagValue(args, '--policy-name')!,
+          JSON.parse(flagValue(args, '--policy-document')!),
+        );
+        return ok();
+      default:
+        return { code: 252, stdout: '', stderr: `fake aws: unknown iam ${operation}\n` };
     }
   }
 

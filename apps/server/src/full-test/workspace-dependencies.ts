@@ -49,12 +49,28 @@ const MEMOIZED = new Set<WorkspaceDependencyFailure>([
 const hash = (parts: string[]) => createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 const markerSchema = readySchema.extend({ preparedAt: z.iso.datetime() });
 
+/** The end of an installer's output, enough to see why it failed (PM-1213). */
+function outputTail(output: string): string {
+  const lines = output.split(/\r?\n/).filter((line) => line.trim() !== '');
+  return lines.slice(-10).join('\n').slice(-1500);
+}
+
 class WorkspaceDependencyError extends Error {
   readonly code = 'workspace_dependencies_failed';
-  readonly details: { reason: WorkspaceDependencyFailure; exitCode: number | null; key: string | null };
-  constructor(reason: WorkspaceDependencyFailure, key: string | null, exitCode: number | null = null) {
+  readonly details: {
+    reason: WorkspaceDependencyFailure;
+    exitCode: number | null;
+    key: string | null;
+    outputTail: string | null;
+  };
+  constructor(
+    reason: WorkspaceDependencyFailure,
+    key: string | null,
+    exitCode: number | null = null,
+    output: string | null = null,
+  ) {
     super(`workspace dependency preparation failed: ${reason}`);
-    this.details = { reason, exitCode, key };
+    this.details = { reason, exitCode, key, outputTail: output === null ? null : outputTail(output) || null };
   }
 }
 
@@ -129,6 +145,7 @@ export function createWorkspaceDependencyInstaller(
     let waitedMs = 0;
     let outcome = 'ready';
     let exitCode: number | null = null;
+    let tail: string | null = null;
     const store = path.join(options.home, 'workspace-deps');
     const markerDir = path.join(
       store,
@@ -205,6 +222,9 @@ export function createWorkspaceDependencyInstaller(
       for (const name of Object.keys(env)) if (name.startsWith('PROJECTMAN_')) delete env[name];
       const run: SandboxedRun = {
         cwd: request.repoPath,
+        // srt's mandatory write denials hang on its own directory; the clone's `node_modules` holds
+        // `.idea` and the like (PM-1213).
+        anchorDir: paths.sandbox,
         env,
         settings: paths.installerSettings,
         command,
@@ -229,6 +249,7 @@ export function createWorkspaceDependencyInstaller(
                     : 'install_failed',
             key,
             end.exitCode,
+            end.output,
           );
         throw err;
       }
@@ -396,6 +417,7 @@ export function createWorkspaceDependencyInstaller(
               );
       outcome = failure.details.reason;
       exitCode = failure.details.exitCode;
+      tail = failure.details.outputTail;
       if (MEMOIZED.has(failure.details.reason)) {
         const previous = failures.get(request.repoPath);
         if (
@@ -422,6 +444,7 @@ export function createWorkspaceDependencyInstaller(
           durationMs: Date.now() - started,
           exitCode,
           waitedMs,
+          ...(tail ? { outputTail: tail } : {}),
         },
         'workspace dependency preparation ended',
       );
@@ -497,12 +520,9 @@ export function createWorkspaceDependencyInstaller(
           }),
         ]);
       } catch (err) {
-        // The default installation never blocks a start where no sandbox exists; an explicit one does.
-        if (
-          setup.implicit &&
-          err instanceof WorkspaceDependencyError &&
-          err.details.reason === 'sandbox_unavailable'
-        )
+        // The default installation never blocks a start (PM-1203, PM-1213): the member starts and is
+        // told what is missing. An explicit setting still does; a stop of the installer is no failure.
+        if (setup.implicit && err instanceof WorkspaceDependencyError && err.details.reason !== 'aborted')
           return skipped('unavailable', request.repoPath);
         throw err;
       } finally {

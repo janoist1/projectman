@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import type { CloudContext } from './context';
+import type { CloudContext, DeployContext } from './context';
 import { CloudError, refused } from './errors';
 import type { HostSession } from './host';
 import {
@@ -41,7 +41,7 @@ export function usesGithubImage(context: Pick<CloudContext, 'config'>): boolean 
 
 /** The run (given, found or followed) of the image at `sha` and its artifact; starts nothing. */
 export async function locateGithubImage(
-  context: CloudContext,
+  context: DeployContext,
   input: { sha: string; run?: number },
 ): Promise<GithubImage> {
   const run = await locateComputeJobRun(context, {
@@ -55,7 +55,7 @@ export async function locateGithubImage(
 
 /** The attested `manifest.json` that the machine returned must describe the image of `sha`. */
 async function verifiedManifest(
-  context: CloudContext,
+  context: DeployContext,
   github: GithubImage,
   sha: string,
   manifest: Buffer,
@@ -85,7 +85,7 @@ async function verifiedManifest(
  * machine on the standard input only, and a failure never names it.
  */
 export async function stageGithubImage(
-  context: CloudContext,
+  context: DeployContext,
   host: HostSession,
   input: { sha: string; github: GithubImage },
 ): Promise<{ stage: string; image: ReceivedImage }> {

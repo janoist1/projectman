@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HOST_SUBCOMMANDS } from '../../../scripts/cloud/host';
 
 /**
@@ -177,6 +178,101 @@ describe('deploy/aws/projectman-cloud.service', () => {
 
   it('holds no secret', () => {
     expect(unit).not.toMatch(/AKIA|SECRET|TOKEN=|PASSWORD=/);
+  });
+});
+
+/** `env-check` and `prune-images` of the deploy from a GitHub Actions job (PM-1197), run with stubbed docker and flock. */
+describe('deploy/aws/host.sh env-check and prune-images', () => {
+  const requiredNames = hostScript.split('\n').find((line) => line.startsWith('REQUIRED_ENV_NAMES='))!;
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'host-sh-'));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const bash = (fixture: string) =>
+    spawnSync('bash', ['-c', `set -euo pipefail\n${fixture}`], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH },
+    });
+  const common = `
+die() { echo "host.sh: $*" >&2; exit 1; }
+refuse() { echo "host.sh: refused: $*" >&2; exit 3; }
+`;
+  const envCheck = (envText: string | null) => {
+    const file = join(dir, 'cloud.env');
+    if (envText !== null) writeFileSync(file, envText);
+    return bash(
+      `${common}ENV_FILE='${file}'\n${requiredNames}\n${shellFunction(hostScript, 'env_check')}\nenv_check`,
+    );
+  };
+  const COMPLETE =
+    'LITESTREAM_BUCKET=b\nLITESTREAM_ACCESS_KEY_ID=k\nRESTIC_REPOSITORY=r\nRESTIC_PASSWORD=secret-value\n';
+
+  it('env-check answers the names of cloud.env, never a value', () => {
+    const result = envCheck(COMPLETE);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim().split('\n')).toEqual([
+      'LITESTREAM_BUCKET',
+      'LITESTREAM_ACCESS_KEY_ID',
+      'RESTIC_REPOSITORY',
+      'RESTIC_PASSWORD',
+    ]);
+    expect(result.stdout).not.toContain('secret-value');
+  });
+
+  it.each([
+    ['there is no cloud.env', null],
+    ['a name has no value', COMPLETE.replace('RESTIC_PASSWORD=secret-value', 'RESTIC_PASSWORD=')],
+    ['a name is missing', COMPLETE.replace('LITESTREAM_BUCKET=b\n', '')],
+  ])('env-check refuses with env_missing when %s', (_label, envText) => {
+    const result = envCheck(envText);
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain('env_missing');
+    expect(result.stderr).not.toContain('secret-value');
+  });
+
+  const SHA = (digit: string) => digit.repeat(40);
+  const prune = (deploy: object | null, tags: string[]) => {
+    if (deploy) writeFileSync(join(dir, 'deploy.json'), JSON.stringify(deploy));
+    const fixture = `${common}
+STATE_DIR='${dir}'; STAGE_ROOT="$STATE_DIR/.stage"; DEPLOY_JSON="$STATE_DIR/deploy.json"; IMAGE_REPO=projectman-cloud
+mkdir -p "$STAGE_ROOT"
+flock() { :; }
+require_classic_docker_store() { :; }
+docker() {
+  case "$1" in
+    image) printf '%s\\n' ${tags.map((tag) => `'${tag}'`).join(' ')} ;;
+    rmi) echo "$2" >> "$STATE_DIR/rmi.log" ;;
+  esac
+}
+${shellFunction(hostScript, 'read_deploy')}
+${shellFunction(hostScript, 'prune_images')}
+prune_images`;
+    return bash(fixture);
+  };
+  const removedLog = () =>
+    existsSync(join(dir, 'rmi.log')) ? readFileSync(join(dir, 'rmi.log'), 'utf8').trim().split('\n') : [];
+
+  it('prune-images removes every projectman-cloud commit image except the current and the previous one', () => {
+    const deploy = { current: { sha: SHA('c') }, previous: { sha: SHA('b') } };
+    const result = prune(deploy, [SHA('c'), SHA('b'), SHA('a'), SHA('d'), 'latest']);
+    expect(result.status, result.stderr).toBe(0);
+    expect(removedLog()).toEqual([`projectman-cloud:${SHA('a')}`, `projectman-cloud:${SHA('d')}`]);
+    expect(JSON.parse(result.stdout)).toEqual({ removed: [SHA('a'), SHA('d')], kept: [SHA('c'), SHA('b')] });
+    expect(existsSync(join(dir, '.stage'))).toBe(false);
+  });
+
+  it('prune-images with nothing to remove still answers an empty list', () => {
+    const result = prune({ current: { sha: SHA('c') }, previous: null }, [SHA('c')]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ removed: [], kept: [SHA('c')] });
+  });
+
+  it('prune-images refuses, and removes nothing, when no deploy is recorded', () => {
+    const result = prune(null, [SHA('a')]);
+    expect(result.status).toBe(3);
+    expect(removedLog()).toEqual([]);
   });
 });
 

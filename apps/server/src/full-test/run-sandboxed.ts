@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { runPromise } from '../kernel';
 import { runProcessGroup } from './run-sandboxed-core';
-import { closedStdin, niceSrtCommand } from './sandbox';
+import { closedStdin, niceSrtCommand, quoteShellWord } from './sandbox';
 
 /** How long a stopped run gets to end on its own before the process group is killed. */
 const KILL_GRACE_MS = 10_000;
@@ -19,6 +19,13 @@ export interface SandboxedEnd {
 export interface SandboxedRun {
   /** The directory the command runs in. */
   cwd: string;
+  /**
+   * Where `srt` itself starts. srt anchors its mandatory write denials (`.idea`, `.vscode`,
+   * `.claude/commands`, `.git/hooks` and others, at any depth) at its own working directory, so an
+   * installer that writes `node_modules` must not start there: a package's `.idea` folder would fail
+   * the install with EPERM (exit 255). With it, the command first changes into `cwd`.
+   */
+  anchorDir?: string;
   /** The whole environment of the command. */
   env: Record<string, string>;
   /** The `srt` settings file of the run. */
@@ -41,10 +48,11 @@ export function srtCli(): string {
  * The full test (PM-217) and the screenshots of the Codex members (PM-351) both run through it.
  */
 export async function runSandboxed(run: SandboxedRun): Promise<SandboxedEnd> {
+  const command = run.anchorDir ? `cd ${quoteShellWord(run.cwd)} && ${run.command}` : run.command;
   return runPromise(
     runProcessGroup({
-      ...niceSrtCommand(process.execPath, srtCli(), run.settings, closedStdin(run.command)),
-      cwd: run.cwd,
+      ...niceSrtCommand(process.execPath, srtCli(), run.settings, closedStdin(command)),
+      cwd: run.anchorDir ?? run.cwd,
       env: run.env,
       timeoutMs: run.timeoutMs,
       killGraceMs: KILL_GRACE_MS,

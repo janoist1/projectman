@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AwsCli } from './aws-cli';
+import { AwsCli, profileTarget } from './aws-cli';
 import { CloudflareApi, sameJson } from './cloudflare-api';
 import type { CloudConfig } from './config';
 import type { CloudContext } from './context';
@@ -93,7 +93,7 @@ export function localEnv(context: CloudContext): Map<string, string> {
 
 async function awsState(context: CloudContext) {
   const ses = requiredConfig(context);
-  const cli = new AwsCli(context.deps, { profile: ses.profile, region: ses.region });
+  const cli = new AwsCli(context.deps, profileTarget(ses));
   const { Account: account } = await cli.callAs(['sts', 'get-caller-identity'], callerSchema);
   context.report.line(`SES profile ${ses.profile}, account ${account}, region ${ses.region}`);
   const identity = await cli.callAsOrNull(

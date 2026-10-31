@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import type { CloudContext } from './context';
+import type { CloudContext, DeployContext } from './context';
 import type { CloudDeps } from './deps';
 import { badUsage, CloudError, refused } from './errors';
 import type { HostSession } from './host';
@@ -163,7 +163,7 @@ export async function receiveStagedImage(
 }
 
 export async function receiveImage(
-  context: CloudContext,
+  context: DeployContext,
   host: HostSession,
   image: SelectedImage,
 ): Promise<void> {

@@ -86,7 +86,7 @@ export interface EditorInsertTool {
     insert: (markdown: string) => void;
     close: () => void;
     /** The toolbar button: focus goes back to it on close. */
-    returnFocusRef: RefObject<HTMLButtonElement | null>;
+    returnFocusRef: RefObject<HTMLElement | null>;
   }) => ReactNode;
 }
 
@@ -156,11 +156,14 @@ export function DescriptionEditor({
   // The caller's tool (PM-1223): the selection is kept while it is open, since the dialog takes the focus.
   const [toolOpen, setToolOpen] = useState<{ start: number; end: number } | null>(null);
   const toolButton = useRef<HTMLButtonElement>(null);
+  // Where the focus goes when the tool closes: the button after Cancel or Esc, the text field after an insert.
+  const toolReturn = useRef<HTMLElement | null>(null);
   const insertAtSelection = (markdown: string) => {
     const node = input.current;
     if (node && toolOpen) {
       const caret = toolOpen.start + markdown.length;
       replaceRange(node, { ...toolOpen, text: markdown, selectionStart: caret, selectionEnd: caret });
+      toolReturn.current = node;
     }
     setToolOpen(null);
   };
@@ -191,14 +194,16 @@ export function DescriptionEditor({
           <button
             ref={toolButton}
             type="button"
-            className={clsx(styles.tool, styles.insertTool)}
+            className={styles.tool}
             disabled={formatDisabled}
             aria-label={insertTool.label}
             title={insertTool.label}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               const node = input.current;
-              if (node) setToolOpen({ start: node.selectionStart, end: node.selectionEnd });
+              if (!node) return;
+              toolReturn.current = toolButton.current;
+              setToolOpen({ start: node.selectionStart, end: node.selectionEnd });
             }}
           >
             <Icon name={insertTool.icon} size={17} strokeWidth={2.1} />
@@ -283,7 +288,7 @@ export function DescriptionEditor({
             selected: value.slice(toolOpen.start, toolOpen.end),
             insert: insertAtSelection,
             close: () => setToolOpen(null),
-            returnFocusRef: toolButton,
+            returnFocusRef: toolReturn,
           })
         : null}
     </div>

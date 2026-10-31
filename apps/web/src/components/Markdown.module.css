@@ -95,6 +95,11 @@ h5.anchoredHeading {
   overflow-wrap: anywhere;
 }
 
+/* The icon is glued to the first word of the link text (the wrapper), so it never ends a line alone. */
+.docLinkStart {
+  white-space: nowrap;
+}
+
 .docLink svg {
   display: inline-block;
   vertical-align: -2px;

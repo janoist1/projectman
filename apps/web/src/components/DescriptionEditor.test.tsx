@@ -126,6 +126,33 @@ describe('DescriptionEditor', () => {
       expect(textarea().selectionStart).toBe('alpha [X](doc:x)'.length);
       expect(screen.queryByTestId('selected')).toBeNull();
     });
+
+    it('returns the focus to the text field after an insert, and to the button after a cancel', () => {
+      let returnTo: EditorInsertTool['render'] extends (a: infer A) => unknown ? A : never;
+      render(
+        <DescriptionEditor
+          label={t('task.description')}
+          value=""
+          onChange={() => {}}
+          insertTool={{
+            icon: 'doc',
+            label: 'Pick',
+            render: (props) => {
+              returnTo = props;
+              return (
+                <button type="button" onClick={() => props.insert('[X](doc:x)')}>
+                  put
+                </button>
+              );
+            },
+          }}
+        />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Pick' }));
+      expect(returnTo!.returnFocusRef.current).toBe(screen.getByRole('button', { name: 'Pick' }));
+      fireEvent.click(screen.getByRole('button', { name: 'put' }));
+      expect(returnTo!.returnFocusRef.current).toBe(textarea());
+    });
   });
   it('puts the label first, then the one-row toolbar, then the field', () => {
     render(<Editor />);

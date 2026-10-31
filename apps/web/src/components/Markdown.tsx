@@ -184,6 +184,9 @@ function useDocumentLink(): DocumentLinkRenderer {
           {link.text}
         </span>
       );
+    const split = link.text.search(/\s/);
+    const firstWord = split < 0 ? link.text : link.text.slice(0, split);
+    const rest = split < 0 ? '' : link.text.slice(split);
     return (
       <Link
         key={key}
@@ -191,8 +194,11 @@ function useDocumentLink(): DocumentLinkRenderer {
         to={{ pathname: documentsPath(projectKey, link.slug), hash: link.section }}
         title={t('documentLink.open', { ref })}
       >
-        <Icon name="doc" size={14} />
-        {link.text}
+        <span className={styles.docLinkStart}>
+          <Icon name="doc" size={14} />
+          {firstWord}
+        </span>
+        {rest}
       </Link>
     );
   };

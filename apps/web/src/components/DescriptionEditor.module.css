@@ -70,11 +70,6 @@
     width: 40px;
     height: 40px;
   }
-  /* The caller's tool (the document link) keeps a 44px touch target. */
-  .insertTool {
-    width: 44px;
-    height: 44px;
-  }
   /* The "More" button (the popover's trigger) looks like its neighbours: 40px, framed, on the surface. */
   .tools > div > button[aria-expanded] {
     width: 40px;

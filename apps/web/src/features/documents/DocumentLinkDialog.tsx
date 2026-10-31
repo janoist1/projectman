@@ -53,7 +53,7 @@ function DocumentLinkDialog({
   selected: string;
   insert: (markdown: string) => void;
   close: () => void;
-  returnFocusRef: RefObject<HTMLButtonElement | null>;
+  returnFocusRef: RefObject<HTMLElement | null>;
 }) {
   const documents = useDocuments(projectKey);
   const list = useMemo(

@@ -207,7 +207,7 @@ describe('desktop top bar steps', () => {
     },
   );
 
-  it('keeps "Új feladat" with its text above 900 px and shows an icon with the same name at 900 px', async () => {
+  it('keeps "Új kártya" with its text above 900 px and shows an icon with the same name at 900 px', async () => {
     renderAt(901);
     const labelled = await screen.findByRole('button', { name: t('topbar.newTask') });
     expect(labelled.textContent).toBe(t('topbar.newTask'));

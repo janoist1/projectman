@@ -303,7 +303,7 @@ export class MockFeedback {
         {
           type: 'comment',
           actor: 'pm',
-          body: 'Felvettem feladatként, a csapat hamarosan foglalkozik vele.',
+          body: 'Felvettem kártyaként, a csapat hamarosan foglalkozik vele.',
           ageMinutes: 60 * 48,
         },
       ],

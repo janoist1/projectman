@@ -34,7 +34,7 @@ import { MachineIndicator } from '../features/machine/MachineIndicator';
  *   <= 1180   the plan usage and the presence are hidden (CSS)
  *   >= 1500   the Operator button (PM-429, PM-447) shows the avatar and the display name (cut at 18 characters);
  *   901-1499  avatar and "Op"; <= 900 the avatar only (CSS in OperatorButton.module.css)
- *   <= 900    "Új feladat" is an icon only: COMPACT_NEW_TASK_QUERY
+ *   <= 900    "Új kártya" is an icon only: COMPACT_NEW_TASK_QUERY
  *   < 768     the phone header replaces the bar (a plan usage badge, an icon-only new task)
  */
 const COMPACT_NEW_TASK_QUERY = '(max-width: 900px)';

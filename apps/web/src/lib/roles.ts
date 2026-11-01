@@ -97,7 +97,7 @@ export function whenToAsk(roleIds: readonly string[], catalogue: readonly Catalo
     .join(' ');
 }
 
-/** Access level of a human ("Tulajdonos", "Megrendelő", ...). */
+/** Access level of a human ("Tulajdonos", "Ügyfél", ...). */
 export function humanRoleName(access: string): string {
   return tDynamic(`roles.human.${access}`, access);
 }

@@ -470,6 +470,26 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     await expectConfigError(store.revertTo('AR', '--help', { author }), 'unknown_version');
   });
 
+  it('counts the versions and reads many in one batch, in the order asked, null for one it cannot read', async () => {
+    const first = await store.save('AR', testConfig(), { author, message: 'Create project AR' });
+    const accented: ProjectConfig = testConfig();
+    accented.project.name = 'Ékezetes webáruház – 日本語';
+    const second = await store.save('AR', accented, { author, message: 'Rename' });
+    expect(await store.countVersions('AR')).toBe(2);
+
+    const [newest, missing, oldest, malformed] = await store.loadVersions('AR', [
+      second.version,
+      'deadbeefdeadbeef',
+      first.version,
+      '--help',
+    ]);
+    expect(newest?.project.name).toBe(accented.project.name);
+    expect(missing).toBeNull();
+    expect(oldest?.project.name).toBe(testConfig().project.name);
+    expect(malformed).toBeNull();
+    expect(await store.loadVersions('AR', [])).toEqual([]);
+  });
+
   it('rejects configurations that violate the invariants and keeps the repository unchanged', async () => {
     await store.save('AR', testConfig(), { author, message: 'Create' });
     const bad: ProjectConfig = testConfig();

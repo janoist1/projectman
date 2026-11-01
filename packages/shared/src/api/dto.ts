@@ -8,6 +8,7 @@ import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { ConfigChangeRow } from '../config/operator';
 import { canonical } from '../config/canonical';
+import { ConfigDiffItem } from '../config/diff';
 import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
 import {
   RedactionCounts,
@@ -1439,6 +1440,35 @@ export const ConfigView = z.object({
   history: z.array(ConfigVersionEntry),
 });
 export type ConfigView = z.infer<typeof ConfigView>;
+
+/**
+ * A row of the history: the saved version with what it changed (`changes`: null when a version cannot be read) and,
+ * when it only undid the one before or reverted to an earlier version, which one (`restores`).
+ */
+export const ConfigHistoryEntry = ConfigVersionEntry.extend({
+  changes: z.array(ConfigDiffItem).nullable(),
+  restores: z
+    .object({
+      kind: z.enum(['undo', 'revert']),
+      version: z.string(),
+      changes: z.array(ConfigDiffItem).nullable(),
+    })
+    .optional(),
+});
+export type ConfigHistoryEntry = z.infer<typeof ConfigHistoryEntry>;
+
+export const ConfigHistoryView = z.object({
+  entries: z.array(ConfigHistoryEntry),
+  /** How many versions the project has in all. */
+  total: z.number().int().nonnegative(),
+});
+export type ConfigHistoryView = z.infer<typeof ConfigHistoryView>;
+
+export const ConfigHistoryQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(5),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type ConfigHistoryQuery = z.infer<typeof ConfigHistoryQuery>;
 
 export const OperatorApprovalWaiverRequest = z.strictObject({
   baseVersion: z.string(),

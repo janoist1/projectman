@@ -43,15 +43,40 @@ function gitEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 /** A git call on the customization repository that takes longer is killed (it would block every save). */
 const GIT_TIMEOUT_MS = 120_000;
 
+interface GitOptions {
+  env?: Record<string, string>;
+  okCodes?: number[];
+  timeoutMs?: number;
+}
+
 /**
  * Runs git without a shell. Exit codes listed in `okCodes` resolve instead of rejecting; a call
  * running longer than `timeoutMs` is killed and rejects.
  */
-export async function runGit(
+export async function runGit(cwd: string, args: string[], opts: GitOptions = {}): Promise<GitResult> {
+  const { stdout, stderr, code } = await run(cwd, args, opts);
+  return { stdout: stdout.toString('utf8'), stderr, code };
+}
+
+/**
+ * Runs git with `input` on its standard input and returns the raw output bytes, for `cat-file --batch`
+ * whose object sizes count bytes, not characters.
+ */
+export async function runGitBytes(
   cwd: string,
   args: string[],
-  opts: { env?: Record<string, string>; okCodes?: number[]; timeoutMs?: number } = {},
-): Promise<GitResult> {
+  input: string,
+  opts: GitOptions = {},
+): Promise<Buffer> {
+  return (await run(cwd, args, opts, input)).stdout;
+}
+
+async function run(
+  cwd: string,
+  args: string[],
+  opts: GitOptions,
+  input?: string,
+): Promise<{ stdout: Buffer; stderr: string; code: number }> {
   try {
     const { stdout, stderr, exitCode } = await execCommand(
       'git',
@@ -62,6 +87,8 @@ export async function runGit(
         maxOutputBytes: 32 * 1024 * 1024,
         timeoutMs: opts.timeoutMs ?? GIT_TIMEOUT_MS,
         okExitCodes: [0, ...(opts.okCodes ?? [])],
+        encoding: 'buffer',
+        ...(input === undefined ? {} : { input }),
       },
     );
     return { stdout, stderr, code: exitCode };

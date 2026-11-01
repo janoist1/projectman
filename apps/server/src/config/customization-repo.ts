@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { connectedOriginOf, hasConnectedOrigin } from '@projectman/shared';
 import type { ConfigAuthor } from '../contracts';
-import { runGit } from './git';
+import { runGit, runGitBytes } from './git';
 import type { GitResult } from './git';
 
 export interface GitIdentity {
@@ -32,6 +32,8 @@ export interface CustomizationRepo {
   exclusive<T>(fn: () => Promise<T>): Promise<T>;
   /** Git in the repository root, or in `cwd` (a nested repository, e.g. a documents submodule). */
   git(args: string[], okCodes?: number[], cwd?: string): Promise<GitResult>;
+  /** Git in the repository root with `input` on its standard input; the output as raw bytes. */
+  gitBytes(args: string[], input: string): Promise<Buffer>;
   /** Commits only `paths` (of the repository at `cwd`, by default the root); returns the new HEAD. */
   commit(message: string, author: GitIdentity, paths: string[], cwd?: string): Promise<string>;
   /** Creates the repository with an initial commit if it does not exist yet. Idempotent. */
@@ -132,6 +134,11 @@ export function createCustomizationRepo(opts: CustomizationRepoOptions): Customi
       env: { GIT_COMMITTER_NAME: committer.name, GIT_COMMITTER_EMAIL: committer.email },
     });
 
+  const gitBytes = (args: string[], input: string): Promise<Buffer> =>
+    runGitBytes(rootDir, args, input, {
+      env: { GIT_COMMITTER_NAME: committer.name, GIT_COMMITTER_EMAIL: committer.email },
+    });
+
   async function commit(
     message: string,
     author: GitIdentity,
@@ -165,5 +172,5 @@ export function createCustomizationRepo(opts: CustomizationRepoOptions): Customi
     return initialized;
   }
 
-  return { rootDir, exclusive, git, commit, init };
+  return { rootDir, exclusive, git, gitBytes, commit, init };
 }

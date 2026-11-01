@@ -18,6 +18,7 @@ import {
   operatorConfigVerdict,
   renameMemberInConfig,
   canonical,
+  configHistoryEntries,
   ownerOnlyChanges,
   unknownPatchRepo,
   superConfigMutations,
@@ -26,6 +27,7 @@ import {
 import type {
   Actor,
   CardMover,
+  ConfigHistoryView,
   ConfigVersionEntry,
   CreateProjectRequest,
   EngineId,
@@ -212,6 +214,12 @@ export interface NewProjectEngines {
   bind(projectKey: string, engineId: EngineId, userId: string): void;
 }
 
+const VERSION_CACHE_SIZE = 200;
+
+function versionCacheKey(projectKey: string, version: string): string {
+  return `${projectKey}:${version}`;
+}
+
 function toSummary(p: ProjectRecord): ProjectSummary {
   return { key: p.key, name: p.name, templateId: p.templateId, configVersion: p.configVersion };
 }
@@ -228,6 +236,8 @@ export class ProjectService {
   private readonly superAudit: SuperAuditService;
   private readonly engines: NewProjectEngines;
   private readonly cache = new Map<string, LoadedProject>();
+  /** The configuration as of a saved version, null for one that cannot be read; see `historyPage`. */
+  private readonly versionCache = new Map<string, ProjectConfig | null>();
   private readonly locks = new KeyedMutex();
   private agreementVersion?: (key: string) => Promise<number | null>;
   private readonly waiverEdits = new WeakSet<ConfigChangeMeta>();
@@ -330,6 +340,44 @@ export class ProjectService {
   async history(key: string, limit?: number, offset?: number): Promise<ConfigVersionEntry[]> {
     if (!this.has(key)) throw notFound('project', key);
     return this.configStore.history(key, limit, offset).catch(fromConfigError);
+  }
+
+  /**
+   * A page of the history with what each version changed. Reads `limit + 2` versions: the page and the two older
+   * ones that the last rows are compared with (and an undo recognised by).
+   */
+  async historyPage(key: string, page: { limit: number; offset: number }): Promise<ConfigHistoryView> {
+    if (!this.has(key)) throw notFound('project', key);
+    const [versions, total] = await Promise.all([
+      this.configStore.history(key, page.limit + 2, page.offset),
+      this.configStore.countVersions(key),
+    ]).catch(fromConfigError);
+    const unknown = versions.filter((entry) => !this.versionCache.has(versionCacheKey(key, entry.version)));
+    if (unknown.length > 0) {
+      const configs = await this.configStore
+        .loadVersions(
+          key,
+          unknown.map((entry) => entry.version),
+        )
+        .catch(fromConfigError);
+      unknown.forEach((entry, index) => this.rememberVersion(key, entry.version, configs[index] ?? null));
+    }
+    const rows = versions.map((entry) => ({
+      entry,
+      config: this.versionCache.get(versionCacheKey(key, entry.version)) ?? null,
+    }));
+    return { entries: configHistoryEntries(rows, page.limit), total };
+  }
+
+  /** Saved versions never change, so what was read of one stays (the oldest are dropped past the limit). */
+  private rememberVersion(key: string, version: string, config: ProjectConfig | null): void {
+    const cacheKey = versionCacheKey(key, version);
+    this.versionCache.delete(cacheKey);
+    this.versionCache.set(cacheKey, config);
+    for (const oldest of this.versionCache.keys()) {
+      if (this.versionCache.size <= VERSION_CACHE_SIZE) break;
+      this.versionCache.delete(oldest);
+    }
   }
 
   async versionConfig(key: string, version: string): Promise<ProjectConfig> {
@@ -531,6 +579,7 @@ export class ProjectService {
         .catch(asConfigEditError);
       const loaded = await this.configStore.load(key).catch(fromConfigError);
       this.cache.set(key, loaded);
+      this.rememberVersion(key, loaded.version, loaded.config);
       if (loaded.version !== current.version) {
         this.touchRecord(key, loaded);
         await this.announce(
@@ -723,6 +772,7 @@ export class ProjectService {
     if (stepId) this.finishOperatorExecution(key, stepId, version, meta.actor);
     const loaded: LoadedProject = { config: ProjectConfig.parse(next), version };
     this.cache.set(key, loaded);
+    this.rememberVersion(key, version, loaded.config);
     if (version !== current.version) {
       this.touchRecord(key, loaded);
       const renames = meta.renames;

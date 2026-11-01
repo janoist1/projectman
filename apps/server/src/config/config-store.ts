@@ -8,6 +8,7 @@ import {
   introducedErrors,
   isToleratedOnLoad,
   ProjectConfig,
+  revertMessage,
   validateProjectConfig,
 } from '@projectman/shared';
 import type { Actor, BoundActor, ConfigIssue, ConfigVersionEntry } from '@projectman/shared';
@@ -80,6 +81,31 @@ function superActorFromTrailers(trailers: {
           }
         : null;
   return actor && hasBoundOrigin(actor) ? actor : undefined;
+}
+
+/**
+ * The text of each object `git cat-file --batch` printed, null for one it does not have (or that is no
+ * file). Each answer is a header line `<id> <type> <size>` and then `size` bytes and a newline.
+ */
+function parseCatFileBatch(output: Buffer, count: number): (string | null)[] {
+  const texts: (string | null)[] = [];
+  let at = 0;
+  for (let i = 0; i < count; i++) {
+    const end = output.indexOf(0x0a, at);
+    if (end < 0)
+      throw new ConfigStoreError('invalid_config', 'git cat-file printed fewer objects than asked');
+    const [, type, size] = output.toString('utf8', at, end).split(' ');
+    if (type === undefined || size === undefined || !/^\d+$/.test(size)) {
+      // "<spec> missing" or "<spec> ambiguous": no header with a size.
+      texts.push(null);
+      at = end + 1;
+      continue;
+    }
+    const bytes = Number(size);
+    texts.push(type === 'blob' ? output.toString('utf8', end + 1, end + 1 + bytes) : null);
+    at = end + 1 + bytes + 1;
+  }
+  return texts;
 }
 
 function assertKey(key: string): void {
@@ -165,9 +191,14 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
   function toConfig(
     key: string,
     files: Record<ProjectFileName, unknown>,
-    source: 'stored' | 'change',
+    source: 'stored' | 'change' | 'history',
   ): ProjectConfig {
-    const migrated = migrateProjectConfig(mergeProjectFiles(files), { projectKey: key, logger });
+    // An earlier version shown in the history loads like stored configuration, without the warnings: they
+    // belong to the current one, and a page reads dozens of old ones.
+    const migrated = migrateProjectConfig(mergeProjectFiles(files), {
+      projectKey: key,
+      logger: source === 'history' ? { warn: () => {} } : logger,
+    });
     return validate(
       migrated,
       key,
@@ -177,7 +208,9 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
               { projectKey: key, code: issue.code, path: issue.path, detail: issue.detail },
               'Loaded a stored configuration that breaks a rule added later; changes are refused until it is fixed',
             )
-        : undefined,
+        : source === 'history'
+          ? () => {}
+          : undefined,
     );
   }
 
@@ -341,6 +374,41 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         });
     },
 
+    async countVersions(projectKey) {
+      assertKey(projectKey);
+      await ensureInit();
+      const count = await git(['rev-list', '--count', 'HEAD', '--', projectPath(projectKey)]);
+      return Number(count.stdout.trim()) || 0;
+    },
+
+    async loadVersions(projectKey, versions) {
+      assertKey(projectKey);
+      await ensureInit();
+      const readable = versions.map((version) => VERSION_RE.test(version));
+      const specs = versions.flatMap((version, index) =>
+        readable[index] ? PROJECT_FILES.map((file) => `${version}:${projectPath(projectKey)}/${file}`) : [],
+      );
+      if (specs.length === 0) return versions.map(() => null);
+      // Committed objects are immutable: no need to wait for writes.
+      const blobs = parseCatFileBatch(
+        await repo.gitBytes(['cat-file', '--batch'], `${specs.join('\n')}\n`),
+        specs.length,
+      );
+      let next = 0;
+      return versions.map((_, index) => {
+        if (!readable[index]) return null;
+        const texts = blobs.slice(next, (next += PROJECT_FILES.length));
+        if (texts.some((text) => text === null)) return null;
+        try {
+          const parsed = {} as Record<ProjectFileName, unknown>;
+          PROJECT_FILES.forEach((file, at) => (parsed[file] = parseYamlFile(file, texts[at]!)));
+          return toConfig(projectKey, parsed, 'history');
+        } catch {
+          return null;
+        }
+      });
+    },
+
     async hasSuperAuditCommit(projectKey, auditId) {
       assertKey(projectKey);
       if (!/^[A-Za-z0-9_-]{1,80}$/.test(auditId)) return false;
@@ -381,7 +449,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         await writeProject(projectKey, contents);
         await git(['add', '-A', '--', path]);
         if (!(await hasStagedChanges(path))) return { version: await projectVersion(projectKey) };
-        const message = `Revert ${projectKey} configuration to ${commitId.slice(0, 12)}`;
+        const message = revertMessage(projectKey, commitId);
         return {
           version: await commit(attributedMessage(message, meta.author), meta.author, [path]),
         };

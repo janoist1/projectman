@@ -74,6 +74,7 @@ export * from './config/super-mutation';
 export * from './config/billing-env';
 export * from './config/super-command';
 export * from './config/canonical';
+export * from './config/diff';
 export * from './config/invariants';
 export * from './api/client-config';
 export * from './api/dto';

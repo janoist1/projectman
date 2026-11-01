@@ -19,12 +19,13 @@ import type {
   InboxItem,
   InboxOption,
   LabelView,
+  ObligationRef,
   QuestionScreening,
   Task,
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { formatStamp, formatTime, formatTokens, intlLocale } from '../i18n/format';
+import { formatAgo, formatStamp, formatTime, formatTokens, intlLocale } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
@@ -110,8 +111,41 @@ export function inboxHeading(item: InboxItem): string {
       return t('inbox.permissionHeading', { tool: toolPresentationFor(tool, summary).label });
     }
   }
+  const obligation = obligationTodoOf(item);
+  if (obligation)
+    return t('inbox.obligationTodo.heading', {
+      key: obligation.taskKey,
+      step: tDynamic(`task.steps.kinds.obligation.${obligation.ref.kind}`, t('task.steps.kinds.other')),
+    });
   if (item.kind === 'question') return splitQuestion(item.title).title ?? t('inbox.question.untitled');
   return item.title;
+}
+
+/**
+ * The obligation an integrator todo hands over (PM-1235), with the card it is about, or null. The server's
+ * English text is written for the integrator; the owner's heading is built from this data instead.
+ */
+function obligationTodoOf(item: InboxItem): { taskKey: string; ref: ObligationRef } | null {
+  if (item.kind !== 'question' || !item.taskKey) return null;
+  const ref = questionPayloadOf(item)?.obligation;
+  return ref ? { taskKey: item.taskKey, ref } : null;
+}
+
+/** The line under an obligation todo's heading: who is responsible and since when. */
+export function obligationTodoMeta(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const obligation = obligationTodoOf(item);
+  if (!obligation) return null;
+  const when = formatAgo(obligation.ref.openedAt);
+  return obligation.ref.responsible
+    ? t('inbox.obligationTodo.meta', {
+        member: nameOf(obligation.ref.responsible, members, myHandle),
+        when,
+      })
+    : t('inbox.obligationTodo.metaNobody', { when });
 }
 
 /** A one-line question up to this many plain characters stays whole, as the heading. */

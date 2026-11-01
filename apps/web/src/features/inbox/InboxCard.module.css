@@ -205,6 +205,12 @@
   color: var(--c-ink-2);
 }
 
+.meta {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
 .preview {
   margin: 0;
   box-sizing: border-box;
@@ -416,6 +422,12 @@
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  color: var(--c-ink-3);
+}
+
+.stepsNote {
+  margin: 0;
+  font-size: var(--text-xs);
   color: var(--c-ink-3);
 }
 

@@ -4894,6 +4894,13 @@ export const en = {
       todo: 'To-do',
       todoHint: 'Only a person can do this.',
     },
+    /** The todo of a stuck obligation (PM-1235): the heading and the meta line are in the UI language. */
+    obligationTodo: {
+      heading: '{key} is stuck: {step}',
+      meta: 'Responsible: {member} · opened {when}',
+      metaNobody: 'Nobody responsible · opened {when}',
+      integratorNote: 'Written for the integrator, in English.',
+    },
     /** A todo the Operator made out of a question (PM-556): the step box and the result field. */
     todo: {
       stepTitle: 'The step',

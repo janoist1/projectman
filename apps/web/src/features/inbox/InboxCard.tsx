@@ -49,6 +49,7 @@ import {
   permissionTool,
   questionExtras,
   splitQuestion,
+  obligationTodoMeta,
   todoRows,
   withConsequences,
 } from '../../lib/inbox';
@@ -350,7 +351,10 @@ export function InboxCard({
   // An approval a merge follows says that one click is enough (PM-484).
   const thenMerge = gateMove ? gateThenMergeText(item, pipeline, members, myHandle) : null;
   // What follows the short heading of a long question.
-  const questionBody = item.kind === 'question' ? splitQuestion(questionTitle).body : null;
+  // The todo of a stuck obligation has its text in the step box, so the body would repeat it (PM-1235).
+  const obligationMeta = obligationTodoMeta(item, members, myHandle);
+  const questionBody =
+    item.kind === 'question' && obligationMeta === null ? splitQuestion(questionTitle).body : null;
   // The tool line is redundant when the heading already names the tool.
   const tool = item.kind === 'permission' && heading === item.title ? permissionTool(item) : null;
   // The task the request is about: the most useful background of the decision, under the header row.
@@ -660,6 +664,7 @@ export function InboxCard({
       <Heading className={styles.title} tabIndex={-1} data-inbox-title="">
         {heading}
       </Heading>
+      {obligationMeta ? <p className={styles.meta}>{obligationMeta}</p> : null}
       {thenMerge ? <p className={styles.body}>{thenMerge}</p> : null}
       {operationPayload &&
       project?.isOwner &&
@@ -723,11 +728,14 @@ export function InboxCard({
           <h3 id={`${answerId}-steps`} className={styles.stepsTitle}>
             {t('inbox.todo.stepTitle')}
           </h3>
+          {obligationMeta ? (
+            <p className={styles.stepsNote}>{t('inbox.obligationTodo.integratorNote')}</p>
+          ) : null}
           <dl className={styles.stepsList}>
             {steps.map((row) => (
               <Fragment key={row.label}>
                 <dt>{row.label}</dt>
-                <dd>{row.value}</dd>
+                <dd lang={obligationMeta ? 'en' : undefined}>{row.value}</dd>
               </Fragment>
             ))}
           </dl>

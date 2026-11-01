@@ -5187,6 +5187,13 @@ export const hu = {
       todo: 'Teendő',
       todoHint: 'Ezt csak ember tudja megcsinálni.',
     },
+    /** The todo of a stuck obligation (PM-1235): the heading and the meta line are in the UI language. */
+    obligationTodo: {
+      heading: '{key} elakadt: {step}',
+      meta: 'Felelős: {member} · nyílt: {when}',
+      metaNobody: 'Nincs felelőse · nyílt: {when}',
+      integratorNote: 'Az integrátornak szól, ezért angolul.',
+    },
     /** A todo the Operator made out of a question (PM-556): the step box and the result field. */
     todo: {
       stepTitle: 'A lépés',

@@ -3058,3 +3058,15 @@ assumption or remote-engine RPC.
   set for every provider. **Remote engine:** the engine builds the session
   environment beside the CLI with the same function (or the same four variables).
   **Module:** `runner`
+
+- **Batched read of the configuration history (PM-308)** — `config/{git,customization-repo,config-store}.ts`
+  (`runGitBytes`, `CustomizationRepo.gitBytes`, `ConfigStore.loadVersions` / `countVersions`),
+  `core/projects/projects.ts` (`historyPage`), `api/config.ts` (`GET …/config/history`). The settings
+  history reads up to 52 saved versions of a project's three configuration files in one
+  `git cat-file --batch` process on the customization repository (its object sizes count bytes, so the
+  output is read as bytes), plus `git rev-list --count` for the total, without a shell, with the
+  customization repository's 120 s and 32 MiB git limits. **Machine assumptions:** a `git` executable
+  and the server's `customization/` repository on the server's disk, like every other configuration
+  git call. **Does this work on a remote engine?** Yes: the customization repository stays on the
+  server, the card's source repository and engine are not read, and there is no new engine RPC.
+  **Module:** `config`

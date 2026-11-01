@@ -326,7 +326,7 @@ export function SettingsPage() {
         content = <EmailSection config={view.config} version={view.version} />;
         break;
       case 'history':
-        content = <HistorySection history={view.history} current={view.version} canRevert={isOwner} />;
+        content = <HistorySection current={view.version} canRevert={isOwner} />;
         break;
       case 'providers':
         content = <ProvidersSection config={view.config} />;

@@ -233,6 +233,7 @@ export const routes = {
   config: (key: string) => `/api/projects/${key}/config`,
   patchConfig: (key: string) => `/api/projects/${key}/config`,
   revertConfig: (key: string) => `/api/projects/${key}/config/revert`,
+  configHistory: (key: string) => `/api/projects/${key}/config/history`,
 
   /** GET (`FeedbackInboxResponse`; `?task=KEY` only the marks of that card) the project's feedback marks (PM-506). */
   feedback: (key: string) => `/api/projects/${key}/feedback`,

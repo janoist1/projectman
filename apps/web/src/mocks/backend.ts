@@ -95,6 +95,9 @@ import {
   RenameMemberRequest,
   RetireMemberRequest,
   RevertConfigRequest,
+  ConfigHistoryQuery,
+  configHistoryEntries,
+  revertMessage,
   SendMessageRequest,
   ReadTeamMessagesRequest,
   SendTeamMessageRequest,
@@ -517,6 +520,10 @@ export class MockBackend {
   structure = clone(fixtures.structureFixture);
   configVersion = fixtures.projectSummary.configVersion;
   history: ConfigVersionEntry[] = clone(fixtures.configHistory);
+  /** The configuration as of each saved version, to compare consecutive ones; the old fixture versions have none. */
+  private readonly configSnapshots = new Map<string, ProjectConfig>([
+    [this.configVersion, clone(this.config)],
+  ]);
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
@@ -2061,7 +2068,10 @@ export class MockBackend {
 
   private commitConfig(message: string): void {
     this.syncPermissionViews();
-    this.configVersion = Math.random().toString(16).slice(2, 9);
+    this.configVersion = Array.from({ length: 5 }, () =>
+      Math.random().toString(16).slice(2, 10).padEnd(8, '0'),
+    ).join('');
+    this.configSnapshots.set(this.configVersion, clone(this.config));
     this.history.unshift({ version: this.configVersion, message, author: this.user.name, at: nowIso() });
     this.emit({ type: 'config_changed', projectKey: fixtures.PROJECT_KEY, version: this.configVersion });
   }
@@ -3341,8 +3351,23 @@ export class MockBackend {
       if (!input) return error(400, 'invalid_request', 'Invalid revert request');
       const target = this.history.find((entry) => entry.version === input.version);
       if (!target) return error(404, 'not_found', 'Unknown version');
-      this.commitConfig(`Revert to ${target.version}`);
+      const snapshot = this.configSnapshots.get(target.version);
+      if (snapshot) this.config = clone(snapshot);
+      this.commitConfig(revertMessage(fixtures.PROJECT_KEY, target.version));
       return ok({ version: this.configVersion });
+    }
+    if (rest === '/config/history' && method === 'GET') {
+      const page = ConfigHistoryQuery.safeParse(Object.fromEntries(query));
+      if (!page.success) return error(400, 'invalid_request', 'Invalid history query');
+      const { limit, offset } = page.data;
+      const rows = this.history.slice(offset, offset + limit + 2).map((entry) => ({
+        entry,
+        config: this.configSnapshots.get(entry.version) ?? null,
+      }));
+      return ok({
+        entries: clone(configHistoryEntries(rows, limit)),
+        total: this.history.length,
+      });
     }
     return error(404, 'not_found', `No route for ${method} ${rest}`);
   }

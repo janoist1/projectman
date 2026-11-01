@@ -65,7 +65,14 @@ import type {
   LabelView,
 } from '@projectman/shared';
 import { isApiError } from './client';
-import { invalidateAttachments, patchOpenInboxCount, upsertBy, writeTask, writeTaskDetail } from './cache';
+import {
+  invalidateAttachments,
+  patchOpenInboxCount,
+  refreshConfigHistory,
+  upsertBy,
+  writeTask,
+  writeTaskDetail,
+} from './cache';
 import { api } from './endpoints';
 import { unsubscribeThisDevice } from '../lib/pushDevice';
 import { queryKeys } from './queryKeys';
@@ -961,12 +968,35 @@ export function useConfig(key: string, enabled = true) {
   });
 }
 
+/** Rows the settings history shows before "Korábbiak", and the size of the pages after it. */
+export const HISTORY_HEAD_SIZE = 5;
+const HISTORY_PAGE_SIZE = 50;
+
+/** The settings history: the first page of 5, then pages of 50 (`fetchNextPage` is "Korábbiak" / "Továbbiak"). */
+export function useConfigHistory(key: string) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.configHistory(key),
+    queryFn: ({ pageParam }) =>
+      api.configHistory(key, {
+        offset: pageParam,
+        limit: pageParam === 0 ? HISTORY_HEAD_SIZE : HISTORY_PAGE_SIZE,
+      }),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.entries.length, 0);
+      return last.entries.length > 0 && loaded < last.total ? loaded : undefined;
+    },
+    retry: false,
+  });
+}
+
 export function usePatchConfig(key: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: PatchConfigRequest) => api.patchConfig(key, body),
     onSuccess: async (view) => {
       client.setQueryData(queryKeys.config(key), view);
+      refreshConfigHistory(client, key);
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.roles(key) }),
         client.invalidateQueries({ queryKey: queryKeys.projects }),
@@ -981,6 +1011,7 @@ export function useRevertConfig(key: string) {
   return useMutation({
     mutationFn: (version: string) => api.revertConfig(key, { version }),
     onSuccess: async () => {
+      refreshConfigHistory(client, key);
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.config(key) }),
         client.invalidateQueries({ queryKey: queryKeys.roles(key) }),

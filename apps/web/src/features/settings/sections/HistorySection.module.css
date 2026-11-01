@@ -6,41 +6,43 @@
   flex-direction: column;
 }
 
-.version {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
+/* Avatar, text and actions on one line; the opened details sit under the text. */
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'avatar text actions'
+    '. box .';
+  align-items: start;
+  column-gap: 10px;
   padding: 10px 0;
   border-top: 1px solid var(--c-line-soft);
 }
 
-.version:first-child {
+.row > :first-child {
+  grid-area: avatar;
+}
+
+.row:first-child {
   border-top: 0;
 }
 
-.versionTag {
-  flex-shrink: 0;
-  margin-top: 1px;
-  height: 20px;
-  box-sizing: border-box;
-  padding: 0 6px;
-  border-radius: var(--radius-xs);
-  background: var(--c-accent-bg);
-  color: var(--c-accent-text);
-  font-size: var(--text-2xs);
-  display: inline-flex;
-  align-items: center;
-}
-
-.versionText {
+.text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  flex-grow: 1;
+  gap: 2px;
+  grid-area: text;
   min-width: 0;
 }
 
-/* The author line of a version: the Operator's avatar, the name and time, and who approved it (PM-447). */
+.summary {
+  font-size: var(--text-sm);
+  font-weight: 800;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* The author line of a version: who, when, and who approved it (PM-447). */
 .byLine {
   display: flex;
   align-items: center;
@@ -62,8 +64,140 @@
   overflow-wrap: anywhere;
 }
 
-.versionMessage {
+.actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.menu {
+  display: inline-flex;
+}
+
+.details {
+  grid-area: box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--c-subtle);
   font-size: var(--text-sm);
+}
+
+.changes {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+}
+
+.facts dt {
+  color: var(--c-ink-4);
+  font-size: var(--text-xs);
   font-weight: 800;
-  line-height: 1.35;
+}
+
+.facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.raw {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+}
+
+.note {
+  margin: 0;
+}
+
+.target {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skeletons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton {
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: var(--c-subtle);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+@media (max-width: 767px) {
+  /* The menu stays top right; "Részletek" drops under the author line, in line with the text. */
+  .row {
+    grid-template-areas:
+      'avatar text menu'
+      '. button button'
+      '. box box';
+  }
+
+  .actions {
+    display: contents;
+  }
+
+  .menu {
+    grid-area: menu;
+  }
+
+  .detailsButton {
+    grid-area: button;
+    justify-self: start;
+    margin-left: -8px;
+  }
+
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .facts dd {
+    margin-bottom: 6px;
+  }
 }

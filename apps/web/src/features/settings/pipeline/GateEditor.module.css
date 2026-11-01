@@ -139,15 +139,6 @@
 }
 
 @media (max-width: 640px) {
-  .rowBox {
-    padding: 6px;
-  }
-
-  /* The kind and the label share the first line of a phone-wide sheet. */
-  .labelSelect {
-    flex-basis: 140px;
-  }
-
   .row select {
     height: 40px;
   }

@@ -1,3 +1,4 @@
+import { Icon } from '../../../components/Icon';
 import { t } from '../../../i18n/t';
 import styles from './FieldErrors.module.css';
 
@@ -15,7 +16,9 @@ export function FieldErrors({ id, issues }: { id?: string; issues: readonly Fiel
     <div id={id} className={styles.errors}>
       {issues.map((issue) => (
         <div key={`${issue.code}:${issue.path}`} className={styles.error}>
-          <p role="alert">{issue.message}</p>
+          <p role="alert">
+            <Icon name="exclamation" size={13} /> {issue.message}
+          </p>
           <details>
             <summary>{t('settings.pipeline.edit.details')}</summary>
             <code>

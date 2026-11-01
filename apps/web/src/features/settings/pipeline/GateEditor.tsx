@@ -81,69 +81,73 @@ export function GateEditor({
                   <Icon name="lock" size={14} />
                 </span>
               ) : null}
-              <select
-                aria-label={t('settings.edit.condition')}
-                value={condition.type}
-                disabled={locked}
-                onChange={(event) =>
-                  replace(index, { ...condition, type: event.target.value as GateCondition['type'] })
-                }
-              >
-                <option value="has_label">{t('settings.pipeline.edit.gateHas')}</option>
-                <option value="lacks_label">{t('settings.pipeline.edit.gateLacks')}</option>
-              </select>
-              <select
-                aria-label={t('settings.edit.label')}
-                data-label-select={index}
-                value={condition.label}
-                disabled={locked}
-                onChange={(event) => replace(index, { ...condition, label: event.target.value })}
-              >
-                {condition.label === '' ? (
-                  <option value="">{t('settings.pipeline.edit.pickLabel')}</option>
-                ) : null}
-                {choices(condition.label, accepts).map((label) => (
-                  <option key={label.id} value={label.id}>
-                    {label.name}
-                  </option>
-                ))}
-              </select>
-              {/* A release gate takes no "when"; a leftover one can still be switched off. */}
-              {release && !withWhen ? null : (
-                <>
-                  <select
-                    aria-label={t('settings.edit.when')}
-                    value={withWhen ? 'when' : 'every'}
-                    disabled={locked}
-                    onChange={(event) => {
-                      const { when: _previous, ...rest } = condition;
-                      replace(index, event.target.value === 'when' ? { ...rest, when: '' } : rest);
-                    }}
-                  >
-                    <option value="every">{t('settings.pipeline.edit.gateEvery')}</option>
-                    <option value="when" disabled={!gateAcceptsWhen({ kind: stageKind }, { when: 'x' })}>
-                      {t('settings.pipeline.edit.gateWhen')}
-                    </option>
-                  </select>
-                  {withWhen ? (
-                    <select
-                      aria-label={t('settings.pipeline.edit.gateWhen')}
-                      value={condition.when}
-                      disabled={locked}
-                      onChange={(event) => replace(index, { ...condition, when: event.target.value })}
-                    >
-                      {condition.when === '' ? (
-                        <option value="">{t('settings.pipeline.edit.pickLabel')}</option>
-                      ) : null}
-                      {choices(condition.when ?? '', () => true).map((label) => (
-                        <option key={label.id} value={label.id}>
-                          {label.name}
-                        </option>
-                      ))}
-                    </select>
+              <div className={styles.fields}>
+                <select
+                  aria-label={t('settings.edit.condition')}
+                  value={condition.type}
+                  disabled={locked}
+                  onChange={(event) =>
+                    replace(index, { ...condition, type: event.target.value as GateCondition['type'] })
+                  }
+                >
+                  <option value="has_label">{t('settings.pipeline.edit.gateHas')}</option>
+                  <option value="lacks_label">{t('settings.pipeline.edit.gateLacks')}</option>
+                </select>
+                <select
+                  aria-label={t('settings.edit.label')}
+                  className={styles.labelSelect}
+                  data-label-select={index}
+                  value={condition.label}
+                  disabled={locked}
+                  onChange={(event) => replace(index, { ...condition, label: event.target.value })}
+                >
+                  {condition.label === '' ? (
+                    <option value="">{t('settings.pipeline.edit.pickLabel')}</option>
                   ) : null}
-                </>
-              )}
+                  {choices(condition.label, accepts).map((label) => (
+                    <option key={label.id} value={label.id}>
+                      {label.name}
+                    </option>
+                  ))}
+                </select>
+                {/* A release gate takes no "when"; a leftover one can still be switched off. */}
+                {release && !withWhen ? null : (
+                  <>
+                    <select
+                      aria-label={t('settings.edit.when')}
+                      value={withWhen ? 'when' : 'every'}
+                      disabled={locked}
+                      onChange={(event) => {
+                        const { when: _previous, ...rest } = condition;
+                        replace(index, event.target.value === 'when' ? { ...rest, when: '' } : rest);
+                      }}
+                    >
+                      <option value="every">{t('settings.pipeline.edit.gateEvery')}</option>
+                      <option value="when" disabled={!gateAcceptsWhen({ kind: stageKind }, { when: 'x' })}>
+                        {t('settings.pipeline.edit.gateWhen')}
+                      </option>
+                    </select>
+                    {withWhen ? (
+                      <select
+                        className={styles.labelSelect}
+                        aria-label={t('settings.pipeline.edit.gateWhen')}
+                        value={condition.when}
+                        disabled={locked}
+                        onChange={(event) => replace(index, { ...condition, when: event.target.value })}
+                      >
+                        {condition.when === '' ? (
+                          <option value="">{t('settings.pipeline.edit.pickLabel')}</option>
+                        ) : null}
+                        {choices(condition.when ?? '', () => true).map((label) => (
+                          <option key={label.id} value={label.id}>
+                            {label.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                  </>
+                )}
+              </div>
               <button
                 type="button"
                 className={styles.remove}

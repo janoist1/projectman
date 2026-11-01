@@ -1,6 +1,7 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useNavigate } from 'react-router';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { queryKeys } from '../../../api/queryKeys';
 import { ToastProvider } from '../../../components/Toast';
 import { t } from '../../../i18n/t';
 import { mockProject } from '../../../test/mockProject';
@@ -26,7 +27,7 @@ function renderPanel(
   overrides: Parameters<ReturnType<typeof mockProject>['render']>[2] = {},
 ) {
   const project = mockProject();
-  project.render(
+  const view = project.render(
     <ToastProvider>
       <SettingsTestRoutes initialSection="pipeline" />
       <BackButton />
@@ -34,7 +35,14 @@ function renderPanel(
     route,
     overrides,
   );
-  return project;
+  return Object.assign(project, { client: view.client });
+}
+
+/** The settings reload the way a live update makes them. */
+async function reload(project: ReturnType<typeof renderPanel>) {
+  await act(async () => {
+    await project.client.invalidateQueries({ queryKey: queryKeys.config('AC') });
+  });
 }
 
 async function panel() {
@@ -111,6 +119,36 @@ describe('stage panel editor', () => {
     );
     const other = project.backend.config.pipeline.stages.find((candidate) => candidate.id === 'qa')!;
     expect(other.description).toBe('Changed elsewhere');
+  });
+
+  it('raises the conflict band when a live update changes the very stage being edited', async () => {
+    const project = renderPanel();
+    const dialog = await panel();
+    const name = await dialog.findByLabelText(t('settings.pipeline.edit.name'));
+    fireEvent.change(name, { target: { value: 'Építés' } });
+    saveElsewhere(project, 'dev');
+    await reload(project);
+
+    const kata = project.backend.config.team.members.find((candidate) => candidate.handle === 'kata')!;
+    await dialog.findByText(t('settings.pipeline.edit.conflict', { name: kata.displayName }));
+    expect((name as HTMLInputElement).value).toBe('Építés');
+    expect(patches(project)).toHaveLength(0);
+  });
+
+  it('merges silently when a live update changes another stage than the one being edited', async () => {
+    const project = renderPanel();
+    const dialog = await panel();
+    fireEvent.change(await dialog.findByLabelText(t('settings.pipeline.edit.name')), {
+      target: { value: 'Építés' },
+    });
+    saveElsewhere(project, 'qa');
+    await reload(project);
+    await waitFor(() => expect(project.backend.history[0]?.version).toBe('other-save'));
+
+    fireEvent.click(dialog.getByRole('button', { name: t('settings.pipeline.edit.save') }));
+    await waitFor(() => expect(patches(project)).toHaveLength(1));
+    const kata = project.backend.config.team.members.find((candidate) => candidate.handle === 'kata')!;
+    expect(dialog.queryByText(t('settings.pipeline.edit.conflict', { name: kata.displayName }))).toBeNull();
   });
 
   it('tells that the stage is gone when it was deleted meanwhile, and only closes', async () => {
@@ -242,6 +280,15 @@ describe('stage panel editor', () => {
     expect(
       (dialog.getByRole('button', { name: t('settings.pipeline.edit.save') }) as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+
+  it('names an AI member by the role catalogue in the picker, not by the role id', async () => {
+    renderPanel(`${PIPELINE}?show=stage:qa`);
+    const dialog = await panel();
+    await dialog.findByLabelText(t('settings.pipeline.edit.name'));
+    fireEvent.click(dialog.getByRole('button', { name: t('settings.pipeline.edit.addMember') }));
+    const list = await dialog.findByRole('listbox');
+    await waitFor(() => expect(list.textContent).not.toMatch(/[a-z]+_[a-z]+/));
   });
 
   it('closes the picker with Escape and keeps the panel open', async () => {

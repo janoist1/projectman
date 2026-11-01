@@ -92,12 +92,20 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     setFailure(null);
   }
   const savedSignature = canonical(saved ?? null);
+  const latestPair = useRef(current);
+  latestPair.current = current;
+  const busy = useRef(false);
+  busy.current = saving;
+  // The saved element moved under a clean draft: follow it. Under a draft with changes the draft stays,
+  // and when someone else changed this very element, saving it would overwrite their change unseen: the
+  // conflict band asks for a look first. (This element's own save leaves the saved value equal to the draft.)
   useEffect(() => {
-    setPair((previous) =>
-      same(previous.base, saved)
-        ? previous
-        : { ...previous, base: saved, draft: same(previous.draft, previous.base) ? saved : previous.draft },
-    );
+    const previous = latestPair.current;
+    if (same(previous.base, saved)) return;
+    const edited = !same(previous.draft, previous.base);
+    setPair({ ...previous, base: saved, draft: edited ? previous.draft : saved });
+    if (edited && saved !== null && !same(saved, previous.draft) && !busy.current)
+      setConflict({ author: view?.history[0]?.author ?? '' });
   }, [savedSignature]);
 
   const draft = current.draft;

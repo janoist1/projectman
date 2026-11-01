@@ -7018,7 +7018,7 @@ export const hu = {
         lost: 'Egy mentetlen módosítás elveszett.',
         name: 'Név',
         nameRequired: 'Adj nevet a lépésnek.',
-        kind: 'Típus',
+        kind: 'Fajta',
         kindFirst: 'Az út első lépése mindig várólista.',
         kindLast: 'Az út utolsó lépése mindig Kész.',
         dutyNone: 'Nincs',

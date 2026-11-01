@@ -7019,7 +7019,7 @@ export const en = {
         lost: 'An unsaved change was lost.',
         name: 'Name',
         nameRequired: 'Give the stage a name.',
-        kind: 'Type',
+        kind: 'Kind',
         kindFirst: 'The first stage of the path is always a queue.',
         kindLast: 'The last stage of the path is always Done.',
         dutyNone: 'None',

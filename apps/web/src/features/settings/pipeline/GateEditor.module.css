@@ -33,15 +33,38 @@
   color: var(--c-ink-3);
 }
 
+/* One condition is one group: the gap between conditions reads wider than the gap inside one. */
 .rowBox {
   min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm);
 }
 
 .row {
   display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.fields {
+  display: flex;
+  flex: 1 1 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.padlock {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  color: var(--c-ink-3);
+}
+
+.labelSelect {
+  flex: 1 1 160px;
 }
 
 .row select {
@@ -66,11 +89,6 @@
 
 .locked select {
   background: var(--c-muted);
-  color: var(--c-ink-3);
-}
-
-.padlock {
-  display: inline-flex;
   color: var(--c-ink-3);
 }
 

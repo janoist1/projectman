@@ -2,7 +2,9 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import clsx from 'clsx';
 import { isOnLeave } from '@projectman/shared';
-import type { MemberConfig } from '@projectman/shared';
+import type { MemberConfig, RoleView } from '@projectman/shared';
+import { useRoles } from '../../../api/queries';
+import { useProject } from '../../../app/contexts';
 import { Avatar } from '../../../components/Avatar';
 import { LeaveChip } from '../../../components/LeaveChip';
 import { t } from '../../../i18n/t';
@@ -19,10 +21,10 @@ export function MemberAvatar({ member }: { member: MemberConfig }) {
   );
 }
 
-function matches(member: MemberConfig, query: string): boolean {
+function matches(member: MemberConfig, query: string, roles: readonly RoleView[]): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
-  const role = roleLabel(memberLike(member)).toLowerCase();
+  const role = roleLabel(memberLike(member), roles).toLowerCase();
   return (
     member.displayName.toLowerCase().includes(needle) ||
     member.handle.toLowerCase().includes(needle) ||
@@ -52,7 +54,13 @@ export function MemberPicker({
   const search = useRef<HTMLInputElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const listId = useId();
-  const found = useMemo(() => candidates.filter((member) => matches(member, query)), [candidates, query]);
+  // The role catalogue names an AI member's role ("QA", not "qa"), in the list and in the search.
+  const roles = useRoles(useProject().key).data?.roles;
+  const catalogue = useMemo(() => roles ?? [], [roles]);
+  const found = useMemo(
+    () => candidates.filter((member) => matches(member, query, catalogue)),
+    [candidates, query, catalogue],
+  );
   const current = Math.min(active, Math.max(0, found.length - 1));
   useEffect(() => {
     if (!open) return;
@@ -152,7 +160,7 @@ export function MemberPicker({
                   <MemberAvatar member={member} />
                   <span className={styles.name}>{member.displayName}</span>
                   <span className={styles.meta}>
-                    {roleLabel(memberLike(member))} ·{' '}
+                    {roleLabel(memberLike(member), catalogue)} ·{' '}
                     {t(
                       member.kind === 'ai'
                         ? 'settings.pipeline.edit.memberAi'

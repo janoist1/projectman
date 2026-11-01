@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import clsx from 'clsx';
 import { Link } from 'react-router';
@@ -10,7 +10,8 @@ import { FlowLine } from '../../../components/flow/FlowLine';
 import { FlowRow, FlowStation } from '../../../components/flow/FlowStation';
 import { StageGlyph } from '../../../components/flow/StageGlyph';
 import { Icon } from '../../../components/Icon';
-import { joinNames, t } from '../../../i18n/t';
+import { LeaveChip } from '../../../components/LeaveChip';
+import { t } from '../../../i18n/t';
 import { labelName } from '../../../lib/labels';
 import { memberLike } from '../../how-we-work/MapContext';
 import { labelViews } from '../../how-we-work/model';
@@ -266,6 +267,28 @@ function Station({
   );
 }
 
+/** The names joined the Hungarian way, each member on leave with its mark. */
+function OwnerNames({ people }: { people: readonly MemberConfig[] }) {
+  return (
+    <>
+      {people.map((person, index) => (
+        <Fragment key={person.handle}>
+          {index === 0 ? null : index === people.length - 1 ? t('common.and') : t('common.listSeparator')}
+          <span>
+            {person.displayName}
+            {isOnLeave(person) ? (
+              <>
+                {' '}
+                <LeaveChip member={person} />
+              </>
+            ) : null}
+          </span>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 function Owners({ entry, members }: { entry: TeamMapStage; members: ReadonlyMap<string, MemberConfig> }) {
   const people = entry.owners.flatMap((handle) => {
     const member = members.get(handle);
@@ -278,25 +301,25 @@ function Owners({ entry, members }: { entry: TeamMapStage; members: ReadonlyMap<
         {t('howWeWork.flow.noOwner')}
       </span>
     ) : null;
-  const names = people.map((person) => person.displayName);
-  const shown =
-    names.length > 3
-      ? t('howWeWork.flow.ownersMore', {
-          names: names.slice(0, 2).join(t('common.listSeparator')),
-          count: names.length - 2,
-        })
-      : joinNames(names);
   const rest = people.length - SHOWN_AVATARS;
   return (
     <>
-      <span className={styles.ownerNames}>{shown}</span>
+      <span className={styles.ownerNames}>
+        {people.length > SHOWN_AVATARS ? (
+          t('howWeWork.flow.ownersMore', {
+            names: people
+              .slice(0, 2)
+              .map((person) => person.displayName)
+              .join(t('common.listSeparator')),
+            count: people.length - 2,
+          })
+        ) : (
+          <OwnerNames people={people} />
+        )}
+      </span>
       <span className={styles.avatars}>
         {people.slice(0, SHOWN_AVATARS).map((person) => (
-          <span
-            key={person.handle}
-            className={clsx(styles.avatar, isOnLeave(person) && styles.onLeave)}
-            title={isOnLeave(person) ? t('leave.onLeave') : undefined}
-          >
+          <span key={person.handle} className={clsx(styles.avatar, isOnLeave(person) && styles.onLeave)}>
             <Avatar member={memberLike(person)} size="sm" variant="initials" ring />
           </span>
         ))}

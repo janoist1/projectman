@@ -107,7 +107,7 @@ modules:
     area: core
     kind: core
     name: Projektek
-    summary: Projektek, szerepek, lépésgazdák és láthatóság.
+    summary: Projektek, szerepek, a lépések gazdái és láthatóság.
     paths:
       - apps/server/src/core/projects/
   - id: core/tasks

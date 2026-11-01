@@ -771,15 +771,84 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         expect(events('obligation_pm_told')).toHaveLength(0);
       });
 
+      /** A sweep, and another one long after: no row opens and nobody is reminded. */
+      const staysUnfollowed = async (key: string) => {
+        await sweep();
+        minutes(120);
+        await sweep();
+        expect(rows(key)).toEqual([]);
+        expect(reminders(key)).toHaveLength(0);
+        expect(todos()).toHaveLength(0);
+      };
+
       it('opens no row for a card a person owns', async () => {
         await harness(refinery);
         const key = await create();
         await flush();
         await stopSessions();
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { status: 'blocked' });
+        await staysUnfollowed(key);
+      });
+
+      it('opens no row for a card parked in the backlog', async () => {
+        await harness(refinery);
+        const key = await create();
+        await flush();
+        await stopSessions();
+        await staysUnfollowed(key);
+      });
+
+      it('opens no row for a card that holds back for an open prerequisite', async () => {
+        await harness();
+        const first = await create('The prerequisite');
+        const key = await create('Waits');
+        await h.domain.tasks.update(
+          'AR',
+          key,
+          { relations: { add: [{ kind: 'prerequisite', key: first }] } },
+          OWNER_ACTOR,
+        );
+        await flush();
+        await stopSessions();
+        await staysUnfollowed(key);
+      });
+
+      it('opens a row with no responsible for a system step, and kicks the refinement at the first deadline', async () => {
+        await harness(refinery);
+        const key = await create();
+        // `refine` with every label of the gates on: the refinement has only its own closing step left.
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { labels: ['refine', 'scope-ok'] });
         await sweep();
-        minutes(120);
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+        minutes(FIRST_EXPIRY);
         await sweep();
-        expect(rows(key)).toEqual([]);
+        expect(events('obligation_woken')).toMatchObject([
+          { data: { kind: 'next_step', responsible: null } },
+        ]);
+        // The refinement ran again by itself: the card left the backlog and `refine` is off.
+        const task = h.domain.tasks.get('AR', key);
+        expect(task.stageId).not.toBe('backlog');
+        expect(task.labels).not.toContain('refine');
+        // The system sends no reminder to a member: the ladder goes on from the pm.
+        expect(reminders(key)).toHaveLength(0);
+      });
+
+      it('kicks the automatic advance of a step card whose next gate is met', async () => {
+        await harness();
+        const key = await create();
+        await h.domain.tasks.moveToStage('AR', key, 'code_review', OWNER_ACTOR);
+        await flush();
+        await stopSessions();
+        // The end of the session has its automatic look at the card; the labels come after it, as if it missed them.
+        await flush();
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { labels: ['code-review-ok', 'merge-ok'] });
+        await sweep();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        expect(events('obligation_woken')).toHaveLength(1);
+        expect(h.domain.tasks.get('AR', key).stageId).toBe('merge');
+        expect(reminders(key)).toHaveLength(0);
       });
     });
   });

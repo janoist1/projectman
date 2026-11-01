@@ -24,6 +24,7 @@ import type {
   Task,
   TaskWait,
 } from '@projectman/shared';
+import { getLocale } from '@projectman/templates';
 import { describeTaskWait } from '../../agent-text';
 import type { Repositories } from '../../db';
 import type {
@@ -38,6 +39,8 @@ import type {
 export interface ProjectView {
   config: ProjectConfig;
   tasks: ReadonlyMap<string, Task>;
+  /** The open cards that have parts, closed ones too (collecting cards): their step is their parts'. */
+  collectors: ReadonlySet<string>;
   waits: ReadonlyMap<string, TaskWait | null>;
   /** The open inbox items of each card (the tracking's own todos left out), as the waits read them. */
   openItems: ReadonlyMap<string, readonly InboxItem[]>;
@@ -613,6 +616,8 @@ function nextStepSource(deps: SourceDeps): ObligationSource {
       const found: DerivedObligation[] = [];
       for (const task of project.tasks.values()) {
         if (covered.has(task.key)) continue;
+        // A collecting card has no step of its own: its parts carry it, and it closes with them (PM-1234).
+        if (project.collectors.has(task.key)) continue;
         const step = nextStepOf(project, task);
         if (!step) continue;
         // An imported card stands in its stage since its import: it was not handed over (as for the review step).
@@ -655,12 +660,18 @@ function nextStepSource(deps: SourceDeps): ObligationSource {
         `${followUp(row, minutes, project)}${askHuman}`
       );
     },
+    // The owners read this one: it comes in the project's language (PM-1234).
     todo: (row, _minutes, waited, project) => {
-      const where = `${row.taskKey}, stage ${stageIdOf(row)}`;
-      const expected = `${row.taskKey} moves on, or the member who can take its next step is named`;
-      if (row.responsible !== null)
-        return todoOf(row, waited, `carried out the next step of ${row.taskKey}`, where, expected);
-      const what = `Nobody carried out the next step of ${row.taskKey} for ${ago(waited)}. ${waitedFor(row, project)}`;
+      const text = getLocale(project.config.project.language).nextStepTodo;
+      const key = row.taskKey;
+      const stage = stageOf(project.config, stageIdOf(row))?.name ?? stageIdOf(row);
+      const where = text.where({ key, stage });
+      const expected = text.expected({ key });
+      const wait = project.waits.get(key);
+      const what =
+        row.responsible !== null
+          ? text.member({ member: row.responsible, key, ago: text.ago(waited), wokenAt: row.wokenAt })
+          : text.nobody({ key, ago: text.ago(waited), waiting: wait ? text.waiting[wait.reason] : '' });
       return { question: what, todo: { what, where, expected } };
     },
   };

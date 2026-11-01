@@ -1565,7 +1565,10 @@ a new wait reason or state that falls into `unowned` fails the test until someon
 `next_step` obligation kind (`nextStepSource`, the last of `obligationSources`) opens a row on every `member`,
 `unowned` and `system` card that no other kind covers (`covered`: the six older sources keep their finer rules and
 texts); its responsible is the member, the project manager (`unowned`) or nobody (`system`). It climbs the same
-ladder. For the system steps that run only on an event (refinement, automatic move on) the `wake` rung is a kick
+ladder (PM-1234): a collecting card (one with any part, closed ones too: `ProjectView.collectors`) has no row, its
+parts carry its step and it closes with them; the owners' todo is worded in the project's language
+(`nextStepTodo` of the template locales); and a row whose `obligation_overdue` signal the project manager
+dismissed ends (`cancelled`) instead of going to a person, and the same stay does not open it again. For the system steps that run only on an event (refinement, automatic move on) the `wake` rung is a kick
 (`kicks`/`kick`: `Refinement.changed`, `AutoAdvance.check`) instead of a reminder. So a card that no event
 carried on any more (a restart, another path, a new state) is still picked up within the ladder's time. The
 following event detectors stay as fast paths and need no change: `AutoAdvance`, `Refinement`, `notifyHandOn`, the

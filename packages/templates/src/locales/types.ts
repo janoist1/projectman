@@ -1,4 +1,4 @@
-import type { BuiltInRoleId, DutyId, SystemFeedbackTextLabels } from '@projectman/shared';
+import type { BuiltInRoleId, DutyId, SystemFeedbackTextLabels, TaskWaitReason } from '@projectman/shared';
 
 /** Board column keys used by the factory templates (also used as column ids). */
 export type ColumnKey =
@@ -155,6 +155,20 @@ export interface FixLimitItemText {
   footer: { integrator: string; owner: string };
 }
 
+/** The words of the `next_step` obligation's todo (PM-1234); the sentences are whole, so each language keeps its grammar. */
+interface NextStepTodoText {
+  /** A span of minutes as it stands in the sentences, e.g. "5 minutes". */
+  ago: (minutes: number) => string;
+  /** Why the card stands still, by the reason of its wait: the part after the label of `nobody`. */
+  waiting: Record<TaskWaitReason, string>;
+  /** No member can be named: the question (and the todo's `what`). */
+  nobody: (input: { key: string; ago: string; waiting: string }) => string;
+  /** A member did not carry the step out despite the reminder: the question (and the todo's `what`). */
+  member: (input: { member: string; key: string; ago: string; wokenAt: string | null }) => string;
+  where: (input: { key: string; stage: string }) => string;
+  expected: (input: { key: string }) => string;
+}
+
 /**
  * Default display names a template writes into a new project's configuration (after that
  * they are ordinary configuration data the team may rename), and the texts of the built-in
@@ -215,6 +229,8 @@ export interface TemplateLocale {
   webPush: WebPushText;
   /** The fix round limit decision item the server makes (PM-714). */
   fixLimitItem: FixLimitItemText;
+  /** The todo the owners get when nobody carried out the next step of a card (PM-1234). */
+  nextStepTodo: NextStepTodoText;
   /** What the owner's todo says when the Operator could not finish a queue item (PM-885). */
   /** The headings of a system feedback sent as a card or an issue (PM-472). */
   systemFeedback: SystemFeedbackTextLabels;

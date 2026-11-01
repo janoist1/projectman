@@ -1,8 +1,9 @@
 import { hashKey } from '@tanstack/react-query';
-import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query';
 import type {
   BoardView,
   ChatItem,
+  ConfigHistoryView,
   EngineStatusResponse,
   InboxView,
   Me,
@@ -139,6 +140,19 @@ export function writeTaskDetail(client: QueryClient, key: string, detail: TaskDe
 export function invalidateAttachments(client: QueryClient, key: string, taskKey: string): void {
   void client.invalidateQueries({ queryKey: queryKeys.attachments(key, taskKey) });
   void client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) });
+}
+
+/**
+ * A new save starts the settings history again from its first page: pages loaded before it are not
+ * joined to a history that has moved (PM-308). The rows already shown stay until the answer comes.
+ */
+export function refreshConfigHistory(client: QueryClient, key: string): void {
+  client.setQueryData<InfiniteData<ConfigHistoryView, number>>(queryKeys.configHistory(key), (data) =>
+    data && data.pages.length > 1
+      ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) }
+      : data,
+  );
+  invalidateOnce(client, queryKeys.configHistory(key));
 }
 
 /**
@@ -374,6 +388,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       invalidate(queryKeys.me);
       invalidate(queryKeys.roles(key));
       invalidate(queryKeys.config(key));
+      refreshConfigHistory(client, key);
       invalidate(queryKeys.board(key));
       invalidate(queryKeys.members(key));
       invalidate(queryKeys.projects);

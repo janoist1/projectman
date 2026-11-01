@@ -927,7 +927,10 @@ The programs, their files and facades, the pinned version and the rules are in
 
 - `contracts/` — interfaces between modules and server/engine ports.
 - `db/` — SQLite schema, migrations and repositories.
-- `config/` — customization YAML, validation, migrations and git history.
+- `config/` — customization YAML, validation, migrations and git history. The settings history
+  (`GET /api/projects/:key/config/history`, PM-308) derives each row's change list from two consecutive saved
+  versions (`packages/shared/src/config/diff.ts`), reads a page of versions in one `git cat-file --batch`
+  (`ConfigStore.loadVersions`) and keeps the parsed versions in a per-process cache of 200 in `ProjectService`.
 - `logging/` — structured logs and rotating server and engine log files.
 - `instance/` — installation identity and activation state.
 - `kernel/` — shared helpers, Effect execution, periodic sweeps and merge locks.

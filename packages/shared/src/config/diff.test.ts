@@ -153,7 +153,11 @@ describe('configDiff', () => {
     ['repos', (c) => (c.project.repos[0]!.requireMerge = true), 'repos'],
     ['members', (c) => c.team.members.pop(), 'team'],
     ['card mover', (c) => (c.team.cardMover = { kind: 'project_manager' }), 'team'],
-    ['roles', (c) => (c.team.roles = [{ id: 'x', name: 'X', summary: 'Y', holders: 'both' }]), 'duties'],
+    [
+      'roles',
+      (c) => (c.team.roles = [{ id: 'x', name: 'X', summary: 'Y', holders: 'both' }] as never),
+      'duties',
+    ],
     ['four eyes', (c) => (c.team.releaseFourEyes = true), 'duties'],
     ['limits', (c) => (c.team.limits.maxFixRounds = 5), 'limits'],
   ])('puts a change of %s under its section', (_name, change, section) => {

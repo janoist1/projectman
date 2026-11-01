@@ -94,7 +94,7 @@ describe('settings section editors', () => {
     });
     await goTo('history');
     const history = await screen.findByRole('region', { name: t('settings.sections.history') });
-    expect(await within(history).findByText('Update project')).toBeTruthy();
+    expect(await within(history).findByText(t('settings.history.summary.sectionProject'))).toBeTruthy();
   });
 
   it('offers the language and the time zone as choices, keeping a value the project already has', async () => {

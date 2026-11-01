@@ -1344,26 +1344,18 @@ describe('the Operator in the history of the settings', () => {
   it('shows the Operator as the author, who approved and the request it came from', async () => {
     const project = mockProject();
     const quote = 'A szövegíró legyen Sonnet, mert a jelenlegi túl lassú';
-    project.render(
-      <HistorySection
-        current="abc1234"
-        canRevert
-        history={[
-          {
-            version: 'abc1234',
-            message: 'Szövegíró: Sonnet',
-            author: 'Operátor',
-            at: '2026-10-10T09:00:00.000Z',
-            operator: 'operator',
-            request: quote,
-            approvedBy: 'owner',
-          },
-          { version: 'def5678', message: 'Régi mentés', author: 'Te', at: '2026-10-09T09:00:00.000Z' },
-        ]}
-      />,
-    );
+    project.backend.history.unshift({
+      version: 'abc1234',
+      message: 'Szövegíró: Sonnet',
+      author: 'Operátor',
+      at: '2026-10-10T09:00:00.000Z',
+      operator: 'operator',
+      request: quote,
+      approvedBy: 'owner',
+    });
+    project.render(<HistorySection current="abc1234" canRevert />);
     // The Operator is gone from the team (decision 66): the old entry still names the handle it carries.
-    expect(await screen.findByText(/^operator ·/)).toBeTruthy();
+    expect(await screen.findByText('operator')).toBeTruthy();
     expect(screen.getByText(t('settings.history.approvedBy', { name: t('common.you') }))).toBeTruthy();
     const request = screen.getByText(t('settings.history.request', { quote }));
     expect(request.getAttribute('title')).toBe(quote);

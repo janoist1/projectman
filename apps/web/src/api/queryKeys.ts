@@ -115,6 +115,8 @@ export const queryKeys = {
   members: (key: string) => ['project', key, 'members'] as const,
   roles: (key: string) => ['project', key, 'roles'] as const,
   config: (key: string) => ['project', key, 'config'] as const,
+  /** The settings history, one infinite query: the first page of 5, then pages of 50. */
+  configHistory: (key: string) => ['project', key, 'config-history'] as const,
   /** The instance's pause (PM-220): not under a project, it covers all of them. */
   instancePause: ['instancePause'] as const,
 };

@@ -65,6 +65,7 @@ import {
   RolesView,
   BoardView,
   CheckOutageResponse,
+  ConfigHistoryView,
   ConfigView,
   InboxView,
   InstancePauseView,
@@ -551,6 +552,11 @@ export const api = {
   answerHostRequest: (id: string, body: AnswerHostRequestRequest) =>
     apiRequest(routes.answerHostRequest(id), { method: 'POST', body, schema: HostRequestView }),
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
+  configHistory: (key: string, page: { limit: number; offset: number }) =>
+    apiRequest(
+      `${routes.configHistory(key)}?${new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) })}`,
+      { schema: ConfigHistoryView },
+    ),
   patchConfig: (key: string, body: PatchConfigRequest) =>
     apiRequest(routes.patchConfig(key), { method: 'PATCH', body, schema: ConfigView }),
   revertConfig: (key: string, body: RevertConfigRequest) =>

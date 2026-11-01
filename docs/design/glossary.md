@@ -39,36 +39,36 @@ English word, and the same thing is never called two names.
 
 ## Board and card
 
-| Hungarian                 | English                          | Note                                                           |
-| ------------------------- | -------------------------------- | -------------------------------------------------------------- |
-| kártya, feladat           | card                             | The UI never says "task". "Új feladat" → "New card".           |
-| alkártya, alfeladat, rész | sub-card                         |                                                                |
-| tábla; Folyamat (menu)    | board; Board                     |                                                                |
-| oszlop                    | column                           |                                                                |
-| lépés                     | stage                            | Configured stage names are not translated.                     |
-| lépésfajta                | stage kind                       |                                                                |
-| téma                      | theme                            |                                                                |
-| térkép                    | map                              |                                                                |
-| modul                     | module                           |                                                                |
-| címke                     | label                            | Hungarian "tag" is **member**, never "tag".                    |
-| előfeltétel               | prerequisite                     | "{count} vár rá" → "{count\|# card waits\|# cards wait} on it" |
-| kapcsolat                 | relation                         |                                                                |
-| hivatkozás                | link                             |                                                                |
-| csatolmány                | attachment                       |                                                                |
-| elfogadási pont           | acceptance item                  | lezárva / megerősítve → closed / confirmed                     |
-| összetettség, pont        | complexity, points               |                                                                |
-| prioritás                 | priority                         |                                                                |
-| Kidolgozás                | refinement                       | "Kidolgozásra vár" → "Waiting for refinement"                  |
-| indítható; Indulásra vár  | ready to start; Waiting to start |                                                                |
-| elvet / lezár / újranyit  | cancel / close / reopen          | "cancelled card"                                               |
-| beolvasztás               | merge                            |                                                                |
-| ág                        | branch                           |                                                                |
-| munkafa                   | worktree                         |                                                                |
-| ütközés                   | conflict                         |                                                                |
-| ellenőrzés (merge)        | check                            |                                                                |
-| teljes teszt              | full test                        |                                                                |
-| keret (AI-keret)          | plan                             | "{provider} plan", "AI plan"; keretmutató → plan meter         |
-| gyorsítótár               | cache                            |                                                                |
+| Hungarian                | English                          | Note                                                           |
+| ------------------------ | -------------------------------- | -------------------------------------------------------------- |
+| kártya                   | card                             | The UI never says "task". "Új kártya" → "New card".            |
+| alkártya                 | sub-card                         |                                                                |
+| tábla; Folyamat (menu)   | board; Board                     |                                                                |
+| oszlop                   | column                           |                                                                |
+| lépés                    | stage                            | Configured stage names are not translated.                     |
+| lépésfajta               | stage kind                       |                                                                |
+| téma                     | theme                            |                                                                |
+| térkép                   | map                              |                                                                |
+| modul                    | module                           |                                                                |
+| címke                    | label                            | Hungarian "tag" is **member**, never "tag".                    |
+| előfeltétel              | prerequisite                     | "{count} vár rá" → "{count\|# card waits\|# cards wait} on it" |
+| kapcsolat                | relation                         |                                                                |
+| hivatkozás               | link                             |                                                                |
+| csatolmány               | attachment                       |                                                                |
+| elfogadási feltétel      | acceptance item                  | lezárva / megerősítve → closed / confirmed                     |
+| komplexitás, pont        | complexity, points               |                                                                |
+| prioritás                | priority                         |                                                                |
+| Kidolgozás               | refinement                       | "Kidolgozásra vár" → "Waiting for refinement"                  |
+| indítható; Indulásra vár | ready to start; Waiting to start |                                                                |
+| elvet / lezár / újranyit | cancel / close / reopen          | "cancelled card"                                               |
+| beolvasztás              | merge                            |                                                                |
+| ág                       | branch                           |                                                                |
+| munkafa                  | worktree                         |                                                                |
+| ütközés                  | conflict                         |                                                                |
+| ellenőrzés (merge)       | check                            |                                                                |
+| teljes teszt             | full test                        |                                                                |
+| keret (AI-keret)         | plan                             | "{provider} plan", "AI plan"; keretmutató → plan meter         |
+| gyorsítótár              | cache                            |                                                                |
 
 ## Timeline, sessions, how we work
 
@@ -202,7 +202,7 @@ Values of the shell enums:
 | Külső teendőt adhat (MCP)                 | Can give owners to-dos (MCP)                                                                                                                                                                                                            |                                                                                      |
 | feladatkör-nevek                          | Prioritisation, Requirements analysis, Card breakdown, Triage, Scheduling, …                                                                                                                                                            | `dutyNames`; the UI never says "task"                                                |
 | Üzenetek; Új üzenet; Címzettek            | Messages; New message; To                                                                                                                                                                                                               |                                                                                      |
-| Kapcsolódó feladat                        | Related card                                                                                                                                                                                                                            |                                                                                      |
+| Kapcsolódó kártya                         | Related card                                                                                                                                                                                                                            |                                                                                      |
 | Olvasatlan; Elolvastam                    | Unread; Mark as read                                                                                                                                                                                                                    |                                                                                      |
 | Kézbesítésre vár; Munkamenetbe kézbesítve | Waiting to be delivered; Delivered to the session                                                                                                                                                                                       |                                                                                      |
 | E-mailben érkezett                        | Came by email                                                                                                                                                                                                                           |                                                                                      |

@@ -261,7 +261,7 @@ describe('phone board', () => {
     await screen.findByRole('group', { name: t('board.filtersLabel') });
     // The page title stays for screen readers; the subtitle is gone.
     expect(screen.getByRole('heading', { level: 1, name: t('board.title') })).toBeTruthy();
-    expect(screen.queryByText(/feladat · \d+ folyamatban$/)).toBeNull();
+    expect(screen.queryByText(/kártya · \d+ folyamatban$/)).toBeNull();
   });
 
   it('shows the task key on the card', async () => {

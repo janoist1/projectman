@@ -7273,6 +7273,7 @@ export const en = {
       noComparison: 'There is no detailed comparison for this old version.',
       originalMessage: 'Original description',
       version: 'Version',
+      versionShort: 'Version: {version}',
       requestLabel: 'Request',
       undoneVersion: 'Undone version',
       restoreTarget: 'Restored to',

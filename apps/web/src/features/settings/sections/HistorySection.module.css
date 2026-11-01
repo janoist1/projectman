@@ -6,12 +6,21 @@
   flex-direction: column;
 }
 
+/* Avatar, text and actions on one line; the opened details sit under the text. */
 .row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'avatar text actions'
+    '. box .';
+  align-items: start;
+  column-gap: 10px;
   padding: 10px 0;
   border-top: 1px solid var(--c-line-soft);
+}
+
+.row > :first-child {
+  grid-area: avatar;
 }
 
 .row:first-child {
@@ -22,7 +31,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex-grow: 1;
+  grid-area: text;
   min-width: 0;
 }
 
@@ -56,13 +65,18 @@
 }
 
 .actions {
+  grid-area: actions;
   display: flex;
   align-items: center;
-  flex-shrink: 0;
   gap: 4px;
 }
 
+.menu {
+  display: inline-flex;
+}
+
 .details {
+  grid-area: box;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -156,17 +170,26 @@
 }
 
 @media (max-width: 767px) {
-  /* The actions drop under the text, so the text and the details keep the whole width. */
+  /* The menu stays top right; "Részletek" drops under the author line, in line with the text. */
   .row {
-    flex-wrap: wrap;
-  }
-
-  .text {
-    flex: 1 1 calc(100% - 40px);
+    grid-template-areas:
+      'avatar text menu'
+      '. button button'
+      '. box box';
   }
 
   .actions {
-    margin-left: 38px;
+    display: contents;
+  }
+
+  .menu {
+    grid-area: menu;
+  }
+
+  .detailsButton {
+    grid-area: button;
+    justify-self: start;
+    margin-left: -8px;
   }
 
   .facts {

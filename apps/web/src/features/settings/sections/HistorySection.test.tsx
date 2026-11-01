@@ -123,4 +123,33 @@ describe('the settings history', () => {
     );
     expect((await screen.findAllByText(t('settings.history.summary.restored'))).length).toBe(1);
   });
+
+  it('starts the confirmation on Cancel and returns the focus to the row menu, or the heading after a restore', async () => {
+    const p = mockProject();
+    rename(p, 2);
+    show(p);
+    await screen.findAllByText(projectSummary());
+    const openDialog = async () => {
+      const menu = screen.getAllByRole('button', {
+        name: new RegExp(`^${t('settings.history.rowActions', { summary: '' })}`),
+      })[0]!;
+      fireEvent.click(menu);
+      fireEvent.click(screen.getByRole('button', { name: t('settings.history.restoreAction') }));
+      const dialog = await screen.findByRole('dialog', { name: t('settings.history.revertTitle') });
+      return { menu, dialog };
+    };
+
+    const first = await openDialog();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(first.dialog).getByRole('button', { name: t('common.cancel') }),
+      ),
+    );
+    fireEvent.click(within(first.dialog).getByRole('button', { name: t('common.cancel') }));
+    await waitFor(() => expect(document.activeElement).toBe(first.menu));
+
+    const second = await openDialog();
+    fireEvent.click(within(second.dialog).getByRole('button', { name: t('settings.history.revert') }));
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('settings-history')));
+  });
 });

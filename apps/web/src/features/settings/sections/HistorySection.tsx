@@ -61,6 +61,7 @@ export function HistorySection({ current, canRevert }: { current: string; canRev
   const [refreshed, setRefreshed] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const focusRow = useRef<number | null>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
   const ownRevert = useRef(false);
   const lastCurrent = useRef(current);
 
@@ -105,14 +106,21 @@ export function HistorySection({ current, canRevert }: { current: string; canRev
     setTarget(null);
   };
 
+  // The row menu closes before the dialog opens, so the dialog is told where the focus returns.
+  const askRestore = (entry: ConfigHistoryEntry, index: number) => {
+    returnFocus.current =
+      listRef.current?.querySelector<HTMLElement>(`[data-row="${index}"] [data-more] button`) ?? null;
+    setTarget(entry);
+  };
+
   const restore = () => {
     if (!target) return;
     ownRevert.current = true;
     revert.mutate(target.version, {
       onSuccess: () => {
         toast.show(t('settings.history.reverted'));
+        returnFocus.current = document.getElementById('settings-history');
         setTarget(null);
-        document.getElementById('settings-history')?.focus();
       },
       onError: () => {
         ownRevert.current = false;
@@ -165,7 +173,7 @@ export function HistorySection({ current, canRevert }: { current: string; canRev
               myHandle={myHandle}
               projectKey={key}
               onToggle={() => toggle(entry.version)}
-              onRestore={() => setTarget(entry)}
+              onRestore={() => askRestore(entry, index)}
             />
           ))}
         </ol>
@@ -217,10 +225,11 @@ export function HistorySection({ current, canRevert }: { current: string; canRev
         title={t('settings.history.revertTitle')}
         description={t('settings.history.revertBody')}
         size="sm"
+        returnFocusRef={returnFocus}
         error={revert.isError ? <ErrorBanner>{errorMessage(revert.error)}</ErrorBanner> : null}
         footer={
           <>
-            <Button variant="secondary" size="md" onClick={closeDialog}>
+            <Button variant="secondary" size="md" autoFocus onClick={closeDialog}>
               {t('common.cancel')}
             </Button>
             <Button variant="primary" size="md" icon="undo" disabled={revert.isPending} onClick={restore}>
@@ -234,7 +243,7 @@ export function HistorySection({ current, canRevert }: { current: string; canRev
             <span className={styles.summary}>{historySummary(target)}</span>
             <span className={shared.muted}>
               {historyAuthorOf(target, members, myHandle)} · {formatStamp(target.at)} ·{' '}
-              <code>{target.version.slice(0, 7)}</code>
+              {t('settings.history.versionShort', { version: target.version.slice(0, 7) })}
             </span>
           </div>
         ) : null}
@@ -309,6 +318,7 @@ function HistoryRow({
               {stamp}
             </span>
           )}
+          {isCurrent ? <Chip tone="ok">{t('settings.history.current')}</Chip> : null}
           {entry.approvedBy ? (
             <Chip tone="ok">
               {t('settings.history.approvedBy', { name: nameOf(entry.approvedBy, members, myHandle) })}
@@ -320,13 +330,12 @@ function HistoryRow({
             {t('settings.history.request', { quote: entry.request })}
           </span>
         ) : null}
-        {open ? <HistoryDetails entry={entry} id={detailsId} /> : null}
       </div>
       <div className={styles.actions}>
-        {isCurrent ? <Chip tone="ok">{t('settings.history.current')}</Chip> : null}
         <Button
           variant="ghost"
           size="sm"
+          className={styles.detailsButton}
           data-details=""
           aria-expanded={open}
           aria-controls={open ? detailsId : undefined}
@@ -340,23 +349,26 @@ function HistoryRow({
           {open ? t('settings.history.hideDetails') : t('settings.history.details')}
         </Button>
         {canRestore && !isCurrent ? (
-          <MoreMenu label={t('settings.history.rowActions', { summary })}>
-            {(close) => (
-              <Button
-                variant="ghost"
-                size="md"
-                icon="undo"
-                onClick={() => {
-                  close();
-                  onRestore();
-                }}
-              >
-                {t('settings.history.restoreAction')}
-              </Button>
-            )}
-          </MoreMenu>
+          <span className={styles.menu} data-more="">
+            <MoreMenu label={t('settings.history.rowActions', { summary })}>
+              {(close) => (
+                <Button
+                  variant="ghost"
+                  size="md"
+                  icon="undo"
+                  onClick={() => {
+                    close();
+                    onRestore();
+                  }}
+                >
+                  {t('settings.history.restoreAction')}
+                </Button>
+              )}
+            </MoreMenu>
+          </span>
         ) : null}
       </div>
+      {open ? <HistoryDetails entry={entry} id={detailsId} /> : null}
     </li>
   );
 }

@@ -7271,6 +7271,7 @@ export const hu = {
       noComparison: 'Ehhez a régi változathoz nem érhető el részletes összevetés.',
       originalMessage: 'Eredeti leírás',
       version: 'Változat',
+      versionShort: 'Változat: {version}',
       requestLabel: 'Kérés',
       undoneVersion: 'Visszavont változat',
       restoreTarget: 'Visszaállítás célja',

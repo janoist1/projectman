@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigHistoryView, routes } from '@projectman/shared';
 import type { ConfigView } from '@projectman/shared';
-import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
+import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 
 describe('configuration history page', () => {
@@ -49,20 +49,31 @@ describe('configuration history page', () => {
     expect(entries[0]).toMatchObject({ message: 'Limit', version: expect.any(String) });
   });
 
-  it('recognises a revert, and an undo of the change before', async () => {
+  it('recognises a revert from its message, with no changes of its own to show', async () => {
     const created = (await patch({ message: 'Rename', project: { name: 'Acme webshop' } })).history[1]!;
-    const renamed = (await patch({ message: 'Limit', limits: { maxConcurrentAi: 2 } })).history[1]!;
-    await h.app.inject({
+    await patch({ message: 'Limit', limits: { maxConcurrentAi: 2 } });
+    const reverted = await h.app.inject({
       method: 'POST',
       url: routes.revertConfig('AR'),
       headers: { cookie },
       payload: { version: created.version },
     });
-    await patch({ message: 'Limit again', limits: { maxConcurrentAi: 2 } });
+    expect(reverted.statusCode).toBe(200);
     const { entries } = await read();
-    expect(entries[1]!.restores).toMatchObject({ kind: 'revert', version: created.version.slice(0, 12) });
-    expect(entries[0]!.restores).toBeUndefined();
-    expect(renamed.version).not.toBe(created.version);
+    expect(entries[0]!.restores).toMatchObject({ kind: 'revert', version: created.version.slice(0, 12) });
+    expect(entries[1]!.restores).toBeUndefined();
+  });
+
+  it('recognises an undo: a save that brings back the configuration of two versions before', async () => {
+    await patch({ message: 'Rename', project: { name: 'Acme webshop' } });
+    await patch({ message: 'Rename back', project: { name: 'acme' } });
+    const { entries } = await read();
+    expect(entries[0]!.restores).toEqual({
+      kind: 'undo',
+      version: entries[1]!.version,
+      changes: [{ kind: 'section_changed', section: 'project' }],
+    });
+    expect(entries[1]!.restores).toBeUndefined();
   });
 
   it('pages with limit and offset', async () => {
@@ -81,8 +92,12 @@ describe('configuration history page', () => {
     expect(response.statusCode).toBe(400);
   });
 
-  it('is not for who is not a member of the project', async () => {
-    const outsider = await h.app.inject({ method: 'GET', url: routes.configHistory('AR') });
-    expect(outsider.statusCode).toBe(401);
+  it('turns away the signed-out, and a signed-in person outside the project', async () => {
+    const signedOut = await h.app.inject({ method: 'GET', url: routes.configHistory('AR') });
+    expect(signedOut.statusCode).toBe(401);
+    const stranger = await addHumanAndLogin(h.app, { handle: 'sam', projectKey: null });
+    const outsider = await page('', stranger);
+    expect(outsider.statusCode).toBe(403);
+    expect(outsider.json<{ error: { code: string } }>().error.code).toBe('not_a_member');
   });
 });

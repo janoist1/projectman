@@ -668,9 +668,9 @@ function nextStepSource(deps: SourceDeps): ObligationSource {
 
 /**
  * The open steps tracked by the common obligation clock. `next_step` is last: it reads which cards the
- * other kinds cover, so a source added after it (the Senior wait) goes before it (`ObligationsService`).
+ * other kinds cover, so the sources built elsewhere (`others`, the Senior wait) go before it.
  */
-export function obligationSources(deps: SourceDeps): ObligationSource[] {
+export function obligationSources(deps: SourceDeps, others: ObligationSource[] = []): ObligationSource[] {
   return [
     mergeSource(deps),
     refinementSource(deps),
@@ -678,6 +678,7 @@ export function obligationSources(deps: SourceDeps): ObligationSource[] {
     workSource(deps),
     fixLimitSource(deps),
     startSource(deps),
+    ...others,
     nextStepSource(deps),
   ];
 }

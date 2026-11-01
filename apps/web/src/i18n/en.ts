@@ -3587,6 +3587,8 @@ export const en = {
         'The Operator passed the decision on the fix round limit to the owner.{note}',
       obligation_woken:
         'Reminder sent to {responsible}: the {step} wasn’t done within {minutes|# minute|# minutes}.',
+      obligation_kicked:
+        'The system ran the automatic step of the {step} again: nothing happened within {minutes|# minute|# minutes}.',
       obligation_pm_told:
         'The project manager was told: {responsible} did not do the {step} even after the reminder (limit: {minutes|# minute|# minutes}).',
       member_queue_item_closed: 'The queued start closed: its reason ended or the start can’t be done.',

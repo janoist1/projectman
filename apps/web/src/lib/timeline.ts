@@ -1005,7 +1005,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         t(
           event.type === 'obligation_handed_over' && str(d.recipientRefusal)
             ? 'timeline.events.obligation_handed_over_refused'
-            : `timeline.events.${event.type}`,
+            : event.type === 'obligation_woken' && str(d.responsible) === ''
+              ? 'timeline.events.obligation_kicked'
+              : `timeline.events.${event.type}`,
           {
             responsible: nameOf(str(d.responsible), ctx.members, ctx.myHandle),
             step: kind.success

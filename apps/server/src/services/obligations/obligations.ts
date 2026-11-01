@@ -129,48 +129,45 @@ export class ObligationsService {
     this.memberQueue = deps.memberQueue;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
-    const sources = obligationSources({
-      sessions: deps.sessions,
-      refinement: deps.refinement,
-      fixLimit: deps.fixLimit,
-      startOffers: deps.startOffers,
-      kicks: deps.kicks,
-      fixLimits: deps.ctx.repos.taskFixLimits,
-      decidingAtDesk: (projectKey, taskKey, member) =>
-        deps.ctx.repos.memberQueue
-          .listOpen(projectKey, member)
-          .some(
-            (i) =>
-              i.kind === 'fix_limit' &&
-              i.taskKey === taskKey &&
-              i.state === 'processing' &&
-              !!i.sessionId &&
-              deps.sessions.atWork(i.sessionId),
-          ),
-      roundsOf: (projectKey, taskKey) => deps.tasks.find(projectKey, taskKey)?.fixLimit?.rounds ?? 0,
-      mergeState: (mergeId) => deps.ctx.repos.taskMerges.get(mergeId)?.state ?? null,
-      labelsAddedSince: (projectKey, taskKey, labels, since) =>
-        deps.ctx.repos.timeline
-          .listOfTypes(projectKey, taskKey, ['task_labels_changed'], 200)
-          .some((event) => {
-            const data = event.data as Partial<TimelineEventData['task_labels_changed']>;
-            return (
-              event.createdAt >= since &&
-              Array.isArray(data.added) &&
-              data.added.some((label) => labels.includes(label))
-            );
-          }),
-      importedEntry: (projectKey, taskKey, since) =>
-        deps.ctx.repos.timeline
-          .listOfTypes(projectKey, taskKey, ['task_created'], 1)
-          .some((event) => event.createdAt === since && event.data.imported === true),
-    });
-    // The `next_step` source is last (it reads what the others cover), so the Senior wait goes before it.
-    this.sources = [
-      ...sources.slice(0, -1),
-      seniorWaitSource({ ctx: deps.ctx, inbox: deps.inbox, timeline: deps.timeline, tasks: deps.tasks }),
-      ...sources.slice(-1),
-    ];
+    this.sources = obligationSources(
+      {
+        sessions: deps.sessions,
+        refinement: deps.refinement,
+        fixLimit: deps.fixLimit,
+        startOffers: deps.startOffers,
+        kicks: deps.kicks,
+        fixLimits: deps.ctx.repos.taskFixLimits,
+        decidingAtDesk: (projectKey, taskKey, member) =>
+          deps.ctx.repos.memberQueue
+            .listOpen(projectKey, member)
+            .some(
+              (i) =>
+                i.kind === 'fix_limit' &&
+                i.taskKey === taskKey &&
+                i.state === 'processing' &&
+                !!i.sessionId &&
+                deps.sessions.atWork(i.sessionId),
+            ),
+        roundsOf: (projectKey, taskKey) => deps.tasks.find(projectKey, taskKey)?.fixLimit?.rounds ?? 0,
+        mergeState: (mergeId) => deps.ctx.repos.taskMerges.get(mergeId)?.state ?? null,
+        labelsAddedSince: (projectKey, taskKey, labels, since) =>
+          deps.ctx.repos.timeline
+            .listOfTypes(projectKey, taskKey, ['task_labels_changed'], 200)
+            .some((event) => {
+              const data = event.data as Partial<TimelineEventData['task_labels_changed']>;
+              return (
+                event.createdAt >= since &&
+                Array.isArray(data.added) &&
+                data.added.some((label) => labels.includes(label))
+              );
+            }),
+        importedEntry: (projectKey, taskKey, since) =>
+          deps.ctx.repos.timeline
+            .listOfTypes(projectKey, taskKey, ['task_created'], 1)
+            .some((event) => event.createdAt === since && event.data.imported === true),
+      },
+      [seniorWaitSource({ ctx: deps.ctx, inbox: deps.inbox, timeline: deps.timeline, tasks: deps.tasks })],
+    );
   }
 
   /** Where the second rung goes: the project manager's operator signal (wired by the assembly). */

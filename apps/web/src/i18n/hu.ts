@@ -5932,6 +5932,8 @@ export const hu = {
         'Az Operátor a javítási körök határáról szóló döntést a tulajdonosnak adta tovább.{note}',
       obligation_woken:
         'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
+      obligation_kicked:
+        'A rendszer újrafuttatta a(z) {step} automatikus lépését: {minutes} perc alatt nem történt semmi.',
       obligation_pm_told:
         'A projektmenedzser jelzést kapott: {responsible} a(z) {step} az emlékeztető után sem végezte el ({minutes} perces lépések).',
       member_queue_item_closed:

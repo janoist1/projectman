@@ -833,6 +833,31 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         expect(reminders(key)).toHaveLength(0);
       });
 
+      it('neither wakes nor kicks a card in the ready queue that the start has not taken', async () => {
+        // The pm is on leave: nobody takes the start offer, so the card stands as the system's step to start.
+        await harness((c) => {
+          refinery(c);
+          const pm = c.team.members.find((m) => m.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = true;
+        });
+        const key = await create();
+        await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
+        await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
+        await flush();
+        await stopSessions();
+        await sweep();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        // No wake rung and no kick: the admission cycle repeats the start itself; the first rung left is the hand-over.
+        expect(events('obligation_woken')).toEqual([]);
+        expect(reminders(key)).toHaveLength(0);
+        minutes(HAND_OVER);
+        await sweep();
+        expect(events('obligation_woken')).toEqual([]);
+        expect(questionPayloadOf(todos()[0]!)).toMatchObject({ obligation: { kind: 'next_step' } });
+      });
+
       it('kicks the automatic advance of a step card whose next gate is met', async () => {
         await harness();
         const key = await create();
@@ -991,7 +1016,13 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
       // The review step does not open again; what the card still waits for is the `next_step` row's, not a new review.
       expect(review(key)).toEqual([]);
-      expect(reminders(key).filter((m) => m.source.type === 'obligation')).toHaveLength(1);
+      const sent = reminders(key).filter((m) => m.source.type === 'obligation');
+      expect(sent).toHaveLength(1);
+      const source = sent[0]!.source;
+      expect(source.type === 'obligation' && h.repos.obligations.get(source.id)).toMatchObject({
+        kind: 'next_step',
+        responsible: sent[0]!.member,
+      });
       expect(todos()).toHaveLength(0);
     });
 

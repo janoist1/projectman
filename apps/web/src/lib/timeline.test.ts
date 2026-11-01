@@ -360,6 +360,12 @@ describe('open-step reminders on the timeline (PM-806)', () => {
     );
   });
 
+  it('tells a kick of the system from a reminder when nobody is responsible (PM-1225)', () => {
+    expect(row('obligation_woken', { kind: 'next_step', responsible: null, minutes: 20 })).toBe(
+      t('timeline.events.obligation_kicked', { step: 'következő lépés', minutes: 20 }),
+    );
+  });
+
   it('calls a step kind this build does not know a step', () => {
     expect(row('obligation_woken', { kind: 'other', responsible: 'dev-1', minutes: 5 })).toContain('lépés');
   });

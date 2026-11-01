@@ -127,6 +127,8 @@ export * from './config/priority';
 export * from './config/communication';
 export * from './config/merger';
 export * from './config/task-wait';
+export * from './config/card-duty';
+export * from './config/card-state-space';
 
 export * from './domain/branch-name';
 export * from './domain/process-name';

@@ -1938,7 +1938,22 @@ describe('system prompt', () => {
         lessons: 'docs/LESSONS.md',
       };
       const pack = builder.build(
-        input({ project, handle: 'pm', workItem: { type: 'general' }, task: null, stage: null }),
+        input({
+          project,
+          handle: 'pm',
+          workItem: { type: 'general' },
+          task: null,
+          stage: null,
+          documents: [
+            {
+              slug: 'memorianaplo',
+              title: 'Memórianapló',
+              version: 'a'.repeat(40),
+              updatedAt: '2026-11-01T10:00:00.000Z',
+              updatedBy: { kind: 'ai', name: 'PM', handle: 'pm' },
+            },
+          ],
+        }),
       );
       await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
         '__snapshots__/project-manager-general.system-prompt.txt',
@@ -1947,7 +1962,8 @@ describe('system prompt', () => {
         '__snapshots__/project-manager-general.role-guide.txt',
       );
       // UTF-8 bytes, including the snapshot's final newline; baseline: 22,588 B / 12,295 B / no guide.
-      expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(13_942);
+      // The prompt cap includes the documents section with the memory log rule (PM-1228, ~1.3 KB).
+      expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(15_300);
       expect(Buffer.byteLength(`${roleOf(pack.appendSystemPrompt).trimEnd()}\n`)).toBeLessThan(7_000);
     });
 
@@ -5066,6 +5082,38 @@ describe('project documents (PM-149)', () => {
     expect(list).toContain('(doc-29)');
     expect(list).not.toContain('(doc-30)');
     expect(list).toContain('… and 2 more: list_documents shows them all.');
+  });
+
+  describe('memory log rule (PM-1228)', () => {
+    // The log sits after the thirty named documents, so the whole list is checked.
+    const withLog = (): DocumentSummary[] => [
+      ...documentsOf(31),
+      { ...documentsOf(1)[0]!, slug: 'memorianaplo', title: 'Memory log' },
+    ];
+    const ruleOf = (prompt: string) => section(prompt, '# Project documents');
+
+    it('names the four event types and the log only where the project has the document', () => {
+      const rule = ruleOf(promptOf(withLog()));
+      for (const text of ['memorianaplo#1-hogyan-irj-bele', 'forgotten_rule', 'owner_repeat'])
+        expect(rule).toContain(text);
+      for (const text of ['recurring_failure', 'stale_knowledge', 'write_document'])
+        expect(rule).toContain(text);
+      expect(ruleOf(promptOf(documentsOf(31)))).not.toContain('recurring_failure');
+    });
+
+    it('tells the project manager to record owner_repeat itself, and others to leave it to the manager', () => {
+      const prompt = (handle: string, workItem?: WorkItemRef) =>
+        builder.build(
+          input({
+            handle,
+            documents: withLog(),
+            ...(workItem ? { workItem, task: null, stage: null } : {}),
+          }),
+        ).appendSystemPrompt;
+      expect(ruleOf(prompt('pm', { type: 'general' }))).toContain('You record every owner_repeat');
+      expect(ruleOf(prompt('code-review'))).toContain('The project manager records owner_repeat');
+      expect(ruleOf(prompt('pm', { type: 'general', with: 'guest' }))).not.toContain('recurring_failure');
+    });
   });
 
   describe('links on a card (PM-1223)', () => {

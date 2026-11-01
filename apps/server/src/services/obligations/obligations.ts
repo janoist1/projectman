@@ -366,6 +366,12 @@ export class ObligationsService {
         continue;
       }
       if (row.state !== 'open' || !task) continue;
+      // The project manager judged the situation and dismissed its signal: the step does not go to a person.
+      // The row ends, and the same stay does not open it again; a new stall is a new step with a new subject.
+      if (row.pmToldAt && this.pmNotices?.dismissed(projectKey, row.id)) {
+        await this.end(row, view, at, 'cancelled');
+        continue;
+      }
       // Step 3: the clock of an open row.
       await this.plan(row, task, paused, still, minutes, at, view);
     }
@@ -699,8 +705,13 @@ export class ObligationsService {
   }
 
   /** The step is not open any more: the row ends as its kind says, and its todo, if open, closes with it. */
-  private async end(row: Obligation, view: ProjectView, at: string): Promise<void> {
-    const outcome = this.sourceOf(row.kind).closedAs(row, view);
+  private async end(
+    row: Obligation,
+    view: ProjectView,
+    at: string,
+    outcomeOverride?: 'fulfilled' | 'cancelled',
+  ): Promise<void> {
+    const outcome = outcomeOverride ?? this.sourceOf(row.kind).closedAs(row, view);
     // The todo first: if closing it fails the row stays, and the next round closes both.
     const todo = this.todoOf(row);
     if (todo) await this.inbox.closeObligationTodo(todo.id, at);

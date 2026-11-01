@@ -1565,7 +1565,11 @@ a new wait reason or state that falls into `unowned` fails the test until someon
 `next_step` obligation kind (`nextStepSource`, the last of `obligationSources`) opens a row on every `member`,
 `unowned` and `system` card that no other kind covers (`covered`: the six older sources keep their finer rules and
 texts); its responsible is the member, the project manager (`unowned`) or nobody (`system`). It climbs the same
-ladder. For the system steps that run only on an event (refinement, automatic move on) the `wake` rung is a kick
+ladder (PM-1234): a ready card with an open part (a collecting card, which the automatic start never starts) is the
+`parts` hold of `cardDuty` (`CardDutyInput.openParts`, counted once per sweep from the open cards), so it has no
+row; its parts carry its step. A collecting card with only closed parts or none behaves as before. A row whose
+`obligation_overdue` signal the project manager dismissed ends (`cancelled`) instead of going to a person, and
+the same stay does not open it again. For the system steps that run only on an event (refinement, automatic move on) the `wake` rung is a kick
 (`kicks`/`kick`: `Refinement.changed`, `AutoAdvance.check`) instead of a reminder. So a card that no event
 carried on any more (a restart, another path, a new state) is still picked up within the ladder's time. The
 following event detectors stay as fast paths and need no change: `AutoAdvance`, `Refinement`, `notifyHandOn`, the

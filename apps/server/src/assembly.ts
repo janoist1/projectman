@@ -1384,6 +1384,7 @@ export function createDomain(opts: DomainOptions) {
   obligations.usePmNotices({
     raise: (input) => operatorSignals.raiseObligationOverdue(input),
     deliver: (projectKey) => operatorSignals.deliver(projectKey),
+    dismissed: (projectKey, obligationId) => operatorSignals.obligationDismissed(projectKey, obligationId),
   });
   messaging.registerSignals(operatorSignals);
   const structuralReviews = new StructuralReviews({

@@ -46,6 +46,8 @@ export interface ObligationStartOffers {
 export interface ObligationPmNotices {
   raise(input: { projectKey: string; taskKey: string; obligationId: string }): string;
   deliver(projectKey: string): Promise<void>;
+  /** Whether the project manager (or an owner) dismissed the signal raised for the obligation (PM-1234). */
+  dismissed(projectKey: string, obligationId: string): boolean;
 }
 
 /**

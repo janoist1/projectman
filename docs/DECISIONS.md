@@ -515,3 +515,10 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     words: „az Op az kizárólag az enyém”, „nem lenne jobb annak, aki kiadta? pl devops?” and,
     on dropping the word Operator for one notion of a connected Claude: „rendben, ez így
     sokkal tisztább. én is hajlok a B-re.”
+67. **The glossary picks the one word; the team's word may win in the UI.** Decided by the
+    owner on 2026-11-01 on PM-1218 and PM-1227; refines decision 22. The word for a thing is
+    the one in the project's glossary document ("Fogalomtár"). Where the word the team uses
+    is better and more widespread than the UI's, the UI takes the team's word (`hu.ts`,
+    `docs/design/glossary.md`), decided word by word by the business analyst. The owner's
+    words: „felőlem a felületen is használhatjuk azt amit a csapatnál” and, on recording it
+    here: „Igen, írd be”.

@@ -6611,7 +6611,7 @@ export const hu = {
       markRecent: 'Legutóbb említett',
       markOtherTasks: 'Többi kártya',
       markHint: 'A kártya csak megjelöli az üzenetet: ugyanebbe a beszélgetésbe kerül.',
-      readOnly: 'Betekintőként nem küldhetsz üzenetet.',
+      readOnly: 'Ebben a projektben nem küldhetsz üzenetet.',
       failed: 'Nem ment el az üzenet.',
     },
     all: {

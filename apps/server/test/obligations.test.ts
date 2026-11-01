@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_ENGINE_ID, questionPayloadOf } from '@projectman/shared';
 import type { EngineId, ProjectConfig } from '@projectman/shared';
-import { getLocale } from '@projectman/templates';
 import type { EngineHost } from '../src/contracts';
 import { createLocalEngine } from '../src/engine-host';
 import { LocalEngineDirectory } from '../src/runtime/sessions';
@@ -859,51 +858,20 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         expect(questionPayloadOf(todos()[0]!)).toMatchObject({ obligation: { kind: 'next_step' } });
       });
 
-      it.each(['hu', 'en'])(
-        "writes the owners' todo of a system step in the project language (%s)",
-        async (language) => {
-          await harness((c) => {
-            refinery(c);
-            c.project.language = language;
-            const pm = c.team.members.find((m) => m.handle === 'pm')!;
-            if (pm.kind === 'ai') pm.onLeave = true;
-          });
-          const key = await create();
-          await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
-          await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
-          await flush();
-          await stopSessions();
-          await sweep();
-          minutes(HAND_OVER + FIRST_EXPIRY);
-          await sweep();
-          const text = getLocale(language).nextStepTodo;
-          const todo = todos()[0]!;
-          expect(todo.title).toContain(key);
-          expect(todo.title).toContain(text.waiting.ready);
-          expect(questionPayloadOf(todo)?.screening?.todo?.what).toBe(todo.title);
-        },
-      );
-
-      it.each(['running', 'done'] as const)(
-        'opens no row for a collecting card in the ready queue whose part is %s',
-        async (partState) => {
-          await harness((c) => {
-            refinery(c);
-            const pm = c.team.members.find((m) => m.handle === 'pm')!;
-            if (pm.kind === 'ai') pm.onLeave = true;
-          });
-          const key = await create();
-          await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
-          await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
-          const part = await h.domain.tasks.create('AR', { title: 'A part', parentKey: key }, OWNER_ACTOR);
-          h.repos.tasks.update(h.domain.tasks.get('AR', part.key).id, {
-            status: partState === 'done' ? 'done' : 'active',
-          });
-          await flush();
-          await stopSessions();
-          await staysUnfollowed(key);
-        },
-      );
+      it('opens no row for a collecting card in the ready queue while one of its parts is open', async () => {
+        await harness((c) => {
+          refinery(c);
+          const pm = c.team.members.find((m) => m.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = true;
+        });
+        const key = await create();
+        await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
+        await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
+        await h.domain.tasks.create('AR', { title: 'A part', parentKey: key }, OWNER_ACTOR);
+        await flush();
+        await stopSessions();
+        await staysUnfollowed(key);
+      });
 
       it('hands no overdue step to a person once the pm dismissed its signal', async () => {
         const key = await leftPart();

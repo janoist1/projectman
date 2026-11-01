@@ -117,7 +117,7 @@ export function cardStateProblem(state: CardState): string | null {
   const { task, config, openItems } = state;
   const wait = taskWait(state);
   if (!wait) return `${state.description}: no wait`;
-  const duty = cardDuty({ task, wait, config, openItems });
+  const duty = cardDuty({ task, wait, config, openItems, openParts: 0 });
   const found = (what: string) => `${state.description}: ${wait.reason} -> ${what}`;
   switch (duty.kind) {
     case 'member': {

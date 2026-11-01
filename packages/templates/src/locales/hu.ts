@@ -452,36 +452,6 @@ export const hu: TemplateLocale = {
     firstNotice: ({ member, project }) =>
       `${member} (AI-tag, ${project} projekt). Ha nem kérsz több levelet, írd meg válaszban.`,
   },
-  nextStepTodo: {
-    ago: (minutes) => `${minutes} perce`,
-    waiting: {
-      working: 'Valaki most dolgozik rajta.',
-      handing_off: 'Az átadása folyamatban van.',
-      start_waiting: 'Az indítása vár.',
-      prerequisite: 'Nyitott előfeltétel tartja vissza.',
-      inbox: 'Nyitott kérés vár válaszra.',
-      blocked: 'A kártya blokkolt.',
-      fix_limit: 'A javítási körök határán áll, döntésre vár.',
-      held: 'Tartó címke tartja vissza.',
-      merge: 'A jóváhagyott munka beolvasztásra vár.',
-      hand_on: 'A munka kész, továbbléptetésre vár.',
-      approval: 'Hiányzik egy szükséges jóváhagyás.',
-      labels_missing: 'Hiányzik egy címke a következő szakaszhoz.',
-      part_left: 'A szétbontott kártya egyik részét az első szakaszban hagyták.',
-      refinement: 'Kidolgozási lépés van soron.',
-      ready: 'Készen áll a sorában, indítható.',
-      queued: 'A szakasza gazdájára vár.',
-      assignee: 'A felelősének kellene felvennie.',
-      nobody: 'Senki nem tudja felvenni: a beállítást rendbe kell tenni.',
-    },
-    nobody: ({ key, ago, waiting }) =>
-      `A(z) ${key} kártya következő lépését senki nem végezte el, ${ago} áll. ${waiting}`,
-    member: ({ member, key, ago, wokenAt }) =>
-      `${member} ${ago} nem végezte el a(z) ${key} kártya következő lépését; egyszer emlékeztettük${wokenAt ? ` (${wokenAt})` : ''}, eredmény nélkül.`,
-    where: ({ key, stage }) => `${key}, szakasz: ${stage}`,
-    expected: ({ key }) =>
-      `A(z) ${key} továbblép, vagy megnevezik azt a tagot, aki a következő lépését felveheti`,
-  },
   fixLimitItem: {
     title: 'Javítási körök határa: {key}',
     summary: 'A(z) {key} kártya {rounds} javítási kör után sem ment át ({parts}). {reason}',

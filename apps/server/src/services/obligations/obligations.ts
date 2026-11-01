@@ -244,17 +244,7 @@ export class ObligationsService {
     const openItems = new Map<string, InboxItem[]>();
     for (const item of pending)
       if (item.taskKey) openItems.set(item.taskKey, [...(openItems.get(item.taskKey) ?? []), item]);
-    // The collecting cards: those with a part, closed or not (the parts of the closed ones are not read otherwise).
-    const collectors = new Set(
-      this.tasks
-        .readSchedulingTasks(projectKey, {
-          kind: 'children',
-          parentKeys: [...tasks.values()].filter(isOpenTask).map((task) => task.key),
-          includeClosed: true,
-        })
-        .flatMap((part) => part.parentKey ?? []),
-    );
-    const view: ProjectView = { config, tasks, collectors, waits, openItems, live };
+    const view: ProjectView = { config, tasks, waits, openItems, live };
     // What each kind says is open now; a kind that cannot be read leaves its rows alone. The cards another
     // kind has a step or a live row on are covered: `next_step`, the last source, opens rows on the rest.
     const derived = new Map<string, DerivedObligation & { kind: ObligationKind }>();

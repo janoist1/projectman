@@ -163,6 +163,15 @@ describe('describeEvent', () => {
       'told the project manager about the open review step (code_review@x) of cr: still no action after the reminder',
     );
   });
+  it('words the kick of a system step apart from a reminder (PM-1225)', () => {
+    const kicked = event('obligation_woken', {
+      kind: 'next_step',
+      responsible: null,
+      subject: 'x',
+      minutes: 20,
+    });
+    expect(describeEvent(kicked, 100)).toContain('ran the automatic step');
+  });
   it('names the labels of a label change', () => {
     const changed = event('task_labels_changed', { added: ['qa-ok'], removed: ['qa-failed', 'qa-retest'] });
     expect(describeEvent(changed, 100)).toBe('labels added: qa-ok; labels removed: qa-failed, qa-retest');

@@ -205,6 +205,9 @@ export function describeEvent(
         ? `the Operator handed the integrator todo to the owner${text('note') ? `: ${text('note')}` : ''}`
         : 'handed the integrator todo to the owner: it was not resolved within 24 hours';
     case 'obligation_woken':
+      // Only a kick of the system writes an explicit null; an older or incomplete event keeps the reminder text.
+      if (data.responsible === null)
+        return `ran the automatic step of the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}) again: no action in ${text('minutes') ?? '?'} minutes`;
       return `reminded ${member('responsible', 'the responsible')} once about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}): no action in ${text('minutes') ?? '?'} minutes`;
     case 'obligation_pm_told':
       return `told the project manager about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}) of ${member('responsible', 'the responsible')}: still no action after the reminder`;

@@ -1666,7 +1666,7 @@ export const chats: Record<string, ChatItem[]> = {
     user(minutesAgo(90), 'Írj egy rövid levelet Katának a tesztszerver havi költségéről.'),
     assistant(
       minutesAgo(80),
-      'Vázlatot írtam, és jóváhagyásra a Rád vár listába tettem. Pénzről szól, ezért e-mailben megy, nem a feladatok közé.',
+      'Vázlatot írtam, és jóváhagyásra a Rád vár listába tettem. Pénzről szól, ezért e-mailben megy, nem a kártyák közé.',
     ),
   ],
 };

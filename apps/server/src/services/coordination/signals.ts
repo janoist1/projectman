@@ -272,6 +272,14 @@ export class OperatorSignals {
     }).id;
   }
 
+  /** Whether the signal of the obligation was dismissed: its situation was judged and needs no person (PM-1234). */
+  obligationDismissed(projectKey: string, obligationId: string): boolean {
+    return (
+      this.deps.ctx.repos.operatorSignals.latestOfCase(projectKey, obligationOverdueCaseKey(obligationId))
+        ?.state === 'dismissed'
+    );
+  }
+
   presentation(projectKey: string, id: string, by?: string): OperatorSignalRecord {
     const signal = this.deps.ctx.repos.operatorSignals.get(id);
     if (!signal || signal.projectKey !== projectKey)

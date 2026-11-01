@@ -12,15 +12,15 @@ export const hu: TemplateLocale = {
       },
       providers: { title: 'AI-szolgáltatók', hint: 'Ellenőrizd a csapat előfizetéseit.' },
       team: { title: 'Csapat', hint: 'Válassz tagokat és felelősségeket.' },
-      process: { title: 'Munkafolyamat', hint: 'Egyeztessétek a szakaszokat és az átnézés feltételeit.' },
+      process: { title: 'Munkafolyamat', hint: 'Egyeztessétek a lépéseket és az átnézés feltételeit.' },
       labels: { title: 'Címkék', hint: 'Válassz címkéket a munkához és a jóváhagyásokhoz.' },
       clients: { title: 'Ügyfelek', hint: 'Döntsétek el, ki vesz részt az ügyfél oldaláról.' },
       release: { title: 'Kiadás', hint: 'Egyeztessétek, hogyan jutnak el a változások a felhasználókhoz.' },
       agreement: { title: 'Megállapodás', hint: 'Hagyd jóvá, hogyan dolgozzon veled az Operátor.' },
-      first_task: { title: 'Első feladat', hint: 'Hozd létre az első feladatot.' },
+      first_task: { title: 'Első kártya', hint: 'Hozd létre az első kártyát.' },
       code_review: {
         title: 'Kódátnézés',
-        hint: 'Legyen átnézési szakasz, amely a kódátnézés jóváhagyását kéri.',
+        hint: 'Legyen átnézési lépés, amely a kódátnézés jóváhagyását kéri.',
       },
       guests: {
         title: 'Ügyfél vendégek',
@@ -103,7 +103,7 @@ export const hu: TemplateLocale = {
     },
     task_breakdown: {
       name: 'Feladatbontás',
-      description: 'Tesztelhető feladatokra bontja a munkát. Rögzíti a függőségeket.',
+      description: 'Tesztelhető kártyákra bontja a munkát. Rögzíti a függőségeket.',
     },
     triage: {
       name: 'Besorolás',
@@ -124,7 +124,7 @@ export const hu: TemplateLocale = {
     },
     implementation: {
       name: 'Megvalósítás',
-      description: 'Tesztek mellett valósítja meg a feladatokat. Pull requestet készít az ellenőrzéshez.',
+      description: 'Tesztek mellett valósítja meg a kártyákat. Pull requestet készít az ellenőrzéshez.',
     },
     docs: {
       name: 'Dokumentáció',
@@ -178,7 +178,7 @@ export const hu: TemplateLocale = {
     },
     support: {
       name: 'Ügyféltámogatás',
-      description: 'Reprodukálja a bejelentett problémákat. Egyértelmű támogatási feladatokat készít.',
+      description: 'Reprodukálja a bejelentett problémákat. Egyértelmű támogatási kártyákat készít.',
     },
     standup_facilitation: {
       name: 'Standup vezetése',
@@ -227,7 +227,7 @@ export const hu: TemplateLocale = {
     project_manager: {
       name: 'Projektmenedzser',
       summary:
-        'Az ütemezést viszi: standup, tervezés, határidők, emlékeztetők, heti jelentés. A tulajdonos kérésére vagy igenje után vezeti a döntésnaplót és a roadmapot, felajánlja a döntésjelölteket, és felveszi a leckéket.',
+        'Az ütemezést viszi: standup, tervezés, határidők, emlékeztetők, heti jelentés. A tulajdonos kérésére vagy igenje után vezeti a döntésnaplót és az ütemtervet, felajánlja a döntésjelölteket, és felveszi a leckéket.',
       notTheirJob: 'Nem rangsorol, és nem vezeti a retrót.',
       whenToAsk:
         'Ha tudni szeretnéd, hol tart a munka és mi mikorra készül, vagy emlékeztető, jelentés kell.',
@@ -238,12 +238,12 @@ export const hu: TemplateLocale = {
         'Az ügyfél kéréséből pontos leírást és elfogadási feltételeket ír, és visszakérdez, mielőtt a munka elindul.',
       notTheirJob: 'Nem ütemez, és nem tervez technikai megoldást.',
       whenToAsk:
-        'Ha van egy ötleted vagy kérésed, de még nem tiszta, pontosan mi kell, vagy több részből áll. Kis, világos feladathoz nem kell.',
+        'Ha van egy ötleted vagy kérésed, de még nem tiszta, pontosan mi kell, vagy több részből áll. Kis, világos kártyához nem kell.',
     },
     architect: {
       name: 'Architekt',
       summary:
-        'Fejlesztés előtt megtervezi a technikai megoldást, feladatokra bontja, és átnézi a nagyobb döntéseket.',
+        'Fejlesztés előtt megtervezi a technikai megoldást, kártyákra bontja, és átnézi a nagyobb döntéseket.',
       notTheirJob: 'Nem nézi át sorról sorra a kódot.',
       whenToAsk:
         'Ha műszaki kérdésed van (felépítés, átalakítás, gyorsaság), vagy egy nagyobb ötletet kell műszakilag felbontani.',
@@ -258,7 +258,7 @@ export const hu: TemplateLocale = {
     },
     developer: {
       name: 'Fejlesztő',
-      summary: 'Saját ágon, tesztekkel együtt megvalósítja a feladatot, és PR-t nyit.',
+      summary: 'Saját ágon, tesztekkel együtt megvalósítja a kártyát, és PR-t nyit.',
       notTheirJob: 'Nem hagyja jóvá a saját munkáját.',
       whenToAsk: 'Ha egy kártya készen áll a megvalósításra; nem írsz neki, hanem elindítod a kártyát.',
     },
@@ -408,16 +408,16 @@ export const hu: TemplateLocale = {
     },
     'pr-merged': {
       name: 'PR merge-elve',
-      meaning: 'A feladat pull requestje be van olvasztva; a GitHub alapján automatikusan kerül rá.',
+      meaning: 'A kártya pull requestje be van olvasztva; a GitHub alapján automatikusan kerül rá.',
     },
     'acceptance-open': {
       name: 'Nyitott elfogadási feltétel',
-      meaning: 'A feladatnak van még nyitott elfogadási feltétele; a rendszer automatikusan kezeli.',
+      meaning: 'A kártyának van még nyitott elfogadási feltétele; a rendszer automatikusan kezeli.',
     },
     'acceptance-unconfirmed': {
       name: 'Megerősítetlen elfogadási feltétel',
       meaning:
-        'A feladatnak van nyitott vagy még meg nem erősített elfogadási feltétele; a rendszer automatikusan kezeli.',
+        'A kártyának van nyitott vagy még meg nem erősített elfogadási feltétele; a rendszer automatikusan kezeli.',
     },
     'merge-approved': {
       name: 'Merge jóváhagyva',
@@ -429,7 +429,7 @@ export const hu: TemplateLocale = {
     },
     'waiting-answer': {
       name: 'Válaszra vár',
-      meaning: 'Külső válaszra vár; amíg rajta van, a feladat nem léphet tovább.',
+      meaning: 'Külső válaszra vár; amíg rajta van, a kártya nem léphet tovább.',
     },
     refine: {
       name: 'Kidolgozásra vár',

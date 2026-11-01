@@ -126,8 +126,8 @@ function question(assignees: string[]): InboxItem {
 }
 
 /** The duty of a card under the test configuration. */
-function dutyOf(task: Task, over: Partial<TaskWaitInput> & { onLeave?: string[] } = {}) {
-  const { onLeave, ...input } = over;
+function dutyOf(task: Task, over: Partial<TaskWaitInput> & { onLeave?: string[]; openParts?: number } = {}) {
+  const { onLeave, openParts = 0, ...input } = over;
   const cfg = input.config ?? config({ onLeave });
   const state = {
     task,
@@ -141,7 +141,7 @@ function dutyOf(task: Task, over: Partial<TaskWaitInput> & { onLeave?: string[] 
   };
   const wait = taskWait(state);
   if (!wait) throw new Error('the card has no wait');
-  return cardDuty({ task, wait, config: cfg, openItems: state.openItems });
+  return cardDuty({ task, wait, config: cfg, openItems: state.openItems, openParts });
 }
 
 describe('the state space', () => {
@@ -155,8 +155,17 @@ describe('the state space', () => {
       const wait = taskWait(state);
       if (!wait) continue;
       reasons.add(wait.reason);
-      const duty = cardDuty({ task: state.task, wait, config: state.config, openItems: state.openItems });
-      if (duty.kind === 'hold') holds.add(duty.code);
+      // A card with and without an open part: the collecting card's hold is reached too.
+      for (const openParts of [0, 1]) {
+        const duty = cardDuty({
+          task: state.task,
+          wait,
+          config: state.config,
+          openItems: state.openItems,
+          openParts,
+        });
+        if (duty.kind === 'hold') holds.add(duty.code);
+      }
     }
     expect(problems).toEqual([]);
     expect([...reasons].sort()).toEqual([...TaskWaitReason.options].sort());
@@ -261,6 +270,14 @@ describe('cardDuty', () => {
       member: 'dev',
     });
     expect(dutyOf(ready)).toMatchObject({ reason: 'ready', kind: 'system', step: 'start' });
+  });
+
+  it.each([
+    [1, { kind: 'hold', code: 'parts' }],
+    [0, { kind: 'system', step: 'start' }],
+  ])('has a ready card with %i open parts as %o', (openParts, expected) => {
+    const ready = card({ stageId: 'ready', status: 'active', assignee: null, labels: ['scope-ok'] });
+    expect(dutyOf(ready, { openParts })).toMatchObject({ reason: 'ready', ...expected });
   });
 
   it('holds a ready card by the reason of its ready hold', () => {

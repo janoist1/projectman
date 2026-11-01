@@ -858,6 +858,59 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         expect(questionPayloadOf(todos()[0]!)).toMatchObject({ obligation: { kind: 'next_step' } });
       });
 
+      it('opens no row for a collecting card in the ready queue while one of its parts is open', async () => {
+        await harness((c) => {
+          refinery(c);
+          const pm = c.team.members.find((m) => m.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = true;
+        });
+        const key = await create();
+        await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
+        await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
+        await h.domain.tasks.create('AR', { title: 'A part', parentKey: key }, OWNER_ACTOR);
+        await flush();
+        await stopSessions();
+        await staysUnfollowed(key);
+      });
+
+      it('still opens a row for a collecting card in the ready queue whose parts are all closed', async () => {
+        await harness((c) => {
+          refinery(c);
+          const pm = c.team.members.find((m) => m.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = true;
+        });
+        const key = await create();
+        await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
+        await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
+        const part = await h.domain.tasks.create('AR', { title: 'A part', parentKey: key }, OWNER_ACTOR);
+        h.repos.tasks.update(h.domain.tasks.get('AR', part.key).id, { status: 'done' });
+        await flush();
+        await stopSessions();
+        await sweep();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+      });
+
+      it('hands no overdue step to a person once the pm dismissed its signal', async () => {
+        const key = await leftPart();
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        await endTurns(key);
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        const [signal] = overdueSignals();
+        expect(rows(key)[0]).toMatchObject({ pmToldAt: expect.any(String), handedOverAt: null });
+        // The pm has the signal and judges the situation intermediate.
+        h.repos.operatorSignals.save({ ...signal!, deliveredAt: clock.toISOString(), deliveredTo: 'pm' });
+        h.domain.operatorSignals.dismissByOperator('AR', signal!.id, 'pm', 'The part is being refined.');
+        minutes(HAND_OVER);
+        await sweep();
+        await sweep();
+        expect(todos()).toHaveLength(0);
+        expect(events('obligation_handed_over')).toHaveLength(0);
+        expect(rows(key)).toEqual([]);
+        expect(ownerCount()).toBe(0);
+      });
+
       it('kicks the automatic advance of a step card whose next gate is met', async () => {
         await harness();
         const key = await create();

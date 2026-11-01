@@ -39,7 +39,7 @@ describe('apiRequest', () => {
       details: { approvers: ['owner'] },
     });
     expect(isApprovalRequested(error)).toBe(true);
-    expect(errorMessage(error)).toBe('Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.');
+    expect(errorMessage(error)).toBe('Jóváhagyást kértünk; a kártya a jóváhagyás után lép tovább.');
   });
 
   it('sends a FormData as it is, leaving the content type and its boundary to the browser', async () => {

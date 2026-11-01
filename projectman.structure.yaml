@@ -107,7 +107,7 @@ modules:
     area: core
     kind: core
     name: Projektek
-    summary: Projektek, szerepkörök, szakaszfelelősök és láthatóság.
+    summary: Projektek, szerepek, a lépések gazdái és láthatóság.
     paths:
       - apps/server/src/core/projects/
   - id: core/tasks
@@ -535,13 +535,13 @@ modules:
   - id: web/settings
     area: ui
     name: Beállítások
-    summary: A projektbeállítások nézete – kötelességek, szerepkörök és konfigurációs hibák.
+    summary: A projektbeállítások nézete – feladatkörök, szerepek és konfigurációs hibák.
     paths:
       - apps/web/src/features/settings/
   - id: web/team
     area: ui
     name: Csapat
-    summary: A csapat tagjai, szerepkörei és hozzáférései.
+    summary: A csapat tagjai, szerepei és hozzáférései.
     paths:
       - apps/web/src/features/team/
   - id: web/shell
@@ -585,7 +585,7 @@ modules:
   - id: templates
     area: shared
     name: Sablonok
-    summary: Projektsablonok, szerepkörök és az alapértelmezett megjelenített nevek.
+    summary: Projektsablonok, szerepek és az alapértelmezett megjelenített nevek.
     paths:
       - packages/templates/
 

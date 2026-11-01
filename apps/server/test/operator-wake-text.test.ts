@@ -124,7 +124,7 @@ describe('level unblock', () => {
     expect(text).toContain('On a signal never merge, release, approve, move a card');
     // The same sense as the system prompt's signal rules: the two texts must not contradict each other.
     expect(text).toContain(
-      'When a stalled, silent, outage or nobody signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human',
+      'When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human',
     );
     expect(text).not.toContain('always go to the owners');
     expect(text).toContain("Never stop another member's processes yourself.");

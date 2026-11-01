@@ -596,20 +596,15 @@ describe('Operator system signals', () => {
     expect(get(signal.id)).toMatchObject({ state: 'open', deliveredTo: 'pm' });
   });
 
-  it('detects a card with no eligible label setter and resolves it when the label arrives', async () => {
+  it('raises no signal for a card with no eligible label setter: the next_step ladder carries it', async () => {
     await setup();
-    const task = await h.domain.tasks.create('AR', { title: 'Nobody can approve this' }, OWNER_ACTOR);
+    await h.domain.tasks.create('AR', { title: 'Nobody can approve this' }, OWNER_ACTOR);
     // A previously stored configuration can outlive its label setter. Model that state directly.
     const config = h.domain.projects.cachedConfig('AR')!;
     config.pipeline.labels.push({ id: 'unowned', name: 'Unowned', setBy: { members: ['ghost'] } });
     config.pipeline.stages[0]!.gate = { conditions: [{ type: 'has_label', label: 'unowned' }] };
-    // Put the card at a stage whose next step requires a label nobody can set.
     await h.domain.operatorSignals.sweep('AR');
-    const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'nobody');
-    expect(signal?.caseKey).toBe(`nobody:${task.key}:${task.stageId}`);
-    h.repos.tasks.update(task.id, { labels: ['unowned'] });
-    await h.domain.operatorSignals.sweep('AR');
-    expect(get(signal!.id).resolvedAt).not.toBeNull();
+    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'nobody')).toEqual([]);
   });
 
   it('connects outage and stalled events and resolves released input', async () => {

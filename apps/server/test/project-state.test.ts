@@ -63,7 +63,7 @@ describe('project state from server records', () => {
     const first = await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
     const second = await h.domain.tasks.create('AR', { title: 'Other card' }, OWNER_ACTOR);
     const raise = (
-      kind: 'silent' | 'stalled' | 'outage' | 'nobody',
+      kind: 'silent' | 'stalled' | 'outage',
       taskKey: string | null,
       state: 'pending' | 'open' | 'accepted' | 'dismissed' | 'resolved',
       delivered = true,
@@ -85,7 +85,7 @@ describe('project state from server records', () => {
       return signal.id;
     };
     const pending = raise('silent', first.key, 'pending');
-    const open = raise('nobody', second.key, 'open');
+    const open = raise('stalled', second.key, 'open');
     const general = raise('outage', null, 'open');
     raise('stalled', first.key, 'pending', false);
     raise('silent', first.key, 'open', true, true);

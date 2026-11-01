@@ -1005,7 +1005,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         t(
           event.type === 'obligation_handed_over' && str(d.recipientRefusal)
             ? 'timeline.events.obligation_handed_over_refused'
-            : event.type === 'obligation_woken' && str(d.responsible) === ''
+            : event.type === 'obligation_woken' && d.responsible === null
               ? 'timeline.events.obligation_kicked'
               : `timeline.events.${event.type}`,
           {

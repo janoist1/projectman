@@ -14,7 +14,7 @@ import {
   TaskKey,
   TaskStatus as TaskStatusSchema,
 } from '@projectman/shared';
-import type { HostRequestState } from '@projectman/shared';
+import type { DocumentViewer, HostRequestState } from '@projectman/shared';
 import type {
   ExternalAttachmentRead,
   ExternalDocWriteState,
@@ -32,6 +32,7 @@ import { taskWaitShort } from '../../agent-text';
 import { TeamToolError } from '../../contracts';
 import type {
   AttachmentOperations,
+  DocumentWriter,
   ExternalMcpBackend,
   ExternalSentMessage,
   ExternalToolContext,
@@ -44,8 +45,10 @@ import type {
   ListTasksInput,
   OperatorKnowledgeStore,
   ProjectDocWrite,
+  ReadDocumentArgs,
   TaskSummary,
   TaskToolDetail,
+  WriteDocumentArgs,
 } from '../../contracts';
 import { QUESTION_LIMIT } from '../../core/inbox';
 import type { CardQuestions, InboxService } from '../../core/inbox';
@@ -67,6 +70,8 @@ import {
 import type { HostRequestsService } from '../../services/host-requests';
 import type { ComputeJobService } from '../../services/compute-jobs';
 import { asToolError } from '../compute-jobs';
+import { documentToolError, readDocumentCall, writeDocumentCall } from '../documents';
+import type { Documents } from '../documents';
 import type { ProjectState, StructuralReviews } from '../../services/coordination';
 import { docWindow } from '../../services/project-docs';
 import type { DocWrites } from '../../services/project-docs';
@@ -97,6 +102,7 @@ interface ExternalToolsDeps {
   taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   cardQuestions: Pick<CardQuestions, 'list'>;
   attachments: Pick<AttachmentOperations, 'list' | 'open'>;
+  documents: Documents;
   messaging: Pick<Messaging, 'sendReporting'>;
   members: Pick<MemberService, 'rosterFor'>;
   projectState: Pick<ProjectState, 'task' | 'message' | 'overview' | 'externalDiagnostics'>;
@@ -448,6 +454,54 @@ export class ExternalTools implements ExternalToolsHandler {
     return this.deps.projectState.externalDiagnostics(ctx.projectKey, taskKey, args.limit, async () => {
       await this.owned(ctx.principal, ctx.projectKey);
     });
+  }
+
+  /** A document call as the key's holder with the REST's rights: delegated, so it never deletes (PM-1232). */
+  private async documentCall<T>(
+    ctx: ExternalToolContext,
+    call: (viewer: DocumentViewer) => Promise<T>,
+  ): Promise<T> {
+    const { access, handle } = this.access(ctx);
+    try {
+      return await call({ access, handle, delegated: true });
+    } catch (err) {
+      throw documentToolError(err);
+    }
+  }
+
+  listDocuments(ctx: ExternalToolContext) {
+    return this.documentCall(ctx, (viewer) => this.deps.documents.list(ctx.projectKey, viewer));
+  }
+
+  readDocument(ctx: ExternalToolContext, args: ReadDocumentArgs) {
+    return this.documentCall(ctx, (viewer) =>
+      readDocumentCall(this.deps.documents, ctx.projectKey, viewer, args),
+    );
+  }
+
+  documentHistory(ctx: ExternalToolContext, args: { slug: string; limit?: number }) {
+    return this.documentCall(ctx, (viewer) =>
+      this.deps.documents.history(ctx.projectKey, args.slug, viewer, args.limit),
+    );
+  }
+
+  /** The commit is the key holder's, marked as made through the integrator with the connected actor behind it. */
+  writeDocument(ctx: ExternalToolContext, args: WriteDocumentArgs) {
+    const { superActor } = this.access(ctx);
+    if (!superActor) throw forbidden('insufficient_access', 'this credential cannot make this change');
+    this.deps.credentials.assertActive(ctx.principal);
+    const user = this.deps.credentials.user(ctx.principal.userId);
+    if (!user) throw forbidden('insufficient_access', 'the credential owner does not exist');
+    const by: DocumentWriter = {
+      name: user.name ?? user.email,
+      email: user.email,
+      via: 'integrator',
+      superActor,
+      actor: ctx.actor,
+    };
+    return this.documentCall(ctx, (viewer) =>
+      writeDocumentCall(this.deps.documents, ctx.projectKey, viewer, by, args),
+    );
   }
 
   async listAttachments(

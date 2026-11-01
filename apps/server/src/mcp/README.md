@@ -106,6 +106,13 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
 - Legacy keys fail authentication with 401 (PM-1037). `tools/list` is filtered by the key's mode (`super`, `read`); a direct call of a tool the mode does not allow gets
   a domain denial (`integrator_not_allowed`, `integrator_read_only`), the domain `errorCode` is kept in the structured
   result, and super tools answer with structured JSON.
+- The documents (PM-1232): `list_documents`, `read_document` and `document_history` are bound for both modes,
+  `write_document` for `super` only (a `read` key gets `integrator_read_only`); no delete or restore tool. The
+  handler (`listDocuments`, `readDocument`, `writeDocument`, `documentHistory`) shares the argument checks, the
+  section lookup and the conflict text with the member handler through `documents/calls.ts`. The viewer is
+  `{ access, handle, delegated: true }` (the REST's, so the service never deletes); the writer is the key
+  holder's name and e-mail with `via: 'integrator'`, the access's `superActor` and `ctx.actor`, so the commit's
+  trailers give the history `by.via` and `by.actor` (read back in `config/commit-trailers.ts`).
 - The tunnel and proxy pass `/mcp` and refuse `/mcp/` and `/hooks`; see [DEPLOY.md](../../../../docs/DEPLOY.md).
 
 ## Tools

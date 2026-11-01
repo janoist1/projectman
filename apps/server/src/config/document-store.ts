@@ -12,6 +12,7 @@ import {
 } from '@projectman/shared';
 import type { DocumentChangeAuthor, DocumentVersion } from '@projectman/shared';
 import type { DocumentStore, DocumentWriter, StoredDocument } from '../contracts';
+import { actorFromTrailers, readCommitTrailers } from './commit-trailers';
 import { attributedMessage, cleanIdentity } from './customization-repo';
 import type { CustomizationRepo } from './customization-repo';
 import { DocumentStoreError } from './errors';
@@ -67,16 +68,21 @@ function actorTrailer(writer: DocumentWriter): string {
   return `Projectman-Actor: ${writer.actor.kind}:${writer.actor.handle ?? ''}`;
 }
 
-/** The change author of a commit: the `Projectman-Actor` trailer of its last paragraph, else system. */
+/**
+ * The change author of a commit, read from the trailers of its last paragraph: `Projectman-Actor`, else
+ * system; a write through the connected Claude adds `via` and the actor its trailers describe.
+ */
 function authorOf(record: LogRecord): DocumentChangeAuthor {
-  const ending = record.body.split(/\n\n/).at(-1) ?? '';
-  const line = ending.split('\n').find((entry) => entry.startsWith('Projectman-Actor:'));
-  const match = line ? /^Projectman-Actor: (human|ai|system):(.*)$/.exec(line.trim()) : null;
+  const trailers = readCommitTrailers(record.body);
+  const match = /^(human|ai|system):(.*)$/.exec(trailers.trailer('Actor') ?? '');
   const handle = match ? MemberHandle.safeParse(match[2]) : null;
+  const actor = actorFromTrailers(trailers);
   return {
     kind: match ? (match[1] as DocumentChangeAuthor['kind']) : 'system',
     handle: handle?.success ? handle.data : null,
     name: record.name,
+    ...(trailers.trailer('Via') === 'integrator' ? { via: 'integrator' as const } : {}),
+    ...(actor ? { actor } : {}),
   };
 }
 

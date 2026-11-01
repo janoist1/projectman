@@ -2576,6 +2576,7 @@ export function createDomain(opts: DomainOptions) {
         taskWaits,
         cardQuestions,
         attachments,
+        documents,
         messaging,
         members,
         projectState,

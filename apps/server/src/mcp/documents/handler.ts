@@ -1,6 +1,5 @@
-import { documentOutline, documentSection, memberOf, parseDocumentRef } from '@projectman/shared';
+import { memberOf } from '@projectman/shared';
 import type { DocumentSummary, DocumentVersion, DocumentViewer } from '@projectman/shared';
-import { TeamToolError } from '../../contracts';
 import type {
   DocumentToolsHandler,
   DocumentWriter,
@@ -9,25 +8,9 @@ import type {
   ToolContext,
   WriteDocumentArgs,
 } from '../../contracts';
-import type { DocumentService } from '../../core/documents';
-import { DomainError } from '../../kernel';
 import type { ToolCaller } from '../caller';
-
-type Documents = Pick<DocumentService, 'list' | 'get' | 'create' | 'update' | 'history'>;
-
-/** The agent reads the code: a refusal says what to do (read it again for a conflict, with the current version). */
-function asToolError(err: unknown): unknown {
-  if (!(err instanceof DomainError)) return err;
-  const current =
-    err.code === 'document_conflict' &&
-    typeof (err.details as { currentVersion?: unknown } | undefined)?.currentVersion === 'string'
-      ? ` The current version is ${(err.details as { currentVersion: string }).currentVersion}: read the document again and apply your change to it.`
-      : '';
-  return new TeamToolError(
-    err.status === 403 ? 'forbidden' : 'invalid',
-    `${err.code}: ${err.message}.${current}`,
-  );
-}
+import { documentToolError, readDocumentCall, writeDocumentCall } from './calls';
+import type { Documents } from './calls';
 
 /** The project's living documents for AI members (PM-149): the same service and permission rules as the page. */
 export class DocumentTools implements DocumentToolsHandler {
@@ -60,7 +43,7 @@ export class DocumentTools implements DocumentToolsHandler {
       try {
         return await call({ viewer: this.viewer(ctx), by });
       } catch (err) {
-        throw asToolError(err);
+        throw documentToolError(err);
       }
     });
   }
@@ -70,71 +53,18 @@ export class DocumentTools implements DocumentToolsHandler {
   }
 
   readDocument(ctx: ToolContext, args: ReadDocumentArgs): Promise<ReadDocumentResult> {
-    return this.run(ctx, 'read_document', async ({ viewer }) => {
-      const ref = parseDocumentRef(args.ref);
-      const sectionRef = args.section ?? ref.section;
-      const { content, ...document } = await this.documents.get(
-        ctx.projectKey,
-        ref.slug,
-        viewer,
-        args.version,
-      );
-      if (sectionRef === undefined) return { document, content };
-      const found = documentSection(content, sectionRef);
-      if (!found) {
-        const headings = documentOutline(content)
-          .map((heading) => `${'#'.repeat(heading.level)} ${heading.anchor} — ${heading.text}`)
-          .join('\n');
-        throw new TeamToolError(
-          'invalid',
-          `document_section_not_found: ${ref.slug} has no section "${sectionRef}". ` +
-            `Its sections (anchor — heading):\n${headings || '(no headings)'}`,
-        );
-      }
-      return { document, content: found.content, section: found.heading };
-    });
+    return this.run(ctx, 'read_document', ({ viewer }) =>
+      readDocumentCall(this.documents, ctx.projectKey, viewer, args),
+    );
   }
 
   writeDocument(
     ctx: ToolContext,
     args: WriteDocumentArgs,
   ): Promise<{ document: DocumentSummary; created: boolean }> {
-    return this.run(ctx, 'write_document', async ({ viewer, by }) => {
-      const { message } = args;
-      if (args.slug === undefined) {
-        if (args.title === undefined || args.content === undefined)
-          throw new TeamToolError('invalid', 'A new document needs a title and its markdown (content).');
-        const created = await this.documents.create(
-          ctx.projectKey,
-          viewer,
-          { title: args.title, content: args.content, message },
-          by,
-        );
-        const { content: _text, ...document } = created;
-        return { document, created: true };
-      }
-      if (args.baseVersion === undefined)
-        throw new TeamToolError(
-          'invalid',
-          'Editing needs base_version: the version you read (read_document / list_documents).',
-        );
-      if (args.title === undefined && args.content === undefined)
-        throw new TeamToolError('invalid', 'Give a new title, a new content, or both.');
-      const updated = await this.documents.update(
-        ctx.projectKey,
-        args.slug,
-        viewer,
-        {
-          ...(args.title !== undefined ? { title: args.title } : {}),
-          ...(args.content !== undefined ? { content: args.content } : {}),
-          message,
-        },
-        args.baseVersion,
-        by,
-      );
-      const { content: _text, ...document } = updated;
-      return { document, created: false };
-    });
+    return this.run(ctx, 'write_document', ({ viewer, by }) =>
+      writeDocumentCall(this.documents, ctx.projectKey, viewer, by, args),
+    );
   }
 
   documentHistory(ctx: ToolContext, args: { slug: string; limit?: number }): Promise<DocumentVersion[]> {

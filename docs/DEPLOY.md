@@ -657,6 +657,10 @@ An MCP client (an AI tool working for the owner) can use the same keys over MCP 
   `integrator_read_only`), and the member's session, decision and file tools are never offered.
   `super` and `read` keys use the same scope as over REST, and a `super` key's calls are audited as
   `mcp_<tool>`.
+- The project documents (PM-1232): `list_documents`, `read_document` and `document_history` with either key;
+  `write_document` (create, edit and rename, with a one-line reason and `base_version` for an edit) with a
+  `super` key only, `integrator_read_only` with a `read` key. There is no delete and no restore on `/mcp`.
+  The commit stands under the key holder's name; the history marks it as made through the integrator.
 - The member MCP, `/mcp/<token>`, is unchanged: for the agents on the same machine only.
 
 Client configuration (no secret in it; the key is read from the file above when the client starts):

@@ -238,7 +238,9 @@ function stageDetail(id: string, view: MapView): Detail {
             </ul>
           </Section>
         ) : null}
-        <EditLink hash="settings-pipeline">{t('howWeWork.stage.editPipeline')}</EditLink>
+        <EditLink section="pipeline" show={`stage:${id}`}>
+          {t('howWeWork.stage.editPipeline')}
+        </EditLink>
       </>
     ),
   };
@@ -477,7 +479,9 @@ function labelDetail(id: string, view: MapView): Detail {
             <p className={styles.mutedBlock}>{t('howWeWork.label.whereNone')}</p>
           )}
         </Section>
-        <EditLink hash="settings-labels">{t('howWeWork.label.edit')}</EditLink>
+        <EditLink section="labels" show={`label:${id}`}>
+          {t('howWeWork.label.edit')}
+        </EditLink>
       </>
     ),
   };

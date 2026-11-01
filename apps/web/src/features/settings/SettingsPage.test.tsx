@@ -609,11 +609,7 @@ describe('settings section editors', () => {
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
     const gate = lastConfigPatch(project.requests).pipeline!.stages[1]!.gate;
     expect(gate?.conditions).toEqual([{ type: 'has_label', label: 'qa-ok', when: 'code-review-ok' }]);
-    expect(
-      section.getByText(
-        t('settings.pipeline.gateHasLabelWhen', { label: 'QA rendben', when: 'Code review rendben' }),
-      ),
-    ).toBeTruthy();
+    expect(section.getByText(t('howWeWork.flow.when', { name: 'Code review rendben' }))).toBeTruthy();
 
     // Reopened, the editor shows the label; "every card" takes it away again.
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.edit') }));

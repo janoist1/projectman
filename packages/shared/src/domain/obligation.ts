@@ -20,6 +20,8 @@ export const ObligationKind = z.enum([
   'start',
   /** A scored card that waits for a developer whose limit reaches its points (PM-348, PM-1150): nobody holds the step. */
   'senior_wait',
+  /** The next step of any other open card (PM-1225): the `cardDuty` rule names who takes it, or the system step to kick. */
+  'next_step',
 ]);
 export type ObligationKind = z.infer<typeof ObligationKind>;
 
@@ -110,15 +112,16 @@ export const OBLIGATION_RUNGS: readonly ObligationRung[] = ['wake', 'tell_pm', '
 /**
  * The ladder of one row: the source's rungs without those that cannot be climbed. `wake` falls out
  * when nobody is responsible, `tell_pm` when there is no project manager to tell or the project manager
- * is the responsible (they were just reminded).
+ * is the responsible (they were just reminded). A row whose step the system itself runs (`kicks`) keeps
+ * `wake` without a responsible: the rung kicks that step again.
  */
 export function obligationRungsOf(
   rungs: readonly ObligationRung[],
-  who: { responsible: string | null; projectManager: string | null },
+  who: { responsible: string | null; projectManager: string | null; kicks?: boolean },
 ): ObligationRung[] {
   return rungs.filter((rung) =>
     rung === 'wake'
-      ? who.responsible !== null
+      ? who.responsible !== null || who.kicks === true
       : rung === 'tell_pm'
         ? who.projectManager !== null && who.projectManager !== who.responsible
         : true,

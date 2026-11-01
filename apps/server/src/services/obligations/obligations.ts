@@ -38,6 +38,7 @@ import { KeyedMutex, SYSTEM_ACTOR, newId } from '../../kernel';
 import type {
   ObligationAdmission,
   ObligationFixLimit,
+  ObligationKicks,
   ObligationPmNotices,
   ObligationRefinement,
   ObligationSessions,
@@ -74,6 +75,7 @@ interface ObligationsDeps {
   refinement: ObligationRefinement;
   fixLimit: ObligationFixLimit;
   startOffers: ObligationStartOffers;
+  kicks: ObligationKicks;
 }
 
 const keyOf = (kind: string, taskKey: string, responsible: string | null, subject: string): string =>
@@ -127,11 +129,12 @@ export class ObligationsService {
     this.memberQueue = deps.memberQueue;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
-    this.sources = obligationSources({
+    const sources = obligationSources({
       sessions: deps.sessions,
       refinement: deps.refinement,
       fixLimit: deps.fixLimit,
       startOffers: deps.startOffers,
+      kicks: deps.kicks,
       fixLimits: deps.ctx.repos.taskFixLimits,
       decidingAtDesk: (projectKey, taskKey, member) =>
         deps.ctx.repos.memberQueue
@@ -162,9 +165,12 @@ export class ObligationsService {
           .listOfTypes(projectKey, taskKey, ['task_created'], 1)
           .some((event) => event.createdAt === since && event.data.imported === true),
     });
-    this.sources.push(
+    // The `next_step` source is last (it reads what the others cover), so the Senior wait goes before it.
+    this.sources = [
+      ...sources.slice(0, -1),
       seniorWaitSource({ ctx: deps.ctx, inbox: deps.inbox, timeline: deps.timeline, tasks: deps.tasks }),
-    );
+      ...sources.slice(-1),
+    ];
   }
 
   /** Where the second rung goes: the project manager's operator signal (wired by the assembly). */
@@ -235,22 +241,32 @@ export class ObligationsService {
       }))
         tasks.set(part.key, part);
     const waits = this.taskWaits.of(config, [...tasks.values()].filter(isOpenTask), null, isObligationTodo);
-    const view: ProjectView = { config, tasks, waits, live };
-    // What each kind says is open now; a kind that cannot be read leaves its rows alone.
+    const pending = this.ctx.repos.inbox
+      .list(projectKey, { state: PENDING_INBOX_STATES })
+      .filter((item) => !isObligationTodo(item));
+    const openItems = new Map<string, InboxItem[]>();
+    for (const item of pending)
+      if (item.taskKey) openItems.set(item.taskKey, [...(openItems.get(item.taskKey) ?? []), item]);
+    const view: ProjectView = { config, tasks, waits, openItems, live };
+    // What each kind says is open now; a kind that cannot be read leaves its rows alone. The cards another
+    // kind has a step or a live row on are covered: `next_step`, the last source, opens rows on the rest.
     const derived = new Map<string, DerivedObligation & { kind: ObligationKind }>();
     const unreadable = new Set<ObligationKind>();
+    const covered = new Set(live.filter((row) => row.kind !== 'next_step').map((row) => row.taskKey));
     for (const source of this.sources) {
-      const found = source.derive(view);
+      const found = source.derive(view, covered);
       if (found === null) unreadable.add(source.kind);
       else
-        for (const d of found)
+        for (const d of found) {
           derived.set(keyOf(source.kind, d.taskKey, d.responsible, d.subject), { ...d, kind: source.kind });
+          covered.add(d.taskKey);
+        }
     }
     const keys = new Set<string>([
       ...[...derived.values()].map((d) => d.taskKey),
       ...view.live.map((row) => row.taskKey),
     ]);
-    const humanItems = this.humanItemsByCard(projectKey, config);
+    const humanItems = this.humanItemsByCard(config, pending);
     for (const taskKey of keys) {
       try {
         await this.cards.run(`${projectKey}:${taskKey}`, () =>
@@ -280,10 +296,10 @@ export class ObligationsService {
    * An item of a person about the very card (an owner's alert, a question) does: the person has it, so the
    * clock stands still until they have dealt with it.
    */
-  private humanItemsByCard(projectKey: string, config: ProjectConfig): Map<string, InboxItem[]> {
+  private humanItemsByCard(config: ProjectConfig, pending: readonly InboxItem[]): Map<string, InboxItem[]> {
     const byCard = new Map<string, InboxItem[]>();
-    for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
-      if (!item.taskKey || isObligationTodo(item) || isInformationalAlert(item)) continue;
+    for (const item of pending) {
+      if (!item.taskKey || isInformationalAlert(item)) continue;
       if (item.kind === 'question' && item.payload.groupWithdrawn === true) continue;
       if (!item.assignees.some((handle) => memberOf(config, handle)?.kind === 'human')) continue;
       const list = byCard.get(item.taskKey) ?? [];
@@ -416,6 +432,7 @@ export class ObligationsService {
         responsible: row.responsible,
         // Without a way to tell the project manager the rung falls out too.
         projectManager: this.pmNotices ? (coordinationMemberOf(view.config)?.handle ?? null) : null,
+        kicks: !!source.kicks?.(row, view),
       }),
     );
     switch (step.kind) {
@@ -475,8 +492,14 @@ export class ObligationsService {
     at: string,
     view: ProjectView,
   ): Promise<void> {
+    const source = this.sourceOf(row.kind);
+    // A system step that runs only on events is kicked, not reminded: its own path does it again.
+    if (source.kicks?.(row, view)) {
+      await this.kick(row, source, minutes, dueAt, at, view);
+      return;
+    }
     const responsible = row.responsible;
-    const text = this.sourceOf(row.kind).wakeText?.(row, minutes, minutesBetween(row.openedAt, at), view);
+    const text = source.wakeText?.(row, minutes, minutesBetween(row.openedAt, at), view);
     // A kind without a reminder (or a step with no responsible) never climbs this rung; see `rungs`.
     if (text === undefined || responsible === null) throw new Error(`no reminder for ${row.kind}`);
     const ai = memberOf(view.config, responsible)?.kind === 'ai';
@@ -520,6 +543,42 @@ export class ObligationsService {
       this.ctx.logger.warn(
         { err, obligationId: row.id, taskKey: row.taskKey },
         'could not send an obligation reminder',
+      );
+    }
+  }
+
+  /** The `wake` rung of a system step: written first like the reminder, then the step's own path runs again. */
+  private async kick(
+    row: Obligation,
+    source: ObligationSource,
+    minutes: number,
+    dueAt: string,
+    at: string,
+    view: ProjectView,
+  ): Promise<void> {
+    this.ctx.unitOfWork(() => {
+      this.ctx.repos.obligations.update(row.id, { wokenAt: at, dueAt }, at);
+      this.timeline.append({
+        projectKey: row.projectKey,
+        taskKey: row.taskKey,
+        actor: SYSTEM_ACTOR,
+        type: 'obligation_woken',
+        data: {
+          obligationId: row.id,
+          kind: row.kind,
+          responsible: row.responsible,
+          subject: row.subject,
+          openedAt: row.openedAt,
+          minutes,
+        },
+      });
+    });
+    try {
+      await source.kick?.(row, view);
+    } catch (err) {
+      this.ctx.logger.warn(
+        { err, obligationId: row.id, taskKey: row.taskKey },
+        'could not kick the step of an obligation',
       );
     }
   }
@@ -575,7 +634,6 @@ export class ObligationsService {
     // The source wrote the hand-over and its record itself.
     if (result === 'settled') return;
     const responsible = row.responsible;
-    if (responsible === null) throw new Error(`${row.kind} has no responsible to hand over from`);
     const decision = result ?? null;
     const decisionItem = decision ? this.ctx.repos.inbox.get(decision.decisionItemId) : null;
     if (decision && !decisionItem) throw new Error(`missing hand-over decision ${decision.decisionItemId}`);

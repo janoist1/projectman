@@ -1311,6 +1311,13 @@ export function createDomain(opts: DomainOptions) {
     refinement,
     fixLimit,
     startOffers: { stateOf: (projectKey, taskKey) => startRound.offerState(projectKey, taskKey) },
+    kicks: {
+      refinement: (projectKey, taskKey) => refinement.changed({ projectKey, key: taskKey }),
+      advance: async (projectKey, taskKey) => {
+        const task = tasks.find(projectKey, taskKey);
+        if (task) await autoAdvance.check(task);
+      },
+    },
     sessions: {
       atWork: (sessionId) => {
         const session = sessions.find(sessionId);

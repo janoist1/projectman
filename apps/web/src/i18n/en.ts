@@ -1970,6 +1970,7 @@ export const en = {
           work: 'Work',
           start: 'Start',
           senior_wait: 'Waiting for a suitable developer',
+          next_step: 'Next step',
         },
       },
       pause: {
@@ -3312,6 +3313,7 @@ export const en = {
       work: 'work',
       start: 'start',
       senior_wait: 'Senior wait',
+      next_step: 'next step',
       step: 'step',
     },
     refinement: {

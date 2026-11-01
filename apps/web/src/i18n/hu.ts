@@ -3178,6 +3178,7 @@ export const hu = {
           work: 'Munka',
           start: 'Indítás',
           senior_wait: 'Alkalmas fejlesztőre vár',
+          next_step: 'Következő lépés',
         },
       },
       pause: {
@@ -5662,6 +5663,7 @@ export const hu = {
       work: 'munka',
       start: 'indítás',
       senior_wait: 'Senior-várakozás',
+      next_step: 'következő lépés',
       step: 'lépés',
     },
     refinement: {

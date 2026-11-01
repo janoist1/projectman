@@ -306,6 +306,8 @@ function obligationStep(kind: string | null): string {
       return 'work';
     case 'start':
       return 'start';
+    case 'next_step':
+      return 'next step';
     default:
       return 'step';
   }

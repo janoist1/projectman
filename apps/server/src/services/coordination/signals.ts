@@ -88,14 +88,16 @@ const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
 ]);
 
 /**
- * The kinds of the stall detectors PM-1152 removed: nothing raises them any more, so an open row an older build
- * left is resolved by the sweep (state, event and the questions asked about it, as for any ended case).
+ * The kinds of the stall detectors PM-1152 and PM-1226 removed: nothing raises them any more (the `next_step`
+ * obligation ladder carries those stalls), so an open row an older build left is resolved by the sweep (state,
+ * event and the questions asked about it, as for any ended case).
  */
 const RETIRED_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
   'idle',
   'merge_waiting',
   'ready_waiting',
   'refinement_stalled',
+  'nobody',
 ]);
 
 /** The card events of a member that prove a step of work (PM-694); an incoming message, a transition and a question do not. */
@@ -116,7 +118,7 @@ const CARD_EVENTS_READ = 300;
 const REBOUND_PREFIX = 'rebound:';
 
 const WAKE_NEVER =
-  "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent, outage or nobody signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human; a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
+  "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human; a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
 const WAKE_ONE_MESSAGE =
   'Send the owners one message for the whole wake-up (send_message with signal_ids, excluding structural_pattern and milestone_closed; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
 const WAKE_STRUCTURAL =
@@ -627,13 +629,6 @@ export class OperatorSignals {
           subject: milestone.eventId,
         });
     }
-    for (const [taskKey, wait] of reads.waits) {
-      if (wait?.reason !== 'nobody') continue;
-      const task = cards.find((t) => t.key === taskKey)!;
-      const caseKey = `nobody:${task.key}:${task.stageId}`;
-      active.add(caseKey);
-      this.raise({ projectKey: key, kind: 'nobody', caseKey, taskKey, subject: task.stageId });
-    }
     for (const task of cards) {
       const reason = this.startBlockedReason(task);
       if (!reason) {
@@ -682,10 +677,7 @@ export class OperatorSignals {
       if (signal.kind === 'outage' && outages !== null && !outages.has(signal.subject ?? ''))
         this.resolve(key, signal.caseKey);
       if (
-        (signal.kind === 'nobody' ||
-          signal.kind === 'silent' ||
-          signal.kind === 'start_blocked' ||
-          BOARD_KINDS.has(signal.kind)) &&
+        (signal.kind === 'silent' || signal.kind === 'start_blocked' || BOARD_KINDS.has(signal.kind)) &&
         !active.has(signal.caseKey)
       )
         this.resolve(key, signal.caseKey);
@@ -960,7 +952,7 @@ export class OperatorSignals {
     structural = this.lazyStructuralEvaluation(config),
   ): boolean {
     if (structuralKind(s.kind)) return (structural()?.facts(s) ?? null) !== null;
-    const { ctx, taskWaits } = this.deps;
+    const { ctx } = this.deps;
     if (s.kind === 'loop_suspected') {
       const facts = LoopTriageFacts.parse(JSON.parse(s.subject!));
       const loop = ctx.repos.taskLoops.get(facts.loopId);
@@ -973,15 +965,6 @@ export class OperatorSignals {
       );
     }
     if (BOARD_KINDS.has(s.kind)) return board().has(s.caseKey);
-    if (s.kind === 'nobody') {
-      const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
-      return (
-        !!task &&
-        !!config &&
-        task.stageId === s.subject &&
-        taskWaits.ofCard(config, task)?.reason === 'nobody'
-      );
-    }
     if (s.kind === 'start_blocked') {
       const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
       return !!task && (this.startBlockedReason(task) === s.subject || this.startAttemptRunning(task));

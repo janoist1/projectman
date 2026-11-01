@@ -222,8 +222,8 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   machine-dependent is added.
 
 - **System signals** (PM-476, migration 50, `services/coordination/signals.ts`). Provider/engine outages,
-  cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
-  create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.
+  input stalls and working sessions silent for 30 minutes
+  create one signal per unresolved case (a card nobody can take on is not a signal any more, PM-1226: see below). A 60-second sweep and domain events reconcile the sources.
   The sweep checks `WorkOutages.activeIds` only after its first evaluation (`null` means not yet observed),
   so startup card events cannot resolve an outage before provider checks finish. An acknowledged alert followed by a restart cannot
   leave a recovered outage signal unresolved and suppress the next episode of the same outage id.
@@ -249,7 +249,12 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   former detectors (`idle`, `merge_waiting`, `ready_waiting` with its in-memory stall clock and the owner
   `work_stalled` alert, and the `refinement_stalled` event branch) are gone; their kinds stay in the union
   only so old rows and timeline events keep rendering, and nothing opens a new row of them (the sweep
-  resolves an open row an older build left, with the questions asked about it; migration 132 leaves them to it). The Operator
+  resolves an open row an older build left, with the questions asked about it; migration 132 leaves them to it).
+  The `nobody` signal (a card whose `TaskWaits` reason is `nobody`) went the same way in PM-1226 and is in
+  `RETIRED_KINDS` too: the `next_step` obligation kind (PM-1221, PM-1225) follows every open card by the rule
+  `cardDuty`, and the project manager gets such a card (class `unowned`) as the `wake`/`tell_pm` rungs of that
+  ladder, not as a second signal. `ARCHITECTURE.md`, "Obligation tracking", holds the principle (an event only
+  speeds things up, the once-a-minute sweep over the board is what is relied on). The Operator
   may use `dismiss_signal { signal_id, note }` without an owner request at every watch level, for a
   delivered, unpresented, still valid `obligation_overdue`, `structural_pattern` or `milestone_closed`
   signal and outside guest conversations. It stores the reason in `decision_note` (migration 59, outside

@@ -121,7 +121,7 @@ describe('merge_blocked signal', () => {
     await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
     later(24 * 60);
     await sweep();
-    for (const kind of ['idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled'] as const)
+    for (const kind of ['idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled', 'nobody'] as const)
       expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind)).toEqual([]);
   });
 
@@ -150,10 +150,11 @@ describe('merge_blocked signal', () => {
     h.repos.operatorSignals.insert(row('ops_idle', 'idle', 'pending'));
     h.repos.operatorSignals.insert(row('ops_ready', 'ready_waiting', 'open'));
     h.repos.operatorSignals.insert(row('ops_stalled', 'refinement_stalled', 'open'));
+    h.repos.operatorSignals.insert(row('ops_nobody', 'nobody', 'open'));
     h.repos.operatorSignals.insert(row('ops_old', 'merge_waiting', 'resolved'));
     await sweep();
     const byId = (id: string) => h.repos.operatorSignals.get(id)!;
-    for (const id of ['ops_idle', 'ops_ready', 'ops_stalled']) {
+    for (const id of ['ops_idle', 'ops_ready', 'ops_stalled', 'ops_nobody']) {
       expect(byId(id).state).toBe('resolved');
       expect(byId(id).resolvedAt).not.toBeNull();
     }

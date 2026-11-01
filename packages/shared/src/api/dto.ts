@@ -209,9 +209,9 @@ export const OPERATOR_SILENT_WORK_MINUTES = 30;
 /** A merge on the default branch that stood unreleased this long opens an `unreleased` signal (PM-1201). */
 export const OPERATOR_UNRELEASED_HOURS = 24;
 /**
- * `idle`, `merge_waiting`, `ready_waiting` and `refinement_stalled` are no longer raised (PM-1152: the
- * obligation ladder watches those stalls, its project manager rung is `obligation_overdue`); they stay in
- * the enum for the rows that exist.
+ * `idle`, `merge_waiting`, `ready_waiting`, `refinement_stalled` and `nobody` are no longer raised (PM-1152,
+ * PM-1226: the obligation ladder watches those stalls, its project manager rung is `obligation_overdue`);
+ * they stay in the enum for the rows that exist.
  */
 export const OperatorSignalKind = z.enum([
   'loop_suspected',

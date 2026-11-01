@@ -1542,12 +1542,37 @@ in the same unit of work; the signal follows the usual delivery rules and is res
 once the obligation is no longer open); the third makes one integrator todo (`obligation_handed_over`,
 `core/inbox` `openIntegratorTodo`). With `wake` on the ladder but no `tell_pm` the gap before the hand-over
 is two steps, so the time to a human stays the same. The former `idle`, `merge_waiting`, `ready_waiting` and
-`refinement_stalled` signal detectors and the owner `work_stalled` alert are gone. Activity of the responsible moves the
+`refinement_stalled` signal detectors and the owner `work_stalled` alert are gone, and so are (PM-1226) the `nobody`
+operator signal and the owner `parts_left` alert of `LeftParts` (see "Every open card has a next step" below).
+Activity of the responsible moves the
 deadline; a person's open question, a held card, a pending permission and a refused start (team paused,
 engine offline, `PAUSING_REFUSALS`) stop the clock and a resume restarts it. A restart, a double sweep and
 a crash between the todo and the row write repeat nothing: the rows hold the clock and the todo is found
 again through its `payload.obligation`. The system never merges, decides or sets a label. The hub job
 `obligations` runs the sweep at start-up and every minute.
+
+**Every open card has a next step (PM-1221, `cardDuty` and `next_step`).** The principle is watch + resync: an
+event only speeds things up, the sweep that runs every minute over the whole board is what is relied on. The pure
+rule `cardDuty` (`packages/shared/src/config/card-duty.ts`) classifies every open card, from its `TaskWait`, into
+exactly one class: `active` (someone works on it), `member` (one AI member's step), `person` (a person's step: a
+legitimate wait), `hold` (a legitimate wait that nobody acts on now; the closed list `CardHoldCode`),
+`system` (`refinement`, `advance`, `start`, `start_retry`) or `unowned` (the project manager's). The
+`switch` is exhaustive and `cardStateSpace` (the same package) generates the states the completeness test walks, so
+a new wait reason or state that falls into `unowned` fails the test until someone lists it on purpose. The
+`next_step` obligation kind (`nextStepSource`, the last of `obligationSources`) opens a row on every `member`,
+`unowned` and `system` card that no other kind covers (`covered`: the six older sources keep their finer rules and
+texts); its responsible is the member, the project manager (`unowned`) or nobody (`system`). It climbs the same
+ladder. For the system steps that run only on an event (refinement, automatic move on) the `wake` rung is a kick
+(`kicks`/`kick`: `Refinement.changed`, `AutoAdvance.check`) instead of a reminder. So a card that no event
+carried on any more (a restart, another path, a new state) is still picked up within the ladder's time. The
+following event detectors stay as fast paths and need no change: `AutoAdvance`, `Refinement`, `notifyHandOn`, the
+member queue's events, `holdsOpenWork` and the `LeftParts` reminder to the member who created the parts at the end
+of their turn. The duplicate watchers were retired (PM-1226): the `nobody` operator signal (it joined
+`RETIRED_KINDS` in `signals.ts`; the sweep closes an open row an older build left, with the questions asked about
+it, and the project manager gets the same card as a `next_step` wake-up of the `unowned` class) and the owners'
+`parts_left` alert of `LeftParts` (no `alert: 'parts_left'` item is created any more; the old items and the
+`task_parts_left` events, `alerted` phase included, keep rendering, and an open old alert still closes when its
+parts are taken out). Timeline events are append-only, so nothing of the old trace is lost.
 
 **Remote engine:** everything runs on the hub. The reminder goes through `Messaging` and `ensureSession`,
 whose start takes the engine path as any message; an engine that is offline is a `start_refused` pause of

@@ -20,6 +20,6 @@ export function partsLeftText(input: PartsLeftText): string {
     `You broke ${parentKey} down, and ${parts.length} of its parts ${parts.length === 1 ? 'is' : 'are'} still in ${firstStage}, where nobody starts ${parts.length === 1 ? 'it' : 'them'}: ${list}.`,
     `Take each one out now: add the labels the gates up to ${target} ask for, with their reasons, and move it to ${target} with update_task; or, if it cannot start yet, add \`${refineLabel}\` and write in its description what it lacks.`,
     `Give their order as prerequisite relations, then note on ${parentKey} where each part went.`,
-    'You are told this once; if they are still left after this turn, the owner is told.',
+    'You are told this once; a part left in the first stage is followed by the next-step reminders of the card.',
   ].join('\n');
 }

@@ -1897,7 +1897,7 @@ describe('system prompt', () => {
             level === 'report' ? 'On a signal you never merge' : 'Apart from the step a signal names',
           );
           expect(operator).toContain(
-            'When a stalled, silent, outage, nobody or start_blocked signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and its owner_topic.',
+            'When a stalled, silent, outage or start_blocked signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and its owner_topic.',
           );
           expect(operator).not.toContain('always goes to the owners');
           expect(operator).toContain('at most one message per wake-up');

@@ -548,14 +548,16 @@ export const RelationCheckAlert = z.object({
 });
 export type RelationCheckAlert = z.infer<typeof RelationCheckAlert>;
 
-/** `parts_left` (PM-480): parts of card `taskKey` that `member` created are still left in the first stage after a reminder. */
-export const PartsLeftAlert = z.object({
+/**
+ * `parts_left` (PM-480): parts of card `taskKey` that `member` created are still left in the first stage after a
+ * reminder. Nothing opens one any more (PM-1226); the payload stays so the items already stored still parse and render.
+ */
+const PartsLeftAlert = z.object({
   alert: z.literal('parts_left'),
   taskKey: TaskKey,
   member: MemberHandle,
   parts: z.array(TaskKey).min(1),
 });
-export type PartsLeftAlert = z.infer<typeof PartsLeftAlert>;
 
 /** `feedback_forwarded` (PM-506): the processor passed feedback mark `markId` of `author` on to the owners with a `reason`. */
 export const FeedbackForwardedAlert = z.object({

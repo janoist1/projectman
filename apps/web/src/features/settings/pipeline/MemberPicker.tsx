@@ -50,11 +50,15 @@ export function MemberPicker({
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  const popover = useRef<HTMLDivElement>(null);
   const listId = useId();
   const found = useMemo(() => candidates.filter((member) => matches(member, query)), [candidates, query]);
   const current = Math.min(active, Math.max(0, found.length - 1));
   useEffect(() => {
-    if (open) search.current?.focus();
+    if (!open) return;
+    search.current?.focus();
+    // The list drops down inside a scrolling panel: bring all of it into view.
+    popover.current?.scrollIntoView?.({ block: 'nearest' });
   }, [open]);
   if (candidates.length === 0)
     return <p className={styles.allChosen}>{t('settings.pipeline.edit.memberAllChosen')}</p>;
@@ -108,7 +112,7 @@ export function MemberPicker({
         {t('settings.pipeline.edit.addMember')}
       </button>
       {open ? (
-        <div className={styles.popover}>
+        <div ref={popover} className={styles.popover}>
           <input
             ref={search}
             type="search"

@@ -1,6 +1,7 @@
 import {
   OBLIGATION_RUNGS,
   canAutomaticallyStartTask,
+  cardDuty,
   coordinationMemberOf,
   developmentStage,
   isOpenTask,
@@ -13,6 +14,8 @@ import {
   stepResult,
 } from '@projectman/shared';
 import type {
+  CardDuty,
+  InboxItem,
   Obligation,
   ObligationKind,
   ObligationRung,
@@ -21,9 +24,11 @@ import type {
   Task,
   TaskWait,
 } from '@projectman/shared';
+import { describeTaskWait } from '../../agent-text';
 import type { Repositories } from '../../db';
 import type {
   ObligationFixLimit,
+  ObligationKicks,
   ObligationRefinement,
   ObligationSessions,
   ObligationStartOffers,
@@ -34,6 +39,8 @@ export interface ProjectView {
   config: ProjectConfig;
   tasks: ReadonlyMap<string, Task>;
   waits: ReadonlyMap<string, TaskWait | null>;
+  /** The open inbox items of each card (the tracking's own todos left out), as the waits read them. */
+  openItems: ReadonlyMap<string, readonly InboxItem[]>;
   live: readonly Obligation[];
 }
 
@@ -64,14 +71,22 @@ export interface ObligationSource {
   minutesOf?(config: ProjectConfig): number;
   /** False: no hold on the card or the responsible stops the clock (true when absent). */
   pausable?: boolean;
-  /** The open steps of the project, or null when they cannot be read now (the rows then stay as they are). */
-  derive(project: ProjectView): ReadonlyArray<DerivedObligation> | null;
+  /**
+   * The open steps of the project, or null when they cannot be read now (the rows then stay as they are).
+   * `covered`: the cards on which another kind has a step or a live row already; only the `next_step` kind
+   * (the last source) reads it, to fill the gaps the other kinds leave.
+   */
+  derive(project: ProjectView, covered: ReadonlySet<string>): ReadonlyArray<DerivedObligation> | null;
   /** How a row that is not derived any more ended. */
   closedAs(row: Obligation, project: ProjectView): 'fulfilled' | 'cancelled';
   /** The row has just been closed (its card is the project's view of it): what the end of the step has to say or close. */
   onClosed?(row: Obligation, outcome: 'fulfilled' | 'cancelled', project: ProjectView): void;
   /** The one reminder to the responsible (English; `waited` minutes since the step began, `minutes` is N). A kind without the `wake` rung has none. */
   wakeText?(row: Obligation, minutes: number, waited: number, project: ProjectView): string;
+  /** Whether the step is one the system runs itself: the `wake` rung kicks it again (`kick`) instead of reminding a member. */
+  kicks?(row: Obligation, project: ProjectView): boolean;
+  /** Runs the step of a row that `kicks` again, through its existing automatic path; it decides nothing. */
+  kick?(row: Obligation, project: ProjectView): Promise<void>;
   /**
    * Transfer a decision instead of opening a todo; null means it already ended, `'settled'` that the source
    * has written the row and its own record of the hand-over.
@@ -93,6 +108,7 @@ interface SourceDeps {
   refinement: ObligationRefinement;
   fixLimit: ObligationFixLimit;
   startOffers: ObligationStartOffers;
+  kicks: ObligationKicks;
   fixLimits: Repositories['taskFixLimits'];
   /** Whether the member has the fix limit decision of the card in hand at its desk (a `processing` item of its queue, its session alive). */
   decidingAtDesk(projectKey: string, taskKey: string, member: string): boolean;
@@ -542,7 +558,118 @@ function startSource(deps: SourceDeps): ObligationSource {
   };
 }
 
-/** The open steps tracked by the common obligation clock. */
+/** The system steps that run only on events, and so can be kicked again. */
+const KICKED_STEPS: readonly string[] = ['refinement', 'advance'];
+
+/**
+ * The step of an open card that the `cardDuty` rule gives to a member, to the project manager (nobody
+ * could be named) or to the system, with who is responsible for it. The card's own class decides: a
+ * step somebody is working on, a person's step and an intended hold have no row.
+ */
+function nextStepOf(
+  project: ProjectView,
+  task: Task,
+): { duty: CardDuty; responsible: string | null; wait: TaskWait } | null {
+  const wait = project.waits.get(task.key);
+  if (!isOpenTask(task) || !wait) return null;
+  const duty = cardDuty({
+    task,
+    wait,
+    config: project.config,
+    openItems: project.openItems.get(task.key) ?? [],
+  });
+  switch (duty.kind) {
+    case 'member':
+      return { duty, responsible: duty.member, wait };
+    case 'unowned':
+      return { duty, responsible: coordinationMemberOf(project.config)?.handle ?? null, wait };
+    case 'system':
+      return { duty, responsible: null, wait };
+    default:
+      return null;
+  }
+}
+
+/**
+ * The next step of every open card that no other kind tracks (PM-1225): the `cardDuty` rule says who takes
+ * a card's step, and a card whose step belongs to a member, to the project manager (nobody could be named)
+ * or to the system has a row, so no open card stands without somebody who has to move it on. The other
+ * kinds keep their finer rules; this one fills the gaps they leave. The rung `wake` of a system step that runs
+ * only on events (refinement, automatic move on) kicks that step again; the start steps are repeated by the
+ * admission cycle already.
+ */
+function nextStepSource(deps: SourceDeps): ObligationSource {
+  const dutyOf = (row: Obligation, project: ProjectView) => {
+    const task = project.tasks.get(row.taskKey);
+    return task ? nextStepOf(project, task) : null;
+  };
+  const waitedFor = (row: Obligation, project: ProjectView): string => {
+    const wait = project.waits.get(row.taskKey);
+    return wait ? `Waiting: ${describeTaskWait(wait)}` : 'It waits for its next step.';
+  };
+  return {
+    kind: 'next_step',
+    derive(project, covered) {
+      const found: DerivedObligation[] = [];
+      for (const task of project.tasks.values()) {
+        if (covered.has(task.key)) continue;
+        const step = nextStepOf(project, task);
+        if (!step) continue;
+        // An imported card stands in its stage since its import: it was not handed over (as for the review step).
+        if (deps.importedEntry(task.projectKey, task.key, stageEntered(task))) continue;
+        found.push({
+          taskKey: task.key,
+          responsible: step.responsible,
+          subject: `${task.stageId}@${stageEntered(task)}`,
+          since: step.wait.since,
+          active:
+            step.responsible !== null &&
+            deps.sessions
+              .ofMember(task.projectKey, task.key, step.responsible)
+              .some((session) => session.running && session.atWork),
+        });
+      }
+      return found;
+    },
+    closedAs: (row, project) => {
+      const task = project.tasks.get(row.taskKey);
+      return !task || task.status === 'cancelled' ? 'cancelled' : 'fulfilled';
+    },
+    kicks: (row, project) => {
+      const duty = dutyOf(row, project)?.duty;
+      return duty?.kind === 'system' && KICKED_STEPS.includes(duty.step);
+    },
+    async kick(row, project) {
+      const duty = dutyOf(row, project)?.duty;
+      if (duty?.kind !== 'system') return;
+      if (duty.step === 'refinement') await deps.kicks.refinement(row.projectKey, row.taskKey);
+      else if (duty.step === 'advance') await deps.kicks.advance(row.projectKey, row.taskKey);
+    },
+    wakeText: (row, minutes, waited, project) => {
+      const pm = dutyOf(row, project)?.duty.kind === 'unowned';
+      return (
+        `projectman reminder: ${row.taskKey} has stood still for ${ago(waited)}. ${waitedFor(row, project)} ` +
+        (pm
+          ? `Nobody else can be named to take its next step, so it is yours: see that it gets a responsible member or moves on. `
+          : `The next step is yours: carry it out, or say with the reason why you cannot. `) +
+        `${followUp(row, minutes, project)}${askHuman}`
+      );
+    },
+    todo: (row, _minutes, waited, project) => {
+      const where = `${row.taskKey}, stage ${stageIdOf(row)}`;
+      const expected = `${row.taskKey} moves on, or the member who can take its next step is named`;
+      if (row.responsible !== null)
+        return todoOf(row, waited, `carried out the next step of ${row.taskKey}`, where, expected);
+      const what = `Nobody carried out the next step of ${row.taskKey} for ${ago(waited)}. ${waitedFor(row, project)}`;
+      return { question: what, todo: { what, where, expected } };
+    },
+  };
+}
+
+/**
+ * The open steps tracked by the common obligation clock. `next_step` is last: it reads which cards the
+ * other kinds cover, so a source added after it (the Senior wait) goes before it (`ObligationsService`).
+ */
 export function obligationSources(deps: SourceDeps): ObligationSource[] {
   return [
     mergeSource(deps),
@@ -551,5 +678,6 @@ export function obligationSources(deps: SourceDeps): ObligationSource[] {
     workSource(deps),
     fixLimitSource(deps),
     startSource(deps),
+    nextStepSource(deps),
   ];
 }

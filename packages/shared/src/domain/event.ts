@@ -530,11 +530,11 @@ export interface TimelineEventData {
   };
   /** A question of `asker` went to the people with no Operator outcome (PM-556). */
   question_screening_skipped: { inboxItemId: string; asker: string; reason: 'timeout' | 'unavailable' };
-  /** The system reminded `responsible` of an open step once (PM-806, actor system); `minutes` is the deadline length. */
+  /** The system reminded `responsible` of an open step once (PM-806, actor system); `minutes` is the deadline length. No responsible (PM-1225): the system kicked its own step again. */
   obligation_woken: {
     obligationId: string;
     kind: ObligationKind;
-    responsible: MemberHandle;
+    responsible: MemberHandle | null;
     subject: string;
     openedAt: string;
     minutes: number;
@@ -559,7 +559,7 @@ export interface TimelineEventData {
   obligation_handed_over: {
     obligationId: string;
     kind: ObligationKind;
-    responsible: MemberHandle;
+    responsible: MemberHandle | null;
     subject: string;
     openedAt: string;
     minutes: number;

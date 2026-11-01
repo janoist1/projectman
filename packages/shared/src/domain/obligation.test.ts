@@ -205,6 +205,12 @@ describe('obligationRungsOf', () => {
     ]);
   });
 
+  test('keeps the reminder of a step that kicks the system when nobody is responsible', () => {
+    expect(obligationRungsOf(full, { responsible: null, projectManager: 'pm', kicks: true })).toEqual([
+      ...full,
+    ]);
+  });
+
   test('drops the word to the project manager when there is none', () => {
     expect(obligationRungsOf(full, { responsible: 'dev', projectManager: null })).toEqual([
       'wake',

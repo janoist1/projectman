@@ -534,6 +534,31 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       });
     });
 
+    it('wakes the assignee and starts the session although a queued item of theirs does not wake (PM-1212)', async () => {
+      const key = await openWork();
+      h.repos.memberQueue.insert({
+        id: 'mqi_probe',
+        projectKey: 'AR',
+        member: 'dev-1',
+        kind: 'message',
+        source: { type: 'message', id: 'msg_probe' },
+        place: { type: 'task', taskKey: key },
+        taskKey: key,
+        wake: false,
+        title: 'probe',
+        from: null,
+        queuedAt: clock.toISOString(),
+      });
+      minutes(FIRST_EXPIRY);
+      await sweep();
+      expect(reminders(key)).toMatchObject([{ member: 'dev-1', wake: true }]);
+      expect(
+        h.domain.sessions
+          .list('AR', { taskKey: key })
+          .some((s) => s.member === 'dev-1' && h.domain.sessions.isRunning(s.id)),
+      ).toBe(true);
+    });
+
     it('is not tracked while the assignee works on it from the start', async () => {
       await harness();
       const key = await create();
@@ -705,6 +730,127 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
       expect(rows(key).map((row) => row.kind)).toEqual(['refinement_turn']);
     });
+
+    /** PM-1225: the next step of an open card that no other kind follows. */
+    describe('next step', () => {
+      const overdueSignals = () =>
+        h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'obligation_overdue');
+      /** A part the analyst `ana` created and left in the first stage, with no `refine` label on it. */
+      const leftPart = async (adjust: (c: ProjectConfig) => void = refinery) => {
+        await harness(adjust);
+        const parent = await create();
+        const part = await h.domain.tasks.create(
+          'AR',
+          { title: 'A part', parentKey: parent },
+          aiActor('ana'),
+        );
+        await flush();
+        await stopSessions();
+        await sweep();
+        return part.key;
+      };
+
+      it('follows a part its creator left: the analyst is woken, the pm told, the work handed over', async () => {
+        const key = await leftPart();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: 'ana' }]);
+        await oneReminderOneTodo(key, 'ana', true);
+        expect(overdueSignals()).toMatchObject([{ taskKey: key }]);
+        expect(questionPayloadOf(todos()[0]!)).toMatchObject({
+          obligation: { kind: 'next_step', responsible: 'ana' },
+        });
+      });
+
+      it('makes the pm responsible when the creator of the part is away, and does not tell them again', async () => {
+        const key = await leftPart((c) => {
+          refinery(c);
+          const ana = c.team.members.find((m) => m.handle === 'ana')!;
+          if (ana.kind === 'ai') ana.onLeave = true;
+        });
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: 'pm' }]);
+        await oneReminderOneTodo(key, 'pm');
+        expect(events('obligation_pm_told')).toHaveLength(0);
+      });
+
+      /** A sweep, and another one long after: no row opens and nobody is reminded. */
+      const staysUnfollowed = async (key: string) => {
+        await sweep();
+        minutes(120);
+        await sweep();
+        expect(rows(key)).toEqual([]);
+        expect(reminders(key)).toHaveLength(0);
+        expect(todos()).toHaveLength(0);
+      };
+
+      it('opens no row for a card a person owns', async () => {
+        await harness(refinery);
+        const key = await create();
+        await flush();
+        await stopSessions();
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { status: 'blocked' });
+        await staysUnfollowed(key);
+      });
+
+      it('opens no row for a card parked in the backlog', async () => {
+        await harness(refinery);
+        const key = await create();
+        await flush();
+        await stopSessions();
+        await staysUnfollowed(key);
+      });
+
+      it('opens no row for a card that holds back for an open prerequisite', async () => {
+        await harness();
+        const first = await create('The prerequisite');
+        const key = await create('Waits');
+        await h.domain.tasks.update(
+          'AR',
+          key,
+          { relations: { add: [{ kind: 'prerequisite', key: first }] } },
+          OWNER_ACTOR,
+        );
+        await flush();
+        await stopSessions();
+        await staysUnfollowed(key);
+      });
+
+      it('opens a row with no responsible for a system step, and kicks the refinement at the first deadline', async () => {
+        await harness(refinery);
+        const key = await create();
+        // `refine` with every label of the gates on: the refinement has only its own closing step left.
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { labels: ['refine', 'scope-ok'] });
+        await sweep();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        expect(events('obligation_woken')).toMatchObject([
+          { data: { kind: 'next_step', responsible: null } },
+        ]);
+        // The refinement ran again by itself: the card left the backlog and `refine` is off.
+        const task = h.domain.tasks.get('AR', key);
+        expect(task.stageId).not.toBe('backlog');
+        expect(task.labels).not.toContain('refine');
+        // The system sends no reminder to a member: the ladder goes on from the pm.
+        expect(reminders(key)).toHaveLength(0);
+      });
+
+      it('kicks the automatic advance of a step card whose next gate is met', async () => {
+        await harness();
+        const key = await create();
+        await h.domain.tasks.moveToStage('AR', key, 'code_review', OWNER_ACTOR);
+        await flush();
+        await stopSessions();
+        // The end of the session has its automatic look at the card; the labels come after it, as if it missed them.
+        await flush();
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { labels: ['code-review-ok', 'merge-ok'] });
+        await sweep();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        expect(events('obligation_woken')).toHaveLength(1);
+        expect(h.domain.tasks.get('AR', key).stageId).toBe('merge');
+        expect(reminders(key)).toHaveLength(0);
+      });
+    });
   });
 
   /** PM-809: the step of an AI owner of a `step` stage (the code review of the test project, owner `cr`). */
@@ -843,8 +989,9 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       minutes(120);
       await sweep();
       await sweep();
+      // The review step does not open again; what the card still waits for is the `next_step` row's, not a new review.
       expect(review(key)).toEqual([]);
-      expect(reminders(key).filter((m) => m.member === 'cr')).toHaveLength(0);
+      expect(reminders(key).filter((m) => m.source.type === 'obligation')).toHaveLength(1);
       expect(todos()).toHaveLength(0);
     });
 

@@ -4,16 +4,10 @@ import type { Pipeline, ProjectConfig, Stage } from '@projectman/shared';
 import { Button } from '../../../components/Button';
 import { MemberSelect } from '../../../components/MemberSelect';
 import { t } from '../../../i18n/t';
-import { slugId } from '../../../lib/ids';
 import shared from '../settings.module.css';
 
 /** Changes one stage of the draft. */
 export type StageUpdate = (update: (stage: Stage) => void) => void;
-
-/** Stage and column ids follow the config's 32-character, lowercase underscore format. */
-export function pipelineId(name: string, ids: string[]): string {
-  return slugId(name, ids, { separator: '_', maxLength: 32, letterPrefix: 'stage_' });
-}
 
 /** A stage's name, kind, board column and description. */
 export function StageFields({

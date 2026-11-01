@@ -17,6 +17,7 @@ import { DetailPanel, MissingSettingsElement } from '../DetailPanel';
 import type { SettingsShow } from '../selection';
 import { columnColor, needsOwner } from './flow';
 import styles from './PipelinePanel.module.css';
+import { StagePanel } from './StagePanel';
 
 const STAGE_KINDS: readonly StageKind[] = ['queue', 'work', 'step', 'release', 'done'];
 
@@ -29,9 +30,11 @@ interface PipelinePanelProps {
   legendOpen: boolean;
   onSelect(show: SettingsShow): void;
   onClose(): void;
+  /** A stage was saved (or a save undone) in the panel. */
+  onSaved(stageId: string): void;
 }
 
-/** The read-only details of the selected stage or column, or the legend while nothing is selected. */
+/** The selected stage (an editor for an admin) or column, or the legend while nothing is selected. */
 export function PipelinePanel({
   config,
   show,
@@ -39,6 +42,7 @@ export function PipelinePanel({
   legendOpen,
   onSelect,
   onClose,
+  onSaved,
 }: PipelinePanelProps) {
   const { key, can } = useProject();
   const map = useMemo(() => teamMap(config), [config]);
@@ -52,36 +56,50 @@ export function PipelinePanel({
   );
   if (target?.type === 'stage') {
     const entry = map.stages.find((candidate) => candidate.stage.id === target.id);
-    if (entry) {
+    // An admin's panel is the editor, which also keeps a draft whose stage was deleted meanwhile.
+    if (entry || can.manageTeam) {
       const cards = board.data
         ? board.data.tasks.filter((task) => !isTheme(task) && task.stageId === target.id).length
         : null;
-      return (
-        <DetailPanel
-          open
-          itemKey={`stage:${target.id}`}
-          kicker={t('settings.pipeline.kickerStage', { kind: t(`stageKinds.${entry.stage.kind}`) })}
-          title={entry.stage.name}
-          back={
-            fromHowWeWork ? (
-              <Link className={styles.back} to={`/p/${key}/how-we-work?show=stage:${target.id}`}>
-                {t('settings.pipeline.back')}
-              </Link>
-            ) : undefined
-          }
-          empty={empty}
-          onClose={onClose}
-        >
-          <StageDetail
+      const back = fromHowWeWork ? (
+        <Link className={styles.back} to={`/p/${key}/how-we-work?show=stage:${target.id}`}>
+          {t('settings.pipeline.back')}
+        </Link>
+      ) : undefined;
+      if (can.manageTeam)
+        return (
+          <StagePanel
+            key={target.id}
             config={config}
-            map={map}
-            entry={entry}
+            stageId={target.id}
             cards={cards}
-            canEdit={can.manageTeam}
-            onSelect={onSelect}
+            back={back}
+            empty={empty}
+            onClose={onClose}
+            onSaved={onSaved}
           />
-        </DetailPanel>
-      );
+        );
+      if (entry)
+        return (
+          <DetailPanel
+            open
+            itemKey={`stage:${target.id}`}
+            kicker={t('settings.pipeline.kickerStage', { kind: t(`stageKinds.${entry.stage.kind}`) })}
+            title={entry.stage.name}
+            back={back}
+            empty={empty}
+            onClose={onClose}
+          >
+            <StageDetail
+              config={config}
+              map={map}
+              entry={entry}
+              cards={cards}
+              canEdit={can.manageTeam}
+              onSelect={onSelect}
+            />
+          </DetailPanel>
+        );
     }
   }
   if (target?.type === 'column') {
@@ -125,12 +143,9 @@ export function PipelinePanel({
   );
 }
 
+/** Why a member cannot change this; an admin edits where the details are. */
 function Note({ canEdit }: { canEdit: boolean }) {
-  return (
-    <p className={styles.note}>
-      {canEdit ? t('settings.pipeline.adminNote') : t('settings.pipeline.memberNote')}
-    </p>
-  );
+  return canEdit ? null : <p className={styles.note}>{t('settings.pipeline.memberNote')}</p>;
 }
 
 function Field({ title, children }: { title: string; children: React.ReactNode }) {

@@ -16,6 +16,8 @@ export interface ToastOptions {
   items?: readonly ToastItem[];
   /** Stays until the person closes it: a result that has to be read (PM-121). */
   sticky?: boolean;
+  /** A button in the toast: it runs `run` and closes the toast. A toast with one stays at least 8 s. */
+  action?: { label: string; run(): void };
 }
 
 export interface ToastApi {

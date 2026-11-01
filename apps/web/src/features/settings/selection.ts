@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { LeaveGuardContext } from './edit/LeaveGuard';
 
 export type SettingsShow =
   | { type: 'stage' | 'column' | 'label'; id: string }
@@ -30,11 +31,16 @@ export function showParams(show: SettingsShow | null, from?: 'how-we-work'): URL
   return params;
 }
 
-/** Opening pushes a history entry; closing consumes it, or replaces a direct link. */
+/**
+ * Opening pushes a history entry; closing consumes it, or replaces a direct link. With an editor holding an
+ * unsaved change open, both first ask whether to drop it (`LeaveGuardProvider`); a Back step waiting for the
+ * answer still shows the element it came from.
+ */
 export function useSettingsSelection() {
   const location = useLocation();
   const navigate = useNavigate();
-  const params = new URLSearchParams(location.search);
+  const guard = useContext(LeaveGuardContext);
+  const params = new URLSearchParams(guard?.heldSearch ?? location.search);
   const show = parseShow(params);
   const from = params.get('from') === 'how-we-work' ? ('how-we-work' as const) : null;
   const closing = useRef<{ key: string; search: string } | null>(null);
@@ -54,27 +60,34 @@ export function useSettingsSelection() {
     show,
     from,
     open(next: SettingsShow) {
-      navigate(
-        { pathname: location.pathname, search: `?${showParams(next, from ?? undefined)}` },
-        {
-          state: {
-            ...location.state,
-            settingsSelection: history
-              ? { ...history, depth: history.depth + 1 }
-              : { depth: 1, key: location.key, search: clearedSearch(location.search) },
+      const go = () =>
+        navigate(
+          { pathname: location.pathname, search: `?${showParams(next, from ?? undefined)}` },
+          {
+            state: {
+              ...location.state,
+              settingsSelection: history
+                ? { ...history, depth: history.depth + 1 }
+                : { depth: 1, key: location.key, search: clearedSearch(location.search) },
+            },
           },
-        },
-      );
+        );
+      if (guard) guard.request(go);
+      else go();
     },
     close() {
-      if (history) {
-        closing.current = { key: history.key, search: history.search };
-        navigate(-history.depth);
-      } else {
-        const next = new URLSearchParams(location.search);
-        for (const key of ['show', 'after', 'from']) next.delete(key);
-        navigate({ pathname: location.pathname, search: next.toString() }, { replace: true });
-      }
+      const go = () => {
+        if (history) {
+          closing.current = { key: history.key, search: history.search };
+          navigate(-history.depth);
+        } else {
+          const next = new URLSearchParams(location.search);
+          for (const key of ['show', 'after', 'from']) next.delete(key);
+          navigate({ pathname: location.pathname, search: next.toString() }, { replace: true });
+        }
+      };
+      if (guard) guard.request(go);
+      else go();
     },
   };
 }

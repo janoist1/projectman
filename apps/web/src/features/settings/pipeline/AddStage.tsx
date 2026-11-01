@@ -2,9 +2,10 @@ import { useState } from 'react';
 import type { ProjectConfig, Stage } from '@projectman/shared';
 import { Button } from '../../../components/Button';
 import { t } from '../../../i18n/t';
+import { pipelineId } from '../../../lib/ids';
 import shared from '../settings.module.css';
 import styles from './AddStage.module.css';
-import { pipelineId, StageFields, StageOwners } from './StageFields';
+import { StageFields, StageOwners } from './StageFields';
 import type { StageUpdate } from './StageFields';
 
 /** A new stage: its fields, where it goes and who owns it. */

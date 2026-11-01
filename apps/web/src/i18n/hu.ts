@@ -5827,7 +5827,7 @@ export const hu = {
       task_stage_changed_parts_closed:
         'Lezárta: {from} → {to}, kapuk nélkül, mert minden alkártyája lezárult ({parts})',
       task_stage_changed_parts_closed_by:
-        'Lezárta: {from} → {to}, kapuk nélkül, mert minden alkártyája lezárult ({parts});{trigger} lezárása indította',
+        'Lezárta: {from} → {to}, kapuk nélkül, mert minden alkártyája lezárult ({parts}); {trigger} lezárása indította',
       task_stage_changed_branch_moved:
         'Visszaküldte a rendszer: {from} → {to}; az ág elmozdult az átadott commitról ({pinned}) erre: {head}',
       task_stage_changed_tests_failed:

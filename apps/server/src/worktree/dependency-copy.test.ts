@@ -40,6 +40,7 @@ beforeEach(() => {
   vi.mocked(execCommand).mockClear();
 });
 afterEach(async () => {
+  vi.useRealTimers();
   const actual = await vi.importActual<typeof import('../exec')>('../exec');
   vi.mocked(execCommand).mockImplementation(actual.execCommand);
   rmSync(root, { recursive: true, force: true });
@@ -107,6 +108,8 @@ describe('shared dependency tree copying', () => {
 
   it.each(['abort', 'timeout'])('waits for the copying child after %s and never falls back', async (kind) => {
     write(source, 'node_modules/pkg/index.js');
+    // Only the clock is fake: the deadline passes when the mocked child "runs" to it, never because the walk was slow.
+    vi.useFakeTimers({ toFake: ['Date'] });
     const controller = new AbortController();
     let stopped = false;
     vi.mocked(execCommand).mockImplementation((async (
@@ -118,15 +121,16 @@ describe('shared dependency tree copying', () => {
       await new Promise<void>((resolve) => {
         if (kind === 'abort')
           options.cancelSignal?.addEventListener('abort', () => resolve(), { once: true });
-        else setTimeout(resolve, options.timeoutMs);
+        else {
+          vi.setSystemTime(Date.now() + options.timeoutMs!);
+          resolve();
+        }
       });
       await new Promise((resolve) => setTimeout(resolve, 20));
       stopped = true;
       throw new Error('stopped');
     }) as unknown as typeof execCommand);
-    await expect(
-      copy({ signal: controller.signal, timeoutMs: kind === 'timeout' ? 10 : 1000, platform: 'darwin' }),
-    ).rejects.toThrow();
+    await expect(copy({ signal: controller.signal, timeoutMs: 1000, platform: 'darwin' })).rejects.toThrow();
     expect(stopped).toBe(true);
     expect(execCommand).toHaveBeenCalledTimes(1);
   });

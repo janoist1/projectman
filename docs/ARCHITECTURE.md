@@ -1,12 +1,15 @@
 # projectman — architecture
 
 projectman is a browser app that runs and tracks a team made of humans and AI members.
-AI members are real, interactive agent CLI sessions (Claude Code or OpenAI Codex) running
-on a human sponsor's subscription. The team works through a configurable pipeline of stages
+AI members are real, interactive agent CLI sessions (Claude Code, OpenAI Codex, Gemini or, through
+NanoGPT, open models; [PROVIDERS.md](PROVIDERS.md)) running on a human sponsor's subscription.
+The team works through a configurable pipeline of stages
 (for example development → code review → QA → client test → merge → release). Every step is
-attributed, and everything that waits for a human lands in one inbox ("Rád vár"). It runs on
-the owner's machine, reachable from a phone through Tailscale; [DEPLOY.md](DEPLOY.md) covers
-deployment and operation.
+attributed, and everything that waits for a human lands in one inbox ("Rád vár"). It runs as a
+cloud hub (board, database, accounts) and an engine on the owner's Mac (sessions, checkouts,
+tests); [HYBRID.md](HYBRID.md) describes that layout and [DEPLOY.md](DEPLOY.md) the operation
+and updates. The single-machine mode, where one process is both, is the way to try it out and
+the emergency way back.
 
 Documentation map:
 
@@ -18,9 +21,9 @@ Documentation map:
 | [DECISIONS.md](DECISIONS.md)                                               | what the owner decided and why (numbered, append-only)              |
 | [ROADMAP.md](ROADMAP.md)                                                   | what is built, what comes next, open questions for the owner        |
 | [LESSONS.md](LESSONS.md)                                                   | what building projectman taught us: challenges and lessons          |
-| [PROVIDERS.md](PROVIDERS.md)                                               | Claude Code and Codex: flags, hooks, permissions, login, plan usage |
+| [PROVIDERS.md](PROVIDERS.md)                                               | the providers: flags, hooks, permissions, login, plan usage         |
 | [design/labels.md](design/labels.md), [design/duties.md](design/duties.md) | labels and gates; roles as duty bundles (reference, built)          |
-| [design/phase2.md](design/phase2.md)                                       | the phase 2 proposal (meetings, retro loop, "Rendszer", notices)    |
+| [design/phase2.md](design/phase2.md)                                       | a postponed proposal (decision 37), kept as a reference only        |
 | [GITHUB.md](GITHUB.md), [SECURITY.md](SECURITY.md), [DEPLOY.md](DEPLOY.md) | GitHub integration; threat model and protections; server deployment |
 
 ## Hard constraints
@@ -71,7 +74,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   nothing on disk, and the agent's conversations keep their working directory. The task and
   session comparisons (assignee, `session.member`, bindings) use the current handle.
   **Renaming an AI member** (PM-1025) is an owner-only operation (REST `POST
-/api/projects/:key/members/:handle/rename`, the Operator's `member_rename` with an approval):
+/api/projects/:key/members/:handle/rename`):
   `MemberService.rename` holds the member's starts (`StartHolds`, `member_renaming`), refuses with
   `member_session_live` while a session, a held workspace reservation, a `processing` queue item or
   a deferred start of the member exists, and commits one configuration change carrying
@@ -83,7 +86,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   message to the old handle reaches the member, the context pack lists "formerly `x`"). The e-mail
   address is always `<handle>@<domain>` and follows the new handle (see "E-mail"). Humans have an **access level** (`owner`, `admin`, `developer`, `client`,
   `viewer`) that governs what they may do in the app, and may hold several roles. An AI
-  member holds exactly one role and has a provider (`claude` or `codex`), a model and effort,
+  member holds exactly one role and has a provider (`claude`, `codex`, `gemini` or `nanogpt`), a model and effort,
   an optional **cheap subagent** (PM-179: a Claude Code member's sessions get a `reader-<model>`
   subagent on Sonnet or Haiku, passed with `--agents`, for text-heavy, logic-light work; it has
   no rights of its own), a permission mode, a capacity, optional instructions, an optional **schedule** (cron in the
@@ -94,7 +97,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   sessions stop (their conversations stay, so a call-back resumes them), it is not picked or named
   as an assignee, a stage hand-over goes to another owner, and the messages for it wait.
 - **Duties and roles** (decision 16, [design/duties.md](design/duties.md)) — a fixed,
-  code-backed catalogue of 27 duties (implementation, code review, testing and acceptance,
+  code-backed catalogue of 29 duties (implementation, code review, testing and acceptance,
   release approval, …) defines who may hold them, the English prompt fragment an AI holder
   receives and its tool policy. A **role** is a named bundle of duties: 21 built-in roles with
   default bundles (`team.roleOverrides` replaces one) and custom roles defined in `team.yaml`.
@@ -215,8 +218,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   with `goneAt`/`goneBy` (`TeamMessage.attachments`, a JSON column; old rows have none), and
   publishes `team_message_updated`; it adds no timeline entry. The recipient's text carries the
   block `messageAttachmentLines` under the message (name quoted with `JSON.stringify`, SI sizes) in
-  single, batch and Operator info delivery. `read_message_attachment` judges visibility through the
-  calling AI member's eyes (a guest Operator conversation through the guest's) and answers an image
+  single, batch and project-manager info delivery. `read_message_attachment` judges visibility through the
+  calling AI member's eyes (a project-manager guest conversation through the guest's) and answers an image
   as an image (first frame, EXIF rotation applied, WebP of at most 1568 px, 1 500 000 bytes), a
   valid UTF-8 text of at most 100 000 bytes as text, and anything else by name, type and size.
 - **Work item and session** — every AI member works in a **fresh session per work item**:
@@ -252,7 +255,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   only log and preserve the hook decision; the prompt tells the member to run `npm ci` in its
   worktree when node_modules is missing or older than the lockfile (a routine step, PM-1112).
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
-  off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
+  the default is `task_worktree`) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
   clone (`--no-local`: its own `.git`, no shared objects, alternates or worktree link, no remote)
   with its own `cache/` and `tmp/`. A role that changes files works there on the task's branch: a
@@ -288,7 +291,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   from `runtime/permissions` (`unattended-commands`), so that a member writes them in
   a form that passes), the member's memory, and for tasks a kick-off brief (title,
   description, links, relations to other cards, attachments, recent timeline) sent as the first message.
-  The Operator's and the project manager's roles start with a short procedure/tool index; the full
+  The project manager's role starts with a short procedure/tool index; the full
   procedure is the optional `role` guide (PM-991, PM-992). The project manager's prompt keeps the
   signal level and its step budget, the never list, the screening limits and the report labels;
   the principles, signal, screening, feedback and routing procedures are in the guide.
@@ -304,11 +307,10 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   Tool definitions may declare an optional audience of roles (project manager,
   named merger) or duties (`mcp/kit.ts`, PM-973). `runtime/sessions` derives the member audience
   from the current project configuration for every stateless MCP request; registration keeps
-  tools with no audience or any matching role/duty. Since decision 66 (PM-1076) there is no Operator
-  audience that sees everything. This is list visibility only: handlers remain the permission authority. Tools whose access
+  tools with no audience or any matching role/duty. No role sees every tool. This is list visibility only: handlers remain the permission authority. Tools whose access
   depends on a particular request, decision maker or conversation remain visible unless a role/duty
   is also a necessary condition; further session/request checks stay in the handler.
-  External/super registration is unchanged.
+  The connected Claude's own tool list (`mcp/super-operator`) is registered separately.
   A client that caches its tool list sees new tools on the next session. Filtering runs on the
   server and adds no machine-dependent operation or remote-engine boundary.
   The context pack builds each guide from the same section builders as its short prompt index.
@@ -331,18 +333,18 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   parent). The others get `next_input` with `noWake: 'no_card_role'` in the send result, and no
   review round is requested of them. The role is checked again before every deferred start, and
   when a card gets its assignee the waiting messages of the new assignee wake them. People, the
-  integrator and `system` messages start anyone; a message about no card or a theme is not
+  connected-Claude (`via: 'integrator'`) and `system` messages start anyone; a message about no card or a theme is not
   limited.
-  PM-662: REST team-message sends, MCP `send_message` and Operator `start_member` check for
+  PM-662: REST team-message sends, MCP `send_message` and the project manager's `start_member` check for
   same-role workers before review rounds, repinning or recording anything. Only an action that
   is not held, is placed on this open non-theme card and reaches a running session or would wake
-  its recipient counts as joining. Project managers, Operators and existing card workers do not
+  its recipient counts as joining. Project managers and existing card workers do not
   join; the sender and the handoff's outgoing member are excluded from the other workers.
   Shared `cardBusyGroups` reports a collision with another worker or another joining recipient of
   the same role as 409 `card_busy` with `CardBusyDetails`. Sending again with `despiteWorkers: true`
-  (MCP `despite_workers`) confirms intentional parallel work. Other internal sends keep their
-  existing behavior. The web temporarily confirms every send until PM-663 adds its confirmation
-  dialog. All facts and checks stay on the server; no remote-engine boundary changes.
+  (MCP `despite_workers`) confirms intentional parallel work; the web asks for it in a
+  confirmation dialog (`CardBusyWarning`). Other internal sends keep their
+  existing behavior. All facts and checks stay on the server; no remote-engine boundary changes.
   AI messages wait in storage while the recipient works or waits for permission. At idle they
   reach it in one input, prefixed with the current card state, within the first-input size limit.
   PM-769 materializes only pending `(message_id, handle)` pairs in `team_message_pending`, indexed
@@ -467,8 +469,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   developers, optional `specialtyLabels` first restricts automatic assignment to cards carrying at
   least one matching label; explicit assignees remain unrestricted (PM-1038) unless the project sets
   `team.assigneeFit: automatic_and_ai` (PM-1136): then an AI actor's explicit assignee (`start_task`
-  `assignee`, `reassign_task` and every update that changes the assignee, the coordinator's super actor
-  included) must fit the card by the same predicate (`fitsCard`, via `assigneeFitRefusal` in `packages/shared`),
+  `assignee`, `reassign_task` and every update that changes the assignee, the project manager's
+  coordinator actor included) must fit the card by the same predicate (`fitsCard`, via `assigneeFitRefusal` in `packages/shared`),
   or the call fails with `assignee_unfit` (`assertAssigneeFits`, `core/tasks/assignee-fit.ts`; details: member,
   reason, points, limit). It does not apply to people and their own Claude, to an unscored card, to a card the
   owners released to any developer, or when no developer of the work stage reaches the points. Among matching free
@@ -519,10 +521,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   while a session is mid-turn on the card; a step is not handed out twice (its member's turn
   ending without the label raises one `stalled` alert). When every label is on, the system takes
   `refine` off and moves the card to the stage before development. Completion (`done`, PM-594)
-  sends a team message to the configured card mover, otherwise the project manager, otherwise
-  the Operator (`info` for a human, `action` for an AI member). Without a recipient, only the
-  `refinement_turn` timeline event remains. The project manager can start for this system message;
-  the Operator receives it with the owner's next message under the existing wake rule (PM-447/475).
+  sends a team message to the configured card mover, otherwise the project manager (`info` for a
+  human, `action` for an AI member). Without a recipient, only the
+  `refinement_turn` timeline event remains. The project manager can start for this system message.
   Legacy `done` alerts are cancelled at startup (`RefinementSteps.reconcile`) and when the card is
   next examined (`closeAlerts`). The shared `isInformationalAlert` predicate also excludes them
   from `taskWait`, so an acknowledgement never makes the card wait for their recipient.
@@ -544,6 +545,22 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   pipeline, labels, limits) is YAML in a separate git repository. Every change is a commit
   with author and reason; admins can revert to any version. Older configuration shapes are
   migrated on load (`apps/server/src/config`).
+
+### Code names
+
+Some identifiers kept the name of an earlier idea. They are not renamed, because tables, stored
+events, configuration keys and tool names carry them. The prose of every document says what the
+thing is today ("connected Claude", "project manager") and names the code name only in backticks,
+with a pointer to this table. One row per code name: what it is today, and what remains of it as old
+data.
+
+| Code name                                                                                                                                                                    | Today                                                                                                                                                                                          | What remains as old data                                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `integrator` (`integrator_keys`, `integratorExecution`, `via: 'integrator'`, `recipient: 'integrator'`, `integratorFixLimit`, Settings → Integrator)                         | The owner's connected Claude: an outside MCP client that acts with its own key and, for a queue item it issues or decides, as its key holder. The key is managed in Settings → Integrator.     | `via: 'integrator'` on old messages and events, the `integrator_keys` rows, the `integrator_timeout` reason of old `fix_limit_recipient_escalated` events.                                                                                                                                       |
+| `super` (`mcp/super-operator`, `services/super-operator`, `superActor`, `superDecision`, `isCoordinatorSuperActor`, `operatorMode: 'super'`)                                 | The origin of an action taken with the connected Claude's own key, or by the project manager acting as the selected coordinator. `mcp/super-operator` is the connected Claude's own tool list. | Inbox resolutions and old coordination steps carry the `superActor` and `operatorMode: 'super'` they were written with; an old super step keeps the rule it had.                                                                                                                                 |
+| `operator` (the handle, `ai_operator`, `RETIRED_OPERATOR_HANDLE`, `RETIRED_OPERATOR_ROLE`)                                                                                   | Nothing: a project has no Operator member and no channel for one (decision 66). The project manager coordinates, and the owner's connected Claude acts with its own key.                       | The handle `operator` stays taken (`members.takenHandles`), because old events, messages and request and step rows name it; the web shows it as the raw handle. The `removeOperator` configuration migration removed the member, its contacts, stage ownerships and `ai_operator` role override. |
+| `operator_*` tables and code (`operator_requests`, `operator_steps`, `operator_signals`, `operator_signal_arms`, `OperatorSignals`, `OperatorRequests`, `api/operator.ts`)   | The project manager's coordination: its signals, its owner-approved requests and their steps, and the channel the project manager answers on.                                                  | The rows and the `operator_*` event and origin names (for example `operator_knowledge_approval`) stay as they were written.                                                                                                                                                                      |
+| `team.operatorWatch`, `get_operator_preference`, `set_operator_preference`, `propose_operator_knowledge`, the `operator_knowledge` and `operator_structural_review` deciders | The signal watch setting (report, unblock, drive), the project manager's per-person style tools, the shared agreement and principles proposal, and the owner's structural-review decision.     | Stored configurations keep the `operatorWatch` key; old decision items keep their decider name.                                                                                                                                                                                                  |
 
 ## Invariants
 
@@ -593,9 +610,13 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 - One HTTP port, bound to loopback. `/hooks` and `/mcp` accept only local connections with a
   per-session random token. Everything under `/api` and `/ws` requires a login cookie.
-  Local single-machine remote access can use `tailscale serve` ([SECURITY.md](SECURITY.md)).
-  The cloud hub's public entrance uses a Cloudflare Tunnel and Access
-  ([HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access)), ending at the container's loopback port.
+  Single-machine remote access can use `tailscale serve` ([SECURITY.md](SECURITY.md)).
+  The cloud hub's public entrance is a Cloudflare Tunnel ending at the container's loopback port
+  ([HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access)). With `access.boardMode: public`
+  (`scripts/cloud/config.ts`; `PROJECTMAN_PUBLIC_BOARD`, `apps/server/src/auth/public-board.ts`)
+  the board has no Cloudflare Access in front: projectman's own login is the boundary (the owner
+  with a password, a client with an e-mailed code), and Cloudflare Access guards the `/engine`
+  path and the connected Claude's host. In `private` mode Access also covers the board.
 - Session states come from hooks: SessionStart → idle, UserPromptSubmit → working,
   PermissionRequest → waiting_permission (a blocking call answered by the inbox decision,
   with a timeout), Stop → idle, SessionEnd or exit → exited; a lost login → failed.
@@ -638,7 +659,7 @@ claude | codex ── transcript JSONL ────────────▶ r
 - The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
   `apps/server/src/assembly.ts` (`createDomain`), which builds the services (the board,
   member profiles and invitations included) and wires their reactions to the domain events.
-  Core implementations live in the eight sealed `core/<module>/` folders; common helpers
+  Core implementations live in the sealed `core/<module>/` folders; common helpers
   live behind `kernel/index.ts`. Composition lives in `assembly.ts` (PM-648).
 - Services tell each other what happened through typed domain events (`ctx.events`:
   configuration changes, resolved inbox items, stage moves, cancellations, label and mention
@@ -652,8 +673,8 @@ claude | codex ── transcript JSONL ────────────▶ r
   timers; it neither cuts nor waits for existing session jobs. Folder removals are awaited
   separately before temporary roots are released.
   Finally the machine monitor and the scheduled work finish.
-- Only `apps/server/src/index.ts` reads configuration from the environment; it passes it to
-  the modules as options. The git and gh commands the server runs inherit its environment.
+- Only `apps/server/src/start.ts` (which `index.ts` calls) reads configuration from the
+  environment; it passes it to the modules as options. The git and gh commands the server runs inherit its environment.
 - Writes that belong together run as one unit of work (`ctx.unitOfWork`): one SQLite
   transaction, whose websocket events are published only once it commits. Task writes read
   the task inside it and write only the columns they change.
@@ -662,11 +683,8 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 ### Layers and the dependency rule (PM-577)
 
-Every server source file belongs to one stable module and one layer (PM-577, PM-649).
-Targets describe the implemented layout; passes record the completed refactor.
-Each module gets one pass: `none` keeps it unchanged; `move` relocates it;
-`split` gives it a narrow plain TypeScript interface; `split-tool` does that and
-adopts the chosen tool (Effect) in the same pass; `delete` removes it.
+Every server source file belongs to one stable module and one layer (PM-577).
+`module-map.ts` records each module's layer, its target folder and its refactor pass.
 
 | Layer       | Contents                                                        | Runs on                                                     |
 | ----------- | --------------------------------------------------------------- | ----------------------------------------------------------- |
@@ -699,65 +717,17 @@ capabilities only through ports in `contracts/`. Workspace `@projectman/*`
 packages count as contracts and are accessible to every layer.
 
 The source is [module-map.ts](../apps/server/test/architecture/module-map.ts).
-The final closure is recorded by PM-649, after PM-627 and PM-645 closed phases 4 and 5.
 
-The kernel and eight core modules are sealed at their final paths (PM-631, PM-637–644).
-The core descriptors live in `test/architecture/modules/core-<module>.ts`, assembled in
-the original `MODULES` order. Their public names, types and factory dependency shapes
-remain those frozen in PM-636; no old implementation files or forwarding shims remain.
-Assembly uses `createProjectService`, `createTaskService`, `createMemberService`,
+The kernel and the core modules are sealed at their final paths. The core descriptors live in
+`test/architecture/modules/core-<module>.ts`. Assembly uses `createProjectService`, `createTaskService`, `createMemberService`,
 `createTimelineService`, `createMessaging` and `createInboxService` in the existing
 construction order; the factories return the existing classes without changing behavior.
 
-| Module                                            | Responsibility                                                              |
-| ------------------------------------------------- | --------------------------------------------------------------------------- |
-| `contracts`                                       | Shared server interfaces and engine ports.                                  |
-| `db`                                              | SQLite storage, repositories and migrations.                                |
-| `config`                                          | Project configuration loading, validation and migrations.                   |
-| `exec`                                            | One-shot external commands with exact environments and bounded termination. |
-| `logging`                                         | Structured server and engine logging and file rotation.                     |
-| `instance`                                        | Installation identity and activation state.                                 |
-| `kernel`                                          | Common errors, utilities, background work, sweeps and merge locks.          |
-| `agent-text`                                      | Text formatting for agent-facing context.                                   |
-| [`core/base`](modules/core-base.md)               | Domain context, units of work, domain events and the websocket event bus.   |
-| [`core/projects`](modules/core-projects.md)       | Projects, roles, stage reviewers and visibility.                            |
-| [`core/tasks`](modules/core-tasks.md)             | Tasks, PR records, board state, involvement and card measures.              |
-| [`core/members`](modules/core-members.md)         | Member access, invitations, presence and naming.                            |
-| [`core/timeline`](modules/core-timeline.md)       | Append-only task and project timeline access.                               |
-| [`core/messages`](modules/core-messages.md)       | Stored messages, sending/session-chat rules and runtime routing port.       |
-| [`core/inbox`](modules/core-inbox.md)             | Human questions, approvals, permission inbox items and question lifecycle.  |
-| [`core/attachments`](modules/core-attachments.md) | Task and message attachment storage and processing.                         |
-| `runtime/admission`                               | Admission, deferred starts, handovers and refinement.                       |
-| `runtime/sessions`                                | Session lifecycle, rounds, compaction, policy, pause and workspaces.        |
-| `runtime/delivery`                                | Message routing, holds, wake-ups, session chat and session notices.         |
-| `runtime/permissions`                             | Command parsing and execution permission rules.                             |
-| `runtime/watchers`                                | Runtime health, machine, outage, review, left parts and cleanup watches.    |
-| `runtime/usage`                                   | Provider quota, plan usage and managed provider keys.                       |
-| `context`                                         | Agent context packs, prompts and member memory through two factories.       |
-| `services/merges`                                 | Card merge orchestration, queue and locks.                                  |
-| `services/full-tests`                             | Full-test and screenshot-run orchestration.                                 |
-| `services/releases`                               | Release publication and the running version (PM-968, PM-969, PM-1113).      |
-| `services/structure`                              | Repository structure descriptors, module sizes and card file placement.     |
-| `services/github`                                 | GitHub synchronization, pull requests and publishing.                       |
-| `services/obligations`                            | Open-step deadlines, one reminder and one integrator todo (PM-806).         |
-| `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
-| `services/project-docs`                           | Operator document writes and decision candidates.                           |
-| `services/schedules`                              | Scheduled member work.                                                      |
-| `services/coordination`                           | Operator actions, signals, requests and project management.                 |
-| `runner`                                          | Provider CLIs, PTYs, permission waits, transcripts, usage probes and trust. |
-| `worktree`                                        | Task and member worktree creation and dependency refresh.                   |
-| `engine-host`                                     | Engine-local files, session roots, host operations and branch merging.      |
-| `full-test`                                       | Sandboxed test execution and the heavy-run queue.                           |
-| `machine`                                         | Machine probes and process parsing.                                         |
-| `engine-link`                                     | Server/engine RPC, transport and remote adapters.                           |
-| `api`                                             | HTTP API adapters.                                                          |
-| `mcp`                                             | MCP transport, tool declarations and handlers.                              |
-| `ws`                                              | Websocket transport and broadcasts.                                         |
-| `http`                                            | HTTP transport guards and infrastructure.                                   |
-| `control`                                         | Administrative control socket.                                              |
-| `auth`                                            | Authentication and integrator credentials.                                  |
-| `assembly` (`assembly.ts`)                        | Domain service composition and wiring.                                      |
-| `entry`                                           | Application and engine startup, composition and shutdown.                   |
+The modules, their paths and one-line summaries are in
+[projectman.structure.yaml](../projectman.structure.yaml) (the summaries are Hungarian UI text);
+the layer of each is in [module-map.ts](../apps/server/test/architecture/module-map.ts).
+This file does not repeat that list. A module with more detail than this overview has a document
+under [modules/](modules/) (next section).
 
 ### Module documents
 
@@ -772,9 +742,9 @@ A module's detailed behaviour lives in its own file under [modules/](modules/), 
 - [`core/member-queue`](modules/core-member-queue.md) — the member queue (PM-894)
 - [`runtime/sessions`](modules/runtime-sessions.md) — pause and resume, the control socket
 - [`services/merges`](modules/services-merges.md) — merge, merge trains and the merge check (PM-452)
-- [`services/coordination`](modules/services-coordination.md) — the Operator and the project manager's coordination tools
-- [`services/super-operator`](modules/services-super-operator.md) — super mode: owner-bound operations, the
-  external MCP endpoint, diagnostics
+- [`services/coordination`](modules/services-coordination.md) — the project manager's coordination tools
+- [`services/super-operator`](modules/services-super-operator.md) — the connected Claude's (integrator key) and the
+  project manager's typed operations, the external MCP endpoint, diagnostics
 - [`services/releases`](modules/services-releases.md) — release publication and the running version
 - [`services/compute-jobs`](modules/services-compute-jobs.md) — compute jobs on GitHub Actions: setting, run record, tools (PM-1148)
 - [`scripts`](modules/scripts.md) — the heavy-run queue (PM-332)
@@ -794,22 +764,10 @@ the assembly layer is sealed: cross-module imports use its target `index.ts` or 
 module map declares (`kernel/pure.ts`, PM-1130).
 The guard test asserts both the empty exception list and complete sealing.
 
-The sealed modules are `contracts`, `db`, `config`, `logging`, `instance`, `kernel`,
-`agent-text`; all eight `core/*` modules; `runtime/admission`, `runtime/sessions`,
-`runtime/delivery`, `runtime/permissions`, `runtime/watchers`, `runtime/usage`, `context`;
-all nine `services/*` modules; `runner`, `worktree`, `engine-host`, `full-test`, `machine`,
-`engine-link`; and `api`, `mcp`, `ws`, `http`, `control`, `auth`.
-Only `assembly` and `entry` remain unsealed in the assembly layer. Other layers cannot
-import them. The `context` facade exposes `createContextPackBuilder` and
-`createMemberMemoryStore`; prompt and formatting helpers remain internal.
-
-No exception has a `core/*` source. Of the fifteen original pairs, PM-612 removed one, and
-PM-632–635 removed fourteen. PM-646 removed the four connector exceptions
-(`api/auth/ws → assembly`, `instance → entry`). PM-648 moved composition to
-`assembly.ts` and removed compatibility exports; callers import the owning module.
-PM-649 sealed the remaining ten modules and added the final guard. The `domain/`
-folder is gone, composition exports only its factory and types, and every lower-layer
-module is behind its facade. This completes the module refactor's structural goals (PM-577).
+Only `assembly` and `entry` remain unsealed in the assembly layer; other layers cannot import
+them. The `context` facade
+exposes `createContextPackBuilder` and `createMemberMemoryStore`; prompt and formatting helpers
+remain internal. Composition (`assembly.ts`) exports only its factory and types.
 
 #### Core extension points
 
@@ -826,11 +784,11 @@ The merge service supplies the facts for “done only after merging”; the rule
 decides which move requires a merge and when to check it (`moveMerge`, `mergeRepoOf`)
 stays in `packages/shared` and is applied by task moves.
 
-The inbox's `registerDecider(key, decide)` supplies merge, hand-on and Operator
-approval decisions; handlers that own the item close it themselves. `registerQuestionAnswer`
+The inbox's `registerDecider(key, decide)` supplies the merge, hand-on, e-mail and project manager
+(structural review and shared knowledge) decisions; handlers that own the item close it themselves. `registerQuestionAnswer`
 supplies question delivery, and `registerAskerStarts` supplies visible asker-start previews.
-Messaging's `registerWaker` supplies recipient wake-ups, `registerSignals` records Operator
-signal presentations and decisions, and `registerCardHold(reason, hold)` supplies card-level
+Messaging's `registerWaker` supplies recipient wake-ups, `registerSignals` records the project
+manager's signal presentations and decisions, and `registerCardHold(reason, hold)` supplies card-level
 fix-limit and full-test holds while messaging decides which recipients wait (PM-593).
 The awaited `task_review_round` event announces an assignee's action message about an open
 card before recording it; its assembly listener queues the pinned commit's full test before
@@ -844,7 +802,7 @@ A module's team tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGro
 `mcp/team-tools.ts` collects the handlers through `TeamToolsService` forwarding
 methods. New tools belong in their module's group and handler, never in either collector.
 
-One shared `ToolCaller` (`mcp/caller.ts`) checks callers, the Operator's requests and
+One shared `ToolCaller` (`mcp/caller.ts`) checks callers, the project manager's requests and
 guest access, records steps and opens session files. Assembly creates it once and
 passes it to every handler, preserving the shared signal-step reservation.
 
@@ -853,10 +811,12 @@ REST routes already register by module: `api/<module>.ts` exports
 No REST contract changes. This refactor moves server code only; engine calls and
 file-transfer boundaries stay unchanged.
 
-The Operator slice (PM-605) lives in `services/coordination/`, with one entry point and
-structural ports for sessions, admission, delivery, pauses and releases. Its six tools
-(`get_project_state`, `operate`, `screen_question`, `dismiss_signal`, `start_task`, `start_member`) live in
-`mcp/project-manager/`; signal decisions and manager/Operator channels register in `api/operator.ts`.
+The project manager's coordination lives in `services/coordination/`, with one entry point and
+structural ports for sessions, admission, delivery, pauses and releases; its tools
+(`get_project_state`, `operate`, `screen_question`, `dismiss_signal`, `start_task`, `start_member` and
+the others) live in `mcp/project-manager/`, and the tool list is in
+[`modules/services-coordination.md`](modules/services-coordination.md). Signal decisions and the
+manager's channels register in `api/operator.ts`.
 This module needs no Effect program: retries belong to admission, reply relay uses
 `background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
 (`assembly.ts`) declares the sweep list.
@@ -864,46 +824,44 @@ This module needs no Effect program: retries belong to admission, reply relay us
 The top right corner (PM-1042, decision 65) belongs to the project manager. `GET routes.projectManager`
 returns a `ProjectManagerCorner`: the manager's channel plus, for the viewer, the requests and steps, the
 signals and the manager's queue; a person who is not an owner gets `readOnly` and no signals or queue. The web
-queue view reads `routes.memberQueue` for the manager. The retired supervisor's grant is removed (PM-1113); Settings → Integrator manages only the
-connected client's credentials. The Operator's own channel route is gone (PM-1045): the app has no Operator.
+queue view reads `routes.memberQueue` for the manager. Settings → Integrator manages only the
+connected client's credentials. The app has no Operator member or channel.
 
-**No Operator member (decision 66, PM-1076).** A project has no `ai_operator` role and no member that holds it, and
-a new project (template, `POST /projects`) gets none. The configuration migration `removeOperator`
-(`config/migrations.ts`) removes the stored Operator member with its contacts, stage owners, role override and
-temp-worker role (the temp role becomes `developer`), logs a warning and is idempotent; the old `addOperator` and
-`fixOperator` migrations are gone, so nothing puts it back. The handle `operator` stays taken
-(`RETIRED_OPERATOR_HANDLE`, `members.takenHandles`), because old events, messages and `operator_requests` /
-`operator_steps` rows still name it; the web shows such a name as the raw handle. A connected Claude acts as its
+**The project manager is the coordinator (decision 66).** A project has no `ai_operator` role and no
+member that holds it; a new project (template, `POST /projects`) gets none. A connected Claude acts as its
 key holder or as the issuer of an integrator queue item (PM-1074), and the project manager acts as the selected
-coordinator (`coordinatorSuperActorOf`, `isCoordinatorSuperActor` in `config/operator-member.ts`). The Operator
-tool surface (`operate`, knowledge, preferences, diagnostics) is the selected project manager's. The external MCP
-tool names (`super_operate`, ...), `integrator_keys` and the old rows are unchanged.
+coordinator (`coordinatorSuperActorOf`, `isCoordinatorSuperActor` in `packages/shared/src/config/operator-member.ts`).
+The coordination tool surface (`operate`, knowledge, preferences, diagnostics) is the selected project
+manager's. For old data: the configuration migration `removeOperator` (`config/migrations.ts`, idempotent)
+removes an Operator member stored by an older configuration, with its contacts, stage owners and role
+override (a temp-worker role becomes `developer`); the handle `operator` stays taken
+(`RETIRED_OPERATOR_HANDLE`, `members.takenHandles`), because old events, messages and `operator_requests` /
+`operator_steps` rows still name it, and the web shows such a name as the raw handle. See "Code names".
 
 Personal conversational style (PM-688) lives in `services/coordination/preferences.ts`.
 `get_operator_preference` and `set_operator_preference` choose the person from the
-authenticated Operator session and its current human request, or the selected active PM's
-internal general session and open direct owner message/answer (PM-1021); they accept no person,
+selected active project manager's internal general session and open direct owner message/answer
+(PM-1021), or a guest conversation's guest; they accept no person,
 project or path selector. Guests gain only this personal write. REST exposes self reads
 and owner/admin lists through personal logins, with no preference write route.
 The session launcher requests only its current human's five enum fields through a
 server port; signal and question-screening launches receive none. Guest contexts omit
 member memory. Style is rendered as validated JSON data and grants no authority.
-The PM shares the same per-person document and CAS with the Operator, with no owner fallback
+It is one per-person document with a CAS, with no owner fallback
 in background rounds. Only direct current-owner message/answer/conversation launches receive
-PM style data. Its overridable template style precedes project role and member instructions;
+the style data. Its overridable template style precedes project role and member instructions;
 explicit style requests or corrections teach preferences, not a single technical question.
 
 Shared approved agreement and principles (PM-689) live in `services/coordination/knowledge.ts`.
-Only an Operator owner message/answer can propose them. The inbox's registered
+Only the project manager's owner message/answer can propose them. The inbox's registered
 `operator_knowledge` decider accepts a human owner's own-login decision; the private CAS
 shares `ProjectService.withConfigurationLock` with configuration commits. The inbox stores
 the applying human before CAS, and the file stores the proposal marker with the new revision.
 Startup completes only marked writes with that same human resolver. Rejected or stale proposals
-write nothing. Agreement approval does not apply its recommended configuration operations or
-replace their separate protected approvals. Internal PM general sessions may read the shared
+write nothing. Internal PM general sessions may read the shared
 document, but cannot propose or write it. Context carries only revision, agreement and principles
 as JSON data below the fixed instructions, with no application markers or silent truncation.
-A proposal carries no recommended operations since the `operate` tool went away (decision 66, PM-1158):
+A proposal carries no recommended operations (`propose_operator_knowledge` refuses them):
 approving an agreement sends no continuation. Old continuation messages (`operator_knowledge_approval`
 origin) keep their delivery rules in `OperatorRequests`.
 
@@ -935,16 +893,17 @@ The programs, their files and facades, the pinned version and the rules are in
 - `instance/` — installation identity and activation state.
 - `kernel/` — shared helpers, Effect execution, periodic sweeps and merge locks.
 - `agent-text/` — AI-facing wording for context packs and team tools.
-- `core/` — the eight sealed core facades: base, projects, tasks, members, timeline,
-  messages, inbox and attachments, with implementations inside each module's own folder.
+- `core/` — the sealed core facades (base, projects, tasks, members, timeline, messages, inbox,
+  member-queue, attachments, documents), with implementations inside each module's own folder.
 - `assembly.ts` (`createDomain`) — the composition and event wiring (PM-648).
 - `runtime/` — admission and handovers; session lifecycle, launch, rounds, compaction,
   provider limits, cleanup, policy, pause and workspaces; message delivery; command permission
   rules; health, machine and outage watchers; provider usage, quota and managed keys.
 - `context/` — context packs, prompts, kick-off briefs and member memory.
-- `services/` — merges, full tests and screenshots, releases, GitHub synchronization and
-  publishing, feedback and widget sessions, project documents, schedules
-  and Operator actions (the eight service modules).
+- `services/` — independent capabilities: merges, full tests and screenshots, compute jobs, releases,
+  GitHub synchronization and publishing, feedback and widget sessions, project documents,
+  schedules, the project manager's coordination, the typed operations of the connected Claude
+  and the rest of the list in `projectman.structure.yaml`.
 - `runner/` — provider CLIs and PTYs, the input queue, session clocks, permission gate,
   hooks and their forwarder, transcripts, provider usage probes, trust and login checks.
 - `worktree/` — task worktrees and branches, member workspaces and dependency refresh.
@@ -958,9 +917,9 @@ The programs, their files and facades, the pinned version and the rules are in
 - `ws/` — websocket transport and broadcasts.
 - `http/` — HTTP request guards and infrastructure.
 - `control/` — the administrative control socket.
-- `auth/` — login, invitations and integrator credentials.
-- `app.ts` builds the server; `engine-app.ts` builds the engine; `index.ts` reads the environment;
-  `shutdown.ts` coordinates stopping.
+- `auth/` — login, invitations and the connected Claude's credentials (`integrator`).
+- `app.ts` builds the server; `engine-app.ts` builds the engine; `start.ts` reads the environment
+  and starts either (`index.ts` only calls it); `shutdown.ts` coordinates stopping.
 
 **Web** (`apps/web/src`): React UI (board, task drawer, team and profiles, session chat and
 terminal, inbox, messages, settings) with `api/` (typed client, queries, websocket cache),
@@ -1110,22 +1069,20 @@ and are typed in after the restart, which gets no continue message. Grants "for 
 `permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
 timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
 
-The Operator's fixed approver (PM-691, 403 `operator_fixed`, `sessionApproverChangeRefusal`) is gone with the
-Operator member (decision 66, PM-1076): every AI member keeps its session settings. Mixed mode/approver
-patches are atomic. Starts, resumes, permission routing and the session header use the same effective rule.
+Every AI member keeps its session settings; a mixed mode/approver patch is atomic. Starts, resumes,
+permission routing and the session header use the same effective rule.
 
-## Session policy migration (PM-87 / PM-127)
+## Session policy (PM-87 / PM-127)
 
 `contracts/session-policy.ts` is the provider-neutral session intent: placement, semantic team,
 file and shell tool grants, roots, protected paths, denied operations, network intent and
-outside-sandbox handling. Pure duty/access rules and the historical `permissionMode` mapping
+outside-sandbox handling. Pure duty/access rules and the `permissionMode` mapping
 live in `packages/shared/src/config/session-policy.ts`. The domain builds a fresh policy from
 the actual placement on every start/resume and supplies the same object to the context pack
 and runner. Claude renders its tool syntax; Codex consumes team tool names directly.
 
-The active enforcement remains `legacy`; this migration does not enable strict isolation or
-remove the command broker. `strict` intent is refused by both adapters until their verified
-implementation is available. A reading placement (`read_only`, a review copy without the test
+The enforcement is `legacy`: the command broker stays and strict isolation is not enabled.
+`strict` intent is refused by both adapters until their verified implementation is available. A reading placement (`read_only`, a review copy without the test
 opt-in; `placementReadsOnly`) keeps the member's own mode, Auto included (PM-167, decision 28),
 never receives a writable root, and keeps Codex's sandbox `read-only`. A review-copy placement carries its independent
 git directory, source commit and round id; with member workspaces (PM-138) it is the reviewer's
@@ -1134,15 +1091,15 @@ own durable workspace, and also names the handed-over branch and the pinned revi
 own) and names the task branch and its start commit.
 
 Review copies have a separate `reviewCopyMode` intent (`inherit`, `read_only`, `test`;
-absent means `inherit`). Historical `permissionMode` values never opt a copy into writes.
+absent means `inherit`). An older stored `permissionMode` value never opts a copy into writes.
 Only `test` with strict enforcement intent grants its own repository, independent git,
 cache and temporary roots; `plan` and explicit `read_only` remain read-only. This is a
 synthetic policy capability, not activation: both current adapters refuse strict starts.
-Configuration/UI wiring and verified provider activation belong to PM-130; no old member
+Configuration/UI wiring and verified provider activation belong to PM-130; no member
 permission is rewritten or classified as implicitly versus explicitly chosen.
 
-The existing PM-134 Claude shell sandbox remains a separate legacy setting. This migration
-preserves it and does not certify it as the strict filesystem and network boundary.
+The PM-134 Claude shell sandbox is a separate legacy setting; it is not the strict filesystem and
+network boundary.
 
 The CLI's own sandbox of a legacy session (PM-167, decision 28) is `sessionSandbox(policy, …)` in
 `runtime/sessions` (`session policy`), from the policy's actual paths; the runner gets it as
@@ -1154,7 +1111,7 @@ app home, `allowRead` re-opens only its own directories (the worktree, the task'
 git's own files, `allowWrite` and `env` (`npm_config_cache`, `PROJECTMAN_HOME`) send npm and the
 development instance to that member directory instead of the host's `~/.npm` and
 `~/.projectman-dev`, `denyWrite` keeps the default branch and
-the integrating checkout's `HEAD`, `index` and `packed-refs` (with their lock files) in the shared
+the default-branch checkout's `HEAD`, `index` and `packed-refs` (with their lock files) in the shared
 git directory unwritten, and `deniedEnvVars` unsets the publishing tokens and the SSH agent. In a
 member workspace (its own clone) nothing is shared, so the git part is left out. A reading
 placement gets a sandbox that writes only the temp directory, with its working directory, every
@@ -1179,8 +1136,7 @@ scheduler and start AI sessions, so a home has a role (`packages/shared/src/depl
 scheduler, the GitHub polling, the retry timers and the usage monitor), and `retired` stops the server before it
 creates or opens anything in the home. The marker is read in `buildApp`, once; an unreadable one stops the
 server (no role is never read as active), and the server never writes it: only a person does, with
-`scripts/migrate/cli.ts instance …`. An older build ignores it, which is why the live Mac checkout has to be
-updated to a build that knows it before the old home is called retired.
+`scripts/migrate/cli.ts instance …`.
 
 The hybrid move tool (`scripts/migrate/`) inventories a stopped local source, writes a checksummed
 cloud package and prepares the Mac engine identity. Source repositories, worktrees and CLI
@@ -1268,27 +1224,26 @@ commit pinned at the hand-over, run by the server.
 - **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
   only in `test/full-test-sandbox.integration.test.ts` (macOS). It cannot start a nested sandbox,
   so it is skipped when `PROJECTMAN_FULL_TEST_SANDBOX=1`; it requires a separate host run.
-  The retired release watcher no longer provides an automatic deployment-time run (PM-1113).
 
 When the executor is available and the task's repository sets `reviewTest`, `FullTestRuns.runsFor`
 sets `ContextPackInput.serverFullTest` in the session brief. Implementation and maintenance steps
 then ask only for targeted tests and the type check of touched parts while working: the server runs
 the configured full command on the handed-over commit, PTY tests included. Otherwise the steps ask
 for targeted tests while working and one full test and type check on the handed-over commit.
-A repository can set `fullTestAtMerge: true` to delegate the full check to its integrating session
-or merge step (PM-380): developers and maintainers then run only related tests and the type check of touched
+A repository can set `fullTestAtMerge: true` to delegate the full check to the merge (PM-380): developers and maintainers then run only related tests and the type check of touched
 workspaces, including at hand-over and in fix rounds. In PM, the merger uses `merge_task`; the
-server runs `npm run merge-test` in the full test sandbox, in the machine's heavy-run queue,
-before the default branch moves (decision 40, PM-386). Other projects retain their existing default
+server runs `npm run merge-test` before the default branch moves (decision 40, PM-386), on the
+engine or on GitHub Actions as the repository's `reviewTest.runner` says; only the engine run
+takes the heavy-run lock ([services/merges](modules/services-merges.md)). Other projects retain their existing default
 (absent or false). With `fullTestAtMerge: true` the
 repository's `reviewTest` runs only at the merge (PM-386, PM-489): `reviewTestBeforeReview` is false, so
 `reviewTestOf` finds no test, nothing is queued or held before review and the context carries no
 `serverFullTest`. The merge step (`Merges`, [services/merges](modules/services-merges.md)) runs the command once on the merge result
 before the default branch moves; a repository that merges but names no `reviewTest` blocks its merge
 (`check_unavailable`). Where `requiresMerge` is true the context says the merge step runs the full check;
-where an outside integrator merges (`fullTestAtMerge` without `requireMerge`) it keeps the integrator
+where someone outside the project merges (`fullTestAtMerge` without `requireMerge`) it keeps the general
 wording. Reviewers without a server result receive instructions to run only targeted tests.
-No machine boundary changes: the check runs where the integrator or the merge runs. Dependencies are
+No machine boundary changes: the check runs where the merge runs. Dependencies are
 installed only when missing from the working directory.
 
 **Where the review test runs (PM-909).** `reviewTest.beforeReview` (`off`, `engine` or `github_actions`) chooses
@@ -1388,20 +1343,20 @@ when admission cannot start the session now is the notice stored as a message fr
 Extra rounds are capped and the lead decides first (PM-714, PM-801). `MAX_FIX_EXTRA_ROUNDS` is 3: while fewer
 extras have been given, the lead decides at every limit reach (a card that reached the limit again after an extra
 round goes back to the lead, reason `again`); once three extras are used, and the card reaches the limit again, the
-decision has reason `extra_exhausted`. The decision item goes to the integrator (the PM-782 queue, `recipient:
-'integrator'`) when extras are exhausted, when the lead passes it on with `to_owner`, or when no AI member can
-decide; it falls back to the owners when the Operator does not work its queue or passes it on (no clock;
-timeline event `fix_limit_recipient_escalated`, reasons `integrator_unavailable` and `integrator_passed_on`;
-older events keep `integrator_timeout`). `decide_fix_limit` with `to_owner` requires an `assessment`
+decision has reason `extra_exhausted`. The decision item goes to the connected Claude (the integrator queue,
+`recipient: 'integrator'`) when extras are exhausted, when the lead passes it on with `to_owner`, or when no AI
+member can decide, as long as one is available; it falls back to the owners when none is available or it passes
+the item on (no clock; timeline event `fix_limit_recipient_escalated`, reasons `integrator_unavailable` and
+`integrator_passed_on`; older events keep `integrator_timeout`). `decide_fix_limit` with `to_owner` requires an `assessment`
 (`recurrence`, `currentState`, `recommendation { optionId, reason }`; errors `fix_limit_assessment_required`,
 `fix_limit_invalid_recommendation`). The item carries the whole text (body, round history `fixRoundHistory`, extras,
 assessment, each option's label and consequence), written in the project language by `core/inbox/fix-limit-text.ts`
-from the `fixLimitItem` locale section, so REST, the MCP tools and the CLI show the same words. The integrator's
-only right is `InboxService.resolveIntegratorFixLimit` (REST `POST /api/projects/:key/inbox/:itemId/resolve-integrator-fix-limit`,
-external MCP `resolve_integrator_fix_limit` in super mode, CLI `projectman inbox fix-limit`): `replan`, `reassign`,
+from the `fixLimitItem` locale section, so REST, the MCP tools and the CLI show the same words. The connected
+Claude's only right is `InboxService.resolveIntegratorFixLimit` (REST `POST /api/projects/:key/inbox/:itemId/resolve-integrator-fix-limit`,
+external MCP `resolve_integrator_fix_limit` in `super` mode, CLI `projectman inbox fix-limit`): `replan`, `reassign`,
 `another_round`, or the same item passed on to the owners with a reason; the resolution carries
-`integratorFixLimit: true` and the super actor. Every other approval boundary is unchanged, and the generic
-resolve path refuses an item addressed to the integrator until it is escalated. Does this work on a remote engine?
+`integratorFixLimit: true` and the `superActor`. Every other approval boundary is unchanged, and the generic
+resolve path refuses an item addressed to the connected Claude until it is escalated. Does this work on a remote engine?
 Yes, unchanged: the decision, the clock and the resolution are hub state; no engine operation, path or credential
 crosses the boundary, and no machine-dependent inventory entry changes.
 
@@ -1514,7 +1469,7 @@ clock goes from the deadline straight to the hand-over), `minutesOf` (`seniorWai
 `obligationMinutes`), `pausable: false` (the pauses of the sweep do not apply) and `onClosed` (closes the question
 and writes `senior_took` / `no_senior`). Its `handOver` may return `'settled'`: the source has done everything
 itself (the owners' decision item and the `asked` event, or only a log line when the team has no owner), and the
-generic code writes no `obligation_handed_over` event and no integrator todo. Migration 131 turned every open
+generic code writes no `obligation_handed_over` event and no todo for the connected Claude. Migration 131 turned every open
 `senior_waits` row into such a row and dropped the table.
 
 **`review_step` (PM-809).** One entry of a card into a `step` stage (the code review), for each AI owner of the
@@ -1540,13 +1495,13 @@ pure clock is `planObligation` in `packages/shared/src/domain/obligation.ts`, ov
 and `hand_over` (`obligationRungsOf` drops `wake` when nobody is responsible, and `tell_pm` when there is no
 project manager or the project manager is the responsible). The first expiry sends one action message from the
 system to the responsible (`obligation_woken`); the second tells the project manager (`obligation_pm_told`:
-`pm_told_at` is written, the deadline moves on by one step and an `obligation_overdue` operator signal is raised
+`pm_told_at` is written, the deadline moves on by one step and an `obligation_overdue` signal is raised
 in the same unit of work; the signal follows the usual delivery rules and is resolved by the 60 s signal sweep
-once the obligation is no longer open); the third makes one integrator todo (`obligation_handed_over`,
+once the obligation is no longer open); the third makes one todo for the connected Claude (`obligation_handed_over`,
 `core/inbox` `openIntegratorTodo`). With `wake` on the ladder but no `tell_pm` the gap before the hand-over
 is two steps, so the time to a human stays the same. The former `idle`, `merge_waiting`, `ready_waiting` and
 `refinement_stalled` signal detectors and the owner `work_stalled` alert are gone, and so are (PM-1226) the `nobody`
-operator signal and the owner `parts_left` alert of `LeftParts` (see "Every open card has a next step" below).
+signal and the owner `parts_left` alert of `LeftParts` (see "Every open card has a next step" below).
 Activity of the responsible moves the
 deadline; a person's open question, a held card, a pending permission and a refused start (team paused,
 engine offline, `PAUSING_REFUSALS`) stop the clock and a resume restarts it. A restart, a double sweep and
@@ -1575,7 +1530,7 @@ the same stay does not open it again. For the system steps that run only on an e
 carried on any more (a restart, another path, a new state) is still picked up within the ladder's time. The
 following event detectors stay as fast paths and need no change: `AutoAdvance`, `Refinement`, `notifyHandOn`, the
 member queue's events, `holdsOpenWork` and the `LeftParts` reminder to the member who created the parts at the end
-of their turn. The duplicate watchers were retired (PM-1226): the `nobody` operator signal (it joined
+of their turn. The duplicate watchers were retired (PM-1226): the `nobody` signal (it joined
 `RETIRED_KINDS` in `signals.ts`; the sweep closes an open row an older build left, with the questions asked about
 it, and the project manager gets the same card as a `next_step` wake-up of the `unowned` class) and the owners'
 `parts_left` alert of `LeftParts` (no `alert: 'parts_left'` item is created any more; the old items and the
@@ -1653,7 +1608,7 @@ Migration 125 drops the then empty table `project_focus_items`.
   on the stored row first and reads the board view, the reviewer's timeline and the source head only for a card with
   a record or a ready gate. The assembly runs one stage-advance per card at a time; an event that comes meanwhile asks
   for one more round that reads the card afresh.
-- **Operator history reads (PM-771, PM-783).** The Operator's 60 second sweep (`OperatorSignals.sweep`) and the structural
+- **Signal history reads (PM-771, PM-783).** The 60 second signal sweep (`OperatorSignals.sweep`) and the structural
   report (`StructuralPatterns.report`) no longer walk a project's closed history. The board cases (`boardRead`, one
   map per sweep, no cache kept between sweeps), the pending list and the step targets work from the `open` read;
   `TaskWaits.of` and `MemberService.rosterFor` read the open cards and only the cards the `prerequisite` links name
@@ -1685,9 +1640,9 @@ Migration 125 drops the then empty table `project_focus_items`.
 **Remote engine:** the pull and the order are server-side domain rules over stored data and the existing start path; no
 new machine-dependent part (the start itself is the inventory's existing work start), so the inventory does not change.
 The targeted reads of PM-770 are server database reads too; only the sweep's candidates changed, and the worktree
-entry above says so. The Operator history reads and synchronous evaluations of PM-771/PM-783 stay on the server, over its own timeline
+entry above says so. The signal history reads and synchronous evaluations of PM-771/PM-783 stay on the server, over its own timeline
 and card tables (no engine operation, RPC or payload is added, and no local path, process or socket is involved), so
-the inventory stays unchanged: on a remote engine the Operator and its signals still run on the server, within the
+the inventory stays unchanged: on a remote engine the signals still run on the server, within the
 existing "Cloud composition" and "Provider and engine outage watch" boundaries.
 
 ### Coordination belongs to the PM (PM-707)
@@ -1698,7 +1653,7 @@ including historical closed signals; timeline entries and message text remain re
 presents their IDs to owners: it summarizes worthwhile reviews once per wake-up and closes the rest
 with `dismiss_signal` and a note. Open structural signals expire after seven days.
 Migration 86 closes existing pending/open structural signals with a traceable upgrade reason and adds
-`operator_signal_arms`, keyed by project and kind. Only a sweep arms a detector, once; evidence windows
+`operator_signal_arms` (see "Code names"), keyed by project and kind. Only a sweep arms a detector, once; evidence windows
 start at the later of this durable timestamp and the seven-day boundary. Earlier events never create
 retroactive signals, including after restart. Detection and migration stay on the server; no engine or
 machine-dependent boundary changes.
@@ -1713,32 +1668,31 @@ Theme closure and collecting-card completion use actual transition events, never
 `request_structural_review` is restricted to the selected PM's internal general session. Without an open
 owner request it creates a question with server evidence and approve/reject options. The registered
 `operator_structural_review` decider requires the owner's own login. Its answer opens a separately
-validated `CoordinationRequests` approval continuation for the PM, never an Operator request; approval
+validated `CoordinationRequests` approval continuation for the PM; approval
 itself starts nobody. The PM then requests the review again, rechecking the signal and selecting a live
 `technical_direction` AI holder by capacity, load and handle. `start_member` carries the short review
 through the existing message/session boundary and records the source request and decision. The review
-reports suggestions (including no change), creates no cards automatically and never writes Operator knowledge.
+reports suggestions (including no change), creates no cards automatically and never writes project knowledge.
 No machine-dependent part changes: detection and selection run on the server, delivery uses the existing
 session boundary and works with remote engines.
 
 The selected live PM (`coordinationMemberOf`, shared `config/project-manager.ts`) receives every
-coordination signal and screens AI questions, including the Operator's. Its own questions go directly
+coordination signal and screens AI questions. Its own questions go directly
 to people. An AI question reaches the owner as a decision or an owner todo only under one of the
 project's owner topics (`team.ownerDecisionTopics`, owner-only; PM-1190): the screening and the PM's own
 `ask_human` name it with `owner_topic`, approvals record `approval`, and the system fallback needs none
-([core-inbox](modules/core-inbox.md)). `coordinationActorRefusal` accepts only this PM's direct AI actor. The four coordination
+([core-inbox](modules/core-inbox.md)). `coordinationActorRefusal` accepts only this PM's direct AI actor. The five coordination
 mutations (`combine_questions`, `screen_question`, `dismiss_signal`, `start_task`, `start_member`) additionally require its
 actual internal general session; other people, customer conversations, other members and external
-tokens cannot use them (`project_manager_only`, HTTP 403 / MCP forbidden). The Operator and internal
-PM may read `get_project_state`; guest access is unchanged.
+tokens cannot use them (`project_manager_only`, HTTP 403 / MCP forbidden). Guest access to
+`get_project_state` is unchanged.
 
 `CoordinationRequests` uses the existing request/step repositories with separate PM session rows.
 Only delivery of an owner's own-login message or answer opens its request. It expires after 30 minutes
-or at turn/session end; an Operator request and a signal round never authorize a PM start. Filtering
-the Operator channel by the request's session member keeps its own request list separate. Audit actors
+or at turn/session end; a signal round never authorizes a PM start. Audit actors
 come from the real session; earlier request, message and timeline actors are never rewritten.
 `source: approval` remains reserved and is refused until a validated structural-review continuation
-exists; the Operator's knowledge approval cannot fall back to a PM message request. A human accepting
+exists; a knowledge approval cannot fall back to a PM message request. A human accepting
 the current PM's actionable proposal may open a separate `message` request only after actual delivery:
 the accepted signal, deciding owner, presentation author and delivery binding must all match. Saving
 the decision, pending delivery or replay alone opens no request.
@@ -1755,8 +1709,6 @@ For `answer_stalled`, report allows no start; unblock/drive allow only `start_me
 card's current assignee, with the existing one/three-step budget, 30-minute gap and task/member mute.
 Gates, prerequisites, permission waits, fix limits and normal admission still bind it. There is no
 signal authority for task movement, configuration, labels, approvals, stopping or critical operations.
-The Operator keeps its existing agreement, settings, knowledge, waiver, document and approval rules.
-The historical Operator coordination paths described below are superseded by this section.
 
 `start_blocked` (PM-455, migration 120) speaks for a card whose start waits for `repo_required`,
 `workspace_dirty` or `workspace_fetch_failed`: one open signal per card and reason (`start_blocked:<card>:<reason>`),
@@ -1837,7 +1789,7 @@ is the lowest human access that may open a new card. `packages/shared/src/config
 owns the rule (`canCreateTasks`, `createsInFirstStageOnly`); the `POST /tasks` route and the web
 fake both call it. A viewer never may, AI members always may (the MCP `create_task` is unchanged),
 and a client's card starts in the first stage only (403 for any other `stageId`). Only an owner
-may change the setting (owner-only change `task_create_access`, never waivable by an Operator).
+may change the setting (owner-only change `task_create_access`).
 The web separates `can.newCards` (the "new card" buttons) from `can.createTasks` (moving, editing
 and starting cards, developer level). No machine-dependent part is affected.
 
@@ -1891,8 +1843,8 @@ code's (decisions 47 and 48). `team.merger` is `code_reviewer` (the owner of the
 who reviewed the card), `developer` (the assignee) or `member` (a named member); absent, `defaultMerger`
 picks the code reviewer when a code review stage comes before the merge target, else the developer.
 `RepoConfig.requireMerge` says whether a repository's cards must be merged before they enter the merge
-target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, an outside integrator merging; the
-owner switches the PM project over as PM-386 plans). The merge target is the first release stage, else the done stage. The pure rules
+target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge` without `requireMerge`, someone outside
+the project merging). In the PM project the merger is `lead`, through `merge_task`. The merge target is the first release stage, else the done stage. The pure rules
 (`requiresMerge`, `mergeTargetOf`, `defaultMerger`, `mergerOf`, `mergeRepoOf`, `cardMerger`,
 `mergeReadiness`, `moveMerge`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
 The order of a move (PM-484): the merge waits for the same approval the move waits for (`mergeReadiness`

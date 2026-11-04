@@ -260,6 +260,12 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   signal and outside guest conversations. It stores the reason in `decision_note` (migration 59, outside
   the DTO) and publishes the decision to owners. Presented signals remain theirs to decide. All data comes
   from the server's database and configuration: no machine-dependent part.
+  **Owner-silent signals (PM-1243).** The owners get no question about an `unreleased`, `structural_pattern` or
+  `milestone_closed` signal (`OWNER_SILENT_SIGNAL_KINDS`, `ownerQuestionSignalRefusal` in
+  `packages/shared/src/config/operator-watch.ts`): the MCP `ask_human` with its `signal_id` answers
+  `signal_not_for_owner` and makes no inbox item. An `unreleased` signal ends with the release, so the coordinator
+  takes its step (`start_member` on the deployment duty's member, once per 24 hours); a machine step is an
+  `open_integrator_todo`, and a signal meant for the coordinator alone is closed with `dismiss_signal`.
 
   **Question screening (PM-556, PM-558).** An AI member's `ask_human` question (the project manager's too, not
   the Operator's own and not a human's) is created in the inbox state `screening` with

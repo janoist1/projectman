@@ -138,11 +138,12 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
           .max(100)
           .optional()
           .describe(
-            'Only the project manager: the open system signal delivered to you that this question is about. ' +
-              "The question closes by itself when the signal's case ends; task_key defaults to the signal's card.",
+            'Only the project manager: the open system signal delivered to you that this question is about; always give it for a question about a signal. ' +
+              "The question closes by itself when the signal's case ends; task_key defaults to the signal's card. " +
+              'Refused (signal_not_for_owner) for an unreleased, structural_pattern or milestone_closed signal: the owners are not asked about those.',
           ),
         recipient: QuestionRecipient.optional().describe(
-          'Suggested todo recipient (default owner); screening decides. The integrator gets it when the screening member has machine access and an integrator is connected.',
+          'Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected.',
         ),
         response_purpose: QuestionResponsePurpose.optional().describe(
           'information: a plain factual question, no decision; the integrator may relay the answer; needs no options. ' +

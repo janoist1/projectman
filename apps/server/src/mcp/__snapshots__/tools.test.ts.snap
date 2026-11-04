@@ -128,7 +128,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "recipient": {
-          "description": "Suggested todo recipient (default owner); screening decides. The integrator gets it when the screening member has machine access and an integrator is connected.",
+          "description": "Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected.",
           "enum": [
             "owner",
             "integrator",
@@ -156,7 +156,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "signal_id": {
-          "description": "Only the project manager: the open system signal delivered to you that this question is about. The question closes by itself when the signal's case ends; task_key defaults to the signal's card.",
+          "description": "Only the project manager: the open system signal delivered to you that this question is about; always give it for a question about a signal. The question closes by itself when the signal's case ends; task_key defaults to the signal's card. Refused (signal_not_for_owner) for an unreleased, structural_pattern or milestone_closed signal: the owners are not asked about those.",
           "maxLength": 100,
           "minLength": 1,
           "type": "string",
@@ -4363,7 +4363,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "outcome": {
-          "description": "answered: a fact you found (needs answer; the member may ask a person again). forwarded: another AI member’s work, a technical choice to the notice’s technicalDecider (needs forward_to). moot: obsolete, also after it went to the people. decision: only an owner decision under an owner topic, as asked (needs owner_topic). todo: an owner or integrator step (needs todo). Fields another outcome needs are refused (invalid_outcome_fields).",
+          "description": "answered: a fact you found (needs answer; the member may ask a person again). forwarded: another AI member’s work, a technical choice to the notice’s technicalDecider (needs forward_to). moot: obsolete, also after it went to the people. decision: only an owner decision under an owner topic, as asked (needs owner_topic). todo: a machine or manual step, the integrator's when there is one (needs todo). Fields another outcome needs are refused (invalid_outcome_fields).",
           "enum": [
             "answered",
             "forwarded",
@@ -4374,7 +4374,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "owner_topic": {
-          "description": "The id of the project's owner topic (role guide) the decision or the owner's todo falls under; an approval question needs none. Only with decision, or todo for the owner.",
+          "description": "The id of the project's owner topic (role guide) the decision falls under; an approval question needs none. Only with decision; with todo it is accepted but not recorded.",
           "maxLength": 40,
           "minLength": 1,
           "type": "string",
@@ -4390,7 +4390,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "string",
             },
             "recipient": {
-              "description": "Who performs the step. Integrator for technical and machine work; owner only for a step under an owner topic (needs owner_topic). Independently reconsider the proposed recipient; explain changes in note.",
+              "description": "Optional and not decisive: a todo goes to the integrator whenever there is one (machine or manual step alike). Only when none can take it does it fall back to the technical decider or the owner.",
               "enum": [
                 "owner",
                 "integrator",
@@ -4414,7 +4414,6 @@ exports[`team tool definitions > preserves the public tool definitions across mo
             "what",
             "where",
             "expected",
-            "recipient",
           ],
           "type": "object",
         },

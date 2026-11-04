@@ -15,6 +15,32 @@ export function isCoordinatorOnlySignal(kind: OperatorSignalKind): boolean {
   return COORDINATOR_ONLY_SIGNAL_KINDS.includes(kind);
 }
 
+/**
+ * The signal kinds the owners never get a question about (PM-1243): the coordinator takes the signal's own
+ * step (`unreleased`: the deployment duty's member is started, the release closes it) or closes it
+ * (`dismiss_signal`). The server refuses an owner question tied to one (`ownerQuestionSignalRefusal`).
+ */
+export const OWNER_SILENT_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
+  'unreleased',
+  ...COORDINATOR_ONLY_SIGNAL_KINDS,
+];
+
+/** The refusal of an owner question about a signal of this kind, or null when the owners may be asked. */
+export function ownerQuestionSignalRefusal(kind: OperatorSignalKind): 'signal_not_for_owner' | null {
+  return OWNER_SILENT_SIGNAL_KINDS.includes(kind) ? 'signal_not_for_owner' : null;
+}
+
+/** What the coordinator is told when `ownerQuestionSignalRefusal` refuses (English, as the tool errors are). */
+export function ownerQuestionSignalRefusalMessage(kind: OperatorSignalKind): string {
+  return (
+    `signal_not_for_owner: the owners do not get a question about a ${kind} signal. ` +
+    (kind === 'unreleased'
+      ? 'An unreleased signal ends when the release is published, so take its step (start_member on the deployment duty’s member); '
+      : 'It is for you only; ') +
+    'a machine step belongs to open_integrator_todo, and a signal meant for you alone is closed with dismiss_signal.'
+  );
+}
+
 /** The signal kinds the coordinator may close as needing nothing instead of presenting them. */
 export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
   'obligation_overdue',

@@ -179,7 +179,7 @@ interface ScreeningRelease {
   todo?: ScreeningTodo;
   feedbackId?: string;
   fallback?: 'timeout' | 'unavailable';
-  /** The owner topic of a decision or an owner's todo (PM-1190); `releaseOwnerTopic` checks it. */
+  /** The owner topic of a decision (PM-1190); `releaseOwnerTopic` checks it. */
   ownerTopic?: string;
 }
 
@@ -193,18 +193,16 @@ type ScreenedEntry = Pick<ScreeningSettlement, 'by' | 'note' | 'answer' | 'forwa
 
 /**
  * The owner topic a screened question goes to the owner under (PM-1190), or undefined when it needs none:
- * a release by the system (`fallback`) or a todo for the integrator. An approval question records
- * `approval`; any other decision or owner's todo needs one of the project's topics, else it is refused
- * and stays in screening.
+ * a release by the system (`fallback`) or a todo (PM-1243: a todo is the integrator's work, not a decision of
+ * the owner, so an `ownerTopic` given with it is ignored). An approval question records `approval`; any other
+ * decision needs one of the project's topics, else it is refused and stays in screening.
  */
 function releaseOwnerTopic(
   current: InboxItem,
   release: ScreeningRelease,
   config: ProjectConfig,
 ): string | undefined {
-  const toOwner =
-    release.outcome === 'decision' || (release.outcome === 'todo' && release.todo?.recipient === 'owner');
-  if (!release.by || !toOwner) return undefined;
+  if (!release.by || release.outcome !== 'decision') return undefined;
   if (hasProtectedQuestionPayload(current)) return APPROVAL_OWNER_TOPIC;
   const refusal = ownerTopicRefusal(config, release.ownerTopic);
   if (refusal) throw invalid(refusal, ownerTopicRefusalMessage(config, refusal));
@@ -1643,7 +1641,7 @@ export class InboxService {
     const { outcome, fallback } = release;
     const route: TodoRoute =
       outcome === 'todo'
-        ? selectTodoRecipient(current, release.todo!.recipient, {
+        ? selectTodoRecipient(current, {
             integratorAvailable: this.integratorTodoAccess?.available(config) ?? false,
             issuerAllowed: machineTodoIssuerAllowed(config, machineTodoIssuerOf(current.source, release.by)),
             decider,

@@ -147,8 +147,8 @@ describe('integrator todo REST and durable lifecycle', () => {
     expect(journal(item.id).n).toBeGreaterThan(1);
   });
 
-  it('lets screening override proposals in both directions and keeps decision and fallback with the owner', async () => {
-    const override = asked({ requestedRecipient: 'integrator' });
+  it('ignores the recipient named for a todo and keeps decision and fallback with the owner (PM-1243)', async () => {
+    const override = asked({ requestedRecipient: 'owner' });
     const released = await h.app.projectman.domain.inbox.releaseScreened(override.id, {
       outcome: 'todo',
       by: 'pm',
@@ -156,7 +156,8 @@ describe('integrator todo REST and durable lifecycle', () => {
       ownerTopic: 'cost',
       note: 'Owner step',
     });
-    expect(released!.payload).toMatchObject({ requestedRecipient: 'integrator', recipient: 'owner' });
+    expect(released!.payload).toMatchObject({ requestedRecipient: 'owner', recipient: 'integrator' });
+    expect(released!.payload).not.toHaveProperty('ownerTopic');
     for (const release of [
       { outcome: 'decision' as const, by: 'pm', ownerTopic: 'cost' },
       { fallback: 'timeout' as const },

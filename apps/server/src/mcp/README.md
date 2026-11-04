@@ -257,9 +257,11 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   (`invalid_outcome_fields`). Only the selected PM, not in guest conversations, no open request needed; a question
   no longer in screening answers `question_not_screening` (moot still works). `ask_human` answers
   `{ screening: true }` for a screened question and takes `reask_of` + `reask_reason` (together) to ask a settled
-  question again unscreened (`reask_not_allowed` otherwise). `owner_topic` (PM-1190) goes only with `decision` or
-  a todo for the owner, which need one of the project's owner topics (`owner_topic_required`,
-  `owner_topic_unknown`); an approval question records `approval` without one. `ask_human` takes `owner_topic` only
+  question again unscreened (`reask_not_allowed` otherwise). `owner_topic` (PM-1190) goes with `decision`, which needs one of the project's owner topics
+  (`owner_topic_required`, `owner_topic_unknown`); an approval question records `approval` without one. A
+  `todo` accepts `owner_topic` but does not record it, and its `recipient` is optional and not decisive
+  (PM-1243: the integrator gets it when one can take it). `ask_human` with the `signal_id` of an `unreleased`,
+  `structural_pattern` or `milestone_closed` signal answers `signal_not_for_owner`. `ask_human` takes `owner_topic` only
   for the PM's own question and a re-ask (`owner_topic_not_allowed` otherwise), which need it unless they are
   information or an approval; the external bearer `ask_human` has no such field. Optional `feedback_id` is accepted only for
   `todo` and must identify existing system feedback in the same project (`invalid_outcome_fields` otherwise).

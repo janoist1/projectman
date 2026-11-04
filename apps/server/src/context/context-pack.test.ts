@@ -1791,8 +1791,7 @@ describe('system prompt', () => {
         'in the decision log (DECISIONS.md), in the roadmap (ROADMAP.md), in the code or in an earlier owner answer; name the source in the note',
         'forwarded: when answering is another AI member',
         'moot: when the question is obsolete',
-        'todo: a step for the owner or their external integrator; give what, where, expected and recipient (owner or integrator).',
-        'Independently choose the recipient, regardless of requestedRecipient',
+        'A todo always goes to the integrator when there is one',
         'Integrator addressing grants no execution authority; approvals and decisions stay with the owner.',
         'technicalDecider',
       ]) {
@@ -1896,9 +1895,9 @@ describe('system prompt', () => {
           expect(operator).toContain(
             level === 'report' ? 'On a signal you never merge' : 'Apart from the step a signal names',
           );
-          expect(operator).toContain(
-            'When a stalled, silent, outage or start_blocked signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and its owner_topic.',
-          );
+          expect(operator).toContain('open_integrator_todo');
+          expect(operator).toContain("ask_human, its owner_topic and the signal's signal_id");
+          expect(operator).toContain('signal_not_for_owner');
           expect(operator).not.toContain('always goes to the owners');
           expect(operator).toContain('at most one message per wake-up');
           expect(operator).toContain('with signal_ids');

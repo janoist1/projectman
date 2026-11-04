@@ -1113,7 +1113,8 @@ function hasIntegratorTodoOrigin(payload: InboxItem['payload']): boolean {
 }
 
 /**
- * Where a todo goes. The machine queue (`integrator`) takes it only from a member with machine access
+ * Where a todo goes (PM-1243): the recipient the asker named does not decide, a todo is the integrator's whenever
+ * one can take it; only what the owner alone may decide is a `decision`. The machine queue (`integrator`) takes it only from a member with machine access
  * (`issuerAllowed`, decision 66): the one who classified the step as an integrator todo (the screening member
  * for a screened question, the opener for its own todo). The refusals are checked in the order protected,
  * no access, unavailable. When no integrator can take it for one of the last two reasons and the project has
@@ -1130,10 +1131,8 @@ export type TodoRoute =
 
 export function selectTodoRecipient(
   item: InboxItem,
-  requested: QuestionRecipient,
   facts: { integratorAvailable: boolean; issuerAllowed: boolean; decider: string | null },
 ): TodoRoute {
-  if (requested === 'owner') return { recipient: 'owner' };
   if (hasProtectedQuestionPayload(item) || !questionPayloadOf(item) || 'group' in item.payload)
     return { recipient: 'owner', recipientRefusal: 'protected_question' };
   const refused = !facts.issuerAllowed

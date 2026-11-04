@@ -408,7 +408,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
   PM-1186 enables versioning on the restic backup bucket after installing 30-day noncurrent-version
   expiration and expired-delete-marker cleanup; the Litestream database bucket stays unversioned.
-  PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
+  PM-674's [rollback sheet](HYBRID.md#the-way-back) preserves the final stopped-cloud data before
   Mac single activation. Credentials stay on the administration machine, outside member sessions.
   PM-1116 retired the one-off move commands (`seed` with its PM-717 integrity gate, `dns plan|import|verify|switch`);
   the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`. A tool the owner runs on their Mac
@@ -778,7 +778,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   **Module:** `services/feedback`
 
 - **Single-mode recovery service (PM-1113)** — `scripts/live/`, `npm run live -- install|status|uninstall`.
-  Keeps the `com.projectman.live` LaunchAgent for the [cutover rollback](CLOUD-CUTOVER.md).
+  Keeps the `com.projectman.live` LaunchAgent for the [cutover rollback](HYBRID.md#the-way-back).
   It pauses, stops, installs and verifies the compiled single-mode server; no watcher, journal,
   git remote or automatic publication remains. **Assumptions:** macOS launchd and a built checkout
   on the recovery host. **Remote engine:** this runs on the recovery host only, outside engine RPC.
@@ -1251,7 +1251,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   none may answer 2xx, and an unreachable probe fails. It needs bash and curl on the machine that
   runs it and calls the hub URL; the engine has nothing new to do. `http/errors.ts` answers unknown
   `/engine` paths with 404 instead of the web app's index.html (hub HTTP routing only).
-  PM-674's [rollback runbook](CLOUD-CUTOVER.md) closes the public edge and stops the cloud
+  PM-674's [rollback runbook](HYBRID.md#the-way-back) closes the public edge and stops the cloud
   before downloading final data for Mac single activation. Deployment and backup remain on EC2;
   the single-mode recovery service does not update either the cloud or the separate engine checkout.
   PM-1197 (part of PM-1193): `deploy/aws/host.sh` gains `prune-images` (after a healthy deploy only the current and the
@@ -2916,7 +2916,7 @@ assumption or remote-engine RPC.
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
-  PM-674's [rollback sheet](CLOUD-CUTOVER.md) uses protected return
+  PM-674's [rollback sheet](HYBRID.md#the-way-back) uses protected return
   directories outside the source and repositories and brings final stopped-cloud data back
   before activation. No second writer or
   automatic clearing of used targets is allowed; data transport is the owner's administration path.
@@ -2976,7 +2976,7 @@ assumption or remote-engine RPC.
   PM-1113 runs the compiled `apps/server/dist/index.js` under Node, without a TypeScript loader;
   build the engine checkout before installing or updating the service. The build and launchd
   operations run on the engine machine; no compiled source crosses engine RPC.
-  PM-674's [rollback runbook](CLOUD-CUTOVER.md) uninstalls KeepAlive before hybrid back.
+  PM-674's [rollback runbook](HYBRID.md#the-way-back) uninstalls KeepAlive before hybrid back.
   Updates are manual owner-approved steps in
   the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`

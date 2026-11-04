@@ -8,12 +8,12 @@ Deployment is an owner-requested procedure in [DEPLOY.md](../DEPLOY.md); its mac
 
 ## Release publication and running version (PM-968, PM-969, PM-1113)
 
-The supported procedure is [DEPLOY.md](../DEPLOY.md#release-pm-1113): an owner-requested
+The supported procedure is [DEPLOY.md](../DEPLOY.md#by-hand-the-fallback-pm-1113): an owner-requested
 `npm run cloud -- deploy --ref <commit>`, the Mac engine rebuilt and reinstalled at the
 same commit, then `publish_release` on request after a preview. There is no watcher,
 proposal/approval chain, control relay or administration supervisor.
 
-The devops drives the whole release as a chain, with the owner's one yes ([DEPLOY.md](../DEPLOY.md#release-pm-1193),
+The devops drives the whole release as a chain, with the owner's one yes ([DEPLOY.md](../DEPLOY.md#the-release-chain-pm-1193),
 PM-1193). The module serves it with two read-only parts (PM-1201). `ReleasePublishService.unreleased(projectKey)` lists,
 per repository with a known base, the cards merged after it (`repo`, `base`, `count`, `oldestAt`, `taskKeys`) from the
 recorded merges alone: no git, no write, `[]` on any error. The coordination module's board read turns an entry at

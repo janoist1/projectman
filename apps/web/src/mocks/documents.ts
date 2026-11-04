@@ -57,6 +57,8 @@ export interface MockDocumentSeed {
   slug?: string;
   /** Handle of the member who wrote it; the default is the viewer. */
   by?: string;
+  /** The change was made through that member's connected Claude (decision 66): the author carries the actor. */
+  connected?: boolean;
   /** Minutes ago the last change was made. */
   ageMinutes?: number;
 }
@@ -100,7 +102,7 @@ export class MockDocuments {
         input.title,
         input.content,
         versions.length === 0 ? `Create ${slug}` : `Update ${slug}`,
-        this.authorOf(input.by ?? this.host.viewerHandle()),
+        this.authorOf(input.by ?? this.host.viewerHandle(), input.connected),
         input.ageMinutes ?? 0,
       ),
     );
@@ -148,12 +150,22 @@ export class MockDocuments {
     };
   }
 
-  private authorOf(handle: string): DocumentChangeAuthor {
+  private authorOf(handle: string, connected = false): DocumentChangeAuthor {
     const member = memberOf(this.host.config(), handle);
+    const kind = member?.kind === 'ai' ? 'ai' : 'human';
+    const name = member?.displayName ?? handle;
+    if (!connected) return { kind, handle, name };
     return {
-      kind: member?.kind === 'ai' ? 'ai' : 'human',
+      kind,
       handle,
-      name: member?.displayName ?? handle,
+      name,
+      via: 'integrator',
+      actor: {
+        kind,
+        handle,
+        via: 'integrator',
+        through: { holder: handle, credential: { id: 'key_mock', prefix: 'abcd' } },
+      },
     };
   }
 

@@ -64,6 +64,15 @@ function seeded() {
   return { p, slug };
 }
 
+/** A document whose first version a member wrote and whose last one went through that member's connected Claude. */
+function connectedDocument() {
+  const p = mockProject();
+  const slug = p.backend.documents.seed({ title: 'Napló', content: 'Első.', by: 'devops', ageMinutes: 30 });
+  p.backend.documents.seed({ title: 'Napló', content: 'Második.', slug, by: 'devops', connected: true });
+  const updatedBy = t('documents.updatedBy', { name: t('connected.label', { name: nameOf(p, 'devops') }) });
+  return { p, slug, updatedBy };
+}
+
 /** The same project, seen with another access level. */
 function asAccess(p: ReturnType<typeof mockProject>, access: HumanAccess) {
   return { me: { ...p.context.me, projects: [{ ...p.context.me.projects[0]!, access }] } };
@@ -89,6 +98,13 @@ describe('the document list', () => {
     expect(rows[1]!.textContent).toContain(t('documents.updatedBy', { name: nameOf(p, 'devops') }));
     expect(rows[1]!.getAttribute('href')).toBe('/p/AC/docs/projektterv');
     expect(screen.getByRole('button', { name: t('documents.new') })).toBeTruthy();
+  });
+
+  it('shows a change made through a connected Claude with its mark, as text', async () => {
+    const { p, updatedBy } = connectedDocument();
+    p.render(<Pages />, '/p/AC/docs');
+    const list = await screen.findByRole('list', { name: t('documents.listLabel') });
+    expect(within(list).getByText(updatedBy)).toBeTruthy();
   });
 
   it('tells a viewer there is nothing yet and offers no new document', async () => {
@@ -273,6 +289,21 @@ describe('the history', () => {
       version: expect.stringMatching(/^[0-9a-f]{40}$/),
       message: 'Rossz szerkesztés',
     });
+  });
+
+  it('marks a change made through a connected Claude in the header and the history, and a member’s not', async () => {
+    const { p, slug, updatedBy } = connectedDocument();
+    p.render(<Pages />, `/p/AC/docs/${slug}`);
+    await screen.findByText('Második.');
+    expect(screen.getByText((text) => text.startsWith(updatedBy))).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('documents.history.title') }));
+    const drawer = await screen.findByRole('complementary', { name: t('documents.history.title') });
+    const rows = await within(drawer).findAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]!).getByText(t('connected.chip'))).toBeTruthy();
+    expect(within(rows[0]!).getByText(t('connected.detail'), { exact: false })).toBeTruthy();
+    expect(within(rows[1]!).queryByText(t('connected.chip'))).toBeNull();
+    expect(within(rows[1]!).getByText(nameOf(p, 'devops'))).toBeTruthy();
   });
 });
 

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_DOCUMENT_BYTES } from '@projectman/shared';
-import type { Actor } from '@projectman/shared';
+import type { Actor, BoundActor } from '@projectman/shared';
 import {
   createConfigStore,
   createCustomizationRepo,
@@ -203,6 +203,44 @@ describe('DocumentStore (documents repository in the customization repository)',
       'unsafe_path',
     );
     expect(readFileSync(join(outside, 'sentinel'), 'utf8')).toBe('unchanged');
+  });
+
+  it('reads the connected Claude back from the trailers of an integrator write, and nothing from a member’s', async () => {
+    const connected: BoundActor = {
+      kind: 'human',
+      handle: 'ann',
+      via: 'integrator',
+      through: { holder: 'ann', credential: { id: 'ikey_1', prefix: 'pmk_abc' } },
+    };
+    const first = await docs.create('AR', { title: 'Plan', content: 'one', message: why }, robot);
+    await docs.update('AR', 'plan', { content: 'two', message: 'Through Claude' }, first.version, {
+      ...ann,
+      via: 'integrator',
+      superActor: connected,
+      actor: connected,
+    });
+
+    const [viaClaude, byMember] = await docs.history('AR', 'plan');
+    expect(viaClaude?.by).toMatchObject({
+      kind: 'human',
+      handle: 'ann',
+      via: 'integrator',
+      actor: connected,
+    });
+    expect(byMember?.by).toEqual({ kind: 'ai', handle: 'dev', name: 'Fejlesztő 1' });
+    expect((await docs.list('AR'))[0]?.updatedBy.via).toBe('integrator');
+  });
+
+  it('gives no actor when the trailers of an integrator write do not agree', async () => {
+    const created = await docs.create('AR', { title: 'Plan', content: 'one', message: why }, ann);
+    await docs.update('AR', 'plan', { content: 'two', message: why }, created.version, {
+      ...ann,
+      via: 'integrator',
+    });
+
+    const [latest] = await docs.history('AR', 'plan');
+    expect(latest?.by.via).toBe('integrator');
+    expect(latest?.by).not.toHaveProperty('actor');
   });
 
   describe('next to the configuration', () => {

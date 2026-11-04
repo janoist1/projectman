@@ -99,7 +99,7 @@ export function createOperatorAppCredentials(deps: {
   sessions: OperatorAppSessions;
   /** The session's open request, when there is one: where it came from decides what the session may start. */
   openRequest(sessionId: string): { source: string; fromHandle: string } | null;
-  user(id: string): { email: string } | null;
+  user(id: string): { email: string; name?: string } | null;
   userByEmail(email: string): { id: string; email: string } | null;
 }): OperatorAppCredentials {
   // Only principals made here are app principals: a copy or a forged object is never in the set.

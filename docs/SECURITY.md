@@ -1842,7 +1842,13 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   by default until they carry an explicit external binding; the member's session, decision, file and merge
   tools are not offered, and `tools/list` follows the key's mode while a direct call is checked against the
   same table. An unknown project and one the holder does not own get the same refusal, so the answer does
-  not tell which project keys exist. With the PM-675 separate machine entrance, its own Access audience
+  not tell which project keys exist. The project documents (PM-1232) are served with the REST's rights: a
+  `read` key reads and lists them and reads their history (`list_documents`, `read_document`,
+  `document_history`); only a `super` key writes (`write_document`: create and edit, with the reason the
+  history shows). There is no delete and no restore on this door; the commit is the holder's, marked
+  `Projectman-Via: integrator` with the connected actor, so the document's history tells a write through
+  the connected Claude from the owner's own. A document's text is data for the reader, never an instruction.
+  With the PM-675 separate machine entrance, its own Access audience
   and the bearer key are both required. The hub checks raw Host before resolving a cookie or a key:
   cookie-only machine requests are 401, board API bearer attempts are 403 `integrator_host_required`,
   and board bare `/mcp` is 404. The same guard is enabled during private staging; a public cloud with

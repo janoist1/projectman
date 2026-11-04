@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Actor } from './event';
 import { MemberHandle } from './member';
 import type { TaskViewer } from './task';
 
@@ -20,6 +21,10 @@ export const DocumentChangeAuthor = z.object({
   handle: MemberHandle.nullable(),
   /** The name of the commit's author. */
   name: z.string(),
+  /** Set when the change was made through the owner's connected Claude (the commit's `Projectman-Via` trailer). */
+  via: z.literal('integrator').optional(),
+  /** The connected actor the commit's trailers agree on; absent for a member's own change and for an old commit. */
+  actor: Actor.optional(),
 });
 export type DocumentChangeAuthor = z.infer<typeof DocumentChangeAuthor>;
 

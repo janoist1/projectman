@@ -710,7 +710,10 @@ export interface DocumentToolsHandler {
   /** read_document: a whole document, a section of it, or an old version. */
   readDocument(ctx: ToolContext, args: ReadDocumentArgs): Promise<ReadDocumentResult>;
   /** write_document: creates, edits or renames; never deletes. */
-  writeDocument(ctx: ToolContext, args: WriteDocumentArgs): Promise<{ document: DocumentSummary; created: boolean }>;
+  writeDocument(
+    ctx: ToolContext,
+    args: WriteDocumentArgs,
+  ): Promise<{ document: DocumentSummary; created: boolean }>;
   /** document_history: the versions of a document, newest first. */
   documentHistory(ctx: ToolContext, args: { slug: string; limit?: number }): Promise<DocumentVersion[]>;
 }
@@ -1259,6 +1262,17 @@ export interface ExternalToolsHandler {
     args: { to: string[]; text: string; taskKey?: string; kind: MessageKind; despiteWorkers?: boolean },
   ): Promise<ExternalSentMessage>;
   listMembers(ctx: ExternalToolContext): Promise<MemberView[]>;
+  /** The document tools (PM-1232): the arguments and answers of the member tools, as the key holder, never a delete. */
+  listDocuments(ctx: ExternalToolContext): Promise<DocumentSummary[]>;
+  readDocument(ctx: ExternalToolContext, args: ReadDocumentArgs): Promise<ReadDocumentResult>;
+  writeDocument(
+    ctx: ExternalToolContext,
+    args: WriteDocumentArgs,
+  ): Promise<{ document: DocumentSummary; created: boolean }>;
+  documentHistory(
+    ctx: ExternalToolContext,
+    args: { slug: string; limit?: number },
+  ): Promise<DocumentVersion[]>;
   getProjectState(
     ctx: ExternalToolContext,
     args: { taskKey?: string; messageId?: string },

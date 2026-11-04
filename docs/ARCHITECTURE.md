@@ -23,7 +23,7 @@ Documentation map:
 | [LESSONS.md](LESSONS.md)                                                   | what building projectman taught us: challenges and lessons          |
 | [PROVIDERS.md](PROVIDERS.md)                                               | the providers: flags, hooks, permissions, login, plan usage         |
 | [design/labels.md](design/labels.md), [design/duties.md](design/duties.md) | labels and gates; roles as duty bundles (reference, built)          |
-| [design/phase2.md](design/phase2.md)                                       | a rejected proposal (decision 37), kept as a reference only         |
+| [design/phase2.md](design/phase2.md)                                       | a postponed proposal (decision 37), kept as a reference only        |
 | [GITHUB.md](GITHUB.md), [SECURITY.md](SECURITY.md), [DEPLOY.md](DEPLOY.md) | GitHub integration; threat model and protections; server deployment |
 
 ## Hard constraints
@@ -1232,8 +1232,9 @@ the configured full command on the handed-over commit, PTY tests included. Other
 for targeted tests while working and one full test and type check on the handed-over commit.
 A repository can set `fullTestAtMerge: true` to delegate the full check to the merge (PM-380): developers and maintainers then run only related tests and the type check of touched
 workspaces, including at hand-over and in fix rounds. In PM, the merger uses `merge_task`; the
-server runs `npm run merge-test` in the full test sandbox, in the machine's heavy-run queue,
-before the default branch moves (decision 40, PM-386). Other projects retain their existing default
+server runs `npm run merge-test` before the default branch moves (decision 40, PM-386), on the
+engine or on GitHub Actions as the repository's `reviewTest.runner` says; only the engine run
+takes the heavy-run lock. Other projects retain their existing default
 (absent or false). With `fullTestAtMerge: true` the
 repository's `reviewTest` runs only at the merge (PM-386, PM-489): `reviewTestBeforeReview` is false, so
 `reviewTestOf` finds no test, nothing is queued or held before review and the context carries no

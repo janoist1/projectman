@@ -241,6 +241,19 @@ describe('cardDuty', () => {
     expect(duty).toMatchObject({ reason: 'queued', kind: 'system', step: 'advance' });
   });
 
+  it.each([
+    [1, { kind: 'hold', code: 'parts' }],
+    [0, { kind: 'member', member: 'dev' }],
+  ])('has an unowned card of a work stage with %i open parts as %o', (openParts, expected) => {
+    const idle = card({ status: 'waiting', assignee: null });
+    expect(dutyOf(idle, { openParts })).toMatchObject({ reason: 'queued', ...expected });
+  });
+
+  it('keeps the automatic advance of a card with open parts', () => {
+    const done = card({ stageId: 'review', status: 'active', assignee: null, labels: ['code-review-ok'] });
+    expect(dutyOf(done, { openParts: 1 })).toMatchObject({ kind: 'system', step: 'advance' });
+  });
+
   it('gives a card a member on leave holds to nobody', () => {
     expect(dutyOf(card(), { onLeave: ['dev'] })).toMatchObject({ reason: 'assignee', kind: 'unowned' });
     expect(dutyOf(card())).toMatchObject({ reason: 'assignee', kind: 'member', member: 'dev' });

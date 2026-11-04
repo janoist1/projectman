@@ -1567,7 +1567,8 @@ a new wait reason or state that falls into `unowned` fails the test until someon
 texts); its responsible is the member, the project manager (`unowned`) or nobody (`system`). It climbs the same
 ladder (PM-1234): a ready card with an open part (a collecting card, which the automatic start never starts) is the
 `parts` hold of `cardDuty` (`CardDutyInput.openParts`, counted once per sweep from the open cards), so it has no
-row; its parts carry its step. A collecting card with only closed parts or none behaves as before. A row whose
+row; its parts carry its step. The same holds in a work stage (PM-1242): an idle card with an open part that the
+automatic move on does not take (`stageAdvance`) is the `parts` hold, not a step of the stage's owners. A collecting card with only closed parts or none behaves as before. A row whose
 `obligation_overdue` signal the project manager dismissed ends (`cancelled`) instead of going to a person, and
 the same stay does not open it again. For the system steps that run only on an event (refinement, automatic move on) the `wake` rung is a kick
 (`kicks`/`kick`: `Refinement.changed`, `AutoAdvance.check`) instead of a reminder. So a card that no event

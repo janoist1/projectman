@@ -3,6 +3,7 @@ import {
   TODO_DONE_OPTION,
   TODO_CANNOT_OPTION,
   inboxRecipientOf,
+  isIntegratorTodo,
   questionPayloadOf,
   routes,
   connectedActorOf,
@@ -158,15 +159,25 @@ describe('integrator todo REST and durable lifecycle', () => {
     });
     expect(released!.payload).toMatchObject({ requestedRecipient: 'owner', recipient: 'integrator' });
     expect(released!.payload).not.toHaveProperty('ownerTopic');
-    for (const release of [
-      { outcome: 'decision' as const, by: 'pm', ownerTopic: 'cost' },
-      { fallback: 'timeout' as const },
-      { fallback: 'unavailable' as const },
-    ]) {
-      const item = asked({ requestedRecipient: 'integrator' });
-      const result = await h.app.projectman.domain.inbox.releaseScreened(item.id, release);
-      expect(result!.payload.recipient).toBe('owner');
-      expect(result!.payload.integratorOpenedAt).toBeUndefined();
+    const decision = await h.app.projectman.domain.inbox.releaseScreened(
+      asked({ requestedRecipient: 'integrator' }).id,
+      { outcome: 'decision', by: 'pm', ownerTopic: 'cost' },
+    );
+    expect(decision!.payload.recipient).toBe('owner');
+    expect(decision!.payload.integratorOpenedAt).toBeUndefined();
+    // A skipped screening keeps the integrator the asker named, while one is live; an owner request stays.
+    for (const fallback of ['timeout', 'unavailable'] as const) {
+      const kept = await h.app.projectman.domain.inbox.releaseScreened(
+        asked({ requestedRecipient: 'integrator' }).id,
+        { fallback },
+      );
+      expect(isIntegratorTodo(kept!)).toBe(true);
+      expect(questionPayloadOf(kept!)?.screening).toMatchObject({ fallback, outcome: 'todo' });
+      const owner = await h.app.projectman.domain.inbox.releaseScreened(
+        asked({ requestedRecipient: 'owner' }).id,
+        { fallback },
+      );
+      expect(owner!.payload.recipient).toBe('owner');
     }
     expect((await opened({ requestedRecipient: 'owner' })).payload.recipient).toBe('integrator');
   });

@@ -22,6 +22,7 @@ import {
   planIntegratorInboxEscalation,
   selectFixLimitRecipient,
   selectTodoRecipient,
+  fallbackIntegratorTodo,
   technicalDeciderOf,
   FixLimitOptionId,
   ResolveIntegratorFixLimitRequest as IntegratorFixLimitRequestSchema,
@@ -1643,7 +1644,12 @@ export class InboxService {
       outcome === 'todo'
         ? selectTodoRecipient(current, {
             integratorAvailable: this.integratorTodoAccess?.available(config) ?? false,
-            issuerAllowed: machineTodoIssuerAllowed(config, machineTodoIssuerOf(current.source, release.by)),
+            // A skipped screening (`fallback`) is the system's own step: the asker asked for the integrator
+            // because it has no machine access itself (PM-1243).
+            issuerAllowed: machineTodoIssuerAllowed(
+              config,
+              fallback ? 'system' : machineTodoIssuerOf(current.source, release.by),
+            ),
             decider,
           })
         : { recipient: 'owner' };
@@ -1794,17 +1800,30 @@ export class InboxService {
       if (group && group.primaryItemId !== id) return null;
       const current = this.ctx.repos.inbox.get(id);
       if (!current || current.kind !== 'question' || current.state !== 'screening') return null;
-      const { outcome, fallback } = release;
       const config = await this.projects.config(current.projectKey);
-      const { ownerTopic: _asked, ...rest } = release;
-      const ownerTopic = releaseOwnerTopic(current, release, config);
       const at = isoNow(this.ctx);
+      const { fallback } = release;
+      // A skipped screening keeps a requested integrator (PM-1243): the question opens as the integrator's todo
+      // when one can take it; otherwise it opens for the owners with its own options, as before.
+      const fallbackTodo = fallback && !release.outcome && !group ? fallbackIntegratorTodo(current) : null;
+      const taken =
+        fallbackTodo &&
+        selectTodoRecipient(current, {
+          integratorAvailable: this.integratorTodoAccess?.available(config) ?? false,
+          issuerAllowed: machineTodoIssuerAllowed(config, 'system'),
+          decider: null,
+        }).recipient === 'integrator';
+      const effective: ScreeningRelease =
+        fallbackTodo && taken ? { outcome: 'todo', by: 'system', todo: fallbackTodo, fallback } : release;
+      const { outcome } = effective;
+      const { ownerTopic: _asked, ...rest } = effective;
+      const ownerTopic = releaseOwnerTopic(current, effective, config);
       const { selected, forwardTo, todo, payload, options } = this.releaseFields(
         current,
         ownerTopic ? { ...rest, ownerTopic } : rest,
         config,
         at,
-        forward && release.by ? technicalDeciderOf(config, current.source) : null,
+        forward && effective.by ? technicalDeciderOf(config, current.source) : null,
       );
       if (forward && forwardTo && release.by) {
         const resolution = {
@@ -1835,16 +1854,8 @@ export class InboxService {
         if (selected.recipient === 'integrator')
           this.ctx.repos.inbox.updateOpen(id, payload, ownerHandles(config), at);
         const item = this.ctx.repos.inbox.get(id)!;
-        if (outcome && release.by) {
-          this.appendScreened(item, {
-            outcome,
-            by: release.by,
-            note: release.note ?? '',
-            ...(todo ? { todo } : {}),
-            ...(release.feedbackId !== undefined ? { feedbackId: release.feedbackId } : {}),
-            ...(ownerTopic ? { ownerTopic } : {}),
-          });
-        } else if (fallback) {
+        // The fallback decides first: a skipped screening that became an integrator todo is still a skipped one.
+        if (fallback) {
           this.timeline.append({
             projectKey: item.projectKey,
             taskKey: item.taskKey,
@@ -1852,6 +1863,15 @@ export class InboxService {
             actor: SYSTEM_ACTOR,
             type: 'question_screening_skipped',
             data: { inboxItemId: item.id, asker: item.source, reason: fallback },
+          });
+        } else if (outcome && release.by) {
+          this.appendScreened(item, {
+            outcome,
+            by: release.by,
+            note: release.note ?? '',
+            ...(todo ? { todo } : {}),
+            ...(release.feedbackId !== undefined ? { feedbackId: release.feedbackId } : {}),
+            ...(ownerTopic ? { ownerTopic } : {}),
           });
         }
         return item;

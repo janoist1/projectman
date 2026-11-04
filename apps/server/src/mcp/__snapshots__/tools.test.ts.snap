@@ -128,7 +128,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "recipient": {
-          "description": "Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected.",
+          "description": "Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected. When screening is skipped, \`integrator\` stays the recipient while an integrator is live; otherwise the question opens for the owners.",
           "enum": [
             "owner",
             "integrator",

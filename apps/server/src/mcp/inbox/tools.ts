@@ -143,7 +143,7 @@ export const INBOX_TOOL_GROUP: TeamToolGroup = {
               'Refused (signal_not_for_owner) for an unreleased, structural_pattern or milestone_closed signal: the owners are not asked about those.',
           ),
         recipient: QuestionRecipient.optional().describe(
-          'Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected.',
+          'Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected. When screening is skipped, `integrator` stays the recipient while an integrator is live; otherwise the question opens for the owners.',
         ),
         response_purpose: QuestionResponsePurpose.optional().describe(
           'information: a plain factual question, no decision; the integrator may relay the answer; needs no options. ' +

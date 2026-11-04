@@ -6,6 +6,7 @@ import {
   TODO_DONE_OPTION,
   TODO_CANNOT_OPTION,
   canSeeInboxItem,
+  fallbackIntegratorTodo,
   humanInboxAssignment,
   inboxRecipientOf,
   isIntegratorFixLimitDecision,
@@ -71,6 +72,37 @@ describe('durable integrator todo rules', () => {
     expect(selectTodoRecipient(todo(), { ...facts, integratorAvailable: false })).toEqual({
       recipient: 'owner',
       recipientRefusal: 'integrator_unavailable',
+    });
+  });
+  describe('fallbackIntegratorTodo (PM-1243)', () => {
+    const asked = (payload: Record<string, unknown>): InboxItem => ({
+      ...todo(),
+      state: 'screening',
+      options: [{ id: 'option_1', label: 'Deploy now', style: 'primary' }],
+      payload: {
+        question: 'Deploy the hub?',
+        requestedRecipient: 'integrator',
+        recommended: 'option_1',
+        ...payload,
+      },
+    });
+
+    it('makes a todo of a question that asked for the integrator, expecting the recommended option', () => {
+      expect(fallbackIntegratorTodo(asked({}))).toEqual({
+        what: 'Deploy the hub?',
+        where: 'AR-1',
+        expected: 'Deploy now',
+        recipient: 'integrator',
+      });
+      expect(fallbackIntegratorTodo(asked({ recommended: undefined }))?.expected).toBe('Deploy the hub?');
+    });
+    it.each([
+      { requestedRecipient: 'owner' },
+      { approvalLabel: null },
+      { group: null },
+      { ownerTopic: 'risk_acceptance' },
+    ])('makes none when the question has %j', (payload) => {
+      expect(fallbackIntegratorTodo(asked(payload))).toBeNull();
     });
   });
   it('keeps an asker without machine access out of the integrator queue', () => {

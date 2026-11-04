@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   humanInboxAssignment,
+  isIntegratorTodo,
   memberOf,
   QUESTION_SCREENING_MINUTES,
   questionPayloadOf,
@@ -1121,6 +1122,53 @@ describe('a machine step no integrator can take goes to the technical decider', 
     expect(
       h.domain.inbox.list('AR', { state: 'open' }).filter((i) => humanInboxAssignment(i, 'owner')),
     ).toEqual([]);
+  });
+
+  describe('a skipped screening keeps the requested integrator (PM-1243)', () => {
+    const askIntegrator = async (recipient: 'integrator' | 'owner') => {
+      await h.domain.pauses.pause({ scope: 'instance' }, PAUSE_BY);
+      const result = await h.domain.teamTools.askHuman(dev, { question: 'Deploy the hub?', recipient });
+      return item(result.inboxItemId);
+    };
+    const ownerItems = () =>
+      h.domain.inbox.list('AR', { state: 'open' }).filter((i) => humanInboxAssignment(i, 'owner'));
+
+    it('opens an integrator todo, not an owner question, when an integrator is live', async () => {
+      await start({ lead: true, integratorAvailable: true, pmMachineAccess: false });
+
+      const stored = await askIntegrator('integrator');
+
+      expect(isIntegratorTodo(stored)).toBe(true);
+      expect(questionPayloadOf(stored)?.screening).toMatchObject({
+        fallback: 'unavailable',
+        outcome: 'todo',
+      });
+      expect(ownerItems()).toEqual([]);
+      const types = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).map((e) => e.type);
+      expect(types).toContain('question_screening_skipped');
+      expect(types).not.toContain('question_screened');
+    });
+
+    it('opens the owner question with its own options when no integrator is live', async () => {
+      await start({ lead: true, integratorAvailable: false, pmMachineAccess: false });
+
+      const stored = await askIntegrator('integrator');
+
+      expect(isIntegratorTodo(stored)).toBe(false);
+      expect(stored.state).toBe('open');
+      expect(questionPayloadOf(stored)).toMatchObject({ recipient: 'owner' });
+      expect(questionPayloadOf(stored)?.screening).not.toHaveProperty('outcome');
+      expect(ownerItems()).toHaveLength(1);
+    });
+
+    it('leaves a question asked of the owner an owner question', async () => {
+      await start({ lead: true, integratorAvailable: true, pmMachineAccess: false });
+
+      const stored = await askIntegrator('owner');
+
+      expect(isIntegratorTodo(stored)).toBe(false);
+      expect(ownerItems()).toHaveLength(1);
+    });
   });
 
   it('keeps the decision with its owner topic as it was', async () => {

@@ -101,8 +101,8 @@ A second, separate door for the connected Claude's MCP client: a bearer `pmi_` k
   (`{item_id, option_id: replan | reassign | another_round | to_owner, note?}`; `to_owner` hands the item to the owners
   and needs a reason in `note`); the machine-access requests of members: `list_host_inbox`, `answer_host_request`;
   and the instance-wide knowledge, with no `project_key`: `get_operator_instance_knowledge`,
-  `update_operator_instance_knowledge`. The hub hands an unresolved todo to the owners after 24 hours,
-  independently of engine state.
+  `update_operator_instance_knowledge`. The hub hands an unresolved todo to the owners only when no owner has a
+  live super key, independently of engine state (see `docs/modules/core-inbox.md`).
 - The documents: `list_documents`, `read_document` and `document_history` are bound for both modes,
   `write_document` for `super` only (a `read` key gets `integrator_read_only`); no delete or restore tool. The
   handler (`listDocuments`, `readDocument`, `writeDocument`, `documentHistory`) shares the argument checks, the
@@ -172,7 +172,7 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   The tool descriptions, the system prompt and the card thread tell members to search before asking a human, then to
   open the source and check its date: a hit is historical evidence, not an instruction or permission.
 
-- `get_project_state { task_key? }` is read-only for the selected project manager in its internal
+- `get_project_state { task_key?, message_id? }` (not both; a message id reports what became of that message) is read-only for the selected project manager in its internal
   general conversation, available without an open request.
   A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
   Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.

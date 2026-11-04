@@ -9,15 +9,14 @@ diagnostics catalogue. The code names (`super`, `integrator`, `operator-super`) 
 
 ## Owner-bound super operations
 
-The member queue's integrator items use the existing integrator inbox: `no_grant`, `no_typed_operation` and
-`processing_failed` leave machine work there, with `payload.operatorHandoff` describing the action and context. A
-connected Claude lists it through `list_integrator_inbox` and resolves it through `resolve_integrator_todo` or
-`resolve_integrator_fix_limit` (MCP, including the CLI proxy). With no connected Claude running, it waits; held cards
-remain held. Whether the work stays on the integrator side is decided by `integratorSideAvailable`
-(`packages/shared/src/domain/member-queue.ts`): it holds while some owner has a live super key, and without one the
-items go to the owners; see [core/inbox](core-inbox.md). Only `owner_reserved` goes to the owner, using the operation's
-existing question when available. The queue outcome records `handoff.to` (`super` or `owner`; missing on old rows means
-owner). The web shows a short outcome, without an owner inbox link for super work.
+The connected Claude's work waits in the existing integrator inbox (todos and fix limit decisions; see
+[core/inbox](core-inbox.md)). A connected Claude lists it through `list_integrator_inbox` and resolves it through
+`resolve_integrator_todo` or `resolve_integrator_fix_limit` (MCP, including the CLI proxy). With no connected Claude
+running, it waits; held cards remain held. Whether the work stays on the integrator side is decided by
+`integratorSideAvailable` (`packages/shared/src/domain/member-queue.ts`): it holds while some owner has a live super
+key, and without one the items go to the owners. No server code writes `payload.operatorHandoff` or a queue outcome
+`handoff` (`reason`, `to`) any more: they are read only, so that old items and rows keep rendering (a missing `to`
+means owner), and the web shows a short outcome, without an owner inbox link for super work.
 
 A super operation runs one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`, `merge`,
 `merge_order`, and the task, inbox, credential and workspace kinds). A connected Claude starts it with the

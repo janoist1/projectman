@@ -102,26 +102,24 @@ cleanup outside the caller's execution scope; generic label edits keep all crede
 The hub's `integrator-todos` maintenance job sweeps at startup and every 30 seconds, independently
 of AI availability or engine connectivity. Handoff and resolution serialize on the same lock.
 The sweep hands an item over only when no owner has a live super key (`integrator_unavailable`);
-there is no 24-hour clock. A resolution accepted under the lock finishes first. Handoff records
+there is no time limit. A resolution accepted under the lock finishes first. Handoff records
 `question_recipient_escalated` atomically with owner addressing and current owner assignees;
 it sends no answer and does not release the waiting label. Existing inbox change triggers journal
 opening, handoff and closure. No new machine operation or engine-boundary method is needed.
 
-A member queue item the project manager cannot finish (`no_grant`, `no_typed_operation`, `processing_failed`) opens or
-marks an integrator item with `payload.operatorHandoff` (action and context; see
-[services/super-operator](services-super-operator.md)). Recipient, assignees and options stay the same. Machine work
-waits in the integrator inbox as long as an owner has a live super key; the connected Claude hands an item to the
-owners with `escalateIntegratorItem` (`core/inbox/inbox.ts`), under the same question lock. Message handoffs open an
-integrator todo with the same marker; only `owner_reserved` opens or reuses an owner item. Closed items are refused
-with `inbox_item_closed`, other or already handed-off items with `super_relay_refused`.
+Work waits in the connected Claude's inbox as long as an owner has a live super key; `escalateIntegratorItem`
+(`core/inbox/inbox.ts`) hands an item to the owners under the same question lock. No server code writes
+`payload.operatorHandoff` any more (it is read only, so old items keep rendering; see
+[services/super-operator](services-super-operator.md)). Closed items are refused with `inbox_item_closed`, other or
+already handed-off items with `super_relay_refused`.
 
 ### Fix limit decisions (PM-801)
 
 A fix-limit decision (`payload.fixLimit`, source `system`, only fix-limit options) can be addressed to the
-integrator by `selectFixLimitRecipient` when the three extra rounds are used up, the lead passed it on, or no AI
+connected Claude by `selectFixLimitRecipient` when the three extra rounds are used up, the lead passed it on, or no AI
 member can decide; any other shape stays with the owners. `isIntegratorInboxItem` covers todos and these
 decisions, so the sweep escalates both when no owner has a live super key (`planIntegratorInboxEscalation`, event
-`fix_limit_recipient_escalated`). The integrator resolves only through `resolveIntegratorFixLimit` (same question
+`fix_limit_recipient_escalated`). The connected Claude resolves only through `resolveIntegratorFixLimit` (same question
 lock, `integratorExecution()` and owner access checked again): `replan`, `reassign`, `another_round`, or passing
 the same item to the owners with a reason. The text is built by `fix-limit-text.ts` in the project language.
 Hub-side only; no engine-boundary method.
@@ -129,9 +127,9 @@ Hub-side only; no engine-boundary method.
 ## Obligation todos (PM-806)
 
 `ObligationsService` (`services/obligations`) hands a step whose responsible did not act to the
-integrator through two inbox operations. `openIntegratorTodo` opens a question item that carries
-`payload.obligation` (`kind`, `responsible`, `subject`) and the same `integratorOpenedAt` clock as any
-integrator todo, so the owner handoff applies to it too; with no connected Claude available the owners
+connected Claude through two inbox operations. `openIntegratorTodo` opens a question item that carries
+`payload.obligation` (`kind`, `responsible`, `subject`) and the same `integratorOpenedAt` stamp as any
+todo for the connected Claude, so the owner handoff applies to it too; with no connected Claude available the owners
 get it directly, which the `IntegratorTodoAccess` port decides. The item has no asker to answer: the
 system is its source, so `resolveIntegratorTodo` and `resolve` record the result and send no message
 (`answeredNotice` skips obligation todos).

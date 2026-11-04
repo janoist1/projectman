@@ -92,7 +92,9 @@ workers follow the machine's size.
   `sequence.groupOrder: 1`. `VITEST_MAX_FORKS` caps the threads too (`VITEST_MAX_THREADS` first). A failed file
   is named `FAIL  |pooled| …` or `|isolated| …`; `merge-test` and `full-test/output.ts` read both.
 - **The server's merge check** runs the repository's `npm run merge-test` in the full test sandbox
-  before the default branch moves (PM-386, PM-490, PM-657). The first-parent diff and the union of
+  before the default branch moves (PM-386, PM-490, PM-657). `reviewTest.runner` chooses where it runs per
+  repository: `engine` (the default) or `github_actions`, which needs the repository's `github` owner/name and runs
+  the same check as a GitHub Actions run (see [services/merges](services-merges.md)). The first-parent diff and the union of
   both git trees' import graphs select changed server modules and their transitive dependents.
   A module check runs one server typecheck and one Vitest invocation with explicit test paths:
   adjacent tests, external tests reached through helpers, uncertain test dependencies, architecture

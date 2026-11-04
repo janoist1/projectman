@@ -7,8 +7,9 @@ members from it in `runtime/member-queue`.
 
 ## Member queue (PM-894)
 
-Every AI member has one durable queue of what is waiting for them: a message, a todo for the connected Claude, a fix limit decision
-(and permission requests, signals, obligations and starts). The storage shows the queue; the driver wakes members
+Every AI member has one durable queue of what is waiting for them: a message, a screening item, a permission request, a fix limit decision,
+a signal, an obligation or a start. An integrator item (a todo, or a fix limit decision addressed to the
+connected Claude) is not queued (see below). The storage shows the queue; the driver wakes members
 from it (see "Driver" below).
 
 - **Storage**: `member_queue_items` (`apps/server/src/db/member-queue.ts`). One row per (project, member, source type,

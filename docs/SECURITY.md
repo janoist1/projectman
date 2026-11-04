@@ -10,14 +10,12 @@ users attempting actions outside their project membership and access level.
 Tailscale connectivity is not authentication. First-run setup is a local operation:
 complete it before granting other people access to the machine.
 
-The owner's live instance is also reachable from the internet at `https://chopper.istvan.io`
-(PM-200). The public entrance adds two attackers to the list: anybody on the internet who finds
-the address, and whoever gets into the Cloudflare account or the Access login. It is defended in
-layers: Cloudflare Access (an allow list of exact email addresses) in front, `cloudflared`
-re-checking the Access token before it passes a request on, only the application's own paths
-let through (not `/hooks` or `/mcp`), and projectman's own login, origin check and attempt
-limits behind them. See "Public entrance through Cloudflare" below for what it requires and what
-risk it leaves.
+The public cloud board is reachable from the internet. Its browser boundary is projectman's
+own login: owners use a password; invited clients use an e-mail code.
+`auth/public-board.ts` refuses public startup without cloud mode, completed setup and
+working e-mail login (`PROJECTMAN_EMAIL_LOGIN_ENABLED=1`).
+See [The public board](#the-public-board-pm-672-part-of-pm-664) for access checks and
+[Cloud entrance](#cloud-entrance) for the separate browser, engine and machine-client routes.
 
 The host owner, project owners, executable paths, repositories and agent CLI
 configuration are trusted. Developers can send terminal input and run code as the
@@ -36,7 +34,7 @@ tenants into separate OS accounts or machines.
   `/engine/link`, grants no access to the human API, and can be revoked immediately.
   Remote engine connections require HTTPS (`wss://`); plain WebSockets are allowed
   only for requests classified as local. HTTPS termination is trusted only from
-  a loopback reverse proxy, using the same protocol check as integrator keys.
+  a loopback reverse proxy, using the same protocol check as connected Claude keys.
 
 - The engine guards the sandbox boundary itself (PM-1176). In engine mode the cloud decides permissions, and a
   decision that arrives over the link is not trusted to keep a session inside its zone. The write zone is the
@@ -96,7 +94,7 @@ tenants into separate OS accounts or machines.
   folders of the person's choice, which sessions' deny-only reads do not cover: the guide has them
   deleted after the upload and after the way back. The
   launchd job (`deploy/mac/com.projectman.engine.plist`) is given `PATH`, `PROJECTMAN_MODE` and
-  `PROJECTMAN_HOME` only: no API key and no integrator key.
+  `PROJECTMAN_HOME` only: no API key and no connected Claude key.
 - Cloud mode (`PROJECTMAN_MODE=cloud`, PM-315) adds three surfaces for the engine, and an
   engine is trusted only with its own sessions:
   - `GET /engine/files/downloads/:token` and `POST /engine/files/uploads/:token` need the
@@ -133,9 +131,10 @@ tenants into separate OS accounts or machines.
     password from `/proc/<pid>/environ` of the other processes and delete or read the backups.
     The Access application of the engine covers the path `/engine` (the link and the file
     transfers) with the engine's own service token only; that token is never put on the
-    whole-hostname application, which would reach `/api`. The one service token on the
-    whole-hostname application is the integrator's, off by default (see "Public entrance
-    through Cloudflare", point 2).
+    whole-hostname application, which would reach `/api`. The
+    private board application may additionally carry the connected client's service token
+    when no separate machine hostname is configured; the public board does not
+    (see [Cloud entrance](#cloud-entrance)).
 
 - NanoGPT keys are a narrow exception to subscription-only providers (PM-319, owner
   decision 1; PM-328). The server stores the key only in
@@ -243,7 +242,7 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   an owner account must name an engine of its own and the folder is checked on that engine. The host owner
   invites an owner account by a single-use link (256-bit token, SHA-256 hash stored, 7 days, public and
   attempt-limited routes, redacted in request logs) and revokes it with their own login: its projects the host
-  cannot see are paused, its engines and integrator keys are revoked, its login and data stay. Account
+  cannot see are paused, its engines and connected Claude keys are revoked, its login and data stay. Account
   rebinding, filesystem locations, admin grants and release approvers are owner-only.
   Owners and admins may invite an existing human seat without an email; acceptance
   binds only that still-unclaimed seat to the invited account, preserving its identity
@@ -311,15 +310,14 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   path. Symlinked project paths are rejected. Git hooks/signing are disabled for
   customization commits. YAML is limited to 1 MiB per file, 50 levels and no aliases;
   parse errors do not echo source text. The application home is owner-only (0700).
-- Private Operator agreements, learned principles and conversational preferences (PM-687) live
+- Private project-manager agreements, learned principles and conversational preferences (PM-687) live
   under `PROJECTMAN_HOME/operator-data`, outside customization git history. The shared
   `sensitivePaths` list denies this entire root to member sessions through the existing policy
   consumers. Storage validates keys and strict document schemas, refuses symbolic links and
   non-regular or hard-linked files, and writes complete JSON through a synced 0600 temporary file
   and same-directory atomic rename in 0700 directories. Target-file CAS is serialized within the
   server process; corrupt files and stale revisions are refused without overwriting. PM-688 adds
-  the personal-preference MCP writer and REST readers described below; PM-689 adds the
-  owner-approved agreement and learned-principle writer described below. The storage has no
+  the personal-preference MCP writer and REST readers described below; the shared knowledge writer is described below. The storage has no
   engine file mount.
 - Request logging omits bodies, credentials and query strings, and redacts hook,
   MCP and invitation URL tokens. Unknown-route/parser errors do not echo request
@@ -332,7 +330,7 @@ Message files live in `PROJECTMAN_HOME/message-attachments/<projectKey>/<id>`, i
 directories with 0600 files, separate from task attachments. Before sending, only the uploader
 can see a file. After sending, access follows `canSeeTeamMessage`: the sender, recipients and
 project owners/admins can see it. Unknown, deleted or invisible files return `not_found`.
-In an Operator guest conversation, `read_message_attachment` checks the guest's visibility.
+In a project-manager guest conversation, `read_message_attachment` checks the guest's visibility.
 An hourly sweep, also run at startup, deletes unsent uploads older than 24 hours.
 
 The `attachments` paths of `send_message` use the same file reader as `attach_file`: only
@@ -347,7 +345,7 @@ an MCP image, a session with its own folder receives an authorized copy at
 `<session folder>/message-attachments/<id>-<sanitized name>`. The server identifies the session
 from its MCP token and checks visibility again before obtaining the source. Its engine
 materializes the file only in that session's recorded folder, checking size and SHA-256;
-a remote engine receives it through a single-use download token. Guest Operator sessions have
+a remote engine receives it through a single-use download token. Guest project-manager sessions have
 no folder and receive content only. If materialization fails, the tool returns without a path.
 
 The entire app-home `message-attachments` directory is in `sensitivePaths`: member file tools
@@ -378,335 +376,161 @@ card. NanoGPT retains its launch-time `any` refusal; its failed-row-per-retry be
 is outside this change. On remote engines inspection must run beside the CLI, returning only
 relative file/key names to the server.
 
-## Shared Operator knowledge approval (PM-689)
+## Shared project-manager knowledge (PM-689, PM-1043)
 
-`propose_operator_knowledge` requires an internal general session of the Operator or the selected
-project manager (PM-1043; a project manager proposal carries no recommended operations) with an
-open owner message or answer request. Signal, watch, web and approval-continuation requests cannot propose
-knowledge. A proposal writes an approval inbox item and a step, without changing the private
-knowledge or configuration. Only an owner using their own login may approve, reject or dismiss
-through the registered `operator_knowledge` decider; AI members, admins and integrators cannot
-decide. The human resolver is persisted in `applying` before the file CAS under the same project
-configuration lock as configuration commits. A persisted proposal marker makes replay
-idempotent; recovery closes an already committed proposal with its recorded human resolver,
-and a missing marker requires another human click. Stale and rejected proposals write no knowledge.
+`propose_operator_knowledge` requires the selected project manager's internal general session
+with an open owner message or answer. It accepts no recommended operations. The proposal
+creates an approval inbox item and a step without changing knowledge or configuration.
+Only an owner using their own login may approve, reject or dismiss through the
+`operator_knowledge` decider. AI members, admins and connected clients cannot decide.
+The human resolver is persisted in `applying` before the file CAS under the project
+configuration lock. A persisted proposal marker makes recovery idempotent; without a marker,
+another human click is required. Stale and rejected proposals write no knowledge.
 
-`get_operator_knowledge` reads only from the actual internal, `with`-less general session of the
-Operator or project manager. The Operator's owner conversation and system-signal context may
-receive shared knowledge; the PM's internal general context may receive it when started by a
-human with developer access or higher, or by the system. Customer, guest/`with`, forged-human
-and integrator starts receive none. The context contains only `revision`, `agreement` and
-`principles` as quoted JSON data below the fixed instructions; `appliedProposalIds` stays out of
-the prompt. These data grant no permissions. REST knowledge reads require owner/admin access
-using their own login. Knowledge approval inbox items, including their titles and payloads,
-are private to those same readers in open and historical lists and websocket events.
+`get_operator_knowledge` requires an actual internal, `with`-less project-manager session.
+Its internal context may receive shared knowledge when started by the system or a human
+with developer access or higher; guest and connected-client starts receive none.
+Only `revision`, `agreement` and `principles` enter the context as quoted JSON data;
+`appliedProposalIds` stays out. These data grant no permissions.
+REST knowledge reads and approval inbox visibility require owner/admin access with their
+own login. Approval writes knowledge only and sends no operation continuation.
 
-Agreement proposals may store recommended operations, but approval executes none of them.
-While the request's agreement proposal is pending, `operator_agreement_pending` blocks its
-operations, including immediate configuration changes, at the action and commit boundaries.
-Approval creates a server-authored continuation with human provenance and a deterministic
-message id. It can open an `approval` request only once, after matching the human resolver,
-`applying` identity, approved step and message origin, with no rule or integrator attribution.
-This request permits only `operate` calls canonically matching its stored operations; it cannot
-send messages or propose knowledge. Forbidden operations remain forbidden, and protected
-configuration changes still need a separate owner approval. The operation steps show actual
-before/after values and partial outcomes; knowledge approval never means that all settings
-have been applied.
+## Coordination and configuration
 
-## Operator actions and approvals (PM-464)
+### Project-manager coordination (PM-707)
 
-PM-691 fixes the Operator's approver to `human`, including historical `none`/`ai` configuration
-and all session overrides. The template and idempotent load/revert migration set the member's
-approver; the shared effective rule forces `human` with source `member` on launch, resume,
-permission routing and the session header. A session update requesting `none`/`ai` fails with
-403 `operator_fixed` before any write, restart or event, including a mixed mode patch;
-`human`/`null` canonically clears the override. The Operator cannot be the merger or hold
-`boundary_authorization`. Fixed invariant violations are not tolerated in configuration writes;
-a stored Operator merger fails closed on load.
+`coordinationMemberOf` selects the available project manager. Coordination mutations use
+`coordinationActorRefusal` and `assertCoordinationSession`: the selected manager's actual
+internal general session, with no guest, connected-client attribution or on-leave actor.
+Refusal is `project_manager_only`. `get_project_state` is read-only and excludes guests.
+Lifecycle tools also check `team.projectManagerLifecycle` and record reasons; shared
+task services repeat the access checks. Gates, prerequisites and fix-limit holds still apply.
 
-`operatorConfigVerdict.waiverEligible` only classifies whether an approval click can be waived;
-it grants no execution, changes no verdict level and never opens a `never` operation. Execution
-still needs the owner's provenance (PM-692). Every changed field must be explicitly allowed,
-including complete added/removed entities. AI permission/network/approver changes, approval
-labels and their setters/holders, reviewer and authorization duties, gates, effective merger
-and merge target, stage order, workspace/repository/test/integrator/remote access, sharing,
-and the Operator's own settings/watch/waiver remain approval-bound. `githubLogin`, member
-`instructions`, `temp`, `complexityLimit` and unknown fields are outside the waiver whitelist. Template
-permission, `none` approver, default network, empty instructions and `temp: false` on a new
-implementer grant no extra authority. Approval and permission decision tools remain
-forbidden to the Operator; this classification opens no exception.
+Starts require the manager's own open `CoordinationRequest` or a permitted signal step.
+Only actual delivery of an owner's own-login message or answer opens that request;
+other humans, connected clients, AI messages and system signals do not.
+Requests expire at turn/session end or after 30 minutes and never transfer between sessions.
+The reserved `source: approval` does not open an authorization request.
 
-### PM coordination (PM-707)
+System signals bind to the current project manager only after successful delivery.
+`beforeWrite` and `beforeRecord` recheck actor/session, binding, case facts, target,
+watch level and persisted budget. One in-flight step prevents double spending.
+`team.operatorWatch` supplies report/unblock/drive, with zero/one/three autonomous
+steps and a 30-minute gap. A signal permits only its defined response, never an arbitrary
+move, label/configuration edit, prerequisite override or human decision.
+A stalled answer may start only the card's current assignee; a blocked start may start
+the responsible member for that case. A missing repository permits no signal start.
+`ask_human(signal_id)` ties a question to the delivered case and grants no authority.
 
-`coordinationMemberOf` selects the available project manager through `projectManagerOf`;
-when none is available, the Operator does not substitute. `coordinationActorRefusal` permits
-only the selected PM's direct AI actor. Human, integrator/`via`, other AI and on-leave actors
-cannot use the four coordination mutations: `screen_question`, `dismiss_signal`, `start_task`
-and `start_member`. Their shared `assertCoordinationSession` guard additionally requires the
-token's actual session to belong to that PM in this project, with an internal `general` work
-item and no `with`/customer conversation. Refusal is `project_manager_only` (HTTP 403, MCP
-`forbidden` with the domain code). `get_project_state` is read-only for the Operator and the
-internal PM without an owner request; guest/customer access remains excluded.
+The manager may present a delivered, unpresented pending/open signal once to owners.
+Human acceptance and dismissal require an owner's own login; an accepted actionable
+proposal opens a new request only after delivery to the matching current manager/session.
+Textual agreement or `message.operatorSignal` alone is insufficient.
+Old `operator_signals` rows with null or foreign delivery bindings grant no current
+manager authority; unpresented cases are rebound by delivery, while earlier actors remain readable.
+Explicit owner requests do not reset signal budgets or mute state.
+`operator_signal` WebSocket events reach only owners.
 
-Card tools (PM-1040, `PM_CARD_TOOLS`): the selected PM may also call `reassign_task` (change or
-clear a card's assignee) and `cancel_task` (close a card as cancelled). Both pass the same
-`assertCoordinationSession` guard, so only the selected PM's internal `general` session reaches
-them; they need no owner request, and an approval continuation refuses them. Each requires a
-non-empty `reason` (at most 500 characters), recorded on the card's timeline under the PM's own
-name (`note` on `task_assigned`, `reason` on `task_updated` with `action: cancelled`). Other AI
-members receive `project_manager_only` at the tool. The task service repeats the check
-(`requireLifecycleAccess` with `isCoordinationActor`, and the assignee rule for `reassign_task`):
-a PM acting through an integrator (`via`) is refused with `insufficient_access`, as is any other
-AI member. The external (bearer, super actor) endpoint has no binding for either tool, so it is
-denied by default. Existing checks still apply: the member must exist and not be on leave, and a
-closed card or a theme is refused. Deleting a card is unchanged and stays with the owners.
+Question screening is the selected project manager's standing duty.
+`screen_question` is unavailable to guest sessions.
+`answered`, `forwarded` and `moot` settle a question without a human;
+`decision` and `todo` pass it onward. Forwarding sends an attributed action message
+to another AI member, subject to the recipient's existing rights.
+A manager's answer sets no approval label and decides no permission or release.
+The asker may use `reask_of` once; timeout or unavailable screening opens the question for people.
+Resolution rechecks project, kind and state under a lock.
+The screening notice quotes the question as data. Forwarded text passes
+`neutralizeMessageHeaders`, which quotes forged team headers, but plain-language prompt
+injection remains possible within the recipient's existing authority.
 
-PM starts need either the PM's own open `CoordinationRequest` or a permitted signal step.
-A request opens only when an owner's own-login message or answer is actually delivered to
-the current PM's internal general session. Other humans, integrators, AI members and system
-signals do not open one. `source: approval` is reserved and refused both by `open` and
-`openFor`; an Operator knowledge approval cannot fall back to a PM message/answer request.
-Requests close at turn/session end or after 30 minutes; offline queues do not extend an open
-request's TTL. Requests are never transferred between sessions. Signal rounds use the existing
-request/step audit tables with the actual PM session attribution, but are never returned by
-`openFor`. The Operator channel filters by the request's session member, keeping PM rounds
-and requests out of its own list. A PM request grants no `operate`, knowledge-write, document,
-waiver or critical-operation authority.
+### Configuration commit boundary
 
-All system signal kinds go to the PM. Migration 69 adds nullable `operator_signals.delivered_to`,
-exposed as optional `OperatorSignal.deliveredTo`; a missing legacy DTO value means no binding.
-Only successful actual delivery records the recipient and delivery time. Pending or failed
-delivery grants nothing. Presentation, dismissal and autonomous starts require a delivery
-binding to the current PM: null, legacy Operator and foreign bindings grant no PM authority.
-Configuration rechecks invalidate unpresented bindings when the recipient changes or goes
-on leave. Unpresented legacy signals are delivered again with the same id, case, evidence and
-persisted budget. Earlier messages, steps and actors are not rewritten. Presented/accepted
-legacy proposals retain their original human decision route and are not redirected to a new PM.
+`ProjectService.assertCommitAllowed` in `core/projects/projects.ts` checks configuration
+commits under the configuration lock. A bound actor must match the authenticated execution,
+the author metadata and a current owner; an actor supplied in JSON grants nothing.
+The actor's owner-only change rules still apply. A waiver change requires its dedicated
+owner endpoint, and a stage containing cards cannot be removed (`stage_in_use`).
+Audited shared operations use the command classification described under
+[Connected Claude](#connected-claude); they do not revive a separate approval path.
 
-`beforeWrite` and `beforeRecord` recheck current actor/session, signal binding and delivery time,
-case facts, task/member, configured watch level and persisted budget before execution. A signal
-has one in-flight step slot, released in `finally`; simultaneous calls cannot spend the same
-remaining step. `team.operatorWatch` remains report/unblock/drive, with zero/one/three autonomous
-steps and a 30-minute gap, without a separate PM budget or a new permission switch. An
-`answer_stalled` signal permits only `start_member` for the same card's current assignee at
-unblock/drive, subject to the existing task/member mute, gates, prerequisites, permission waits,
-fix-limit and admission checks. Report permits no autonomous start. This signal never grants
-task movement, label/configuration changes, prerequisite override, stop or critical authority.
+### Queue-item steps (PM-1074)
 
-A `start_blocked` signal (PM-455) permits only `start_member` at unblock/drive, with the same budget, gap and
-mute: for `workspace_dirty` the waiting member on the card that holds the workspace's branch, for
-`workspace_fetch_failed` the deployment-duty AI members on the waiting card, and for `repo_required` nothing. The
-project manager's prompt lets it set the card's repository on a `repo_required` signal; that is no signal authority:
-the server does not restrict it, because `update_task` with `repo` is allowed for every member and refused only for
-an unknown repository or a live session. The facts carry no git error text (a remote URL in it may hold
-credentials). `ask_human` takes `signal_id` only from the coordinator the signal was delivered to, for an open
-signal of the same project; it grants nothing and only ties the question to the case, which closes it
-(`signal_resolved`) when the case ends.
+A connected Claude acts as the key holder on a direct instruction, or as the issuer of the
+open queue item it is working on. The server resolves the issuer from the stored item and
+checks machine access; the client cannot choose an arbitrary actor. The step records that
+issuer, with the holder and credential in `through`. It runs with the issuer's rights.
+`isConnectedOwnerActor` in `packages/shared/src/config/operator-member.ts` always returns
+false for a connected queue-item step (`kind: 'ai'`), even when its key holder is an owner.
+A direct instruction counts only while its human holder is a current project owner.
 
-The PM may present delivered, unpresented `pending` or `open` signals once through `send_message`
-with `signal_id` or `signal_ids`, addressed only to owners from its internal general session.
-The server revalidates signal and recipient bindings transactionally. `dismiss_signal` may close
-only an unpresented `obligation_overdue`, `structural_pattern` or `milestone_closed` case that still holds, with a note. Human acceptance or
-dismissal requires a project owner's own login; integrator and AI acceptance fails with 409,
-and dismissal with 403. A valid owner acceptance opens a separate PM `message` request only
-after actual delivery: the signal must be accepted and actionable, `decidedBy` must match the
-owner, and its original presentation author and `deliveredTo` must match the current PM and
-receiving internal session. `message.operatorSignal` or a textual yes alone is insufficient.
-The request names that owner message and PM session; recording a decision, a pending receipt
-or replay opens no authorization round. The PM cannot inherit an acceptance of a legacy
-Operator/null/foreign binding; an earlier Operator proposal retains its existing request path.
-Explicit owner requests do not reset autonomous signal steps, budgets or mute state; a call
-with `signal_id` still obeys all signal guards. `operator_signal` WebSocket events reach only
-owners. Wake-up facts are data, and a proposed action never authorizes itself.
+`SuperHandoffService.assertAppCommand` applies `memberRequestCommandRefusal` to these
+steps: `workspace_release`, `inbox_resolve`, `merge`, `merge_order` and `invite_create`
+need an owner's own request (`operator_owner_only`). Label changes use the issuer's label
+rights, and approval-structure changes need owner authorization. A project manager's app
+principal also passes `projectManagerCommandRefusal`; machine work uses
+`open_integrator_todo` where permitted. Queue work and message text grant no human approval.
 
-Question screening (PM-558, PM-707) is a PM standing duty without an owner request or step log.
-AI questions, including the Operator's, wait in the inbox state `screening`; the PM's own
-questions go directly to people. Only the selected PM's internal general session can call
-`screen_question` (`project_manager_only`). `answered`, `forwarded` and `moot` close a question
-without a person; `moot` may also close another AI member's question already open for people.
-`forwarded` sends an `action` message to another AI member other than the asker and screening
-PM, who may have no role on the card. The recipient may be the Operator; its existing wake and
-owner-request guards still apply, so forwarding grants no Operator authority. `decision` and
-`todo` hand the question to people. Resolution rechecks project, question kind and state under
-the lock. A PM answer is attributed to the PM and never sets an approval label or decides a
-permission, release or Operator approval item. These items keep their human routes.
-Counterweights remain the asker's one-time `reask_of` after `answered`, `forwarded` or `moot`
-in the same project, the timeline of every outcome, and the owner/admin-only screened-question
-endpoint. If the PM cannot be woken or does not settle in time, the question opens for people
-(`unavailable`, `timeout`). The PM's screening notice carries the question, details and options as
-JSON lines that its fixed instruction calls the asker's data, not instructions. The forwarding
-does not repeat that quoting: a forwarded question reaches the recipient as plain text inside an
-`action` team message (`forwardQuestion`, origin `question_forward`). What protects that reader is
-the message frame, not a quote: every team message passes
-`neutralizeMessageHeaders`, so a line of the question that poses as a message header (`[team message
-from …`, `[info from …`) is prefixed with `> `, and the recipient sees who forwarded it (the PM's
-handle, with the PM's note) and that its authority is the existing wake and owner-request guards,
-never the question's text. A question can still try to talk the PM or the recipient into something
-in plain words; that is the same prompt-injection exposure as any team message from an AI member,
-and the guards above (no approval label, no permission, release or Operator approval by the PM's
-answer, the Operator's own guards on a forward to it) are what bound it. The `reask_of` check is
-a single targeted query run per earlier question under a lock together with the write of the new
-question, so two concurrent re-asks cannot both pass. Legacy timeline types remain readable with the actual actor fields.
+Prompt injection can still induce routine operations within these rights. Gates,
+prerequisites, label restrictions and the command's effect classification remain the
+enforcement boundaries.
 
-### Operator configuration approvals
+### Project-manager guest conversations (PM-475, PM-1080)
 
-The Operator's `operate` tool requires its own session and an open owner request.
-Configuration commits carry internal `operatorRequestId` provenance;
-`assertCommitAllowed` verifies the request's project and Operator attribution and runs
-`operatorConfigVerdict` under the configuration commit lock. Forbidden changes are refused;
-restricted changes require the matching open approval and its exact change rows.
+Owners share the project manager's internal `{ type: 'general' }` conversation.
+Every other person has their own `{ type: 'general', with: <handle> }` conversation,
+where the project manager reads their view, answers them and changes only their conversational
+preferences.
 
-Only a project owner using their own login can approve, reject or dismiss an Operator
-proposal. Integrator (`via`) and AI decisions receive 403. Approval replays the stored
-operation against current configuration and compares its before/after rows. Session
-stops require the same running session ID and start time; pause changes require the
-same pause state. Changed proposals become stale, execute nothing and remain open
-with only `dismiss` available. Configuration commits, session endings and pause changes
-also trigger proactive checks. The Operator cannot stop its own session.
+- **Project writes are refused.** `callerWithRequest` uses `managerGuestOf` and allows only
+  `OPERATOR_GUEST_TOOLS`: preferences, card/member/attachment reads, history search and reads,
+  `get_guide`, and `send_message` to the guest alone. Other tools return
+  `operator_owner_only`; `assertNotManagerGuest` covers tools outside this caller path,
+  including feedback tools. `get_project_state` is excluded because it lacks a guest filter.
+  These checks remain in force for a guest conversation of a project manager who is no
+  longer selected.
+- **Reads use current membership.** `guestOf` resolves the current human and access level,
+  refusing a person who left the team. Card details and attachments use
+  `visibleTaskDetail` / `humanActor`, with team messages limited to the guest's visibility.
+- **Message routing protects conversation ownership.** `managerConversationOf` and
+  `nominalMessagePlace` route a human's message to their own conversation;
+  `MessageService.waiting` filters delivery by that route.
+  `Messaging.prepareSessionChat` independently compares a direct session write with
+  `managerConversationOf(config, from)` and refuses another person's conversation.
+  There is no separate connected-client-only message guard: authentication, current
+  recipient rights and these conversation checks apply. A relayed message does not open an
+  own-login owner authorization request.
+- **No filesystem escape through tools.** `SessionPolicy.teamToolsOnly` starts Claude Code
+  with `--tools ToolSearch`, only `mcp__team__*` allowed, and built-in shell, file, web and
+  agent tools denied. There is no `--add-dir`, folder grant or command grant.
+  The sandbox retains `autoAllowBashIfSandboxed: false`. The cwd is a private empty
+  `manager-guests/<project>/<handle>` directory and permission mode is `default`.
+  Permission requests are refused without reaching an inbox. There is no member memory,
+  and an AI message does not wake a guest session. Other providers cannot enforce this
+  tool surface and refuse the guest start with `provider_unsupported`.
+- **Session visibility is separate from conversation access.** `Sessions.isRestrictedSession`
+  protects REST detail, WebSocket session/chat events and the terminal; owner/admin access
+  is required (`canSeeOperatorSessions`). Only an owner may type raw terminal input.
+  Historical sessions of the retired `operator` handle retain this visibility restriction.
+- One guest conversation runs at a time and closes after five idle minutes; the owners'
+  conversation is outside that capacity.
 
-### Critical Operator steps (PM-700)
+`apps/server/test/manager-guests.test.ts` and the Claude argument tests cover these boundaries.
 
-Stopping another AI member's session (`session_stop`) and sending unsolicited or forwarded
-content to a non-owner human (`message_send`) require a typed `operate` proposal, a plan
-(`why`, `impact`, `reversible`), and the owner's own-login approval of the exact operation.
-Owners see the full message and recipients before approving. Delegation and
-`boundary_authorization` never decide these proposals. Direct `send_message` to a non-owner
-human is refused in its entirety, including mixed recipients and attachments. The Operator
-may still answer its guest in that person's own conversation, using only what they can see.
+Personal preferences are the guest's only data write. The server requires a current
+own-login human request and checks the session's `with`, human `startCause.by.handle`
+(without `via`) and `request.fromHandle` against the same person. Project, member and
+general session must match. In the owners' conversation, the subject is the current owner
+request's sender. Without a request, writes fail with `operator_no_request`; reading
+requires exactly one current human owner (`operator_preference_no_person` otherwise).
+Neither `get_operator_preference` nor `set_operator_preference` accepts a person, project
+or path selector. Writes use `expected_revision` CAS (`operator_knowledge_stale`, HTTP 409).
 
-Critical proposals expire after 24 hours. Approval checks the current target, configuration,
-session identity and start time, then atomically consumes the persisted step before the
-server invokes the existing session or messaging service. Competing clicks cannot execute
-twice. A crash after consumption is marked `interrupted` at startup or by the 60-second
-sweep; it never automatically replays, even if the side effect may already have happened.
-Execution failures also consume the proposal. Expired or changed proposals become stale;
-rejection executes nothing. Results are recorded for the Operator to report in the owners'
-conversation; proposed non-owner recipients receive no rejection or expiry notification.
-Identical open, non-stale proposals from the same Operator in a project reuse their persisted
-item without another step, including across restart. Closed or stale proposals may be requested
-again. Old inbox items without a plan or expiry remain readable.
-
-The operation union is closed and rejects extra fields, including commands and credentials;
-plan fields are descriptive data, never executable instructions. There is no raw command
-adapter. Missing capabilities are reported to the owner with a plan and a capability-gap card
-(PM-472). No approval enables merge, release, human access, decisions, approval labels,
-another member's transcript or secrets. Code, database, production, secrets, publishing,
-deployment, cost and remote access remain critical even under Operator relaxation (PM-691,
-PM-692). The CLI permission requester is unchanged. All proposal, claim and execution work
-runs on the server through existing facades, including on a read-only Mac Operator; no
-isolated or remote engine feature is required.
-
-The owner's Start button retains its explicit `despitePrerequisites` override. The PM's
-`start_task` and `start_member` coordinate as the actual PM AI actor: `despitePrerequisites`
-does not bypass prerequisites for the PM, and a fix-limit hold cannot be overridden. The
-shared start service retains its existing Operator-specific temporary-worker exception
-(`SYSTEM_ACTOR`/`SYSTEM_AUTHOR`, requesting-owner sponsorship and configured role/count limits);
-the PM inherits none of that configuration authority. Permanent Operator hiring follows the
-configuration verdict and approval path.
-
-Configuration history reads attribution only from the final trailer block. Commit
-creation quotes user-supplied `Projectman-` lines, so a patch message cannot forge
-Operator approval or hide integrator attribution. Attribution fields come from internal
-author metadata, never from the HTTP request body.
-
-### What a member's message may start (PM-1010)
-
-An AI member's `wake` message opens a queue item for the Operator, and the app Operator and the
-PM start work on the shared super-operation path (`SuperHandoffs.assertAppCommand`). Decision 7
-says AI never approves and decision 66 says queued work runs in the name of the issuing member, so
-a step that began with a member's message cannot borrow the owner's approving right (the owner's own
-message or answer is unchanged, decisions 55 and 66).
-
-The server decides where the request came from. `appRequestOrigin` reads the session's open request
-(`OperatorRequests.openFor`): only a `message` or `answer` from an owner is `owner`; a queue item or
-anyone else's message is `member`. The caller cannot state it. The origin is a field of the app
-principal (`requestOrigin`); a stored key's principal has none and keeps all it had. The owner's
-yes of a waiting operation makes the continuation `owner`.
-
-On a `member` request:
-
-- `workspace_release`, `inbox_resolve`, `merge`, `merge_order` and `invite_create` are refused with
-  `operator_owner_only` (`OWNER_REQUEST_SUPER_COMMANDS`). A release approval, a merge, a merge
-  order and an invitation to an outside address therefore need an owner's own request.
-- `task_labels` runs with the session member's own label rights, not the key owner's
-  (`delegatesOwnerAuthority`). The approval and human-only labels (`qa-ok`, `design-review-ok`,
-  `scope-ok`, `plan-ok`, `analysis-ok`) are refused with `owner_approval` or `humans_only`.
-- A configuration change that reaches who approves is a `security` effect, so the operation waits for
-  the owner's yes (`approvalStructureChanged`): the pipeline's labels and gates, `releaseFourEyes`,
-  the merger, and who actually holds each approval label or the release approval. The holders
-  follow from a member's role, the role overrides and the custom roles, so changing a role or its
-  duties counts when it changes a holder. (`superConfigMutations` marks only the boundary
-  delegation and the coordinator's and the Operator's own role.) The Operator's own `operate`
-  approval layer asks the owner for some of these changes first; this is the second lock.
-
-Residual risk: the other routine commands still run on a member's request (`task_create`,
-`task_update`, `task_start`, `task_cancel`, `message_send`, `session_stop`, pause and resume). They
-approve nothing and every gate still applies. A prompt-injected member can still make the
-Operator or the PM do those, so their effect is limited to what the gates allow. Which member stands
-behind the step in the record is PM-1074's work.
-
-### The Operator talks with everyone, and obeys the owner (PM-475)
-
-Every person of the project has a conversation of their own with the Operator
-(`{ type: 'general', with: <handle> }`); the owners share `{ type: 'general' }`. Only a
-project change an owner asked for is made. In a conversation with anyone else the Operator reads,
-answers and can change that person's own conversational style (PM-688):
-
-- **Project writes are refused by the server.** `callerWithRequest` lets such a session call
-  `OPERATOR_GUEST_TOOLS` only (`get_operator_preference`, `set_operator_preference`, `get_task`,
-  `list_tasks`, `list_members`, `list_attachments`, `read_attachment`, `read_message_attachment`,
-  and `send_message` to that person alone). Every other tool gets 403
-  `operator_owner_only`; a refused write is logged as a `refused` step. `get_project_state` is not
-  among them until a separate task adds a viewer filter.
-- **Reads are the person's own view.** Cards, details, timeline excerpts and attachments go through
-  `visibleTaskDetail` / `humanActor`, so the guest sees what their access level reads (a client reads like a
-  viewer, PM-79), minus the team messages they are not a party to (PM-78).
-- **No other way to data.** The session starts with the team tools alone (`SessionPolicy.teamToolsOnly`).
-  The Claude Code adapter then renders: `--tools ToolSearch` (the one built-in tool that reaches the
-  deferred team tools), the deny rules `Bash`, `Read`, `Edit`, `Write`, `WebFetch`, `WebSearch` and `Agent`,
-  the allow rule `mcp__team__*` and nothing else (no session-folder rule, no read-only path, no command),
-  no `--add-dir`, and the sandbox (kept as a second wall) with `autoAllowBashIfSandboxed: false`. The
-  working directory is an empty directory of its own (`guestSessionDir`), the permission mode is `default`,
-  so it neither reads the workspace, the worktrees, the attachments, the git history or the owner's
-  transcripts, nor shares a transcript with the owners' conversation. A permission request from it is
-  refused at once and never reaches the owner's inbox. It has no memory section, and an AI member's
-  message does not wake it. The other CLIs (Codex, Gemini, NanoGPT) cannot be limited this way, so a
-  guest conversation with an Operator on one of them is refused (`provider_unsupported`); the owners'
-  conversation is unaffected. `apps/server/test/operator-guests.test.ts` and `claude/args.test.ts` pin
-  the rendered settings and arguments. The project manager's conversation with a person who is not an owner
-  (PM-1080) is the same guest session: the same tools (`OPERATOR_GUEST_TOOLS`, any other 403
-  `operator_owner_only`, also the feedback tools), the same team-tools-only Claude Code settings, its own empty
-  working directory (`manager-guests/<project>/<handle>` under the engine home) and the same idle close;
-  it stays restricted even if that PM is no longer the selected one. `apps/server/test/manager-guests.test.ts`
-  pins it. The refusal of a message through an integrator (`assertMayWriteToOperator`) still concerns the
-  Operator only.
-- **Who sees the sessions.** The Operator's sessions (REST, the websocket, the terminal, the member
-  profile) are visible to owners and admins only (`canSeeOperatorSessions`). So is the project manager's
-  conversation with a person who is not an owner (PM-1080): `Sessions.isRestrictedSession` covers both, and
-  the REST detail (404), the websocket `session_upserted` and `chat_appended` events and the terminal ask it.
-  Raw terminal input into such a session is the owner's alone: an admin may watch, not type.
-- One guest conversation runs at a time and closes after five idle minutes; the owners' one is
-  outside that capacity.
-
-Personal preferences (PM-688) are the guest's only data write. A change requires an open request
-from the person's own login; the server rechecks that the session's `with`, human
-`startCause.by.handle` (without `via`) and `request.fromHandle` identify the same current human.
-The token's project and member must match the session, which must be a general conversation.
-Non-owner sessions receive no member memory. In the owners' conversation the subject is the
-current open owner request's `fromHandle`, checked against the current human owners. Without an
-open request, writing fails with `operator_no_request`; reading is allowed only with exactly one
-current human owner, otherwise it fails with `operator_preference_no_person`. Neither MCP tool
-accepts a person, project or path selector. `set_operator_preference` uses `expected_revision`
-for CAS; a stale revision fails with HTTP status 409 (`operator_knowledge_stale`).
-
-`GET /api/projects/:key/operator/preferences` requires at least admin access and the person's own
-login; `GET /api/projects/:key/operator/preferences/me` reads only the logged-in human's preference.
-Neither route accepts integrator access, and there is no preference PUT route. Only the current
-conversation's five preference enums enter the prompt, reparsed with Zod and serialized as a JSON
-data block granting no permissions. Only a current own-login human message, answer or conversation
-start can supply that person's style; signal and question-screening launches receive none. An
-unreadable or corrupt preference is logged as a warning and omitted during launch without
-overwriting the file; explicit preference reads and writes retain their errors.
+`GET /api/projects/:key/operator/preferences` requires admin access and own login;
+`GET /api/projects/:key/operator/preferences/me` reads only that human's preferences.
+Neither accepts connected-client credentials and there is no preference PUT route.
+Only the current conversation's five validated preference enums enter the prompt as JSON data.
+Signal and screening launches receive none. Corrupt preferences are logged and omitted at
+launch without overwriting; explicit reads and writes retain their errors.
 
 ## Automatic command decisions
 
@@ -881,7 +705,7 @@ with a 60 s transport margin, to exclude older unreadable processes. A missing a
 the ancestry time bound. A TERM that finds an empty unverified group (ESRCH) never schedules a later KILL.
 It is not a containment guarantee; PM-701 supplies
 that with Linux cgroup v2. Failed cleanup reserves the workspace and raises an owner-facing
-Operator signal; the Operator never stops another member's process on its own.
+project-manager signal; a signal alone never authorizes stopping another member's process.
 The root is checked before use: a real directory (not
 a symbolic link, nor below one), the server user's, mode 0700, else the folders are off and the
 server logs the reason and runs on (the sweep must never empty a directory somebody else pointed
@@ -909,10 +733,10 @@ denied `packed-refs`) and `core.packedRefsTimeout=0`. A `git commit` still print
 '…/packed-refs.lock'" after it: its last step deletes the `CHERRY_PICK_HEAD` pseudo-ref, and every
 ref-deleting transaction locks the shared `packed-refs`. The commit exists; the message is known
 and harmless, and no git setting avoids it. The lock is not writable on purpose: a sandbox could
-change the lock file while the host holds it, or leave one behind and stall the integrator; the
-timeout only removes git's one-second wait. Other worktrees, the app's data, the integrating checkout and the
+change the lock file while the host holds it, or leave one behind and stall the connected Claude; the
+timeout only removes git's one-second wait. Other worktrees, the app's data, the default-branch checkout and the
 credentials stay closed; a credential path stays in `denyRead` as well, and the narrower path
-wins, so nothing re-opens it. Its commands never write the default branch and the integrating
+wins, so nothing re-opens it. Its commands never write the default branch and the default-branch
 checkout's `HEAD`, `index` and `packed-refs` (with their lock files) in the shared git directory,
 neither from the shell nor with the file tools (`Edit` rules), and never see `GH_TOKEN`,
 `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN` and `SSH_AUTH_SOCK`. Claude Code still asks for a
@@ -921,7 +745,7 @@ tells the member to write files with the editing tools instead.
 
 **A developer writes nothing the host runs or loads (PM-193).** Before PM-193 a developer's
 sandbox wrote the user's `~/.npm` and `~/.projectman-dev`. The host runs code from
-`~/.npm/_npx/<hash>/node_modules` on its next `npx <package>` (the owner, the integrating
+`~/.npm/_npx/<hash>/node_modules` on its next `npx <package>` (the owner, the default-branch
 session, sessions outside a sandbox), unchecked; `~/.npm/_cacache` keeps package metadata without
 an integrity check; the host's `npm run dev` loads `~/.projectman-dev` (members' settings,
 permission modes). A planted package or setting would have run or applied with the owner's
@@ -972,10 +796,9 @@ reopenable roots and exact file/directory read exceptions are separate from unco
 secret denials. The adapters and engine reject an explicitly invalid boundary; an absent
 field keeps the existing profile and temp behavior. PM-425 enables the boundary for every
 reading session (`placementReadsOnly`: a `read_only` placement, a review copy without the test
-permission, a taskless chat, the non-super Operator), and only for those; the developer's and the
-super Operator's sandboxes are unchanged. The owner's decision (2026-10-26): a reader reads nothing
-on the machine outside its own project and card, even with approval; the rest is the (super)
-Operator's job. The aim is targeted protection against accidental cross-reading, not isolation from
+permission or a taskless chat). Developer placements retain their developer policy.
+A reader reads nothing on the machine outside its own project and card, even with approval;
+machine work belongs to the connected Claude. The aim is targeted protection against accidental cross-reading, not isolation from
 a hostile member. One list, built in `sessionSandbox` (`readerReadBoundary`), renders everything:
 the user's home and the app home are closed (`denyRead`), and only these are reopened (`allowRead`,
 `portable.readBoundary.allowedPaths`): the working directory, the extra directories (the card's
@@ -1013,7 +836,7 @@ them). Writable: the shared `objects`, `refs` and `logs`, only `packed-refs.lock
 directory (`worktrees/<name>`, `WorktreeInfo.worktreeGitDir`). Not writable: the rest of the
 shared directory, including **every other worktree's admin directory**, and, inside the
 writable ones, `config`, `config.lock`, `hooks`, `objects/info` (alternates), the own admin
-directory's `commondir`, `gitdir`, `config.worktree` and `hooks`, and the integrating
+directory's `commondir`, `gitdir`, `config.worktree` and `hooks`, and the default-branch
 checkout's files of `sharedGitDenials` (the default branch, `HEAD`, `index`,
 `refs/replace`, `info/grafts`, with their lock files), and `packed-refs` itself. The reason is the host's git, which reads
 these outside the sandbox: a rewritten `commondir` (pointing into the worktree) or `config`
@@ -1032,7 +855,7 @@ On 2026-10-08, the owner explicitly accepted these two risks on PM-411, conditio
 follow-up card ("Elfogadom, utókártyával"). PM-413 switches off the two effects of the swap
 race in the shared repository's own git config, which members cannot write (`config` is denied
 in every profile): `core.useReplaceRefs=false` (an injected `refs/replace/<sha>` line cannot make
-main look like another commit in the integrator's diff, merge or checkout), and
+main look like another commit in the connected Claude's diff, merge or checkout), and
 `gc.packRefs=false` plus `maintenance.pack-refs.enabled=false` (the host's gc and maintenance no
 longer pack the default branch, so it is not only in `packed-refs`). The worktree manager sets
 them under the repository lock in every `ensureForTask` and `ensureMergeFix`, and a failed write
@@ -1077,16 +900,16 @@ of the local network (the router, a printer, a NAS, other machines of the tailne
 through the proxy as well. With the setting off, only the npm registry is reachable.
 
 **Residual risk (PM-153, accepted until per-member workstations).** The shared git
-directory of the worktrees is the integrating checkout's `.git`, and the sandbox lets a developer
+directory of the worktrees is the default-branch checkout's `.git`, and the sandbox lets a developer
 write everything in it but `hooks`, `config` and the PM-153 files. So a developer's commands can
 still change other tasks' branches and their `worktrees/<name>` metadata, other refs (tags,
 remote-tracking refs), the reflogs and the object store (a `git gc` or `git prune` there acts on
 the shared objects). They cannot move the default branch, which is what reaches the public
-repository, change the integrating checkout's `HEAD` and `index`, or add replacements
+repository, change the default-branch checkout's `HEAD` and `index`, or add replacements
 (`refs/replace`) and grafts (`info/grafts`). **The content seen locally can still be forged:** the
 object store is writable, so an existing loose object of the default branch can be overwritten,
 and a local checkout, diff or merge reads it without checking its hash. The `main` ref does not
-move, but what the integrating session sees and tests on the host under that ref may not be what
+move, but what the merging session sees and tests on the host under that ref may not be what
 was committed; a push of `main` sends those objects as they are. Accepted until per-member
 workstations; a per-member workstation has its own clone and nothing shared. What the host's own git does in a developer's worktree (its
 `.git` file, which the developer can rewrite) stays the host-git risk of PM-126/PM-131
@@ -1286,7 +1109,7 @@ the account boundary.
   the `secret` file; the events are pruned after a day. Logs carry fixed codes and counts only: never
   an address, a code, an IP or a provider error text.
 - **Passwordless accounts.** A first redemption creates an account with no password. It cannot use
-  `/api/auth/login` (the dummy hash runs, the answer is `invalid_credentials`), holds no integrator key
+  `/api/auth/login` (the dummy hash runs, the answer is `invalid_credentials`), holds no connected Claude key
   (`resolveIntegratorCredential` and the key routes refuse it) and cannot accept a non-client invitation link
   (`invite_password_account_required`). A client with a password keeps it and may use either way.
 - **Sessions.** A successful redemption revokes the presented session and starts a new one, like the
@@ -1365,7 +1188,7 @@ mail goes out once.
 
 ## The public board (PM-672, part of PM-664)
 
-With `access.boardMode: public` (docs/AWS.md "The public board") the main hostname has no Cloudflare Access
+With `access.boardMode: public` (docs/AWS.md "The public board") the main hostname has no edge identity filter
 in front of its pages: a client opens the board and meets the application's own login (PM-670). The
 boundary is then the application, so these hold and are tested (`apps/server/test/public-board.test.ts`,
 `apps/server/test/cloud-public-board.test.ts`, the public matrix of `deploy/cloudflare/check.sh`):
@@ -1386,8 +1209,9 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
   (`ws/index.ts`, `requireTerminalAccess` at `viewer`) is open to every access level. Decision 59
   accepts this, "its sessions included": a client is as trusted with the project's reading as a viewer is,
   and what a transcript can hold (repository secrets, another client's name, internal reasoning) is
-  visible to them. The only reads closed to a client are the Operator's sessions and the PM's
-  conversations with others (owner and admin only, PM-475, PM-1080) and the owner-only events
+  visible to them. Guest-session reads require owner/admin access as described under
+  [Project-manager guest conversations](#project-manager-guest-conversations-pm-475-pm-1080), as do
+  historical `operator` session reads. Owner-only events are also excluded
   (`project_checklist_changed`, `operator_signal`). The engine service token is no board login:
   `/api/auth/me` with it answers 401.
 - **What a client may write (PM-985).** A client is external to the team, yet they can comment on a card
@@ -1402,13 +1226,13 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
   a human with the right. The messages and comments have no hourly limit of their own; a client who
   floods a card is stopped by removing the access, not by a rate limit (accepted, open for a
   later change).
-- **A person who left the team sees nothing through the Operator or the PM.** A conversation of the
-  Operator or the PM with a guest (PM-1012) reads with the guest's access _now_. A guest who is no
+- **A person who left the team sees nothing through the project manager.** A conversation
+  with a guest (PM-1012) reads with the guest's access _now_. A guest who is no
   longer a member of the team is refused (`operator_owner_only`) instead of being read as a client, because
   a client's reading is wide since PM-79 and no access level is narrow enough for someone outside the team.
 - **The engine door stays closed.** `/engine` keeps its own Access application (the engine service token
   only), and the tunnel demands that application's audience for it; `/hooks` and `/mcp/` (the member door)
-  answer 404 at the tunnel, as before. The board's bare `/mcp` is also 404. The integrator's `/api`
+  answer 404 at the tunnel, as before. The board's bare `/mcp` is also 404. The connected Claude's `/api`
   and `/mcp` use a separate explicit host with only its own Service Auth audience (PM-675).
   The main Access application has exactly one Bypass/Everyone policy and no other
   rule; any other policy on it is removed by `edge` and refused by `publish`.
@@ -1423,7 +1247,7 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
   `host.sh public-check` (`true,true,false,401,403`), the exact Access applications and ingress, and the
   working widget guard; `check` verifies the same from the outside. Going back to `private` restores the
   Access lock.
-- **Known limit.** Cloudflare Access no longer filters bots, scanners or password guessing in front of the
+- **Known limit.** The public entrance has no identity filter for bots, scanners or password guessing in front of the
   board's login. The login's own limits apply (the code and address limits above); a WAF rule or Turnstile
   in front of the login is not part of this change.
 
@@ -1431,7 +1255,7 @@ boundary is then the application, so these hold and are tested (`apps/server/tes
 
 The server's local `control.sock` accepts only pause, resume, force and status.
 It is mode 0600: whoever may open it may pause the service, like whoever may stop it.
-There is no cloud relay, release claim/deployment protocol or administration supervisor.
+There is no cloud relay or release claim/deployment protocol.
 The socket is never opened by a standby copy. A live socket is not taken over.
 
 A member's commands cannot reach it, and the tests pin the parts of that:
@@ -1442,19 +1266,17 @@ A member's commands cannot reach it, and the tests pin the parts of that:
   with the outbound network off or on. (The full-test sandbox is another sandbox and grants its own
   temporary directory's sockets, not the home.) The socket also sits in the home directory, which is
   read-denied to the sandbox like the other protected paths of the home.
-- **Codex members.** The permission profile (`codexPermissionProfile`) extends `:read-only` and names a
-  filesystem section only: no network and no socket entry, and `codex/args.test.ts` asserts that no
-  override of any permission mode names a network or a socket. The socket is therefore kept out by Codex's
-  own default of no network in its sandbox, which the runner does not widen. The outbound network setting
-  of the Claude members (PM-355) does not apply to Codex: the per-member network switch is not a Codex
-  control (PM-358 was closed without one), so a Codex member's network access is whatever its
-  sandbox gives.
+- **Codex members.** The restricted-read profile denies the control socket and protected home
+  paths. With outbound network enabled, Codex uses its proxy, which refuses loopback, private
+  and link-local destinations; Unix sockets stay closed. NanoGPT retains disabled outbound
+  network. [SANDBOX-PROBE.md](SANDBOX-PROBE.md#pm-1172-outbound-network-of-a-codex-member-through-codexs-proxy)
+  describes the required native checks; rendered settings alone are not proof of enforcement.
 - **Commands that run outside the sandbox.** A command the server allowed outside a Codex sandbox
   (the routine developer steps above) runs with the server user's rights and could open the socket. The
   strict parser keeps the allowed forms narrow, and the socket can only pause, resume, force or report
   the status (a person with the same rights could stop the service anyway).
 
-Machine administration stays with the owner's integrator and explicit owner requests.
+Machine management stays with the connected Claude and explicit owner requests.
 Member sandboxes still deny the protected `<home>/administration` directory, and
 `PROJECTMAN_ADMIN_SOCKET` remains filtered from member environments for compatibility.
 Historical administration commands are readable in stored operations but are refused with
@@ -1494,80 +1316,51 @@ Actions (PM-1147)" below. A member session cannot start a deployment: the admini
 denied to its sandbox, the control socket takes no deployment request, and
 `administration_unavailable` refuses the old commands.
 
-## Super mode (PM-737, PM-762, PM-784, PM-794, PM-817)
+## Connected Claude
 
-Super mode is the owner's connected Claude (the integrator) working a project through a `pmi_` key on
-`/mcp`, the REST API and the event reads. This section states what the key can do, what stays with the
-owner, and the risk the owner accepted.
+The owner's connected Claude uses a `pmi_` key on `/mcp`, REST and event reads.
+It acts through authenticated principals, never caller-supplied attribution.
+[Queue-item steps](#queue-item-steps-pm-1074) define the issuer boundary.
 
-**The keys.**
+**Keys.** `canHoldIntegratorKey` requires a password and either host-owner status or an
+active owner account. Project access additionally requires current owner membership and
+`integratorKeyCoversProject`: a project created by a non-host owner is reachable only by
+that creator's key; host-created or unclaimed projects retain the membership-based rule.
+`read` keys read only; `super` keys also run shared commands.
+Old `legacy` rows are revoked and rejected by credential resolution and reactivation.
 
-- Three modes exist in the stored data: `read`, `super` and `legacy`. Only an owner account with a password
-  may hold a key (`canHoldIntegratorKey`), and a key reaches a project only if its holder created it or the
-  project's creator is the host owner (`integratorKeyCoversProject`). `read` serves the read-only
-  tools; `super` also runs the handoff commands below.
-- **A `legacy` key is dead.** A migration revoked every one, and `resolveIntegratorCredential`,
-  `reactivate` and `assertActive` refuse a `legacy` row on every channel (REST, `/mcp`, event reads), so
-  it gets no write tool and writes no usage row (`integrator-keys-api.test.ts`).
-- The owner's own login creates a key with an expiry of 1, 7, 30 or 365 days, or none (`expiresAt: null`,
-  PM-825); the default is 7 days. There is **one active key per user and mode**: creating a new one
-  revokes the previous one. Creation and revocation are audited (the key audit, readable by the holder),
-  and every tool call of a super key leaves an `mcp_<tool>` audit row. A
-  revoke or an expiry takes effect on the next request; work that outlives its call (`reactivate`)
-  checks the stored key, its holder and its prefix again, and revoking an owner account revokes all its keys.
+Own login creates keys for 1, 7, 30 or 365 days, or without expiry (`expiresAt: null`);
+the default is seven days. One active key per user and mode is retained.
+Creation/revocation and `mcp_<tool>` calls are audited.
+Revocation and expiry apply on the next request; continuations recheck the stored credential.
 
-**The handoff.** A command that changes something (`SuperHandoffs`, `services/super-operator`) is stored
-with its `commandHash` (the project and the exact command) and the `expectedConfigVersion` it was planned
-against. What it would do is classified on the server (`superCommandMutations`), never by the client:
-what cannot be classified is refused (`integrator_not_allowed`, fail closed). The owner-reserved effects
-(owner decision of 2026-10-20, PM-862 K3) are a **deletion** of a member, key, project or repository, the
-**security** settings, and the paid **cost**:
-the access level of a human, a new owner, a login e-mail, the Operator waiver, the AI members' machine
-access and permission settings, and the boundary delegation. Such an operation stops in `waiting_owner`
-and opens a question for the owners; only a person's **own login** answers it (the inbox refuses a
-token, a relay and any answer on behalf of someone). The yes is bound to that exact command: the resume
-refuses the operation as stale if the command hash differs or the configuration version is no longer the
-expected one, and it runs again with everything checked afresh. A waiting operation expires after 24 hours.
+**Shared commands.** `SuperHandoffService` (`services/super-operator`) stores the exact
+project/command hash and expected configuration version.
+`superCommandMutations` classifies effects on the server and fails closed if unknown.
+Deletion, security and paid-cost effects wait in `waiting_owner`; only an owner's own
+login answers the exact stored question. A continuation rechecks the hash, current
+configuration and authorization; changed operations are stale. Waiting operations expire
+after 24 hours. There is no raw shell-command adapter.
 
-**The relay.** The integrator may relay an owner's words as the answer of a question only for a plain
-information question (`isRelayableQuestionItem`); every other answer is refused (`super_relay_refused`),
-so a question marked as an owner decision is never answered by a relay. The integrator asks the owners through `ask_human` and cannot choose another
-recipient, re-ask or screen (PM-784).
+**Owner authority and accepted risk.** A direct `super` instruction can change routine
+cards, messages, runs and approval structure without another click, including label/gate
+rules, role bundles, the merger and invitations up to `admin`.
+A compromised key can therefore install an approver whose own login later approves work.
+Existing human access/login, new owners, machine permissions, deletion and paid effects
+remain owner-reserved. Issuer steps retain the narrower rules above.
+`assertCommitAllowed` binds configuration author metadata to authenticated execution;
+forged attribution in a request or commit message grants nothing.
 
-**The accepted risk, stated exactly.** A leaked or misused `super` key is _not_ limited to "no approval of a
-human decision". Besides what the key does by design (cards, messages, merges, runs, pausing), it can do
-everything outside the three owner-reserved classes **without any person's yes**:
+The connected Claude may relay only an information answer (`isRelayableQuestionItem`);
+owner decisions are refused (`super_relay_refused`). Its `ask_human` cannot choose
+another recipient, screen or re-ask. Store the key in a 0600 file inside a 0700 directory,
+prefer short expiry, revoke on suspicion, and review audit/configuration history.
+A non-expiring key remains usable until revoked or replaced.
 
-- It can **change approval rules and roles** of the project: the pipeline's labels and gates, `setBy`
-  and `notByAuthor`, `releaseFourEyes`, the merger, the role bundles and the roles of members. The
-  checks of an integrator's ordinary configuration change (`integratorConfigRefusal`: `approval_rules`,
-  `members`, `owner_settings`) run only in the Operator's own judgement; a super step does not go through them
-  (`commitLocked` moves the check into the audited super step) and is judged by its owner-reserved classes instead. (`approvalStructureChanged` makes the owner's yes
-  necessary only for a request that started with a team _member's_ message, PM-1010, not for a key.)
-- It can **invite a person with any access up to `admin`** (`invite_create` is a routine operation; only
-  `owner` is a security effect). The invitation goes to an e-mail address the caller chooses. A leaked key
-  could therefore invite a new human with an approver role whose own login then approves what a human
-  approves, in one or two steps and without an existing person's yes. The owner reads the
-  invitation, the configuration change and the key audit rows afterwards; nothing asks first.
-- What it cannot do alone: make itself or anyone an `owner`, change an existing human's access level or
-  login, widen an AI member's permissions or machine access, delete anything, spend on a paid provider,
-  or answer an owner's question.
-
-This is the design of the owner's decision of 2026-10-20 (PM-862 K3): only the three classes above stay the
-owner's, and everything else the Operator may do with the super key, in its own name (the attribution comes
-from internal author metadata, never from the request body). The risk is accepted for a key kept on the
-owner's own machine. Defences are those of the key above: a short expiry, a revocation on suspicion, a 0600
-file in a 0700 directory, and reading the audit rows and the configuration history after a doubt. A
-per-class owner confirmation for an invitation to `admin` or for an approval-rule change would narrow it;
-that is open as a later change, not a current guard.
-
-**Administration commands are gone.** `restart`, `full_test`, `image_build`, `deploy` and
-`process_cleanup` were super commands once; since PM-1113 the administration supervisor is retired and a
-stored or new one is refused with `administration_unavailable` (see "The control socket"). Nothing a
-super key runs builds an image or executes a commit's Dockerfile any more.
-
-**The merge-fix worktree** (PM-794, PM-471) is described under "Merge-fix worktrees": it works in
-isolated-clone projects too, and has the `refs/projectman` write ban.
+Historical machine-management commands fail with `administration_unavailable`;
+the [control socket](#the-control-socket-pm-219-pm-1113) describes its current surface.
+The [merge-fix worktree](#merge-fix-worktrees-pm-471) retains its protected-ref write ban,
+including with independent clones.
 
 ## Regenerated files of a conflicting merge (PM-1050)
 
@@ -1659,16 +1452,16 @@ until the push service answers 404 or 410 at a send, which expires it.
 release), plus the item id and the page to open. Never a question, decision or message text. The recipients are
 the human members whose project access lets them see the item (`canSeeInboxItem`); device and settings queries
 filter by `user_id`, so a person sees and changes only their own devices. A push-management call with an
-integrator key is refused (`web_push_integrator_refused`).
+connected Claude key is refused (`web_push_integrator_refused`).
 
 **The service worker** (`apps/web/src/pwa/sw.js`). It caches only `/offline.html`, and serves it only when a page
 load of this origin finds no network. It never answers `/api`, `/ws`, `/hooks`, `/mcp` or `/feedback`, and
-caches no API, authentication or Cloudflare Access response and no app shell. A notification tap opens only a
+caches no API or authentication response and no app shell. A notification tap opens only a
 path of the same origin; anything else becomes the front page (`targetPath`).
 
 **The member context preview** (`GET` the member's context, `apps/server/src/api/members.ts`). It shows what a
 member's context pack would contain, so it is for the owner's own login only: a principal (team token) is
-refused, a project role below owner is refused, and so is access `via` another identity (an integrator).
+refused, a project role below owner is refused, and so is access `via` another identity (an connected Claude).
 It issues no MCP token.
 
 ## Findings
@@ -1694,7 +1487,7 @@ It issues no MCP token.
 Regression coverage includes cookie rotation/expiry, concurrent login attempts,
 origin checks, revoked terminal access, project privileges, isolated permission
 waiters, expired capabilities, body limits, path escapes, YAML limits, URL redaction,
-provider environments and hostile markdown. Integration tests use fictional data,
+provider environments and hostile markdown. Boundary tests use fictional data,
 temporary repositories and fake CLIs only.
 
 ## Provider-neutral policy preparation (PM-87 / PM-127)
@@ -1750,7 +1543,7 @@ macOS probe.
 2. Terminate HTTPS with Tailscale Serve. Preserve the public Host, overwrite
    `X-Forwarded-Proto`, and keep forwarding/identity headers so hook/MCP requests
    through the proxy are rejected. Prefer denying `/hooks` and `/mcp/` at the proxy (the bare `/mcp` is the
-   integrator's bearer endpoint, below).
+   connected Claude's bearer endpoint, below).
    Verify Secure cookies and the browser's exact origin against the deployed proxy.
 3. Apply tailnet ACLs and proxy connection/body/rate limits. Keep the app bound to
    loopback; do not expose the development server. Provision the first owner locally.
@@ -1759,120 +1552,78 @@ macOS probe.
    before sharing transcripts. Audit dependencies and installed CLI versions during
    deployment; dependency vulnerability scanning was outside this source review.
 
-### Public entrance through Cloudflare (PM-200, PM-210)
+<a id="public-entrance-through-cloudflare-pm-200-pm-210"></a>
 
-The Cloudflare variant of points 2 and 3 for the cloud board (PM-532, PM-536):
-`npm run cloud -- edge`, `publish` and `check` create and verify the settings through the
-Cloudflare API; see [AWS.md, Cloudflare](AWS.md#cloudflare) and
-[Verification](AWS.md#verification). Manual token-tunnel setup is in
-[HYBRID.md](HYBRID.md#the-cloudflare-tunnel-and-access). The one service is `127.0.0.1:4700`:
+### Cloud entrance
 
-1. HTTPS ends at Cloudflare; `cloudflared` reaches the app over loopback and the edge sends
-   `X-Forwarded-Proto: https`, so cookies are Secure. The Host is preserved (no `httpHostHeader`
-   or other rewrite in the tunnel): the origin check and "is this request local" both depend on
-   it. The first-setup endpoint refuses the request because its Host is `chopper.istvan.io`,
-   not a loopback name (`isLocalRequest`): with a Host rewritten to `127.0.0.1` the peer
-   (`cloudflared`, loopback) and the Host would both look local, and only Cloudflare's
-   `X-Forwarded-For` with the visitor's public address would still tell the difference, a second,
-   weaker reason. `check.sh` verifies the Secure cookie, both origin cases and
-   the refusal of `POST /api/setup` against the real entrance.
-2. The Access application covers the whole hostname with one Allow policy of **exact email
-   addresses**. "Emails ending in", "Everyone" and bypass policies are not allowed (the public board,
-   `access.boardMode: public`, is the one exception: see "The public board"), and neither
-   is a service token, with one exception: the cloud board's `access.integratorServiceToken`
-   (off by default, for the integrator's smoke test) puts a second policy, `<N>-integrator-service`
-   (non-identity, that one token), on the whole-hostname application; the engine's token is
-   never there. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
-   name and AUD tag) too. Login is by Google or a one-time code, with a stated session length.
-3. The tunnel answers 404 for `/hooks` and `/mcp/` and for everything but the one hostname. The
-   only service is the cloud container's `127.0.0.1:4700`; the Mac's development ports are not served.
-4. Edge: Always Use HTTPS and HSTS on; nothing cached; Rocket Loader, Email Obfuscation, the
-   automatic Web Analytics beacon and every other script injection off; a response-header rule
-   sets `X-Frame-Options: DENY` (Set) and **adds** `Content-Security-Policy: frame-ancestors
-'none'` (Add, never Set) on every response. The server sends both too (PM-211), and its
-   attachment routes send a stricter CSP of their own (`default-src 'none'; sandbox;
-frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it and drop the
-   sandbox on the public address.
-5. Set `PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip` (PM-211) so the attempt limiters count
-   per real client.
-6. The tunnel's credentials file, its token and the account certificate stay at mode 600 outside
-   every repository and are never put into text, notes or messages. The Cloudflare account has a
-   passkey or hardware key.
-7. The marking widget has its own hostname on the same tunnel, outside Access (PM-513, next
-   subsection).
-8. The Cloudflare API token of `npm run cloud` (`cloudflare.tokenFile`, mode 600, outside every
-   repository) is sent only in the `Authorization: Bearer` header, never in an argument, a log
-   line or a note (the report masks it). Its rights (the list is in [AWS.md](AWS.md), "The
-   Cloudflare token") include Zone and Access edit, so it is as strong as the account itself: give
-   it an expiry, keep it to the listed rights, and remove it when `edge` and `publish` are done.
+`scripts/cloud/config.ts` and `scripts/cloud/cloudflare.ts` define the routes;
+[AWS.md](AWS.md) covers setup and verification.
 
-**Residual risks** (known when the owner chose this entrance, PM-200; they do not go away):
+| Entrance                                                    | Edge boundary                                                                                | Application boundary                                                                           |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Public board (`access.boardMode: public`)                   | HTTPS, one Bypass/Everyone policy on the board application; no audience check on board pages | Password login for owners; e-mail code for invited clients; session, origin and attempt checks |
+| Private board (`access.boardMode: private`)                 | edge identity checks with exact e-mail allow list and audience verification by `cloudflared` | The same application login and access rules                                                    |
+| `/engine`                                                   | Separate audience and engine service-token policy                                            | Engine machine key; file transfers also require engine-bound single-use tokens                 |
+| Connected-client hostname (`cloudflare.integratorHostname`) | Separate audience and service-token policy                                                   | `pmi_` bearer credential, never a login cookie                                                 |
+| Widget hostname                                             | Only the public feedback paths                                                               | Feedback credentials and limits described below                                                |
 
-- **Cloudflare sees all traffic in clear.** TLS ends at its edge, so it can read the terminal
-  (code, secrets typed or printed there, passwords), the pages and the API calls. For client
-  projects the owner decides, project by project, whether the contract allows that, before
-  work on it goes through this entrance.
-- **The Cloudflare account is equivalent to access to the Mac.** Whoever controls it can edit
-  the Access policy, add themselves, and reach projectman and from there a terminal running as the
-  Mac's user (see the threat model). The passkey or hardware key, a short Access session and a
-  review of the account's members and API tokens are the defence; there is no second one.
-- **The login limiter sees everyone as `127.0.0.1` until the client-address header is set.**
-  Without `PROJECTMAN_CLIENT_IP_HEADER` (or on a build from before PM-211) all remote clients
-  share one per-client budget (the shared cap of 50 still holds) and one failing client can lock
-  out the others. With it set, the address is Cloudflare's `cf-connecting-ip` for requests that
-  come from the loopback proxy. If `tailscale serve` stays on next to the tunnel, a tailnet client
-  reaches the same port through a loopback proxy and can send its own `cf-connecting-ip`, so it
-  can pick its own address and get a fresh per-client budget each time (the shared cap of 50
-  still holds); turn `tailscale serve` off, or accept that.
-- **A leaked integrator service token passes Access to the whole board**, `/api` included (cloud
-  board, `access.integratorServiceToken` on). The board's own login stays: the token gets the
-  visitor past Access, not past the sign-in. Defences: leave the setting off (switching it off
-  makes `edge` delete the policy, the token and its file), or issue a new secret with
-  `npm run cloud -- edge --rotate-integrator-token`.
-- **The integrator's MCP endpoint, `POST /mcp` (PM-760), is a bearer door like `/api`.** A leaked `pmi_` key
-  gives what the key's mode gives in the projects of which its holder is an owner, and nothing else: no
-  session, no login, no answer of an owner's question, no key management. That is still wide for a `super`
-  key (it can change approval rules and roles and invite a person up to `admin` without a person's yes):
-  "Super mode" states exactly what it can and cannot do. Every HTTP request (a batch element
-  and a notification too) is authenticated afresh from the stored hash, so a revoke or an expiry takes effect
-  on the next request, and a key revoked in the middle of a request makes the answer 401. A wrong key is 401
-  `integrator_key_invalid`, never an MCP error text. The login cookie is not read as a credential; the
-  `Authorization` and `Cookie` headers are removed before the SDK sees the request, and no log line holds a
-  header or a body. The key works only over HTTPS or a local connection. Shared tool definitions are denied
-  by default until they carry an explicit external binding; the member's session, decision, file and merge
-  tools are not offered, and `tools/list` follows the key's mode while a direct call is checked against the
-  same table. An unknown project and one the holder does not own get the same refusal, so the answer does
-  not tell which project keys exist. The project documents (PM-1232) are served with the REST's rights: a
-  `read` key reads and lists them and reads their history (`list_documents`, `read_document`,
-  `document_history`); only a `super` key writes (`write_document`: create and edit, with the reason the
-  history shows). There is no delete and no restore on this door; the commit is the holder's, marked
-  `Projectman-Via: integrator` with the connected actor, so the document's history tells a write through
-  the connected Claude from the owner's own. A document's text is data for the reader, never an instruction.
-  With the PM-675 separate machine entrance, its own Access audience
-  and the bearer key are both required. The hub checks raw Host before resolving a cookie or a key:
-  cookie-only machine requests are 401, board API bearer attempts are 403 `integrator_host_required`,
-  and board bare `/mcp` is 404. The same guard is enabled during private staging; a public cloud with
-  no machine hostname has no bearer fallback. Forwarded-host headers and the tunnel's loopback source
-  cannot bypass it. Legacy private installations without a configured hostname retain their previous
-  transport. The host owner's own login can issue `super` and `read` keys for 1, 7, 30 or 365 days,
-  or without expiry (PM-825); the default remains 7 days. A non-expiring key has `expiresAt: null`
-  and stays valid until revoked or replaced. The creation dialog warns that a leaked key remains
-  usable until revocation and can be revoked at any time; no imminent-expiry warning is shown
-  for it. Store the key only on the client's machine, in a mode-600 file inside a mode-700
-  directory. Prefer a short expiry, revoke on suspicion and read the `mcp_<tool>` super audit rows.
-  The member door `/mcp/<token>` is unchanged and stays closed at the tunnel.
-- A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
-  login and the origin and attempt limits are then the only barrier. Re-read the policy after
-  every change and rerun `check.sh`. On the public board there is no second lock by design: the
-  login is the only barrier from the start (see "The public board").
+The public board never attaches the machine-client service policy to its board application.
+A private board without a separate machine hostname can attach that policy when
+`access.integratorServiceToken` is enabled (default off); this passes the edge only,
+not the board login. Engine service tokens are never board credentials.
+
+The tunnel refuses `/hooks` and `/mcp/<token>` on the board.
+Bare `/mcp` is also refused there when the public or separate-hostname layout is used.
+The machine hostname admits only its API routes and bare `/mcp`; other paths are 404.
+The hub checks raw Host before cookie/key resolution: cookie-only machine requests are 401,
+board bearer attempts are 403 `integrator_host_required`, and board bare `/mcp` is 404.
+Forwarded-host headers and the tunnel's loopback peer do not bypass this.
+A public deployment without a machine hostname has no bearer fallback.
+Older private configurations without that hostname retain their configured transport.
+
+**Bearer endpoint.** Each `POST /mcp` request, batch element and notification rechecks
+the stored key hash; revocation during a request makes its answer 401
+`integrator_key_invalid`. Cookies are not credentials there.
+Authorization and cookie headers are stripped before SDK dispatch; request headers/bodies
+are not logged. Keys work only over HTTPS or a local connection.
+Tools are denied until explicitly externally bound; list and direct calls use the same table.
+Session, file and decision tools are not exposed by copying the member tool surface.
+Unknown and inaccessible projects have the same refusal.
+[Connected Claude](#connected-claude) defines key scope, modes and operation risks.
+
+Project documents use the same rights as REST: `list_documents`, `read_document` and
+`document_history` are reads; `write_document` requires a `super` key.
+There is no delete/restore tool on this entrance.
+History records the holder and `Projectman-Via: integrator`; document text grants no authority.
+
+**Proxy requirements.** TLS ends at Cloudflare; `cloudflared` connects to loopback.
+Preserve Host and overwrite `X-Forwarded-Proto`, so Secure-cookie, local-request and
+origin checks see the real entrance. Enable HTTPS/HSTS, disable caching and script injection,
+set `X-Frame-Options: DENY` and add `Content-Security-Policy: frame-ancestors 'none'`
+without replacing stricter attachment CSPs.
+Set `PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip` for per-visitor limits.
+Keep tunnel/account credentials outside repositories with mode 0600 and protect the account
+with a passkey or hardware key. Limit and expire the cloud management token
+(`cloudflare.tokenFile`), which can edit DNS and access policies.
+The token is sent only as an authorization header and is masked in reports.
+
+**Residual risks.** Cloudflare terminates TLS and sees pages, API calls and terminal content.
+An account compromise can alter routes and edge policy; projectman's login remains an
+independent application check. The public board has no edge identity filter, so bots and
+password guessing reach the application's limiters.
+A leaked machine service token passes its edge policy but still needs the application key.
+Rotate it with `npm run cloud -- edge --rotate-integrator-token` and revoke the application
+key independently. A wrong route or access policy must be caught by deployment verification.
+Without the client-IP setting all proxy visitors share a limiter budget; another loopback
+proxy such as Tailscale Serve can let clients forge that header, so use one trusted entrance
+or accept that limit.
 
 ### The widget's public hostname (PM-506, PM-513)
 
-The marking widget runs on a customer's page, so it cannot pass Access. It gets **a hostname of
+The marking widget runs on a customer's page and has its own public entrance. It gets **a hostname of
 its own on the same tunnel with no Access application**
 (setup: [HYBRID.md, The marking widget's public hostname](HYBRID.md#the-marking-widgets-public-hostname-pm-513)).
-The Access application of the application's hostname is not weakened and no Bypass policy is
-added (the public board's one Bypass policy belongs to the board's own page, not to this feature). What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
+The board's edge policy is independent of the widget's entrance. What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
 their session, origin and limit rules are in "The feedback tool's public API".
 
 1. **The tunnel passes only `^/feedback/`** on that hostname, and answers 404 to the rest of it
@@ -1899,6 +1650,6 @@ their session, origin and limit rules are in "The feedback tool's public API".
    own user. Requests for the application's hostname are not changed by the guard.
 
 **Residual risks.** The guard protects the public hostname, not the application's hostname: if the
-tunnel's rules for the application's hostname were lost, Access would still be the lock there, as
-before. The widget's token on the customer's page is the risk described in "The feedback tool's
+tunnel's rules for the application's hostname were lost, its application login would still
+apply; a private board additionally retains its edge identity check. The widget's token on the customer's page is the risk described in "The feedback tool's
 public API" (XSS on that site). Cloudflare sees this traffic in clear like the rest.

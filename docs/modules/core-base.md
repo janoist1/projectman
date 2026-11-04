@@ -36,14 +36,12 @@ remain unchanged. The existing tests remain in `apps/server/test/domain-events.t
 
 ## Remote engine
 
-The database, units of work and event bus remain on the server. No filesystem or process operation is introduced; engines receive the existing messages and RPC payloads.
+The database, units of work and event bus remain on the server. Engines receive messages and RPC payloads
+([MACHINE-DEPENDENT.md](../MACHINE-DEPENDENT.md)).
 
-PM-637 moves the implementations to their final module folder. It changes no
-shared contract, database schema, configuration, timeline event or runtime behavior.
+## Project change journal
 
-## Project change journal (PM-761, part of the super mode PM-757)
-
-A durable, cursor-read record of what changed in a project, for the integrator's readers (and the
+A durable, cursor-read record of what changed in a project, for the connected Claude's readers (and the
 members' tools) to continue after an interruption or a restart of the hub. It says **that** something
 changed and **which entity**; the content is read from the normal APIs. Nothing raw is stored: no terminal
 text, chat text or secret, only ids.
@@ -65,11 +63,11 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
   covers, fix limits, hand-ons and hand-overs, review pins, loops, waits, deferred starts, full-test runs)
   name the card key in kind `task` (a link names the card's project through the card, a
   card removed by a cascade is announced by its own row); `timeline_events`, `team_messages`,
-  `message_attachments`, the inbox and its question groups, `task_handoffs`, the operator requests and
+  `message_attachments`, the inbox and its question groups, `task_handoffs`, the project manager's requests (`operator_requests`) and
   their steps (the step names its request and the request's project), the super-operation audit,
   merges, merge trains, releases and doc writes have their own kinds; a pause of the whole
   instance is written for every project. `UNJOURNALED_TABLES` names every other table with the reason
-  (credentials, login, usage, machine-local bookkeeping, Operator bookkeeping, the journal itself).
+  (credentials, login, usage, machine-local bookkeeping, coordination bookkeeping, the journal itself).
   `test/project-change-journal.test.ts` fails when a table is in neither list, in both, or a name is
   stale, so a new table makes someone decide. A migration that rebuilds a covered table drops its
   triggers and must create them again (the same test); a new state table needs a migration that calls
@@ -77,7 +75,7 @@ at)`, index `(project_key, seq)` (migration 81). `seq` never goes back, also not
 - **Configuration.** The configuration is git's; the `projects` record carries its version
   (`config_version`). The `configuration` entry (entity `null`) is written when a project is created and
   when the record gets a **new** version, whichever path writes it (a commit, a revert, the sync from the
-  store, the recovery of an interrupted operator execution or audit). A path that finds the record already
+  store, the recovery of an interrupted super audit). A path that finds the record already
   at the version, or changes only its name or time, writes nothing, so a recovery that runs again does not
   repeat the signal. A git commit followed by a crash before the record update is finished by the existing
   reconciliation (`syncFromStore`, `settleSuperAudit`), which writes the entry

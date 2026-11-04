@@ -4,19 +4,19 @@
 
 Session orchestration on the hub. This file describes the team's pause and resume (`PauseService`).
 
-## Pause and resume (PM-219, part of PM-198)
+## Pause and resume
 
-The team's work can be paused so that every session stops at a safe point and goes on from there (a quicker
-deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` / `release` (PM-218,
-[PROVIDERS.md](../PROVIDERS.md)); `PauseService` (`runtime/sessions`) is the team's.
+The team's work can be paused so that every session stops at a safe point and goes on from there. A deploy or a
+restart uses it so that no session loses its place (decision 32; the steps are in [DEPLOY.md](../DEPLOY.md), "Pausing
+the team for an update"). The runner's part is `SessionRunner.pause` / `forcePause` / `release`
+([PROVIDERS.md](../PROVIDERS.md)); `PauseService` (`runtime/sessions`) is the team's.
 
 - **Scope and storage.** A pause covers the instance or one project, never one member (decision 32). It is a row of
   `pauses` (migration 31; at most one open per scope), and `session_pauses` holds one open row for every session
   it stops (point, tool, what it still waits for, `needs_restart`), so it survives a restart. `Session.pause`
   carries that row, `BoardView.pause` the open pauses of the project (`ProjectPauseView`; a client reads them like any member),
   `pause_changed` and `session_upserted` keep the app current. The rules are pure and in
-  `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `pauseStateOf`). The old `canManageInstancePause`
-  rule is gone (PM-1068): `canManageProviderKeys` is the host owner's alone.
+  `packages/shared/src/domain/pause.ts` (`isWorkPaused`, `pauseStateOf`).
 - **Pausing.** Under the admission lock only the rows and the timeline event (`team_paused`; project-level,
   internal) are written; then every running session gets `runner.pause(id, { forceAfterMs })`. The pause is
   `pausing` until every session has a point, then `paused`. `force` writes the deadline as now and cuts the
@@ -72,7 +72,7 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
 - **Access.** `GET` of a project's pause: an internal member; changing it: admin or owner. The instance's pause
   may be seen by anyone who is internal in some project (and by the host owner with no project of their own),
   with only the sessions of the viewer's projects, and changed by the host owner alone (`domain.instanceOwner`,
-  PM-1058). The pause itself acts on the whole instance, projects of other owners included; an integrator key of
+  `instanceOwner`). The pause itself acts on the whole instance, projects of other owners included; a connected Claude's key of
   the host owner is bound only in the projects its holder owns (`assertCredential`).
 - **Control socket.** `PROJECTMAN_HOME/control.sock` (mode 0600; `apps/server/src/control`, not opened for a standby
   copy) takes one JSON line per request (`ControlRequest`: `pause`, `resume`, `force`, `status`) and answers one
@@ -80,5 +80,5 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   no login: whoever may open the file may pause the team, like whoever may stop the service. A file nobody
   answers on is replaced; one somebody answers on is left alone and logged. The members' sessions may not touch it
   (`sensitivePaths`). `npm run control -- pause --wait | resume | force | status`
-  (`scripts/control`) is its client ([DEPLOY.md](../DEPLOY.md)). The socket accepts pause, resume, force and status only (PM-1113); every response may
-  include the running app version. The retired release relay and engine-status operations are removed.
+  (`scripts/control`) is its client ([DEPLOY.md](../DEPLOY.md)). The socket accepts pause, resume, force and status only; every response may
+  include the running app version.

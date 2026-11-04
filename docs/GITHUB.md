@@ -2,21 +2,29 @@
 
 Tasks live in projectman's own database. GitHub is used for what it does best: pull
 requests, reviews, checks, merges and releases (decision 9 in [DECISIONS.md](DECISIONS.md)).
-projectman **reads** GitHub pull requests with the owner's login. A member's merge_task (PM-452) pushes the
-approved merge commit to the default branch through the engine's git login (PM-452).
+projectman **reads** GitHub pull requests with the `gh` login of the machine that runs the work: the
+engine of the project (on a single-machine server, that machine). The member's `merge_task` pushes the
+approved merge commit to the default branch with that machine's git login (PM-452; the steps are in
+[modules/services-merges.md](modules/services-merges.md)).
 
 ```
-projectman server ── shared command helper (no shell) ──▶ gh CLI ──▶ GitHub API
-   src/services/github            owner's `gh auth login`         (read-only calls)
-      │
-      └─ watch(): polls the PRs linked to tasks ─▶ domain updates task links and gates
+cloud hub ── engine link (github.*) ──▶ engine: src/services/github ── shared command helper ──▶ gh CLI ──▶ GitHub API
+   │                                       (no shell)                  engine's `gh auth login`   (read-only calls)
+   └─ watches ◀── github_changed ── engine polls the PRs linked to tasks ─▶ domain updates task links and gates
 ```
+
+In cloud mode (`apps/server/src/engine-link/remote/github.ts`, PM-315, PM-1059) every call goes to the
+engine of the project it is about; a failure of the link itself is `unreachable`. Watches live on that
+engine, which polls and reports every change as a `github_changed` event; the hub sends its watches again
+when the engine connects (an engine that restarted has none), and a watch stays with the engine it was
+sent to. A single-machine server runs `gh` itself.
 
 ## Setup
 
-- Install the GitHub CLI (2.40 or newer) and log in once: `gh auth login`. The token needs
-  the `repo` scope to read private repositories.
-- projectman never sees or stores the token; every call runs `gh` with the owner's login.
+- On the machine that runs the engine (or the single-machine server), install the GitHub CLI
+  (2.40 or newer) and log in once: `gh auth login`. The token needs the `repo` scope to read
+  private repositories.
+- projectman never sees or stores the token; every call runs `gh` with that machine's login.
 - In the project configuration, give each repo its GitHub name: `repos[].github: owner/name`.
 - `isAvailable()` tells the UI whether GitHub is connected (gh installed and logged in).
 
@@ -83,12 +91,17 @@ in a project with several repos such a task has no repo until a person chooses o
   The reviewer never edits or commits the reviewed work, or merges or pushes manually. When selected
   as the card merger, they use merge_task after approving the commit.
 - Where requireMerge applies, the selected member uses merge_task before the merge target; the gate
-  checks that the approved commit is in the default branch. Integrating-session repositories
-  (fullTestAtMerge) retain the owner's integration workflow. A deployment step names the branch only.
+  checks that the approved commit is in the default branch. With `fullTestAtMerge` the full check
+  runs once, at the merge: the merge step runs the repository's `reviewTest` (`npm run merge-test` in
+  PM) on the merge result before the default branch moves
+  ([modules/services-merges.md](modules/services-merges.md)); a repository that merges outside
+  projectman (`fullTestAtMerge` without `requireMerge`) runs it where that merge happens. A
+  deployment step names the branch only.
 
 ## Polling
 
-A local app cannot receive GitHub webhooks, so `watch(targets, onChange)` polls:
+projectman receives no GitHub webhooks: the machine with the `gh` login (the engine, see above)
+polls with `watch(targets, onChange)`:
 
 - Every watched PR is fetched every `pollIntervalMs`. One `gh` call runs at a time, and
   polling rounds never overlap. A PR watched by several subscribers is fetched once.
@@ -106,8 +119,8 @@ A local app cannot receive GitHub webhooks, so `watch(targets, onChange)` polls:
 - `watch` does not report errors to subscribers. Failures are logged (warn) with the PR,
   the error code and the next retry time.
 
-**Cost**: each check is one GraphQL request on the owner's account. The owner's own `gh`
-use shares the same limit of 5,000 points per hour. For example, 20 open PRs checked every
+**Cost**: each check is one GraphQL request on the account of the engine's `gh` login. Any other
+`gh` use of that account shares the same limit of 5,000 points per hour. For example, 20 open PRs checked every
 60 seconds make 1,200 requests per hour. Keep `pollIntervalMs` at 60 seconds or more, and
 stop watching PRs of finished tasks.
 
@@ -162,8 +175,8 @@ Callers can turn `not_found` into a friendly "no such PR" message; the others me
   labels with rules, internal/shared visibility, and later meetings and observations.
 - **Clients would need GitHub accounts** and access to the repository or project just to
   take part in the client test stage.
-- **No webhooks on a local app.** A two-way sync would rely on polling. It would be slow,
-  it would conflict whenever both sides change, and it would spend the owner's rate limit.
+- **No webhooks.** A two-way sync would rely on polling. It would be slow, it would conflict
+  whenever both sides change, and it would spend the `gh` login's rate limit.
   One source of truth avoids all of that.
 - **Independence.** The board, the inbox and the attributed timeline keep working when
   GitHub is slow, rate-limited or offline, and tasks can exist without any repository.

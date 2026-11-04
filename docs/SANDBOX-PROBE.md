@@ -239,8 +239,8 @@ file is only counted (`wc -c`), so the evidence holds its size at most.
      exception at all.
 4. During the whole review no item reaches the owner's inbox (Bejövő); refusals of approver
    Senki, if any, are on the task's timeline.
-5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
-   summary in PROVIDERS.md (the PM-167 table's "Manual run" line).
+5. Record each line as `pass`, `fail` or `unverified` with the raw output and a summary in the
+   task.
 
 ## PM-153 and PM-193: a developer's read boundary, the protected shared git, its own npm cache
 
@@ -284,10 +284,10 @@ Credential files are only counted (`wc -c`), never printed.
    - `npm run dev` starts with its data in `$PROJECTMAN_HOME` (stop it right away);
    - `git add -A`, `git commit -m "Probe"`, then `git gc --auto`: the commit stays (`git log -1`),
      whatever `gc` reports about `packed-refs`.
-4. A command with a here-document (`cat > /dev/null <<'EOF'` with an empty body) still asks: the
-   12:44 case of PM-142 (PROVIDERS.md, "Commands Claude Code asks about in the sandbox").
-5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
-   summary in PROVIDERS.md (the "Manual run" line under the sandbox table). A command the sandbox
+4. A command with a here-document (`cat > /dev/null <<'EOF'` with an empty body) still asks
+   (PROVIDERS.md, "Commands Claude Code asks about in the sandbox").
+5. Record each line as `pass`, `fail` or `unverified` with the raw output and a summary in the
+   task. A command the sandbox
    refuses but the developer needs is a finding: `allowRead` may grow by it, never by the app home,
    `~/.ssh`, `~/.config/gh`, `~/.codex`, `~/.aws`, `~/.cloudflared`, another `~/.claude` path or `~/.npmrc`.
 

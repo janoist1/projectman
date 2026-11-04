@@ -873,6 +873,30 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
         await staysUnfollowed(key);
       });
 
+      it('opens no row and no todo for a collecting card in the work stage whose part waits on the owner', async () => {
+        await harness();
+        const key = await create();
+        await h.domain.tasks.moveToStage('AR', key, 'development', OWNER_ACTOR);
+        const part = await h.domain.tasks.create('AR', { title: 'A part', parentKey: key }, OWNER_ACTOR);
+        h.domain.inbox.create({
+          projectKey: 'AR',
+          kind: 'question',
+          source: 'dev-1',
+          taskKey: part.key,
+          assignees: ['owner'],
+          title: 'Raise the fix limit?',
+          payload: { question: 'Raise the fix limit?', requestedRecipient: 'owner', recipient: 'owner' },
+          options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
+        });
+        await flush();
+        await stopSessions();
+        // Nobody works on the parent: the stage has several owners, so the step would fall to the pm.
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { status: 'waiting', assignee: null });
+        const ownerItems = ownerCount();
+        await staysUnfollowed(key);
+        expect(ownerCount()).toBe(ownerItems);
+      });
+
       it('still opens a row for a collecting card in the ready queue whose parts are all closed', async () => {
         await harness((c) => {
           refinery(c);

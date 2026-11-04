@@ -28,7 +28,7 @@ export const CardHoldCode = z.enum([
   'full_test',
   'handoff',
   'dependencies',
-  /** A collecting card waits for its open parts: each part has its own step (PM-1234). */
+  /** A collecting card waits for its open parts, in the ready and in a work stage: each part has its own step (PM-1234, PM-1240). */
   'parts',
 ]);
 export type CardHoldCode = z.infer<typeof CardHoldCode>;
@@ -206,6 +206,8 @@ export function cardDuty({ task, wait, config, openItems, openParts }: CardDutyI
     case 'queued':
     case 'nobody': {
       if (stageAdvance(task, config)?.kind === 'move') return classified({ kind: 'system', step: 'advance' });
+      // A collecting card in a work stage has no step of its own: it closes with its parts (PM-1240).
+      if (openParts > 0) return hold('parts');
       // An idle stage waits for its owners when `next` names nobody (a step no session holds yet).
       const stage = stageOf(config, task.stageId);
       const owners = reason === 'queued' && next.length === 0 && stage ? stageOwners(config, stage) : next;

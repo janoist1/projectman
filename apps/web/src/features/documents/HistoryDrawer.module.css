@@ -65,10 +65,16 @@
   color: var(--c-ink-4);
 }
 
-/* The connected Claude's detail line gets the whole row, so it does not squeeze the time and the name. */
+/* The name and the chip stay on the time's line; the detail line breaks inside this column. */
 .author {
-  flex-basis: 100%;
+  flex: 1 1 0;
   min-width: 0;
+}
+
+/* Inline after the chip: the flex gap of `.meta` does not reach it here. */
+.author .current {
+  margin-inline-start: 6px;
+  vertical-align: middle;
 }
 
 .current {

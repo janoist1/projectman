@@ -103,9 +103,15 @@ The output has one line per image, `shot <path> <width>x<height>` (the size of t
 
 ## The scenario
 
-The scenarios live in `scripts/scenarios/`. Each one's header comment names its card and what it
-shoots (and, where it matters, the widths and the `--timeout` it needs); read it there rather than
-here. A new scenario follows the same form.
+The scenarios live in `scripts/scenarios/`. Each one's doc comment (at the top, or right below its
+imports) names its card and what it shoots; read it there rather than here. A new scenario puts that
+comment at the top, with the widths and any `--timeout` above the default it needs.
+
+Two scenarios need more than the default 240 seconds:
+
+- `npm run shots -- scripts/scenarios/priority.mjs --timeout 300`
+- `npm run shots -- scripts/scenarios/complexity-points.mjs --timeout 600 --widths 1512,390` (its
+  inbox scene waits for the real five-minute timer)
 
 A scenario is an ES module whose default export is an async function:
 

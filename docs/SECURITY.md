@@ -916,7 +916,7 @@ wins, so nothing re-opens it. Its commands never write the default branch and th
 checkout's `HEAD`, `index` and `packed-refs` (with their lock files) in the shared git directory,
 neither from the shell nor with the file tools (`Edit` rules), and never see `GH_TOKEN`,
 `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN` and `SSH_AUTH_SOCK`. Claude Code still asks for a
-command with a here-document it cannot analyse (PM-142, 12:44), sandbox or not; the context pack
+command with a here-document it cannot analyse (PROVIDERS.md, "Commands Claude Code asks about in the sandbox"), sandbox or not; the context pack
 tells the member to write files with the editing tools instead.
 
 **A developer writes nothing the host runs or loads (PM-193).** Before PM-193 a developer's

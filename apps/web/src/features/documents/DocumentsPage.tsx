@@ -1,6 +1,6 @@
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useDocuments } from '../../api/queries';
-import { useProject } from '../../app/contexts';
+import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { PageHeader } from '../../components/PageHeader';
@@ -10,6 +10,7 @@ import { formatStamp } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { useDocumentTitle } from '../../lib/hooks';
 import { useDocumentAccess } from './access';
+import { authorLabel } from './authorLabel';
 import { DocumentEditor } from './DocumentEditor';
 import { documentsPath } from '../../app/documents';
 import styles from './DocumentsPage.module.css';
@@ -19,7 +20,8 @@ import styles from './DocumentsPage.module.css';
  * document. A client never gets here (the route sends them to the project's home).
  */
 export function DocumentsPage() {
-  const { key } = useProject();
+  const { key, myHandle } = useProject();
+  const { members } = useProjectIndexes(key);
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
@@ -80,7 +82,9 @@ export function DocumentsPage() {
                   <span className={styles.name}>{document.title}</span>
                   <span className={styles.sub}>
                     <code>{document.slug}</code>
-                    <span>{t('documents.updatedBy', { name: document.updatedBy.name })}</span>
+                    <span className={styles.author}>
+                      {t('documents.updatedBy', { name: authorLabel(document.updatedBy, members, myHandle) })}
+                    </span>
                     <time dateTime={document.updatedAt}>{formatStamp(document.updatedAt)}</time>
                   </span>
                 </span>

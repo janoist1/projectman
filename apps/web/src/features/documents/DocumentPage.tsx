@@ -6,7 +6,7 @@ import type { DocumentHeading } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { queryKeys } from '../../api/queryKeys';
 import { useDeleteDocument, useDocument, useRestoreDocument } from '../../api/queries';
-import { useProject } from '../../app/contexts';
+import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button, ButtonLink } from '../../components/Button';
 import { Dialog, DialogActions } from '../../components/Dialog';
 import { ErrorBanner } from '../../components/ErrorBanner';
@@ -23,6 +23,7 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
 import { useDocumentAccess } from './access';
+import { authorLabel } from './authorLabel';
 import { DocumentEditor } from './DocumentEditor';
 import { HistoryDrawer } from './HistoryDrawer';
 import { documentRef, documentsPath } from '../../app/documents';
@@ -43,7 +44,8 @@ const decoded = (hash: string): string => {
  * version (`?version=`), the history drawer, and `#section` links that scroll to a heading.
  */
 export function DocumentPage() {
-  const { key } = useProject();
+  const { key, myHandle } = useProject();
+  const { members } = useProjectIndexes(key);
   const { slug = '' } = useParams();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -175,6 +177,7 @@ export function DocumentPage() {
   }
 
   const { document: summary } = detail;
+  const updatedBy = authorLabel(summary.updatedBy, members, myHandle);
   const currentVersion = current?.document.version ?? summary.version;
   const goneWhileEditing =
     currentQ.isError && isApiError(currentQ.error) && currentQ.error.code === 'document_not_found';
@@ -256,7 +259,7 @@ export function DocumentPage() {
             <code>{slug}</code>
           </button>
           <span>
-            {t('documents.updatedBy', { name: summary.updatedBy.name })} ·{' '}
+            {t('documents.updatedBy', { name: updatedBy })} ·{' '}
             <time dateTime={summary.updatedAt}>{formatStamp(summary.updatedAt)}</time>
           </span>
         </div>
@@ -295,7 +298,7 @@ export function DocumentPage() {
           <span>
             {t('documents.version.banner', {
               time: formatStamp(summary.updatedAt),
-              name: summary.updatedBy.name,
+              name: updatedBy,
             })}
           </span>
           <span className={styles.bannerActions}>

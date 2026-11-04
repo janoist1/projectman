@@ -57,6 +57,11 @@
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
+/* "Updated by: Name (Claude)" stays one unit; it wraps as a whole, not before the bracket. */
+.author {
+  white-space: nowrap;
+}
+
 @media (max-width: 767px) {
   .page {
     padding: 16px 14px 40px;

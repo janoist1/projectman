@@ -59,10 +59,22 @@
 .meta {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: 4px 10px;
   font-size: var(--text-xs);
   color: var(--c-ink-4);
+}
+
+/* The name and the chip stay on the time's line; the detail line breaks inside this column. */
+.author {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Inline after the chip: the flex gap of `.meta` does not reach it here. */
+.author .current {
+  margin-inline-start: 6px;
+  vertical-align: middle;
 }
 
 .current {

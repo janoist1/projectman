@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useDocumentHistory } from '../../api/queries';
-import { useProject } from '../../app/contexts';
+import { useProject, useProjectIndexes } from '../../app/contexts';
+import { ActorName } from '../../components/ActorName';
 import { Button } from '../../components/Button';
 import { ErrorState, LoadingState } from '../../components/States';
 import { formatStamp } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { authorLabel } from './authorLabel';
 import { changeMessage } from './changeMessage';
 import styles from './HistoryDrawer.module.css';
 
@@ -20,7 +22,8 @@ interface Props {
 
 /** The versions of a document, newest first, in a panel at the right (PM-150). Esc closes it. */
 export function HistoryDrawer({ slug, currentVersion, viewingVersion, onView, onClose }: Props) {
-  const { key } = useProject();
+  const { key, myHandle } = useProject();
+  const { members } = useProjectIndexes(key);
   const history = useDocumentHistory(key, slug, true);
   const heading = useRef<HTMLHeadingElement>(null);
 
@@ -58,14 +61,31 @@ export function HistoryDrawer({ slug, currentVersion, viewingVersion, onView, on
           // A rename shows when the title differs from the one before it.
           const earlier = versions[index + 1];
           const renamed = earlier && earlier.title !== version.title;
+          const current =
+            version.version === currentVersion ? (
+              <span className={styles.current}>{t('documents.history.current')}</span>
+            ) : null;
           return (
             <li key={version.version} className={styles.row}>
               <div className={styles.meta}>
                 <time dateTime={version.at}>{formatStamp(version.at)}</time>
-                <span>{version.by.name}</span>
-                {version.version === currentVersion ? (
-                  <span className={styles.current}>{t('documents.history.current')}</span>
-                ) : null}
+                {version.by.actor ? (
+                  <span className={styles.author}>
+                    <ActorName
+                      actor={version.by.actor}
+                      members={members}
+                      myHandle={myHandle}
+                      projectKey={key}
+                      history
+                      after={current}
+                    />
+                  </span>
+                ) : (
+                  <>
+                    <span>{authorLabel(version.by, members, myHandle)}</span>
+                    {current}
+                  </>
+                )}
               </div>
               <p className={styles.message}>{changeMessage(version, slug)}</p>
               {renamed ? (

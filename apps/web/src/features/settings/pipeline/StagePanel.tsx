@@ -11,6 +11,7 @@ import { useLeaveGuard } from '../edit/useLeaveGuard';
 import { DeleteSection } from './DeleteSection';
 import { stageDeleteBlock, withoutStage } from './deletion';
 import type { CardCount } from './deletion';
+import { focusRow } from './focusRow';
 import { orderColumns } from './flow';
 import { PanelBands } from './PanelBands';
 import { PanelFooter } from './PanelFooter';
@@ -193,7 +194,11 @@ export function StagePanel({
           kind="stage"
           name={saved?.name ?? draft.name}
           block={block}
-          onDelete={() => edit.remove(withoutStage(config, stageId), saved?.name ?? draft.name)}
+          onDelete={() =>
+            edit.remove(withoutStage(config, stageId), saved?.name ?? draft.name, () =>
+              focusRow(`stage:${stageId}`),
+            )
+          }
           onDeleted={() => onDeleted(stageId)}
         />
       )}

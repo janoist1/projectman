@@ -12,6 +12,7 @@ import type { ColumnDraft } from './columnDraft';
 import { ColumnForm } from './ColumnForm';
 import { columnDeleteBlock, withoutColumn } from './deletion';
 import { DeleteSection } from './DeleteSection';
+import { focusRow } from './focusRow';
 import { PanelBands } from './PanelBands';
 import { PanelFooter } from './PanelFooter';
 import panelStyles from './PipelinePanel.module.css';
@@ -130,7 +131,9 @@ export function ColumnPanel({ config, columnId, empty, onSelect, onClose, onDele
           kind="column"
           name={saved.name}
           block={block}
-          onDelete={() => edit.remove(withoutColumn(config, columnId), saved.name)}
+          onDelete={() =>
+            edit.remove(withoutColumn(config, columnId), saved.name, () => focusRow(`column:${columnId}`))
+          }
           onDeleted={() => onDeleted(columnId)}
         />
       )}

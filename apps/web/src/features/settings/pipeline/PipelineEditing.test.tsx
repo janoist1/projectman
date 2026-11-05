@@ -113,6 +113,17 @@ describe('new stage', () => {
     expect(patches(project)).toHaveLength(0);
   });
 
+  it('ties the missing owner to the owners field, not to the top of the panel', async () => {
+    renderAt(`${PIPELINE}?show=new-stage&after=dev`);
+    const dialog = await panel();
+    fireEvent.change(await dialog.findByLabelText(t('settings.pipeline.edit.name')), {
+      target: { value: 'X' },
+    });
+    const owners = dialog.getByRole('group', { name: t('settings.pipeline.fields.owners') });
+    await waitFor(() => expect(owners.getAttribute('aria-describedby')).toBeTruthy());
+    expect(document.getElementById(owners.getAttribute('aria-describedby')!)).toBeTruthy();
+  });
+
   it('creates a new column named like the stage and orders the columns by the stages', async () => {
     const project = renderAt(`${PIPELINE}?show=new-stage&after=dev`);
     const dialog = await panel();
@@ -274,6 +285,10 @@ describe('delete', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.edit.undo') }));
     await waitFor(() => expect(stageIds(project)).toEqual(before));
+    // The focus returns to the restored row, not to the page.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(document.querySelector('[data-show="stage:qa"]')),
+    );
   });
 
   it('deletes a column that has no stage', async () => {

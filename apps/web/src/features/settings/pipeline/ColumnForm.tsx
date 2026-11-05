@@ -66,7 +66,10 @@ export function ColumnForm({
                   checked={draft.color === color}
                   onChange={() => update({ color })}
                 />
-                <span className={styles.swatch} style={{ background: `var(--column-${color}-fg)` }}>
+                <span
+                  className={styles.swatch}
+                  style={{ background: `var(--column-${color}-bg)`, color: `var(--column-${color}-fg)` }}
+                >
                   {draft.color === color ? <Icon name="check" size={14} /> : null}
                 </span>
                 <span className={styles.colorName}>{t(`columnColors.${color}`)}</span>

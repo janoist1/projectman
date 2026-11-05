@@ -55,7 +55,8 @@ export interface ElementEdit<D> {
   saves: number;
   /** True when the draft was saved. */
   save(): Promise<boolean>;
-  remove(next: ProjectConfig, name: string): Promise<RemoveFailure | null>;
+  /** `restored` runs after the undo of the delete brought the element back. */
+  remove(next: ProjectConfig, name: string, restored?: () => void): Promise<RemoveFailure | null>;
   discard(): void;
 }
 
@@ -161,6 +162,7 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     undoneText: string,
     key: string,
     written?: (config: ProjectConfig) => void,
+    restored?: () => void,
   ) => {
     const before = view!;
     const { toPatch } = latest.current;
@@ -176,6 +178,7 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
             .then((undone) => {
               settle(undone.config, key);
               toast.show(undoneText);
+              restored?.();
             })
             .catch(async (error: unknown) => {
               if (isApiError(error) && error.code === 'config_conflict') {
@@ -226,7 +229,11 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
    * Saves `next` (the configuration without this element) at once, whatever the draft holds. The draft stays
    * untouched; the answer says why nothing was deleted, null when it was.
    */
-  const remove = async (next: ProjectConfig, name: string): Promise<RemoveFailure | null> => {
+  const remove = async (
+    next: ProjectConfig,
+    name: string,
+    restored?: () => void,
+  ): Promise<RemoveFailure | null> => {
     if (!view || saving) return { kind: 'error', reason: null };
     setSaving(true);
     try {
@@ -235,6 +242,8 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
         t('settings.pipeline.delete.deleted', { name }),
         t('settings.pipeline.edit.undone', { name }),
         latest.current.key,
+        undefined,
+        restored,
       );
       return null;
     } catch (error) {

@@ -72,7 +72,11 @@ export function sortIssues(
       const part = target?.field;
       if (part === undefined)
         field =
-          issue.code === 'first_stage_not_queue' || issue.code === 'last_stage_not_done' ? 'kind' : null;
+          issue.code === 'first_stage_not_queue' || issue.code === 'last_stage_not_done'
+            ? 'kind'
+            : issue.code === 'stage_without_owner' || issue.code === 'work_stage_without_worker'
+              ? 'owners'
+              : null;
       else if (part === 'name') {
         field = 'name';
         if (draft.name.trim() === '') message = t('settings.pipeline.edit.nameRequired');

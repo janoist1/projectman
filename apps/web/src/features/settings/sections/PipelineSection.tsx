@@ -10,6 +10,7 @@ import { readStorage, writeStorage } from '../../../lib/hooks';
 import { SettingsDetailLayout } from '../DetailPanel';
 import { LeaveGuardProvider } from '../edit/LeaveGuard';
 import { issueTarget } from '../issueTarget';
+import { focusRow } from '../pipeline/focusRow';
 import { emptyColumns } from '../pipeline/flow';
 import { PipelineFlow } from '../pipeline/PipelineFlow';
 import { PipelinePanel } from '../pipeline/PipelinePanel';
@@ -44,11 +45,7 @@ function focusAfterDelete(config: ProjectConfig, kind: 'stage' | 'column', id: s
     target = near ? `column:${near.id}` : 'new-column';
   }
   // After the panel closed and the path was drawn again.
-  window.setTimeout(() => {
-    const rows = document.querySelectorAll<HTMLElement>('[data-show]');
-    const row = [...rows].find((element) => element.dataset.show === target);
-    (row ?? document.querySelector<HTMLElement>('[data-add-stage]'))?.focus();
-  }, 0);
+  window.setTimeout(() => focusRow(target), 0);
 }
 
 function PipelineBody({ config }: { config: ProjectConfig }) {

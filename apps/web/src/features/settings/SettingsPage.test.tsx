@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PatchConfigRequest } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import type { MockRequest } from '../../test/mockProject';
@@ -90,6 +91,25 @@ describe('settings section editors', () => {
     await goTo('history');
     const history = await screen.findByRole('region', { name: t('settings.sections.history') });
     expect(await within(history).findByText(t('settings.history.summary.sectionProject'))).toBeTruthy();
+  });
+
+  it('names the project in lower case in the undo toast and puts the focus back on Edit', async () => {
+    const project = mockProject();
+    project.render(
+      <ToastProvider>
+        <SettingsTestRoutes />
+      </ToastProvider>,
+    );
+    const section = await editSection('project');
+    fireEvent.change(section.getByLabelText(t('settings.project.name')), { target: { value: 'Renamed' } });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.edit.undo') }));
+    await screen.findByText(
+      t('settings.pipeline.edit.undone', { name: t('settings.project.basics').toLocaleLowerCase() }),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(section.getByRole('button', { name: t('memberEdit.edit') })),
+    );
   });
 
   it('offers the language and the time zone as choices, keeping a value the project already has', async () => {
@@ -227,25 +247,31 @@ describe('settings section editors', () => {
     expect(toggle.matches(':disabled')).toBe(false);
     expect(limits.queryByText(t('settings.limits.locked'))).toBeNull();
     const editor = await editSection('project');
-    expect(toggle.matches(':disabled')).toBe(true);
+    // An open form without a change holds nothing back.
+    expect(toggle.matches(':disabled')).toBe(false);
+    fireEvent.change(editor.getByLabelText(t('settings.project.name')), { target: { value: 'Renamed' } });
+    await waitFor(() => expect(toggle.matches(':disabled')).toBe(true));
     expect(limits.getByText(t('settings.limits.locked'))).toBeTruthy();
     fireEvent.click(editor.getByRole('button', { name: t('common.cancel') }));
     await waitFor(() => expect(toggle.matches(':disabled')).toBe(false));
     expect(limits.queryByText(t('settings.limits.locked'))).toBeNull();
   });
 
-  it('locks the limits while the duty matrix holds unsaved changes, so its draft is not lost', async () => {
+  it('locks the limits while a role text holds an unsaved change, so its draft is not lost', async () => {
     const project = mockProject();
     project.render(<SettingsEditingFixture />);
     const limits = await limitsSection();
     const toggle = limits.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }) as HTMLInputElement;
     const matrix = within(await screen.findByRole('region', { name: t('duties.title') }));
     const locale = getLocale(project.backend.config.project.language);
-    fireEvent.click(matrix.getByLabelText(`${locale.duties.research.name}: ${locale.roles.developer.name}`));
+    fireEvent.change(
+      matrix.getByLabelText(`${t('roleCatalogue.whenToAsk')}: ${locale.roles.developer.name}`),
+      { target: { value: 'When the card is ready.' } },
+    );
     await waitFor(() => expect(toggle.matches(':disabled')).toBe(true));
-    fireEvent.click(matrix.getByRole('button', { name: t('memberEdit.save') }));
+    fireEvent.click(matrix.getByRole('button', { name: t('settings.pipeline.edit.save') }));
     await waitFor(() =>
-      expect(project.backend.config.team.roleOverrides?.developer?.duties).toContain('research'),
+      expect(project.backend.config.team.roleOverrides?.developer?.whenToAsk).toBe('When the card is ready.'),
     );
     await waitFor(() => expect(toggle.matches(':disabled')).toBe(false));
   });
@@ -577,7 +603,7 @@ describe('settings section editors', () => {
     expect(project.backend.config.project.name).toBe('Renamed despite existing errors');
   });
 
-  it('shows a conflict and reloads the latest version before retrying', async () => {
+  it('keeps the project edit open on a conflict, says who saved first, and saves on the new version', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes />);
     const section = await editSection('project');
@@ -590,22 +616,18 @@ describe('settings section editors', () => {
     });
     const latestVersion = project.backend.configVersion;
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    expect((await section.findByRole('alert')).textContent).toContain(t('settings.edit.conflict'));
-    fireEvent.click(section.getByRole('button', { name: t('settings.edit.reload') }));
-    await waitFor(() =>
-      expect((section.getByLabelText(t('settings.project.name')) as HTMLInputElement).value).toBe(
-        'Latest Acme',
-      ),
+    await section.findByRole('status');
+    // The draft stays, nothing was overwritten.
+    expect((section.getByLabelText(t('settings.project.name')) as HTMLInputElement).value).toBe(
+      'Stale draft',
     );
-    expect(section.queryByRole('alert')).toBeNull();
-    fireEvent.change(section.getByLabelText(t('settings.project.name')), {
-      target: { value: 'Updated Acme' },
-    });
+    expect(project.backend.config.project.name).toBe('Latest Acme');
     fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
     await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
     expect(project.requests.filter((request) => request.method === 'PATCH')[1]?.body).toMatchObject({
       baseVersion: latestVersion,
     });
+    expect(project.backend.config.project.name).toBe('Stale draft');
   });
 
   // A client does not get the configuration at all (it is refused), so only a viewer reaches the sections.

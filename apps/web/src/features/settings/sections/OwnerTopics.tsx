@@ -13,7 +13,7 @@ import { issueMessage } from '../../../lib/configIssues';
 import type { IssueRef } from '../../../lib/configIssues';
 import { errorMessage } from '../../../lib/errors';
 import { builtInOwnerTopicIds, newOwnerTopicId, ownerTopicLabel } from '../../../lib/ownerTopics';
-import { useInstantLimits } from '../SettingsEditor';
+import { useInstantLimits } from '../edit/useInstantLimits';
 import shared from '../settings.module.css';
 
 export function OwnerTopics({ config }: { config: ProjectConfig }) {

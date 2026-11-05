@@ -46,7 +46,7 @@ import { issueMessage } from '../../../lib/configIssues';
 import type { IssueRef } from '../../../lib/configIssues';
 import { errorMessage } from '../../../lib/errors';
 import { roleLabel } from '../../../lib/members';
-import { useInstantLimits } from '../SettingsEditor';
+import { useInstantLimits } from '../edit/useInstantLimits';
 import shared from '../settings.module.css';
 import { SettingsSection } from './SettingsSection';
 import { OwnerTopics } from './OwnerTopics';

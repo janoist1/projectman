@@ -34,13 +34,17 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
    GitHub accounts, and a local app gets no webhooks. GitHub is used for PRs, reviews,
    checks, merges and releases; issue creation and project mirroring come later.
 10. **English source code; Hungarian UI** through locale files.
+    _Refined by 72: the UI is Hungarian and English._
 11. **Self-shaping within limits (later phase, "Rendszer" in `design/phase2.md`).** A system agent may change configuration
     only through a fixed list of typed operations; invariants always hold; only the owner
     widens the limits.
+    _Superseded by 37: the „System” member is not planned._
 12. **Project manager (later phase)**: an optional member (human or AI). An intake
     conversation sets up the working mode and rituals. It proposes; humans prioritise.
+    _Superseded by 65: the project manager runs the project's work._
 13. **Feedback loop (later phase)**: anyone (optionally AI members, evidence-based) can file
     observations; the retro turns them into configuration changes, tasks or nothing.
+    _Superseded by 37: retrospectives are not planned._
 14. **Role catalogue.** Roles are responsibilities, separate from a human's access level. An
     AI member holds exactly one role; a human may hold several. 20 built-in roles (operator
     and product owner are human-only, the watchdog is AI-only) plus custom roles the team
@@ -49,6 +53,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     report) and the coach (retros, role and process improvement) are separate roles; the
     watchdog's monitoring and the coach's retro come in a later phase. _Partly superseded by
     16: who may hold a role and what an AI holder is told now come from its duties._
+    _Today there are 21 built-in roles (`packages/templates`)._
 15. **OpenAI Codex CLI as a second provider, through its interactive TUI and hooks, on the
     subscription only.** Each AI member runs in Claude Code or Codex (default Claude Code),
     on its sponsor's plan: Codex members use the owner's ChatGPT login. Codex runs like
@@ -63,6 +68,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     Code's usage probe, ChatGPT's from the rate limits Codex records in its transcripts
     (nothing is spent to read either), and new work pauses on the plan of the member's own
     provider.
+    _Extended by 73: members also run on Gemini and on NanoGPT (34)._
 16. **Roles are configurable bundles of fixed duties.** Approved by the owner on 2026-09-30.
     Duties, rather than role names, determine who owns stages, who may approve gates and
     which prompt fragments and session tools an AI receives. Teams may change built-in
@@ -121,6 +127,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     - Clean-up: remove the unused fields, GitHub helpers and `PUT /config`; rename the
       misleading names with a migration; rewrite legacy configuration and check formats once
       and drop the converters. Reverting to a configuration from before labels need not work.
+    _The managed VM profile named here was dropped by 36._
 20. **The live instance runs apart from development (PM-72).** Decided by the owner on
     2026-09-30. The owner's instance runs a production build from its own checkout and is
     updated only with the owner's approval; development builds (`npm run dev`, agent
@@ -128,6 +135,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     restart the owner's instance or stop its AI sessions, and a newer build never migrates
     the live database unasked. This is the precondition for projectman developing itself
     (PM-51).
+    _Refined by 68: until production use, the owner's connected Claude updates the live
+    instance on its own judgement and reports afterwards._
 21. **The integrating session pushes `main` after each verified merge.** Decided by the owner
     on 2026-09-30 (review question 12). Cloud sessions then start from the current state.
     Agents and workstreams still commit on their own branch and do not push. The repository
@@ -135,12 +144,15 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     profile (decision 26): members there may publish their own task branches through a
     restricted gate and a separate GitHub identity, never `main` (PM-142); everywhere else
     agents do not push._
+    _Refined by 71: the merger member merges and pushes `main` with `merge_task`; the VM
+    profile was dropped by 36._
 22. **One word per thing in the Hungarian UI.** Decided by the owner on 2026-10-01, answering
     the reviewer's question on PM-96. A session is a "munkamenet" (not "session") and a
     pipeline stage is a "lépés" (not "szakasz"). Developer words stay out of plain UI text:
     error codes sit behind "Részletek", settings versions in a tooltip, and a schedule has a
     plain label with an example instead of raw cron. The strings live only in
     `apps/web/src/i18n/hu.ts`, so changing a word is one edit.
+    _Refined by 67 and 72: the glossary picks the word, and the UI is also in English._
 23. **As many AIs work as the team has, except those on leave.** Decided by the owner on
     2026-10-01: "ne legyen korlátozás, annyi AI fut amennyi a csapat - kivéve, akit
     »szabadságra küldünk«". There is no project-wide cap on concurrent AI sessions, and a
@@ -153,6 +165,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     hook endpoints; the question goes away once the server runs on its own machine (PM-45).
     _Decision 25 replaces the strict native sandbox direction this exception belonged to; in
     the managed VM the workers' loopback access is the one documented in `docs/VM.md`._
+    _The managed VM was dropped by 36._
 25. **The work moves to the virtual-machine direction.** Decided by the owner on 2026-10-01
     (PM-135, "Átállás a VM-es irányra"). The remaining parts of the old strict native sandbox
     direction stop: further work on PM-128, PM-129, PM-130, PM-132 and PM-136 ends, and what
@@ -163,6 +176,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     withdrawn. The VM is built first as a reproducible guest on
     the owner's Mac, later from the same files on a Linux server (PM-137, `docs/VM.md`); it is
     not a migration of the live instance, which needs its own approval (PM-143).
+    _Superseded by 36._
 26. **Protected control, free workspace.** Decided by the owner on 2026-10-01 (PM-135, "Védett
     vezérlés, szabad munkatér"). Inside the VM the daily work of the AI members is free; the live
     projectman, its data (database, cookie secret, audit, logs, other members' tokens) and the
@@ -186,12 +200,14 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
       them are done (PM-141, PM-142). In every other profile they apply as before.
     - Old `permissionMode` values are never migrated to a freer mode automatically; the VM
       profile and the delegation rights are owner-only settings.
+    _Its VM parts were dropped by 36._
 27. **Each worker has its own subscription login.** Decided by the owner on 2026-10-01 (PM-140,
     "Tagonként saját bejelentkezés"). In the managed VM the members' sessions run as their own
     worker accounts, so each worker gets its own Claude and Codex login on the same subscription,
     made once by a person per worker and provider; the login file stays in that worker's home,
     readable by nobody else. No login is copied between accounts or handed to a session by the
     launcher, and no API key is used (decisions 1 and 15 stand).
+    _Superseded by 36: there are no worker accounts; members run on the owner's machine._
 28. **Permissions follow Claude Code and Codex; two settings per AI member.** Decided by the
     owner on 2026-10-01 (PM-162, PM-164). The principle, in the owner's words: „úgy kéne nálunk
     megtervezni a rendszert, h azt a filozófiát kövessük, amit a claude és a codex is tesz. ezen
@@ -272,6 +288,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     once the new build runs. The releases before v2026.10.5.5 were tagged afterwards from the live
     switch backups, without GitHub releases. The roadmap update before a release moved from the
     integrator to the Operator (decision 50).
+    _Since 66 there is no Operator: the project manager updates the roadmap (PM-1023)._
 36. **The virtual-machine direction is dropped.** Decided by the owner on 2026-10-06 (board
     triage; „felesleges nekünk menedzselni még egy réteget, ha nem elengedhetetlen a rendszer
     futásához”). This supersedes decision 25. The members keep running on the owner's machine in
@@ -298,6 +315,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     check of a card is the integrating session's merge test before `main` moves (the whole suite
     when shared code or configuration changed). The owner's first idea, a full test only when a
     collecting card is finished, was set aside because its parts reach `main` one by one.
+    _Refined by 71: the merger runs the full check with `merge_task`, on the card's engine or
+    on GitHub Actions._
 41. **Outbound network is a per-member setting, on by default.** Decided by the owner on
     2026-10-05 (PM-355), in three answers: the scope is „Csak a kimenő hálózat, ki/be” (one
     on/off switch, no address list); the default is „Mindenkinek be” (every role, the read-only
@@ -309,6 +328,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     are never migrated to a freer mode"): a member saved before this setting existed has the
     network on, because the owner chose „Mindenkinek be”. Protections that stay with the
     network on are listed in `docs/SECURITY.md`.
+    _The managed VM profile it mentions was dropped by 36._
 42. **Now: critical fixes, and the operator's UI as the new feature work.** Decided by the owner
     on 2026-10-07. Besides fixing critical bugs and wrong behaviour, new features serve the person
     who runs the team: talking to the AI members easily, seeing the work at a glance, keeping up

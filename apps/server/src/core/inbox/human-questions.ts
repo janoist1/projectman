@@ -1,12 +1,12 @@
 import {
   APPROVAL_OWNER_TOPIC,
-  coordinationMemberOf,
   ownerTopicRefusal,
   ownerTopicRefusalMessage,
   externalOriginActor,
   hasBoundOrigin,
   memberOf,
   ownerHandles,
+  projectManagerOf,
   QUESTION_SCREENING_MINUTES,
   questionApprovalLabel,
   questionChoices,
@@ -117,10 +117,13 @@ export class HumanQuestions implements HumanQuestionsPort {
     )
       throw refuse('The integrator cannot re-ask or choose the recipient.');
     const aiMember = caller.kind === 'member' && memberOf(config, asker)?.kind === 'ai';
-    const coordinator = coordinationMemberOf(config)?.handle === asker;
+    // The project manager on leave is still the project's: its questions are screened by no one else, and the
+    // questions of the others wait for it (PM-1249).
+    const projectManager = projectManagerOf(config);
+    const coordinator = projectManager?.handle === asker;
     // Every other AI member's question goes through the project manager first (PM-558); a re-ask does not.
     const screenable = aiMember && !coordinator && !unscreened;
-    const screened = screenable && this.questionScreening.enabled && !!coordinationMemberOf(config);
+    const screened = screenable && this.questionScreening.enabled && !!projectManager;
     // Nobody screens it (the project has no project manager, or the screening is off): the question names its
     // owner topic itself, or asks the integrator, or is refused (PM-1249).
     const nobodyScreens = screenable && !screened;

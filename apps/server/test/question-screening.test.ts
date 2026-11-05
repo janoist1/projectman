@@ -893,6 +893,23 @@ describe('the project manager screens AI members’ questions', () => {
       expect(questionPayloadOf(item(stored.id))?.screening?.waiting).toBeUndefined();
     });
 
+    it('waits while the project manager is on leave, and hands it over when it is back', async () => {
+      const leave = (onLeave: boolean) =>
+        h.domain.members.update('AR', 'pm', { onLeave }, { actor: OWNER_ACTOR, author: OWNER });
+      await leave(true);
+      const { stored } = await askAtOnce();
+
+      expect(stored.state).toBe('screening');
+      expect(questionPayloadOf(stored)?.screening?.waiting).toMatchObject({ reason: 'on_leave' });
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+      expect(stored.route).toMatchObject({ kind: 'screening_fallback', to: 'wait_pm' });
+
+      await leave(false);
+      await h.domain.questionScreening.sweep();
+      await settle();
+      expect(typedInto(sessionsOf('pm')[0]!.id).join('\n')).toContain(stored.id);
+    });
+
     it('waits when AI work is off, too', async () => {
       await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
         draft.team.limits.aiEnabled = false;

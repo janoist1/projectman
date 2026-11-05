@@ -3,6 +3,7 @@ import {
   isOnLeave,
   isWorkPaused,
   coordinationMemberOf,
+  projectManagerOf,
   questionPayloadOf,
   screeningDeadline,
   screeningFrozenRemainingMs,
@@ -82,7 +83,8 @@ export class QuestionScreening {
    * can. The same rule the fallback uses; `ask_human` waits for the release only when this holds.
    */
   cannotScreenReason(projectKey: string, config: ProjectConfig): ScreeningWaitReason | null {
-    const operator = coordinationMemberOf(config);
+    // A project manager on leave still is the project's: its questions wait for it (PM-1249), they are not unscreened.
+    const operator = projectManagerOf(config);
     if (!operator) return 'no_pm';
     if (!config.team.limits.aiEnabled) return 'ai_disabled';
     if (isOnLeave(operator)) return 'on_leave';

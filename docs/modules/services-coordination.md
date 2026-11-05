@@ -256,7 +256,7 @@ owner-only, default the five built-in topics of `packages/shared` `owner-topics.
 approval question records `approval` without one; the fallback and an integrator todo need none. The project manager's
 own `ask_human` question (it is not screened: `coordinator_question`) and a re-ask need one too, unless they are
 information or an approval. So does a question nobody screens (`unscreened_question`: the project has no project
-manager, or the screening is off): any AI member names the topic itself, or asks `recipient: integrator` and gets an
+manager, or the screening is off; a project manager on leave still counts, its questions wait): any AI member names the topic itself, or asks `recipient: integrator` and gets an
 integrator todo with the system as issuer, or is refused with `owner_topic_required` and the guidance. The topic is
 recorded in `payload.ownerTopic` and in `question_asked` and `question_screened`.
 

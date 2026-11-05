@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { memberOf, QUESTION_SCREENING_MINUTES, questionPayloadOf, routes } from '@projectman/shared';
+import {
+  humanInboxAssignment,
+  isIntegratorTodo,
+  memberOf,
+  QUESTION_SCREENING_MINUTES,
+  questionPayloadOf,
+  routes,
+} from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, ScreenedQuestionsResponse, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
@@ -613,13 +620,19 @@ describe('the project manager screens AI members’ questions', () => {
       expect(timelineOf('question_screened')[0]?.data).toMatchObject({ ownerTopic: 'approval' });
     });
 
-    it('needs a topic for a todo for the owner', async () => {
-      const { inboxItemId } = await ask('Please create the API key');
-      const err = await refusal(
-        screen({ itemId: inboxItemId, outcome: 'todo', todo, note: 'A person signs in.' }),
-      );
-      expect(err.message).toMatch(/^owner_topic_required:/);
-      expect(item(inboxItemId).state).toBe('screening');
+    it('needs no topic for a todo and records none, also when one is given (PM-1243)', async () => {
+      for (const topic of [undefined, ownerTopic]) {
+        const { inboxItemId } = await ask('Please create the API key');
+        await screen({
+          itemId: inboxItemId,
+          outcome: 'todo',
+          todo,
+          note: 'A person signs in.',
+          ...(topic ? { ownerTopic: topic } : {}),
+        });
+        expect(item(inboxItemId).state).toBe('open');
+        expect(questionPayloadOf(item(inboxItemId))).not.toHaveProperty('ownerTopic');
+      }
     });
 
     it("needs a topic for the project manager's own decision and records it, not for information", async () => {
@@ -1086,6 +1099,94 @@ describe('a machine step no integrator can take goes to the technical decider', 
       expect(told).not.toContain('reask_of');
     },
   );
+
+  it('makes an integrator todo of a todo asked for the owner under a topic while an integrator is live (PM-1243)', async () => {
+    await start({ lead: true, integratorAvailable: true, pmMachineAccess: true });
+    const id = await ask();
+
+    const result = await h.domain.teamTools.screenQuestion(operatorTool(), {
+      itemId: id,
+      outcome: 'todo',
+      todo: { ...step, recipient: 'owner' },
+      ownerTopic: 'risk_acceptance',
+      note: 'A deploy.',
+    });
+
+    expect(result).toMatchObject({ recipient: 'integrator' });
+    expect(result).not.toHaveProperty('recipientRefusal');
+    expect(questionPayloadOf(item(id))).toMatchObject({
+      recipient: 'integrator',
+      screening: { todo: { recipient: 'integrator' } },
+    });
+    expect(questionPayloadOf(item(id))).not.toHaveProperty('ownerTopic');
+    expect(
+      h.domain.inbox.list('AR', { state: 'open' }).filter((i) => humanInboxAssignment(i, 'owner')),
+    ).toEqual([]);
+  });
+
+  describe('a skipped screening keeps the requested integrator (PM-1243)', () => {
+    const askIntegrator = async (recipient: 'integrator' | 'owner') => {
+      await h.domain.pauses.pause({ scope: 'instance' }, PAUSE_BY);
+      const result = await h.domain.teamTools.askHuman(dev, { question: 'Deploy the hub?', recipient });
+      return item(result.inboxItemId);
+    };
+    const ownerItems = () =>
+      h.domain.inbox.list('AR', { state: 'open' }).filter((i) => humanInboxAssignment(i, 'owner'));
+
+    it('opens an integrator todo, not an owner question, when an integrator is live', async () => {
+      await start({ lead: true, integratorAvailable: true, pmMachineAccess: false });
+
+      const stored = await askIntegrator('integrator');
+
+      expect(isIntegratorTodo(stored)).toBe(true);
+      expect(questionPayloadOf(stored)?.screening).toMatchObject({
+        fallback: 'unavailable',
+        outcome: 'todo',
+      });
+      expect(ownerItems()).toEqual([]);
+      const types = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).map((e) => e.type);
+      expect(types).toContain('question_screening_skipped');
+      expect(types).not.toContain('question_screened');
+    });
+
+    it('opens the owner question with its own options when no integrator is live', async () => {
+      await start({ lead: true, integratorAvailable: false, pmMachineAccess: false });
+
+      const stored = await askIntegrator('integrator');
+
+      expect(isIntegratorTodo(stored)).toBe(false);
+      expect(stored.state).toBe('open');
+      expect(questionPayloadOf(stored)).toMatchObject({ recipient: 'owner' });
+      expect(questionPayloadOf(stored)?.screening).not.toHaveProperty('outcome');
+      expect(ownerItems()).toHaveLength(1);
+    });
+
+    it('leaves a question asked of the owner an owner question', async () => {
+      await start({ lead: true, integratorAvailable: true, pmMachineAccess: false });
+
+      const stored = await askIntegrator('owner');
+
+      expect(isIntegratorTodo(stored)).toBe(false);
+      expect(ownerItems()).toHaveLength(1);
+    });
+  });
+
+  it('keeps the decision with its owner topic as it was', async () => {
+    await start({ lead: true, integratorAvailable: true, pmMachineAccess: true });
+    const id = await ask();
+
+    await h.domain.teamTools.screenQuestion(operatorTool(), {
+      itemId: id,
+      outcome: 'decision',
+      ownerTopic: 'cost',
+      note: 'The owner decides.',
+    });
+
+    expect(questionPayloadOf(item(id))).toMatchObject({ recipient: 'owner', ownerTopic: 'cost' });
+    expect(
+      h.domain.inbox.list('AR', { state: 'open' }).filter((i) => humanInboxAssignment(i, 'owner')),
+    ).toHaveLength(1);
+  });
 
   it('opens an owner todo with the refusal when there is no technical decider', async () => {
     await start({ lead: false, integratorAvailable: false, pmMachineAccess: true });

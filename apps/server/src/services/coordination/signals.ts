@@ -118,7 +118,7 @@ const CARD_EVENTS_READ = 300;
 const REBOUND_PREFIX = 'rebound:';
 
 const WAKE_NEVER =
-  "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human; a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
+  "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and the signal's signal_id (never about an unreleased, structural_pattern or milestone_closed signal: the server refuses it); a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
 const WAKE_ONE_MESSAGE =
   'Send the owners one message for the whole wake-up (send_message with signal_ids, excluding structural_pattern and milestone_closed; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
 const WAKE_STRUCTURAL =
@@ -130,7 +130,7 @@ const WAKE_LOOP =
 const WAKE_STEP =
   'Where a signal has a step, you may take it yourself with its signal_id after weighing it, within steps_left and not before next_step_at; a signal with follow_up true was acted on, so tell the owners what you did and what became of it.';
 const WAKE_UNRELEASED =
-  "An unreleased signal is the one exception at every level: take its step (start_member on the deployment member, once per 24 hours) and do not bring it to the owners; the member asks the owner one question, and nothing live changes before the owner's yes.";
+  "An unreleased signal is the one exception at every level: take its step (start_member on the deployment member, once per 24 hours) and do not bring it to the owners (the server refuses an owner question about it: signal_not_for_owner); the member asks the owner one question, and nothing live changes before the owner's yes.";
 const WAKE_DISMISS =
   'An obligation_overdue signal says the responsible did not act even after the reminder, and that the step goes to a person at hand_over_at in its facts: check get_task and get_project_state first; when the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners; otherwise take its step or leave it to go to the person.';
 

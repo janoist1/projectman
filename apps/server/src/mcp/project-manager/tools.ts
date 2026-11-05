@@ -502,7 +502,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
             'answered: a fact you found (needs answer; the member may ask a person again). forwarded: another ' +
               'AI member’s work, a technical choice to the notice’s technicalDecider (needs forward_to). moot: ' +
               'obsolete, also after it went to the people. decision: only an owner decision under an owner ' +
-              'topic, as asked (needs owner_topic). todo: an owner or integrator step (needs todo). Fields ' +
+              "topic, as asked (needs owner_topic). todo: a machine or manual step, the integrator's when there is one (needs todo). Fields " +
               'another outcome needs are refused (invalid_outcome_fields).',
           ),
         note: z
@@ -529,8 +529,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
             recipient: z
               .enum(['owner', 'integrator'])
               .describe(
-                'Who performs the step. Integrator for technical and machine work; owner only for a step under an owner topic (needs owner_topic). Independently reconsider the proposed recipient; explain changes in note.',
-              ),
+                'Optional and not decisive: a todo goes to the integrator whenever there is one (machine or manual step alike). Only when none can take it does it fall back to the technical decider or the owner.',
+              )
+              .optional(),
           })
           .optional()
           .describe('The exact step for a person; only with todo.'),
@@ -541,8 +542,8 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           .max(40)
           .optional()
           .describe(
-            "The id of the project's owner topic (role guide) the decision or the owner's todo falls under; " +
-              'an approval question needs none. Only with decision, or todo for the owner.',
+            "The id of the project's owner topic (role guide) the decision falls under; " +
+              'an approval question needs none. Only with decision; with todo it is accepted but not recorded.',
           ),
       },
       check(args, issue) {
@@ -554,14 +555,11 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           issue('todo', 'todo goes with the outcome todo, and only with it.');
         if (args.feedback_id !== undefined && args.outcome !== 'todo')
           issue('feedback_id', 'invalid_outcome_fields: feedback_id goes only with todo.');
-        if (
-          args.owner_topic !== undefined &&
-          args.outcome !== 'decision' &&
-          (args.outcome !== 'todo' || args.todo?.recipient === 'integrator')
-        )
+        // A todo accepts owner_topic and ignores it (PM-1243), so an older call does not fail.
+        if (args.owner_topic !== undefined && args.outcome !== 'decision' && args.outcome !== 'todo')
           issue(
             'owner_topic',
-            'invalid_outcome_fields: owner_topic goes only with decision, or with todo for the owner.',
+            'invalid_outcome_fields: owner_topic goes only with decision (todo ignores it).',
           );
       },
       async run({ ctx, args, handler }) {
@@ -571,7 +569,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           note: args.note,
           ...(args.answer !== undefined ? { answer: args.answer } : {}),
           ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
-          ...(args.todo ? { todo: args.todo } : {}),
+          ...(args.todo ? { todo: { ...args.todo, recipient: args.todo.recipient ?? 'integrator' } } : {}),
           ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
           ...(args.owner_topic !== undefined ? { ownerTopic: args.owner_topic } : {}),
         });

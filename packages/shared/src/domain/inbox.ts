@@ -1113,7 +1113,8 @@ function hasIntegratorTodoOrigin(payload: InboxItem['payload']): boolean {
 }
 
 /**
- * Where a todo goes. The machine queue (`integrator`) takes it only from a member with machine access
+ * Where a todo goes (PM-1243): the recipient the asker named does not decide, a todo is the integrator's whenever
+ * one can take it; only what the owner alone may decide is a `decision`. The machine queue (`integrator`) takes it only from a member with machine access
  * (`issuerAllowed`, decision 66): the one who classified the step as an integrator todo (the screening member
  * for a screened question, the opener for its own todo). The refusals are checked in the order protected,
  * no access, unavailable. When no integrator can take it for one of the last two reasons and the project has
@@ -1130,10 +1131,8 @@ export type TodoRoute =
 
 export function selectTodoRecipient(
   item: InboxItem,
-  requested: QuestionRecipient,
   facts: { integratorAvailable: boolean; issuerAllowed: boolean; decider: string | null },
 ): TodoRoute {
-  if (requested === 'owner') return { recipient: 'owner' };
   if (hasProtectedQuestionPayload(item) || !questionPayloadOf(item) || 'group' in item.payload)
     return { recipient: 'owner', recipientRefusal: 'protected_question' };
   const refused = !facts.issuerAllowed
@@ -1145,6 +1144,35 @@ export function selectTodoRecipient(
   return facts.decider
     ? { recipient: 'decider', decider: facts.decider, recipientRefusal: refused }
     : { recipient: 'owner', recipientRefusal: refused };
+}
+
+/**
+ * The todo a question becomes when its screening is skipped (`timeout`, `unavailable`) and the asker named the
+ * integrator (PM-1243): without it the system's fallback would open the question for the owner whatever was
+ * asked. Null when the question is not the integrator's to take: it asked the owner, is protected, belongs to a
+ * group or carries an owner topic (a decision for the owner). The caller still routes it with
+ * `selectTodoRecipient`.
+ */
+export function fallbackIntegratorTodo(item: InboxItem): ScreeningTodo | null {
+  const payload = questionPayloadOf(item);
+  if (
+    !payload ||
+    payload.requestedRecipient !== 'integrator' ||
+    hasProtectedQuestionPayload(item) ||
+    'group' in item.payload ||
+    payload.ownerTopic
+  )
+    return null;
+  const recommended = payload.recommended
+    ? item.options.find((option) => option.id === payload.recommended)?.label
+    : undefined;
+  const todo = ScreeningTodo.safeParse({
+    what: payload.question.slice(0, 2000),
+    where: item.taskKey ?? item.projectKey,
+    expected: (recommended || payload.question).slice(0, 1000),
+    recipient: 'integrator',
+  });
+  return todo.success ? todo.data : null;
 }
 
 /** State and authentication are checked by the operation, independently of durable addressing. */

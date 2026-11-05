@@ -72,16 +72,29 @@ machine-dependent part or new engine-boundary method is added.
 
 Question addressing is durable payload data (`requestedRecipient`, `recipient`,
 `integratorOpenedAt`, `integratorEscalatedAt`). Missing addressing means owner; there is no migration.
-New `screen_question.todo` input requires a recipient; decisions, fallback and unscreened reasks
-always remain owner work. Shared rules select the recipient, protect approvals even with malformed
+Decisions and unscreened reasks always remain owner work. A skipped screening (`timeout`, `unavailable`)
+keeps the integrator the asker named (PM-1243): `fallbackIntegratorTodo` (`packages/shared`) makes a todo of
+a question with `requestedRecipient: integrator` that is not protected, grouped or under an owner topic, and
+`releaseScreened` opens it through the todo path with the system as issuer (the asker asked the integrator
+because it has no machine access itself) and records `question_screening_skipped`, not `question_screened`.
+Without a live integrator it opens for the owners with its own options, as before. A todo's recipient is not chosen by
+the asker or the screening member (PM-1243): `selectTodoRecipient` gives it to the integrator whenever the
+question is not protected, the issuer has machine access and an integrator is available; otherwise to the
+technical decider (PM-1139) or, with the refusal, to the owners. `screen_question.todo.recipient` is optional and
+does not decide; what only the owner may do is a `decision`, and the integrator passes a manual step the
+owner alone can take on with `integrator_passed_on` (PM-714). Shared rules select the recipient, protect approvals even with malformed
 raw payload fields, restrict human visibility to owners, exclude the connected Claude's work from human counts
 and plan the handoff to the owners (no clock: on an explicit owner pass-on or when no owner has a live super key).
 Assignees remain real human handles.
 
-Owner topics (PM-1190): `releaseScreened` checks, under the question lock after loading the
-configuration, that a release by the project manager as `decision` or as a todo for the owner names
+Owner topics (PM-1190, PM-1243): `releaseScreened` checks, under the question lock after loading the
+configuration, that a release by the project manager as `decision` names
 one of the project's owner topics (`ownerTopicRefusal` in `packages/shared`); a protected question
-records `approval` instead, and the system releases (fallback, the connected Claude's refusal) need none.
+records `approval` instead, and the system releases (fallback, the connected Claude's refusal) and every todo need none
+(an `owner_topic` given with a todo is accepted and not recorded).
+Signals (PM-1243): `ownerQuestionSignalRefusal` (`packages/shared`, `operator-watch.ts`) makes the MCP
+`ask_human` refuse (`signal_not_for_owner`) a question tied by `signal_id` to an `unreleased`,
+`structural_pattern` or `milestone_closed` signal; no inbox item is made.
 `HumanQuestions.ask` applies the same rule to the coordinator's own question and to a re-ask,
 except for information and approval questions, and refuses `ownerTopic` on any other member's
 question (`owner_topic_not_allowed`). The topic lands in `payload.ownerTopic` and the

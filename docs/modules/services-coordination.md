@@ -229,6 +229,13 @@ and publishes the decision to owners. Presented signals remain the owners' to de
 one exception to the watch level: its step starts the deployment member, once per 24 hours; nothing live changes before
 the owner's yes.
 
+**Owner-silent signals (PM-1243).** The owners get no question about an `unreleased`, `structural_pattern` or
+`milestone_closed` signal (`OWNER_SILENT_SIGNAL_KINDS`, `ownerQuestionSignalRefusal` in
+`packages/shared/src/config/operator-watch.ts`): the MCP `ask_human` with its `signal_id` answers
+`signal_not_for_owner` and makes no inbox item. An `unreleased` signal ends with the release, so the coordinator
+takes its step (`start_member` on the deployment duty's member, once per 24 hours); a machine step is an
+`open_integrator_todo`, and a signal meant for the coordinator alone is closed with `dismiss_signal`.
+
 ## Question screening
 
 An AI member's `ask_human` question (the project manager's too, not a human's) is created in the inbox state

@@ -59,13 +59,13 @@ export interface ElementEdit<D> {
   saves: number;
   /** True when the draft was saved. */
   save(): Promise<boolean>;
-  /** Deletes the element on its own, undoable like a save; resolves to whether it went through. */
-  remove(): Promise<boolean>;
   /**
-   * Saves `next` (the configuration without this element) at once, whatever the draft holds; the answer says
-   * why nothing was deleted, null when it was. `restored` runs after the undo brought the element back.
+   * Deletes the element on its own (where `without` says how), undoable like a save, whatever the draft holds;
+   * the answer says why nothing was deleted, null when it was. A refusal also goes onto the panel (the
+   * conflict band, the failure) unless `inline` is set: the caller shows it where the delete was asked.
+   * `restored` runs after the undo brought the element back.
    */
-  removeElement(next: ProjectConfig, name: string, restored?: () => void): Promise<RemoveFailure | null>;
+  remove(options?: { inline?: boolean; restored?: () => void }): Promise<RemoveFailure | null>;
   discard(): void;
 }
 
@@ -240,56 +240,34 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
   };
 
   /** Deletes the element where `without` says how; a deleted element has no draft to settle, the caller closes. */
-  const remove = async (): Promise<boolean> => {
+  const remove = async ({
+    inline = false,
+    restored,
+  }: { inline?: boolean; restored?: () => void } = {}): Promise<RemoveFailure | null> => {
     const { without, removedText, key, name } = latest.current;
-    if (!view || draft === null || !without || !removedText || saving) return false;
+    if (!view || draft === null || !without || !removedText || saving) return { kind: 'error', reason: null };
     setSaving(true);
-    setFailure(null);
+    if (!inline) setFailure(null);
     try {
       await write(
         without(view.config),
         removedText(draft),
         t('settings.pipeline.edit.undone', { name: name(draft) }),
         key,
-      );
-      return true;
-    } catch (error) {
-      await refused(error);
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /**
-   * Saves `next` (the configuration without this element) at once, whatever the draft holds. The draft stays
-   * untouched; the answer says why nothing was deleted, null when it was.
-   */
-  const removeElement = async (
-    next: ProjectConfig,
-    name: string,
-    restored?: () => void,
-  ): Promise<RemoveFailure | null> => {
-    if (!view || saving) return { kind: 'error', reason: null };
-    setSaving(true);
-    try {
-      await write(
-        next,
-        t('settings.pipeline.delete.deleted', { name }),
-        t('settings.pipeline.edit.undone', { name }),
-        latest.current.key,
         undefined,
         restored,
       );
       return null;
     } catch (error) {
+      if (!inline) await refused(error);
       if (isApiError(error) && error.code === 'config_conflict') {
-        const fresh = (await query.refetch()).data;
+        const fresh = inline ? (await query.refetch()).data : undefined;
         return { kind: 'conflict', author: fresh?.history[0]?.author ?? '' };
       }
-      if (isApiError(error) && error.status > 0 && error.status < 500)
-        return { kind: 'error', reason: errorMessage(error) };
-      return { kind: 'error', reason: null };
+      return {
+        kind: 'error',
+        reason: isApiError(error) && error.status > 0 && error.status < 500 ? errorMessage(error) : null,
+      };
     } finally {
       setSaving(false);
     }
@@ -309,7 +287,6 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     saves,
     save,
     remove,
-    removeElement,
     discard,
   };
 }

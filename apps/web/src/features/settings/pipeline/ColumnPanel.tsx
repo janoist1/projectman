@@ -42,6 +42,8 @@ export function ColumnPanel({ config, columnId, empty, onSelect, onClose, onDele
     toPatch: (candidate) => ({ pipeline: candidate.pipeline }),
     savedText: (draft) => t('settings.pipeline.edit.saved', { name: draft.name.trim() }),
     name: (draft) => draft.name.trim(),
+    without: (current) => withoutColumn(current, columnId),
+    removedText: (draft) => t('settings.pipeline.delete.deleted', { name: draft.name.trim() }),
   });
   const saved = config.pipeline.columns.find((column) => column.id === columnId);
   const draft = edit.draft;
@@ -132,11 +134,7 @@ export function ColumnPanel({ config, columnId, empty, onSelect, onClose, onDele
           kind="column"
           name={saved.name}
           block={block}
-          onDelete={() =>
-            edit.removeElement(withoutColumn(config, columnId), saved.name, () =>
-              focusRow(`column:${columnId}`),
-            )
-          }
+          onDelete={() => edit.remove({ inline: true, restored: () => focusRow(`column:${columnId}`) })}
           onDeleted={() => onDeleted(columnId)}
         />
       )}

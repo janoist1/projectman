@@ -70,6 +70,8 @@ export function StagePanel({
     toPatch: (candidate) => ({ pipeline: candidate.pipeline }),
     savedText: (draft) => t('settings.pipeline.edit.saved', { name: draft.name.trim() }),
     name: (draft) => draft.name.trim(),
+    without: (current) => withoutStage(current, stageId),
+    removedText: (draft) => t('settings.pipeline.delete.deleted', { name: draft.name.trim() }),
   });
   const stages = config.pipeline.stages;
   const saved = stages.find((stage) => stage.id === stageId);
@@ -195,11 +197,7 @@ export function StagePanel({
           kind="stage"
           name={saved?.name ?? draft.name}
           block={block}
-          onDelete={() =>
-            edit.removeElement(withoutStage(config, stageId), saved?.name ?? draft.name, () =>
-              focusRow(`stage:${stageId}`),
-            )
-          }
+          onDelete={() => edit.remove({ inline: true, restored: () => focusRow(`stage:${stageId}`) })}
           onDeleted={() => onDeleted(stageId)}
         />
       )}

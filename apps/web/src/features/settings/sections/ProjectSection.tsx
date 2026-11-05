@@ -81,7 +81,7 @@ function ProjectBody({ config }: { config: ProjectConfig }) {
       },
     }),
     savedText: () => t('settings.project.saved'),
-    name: () => basics,
+    name: () => basics.toLocaleLowerCase(),
   });
   useLeaveGuard(edit.dirty, edit.discard, basics);
 
@@ -92,6 +92,11 @@ function ProjectBody({ config }: { config: ProjectConfig }) {
       editButton.current?.focus();
     }
   }, [editing]);
+
+  // An undo from the toast removes the button the focus was on; it returns to the Edit button.
+  useEffect(() => {
+    if (edit.saves > 0 && !editing) editButton.current?.focus();
+  }, [edit.saves]);
 
   const { project } = config;
   const draft = edit.draft;

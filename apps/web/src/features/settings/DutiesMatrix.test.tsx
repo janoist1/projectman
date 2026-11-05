@@ -68,6 +68,8 @@ describe('duty matrix', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.edit.undo') }));
     await waitFor(() => expect(project.backend.config.team.roleOverrides?.developer).toBeUndefined());
+    // The toast button is gone; the focus goes back to the cell that was saved.
+    await waitFor(() => expect(document.activeElement).toBe(box(region, 'research', 'developer')));
 
     fireEvent.click(box(region, 'research', 'developer'));
     await waitFor(() =>
@@ -144,7 +146,12 @@ describe('duty matrix', () => {
     ) as HTMLInputElement;
     expect(locked.disabled).toBe(true);
     expect(locked.closest('span')?.getAttribute('title')).toBe(t('duties.ownerOnly'));
-    expect(region.getAllByText(t('duties.ownerOnly')).length).toBeGreaterThan(0);
+    // The sentence is said once in the row header, not in every locked cell.
+    expect(locked.closest('td')?.textContent).not.toContain(t('duties.ownerOnly'));
+    expect(locked.closest('tr')?.querySelector('th')?.textContent).toContain(t('duties.ownerOnly'));
+    // The four-eyes switch is the owner's: locked, and it says so beside the switch.
+    expect((region.getByLabelText(t('duties.fourEyes')) as HTMLInputElement).disabled).toBe(true);
+    expect(region.getByText(t('duties.fourEyesOwnerOnly'))).toBeTruthy();
     // A duty only a human can hold is locked for a role an AI member has, without the owner-only lock.
     const human = box(region, 'final_decision', 'developer');
     expect(human.disabled).toBe(true);

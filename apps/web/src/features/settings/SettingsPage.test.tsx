@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PatchConfigRequest } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import type { MockRequest } from '../../test/mockProject';
@@ -90,6 +91,25 @@ describe('settings section editors', () => {
     await goTo('history');
     const history = await screen.findByRole('region', { name: t('settings.sections.history') });
     expect(await within(history).findByText(t('settings.history.summary.sectionProject'))).toBeTruthy();
+  });
+
+  it('names the project in lower case in the undo toast and puts the focus back on Edit', async () => {
+    const project = mockProject();
+    project.render(
+      <ToastProvider>
+        <SettingsTestRoutes />
+      </ToastProvider>,
+    );
+    const section = await editSection('project');
+    fireEvent.change(section.getByLabelText(t('settings.project.name')), { target: { value: 'Renamed' } });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.edit.undo') }));
+    await screen.findByText(
+      t('settings.pipeline.edit.undone', { name: t('settings.project.basics').toLocaleLowerCase() }),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(section.getByRole('button', { name: t('memberEdit.edit') })),
+    );
   });
 
   it('offers the language and the time zone as choices, keeping a value the project already has', async () => {

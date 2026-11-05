@@ -48,6 +48,8 @@ const ROLE_TEXTS: { field: RoleTextField; maxLength?: number }[] = [
 interface SaveNote {
   text: string;
   name: string;
+  /** The control the save came from; the focus returns to it after an undo. */
+  cell: string;
 }
 
 /** How long a refusal stays at its cell when nothing else replaces it. */
@@ -68,12 +70,17 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
   const [adding, setAdding] = useState(false);
   const [conflict, setConflict] = useState<{ author: string } | null>(null);
   const [refusal, setRefusal] = useState<{ cell: string; message: string } | null>(null);
+  const [refocus, setRefocus] = useState<string | null>(null);
+  const controlId = (cell: string) => `${describedBy}-box-${cell}`;
 
   /** The undo of a save: only on the version that save made, so a later change by anyone is not overwritten. */
-  const undo = (version: string, before: ProjectConfig, name: string) => {
+  const undo = (version: string, before: ProjectConfig, note: SaveNote) => {
     patch
       .mutateAsync(rolesBody(before, version, teamSettingOf(before, 'releaseFourEyes')))
-      .then(() => toast.show(t('settings.pipeline.edit.undone', { name })))
+      .then(() => {
+        toast.show(t('settings.pipeline.edit.undone', { name: note.name }));
+        setRefocus(note.cell);
+      })
       .catch(async (error: unknown) => {
         if (isApiError(error) && error.code === 'config_conflict') {
           await query.refetch();
@@ -88,7 +95,7 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
       toast.show(note.text, 'ok', {
         action: {
           label: t('settings.pipeline.edit.undo'),
-          run: () => undo(result.version, before.config, note.name),
+          run: () => undo(result.version, before.config, note),
         },
       });
     },
@@ -107,6 +114,13 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
     return () => clearTimeout(timer);
   }, [refusal]);
 
+  // The undo's toast button is gone once it is used; the focus goes back to the control that was saved.
+  useEffect(() => {
+    if (refocus === null) return;
+    document.getElementById(controlId(refocus))?.focus();
+    setRefocus(null);
+  }, [refocus]);
+
   const locale = getLocale(config.project.language);
   const used = new Set(shown.team.members.flatMap(memberRoles));
   const roles = [...BUILT_IN_ROLE_IDS.filter((id) => used.has(id)), ...shown.team.roles.map((r) => r.id)];
@@ -124,7 +138,7 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
    * Saves `update` unless it would add an error (the cell says why) or change what only an owner may;
    * `cell` says where a refusal is shown.
    */
-  const attempt = (update: (draft: ProjectConfig) => void, note: SaveNote, cell: string) => {
+  const attempt = (update: (draft: ProjectConfig) => void, note: Omit<SaveNote, 'cell'>, cell: string) => {
     const before = instant.base();
     const probe = structuredClone(before);
     update(probe);
@@ -135,7 +149,7 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
       return;
     }
     setConflict(null);
-    void instant.commit(update, note);
+    void instant.commit(update, { ...note, cell });
   };
   const toggle = (role: string, duty: DutyId) =>
     attempt(
@@ -180,6 +194,7 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
   };
   const resetButton = (role: string) => (
     <Button
+      id={controlId(`reset:${role}`)}
       size="sm"
       variant="secondary"
       disabled={resetDisabled(role)}
@@ -220,6 +235,7 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
       );
     return (
       <input
+        id={controlId(cell)}
         type="checkbox"
         aria-label={`${locale.duties[id].name}: ${name(role)}`}
         aria-describedby={refusal?.cell === cell ? `${describedBy}-${cell}` : undefined}
@@ -230,9 +246,13 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
     );
   };
   const lockNote = (role: string, id: DutyId) => {
-    const lock = lockOf(role, id);
-    return lock ? <small>{lock === 'owner' ? t('duties.ownerOnly') : t('duties.humanOnly')}</small> : null;
+    return lockOf(role, id) === 'human' ? <small>{t('duties.humanOnly')}</small> : null;
   };
+  /** The owner-only sentence is said once for the row (or the role's card), not in every locked cell. */
+  const ownerNote = (roleIds: string[], id?: DutyId) =>
+    roleIds.some((role) => (id ? [id] : DUTY_IDS).some((duty) => lockOf(role, duty) === 'owner')) ? (
+      <small className={styles.hint}>{t('duties.ownerOnly')}</small>
+    ) : null;
 
   const textEdit = (role: string, field: RoleTextField, maxLength: number | undefined, card: boolean) => (
     <RoleTextEdit
@@ -290,6 +310,7 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
                     {locale.duties[id].name}
                     <small>{locale.duties[id].description}</small>
                     {orphan && <small>{t('duties.missing')}</small>}
+                    {!people && ownerNote(roles, id)}
                   </th>
                   {people
                     ? shown.team.members.map((m) => (
@@ -382,6 +403,7 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
             <details key={role} className={styles.roleCard}>
               {summary(name(role), holderNames(role))}
               <div className={styles.roleBody}>
+                {ownerNote([role])}
                 {hasOverride(role) && (
                   <div>
                     {resetButton(role)}
@@ -419,6 +441,7 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
     </div>
   );
 
+  const fourEyesLocked = can.manageTeam && !isOwner;
   const conflictName = conflict
     ? (shown.team.members.find((member) => member.handle === conflict.author)?.displayName ?? conflict.author)
     : '';
@@ -449,11 +472,18 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
         </p>
       ) : null}
       {isMobile ? cards : table}
-      <label className={styles.check}>
+      <label className={styles.check} title={fourEyesLocked ? t('duties.fourEyesOwnerOnly') : undefined}>
+        {fourEyesLocked && (
+          <span className={styles.lock}>
+            <Icon name="lock" size={14} />
+          </span>
+        )}
         <input
+          id={controlId('fourEyes')}
           type="checkbox"
           checked={teamSettingOf(shown, 'releaseFourEyes')}
           disabled={!isOwner}
+          aria-describedby={fourEyesLocked ? `${describedBy}-fourEyesLock` : undefined}
           onChange={(event) => {
             const on = event.target.checked;
             attempt(
@@ -467,6 +497,11 @@ export function DutiesMatrix({ config }: { config: ProjectConfig }) {
         />
         {t('duties.fourEyes')}
       </label>
+      {fourEyesLocked && (
+        <small id={`${describedBy}-fourEyesLock`} className={styles.hint}>
+          {t('duties.fourEyesOwnerOnly')}
+        </small>
+      )}
       {refusalAt('fourEyes')}
       {issues
         .filter((i) => i.detail && DUTY_IDS.includes(i.detail as DutyId))

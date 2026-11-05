@@ -118,6 +118,15 @@
 .refusal {
   color: var(--c-blocked-text);
   overflow-wrap: anywhere;
+  text-align: left;
+  font-weight: normal;
+  min-width: 160px;
+}
+
+/* Why the four-eyes switch is not the admin's: the lock and the sentence beside it. */
+.hint {
+  color: var(--c-ink-3);
+  font-size: var(--text-sm);
 }
 
 /* Someone else saved first: the matrix was reloaded and nothing queued was replayed. */

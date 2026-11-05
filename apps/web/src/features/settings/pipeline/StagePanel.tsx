@@ -4,7 +4,6 @@ import clsx from 'clsx';
 import { DUTY_IDS, dutyMembers, isOnLeave, StageKind, teamMap } from '@projectman/shared';
 import type { DutyId, GateCondition, ProjectConfig, Stage } from '@projectman/shared';
 import { useProject } from '../../../app/contexts';
-import { Button } from '../../../components/Button';
 import { StageGlyph } from '../../../components/flow/StageGlyph';
 import { Icon } from '../../../components/Icon';
 import { LeaveChip } from '../../../components/LeaveChip';
@@ -14,6 +13,7 @@ import type { IssueRef } from '../../../lib/configIssues';
 import { labelName } from '../../../lib/labels';
 import { labelViews } from '../../how-we-work/model';
 import { DetailPanel, MissingSettingsElement } from '../DetailPanel';
+import { EditBand, EditFooter } from '../edit/EditChrome';
 import { FieldErrors } from '../edit/FieldErrors';
 import type { FieldIssue } from '../edit/FieldErrors';
 import { useElementEdit } from '../edit/useElementEdit';
@@ -213,85 +213,14 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
   const conflictAuthor = edit.conflict
     ? (members.get(edit.conflict.author)?.displayName ?? edit.conflict.author)
     : '';
-  const failureReason =
-    edit.failure?.kind === 'error' && edit.failure.reason
-      ? t('settings.pipeline.edit.failed', { reason: edit.failure.reason })
-      : null;
-  const otherIssues = sorted?.other ?? [];
-
-  let band: ReactNode = null;
-  if (edit.gone)
-    band = (
-      <p className={clsx(styles.band, styles.warning)} role="status">
-        {t('settings.pipeline.edit.gone')}
-      </p>
-    );
-  else if (edit.conflict)
-    band = (
-      <p className={clsx(styles.band, styles.warning)} role="status">
-        {t('settings.pipeline.edit.conflict', { name: conflictAuthor })}
-      </p>
-    );
-  else if (edit.failure?.kind === 'owner_only')
-    band = (
-      <p className={clsx(styles.band, styles.danger)} role="alert">
-        {t('settings.pipeline.edit.ownerOnly')}
-      </p>
-    );
-  else if (edit.failure?.kind === 'error')
-    band = (
-      <p className={clsx(styles.band, styles.danger)} role="alert">
-        {failureReason ?? t('settings.pipeline.edit.failedNetwork')}
-      </p>
-    );
-  else if (otherIssues.length > 0)
-    band = (
-      <div className={clsx(styles.band, styles.danger)} role="alert">
-        <p>
-          {t('settings.pipeline.edit.failed', {
-            reason: otherIssues.map((issue) => issue.message).join(' '),
-          })}
-        </p>
-        <details>
-          <summary>{t('settings.pipeline.edit.details')}</summary>
-          {otherIssues.map((issue) => (
-            <code key={`${issue.code}:${issue.path}`}>
-              {issue.code} · {issue.path}
-            </code>
-          ))}
-        </details>
-      </div>
-    );
-
-  const footer = edit.gone ? (
-    <div className={styles.footer}>
-      <Button variant="secondary" onClick={onClose}>
-        {t('settings.pipeline.edit.goneClose')}
-      </Button>
-    </div>
-  ) : (
-    <div className={styles.footer}>
-      <div className={styles.status}>
-        {edit.dirty ? (
-          <span className={styles.unsaved}>
-            <span aria-hidden="true">●</span> {t('settings.pipeline.edit.unsaved')}
-          </span>
-        ) : null}
-        {edit.locked.length > 0 ? (
-          <span className={styles.hint}>{t('settings.edit.approvalOwnerOnly')}</span>
-        ) : edit.errors.length > 0 ? (
-          <span className={styles.hint}>{t('settings.pipeline.edit.fixFirst')}</span>
-        ) : null}
-      </div>
-      <div className={styles.buttons}>
-        <Button type="submit" form={formId} variant="primary" disabled={!canSave} loading={edit.saving}>
-          {edit.saving ? t('settings.pipeline.edit.saving') : t('settings.pipeline.edit.save')}
-        </Button>
-        <Button variant="secondary" disabled={!edit.dirty || edit.saving} onClick={edit.discard}>
-          {t('settings.pipeline.edit.cancel')}
-        </Button>
-      </div>
-    </div>
+  const footer = (
+    <EditFooter
+      edit={edit}
+      formId={formId}
+      canSave={canSave}
+      saveText={t('settings.pipeline.edit.save')}
+      onClose={onClose}
+    />
   );
 
   return (
@@ -306,7 +235,7 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
       footer={footer}
       onClose={onClose}
     >
-      {band}
+      <EditBand edit={edit} conflictName={conflictAuthor} other={sorted?.other ?? []} />
       <form
         id={formId}
         className={styles.form}

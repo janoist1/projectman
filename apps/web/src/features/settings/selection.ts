@@ -6,7 +6,10 @@ export type SettingsShow =
   | { type: 'stage' | 'column' | 'label'; id: string }
   | { type: 'new-stage'; after?: string }
   | { type: 'new-column' }
-  | { type: 'new-label' };
+  | { type: 'new-label'; tag?: string };
+
+/** The address parameters that belong to the selection. */
+const SHOW_PARAMS = ['show', 'after', 'tag', 'from'];
 
 export function parseShow(params: URLSearchParams): SettingsShow | null {
   const value = params.get('show');
@@ -17,7 +20,11 @@ export function parseShow(params: URLSearchParams): SettingsShow | null {
     const after = params.get('after');
     return after ? { type: value, after } : { type: value };
   }
-  if (value === 'new-column' || value === 'new-label') return { type: value };
+  if (value === 'new-label') {
+    const tag = params.get('tag');
+    return tag ? { type: value, tag } : { type: value };
+  }
+  if (value === 'new-column') return { type: value };
   return null;
 }
 
@@ -26,6 +33,7 @@ export function showParams(show: SettingsShow | null, from?: 'how-we-work'): URL
   if (show) {
     params.set('show', 'id' in show ? `${show.type}:${show.id}` : show.type);
     if (show.type === 'new-stage' && show.after) params.set('after', show.after);
+    if (show.type === 'new-label' && show.tag) params.set('tag', show.tag);
     if (from) params.set('from', from);
   }
   return params;
@@ -82,18 +90,25 @@ export function useSettingsSelection() {
           navigate(-history.depth);
         } else {
           const next = new URLSearchParams(location.search);
-          for (const key of ['show', 'after', 'from']) next.delete(key);
+          for (const key of SHOW_PARAMS) next.delete(key);
           navigate({ pathname: location.pathname, search: next.toString() }, { replace: true });
         }
       };
       if (guard) guard.request(go);
       else go();
     },
+    /** The selection becomes another element in place (a created element opens as itself): no new history entry. */
+    replace(next: SettingsShow) {
+      navigate(
+        { pathname: location.pathname, search: `?${showParams(next, from ?? undefined)}` },
+        { replace: true, state: location.state },
+      );
+    },
   };
 }
 
 function clearedSearch(search: string): string {
   const params = new URLSearchParams(search);
-  for (const key of ['show', 'after', 'from']) params.delete(key);
+  for (const key of SHOW_PARAMS) params.delete(key);
   return params.size ? `?${params}` : '';
 }

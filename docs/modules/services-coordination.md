@@ -60,9 +60,7 @@ answer (`operator_no_request` otherwise); the connected Claude's super operation
 
 The fields of every kind come from the guide topic `operations` (generated from the schemas).
 
-An older path no longer exists: the approval inbox decider (`operator_approval`), `OperatorActions` and
-`OperatorApprovals`, the `operator-approvals` sweep and the startup recovery of prepared executions. A decision on an
-old `operator_approval` inbox item answers `inbox_item_closed` 409. Closed items, steps and `operator_*` timeline
+A decision on an old `operator_approval` inbox item answers `inbox_item_closed` 409. Closed items, steps and `operator_*` timeline
 events keep rendering (`operatorApprovalOf`, `OperatorApproval.tsx`), and configuration history reads the
 `Projectman-Operator`, `Projectman-Request` and `Projectman-Approved-By` trailers of old commits. A knowledge proposal
 carries no operations (`operations: []`, `changes: []`, `baseConfigVersion: null`); a non-empty `operations` is

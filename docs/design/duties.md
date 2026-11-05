@@ -60,29 +60,29 @@ the explicit attribution or the assignee fallback.
 The source is `BUILT_IN_ROLE_DUTIES` (`packages/shared/src/domain/role.ts`); the `operator` role id is the
 human owner-side role (final decision, release approval).
 
-| Role              | Duties                                                                         |
-| ----------------- | ------------------------------------------------------------------------------ |
-| operator          | final decision, release approval, monitoring                                   |
-| product owner     | prioritization, requirements analysis, testing and acceptance, final decision  |
-| project manager   | scheduling, standup facilitation, refinement facilitation, feedback processing |
-| business analyst  | requirements analysis, task breakdown                                          |
-| architect         | technical direction, task breakdown                                            |
-| designer          | UX design                                                                      |
-| developer         | implementation                                                                 |
-| lead developer    | technical direction, code review, boundary authorization                       |
-| code reviewer     | code review                                                                    |
-| security reviewer | security review                                                                |
-| QA                | testing and acceptance                                                         |
-| DevOps            | deployment, monitoring                                                         |
-| communication     | client communication                                                           |
-| support           | support, triage                                                                |
-| researcher        | research                                                                       |
-| maintainer        | maintenance                                                                    |
-| coach             | retro facilitation, process improvement                                        |
-| watchdog          | monitoring                                                                     |
-| content           | content                                                                        |
-| translator        | translation                                                                    |
-| docs              | documentation                                                                  |
+| Role               | Duties                                                                         |
+| ------------------ | ------------------------------------------------------------------------------ |
+| owner (`operator`) | final decision, release approval, monitoring                                   |
+| product owner      | prioritization, requirements analysis, testing and acceptance, final decision  |
+| project manager    | scheduling, standup facilitation, refinement facilitation, feedback processing |
+| business analyst   | requirements analysis, task breakdown                                          |
+| architect          | technical direction, task breakdown                                            |
+| designer           | UX design                                                                      |
+| developer          | implementation                                                                 |
+| lead developer     | technical direction, code review, boundary authorization                       |
+| code reviewer      | code review                                                                    |
+| security reviewer  | security review                                                                |
+| QA                 | testing and acceptance                                                         |
+| DevOps             | deployment, monitoring                                                         |
+| communication      | client communication                                                           |
+| support            | support, triage                                                                |
+| researcher         | research                                                                       |
+| maintainer         | maintenance                                                                    |
+| coach              | retro facilitation, process improvement                                        |
+| watchdog           | monitoring                                                                     |
+| content            | content                                                                        |
+| translator         | translation                                                                    |
+| docs               | documentation                                                                  |
 
 Deployment is a read-only source policy: deployment commands still require the normal
 permission decision. It does not grant application-file editing. Mixed read/edit bundles

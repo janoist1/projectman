@@ -1,6 +1,6 @@
 # Vision
 
-Draft by the integrating session for the owner's approval (PM-381). The owner's decisions behind
+Draft for the owner's approval (PM-381). The owner's decisions behind
 it are in [DECISIONS.md](DECISIONS.md); the plan that follows from it is in [ROADMAP.md](ROADMAP.md).
 
 ## What projectman is

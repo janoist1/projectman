@@ -523,6 +523,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('dismissSignal', ctx, args);
       return { signalId: args.signalId, state: 'dismissed' };
     },
+    async decideSeniorWait(ctx, args) {
+      await enter('decideSeniorWait', ctx, args);
+      return { taskKey: args.taskKey, decision: args.decision };
+    },
     async reassignTask(ctx, args) {
       await enter('reassignTask', ctx, args);
       return { task_key: args.taskKey, assignee: args.assignee, previous: null };

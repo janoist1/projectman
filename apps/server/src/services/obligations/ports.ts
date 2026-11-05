@@ -45,6 +45,8 @@ export interface ObligationStartOffers {
  */
 export interface ObligationPmNotices {
   raise(input: { projectKey: string; taskKey: string; obligationId: string }): string;
+  /** The `senior_wait` signal of a card that waits for a Senior past the limit (PM-1251); same shape as `raise`. */
+  raiseSeniorWait(input: { projectKey: string; taskKey: string; obligationId: string }): string;
   deliver(projectKey: string): Promise<void>;
   /** Whether the project manager (or an owner) dismissed the signal raised for the obligation (PM-1234). */
   dismissed(projectKey: string, obligationId: string): boolean;

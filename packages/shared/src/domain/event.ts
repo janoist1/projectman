@@ -307,7 +307,9 @@ export interface TimelineEventData {
    * for the `seniors` (those developers); `decided` `by` answered it (`wait` on, or `any` free developer);
    * `senior_took` the open question closed because such a developer got the card; `no_senior` the
    * automatic start gave the card out by the "any" rule because no developer's limit reaches its
-   * `points` (or the wait ended for that).
+   * `points` (or the wait ended for that). Since PM-1251 the `deciders` are the project manager (a
+   * `senior_wait` signal), who decides with `decide_senior_wait` and a `reason`; the owners only on a project
+   * without one.
    */
   task_senior_wait: {
     phase: 'asked' | 'decided' | 'senior_took' | 'no_senior';
@@ -317,6 +319,7 @@ export interface TimelineEventData {
     deciders?: string[];
     decision?: 'wait' | 'any';
     by?: string;
+    reason?: string;
   };
   /** Legacy: checks were replaced by labels; old events keep this shape. */
   task_check_changed: { check: string; from: string | null; to: string };

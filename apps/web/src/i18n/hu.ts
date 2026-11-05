@@ -4327,6 +4327,7 @@ export const hu = {
         refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
         start_blocked: '{key}: az indítás csöndben vár',
         obligation_overdue: '{key}: a lépés az emlékeztető után is áll',
+        senior_wait: '{key}: olyan fejlesztőre vár, aki el tudja vinni',
       },
       bodies: {
         loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
@@ -4351,6 +4352,8 @@ export const hu = {
           'A kártya indítása repóválasztásra vagy beragadt munkaterületre vár. A PM megoldja, amit tag megoldhat; az ok megszűntével a jelzés magától lezárul.',
         obligation_overdue:
           'A felelős az emlékeztető után sem végezte el a lépést. A PM megvizsgálja; ha a lépés megtörtént vagy továbbkerült, a jelzés magától lezárul, különben a lépés az integrátorra száll.',
+        senior_wait:
+          'A kártya olyan fejlesztőre vár, akinek a határa eléri a pontszámát. A PM dönt: várjon a Seniorra, vagy bárki elvihesse; ha a döntés pénzbe kerül, előbb a tulajdonosokat kérdezi. A döntés után a jelzés magától lezárul.',
       },
     },
   },

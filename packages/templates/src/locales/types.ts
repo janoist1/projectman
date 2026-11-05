@@ -215,6 +215,8 @@ export interface TemplateLocale {
   webPush: WebPushText;
   /** The fix round limit decision item the server makes (PM-714). */
   fixLimitItem: FixLimitItemText;
+  /** The Senior wait decision item of a project without a project manager (PM-1251); the project manager gets a signal instead. */
+  seniorWaitItem: { title: string };
   /** What the owner's todo says when the Operator could not finish a queue item (PM-885). */
   /** The headings of a system feedback sent as a card or an issue (PM-472). */
   systemFeedback: SystemFeedbackTextLabels;

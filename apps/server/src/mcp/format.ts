@@ -252,6 +252,8 @@ function signalLine(signal: OperatorSignal): string {
     silent: 'The working session has been silent too long.',
     obligation_overdue:
       'A step stood open past its reminder and the responsible did not act (subject: the obligation; facts say who, since when and when it goes to a person). Check the card first; take the step in step if it has one, close an intermediate or resolved case with dismiss_signal and a note.',
+    senior_wait:
+      'A card waits for a developer whose limit reaches its points (subject: the obligation; facts name the card, the Seniors and why). Decide it with decide_senior_wait (wait or any, with a reason); when the choice needs more capacity (money), ask the owners first with ask_human and the cost topic.',
     idle: 'Retired kind (an old signal): the card had an AI holder, but no work ran on it for a while.',
     merge_waiting:
       'Retired kind (an old signal): the merge was requested, but the merger had not started it.',

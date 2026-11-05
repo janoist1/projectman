@@ -508,6 +508,9 @@ export class TeamToolsService implements TeamToolsHandler {
   ): Promise<{ signalId: string; state: 'dismissed' }> {
     return this.tools.operator.dismissSignal(ctx, args);
   }
+  async decideSeniorWait(ctx: ToolContext, args: Parameters<OperatorToolsHandler['decideSeniorWait']>[1]) {
+    return this.tools.operator.decideSeniorWait(ctx, args);
+  }
   async reassignTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['reassignTask']>[1]) {
     return this.tools.operator.reassignTask(ctx, args);
   }

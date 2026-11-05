@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { seniorWaitDecisionOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
+import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -393,6 +394,88 @@ describe('the heavy card: assignment, wait and the question', () => {
       // A developer that frees up takes it.
       await cancel(other);
       await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
+    });
+  });
+
+  describe('the project manager decides (PM-1251)', () => {
+    const pmContext = (member = 'pm'): ToolContext => ({
+      projectKey: 'AR',
+      member,
+      taskKey: null,
+      sessionId: 'ses_senior_wait',
+    });
+    const withPm = (c: ProjectConfig) => {
+      roomy(c);
+      const pm = c.team.members.find((m) => m.handle === 'pm');
+      if (pm?.kind === 'ai') pm.onLeave = false;
+    };
+    const signals = () =>
+      h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'senior_wait' && !s.resolvedAt);
+    const decide = (key: string, decision: 'wait' | 'any', member = 'pm') =>
+      h.domain.teamTools.decideSeniorWait(pmContext(member), {
+        taskKey: key,
+        decision,
+        reason: 'Fictional.',
+      });
+    /** A Senior card whose wait is past the limit, with a project manager on duty. */
+    const handedOverCard = async () => {
+      await harness(withPm);
+      await busySenior();
+      const key = await create('Asked');
+      await move(key);
+      await vi.waitFor(() => expect(waiting(key)).toMatchObject({ reason: 'senior_busy' }));
+      minutes(31);
+      await sweep();
+      return key;
+    };
+
+    it('tells the project manager with a signal, and opens no owner question', async () => {
+      const key = await handedOverCard();
+      expect(questions()).toEqual([]);
+      expect(waitRow(key)).toMatchObject({ state: 'handed_over', inboxItemId: null, decision: null });
+      expect(signals()).toMatchObject([{ kind: 'senior_wait', taskKey: key, subject: waitRow(key)!.id }]);
+      expect(waitEvents(key)[0]!.data).toMatchObject({ phase: 'asked', deciders: ['pm'] });
+    });
+
+    it.each([['wait' as const], ['any' as const]])(
+      'records "%s" on the obligation and the timeline, and the start reads it',
+      async (choice) => {
+        const key = await handedOverCard();
+        await decide(key, choice);
+        expect(waitRow(key)).toMatchObject({ decision: choice, decidedBy: 'pm' });
+        expect(decision(key)).toEqual({ decision: choice, by: 'pm' });
+        expect(phases(key)).toEqual(['asked', 'decided']);
+        expect(waitEvents(key)[1]!.data).toMatchObject({ decision: choice, by: 'pm', reason: 'Fictional.' });
+        await h.domain.operatorSignals.sweep('AR');
+        expect(signals()).toEqual([]);
+        if (choice === 'any') await vi.waitFor(() => expect(task(key).assignee).toBe('dev-1'));
+        else {
+          await h.domain.admission.retryDeferred();
+          expect(task(key).assignee).toBeNull();
+        }
+      },
+    );
+
+    it('refuses a second decision on the same wait', async () => {
+      const key = await handedOverCard();
+      await decide(key, 'wait');
+      await expect(decide(key, 'any')).rejects.toThrow();
+      expect(decision(key)).toEqual({ decision: 'wait', by: 'pm' });
+    });
+
+    it('refuses every member but the project manager', async () => {
+      const key = await handedOverCard();
+      await expect(decide(key, 'any', 'dev-1')).rejects.toThrow('project_manager_only');
+      await expect(decide(key, 'any', 'owner')).rejects.toThrow();
+      expect(waitRow(key)?.decision).toBeNull();
+    });
+
+    it('still reads the answer of an old owner question on the inbox', async () => {
+      await harness();
+      const { item, key } = await askedCard();
+      expect(waitRow(key)?.decision).toBeNull();
+      await answer(item.id, 'any_developer');
+      expect(decision(key)).toEqual({ decision: 'any', by: 'owner' });
     });
   });
 

@@ -600,6 +600,45 @@ exports[`team tool definitions > preserves the public tool definitions across mo
   },
   {
     "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Decide how a card that waits for a Senior goes on",
+    },
+    "description": "Decide a card a senior_wait signal names: wait keeps waiting for the Senior, any lets a free developer take it. The reason goes to the card. Only the project manager may call it; if the choice costs money, ask the owners first (topic cost).",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "wait",
+            "any",
+          ],
+          "type": "string",
+        },
+        "reason": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "task_key": {
+          "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "task_key",
+        "decision",
+        "reason",
+      ],
+      "type": "object",
+    },
+    "name": "decide_senior_wait",
+    "title": "Decide how a card that waits for a Senior goes on",
+  },
+  {
+    "annotations": {
       "destructiveHint": true,
       "openWorldHint": false,
       "readOnlyHint": false,

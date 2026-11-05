@@ -1385,6 +1385,7 @@ export function createDomain(opts: DomainOptions) {
   // A step that stands overdue after its reminder goes to the PM as an `obligation_overdue` signal (PM-1152).
   obligations.usePmNotices({
     raise: (input) => operatorSignals.raiseObligationOverdue(input),
+    raiseSeniorWait: (input) => operatorSignals.raiseSeniorWait(input),
     deliver: (projectKey) => operatorSignals.deliver(projectKey),
     dismissed: (projectKey, obligationId) => operatorSignals.obligationDismissed(projectKey, obligationId),
   });
@@ -1591,6 +1592,7 @@ export function createDomain(opts: DomainOptions) {
         messaging,
         projectState,
         taskStarts,
+        seniorDecisions,
         operatorSignals,
         loopTriages,
         checklist,

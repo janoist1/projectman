@@ -484,10 +484,16 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   `senior_wait` kind of the obligation tracking (PM-1150, "Obligation tracking" below; the `senior_waits` table and
   its own sweep are gone): one row per card and wait, derived from the `senior_busy` deferral, subject
   `senior_busy@<since>`, nobody responsible, so the row keeps when the wait began, the question and (in the
-  question's resolution) the answer over a restart. After `seniorWaitMinutes` (30) the 60 s obligation sweep asks
-  the owners once (an inbox decision, `wait_for_senior` or `any_developer`); "any" lets the free non-temp
-  developer with the largest limit take it. `SeniorDecisions` (`admission/senior-decisions.ts`) reads the answer
-  for the start (`seniorWaitAnswerOf`), writes the `decided` event and retries the starts. A freed developer who
+  question's resolution) the answer over a restart. After `seniorWaitMinutes` (30) the 60 s obligation sweep hands
+  the wait to the project manager once (PM-1251): a `senior_wait` signal with the card and why no developer
+  is available, and no owner item. The pm decides with `decide_senior_wait` (`wait` or `any`, a reason;
+  coordinator only), which lands on the live obligation (`decision`, `decided_by`) and in the `decided` event;
+  when the choice costs money it asks the owners first under the `cost` topic. Only a project without a
+  pm still asks the owners an inbox decision (`wait_for_senior` or `any_developer`, the old answers stay
+  readable); "any" lets the free non-temp developer with the largest limit take it. `SeniorDecisions`
+  (`admission/senior-decisions.ts`) records the pm's decision and retries the starts; `seniorWaitDecisionFor`
+  (`core/tasks/senior-decision.ts`) reads the obligation's decision first, then the inbox answer
+  (`seniorWaitAnswerOf`), for the start. A freed developer who
   reaches the points takes the card first (`retryDeferred` tries `senior_busy` deferrals first); when the card
   is assigned, moved, closed, its points change (`task_complexity_changed`) or the team's limits change, the
   next sweep ends the row and closes the question (`senior_took` when a developer who reaches the points took
@@ -1469,7 +1475,8 @@ reminder to send and no activity to wait for. A source may set its own `rungs` (
 clock goes from the deadline straight to the hand-over), `minutesOf` (`seniorWaitMinutes`, not
 `obligationMinutes`), `pausable: false` (the pauses of the sweep do not apply) and `onClosed` (closes the question
 and writes `senior_took` / `no_senior`). Its `handOver` may return `'settled'`: the source has done everything
-itself (the owners' decision item and the `asked` event, or only a log line when the team has no owner), and the
+itself (the `senior_wait` signal for the pm and the `asked` event; on a project without a pm the owners' decision
+item, or only a log line when the team has no owner), and the
 generic code writes no `obligation_handed_over` event and no todo for the connected Claude. Migration 131 turned every open
 `senior_waits` row into such a row and dropped the table.
 

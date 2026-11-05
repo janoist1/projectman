@@ -137,6 +137,7 @@ export const TimelineEventType = z.enum([
   'super_operation_changed',
   'obligation_woken',
   'member_queue_item_closed',
+  'message_dropped',
   'obligation_handed_over',
   'obligation_pm_told',
   'workspace_released',
@@ -554,6 +555,15 @@ export interface TimelineEventData {
     itemId: string;
     kind: MemberQueueItemKind;
     reason: MemberQueueCloseReason;
+  };
+  /**
+   * A team message was dropped before it reached `recipient` (PM-1248): its card closed (`place_closed`) or the
+   * recipient left the team (`member_removed`). On the card the message was about, else on the project; the actor is the system.
+   */
+  message_dropped: {
+    messageId: string;
+    recipient: MemberHandle;
+    reason: 'place_closed' | 'member_removed';
   };
   /** The step stayed open after the reminder, so the system gave it to `recipient` as a todo (PM-806, actor system). */
   obligation_handed_over: {

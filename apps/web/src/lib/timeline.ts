@@ -997,6 +997,15 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         : normal(t('timeline.events.fix_limit_recipient_escalated_timeout'));
     case 'member_queue_item_closed':
       return normal(t('timeline.events.member_queue_item_closed'));
+    case 'message_dropped':
+      return normal(
+        t(
+          d.reason === 'member_removed'
+            ? 'timeline.events.message_dropped_member_removed'
+            : 'timeline.events.message_dropped_place_closed',
+          { recipient: nameOf(str(d.recipient), ctx.members, ctx.myHandle) },
+        ),
+      );
     case 'obligation_woken':
     case 'obligation_pm_told':
     case 'obligation_handed_over': {

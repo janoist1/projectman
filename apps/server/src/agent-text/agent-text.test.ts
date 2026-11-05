@@ -163,6 +163,17 @@ describe('describeEvent', () => {
       'told the project manager about the open review step (code_review@x) of cr: still no action after the reminder',
     );
   });
+  it('says why a team message was dropped undelivered (PM-1248)', () => {
+    const dropped = event('message_dropped', { messageId: 'm1', recipient: 'dev-2', reason: 'place_closed' });
+    expect(describeEvent(dropped, 100)).toContain('dev-2');
+    expect(describeEvent(dropped, 100)).toContain('card');
+    const removed = event('message_dropped', {
+      messageId: 'm1',
+      recipient: 'dev-2',
+      reason: 'member_removed',
+    });
+    expect(describeEvent(removed, 100)).toContain('no longer a member');
+  });
   it('words the kick of a system step apart from a reminder (PM-1225)', () => {
     const kicked = event('obligation_woken', {
       kind: 'next_step',

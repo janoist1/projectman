@@ -2,7 +2,7 @@ import type { ProjectConfig, WorkItemRef } from '@projectman/shared';
 import { MEMBER_QUEUE_MAX_ATTEMPTS } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MemberQueueLane } from '../src/runtime/member-queue';
-import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, settle } from './helpers/fakes';
 import { instrumentSql } from './helpers/sql-meter';
@@ -150,6 +150,63 @@ describe('the member queue driver', () => {
       ]);
       expect(h.domain.sessions.list('AR', { member: 'dev-2' }).map((s) => s.workItem)).toEqual([general]);
       expect(h.runner.started).toHaveLength(1);
+    });
+
+    describe('a message dropped undelivered (PM-1248)', () => {
+      const dropped = () => h.repos.timeline.ofProjectType('AR', 'message_dropped', 10);
+      const noticesTo = (member: string) =>
+        h.repos.messages.pending('AR', member).filter((m) => m.from === 'system');
+
+      it('writes message_dropped on the card and tells an AI sender of an action, waking nobody', async () => {
+        const message = record('dev-2', 'AR-1', { from: 'dev-1' });
+        await driver().ensure('AR', 'dev-2');
+        await flush();
+
+        expect(dropped()).toEqual([
+          expect.objectContaining({
+            taskKey: 'AR-1',
+            actor: expect.objectContaining({ kind: 'system' }),
+            data: { messageId: message.id, recipient: 'dev-2', reason: 'place_closed' },
+          }),
+        ]);
+        const [notice] = noticesTo('dev-1');
+        expect(notice).toMatchObject({ kind: 'info', taskKey: 'AR-1', to: ['dev-1'] });
+        expect(notice!.body).toContain('dev-2');
+        expect(notice!.body).toContain('AR-1');
+        // Nobody woke: neither the dropped message's recipient nor the sender it was reported to.
+        expect(h.runner.started).toEqual([]);
+        expect(h.domain.sessions.list('AR', { member: 'dev-1' })).toEqual([]);
+      });
+
+      it('only writes the event for an info message, which the sender need not hear about', async () => {
+        record('dev-2', 'AR-1', { from: 'dev-1', kind: 'info' });
+        await driver().ensure('AR', 'dev-2');
+
+        expect(dropped()).toHaveLength(1);
+        expect(h.repos.messages.pending('AR', 'dev-1')).toEqual([]);
+      });
+
+      it('writes the event and tells the sender when the recipient left the team', async () => {
+        // dev-2 has no role on this open card, so the AI sender's action stays queued without waking anyone.
+        await h.domain.tasks.create('AR', { title: 'Another fictional card' }, OWNER_ACTOR);
+        const message = record('dev-2', 'AR-2', { from: 'dev-1' });
+        await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
+          draft.team.members = draft.team.members.filter((m) => m.handle !== 'dev-2');
+          for (const stage of draft.pipeline.stages)
+            stage.owners = (stage.owners ?? []).filter((owner) => owner !== 'dev-2');
+          return 'Remove dev-2';
+        });
+        await driver().ensure('AR', 'dev-2');
+
+        expect(dropped()).toEqual([
+          expect.objectContaining({
+            taskKey: 'AR-2',
+            data: { messageId: message.id, recipient: 'dev-2', reason: 'member_removed' },
+          }),
+        ]);
+        expect(noticesTo('dev-1')).toHaveLength(1);
+        expect(h.runner.started).toEqual([]);
+      });
     });
   });
 

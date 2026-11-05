@@ -163,6 +163,10 @@ describe('describeEvent', () => {
       'told the project manager about the open review step (code_review@x) of cr: still no action after the reminder',
     );
   });
+  it('names the related card a paused step waits for (PM-1247)', () => {
+    const data = { kind: 'next_step', responsible: 'dev-1', subject: 'x', waitingTaskKey: 'PM-304' };
+    expect(describeEvent(event('obligation_paused', data, undefined, null), 100)).toContain('PM-304');
+  });
   it('words the kick of a system step apart from a reminder (PM-1225)', () => {
     const kicked = event('obligation_woken', {
       kind: 'next_step',

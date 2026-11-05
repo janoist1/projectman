@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ErrorCode } from '../api/error-codes';
 import type { TeamLimits } from '../config/schema';
 import { MemberHandle } from './member';
-import { TaskKey } from './task';
+import { TaskKey, taskSeq } from './task';
 
 /**
  * An obligation (PM-806): an open step that an AI member has to carry out. It has a responsible and a
@@ -39,6 +39,8 @@ export const ObligationPauseReason = z.enum([
   'permission',
   /** Starting the responsible would be refused with a pausing refusal (`PAUSING_REFUSALS`). */
   'start_refused',
+  /** A part, an open prerequisite or the parent of the card waits for an owner's question or decision (PM-1247). */
+  'related_inbox',
 ]);
 export type ObligationPauseReason = z.infer<typeof ObligationPauseReason>;
 
@@ -204,6 +206,50 @@ export const PAUSING_REFUSALS: readonly string[] = [
   'engine_offline',
   'member_on_leave',
 ] satisfies readonly ErrorCode[];
+
+/** The card fields `relatedOwnerWait` reads. */
+interface RelatedWaitCard {
+  key: string;
+  parentKey?: string | null;
+  status: string;
+  links: readonly { kind: string; ref: string }[];
+}
+
+/**
+ * The key of the related card that waits for an owner (PM-1247), or null: a part of the card, a prerequisite
+ * that is not closed, or its parent has an open question or decision for a person. An alert, a closed item and
+ * a closed prerequisite do not count. `openOwnerItems` are the open items for the owners (the caller picks
+ * the recipients); `related` holds the cards the relations point into. The parts come first, then the
+ * prerequisites, then the parent; by key within a kind.
+ */
+export function relatedOwnerWait(
+  task: RelatedWaitCard,
+  related: readonly RelatedWaitCard[],
+  openOwnerItems: readonly { taskKey: string | null; kind: string; state: string }[],
+): string | null {
+  const waiting = new Set<string>();
+  for (const item of openOwnerItems)
+    if (
+      item.taskKey &&
+      (item.kind === 'question' || item.kind === 'decision') &&
+      (item.state === 'open' || item.state === 'screening')
+    )
+      waiting.add(item.taskKey);
+  if (waiting.size === 0) return null;
+  const open = (card: RelatedWaitCard): boolean => card.status !== 'done' && card.status !== 'cancelled';
+  const prerequisites = new Set(task.links.filter((l) => l.kind === 'prerequisite').map((l) => l.ref));
+  const keysOf = (pick: (card: RelatedWaitCard) => boolean): string[] =>
+    related
+      .filter(pick)
+      .map((card) => card.key)
+      .sort((a, b) => taskSeq(a) - taskSeq(b));
+  const keys = [
+    ...keysOf((card) => card.parentKey === task.key),
+    ...keysOf((card) => prerequisites.has(card.key) && open(card)),
+    ...(task.parentKey ? [task.parentKey] : []),
+  ];
+  return keys.find((key) => waiting.has(key)) ?? null;
+}
 
 export const DEFAULT_OBLIGATION_MINUTES = 20;
 

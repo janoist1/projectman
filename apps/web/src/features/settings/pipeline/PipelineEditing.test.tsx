@@ -345,3 +345,159 @@ describe('delete', () => {
     expect(stageIds(project)).toContain('qa');
   });
 });
+
+describe('moving stages and columns', () => {
+  const handle = async (name: string) =>
+    (await screen.findByRole('button', {
+      name: t('settings.pipeline.move.handle', { name }),
+    })) as HTMLElement;
+  const press = (element: HTMLElement, key: string) => fireEvent.keyDown(element, { key });
+  const live = (text: string) => screen.findByText(text);
+
+  it('carries a stage with the keyboard and saves it once, on the drop', async () => {
+    const project = renderAt(PIPELINE);
+    const before = stageIds(project);
+    const grip = await handle('Integration');
+    grip.focus();
+    press(grip, ' ');
+    expect(await live(t('settings.pipeline.move.live.grabbed', { name: 'Integration' }))).toBeTruthy();
+    press(grip, 'ArrowDown');
+    expect(
+      await live(t('settings.pipeline.move.live.step', { name: 'Integration', n: 5, column: 'Átnézés' })),
+    ).toBeTruthy();
+    // Carrying only previews: nothing is saved before the drop.
+    expect(patches(project)).toHaveLength(0);
+    press(grip, ' ');
+    await waitFor(() => expect(patches(project)).toHaveLength(1));
+    expect(stageIds(project)).toEqual([...before.slice(0, 3), 'qa', 'integration', ...before.slice(5)]);
+    expect(await screen.findByText(t('settings.pipeline.move.moved', { name: 'Integration' }))).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(grip));
+  });
+
+  it('puts the stage back on Esc without saving', async () => {
+    const project = renderAt(PIPELINE);
+    const before = stageIds(project);
+    const grip = await handle('Integration');
+    grip.focus();
+    press(grip, ' ');
+    press(grip, 'ArrowDown');
+    press(grip, 'Escape');
+    expect(await live(t('settings.pipeline.move.live.cancelled', { name: 'Integration' }))).toBeTruthy();
+    expect(patches(project)).toHaveLength(0);
+    expect(stageIds(project)).toEqual(before);
+  });
+
+  it('shows why a place is forbidden and does not save a drop there', async () => {
+    const project = renderAt(PIPELINE);
+    const grip = await handle('Fejlesztés');
+    grip.focus();
+    press(grip, ' ');
+    // The first step joins the first column, the second takes the first place: a work stage cannot start the path.
+    press(grip, 'ArrowUp');
+    // The stage is drawn in another box now: the handle is a new element and keeps the focus.
+    await waitFor(() => expect(document.activeElement).toBe(document.querySelector('[data-handle="dev"]')));
+    press(document.activeElement as HTMLElement, 'ArrowUp');
+    const reason = t('settings.pipeline.move.forbidden', { reason: '' }).trim();
+    // Seen on the path and announced in the live region.
+    expect(await screen.findAllByText((text) => text.includes(reason))).toHaveLength(2);
+    press(document.activeElement as HTMLElement, ' ');
+    expect(patches(project)).toHaveLength(0);
+  });
+
+  it('moves a stage from its menu and takes it back from the toast', async () => {
+    const project = renderAt(`${PIPELINE}?show=stage:qa`);
+    const before = stageIds(project);
+    await panel();
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.menu.label') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.move.up') }));
+    await waitFor(() => expect(patches(project)).toHaveLength(1));
+    expect(stageIds(project).indexOf('qa')).toBe(before.indexOf('qa') - 1);
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.edit.undo') }));
+    await waitFor(() => expect(patches(project)).toHaveLength(2));
+    expect(stageIds(project)).toEqual(before);
+  });
+
+  it('greys a menu step that has nowhere to go and says why', async () => {
+    const project = renderAt(`${PIPELINE}?show=stage:ready`);
+    await panel();
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.menu.label') }));
+    const up = await screen.findByRole('button', { name: t('settings.pipeline.move.up') });
+    expect(up.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByText(t('settings.pipeline.move.firstStage'))).toBeTruthy();
+    fireEvent.click(up);
+    expect(patches(project)).toHaveLength(0);
+  });
+
+  it('moves a column with its stages from the column menu', async () => {
+    const project = renderAt(`${PIPELINE}?show=column:review`);
+    await panel();
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.menu.label') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.move.columnUp') }));
+    await waitFor(() => expect(patches(project)).toHaveLength(1));
+    expect(stageIds(project).slice(1, 5)).toEqual(['code_review', 'integration', 'qa', 'dev']);
+    expect(columnIdsInOrder(project).slice(0, 3)).toEqual(['ready', 'review', 'dev']);
+  });
+
+  it('makes a stage dropped on a box header the first of that column', async () => {
+    const project = renderAt(PIPELINE);
+    const wrap = (await handle('QA')).parentElement!;
+    const head = document.querySelector('[data-show="column:dev"]') as HTMLElement;
+    fireEvent.dragStart(wrap);
+    fireEvent.dragOver(head);
+    fireEvent.drop(head);
+    await waitFor(() => expect(patches(project)).toHaveLength(1));
+    expect(columnOf(project, 'qa')).toBe('dev');
+    expect(stageIds(project).slice(0, 3)).toEqual(['ready', 'qa', 'dev']);
+  });
+
+  it('does not save a drop on the stage own place', async () => {
+    const project = renderAt(PIPELINE);
+    const wrap = (await handle('Fejlesztés')).parentElement!;
+    const head = document.querySelector('[data-show="column:dev"]') as HTMLElement;
+    fireEvent.dragStart(wrap);
+    fireEvent.dragOver(head);
+    fireEvent.drop(head);
+    expect(patches(project)).toHaveLength(0);
+  });
+
+  it('reloads and tells so on a conflict, and does not repeat the move', async () => {
+    const project = renderAt(`${PIPELINE}?show=stage:qa`);
+    let attempts = 0;
+    server.use(
+      http.patch('http://localhost/api/projects/AC/config', () => {
+        attempts += 1;
+        return HttpResponse.json(
+          { error: { code: 'config_conflict', message: 'changed', details: { currentVersion: 'x' } } },
+          { status: 409 },
+        );
+      }),
+    );
+    await panel();
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.menu.label') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.move.up') }));
+    const author = project.backend.history[0]!.author;
+    expect(await screen.findByText(t('settings.pipeline.move.conflict', { name: author }))).toBeTruthy();
+    expect(attempts).toBe(1);
+  });
+
+  it('gives a member no handle', async () => {
+    renderAt(PIPELINE, {
+      can: { manageTeam: false, createTasks: false, workInSessions: false },
+      isOwner: false,
+    });
+    await screen.findByText('Integration');
+    expect(
+      screen.queryByRole('button', { name: t('settings.pipeline.move.handle', { name: 'Integration' }) }),
+    ).toBeNull();
+  });
+
+  it('lets an admin who is not the owner move a stage', async () => {
+    const project = renderAt(PIPELINE, nonOwnerAdmin);
+    const grip = await handle('QA');
+    grip.focus();
+    press(grip, ' ');
+    press(grip, 'ArrowUp');
+    press(grip, ' ');
+    await waitFor(() => expect(patches(project)).toHaveLength(1));
+  });
+});

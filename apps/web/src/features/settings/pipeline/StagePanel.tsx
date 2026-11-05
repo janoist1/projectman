@@ -1,9 +1,9 @@
-import { useEffect, useId, useMemo } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ProjectConfig } from '@projectman/shared';
 import { useProject } from '../../../app/contexts';
 import { Button } from '../../../components/Button';
-import { MoreMenu } from '../../../components/MoreMenu';
+import { MoreMenu, MoreMenuItem } from '../../../components/MoreMenu';
 import { t } from '../../../i18n/t';
 import { DetailPanel, MissingSettingsElement } from '../DetailPanel';
 import { EditFooter } from '../edit/EditChrome';
@@ -14,11 +14,13 @@ import { stageDeleteBlock, withoutStage } from './deletion';
 import type { CardCount } from './deletion';
 import { focusRow } from './focusRow';
 import { orderColumns } from './flow';
+import { stageMovePlan } from './move';
 import { PanelBands } from './PanelBands';
 import { StageForm } from './StageForm';
 import { draftOf, sortIssues, stageOf } from './stageDraft';
 import type { StageDraft } from './stageDraft';
 import styles from './StagePanel.module.css';
+import type { PipelineMove } from './useMove';
 
 function applyDraft(config: ProjectConfig, draft: StageDraft): ProjectConfig {
   const moved = config.pipeline.stages.find((stage) => stage.id === draft.id)?.columnId !== draft.columnId;
@@ -44,6 +46,8 @@ interface StagePanelProps {
   onDeleted(stageId: string): void;
   /** "Új lépés elé" / "Új lépés utána": the new stage goes after `after` ('' in front of the first). */
   onNewStage(after: string): void;
+  /** Saves a "Feljebb" / "Lejjebb" of the menu. */
+  mover: PipelineMove;
 }
 
 /** The stage's details as a form: one stage saved on its own, with its conflicts, undo and unsaved-change guard. */
@@ -57,9 +61,12 @@ export function StagePanel({
   onSaved,
   onDeleted,
   onNewStage,
+  mover,
 }: StagePanelProps) {
   const { isOwner } = useProject();
   const formId = useId();
+  /** Counts the moves made from the menu: the panel's title takes the focus after each. */
+  const [movedCount, setMoves] = useState(0);
   const edit = useElementEdit<StageDraft>({
     key: `stage:${stageId}`,
     initial: (current) => {
@@ -115,10 +122,40 @@ export function StagePanel({
   /** Nothing follows the last stage when it is the end of the path. */
   const lastIsEnd = savedIndex === stages.length - 1 && saved?.kind === 'done';
 
+  const moves = (['up', 'down'] as const).map((direction) => ({
+    direction,
+    plan: stageMovePlan(config, stageId, direction, isOwner),
+  }));
   const menu = (
     <MoreMenu label={t('settings.pipeline.menu.label')}>
       {(close) => (
         <>
+          {moves.map(({ direction, plan }) => (
+            <MoreMenuItem
+              key={direction}
+              disabled={!plan.pipeline || plan.reason !== null || mover.pending !== null}
+              reason={plan.reason}
+              onClick={() => {
+                close();
+                void mover
+                  .move({ pipeline: plan.pipeline!, name: saved?.name ?? draft.name, stageIds: [stageId] })
+                  .then((moved) => {
+                    if (moved) setMoves((count) => count + 1);
+                  });
+              }}
+            >
+              {plan.columnName
+                ? t(
+                    direction === 'up'
+                      ? 'settings.pipeline.move.upColumn'
+                      : 'settings.pipeline.move.downColumn',
+                    {
+                      column: plan.columnName,
+                    },
+                  )
+                : t(direction === 'up' ? 'settings.pipeline.move.up' : 'settings.pipeline.move.down')}
+            </MoreMenuItem>
+          ))}
           <Button
             variant="ghost"
             size="md"
@@ -150,7 +187,7 @@ export function StagePanel({
     <DetailPanel
       open
       itemKey={`stage:${stageId}`}
-      focusSignal={edit.saves}
+      focusSignal={edit.saves + movedCount}
       kicker={t('settings.pipeline.kickerStage', { kind: t(`stageKinds.${draft.kind}`) })}
       title={saved?.name ?? draft.name}
       menu={menu}

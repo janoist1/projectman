@@ -14,6 +14,7 @@ import { focusRow } from '../pipeline/focusRow';
 import { emptyColumns } from '../pipeline/flow';
 import { PipelineFlow } from '../pipeline/PipelineFlow';
 import { PipelinePanel } from '../pipeline/PipelinePanel';
+import { usePipelineMove } from '../pipeline/useMove';
 import { useSettingsSelection } from '../selection';
 import type { SettingsShow } from '../selection';
 import styles from './PipelineSection.module.css';
@@ -72,6 +73,7 @@ function PipelineBody({ config }: { config: ProjectConfig }) {
       ? selection.show
       : null;
   const flashStage = (id: string) => setFlash((previous) => ({ id, count: (previous?.count ?? 0) + 1 }));
+  const mover = usePipelineMove(flashStage);
   return (
     <SettingsSection id="settings-pipeline" title={t('settings.sections.pipeline')}>
       <div className={styles.head}>
@@ -127,6 +129,7 @@ function PipelineBody({ config }: { config: ProjectConfig }) {
           problemStages={problemStages}
           flash={flash}
           canEdit={can.manageTeam}
+          mover={mover}
           onSelect={selection.open}
           onNewStage={(after) => selection.open({ type: 'new-stage', after })}
           onNewColumn={() => selection.open({ type: 'new-column' })}
@@ -136,6 +139,7 @@ function PipelineBody({ config }: { config: ProjectConfig }) {
           show={selection.show}
           fromHowWeWork={selection.from === 'how-we-work'}
           legendOpen={legendOpen}
+          mover={mover}
           onSelect={selection.open}
           onClose={() => {
             if (selection.show) selection.close();

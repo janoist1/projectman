@@ -7,3 +7,24 @@
 .menu > button {
   justify-content: flex-start;
 }
+
+/* A greyed-out item stays in the arrow order; its reason stands right under it. */
+.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.reason {
+  margin: -4px 0 0;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--c-ink-3);
+  max-width: 260px;
+}
+
+@media (max-width: 640px) {
+  .menu > button {
+    min-height: 40px;
+  }
+}

@@ -7131,6 +7131,39 @@ export const hu = {
         before: 'Új lépés elé',
         after: 'Új lépés utána',
       },
+      /** Changing the order: the handle, the ⋯ menus, the messages. */
+      move: {
+        handle: 'Áthelyezés: {name}',
+        handleTip: 'Húzd, vagy fogd meg Szóközzel',
+        help: 'Szóközzel megfogod, a fel és le nyíllal viszed, Szóközzel leteszed, Esc-kel visszateszed.',
+        up: 'Feljebb',
+        down: 'Lejjebb',
+        upColumn: 'Feljebb · oszlop: {column}',
+        downColumn: 'Lejjebb · oszlop: {column}',
+        columnUp: 'Feljebb a lépéseivel együtt',
+        columnDown: 'Lejjebb a lépéseivel együtt',
+        firstStage: 'Ez az út első lépése.',
+        lastStage: 'Ez az út utolsó lépése.',
+        columnFirst: 'Ez az oszlop már az út elején van.',
+        columnLast: 'Ez az oszlop már az út végén van.',
+        scattered: 'Az oszlop lépései nem egymás után jönnek, ezért nem mozgatható együtt.',
+        forbidden: 'Nem helyezhető ide. {reason}',
+        moved: 'Áthelyezve: {name}',
+        movedColumn: 'Áthelyezve: {name} a lépéseivel',
+        failed: 'Nem sikerült áthelyezni: {name}. Próbáld újra.',
+        conflict:
+          'Közben {name} is módosította a beállításokat. Az áthelyezés nem ismétlődött meg: nézd át, és próbáld újra.',
+        /** What the live region says while a stage is carried with the keyboard. */
+        live: {
+          grabbed: 'Megfogva: {name}. Fel és le nyíllal viszed, Szóközzel leteszed, Esc-kel visszateszed.',
+          step: '{name}: {n}. hely, oszlop: {column}.',
+          start: 'Ez az út eleje.',
+          end: 'Ez az út vége.',
+          dropped: '{name} áthelyezve: {n}. hely, oszlop: {column}.',
+          unchanged: 'Letetted, a helye nem változott.',
+          cancelled: 'Mégse: {name} visszakerült a helyére.',
+        },
+      },
       /** The forms of a new stage and a new column. */
       new: {
         stageTitle: 'Új lépés',

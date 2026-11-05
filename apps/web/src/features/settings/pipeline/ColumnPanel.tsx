@@ -1,7 +1,8 @@
-import { useId, useMemo } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ProjectConfig } from '@projectman/shared';
 import { useProject } from '../../../app/contexts';
+import { MoreMenu, MoreMenuItem } from '../../../components/MoreMenu';
 import { t } from '../../../i18n/t';
 import { DetailPanel, MissingSettingsElement } from '../DetailPanel';
 import { EditFooter } from '../edit/EditChrome';
@@ -14,9 +15,11 @@ import { ColumnForm } from './ColumnForm';
 import { columnDeleteBlock, withoutColumn } from './deletion';
 import { DeleteSection } from './DeleteSection';
 import { focusRow } from './focusRow';
+import { columnMovePlan } from './move';
 import { PanelBands } from './PanelBands';
 import panelStyles from './PipelinePanel.module.css';
 import styles from './StagePanel.module.css';
+import type { PipelineMove } from './useMove';
 
 interface ColumnPanelProps {
   config: ProjectConfig;
@@ -26,12 +29,24 @@ interface ColumnPanelProps {
   onClose(): void;
   /** The column was deleted: the panel closes and the focus moves on. */
   onDeleted(columnId: string): void;
+  /** Saves a "Feljebb a lépéseivel együtt" / "Lejjebb a lépéseivel együtt" of the menu. */
+  mover: PipelineMove;
 }
 
 /** A board column as a form: its name and colour saved on their own; its stages as links, its id, the delete. */
-export function ColumnPanel({ config, columnId, empty, onSelect, onClose, onDeleted }: ColumnPanelProps) {
+export function ColumnPanel({
+  config,
+  columnId,
+  empty,
+  mover,
+  onSelect,
+  onClose,
+  onDeleted,
+}: ColumnPanelProps) {
   const { isOwner } = useProject();
   const formId = useId();
+  /** Counts the moves made from the menu: the panel's title takes the focus after each. */
+  const [movedCount, setMoves] = useState(0);
   const edit = useElementEdit<ColumnDraft>({
     key: `column:${columnId}`,
     initial: (current) => {
@@ -64,6 +79,44 @@ export function ColumnPanel({ config, columnId, empty, onSelect, onClose, onDele
     );
 
   const stages = config.pipeline.stages.filter((stage) => stage.columnId === columnId);
+  const menu =
+    stages.length === 0 ? undefined : (
+      <MoreMenu label={t('settings.pipeline.menu.label')}>
+        {(close) => (
+          <>
+            {(['up', 'down'] as const).map((direction) => {
+              const plan = columnMovePlan(config, columnId, direction, isOwner);
+              return (
+                <MoreMenuItem
+                  key={direction}
+                  disabled={!plan.pipeline || plan.reason !== null || mover.pending !== null}
+                  reason={plan.reason}
+                  onClick={() => {
+                    close();
+                    void mover
+                      .move({
+                        pipeline: plan.pipeline!,
+                        name: saved.name,
+                        stageIds: stages.map((stage) => stage.id),
+                        column: true,
+                      })
+                      .then((moved) => {
+                        if (moved) setMoves((count) => count + 1);
+                      });
+                  }}
+                >
+                  {t(
+                    direction === 'up'
+                      ? 'settings.pipeline.move.columnUp'
+                      : 'settings.pipeline.move.columnDown',
+                  )}
+                </MoreMenuItem>
+              );
+            })}
+          </>
+        )}
+      </MoreMenu>
+    );
   const canSave =
     edit.dirty &&
     draft.name.trim() !== '' &&
@@ -75,9 +128,10 @@ export function ColumnPanel({ config, columnId, empty, onSelect, onClose, onDele
     <DetailPanel
       open
       itemKey={`column:${columnId}`}
-      focusSignal={edit.saves}
+      focusSignal={edit.saves + movedCount}
       kicker={t('settings.pipeline.kickerColumn')}
       title={saved.name}
+      menu={menu}
       empty={empty}
       footer={
         <EditFooter

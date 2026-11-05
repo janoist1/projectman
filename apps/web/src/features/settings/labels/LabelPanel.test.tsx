@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LabelDefinition } from '@projectman/shared';
 import { queryKeys } from '../../../api/queryKeys';
@@ -6,6 +7,7 @@ import { ToastProvider } from '../../../components/Toast';
 import { t } from '../../../i18n/t';
 import { labelId } from '../../../lib/ids';
 import { mockProject } from '../../../test/mockProject';
+import { server } from '../../../test/msw/server';
 import { SettingsTestRoutes } from '../testRoutes';
 
 const LABELS = '/p/AC/settings/labels';
@@ -84,6 +86,27 @@ describe('label list', () => {
 
     fireEvent.change(search, { target: { value: 'nincs-ilyen' } });
     expect(await screen.findByText(t('settings.labels.edit.noMatch', { q: 'nincs-ilyen' }))).toBeTruthy();
+  });
+
+  it('counts the matches and clears the search from the empty result', async () => {
+    renderPanel(LABELS);
+    const search = await screen.findByRole('searchbox', { name: t('settings.labels.edit.searchLabel') });
+    fireEvent.change(search, { target: { value: 'nincs-ilyen' } });
+    expect(await screen.findByText(t('settings.labels.edit.found', { count: 0 }))).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('settings.labels.edit.clearSearch') }));
+    expect((search as HTMLInputElement).value).toBe('');
+    expect(row('urgent')).not.toBeNull();
+  });
+
+  it('offers a retry when the tags used on cards cannot be loaded', async () => {
+    server.use(
+      http.get('http://localhost/api/projects/AC/board', () =>
+        HttpResponse.json({ error: { code: 'internal', message: 'Down' } }, { status: 500 }),
+      ),
+    );
+    renderPanel(LABELS);
+    expect(await screen.findByRole('button', { name: t('app.retry') })).toBeTruthy();
+    expect(row('urgent')).not.toBeNull();
   });
 
   it('opens a label from its row and offers the add button to an admin only', async () => {
@@ -217,6 +240,28 @@ describe('label panel editor', () => {
     expect(patches(project)).toHaveLength(0);
   });
 
+  it('keeps the saved chip while the name of an existing label is emptied', async () => {
+    renderPanel();
+    const dialog = await panel();
+    fireEvent.change(await dialog.findByLabelText(t('settings.labels.name')), { target: { value: '' } });
+    expect(dialog.queryByText(t('settings.labels.newName'))).toBeNull();
+  });
+
+  it('shows no setter choice for a label the system puts on', async () => {
+    const project = mockProject();
+    project.backend.config.pipeline.labels.push({ id: 'pr-merged', name: 'PR merged', setBy: 'system' });
+    project.render(
+      <ToastProvider>
+        <SettingsTestRoutes initialSection="labels" />
+      </ToastProvider>,
+      `${LABELS}?show=label:pr-merged`,
+    );
+    const dialog = await panel();
+    await dialog.findByLabelText(t('settings.labels.name'));
+    expect(dialog.getByText(t('settings.labels.edit.systemSetter'))).toBeTruthy();
+    expect(dialog.queryByRole('checkbox', { name: t('settings.labels.humansOnly') })).toBeNull();
+  });
+
   it('lets a non-owner admin edit an ordinary label but not make it human-only', async () => {
     const project = renderPanel(`${LABELS}?show=label:urgent`, nonOwnerAdmin);
     const dialog = await panel();
@@ -256,6 +301,23 @@ describe('new label', () => {
       within(await screen.findByRole('dialog')).getByRole('button', { name: t('settings.labels.remove') }),
     ).toBeTruthy();
     expect(await screen.findByText(t('settings.labels.edit.created', { name: 'Várakozik' }))).toBeTruthy();
+  });
+
+  it('closes the panel when the undo takes the new label away again', async () => {
+    const project = renderPanel(LABELS);
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.labels.add') }));
+    const dialog = await panel();
+    fireEvent.change(await dialog.findByLabelText(t('settings.labels.name')), {
+      target: { value: 'Várakozik' },
+    });
+    fireEvent.click(dialog.getByRole('button', { name: t('settings.labels.edit.create') }));
+    await screen.findByRole('heading', { name: 'Várakozik' });
+
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.edit.undo') }));
+    await waitFor(() =>
+      expect(project.backend.config.pipeline.labels.some((l) => l.name === 'Várakozik')).toBe(false),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('does not take a name that is empty', async () => {
@@ -364,5 +426,29 @@ describe('deleting a label', () => {
     fireEvent.click(confirm.getByRole('button', { name: t('settings.labels.edit.removeConfirm') }));
     await waitFor(() => expect(row('urgent')).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(row('release-approved')));
+  });
+
+  it('moves the focus to the next row after a delete in the middle, and back to the label on the undo', async () => {
+    const project = mockProject();
+    project.backend.config.pipeline.labels.push(
+      { ...URGENT },
+      { id: 'later', name: 'Később', setBy: 'anyone' },
+    );
+    project.render(
+      <ToastProvider>
+        <SettingsTestRoutes initialSection="labels" />
+      </ToastProvider>,
+      `${LABELS}?show=label:urgent`,
+    );
+    const dialog = await panel();
+    fireEvent.click(await dialog.findByRole('button', { name: t('settings.labels.remove') }));
+    const confirm = within(await screen.findByRole('alertdialog'));
+    fireEvent.click(confirm.getByRole('button', { name: t('settings.labels.edit.removeConfirm') }));
+    await waitFor(() => expect(row('urgent')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(row('later')));
+
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.pipeline.edit.undo') }));
+    await waitFor(() => expect(row('urgent')).not.toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(row('urgent')));
   });
 });

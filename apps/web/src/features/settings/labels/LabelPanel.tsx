@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
 import { canonical, DUTY_IDS, introducedErrors, LabelColor } from '@projectman/shared';
@@ -203,7 +203,8 @@ export function LabelPanel({
     ...labelOf(draft, id || 'label', saved),
     holders: [],
   };
-  preview.name = preview.name || t('settings.labels.newName');
+  // An emptied name keeps the chip of the saved label (the field says the name is missing); only a new label has none.
+  preview.name = preview.name || saved?.name || t('settings.labels.newName');
   const footer = (
     <EditFooter
       edit={edit}
@@ -217,6 +218,8 @@ export function LabelPanel({
     saved?.name ??
     (creating ? t(tag ? 'settings.labels.edit.defineTitle' : 'settings.labels.edit.newTitle') : draft.name);
   const mode = draft.mode;
+  /** An existing label the system puts on (integrations): who sets it is not for the project to change. */
+  const systemOwned = saved?.setBy === 'system';
 
   return (
     <DetailPanel
@@ -232,7 +235,7 @@ export function LabelPanel({
     >
       <EditBand edit={edit} conflictName={conflictAuthor} other={sorted?.other ?? []} />
       {ownerLocked ? (
-        <p className={fields.lockText}>
+        <p className={clsx(fields.lockText, styles.lockSpaced)}>
           <Icon name="lock" size={13} /> {t('settings.edit.approvalOwnerOnly')}
         </p>
       ) : null}
@@ -305,48 +308,59 @@ export function LabelPanel({
               id={`${formId}-meaning`}
               value={draft.meaning}
               maxLength={MEANING_MAX}
-              aria-describedby={describedBy('meaning')}
+              aria-describedby={[`${formId}-meaning-help`, describedBy('meaning')].filter(Boolean).join(' ')}
               onChange={(event) => update({ meaning: event.target.value })}
             />
-            <span className={styles.counter}>
-              {t('settings.labels.edit.meaningCount', { count: draft.meaning.length, max: MEANING_MAX })}
+            <span className={styles.helpLine}>
+              <span id={`${formId}-meaning-help`} className={fields.hintText}>
+                {t('settings.labels.edit.meaningHelp')}
+              </span>
+              <span className={styles.counter}>
+                {t('settings.labels.edit.meaningCount', { count: draft.meaning.length, max: MEANING_MAX })}
+              </span>
             </span>
             <FieldErrors id={errorId('meaning')} issues={issuesAt('meaning')} />
           </div>
 
           <fieldset className={fields.group} aria-describedby={describedBy('who')}>
             <legend>{t('settings.labels.who')}</legend>
-            {MODES.map((option) => (
-              <label key={option} className={clsx(fields.radio, mode === option && fields.picked)}>
-                <input
-                  type="radio"
-                  name={`${formId}-who`}
-                  checked={mode === option}
-                  disabled={option === 'humans' && !isOwner}
-                  onChange={() => update({ mode: option })}
-                />
-                {t(`settings.labels.whoOptions.${option}`)}
-              </label>
-            ))}
-            {mode === 'duties' ? (
-              <SetterList
-                legend={t('settings.labels.edit.dutiesLegend')}
-                options={duties}
-                value={draft.duties}
-                disabled={frozen}
-                onChange={(value) => update({ duties: value as LabelDraft['duties'] })}
-              />
-            ) : null}
-            {mode === 'members' ? (
-              <SetterList
-                legend={t('settings.labels.members')}
-                options={memberOptions}
-                value={draft.members}
-                disabled={frozen}
-                onChange={(value) => update({ members: value })}
-              />
-            ) : null}
-            {mode === 'duties' || mode === 'members' ? (
+            {systemOwned ? (
+              <p className={fields.hintText}>{t('settings.labels.edit.systemSetter')}</p>
+            ) : (
+              MODES.map((option) => (
+                <Fragment key={option}>
+                  <label className={clsx(fields.radio, mode === option && fields.picked)}>
+                    <input
+                      type="radio"
+                      name={`${formId}-who`}
+                      checked={mode === option}
+                      disabled={option === 'humans' && !isOwner}
+                      onChange={() => update({ mode: option })}
+                    />
+                    {t(`settings.labels.whoOptions.${option}`)}
+                  </label>
+                  {mode === option && option === 'duties' ? (
+                    <SetterList
+                      legend={t('settings.labels.edit.dutiesLegend')}
+                      options={duties}
+                      value={draft.duties}
+                      disabled={frozen}
+                      onChange={(value) => update({ duties: value as LabelDraft['duties'] })}
+                    />
+                  ) : null}
+                  {mode === option && option === 'members' ? (
+                    <SetterList
+                      legend={t('settings.labels.members')}
+                      options={memberOptions}
+                      value={draft.members}
+                      disabled={frozen}
+                      onChange={(value) => update({ members: value })}
+                    />
+                  ) : null}
+                </Fragment>
+              ))
+            )}
+            {!systemOwned && (mode === 'duties' || mode === 'members') ? (
               <label className={fields.radio}>
                 <input
                   type="checkbox"
@@ -357,7 +371,7 @@ export function LabelPanel({
                 {t('settings.labels.humansOnly')}
               </label>
             ) : null}
-            {!isOwner && (mode === 'humans' || mode === 'duties' || mode === 'members') ? (
+            {!systemOwned && !isOwner && (mode === 'humans' || mode === 'duties' || mode === 'members') ? (
               <p className={fields.lockText}>
                 <Icon name="lock" size={13} /> {t('settings.edit.approvalOwnerOnly')}
               </p>
@@ -365,7 +379,7 @@ export function LabelPanel({
             <FieldErrors id={errorId('who')} issues={issuesAt('who')} />
           </fieldset>
 
-          <fieldset className={fields.group}>
+          <fieldset className={clsx(fields.group, styles.rulesGroup)}>
             <legend>{t('settings.labels.edit.rules')}</legend>
             <div className={fields.field}>
               <label htmlFor={`${formId}-group`}>{t('settings.labels.group')}</label>
@@ -374,9 +388,12 @@ export function LabelPanel({
                 value={draft.group}
                 placeholder={t('settings.labels.groupHint')}
                 aria-invalid={invalid('group')}
-                aria-describedby={describedBy('group')}
+                aria-describedby={[`${formId}-group-help`, describedBy('group')].filter(Boolean).join(' ')}
                 onChange={(event) => update({ group: event.target.value })}
               />
+              <span id={`${formId}-group-help`} className={fields.hintText}>
+                {t('settings.labels.edit.groupHelp')}
+              </span>
               <FieldErrors id={errorId('group')} issues={issuesAt('group')} />
             </div>
             {(['notByAuthor', 'requiresComment', 'notifyAssignee', 'blocks'] as const).map((flag) => (

@@ -63,6 +63,7 @@ export function LabelDetail({ config, label }: { config: ProjectConfig; label: L
   const rules = ruleTexts(label);
   return (
     <>
+      <p className={fields.hintText}>{t('settings.pipeline.memberNote')}</p>
       <dl className={styles.facts}>
         <div className={styles.fact}>
           <dt>{t('settings.labels.meaning')}</dt>
@@ -96,7 +97,6 @@ export function LabelDetail({ config, label }: { config: ProjectConfig; label: L
       <p className={fields.id}>
         {t('settings.pipeline.id')} <code>{label.id}</code>
       </p>
-      <p className={fields.hintText}>{t('settings.pipeline.memberNote')}</p>
     </>
   );
 }

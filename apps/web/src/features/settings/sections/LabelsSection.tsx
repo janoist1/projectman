@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import type { LabelView, ProjectConfig } from '@projectman/shared';
@@ -44,6 +44,12 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
   const [flash, setFlash] = useState<{ id: string; count: number } | null>(null);
   /** Where the focus goes once a deleted label's panel is closed: a label id, or null for "+ Új címke". */
   const refocus = useRef<{ id: string | null } | null>(null);
+  const rowOrder = useRef<string[]>([]);
+  /** The label that was deleted from the panel, until its undo brings it back. */
+  const removedId = useRef<string | null>(null);
+  /** The label that was just created from the panel, and whether the list has shown it yet. */
+  const createdId = useRef<{ id: string; seen: boolean } | null>(null);
+  const searchId = useId();
   const show = selection.show;
   const selectedId = show?.type === 'label' ? show.id : null;
   const selectedTag = show?.type === 'new-label' ? (show.tag ?? null) : null;
@@ -86,12 +92,32 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
       .filter(({ tag }) => !needle || tag.toLowerCase().includes(needle));
   }, [board.data?.tasks, labels, needle]);
 
+  // The order of the rows before the open label went: the config of a deleted one is already new when the panel reports it.
+  if (!selectedId || labels.some((label) => label.id === selectedId))
+    rowOrder.current = shown.map((label) => label.id);
   /** The row after the deleted one, else the one before it, else the add button. */
   const nextFocus = (id: string): string | null => {
-    const index = shown.findIndex((label) => label.id === id);
-    const next = shown[index + 1] ?? shown[index - 1];
-    return next?.id ?? null;
+    const order = rowOrder.current;
+    const index = order.indexOf(id);
+    return order[index + 1] ?? order[index - 1] ?? null;
   };
+  // A label that was just deleted and then restored by the undo takes the focus back; a label that was just created
+  // and then undone leaves its panel, which would only say that the label is gone.
+  useEffect(() => {
+    const restored = removedId.current;
+    if (restored && labels.some((label) => label.id === restored)) {
+      removedId.current = null;
+      document.querySelector<HTMLElement>(`[data-label-row="${restored}"]`)?.focus();
+      setFlash((previous) => ({ id: restored, count: (previous?.count ?? 0) + 1 }));
+    }
+    const created = createdId.current;
+    if (!created) return;
+    if (labels.some((label) => label.id === created.id)) createdId.current = { id: created.id, seen: true };
+    else if (created.seen) {
+      createdId.current = null;
+      if (selectedId === created.id) selection.close();
+    }
+  }, [labels]);
   const empty = (
     <>
       <h2 className={styles.emptyTitle}>{t('settings.labels.edit.emptyTitle')}</h2>
@@ -124,8 +150,12 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
           back={back}
           onClose={selection.close}
           onSaved={(id) => setFlash((previous) => ({ id, count: (previous?.count ?? 0) + 1 }))}
-          onCreated={(id) => selection.replace({ type: 'label', id })}
+          onCreated={(id) => {
+            createdId.current = { id, seen: false };
+            selection.replace({ type: 'label', id });
+          }}
           onRemoved={(id) => {
+            removedId.current = id;
             refocus.current = { id: nextFocus(id) };
             selection.close();
           }}
@@ -169,14 +199,22 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
     >
       <p className={shared.muted}>{t('settings.labels.intro')}</p>
       <div className={styles.head}>
-        <input
-          type="search"
-          className={styles.search}
-          value={query}
-          placeholder={t('settings.labels.edit.search')}
-          aria-label={t('settings.labels.edit.searchLabel')}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+        <div className={styles.searchField}>
+          <label htmlFor={searchId} className={styles.searchLabel}>
+            {t('settings.labels.edit.searchLabel')}
+          </label>
+          <input
+            id={searchId}
+            type="search"
+            className={styles.search}
+            value={query}
+            placeholder={t('settings.labels.edit.search')}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <span className={styles.found} role="status">
+            {needle ? t('settings.labels.edit.found', { count: shown.length + undefinedTags.length }) : ''}
+          </span>
+        </div>
         {can.manageTeam ? (
           <Button
             variant="secondary"
@@ -190,7 +228,12 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
       <SettingsDetailLayout>
         <div>
           {shown.length === 0 && undefinedTags.length === 0 ? (
-            <p className={styles.empty}>{t('settings.labels.edit.noMatch', { q: query.trim() })}</p>
+            <p className={styles.empty}>
+              {t('settings.labels.edit.noMatch', { q: query.trim() })}{' '}
+              <Button variant="secondary" size="sm" onClick={() => setQuery('')}>
+                {t('settings.labels.edit.clearSearch')}
+              </Button>
+            </p>
           ) : (
             <ul className={styles.list}>
               {shown.map((label) => {
@@ -225,7 +268,14 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
           )}
           {board.isError ? (
             <p className={clsx(styles.empty, styles.untitled)} role="status">
-              {t('settings.labels.edit.tagsFailed')}
+              {t('settings.labels.edit.tagsFailed')}{' '}
+              <Button variant="secondary" size="sm" onClick={() => void board.refetch()}>
+                {t('app.retry')}
+              </Button>
+            </p>
+          ) : board.isPending ? (
+            <p className={clsx(styles.empty, styles.untitled)} role="status">
+              {t('settings.labels.edit.tagsLoading')}
             </p>
           ) : undefinedTags.length > 0 ? (
             <div className={styles.untitled}>
@@ -243,7 +293,7 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
                       >
                         <LabelChip id={tag} labels={[]} />
                         <span className={styles.line}>{t('settings.labels.onTasks', { count })}</span>
-                        <span className={styles.line}>{t('settings.labels.define')}</span>
+                        <span className={styles.define}>{t('settings.labels.define')}</span>
                       </button>
                     ) : (
                       <div className={styles.row}>

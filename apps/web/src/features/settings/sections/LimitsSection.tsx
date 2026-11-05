@@ -32,7 +32,7 @@ import { errorMessage } from '../../../lib/errors';
 import { decidesText } from '../../../lib/loop';
 import { aiRoleView } from '../../../lib/roles';
 import { InstantNumber, InstantRange, ToggleField } from '../InstantFields';
-import { useInstantLimits } from '../SettingsEditor';
+import { useInstantLimits } from '../edit/useInstantLimits';
 import shared from '../settings.module.css';
 import { SettingsSection } from './SettingsSection';
 

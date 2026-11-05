@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   DUTIES,
@@ -6,50 +6,111 @@ import {
   DUTY_IDS,
   BUILT_IN_ROLE_IDS,
   dutyMembers,
+  introducedErrors,
   memberDuties,
   memberRoles,
   roleBundle,
   isBuiltInRole,
+  ownerOnlyChanges,
   teamSettingOf,
   validateProjectConfig,
 } from '@projectman/shared';
 import type { DutyId, ProjectConfig } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
-import { usePatchConfig } from '../../api/queries';
+import { isApiError } from '../../api/client';
+import { useConfig, usePatchConfig } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
-import { TextAreaField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { LeaveChip } from '../../components/LeaveChip';
 import { SegmentedControl } from '../../components/SegmentedControl';
+import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
+import { issueMessage } from '../../lib/configIssues';
 import { errorMessage } from '../../lib/errors';
 import { useIsMobile } from '../../lib/hooks';
 import { RoleForm } from '../team/RoleSection';
-import { useReportUnsaved } from './SettingsEditor';
+import { useInstantConfig } from './edit/useInstantConfig';
+import { RoleTextEdit } from './RoleTextEdit';
+import { resetRole, rolesBody, toggleDuty } from './rolesEdit';
+import type { RoleTextField } from './rolesEdit';
 import { SettingsSection } from './sections/SettingsSection';
 import styles from './DutiesMatrix.module.css';
 
-type RoleTextField = 'summary' | 'notTheirJob' | 'whenToAsk';
-const ROLE_TEXTS: { field: RoleTextField; maxLength: number }[] = [
+const ROLE_TEXTS: { field: RoleTextField; maxLength?: number }[] = [
   { field: 'summary', maxLength: 280 },
   { field: 'notTheirJob', maxLength: 200 },
   { field: 'whenToAsk', maxLength: 280 },
+  { field: 'instructions' },
 ];
 
-const isReleaseDuty = (duty: DutyId) => duty === 'release_approval' || duty === 'boundary_authorization';
+/** What a saved change tells in its toast, and how the undo names it. */
+interface SaveNote {
+  text: string;
+  name: string;
+}
 
-export function DutiesMatrix({ config, version }: { config: ProjectConfig; version: string }) {
+/** How long a refusal stays at its cell when nothing else replaces it. */
+const REFUSAL_MS = 8000;
+
+/**
+ * The roles and their duties. Every cell, the four-eyes switch and the reset of a role save the moment they
+ * change (a change that would add an error is refused at its cell); each text of a role is saved on its own.
+ */
+export function DutiesMatrix({ config }: { config: ProjectConfig }) {
   const { key, isOwner, can } = useProject();
   const isMobile = useIsMobile();
-  const save = usePatchConfig(key);
-  const [draft, setDraft] = useState(() => structuredClone(config));
+  const toast = useToast();
+  const query = useConfig(key);
+  const patch = usePatchConfig(key);
+  const describedBy = useId();
   const [people, setPeople] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [conflict, setConflict] = useState<{ author: string } | null>(null);
+  const [refusal, setRefusal] = useState<{ cell: string; message: string } | null>(null);
+
+  /** The undo of a save: only on the version that save made, so a later change by anyone is not overwritten. */
+  const undo = (version: string, before: ProjectConfig, name: string) => {
+    patch
+      .mutateAsync(rolesBody(before, version, teamSettingOf(before, 'releaseFourEyes')))
+      .then(() => toast.show(t('settings.pipeline.edit.undone', { name })))
+      .catch(async (error: unknown) => {
+        if (isApiError(error) && error.code === 'config_conflict') {
+          await query.refetch();
+          toast.show(t('settings.pipeline.edit.undoConflict'), 'error');
+        } else toast.show(errorMessage(error), 'error');
+      });
+  };
+  const instant = useInstantConfig<SaveNote>(config, {
+    body: (next, saved) => rolesBody(next, saved.version, teamSettingOf(next, 'releaseFourEyes')),
+    saved: (result, before, note) => {
+      setRefusal(null);
+      toast.show(note.text, 'ok', {
+        action: {
+          label: t('settings.pipeline.edit.undo'),
+          run: () => undo(result.version, before.config, note.name),
+        },
+      });
+    },
+    refused: async (caught) => {
+      if (isApiError(caught) && caught.code === 'config_conflict') {
+        const fresh = (await query.refetch()).data;
+        setConflict({ author: fresh?.history[0]?.author ?? '' });
+      } else toast.show(errorMessage(caught), 'error');
+    },
+  });
+  const shown = instant.shown;
+
+  useEffect(() => {
+    if (!refusal) return;
+    const timer = setTimeout(() => setRefusal(null), REFUSAL_MS);
+    return () => clearTimeout(timer);
+  }, [refusal]);
+
   const locale = getLocale(config.project.language);
-  const used = new Set(config.team.members.flatMap(memberRoles));
-  const roles = [...BUILT_IN_ROLE_IDS.filter((id) => used.has(id)), ...draft.team.roles.map((r) => r.id)];
-  const holders = (role: string) => draft.team.members.filter((m) => memberRoles(m).includes(role));
+  const used = new Set(shown.team.members.flatMap(memberRoles));
+  const roles = [...BUILT_IN_ROLE_IDS.filter((id) => used.has(id)), ...shown.team.roles.map((r) => r.id)];
+  const holders = (role: string) => shown.team.members.filter((m) => memberRoles(m).includes(role));
   const holderNames = (role: string) =>
     holders(role)
       .map((m) => m.displayName)
@@ -57,94 +118,137 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
   const name = (role: string) =>
     isBuiltInRole(role)
       ? locale.roles[role].name
-      : (draft.team.roles.find((r) => r.id === role)?.name ?? role);
-  const change = (role: string, update: (bundle: ReturnType<typeof roleBundle>) => void) => {
-    const next = structuredClone(draft);
-    const bundle = structuredClone(roleBundle(next, role));
-    update(bundle);
-    if (isBuiltInRole(role)) (next.team.roleOverrides ??= {})[role] = bundle;
-    else
-      Object.assign(
-        next.team.roles.find((r) => r.id === role)!,
-        bundle,
-      );
-    setDraft(next);
-  };
-  /** A built-in role shows its default text until the project writes its own. */
-  const text = (role: string, field: RoleTextField) =>
-    isBuiltInRole(role)
-      ? (draft.team.roleOverrides?.[role]?.[field] ?? locale.roles[role][field])
-      : (draft.team.roles.find((r) => r.id === role)?.[field] ?? '');
-  const setText = (role: string, field: RoleTextField, value: string) => {
-    if (!isBuiltInRole(role)) {
-      const next = structuredClone(draft);
-      next.team.roles.find((r) => r.id === role)![field] = value;
-      setDraft(next);
+      : (shown.team.roles.find((r) => r.id === role)?.name ?? role);
+
+  /**
+   * Saves `update` unless it would add an error (the cell says why) or change what only an owner may;
+   * `cell` says where a refusal is shown.
+   */
+  const attempt = (update: (draft: ProjectConfig) => void, note: SaveNote, cell: string) => {
+    const before = instant.base();
+    const probe = structuredClone(before);
+    update(probe);
+    if (!isOwner && ownerOnlyChanges(before, probe).length > 0) return;
+    const [first] = introducedErrors(before, probe);
+    if (first) {
+      setRefusal({ cell, message: t('duties.refused', { reason: issueMessage(first) }) });
       return;
     }
-    change(role, (bundle) => {
-      if (value === locale.roles[role][field]) delete bundle[field];
-      else bundle[field] = value;
-    });
+    setConflict(null);
+    void instant.commit(update, note);
   };
   const toggle = (role: string, duty: DutyId) =>
-    change(role, (bundle) => {
-      bundle.duties = bundle.duties.includes(duty)
-        ? bundle.duties.filter((id) => id !== duty)
-        : [...bundle.duties, duty];
-    });
-  /** Why one box is locked for an admin; a viewer gets one note above the matrix instead. */
-  const reason = (role: string, duty: DutyId) => {
-    if (!can.manageTeam) return '';
-    if (isReleaseDuty(duty) && !isOwner) return t('duties.ownerOnly');
-    if (
-      DUTIES[duty].holders === 'human' &&
-      (holders(role).some((m) => m.kind === 'ai') || draft.team.limits.tempWorkers.role === role)
-    )
-      return t('duties.humanOnly');
-    return '';
-  };
-  const issues = validateProjectConfig(draft);
-  const dirty = JSON.stringify(draft.team) !== JSON.stringify(config.team);
-  useReportUnsaved(dirty);
+    attempt(
+      (draft) => toggleDuty(draft, role, duty),
+      {
+        text: t('duties.saved', { role: name(role), duty: locale.duties[duty].name }),
+        name: `${name(role)} · ${locale.duties[duty].name}`,
+      },
+      `${role}:${duty}`,
+    );
 
-  const hasOverride = (role: string) => isBuiltInRole(role) && !!draft.team.roleOverrides?.[role];
-  const resetDisabled = (role: string) =>
-    !can.manageTeam ||
-    (!isOwner &&
-      (roleBundle(draft, role).duties.some(isReleaseDuty) ||
-        roleBundle({ team: { ...draft.team, roleOverrides: {} } }, role).duties.some(isReleaseDuty)));
+  /** The cells an admin who is not an owner may not change (the same rule the server applies). */
+  const ownerLocked = useMemo(() => {
+    const cells = new Set<string>();
+    if (isOwner || !can.manageTeam) return cells;
+    for (const role of roles)
+      for (const duty of DUTY_IDS) {
+        const probe = structuredClone(shown);
+        toggleDuty(probe, role, duty);
+        if (ownerOnlyChanges(shown, probe).length > 0) cells.add(`${role}:${duty}`);
+      }
+    return cells;
+  }, [shown, isOwner, can.manageTeam]);
+  /** Why one box cannot be changed; a viewer gets one note above the matrix instead. */
+  const lockOf = (role: string, duty: DutyId): 'owner' | 'human' | null => {
+    if (!can.manageTeam) return null;
+    if (ownerLocked.has(`${role}:${duty}`)) return 'owner';
+    return DUTIES[duty].holders === 'human' &&
+      (holders(role).some((m) => m.kind === 'ai') || shown.team.limits.tempWorkers.role === role)
+      ? 'human'
+      : null;
+  };
+
+  const issues = validateProjectConfig(shown);
+  const hasOverride = (role: string) => isBuiltInRole(role) && !!shown.team.roleOverrides?.[role];
+  const resetDisabled = (role: string) => {
+    if (!can.manageTeam) return true;
+    if (isOwner) return false;
+    const probe = structuredClone(shown);
+    resetRole(probe, role);
+    return ownerOnlyChanges(shown, probe).length > 0;
+  };
   const resetButton = (role: string) => (
     <Button
       size="sm"
       variant="secondary"
       disabled={resetDisabled(role)}
-      onClick={() => {
-        if (!isBuiltInRole(role)) return;
-        const next = structuredClone(draft);
-        delete next.team.roleOverrides![role];
-        setDraft(next);
-      }}
+      onClick={() =>
+        attempt(
+          (draft) => resetRole(draft, role),
+          { text: t('duties.resetDone', { role: name(role) }), name: name(role) },
+          `reset:${role}`,
+        )
+      }
     >
       {t('duties.reset')}
     </Button>
   );
-  const dutyBox = (role: string, id: DutyId, why: string) => (
-    <input
-      type="checkbox"
-      aria-label={`${locale.duties[id].name}: ${name(role)}`}
-      checked={roleBundle(draft, role).duties.includes(id)}
-      disabled={!can.manageTeam || !!why || save.isPending}
-      onChange={() => toggle(role, id)}
+  const refusalAt = (cell: string) =>
+    refusal?.cell === cell ? (
+      <small id={`${describedBy}-${cell}`} role="alert" className={styles.refusal}>
+        {refusal.message}
+      </small>
+    ) : null;
+
+  const dutyBox = (role: string, id: DutyId) => {
+    const lock = lockOf(role, id);
+    const cell = `${role}:${id}`;
+    const checked = roleBundle(shown, role).duties.includes(id);
+    if (lock === 'owner')
+      return (
+        <span className={styles.lock} title={t('duties.ownerOnly')}>
+          <Icon name="lock" size={14} />
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled
+            aria-label={t('duties.lockedLabel', { duty: locale.duties[id].name, role: name(role) })}
+          />
+          <span className="visually-hidden">{checked ? t('duties.lockedOn') : t('duties.lockedOff')}</span>
+        </span>
+      );
+    return (
+      <input
+        type="checkbox"
+        aria-label={`${locale.duties[id].name}: ${name(role)}`}
+        aria-describedby={refusal?.cell === cell ? `${describedBy}-${cell}` : undefined}
+        checked={checked}
+        disabled={!can.manageTeam || lock === 'human'}
+        onChange={() => toggle(role, id)}
+      />
+    );
+  };
+  const lockNote = (role: string, id: DutyId) => {
+    const lock = lockOf(role, id);
+    return lock ? <small>{lock === 'owner' ? t('duties.ownerOnly') : t('duties.humanOnly')}</small> : null;
+  };
+
+  const textEdit = (role: string, field: RoleTextField, maxLength: number | undefined, card: boolean) => (
+    <RoleTextEdit
+      config={shown}
+      locale={locale}
+      role={role}
+      roleName={name(role)}
+      field={field}
+      label={field === 'instructions' ? t('duties.extra') : t(`roleCatalogue.${field}`)}
+      maxLength={maxLength}
+      disabled={!can.manageTeam}
+      card={card}
     />
   );
-  const instructions = (role: string) => roleBundle(draft, role).instructions;
-  const setInstructions = (role: string, value: string) =>
-    change(role, (bundle) => {
-      bundle.instructions = value;
-    });
 
-  const columnCount = people ? draft.team.members.length : roles.length;
+  const columnCount = people ? shown.team.members.length : roles.length;
   const table = (
     <div className={styles.scroll}>
       <table className={styles.table}>
@@ -152,7 +256,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
           <tr>
             <th>{t('duties.duty')}</th>
             {people
-              ? draft.team.members.map((m) => (
+              ? shown.team.members.map((m) => (
                   <th key={m.handle}>
                     {m.displayName}
                     <span className={styles.leaveMark}>
@@ -166,6 +270,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
                     {name(role)}
                     <small>{holderNames(role)}</small>
                     {hasOverride(role) && resetButton(role)}
+                    {refusalAt(`reset:${role}`)}
                   </th>
                 ))}
           </tr>
@@ -178,7 +283,7 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
               </th>
             </tr>
             {DUTY_IDS.filter((id) => DUTIES[id].group === group).map((id) => {
-              const orphan = dutyMembers(draft, id).length === 0;
+              const orphan = dutyMembers(shown, id).length === 0;
               return (
                 <tr key={id} className={orphan ? styles.orphan : undefined}>
                   <th scope="row">
@@ -187,11 +292,11 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
                     {orphan && <small>{t('duties.missing')}</small>}
                   </th>
                   {people
-                    ? draft.team.members.map((m) => (
+                    ? shown.team.members.map((m) => (
                         <td key={m.handle}>
                           <input
                             type="checkbox"
-                            checked={memberDuties(draft, m).includes(id)}
+                            checked={memberDuties(shown, m).includes(id)}
                             readOnly
                             disabled
                             aria-label={`${locale.duties[id].name}: ${m.displayName}`}
@@ -199,11 +304,16 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
                         </td>
                       ))
                     : roles.map((role) => {
-                        const why = reason(role, id);
+                        const lock = lockOf(role, id);
                         return (
-                          <td key={role} className={why ? styles.disabled : undefined} title={why}>
-                            {dutyBox(role, id, why)}
-                            {why && <small>{why}</small>}
+                          <td
+                            key={role}
+                            className={lock ? styles.disabled : undefined}
+                            title={lock === 'owner' ? t('duties.ownerOnly') : undefined}
+                          >
+                            {dutyBox(role, id)}
+                            {lockNote(role, id)}
+                            {refusalAt(`${role}:${id}`)}
                           </td>
                         );
                       })}
@@ -217,36 +327,16 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
             {ROLE_TEXTS.map(({ field, maxLength }) => (
               <tr key={field}>
                 <th scope="row">
-                  {t(`roleCatalogue.${field}`)}
-                  {roles.some(isBuiltInRole) ? <small>{t('roleCatalogue.defaultText')}</small> : null}
+                  {field === 'instructions' ? t('duties.extra') : t(`roleCatalogue.${field}`)}
+                  {field !== 'instructions' && roles.some(isBuiltInRole) ? (
+                    <small>{t('roleCatalogue.defaultText')}</small>
+                  ) : null}
                 </th>
                 {roles.map((role) => (
-                  <td key={role}>
-                    <textarea
-                      aria-label={`${t(`roleCatalogue.${field}`)}: ${name(role)}`}
-                      disabled={!can.manageTeam}
-                      maxLength={maxLength}
-                      placeholder={isBuiltInRole(role) ? locale.roles[role][field] : undefined}
-                      value={text(role, field)}
-                      onChange={(e) => setText(role, field, e.target.value)}
-                    />
-                  </td>
+                  <td key={role}>{textEdit(role, field, maxLength, false)}</td>
                 ))}
               </tr>
             ))}
-            <tr>
-              <th scope="row">{t('duties.extra')}</th>
-              {roles.map((role) => (
-                <td key={role}>
-                  <textarea
-                    aria-label={`${t('duties.extra')}: ${name(role)}`}
-                    disabled={!can.manageTeam}
-                    value={instructions(role)}
-                    onChange={(e) => setInstructions(role, e.target.value)}
-                  />
-                </td>
-              ))}
-            </tr>
           </tbody>
         )}
       </table>
@@ -271,8 +361,8 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
   const cards = (
     <div className={styles.cards}>
       {people
-        ? draft.team.members.map((m) => {
-            const held = DUTY_IDS.filter((id) => memberDuties(draft, m).includes(id));
+        ? shown.team.members.map((m) => {
+            const held = DUTY_IDS.filter((id) => memberDuties(shown, m).includes(id));
             return (
               <details key={m.handle} className={styles.roleCard}>
                 {summary(m.displayName, m.handle, <LeaveChip member={m} />)}
@@ -292,20 +382,28 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
             <details key={role} className={styles.roleCard}>
               {summary(name(role), holderNames(role))}
               <div className={styles.roleBody}>
-                {hasOverride(role) && <div>{resetButton(role)}</div>}
+                {hasOverride(role) && (
+                  <div>
+                    {resetButton(role)}
+                    {refusalAt(`reset:${role}`)}
+                  </div>
+                )}
                 {DUTY_GROUPS.map((group) => (
                   <fieldset key={group} className={styles.dutyGroup}>
                     <legend>{t(`duties.${group}`)}</legend>
                     {DUTY_IDS.filter((id) => DUTIES[id].group === group).map((id) => {
-                      const why = reason(role, id);
                       // The whole row is the checkbox's label, so the name is a finger-sized target.
                       return (
-                        <label key={id} className={why ? styles.dutyRowDisabled : styles.dutyRow}>
-                          {dutyBox(role, id, why)}
+                        <label
+                          key={id}
+                          className={lockOf(role, id) ? styles.dutyRowDisabled : styles.dutyRow}
+                        >
+                          {dutyBox(role, id)}
                           <span>
                             {locale.duties[id].name}
                             <small>{locale.duties[id].description}</small>
-                            {why && <small>{why}</small>}
+                            {lockNote(role, id)}
+                            {refusalAt(`${role}:${id}`)}
                           </span>
                         </label>
                       );
@@ -313,27 +411,17 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
                   </fieldset>
                 ))}
                 {ROLE_TEXTS.map(({ field, maxLength }) => (
-                  <TextAreaField
-                    key={field}
-                    label={t(`roleCatalogue.${field}`)}
-                    disabled={!can.manageTeam}
-                    maxLength={maxLength}
-                    placeholder={isBuiltInRole(role) ? locale.roles[role][field] : undefined}
-                    value={text(role, field)}
-                    onChange={(e) => setText(role, field, e.target.value)}
-                  />
+                  <div key={field}>{textEdit(role, field, maxLength, true)}</div>
                 ))}
-                <TextAreaField
-                  label={t('duties.extra')}
-                  disabled={!can.manageTeam}
-                  value={instructions(role)}
-                  onChange={(e) => setInstructions(role, e.target.value)}
-                />
               </div>
             </details>
           ))}
     </div>
   );
+
+  const conflictName = conflict
+    ? (shown.team.members.find((member) => member.handle === conflict.author)?.displayName ?? conflict.author)
+    : '';
 
   return (
     <SettingsSection id="settings-duties" title={t('duties.title')}>
@@ -355,16 +443,31 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
         )}
       </div>
       {can.manageTeam ? null : <p className={styles.note}>{t('duties.readOnly')}</p>}
+      {conflict ? (
+        <p className={styles.band} role="status">
+          {conflictName ? t('duties.conflict', { name: conflictName }) : t('duties.conflictUnknown')}
+        </p>
+      ) : null}
       {isMobile ? cards : table}
       <label className={styles.check}>
         <input
           type="checkbox"
-          checked={teamSettingOf(draft, 'releaseFourEyes')}
-          disabled={!isOwner || save.isPending}
-          onChange={(e) => setDraft({ ...draft, team: { ...draft.team, releaseFourEyes: e.target.checked } })}
+          checked={teamSettingOf(shown, 'releaseFourEyes')}
+          disabled={!isOwner}
+          onChange={(event) => {
+            const on = event.target.checked;
+            attempt(
+              (draft) => {
+                draft.team.releaseFourEyes = on;
+              },
+              { text: t(on ? 'duties.fourEyesOn' : 'duties.fourEyesOff'), name: t('duties.fourEyes') },
+              'fourEyes',
+            );
+          }}
         />
         {t('duties.fourEyes')}
       </label>
+      {refusalAt('fourEyes')}
       {issues
         .filter((i) => i.detail && DUTY_IDS.includes(i.detail as DutyId))
         .map((issue, i) => (
@@ -372,29 +475,6 @@ export function DutiesMatrix({ config, version }: { config: ProjectConfig; versi
             {locale.duties[issue.detail as DutyId].name}: {t('duties.missing')}
           </p>
         ))}
-      {save.isError && <p role="alert">{errorMessage(save.error)}</p>}
-      {can.manageTeam && dirty && (
-        <div className={styles.saveBar}>
-          <Button
-            variant="primary"
-            loading={save.isPending}
-            disabled={issues.some((i) => i.severity !== 'warning')}
-            onClick={() =>
-              save.mutate({
-                baseVersion: version,
-                roleOverrides: draft.team.roleOverrides ?? {},
-                roles: draft.team.roles,
-                releaseFourEyes: teamSettingOf(draft, 'releaseFourEyes'),
-              })
-            }
-          >
-            {t('memberEdit.save')}
-          </Button>
-          <Button variant="secondary" onClick={() => setDraft(structuredClone(config))}>
-            {t('common.cancel')}
-          </Button>
-        </div>
-      )}
       {adding ? <RoleForm onDone={() => setAdding(false)} /> : null}
     </SettingsSection>
   );

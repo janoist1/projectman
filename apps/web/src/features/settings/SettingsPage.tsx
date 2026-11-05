@@ -28,7 +28,7 @@ import type { MemberIndex } from '../../lib/members';
 import { ConfigProblems } from './ConfigProblems';
 import { DutiesMatrix } from './DutiesMatrix';
 import { issueTarget } from './issueTarget';
-import { SettingsEditingProvider } from './SettingsEditor';
+import { SettingsEditingProvider } from './edit/SettingsEditing';
 import { isSettingsSection, SETTINGS_SECTIONS, SETTINGS_WIDE_QUERY } from './sections';
 import type { SettingsSectionId } from './sections';
 import styles from './SettingsPage.module.css';
@@ -305,7 +305,7 @@ export function SettingsPage() {
         content = <LabelsSection config={view.config} />;
         break;
       case 'duties':
-        content = <DutiesMatrix key={view.version} config={view.config} version={view.version} />;
+        content = <DutiesMatrix config={view.config} />;
         break;
       case 'team':
         content = <TeamSection config={view.config} />;

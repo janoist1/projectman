@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router';
 import { SettingsPage } from './SettingsPage';
 import type { SettingsSectionId } from './sections';
 import { useConfig } from '../../api/queries';
-import { SettingsEditingProvider } from './SettingsEditor';
+import { SettingsEditingProvider } from './edit/SettingsEditing';
 import { ProjectSection } from './sections/ProjectSection';
 import { LimitsSection } from './sections/LimitsSection';
 import { DutiesMatrix } from './DutiesMatrix';
@@ -16,7 +16,7 @@ export function SettingsEditingFixture() {
     <SettingsEditingProvider view={view} reload={async () => (await query.refetch()).data}>
       <ProjectSection config={view.config} />
       <LimitsSection config={view.config} />
-      <DutiesMatrix key={view.version} config={view.config} version={view.version} />
+      <DutiesMatrix config={view.config} />
     </SettingsEditingProvider>
   );
 }

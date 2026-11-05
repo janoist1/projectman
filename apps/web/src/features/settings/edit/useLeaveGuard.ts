@@ -2,14 +2,16 @@ import { useCallback, useContext, useEffect, useRef } from 'react';
 import { useToast } from '../../../components/toastContext';
 import { t } from '../../../i18n/t';
 import { LeaveGuardContext } from './LeaveGuard';
+import { useReportUnsaved } from './SettingsEditing';
 
 /**
  * Protects an unsaved change: the selection's steps and the Back button ask first (through the
  * surrounding `LeaveGuardProvider`), closing the tab asks the browser, and leaving the settings by the
- * menu says that the change was lost.
+ * menu says that the change was lost. The controls that save at once wait while it is held.
  */
 export function useLeaveGuard(dirty: boolean, discard: () => void, name: string) {
   const guard = useContext(LeaveGuardContext);
+  useReportUnsaved(dirty);
   const toast = useToast();
   const unsaved = useRef(dirty);
   useEffect(() => {

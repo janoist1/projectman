@@ -6868,6 +6868,7 @@ export const en = {
         found: '{count|# match|# matches}',
         noMatch: 'No such label: “{q}”.',
         clearSearch: 'Clear search',
+        noLabels: 'No label is defined yet.',
         tagsLoading: 'Loading the labels used on cards…',
         tagsFailed: 'The labels used on cards could not be loaded.',
         systemSetter: 'The system puts it on automatically. This setting cannot be changed.',

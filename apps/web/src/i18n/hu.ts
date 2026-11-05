@@ -6868,6 +6868,7 @@ export const hu = {
         found: '{count} találat',
         noMatch: 'Nincs ilyen címke: „{q}”.',
         clearSearch: 'Keresés törlése',
+        noLabels: 'Még nincs meghatározott címke.',
         tagsLoading: 'A kártyákon használt címkék betöltése…',
         tagsFailed: 'A kártyákon használt címkéket nem sikerült betölteni.',
         systemSetter: 'A rendszer teszi fel automatikusan. Ez a beállítás nem módosítható.',

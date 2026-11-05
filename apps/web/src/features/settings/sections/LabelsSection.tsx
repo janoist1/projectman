@@ -115,7 +115,10 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
     if (labels.some((label) => label.id === created.id)) createdId.current = { id: created.id, seen: true };
     else if (created.seen) {
       createdId.current = null;
-      if (selectedId === created.id) selection.close();
+      if (selectedId === created.id) {
+        refocus.current = { id: null };
+        selection.close();
+      }
     }
   }, [labels]);
   const empty = (
@@ -227,7 +230,9 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
       </div>
       <SettingsDetailLayout>
         <div>
-          {shown.length === 0 && undefinedTags.length === 0 ? (
+          {labels.length === 0 && !needle ? (
+            <p className={styles.empty}>{t('settings.labels.edit.noLabels')}</p>
+          ) : shown.length === 0 && undefinedTags.length === 0 ? (
             <p className={styles.empty}>
               {t('settings.labels.edit.noMatch', { q: query.trim() })}{' '}
               <Button variant="secondary" size="sm" onClick={() => setQuery('')}>

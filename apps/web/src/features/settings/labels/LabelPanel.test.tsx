@@ -318,6 +318,9 @@ describe('new label', () => {
       expect(project.backend.config.pipeline.labels.some((l) => l.name === 'Várakozik')).toBe(false),
     );
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: t('settings.labels.add') })),
+    );
   });
 
   it('does not take a name that is empty', async () => {

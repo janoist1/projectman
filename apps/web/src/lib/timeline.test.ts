@@ -338,6 +338,28 @@ describe('the reason of a reassignment on the timeline (PM-1040)', () => {
   });
 });
 
+describe('a dropped team message on the timeline (PM-1248)', () => {
+  const row = (reason: string) =>
+    describeEvent(
+      {
+        ...creation,
+        actor: { kind: 'system', handle: null },
+        type: 'message_dropped',
+        data: { messageId: 'msg_1', recipient: 'dev-1', reason },
+      },
+      context,
+    ).text;
+
+  it('names the recipient and tells a closed card from a member who left', () => {
+    expect(row('place_closed')).toBe(
+      t('timeline.events.message_dropped_place_closed', { recipient: 'dev-1' }),
+    );
+    expect(row('member_removed')).toBe(
+      t('timeline.events.message_dropped_member_removed', { recipient: 'dev-1' }),
+    );
+  });
+});
+
 describe('open-step reminders on the timeline (PM-806)', () => {
   const row = (
     type: 'obligation_woken' | 'obligation_pm_told' | 'obligation_handed_over',

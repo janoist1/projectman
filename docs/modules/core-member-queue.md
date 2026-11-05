@@ -39,7 +39,9 @@ from it (see "Driver" below).
   `wait_details`); there is no deferred-start row for it. The sweep (`DomainOptions.memberQueueSweepMs`, default 30 s,
   in the kernel's sweep list) calls `ensure` for every member with an open item, so a lost wake or a limit that lifted
   without an event is found at the next sweep. A lane (`MemberQueueLane`) says what its items are; the message lane
-  delivers as before (receipt and item close together). Items a session works (`processing`) return to the queue
+  delivers as before (receipt and item close together). An item closed as `place_closed` or `member_removed` is
+  reported to its lane (`dropped`, PM-1248): the message lane writes a `message_dropped` timeline event and sends the
+  AI sender of an `action` a non-waking info message into its general conversation. Items a session works (`processing`) return to the queue
   when the session is gone, after `MEMBER_QUEUE_MAX_ATTEMPTS` they are handed off, and after 45 minutes the session is
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
 - **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/project-manager/queue` only. Access: a

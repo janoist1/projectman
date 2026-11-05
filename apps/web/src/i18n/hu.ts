@@ -5948,6 +5948,10 @@ export const hu = {
       obligation_paused: 'A(z) {step} határideje áll: a kapcsolódó {key} kártya tulajdonosi válaszra vár.',
       member_queue_item_closed:
         'A várakozó indítás lezárult: az indítás oka megszűnt vagy az indítás nem teljesíthető.',
+      message_dropped_place_closed:
+        'Egy üzenet nem jutott el a címzetthez ({recipient}): a kártya lezárult, mielőtt kézbesíthető lett volna.',
+      message_dropped_member_removed:
+        'Egy üzenet nem jutott el a címzetthez ({recipient}): a címzett kikerült a tagok közül.',
       obligation_handed_over:
         'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért teendő lett belőle ({minutes} perc).',
       obligation_handed_over_refused:

@@ -21,7 +21,7 @@ import type { IssueRef } from '../../lib/configIssues';
 import { errorMessage } from '../../lib/errors';
 import styles from './settings.module.css';
 
-type Section = 'project' | 'pipeline' | 'labels';
+type Section = 'project' | 'pipeline';
 type Edit = {
   section: Section;
   draft: ProjectConfig;
@@ -165,7 +165,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
   };
 }
 
-/** The part of the configuration a section saves (labels live in the pipeline). */
+/** The part of the configuration a section saves. */
 function patchBody(section: Section, draft: ProjectConfig, baseVersion: string): PatchConfigRequest {
   if (section === 'project')
     return {

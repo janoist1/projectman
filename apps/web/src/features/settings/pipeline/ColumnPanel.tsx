@@ -4,6 +4,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { useProject } from '../../../app/contexts';
 import { t } from '../../../i18n/t';
 import { DetailPanel, MissingSettingsElement } from '../DetailPanel';
+import { EditFooter } from '../edit/EditChrome';
 import { useElementEdit } from '../edit/useElementEdit';
 import { useLeaveGuard } from '../edit/useLeaveGuard';
 import type { SettingsShow } from '../selection';
@@ -14,7 +15,6 @@ import { columnDeleteBlock, withoutColumn } from './deletion';
 import { DeleteSection } from './DeleteSection';
 import { focusRow } from './focusRow';
 import { PanelBands } from './PanelBands';
-import { PanelFooter } from './PanelFooter';
 import panelStyles from './PipelinePanel.module.css';
 import styles from './StagePanel.module.css';
 
@@ -78,11 +78,11 @@ export function ColumnPanel({ config, columnId, empty, onSelect, onClose, onDele
       title={saved.name}
       empty={empty}
       footer={
-        <PanelFooter
+        <EditFooter
           edit={edit}
           canSave={canSave}
           formId={formId}
-          submitLabel={t('settings.pipeline.edit.save')}
+          saveText={t('settings.pipeline.edit.save')}
           onClose={onClose}
         />
       }
@@ -133,7 +133,9 @@ export function ColumnPanel({ config, columnId, empty, onSelect, onClose, onDele
           name={saved.name}
           block={block}
           onDelete={() =>
-            edit.remove(withoutColumn(config, columnId), saved.name, () => focusRow(`column:${columnId}`))
+            edit.removeElement(withoutColumn(config, columnId), saved.name, () =>
+              focusRow(`column:${columnId}`),
+            )
           }
           onDeleted={() => onDeleted(columnId)}
         />

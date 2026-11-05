@@ -4,11 +4,11 @@ import type { ProjectConfig } from '@projectman/shared';
 import { t } from '../../../i18n/t';
 import { pipelineId } from '../../../lib/ids';
 import { DetailPanel } from '../DetailPanel';
+import { EditFooter } from '../edit/EditChrome';
 import { useElementEdit } from '../edit/useElementEdit';
 import { useLeaveGuard } from '../edit/useLeaveGuard';
 import { orderColumns } from './flow';
 import { PanelBands } from './PanelBands';
-import { PanelFooter } from './PanelFooter';
 import { StageForm } from './StageForm';
 import { NEW_COLUMN, sortIssues, stageOf } from './stageDraft';
 import type { StageDraft } from './stageDraft';
@@ -201,11 +201,11 @@ export function NewStagePanel({ config, after, empty, onClose, onCreated }: NewS
       title={t('settings.pipeline.new.stageTitle')}
       empty={empty}
       footer={
-        <PanelFooter
+        <EditFooter
           edit={edit}
           canSave={canSave}
           formId={formId}
-          submitLabel={t('settings.pipeline.createStage')}
+          saveText={t('settings.pipeline.createStage')}
           cancel="close"
           onClose={onClose}
         />

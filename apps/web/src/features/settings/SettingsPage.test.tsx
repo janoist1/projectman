@@ -26,7 +26,7 @@ async function goTo(section: string) {
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
-async function editSection(section: 'project' | 'labels') {
+async function editSection(section: 'project') {
   await goTo(section);
   const region = await screen.findByRole('region', { name: t(`settings.sections.${section}`) });
   fireEvent.click(within(region).getByRole('button', { name: t('memberEdit.edit') }));
@@ -544,30 +544,6 @@ describe('settings section editors', () => {
     const section = await limitsSection();
     expect(section.getByText(t('settings.limits.aiEnabledOn'))).toBeTruthy();
     expect(section.queryByRole('checkbox')).toBeNull();
-  });
-
-  it('gives a tag in use a meaning and rules, and keeps approvals for the owner', async () => {
-    const project = mockProject();
-    project.backend.findTask('AC-20')!.labels.push('Sürgős');
-    project.render(<SettingsTestRoutes />);
-    const section = await editSection('labels');
-    const row = within(section.getByText('Sürgős').closest('div')!);
-    fireEvent.click(row.getByRole('button', { name: t('settings.labels.define') }));
-    fireEvent.change(section.getByLabelText(t('settings.labels.meaning')), { target: { value: 'Ma kell.' } });
-    fireEvent.change(section.getByLabelText(t('settings.labels.color')), { target: { value: 'red' } });
-    fireEvent.click(section.getByLabelText(t('settings.labels.blocks')));
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(lastConfigPatch(project.requests).pipeline!.labels.find((label) => label.id === 'Sürgős')).toEqual(
-      {
-        id: 'Sürgős',
-        name: 'Sürgős',
-        color: 'red',
-        meaning: 'Ma kell.',
-        setBy: 'anyone',
-        blocks: true,
-      },
-    );
   });
 
   it('tells the owner which rules the stored configuration breaks, and nothing when it breaks none', async () => {

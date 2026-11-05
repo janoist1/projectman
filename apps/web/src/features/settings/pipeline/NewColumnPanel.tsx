@@ -3,13 +3,13 @@ import type { ReactNode } from 'react';
 import type { ProjectConfig } from '@projectman/shared';
 import { t } from '../../../i18n/t';
 import { DetailPanel } from '../DetailPanel';
+import { EditFooter } from '../edit/EditChrome';
 import { useElementEdit } from '../edit/useElementEdit';
 import { useLeaveGuard } from '../edit/useLeaveGuard';
 import { appendColumn, blankColumn, newColumnId, sortColumnIssues } from './columnDraft';
 import type { ColumnDraft } from './columnDraft';
 import { ColumnForm } from './ColumnForm';
 import { PanelBands } from './PanelBands';
-import { PanelFooter } from './PanelFooter';
 import styles from './StagePanel.module.css';
 
 interface NewColumnPanelProps {
@@ -68,11 +68,11 @@ export function NewColumnPanel({ config, empty, onClose, onCreated }: NewColumnP
       title={t('settings.pipeline.new.columnTitle')}
       empty={empty}
       footer={
-        <PanelFooter
+        <EditFooter
           edit={edit}
           canSave={canSave}
           formId={formId}
-          submitLabel={t('settings.pipeline.createColumn')}
+          saveText={t('settings.pipeline.createColumn')}
           cancel="close"
           onClose={onClose}
         />

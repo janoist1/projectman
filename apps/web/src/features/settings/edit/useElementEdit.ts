@@ -27,6 +27,10 @@ export interface ElementEditOptions<D> {
   savedText(draft: D): string;
   /** The element's name, for the undo's confirmation. */
   name(draft: D): string;
+  /** The configuration without the element; omitted where the element cannot be deleted. */
+  without?(config: ProjectConfig): ProjectConfig;
+  /** "Törölve: Sürgős" */
+  removedText?(draft: D): string;
 }
 
 /** What the server answered to a save, beyond a version conflict. */
@@ -55,8 +59,13 @@ export interface ElementEdit<D> {
   saves: number;
   /** True when the draft was saved. */
   save(): Promise<boolean>;
-  /** `restored` runs after the undo of the delete brought the element back. */
-  remove(next: ProjectConfig, name: string, restored?: () => void): Promise<RemoveFailure | null>;
+  /** Deletes the element on its own, undoable like a save; resolves to whether it went through. */
+  remove(): Promise<boolean>;
+  /**
+   * Saves `next` (the configuration without this element) at once, whatever the draft holds; the answer says
+   * why nothing was deleted, null when it was. `restored` runs after the undo brought the element back.
+   */
+  removeElement(next: ProjectConfig, name: string, restored?: () => void): Promise<RemoveFailure | null>;
   discard(): void;
 }
 
@@ -191,6 +200,22 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     });
   };
 
+  /** Puts what the server refused on the screen: the conflict band, or the failure the form shows. */
+  const refused = async (error: unknown) => {
+    if (isApiError(error) && error.code === 'config_conflict') {
+      const fresh = (await query.refetch()).data;
+      setConflict({ author: fresh?.history[0]?.author ?? '' });
+    } else if (isApiError(error) && error.code === 'config_invalid') {
+      const issues = (error.details as { issues?: IssueRef[] } | undefined)?.issues ?? [];
+      setFailure({ kind: 'issues', issues });
+    } else if (isApiError(error) && error.code === 'owner_only') setFailure({ kind: 'owner_only' });
+    else
+      setFailure({
+        kind: 'error',
+        reason: isApiError(error) && error.status > 0 && error.status < 500 ? errorMessage(error) : null,
+      });
+  };
+
   /** True when the draft was saved. */
   const save = async (): Promise<boolean> => {
     if (!view || !candidate || draft === null || saving) return false;
@@ -207,18 +232,29 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
       );
       return true;
     } catch (error) {
-      if (isApiError(error) && error.code === 'config_conflict') {
-        const fresh = (await query.refetch()).data;
-        setConflict({ author: fresh?.history[0]?.author ?? '' });
-      } else if (isApiError(error) && error.code === 'config_invalid') {
-        const issues = (error.details as { issues?: IssueRef[] } | undefined)?.issues ?? [];
-        setFailure({ kind: 'issues', issues });
-      } else if (isApiError(error) && error.code === 'owner_only') setFailure({ kind: 'owner_only' });
-      else
-        setFailure({
-          kind: 'error',
-          reason: isApiError(error) && error.status > 0 && error.status < 500 ? errorMessage(error) : null,
-        });
+      await refused(error);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Deletes the element where `without` says how; a deleted element has no draft to settle, the caller closes. */
+  const remove = async (): Promise<boolean> => {
+    const { without, removedText, key, name } = latest.current;
+    if (!view || draft === null || !without || !removedText || saving) return false;
+    setSaving(true);
+    setFailure(null);
+    try {
+      await write(
+        without(view.config),
+        removedText(draft),
+        t('settings.pipeline.edit.undone', { name: name(draft) }),
+        key,
+      );
+      return true;
+    } catch (error) {
+      await refused(error);
       return false;
     } finally {
       setSaving(false);
@@ -229,7 +265,7 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
    * Saves `next` (the configuration without this element) at once, whatever the draft holds. The draft stays
    * untouched; the answer says why nothing was deleted, null when it was.
    */
-  const remove = async (
+  const removeElement = async (
     next: ProjectConfig,
     name: string,
     restored?: () => void,
@@ -273,6 +309,7 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     saves,
     save,
     remove,
+    removeElement,
     discard,
   };
 }

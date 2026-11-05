@@ -6,6 +6,7 @@ import { Button } from '../../../components/Button';
 import { MoreMenu } from '../../../components/MoreMenu';
 import { t } from '../../../i18n/t';
 import { DetailPanel, MissingSettingsElement } from '../DetailPanel';
+import { EditFooter } from '../edit/EditChrome';
 import { useElementEdit } from '../edit/useElementEdit';
 import { useLeaveGuard } from '../edit/useLeaveGuard';
 import { DeleteSection } from './DeleteSection';
@@ -14,7 +15,6 @@ import type { CardCount } from './deletion';
 import { focusRow } from './focusRow';
 import { orderColumns } from './flow';
 import { PanelBands } from './PanelBands';
-import { PanelFooter } from './PanelFooter';
 import { StageForm } from './StageForm';
 import { draftOf, sortIssues, stageOf } from './stageDraft';
 import type { StageDraft } from './stageDraft';
@@ -155,11 +155,11 @@ export function StagePanel({
       back={back}
       empty={empty}
       footer={
-        <PanelFooter
+        <EditFooter
           edit={edit}
           canSave={canSave}
           formId={formId}
-          submitLabel={t('settings.pipeline.edit.save')}
+          saveText={t('settings.pipeline.edit.save')}
           onClose={onClose}
         />
       }
@@ -196,7 +196,7 @@ export function StagePanel({
           name={saved?.name ?? draft.name}
           block={block}
           onDelete={() =>
-            edit.remove(withoutStage(config, stageId), saved?.name ?? draft.name, () =>
+            edit.removeElement(withoutStage(config, stageId), saved?.name ?? draft.name, () =>
               focusRow(`stage:${stageId}`),
             )
           }

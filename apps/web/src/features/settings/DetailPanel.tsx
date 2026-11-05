@@ -88,10 +88,11 @@ export function DetailPanel({
     return () => restorePanelFocus(element, opener.current);
   }, [wide]);
   useEffect(() => {
-    if (open && wide && focusSignal > 0) heading.current?.focus();
+    if (open && wide && focusSignal > 0) heading.current?.focus({ preventScroll: true });
   }, [focusSignal]);
   useEffect(() => {
-    if (open && wide) heading.current?.focus();
+    // No scrolling: the sticky panel is clipped (overflow hidden), and a scroll to the heading would slide its own header out of view.
+    if (open && wide) heading.current?.focus({ preventScroll: true });
     if (open && wide && !window.matchMedia('(prefers-reduced-motion: reduce)').matches)
       content.current?.animate?.(
         [
@@ -105,7 +106,8 @@ export function DetailPanel({
     const element = panel.current;
     if (!wide || !element) return;
     const measure = () => {
-      const top = Math.max(12, element.getBoundingClientRect().top);
+      const stuck = parseFloat(getComputedStyle(element).top) || 12;
+      const top = Math.max(stuck, element.getBoundingClientRect().top);
       element.style.setProperty('--settings-panel-height', `${Math.max(0, window.innerHeight - top - 12)}px`);
     };
     measure();

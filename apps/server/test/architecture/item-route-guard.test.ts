@@ -9,21 +9,22 @@ import { describe, expect, test } from 'vitest';
  * hand: that would be a second rule. The files in the lists below still do; each is a debt of a later part of the
  * route work and goes when that part routes it. An entry fails once its file stops matching, so remove it then.
  */
+const ALERTS_PART = 'PM-1250 (route part 3): alerts through applyRoute';
 const ALERT_CREATORS: Record<string, string> = {
-  'core/messages/relation-notices.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'runtime/admission/refinement.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'runtime/usage/usage-alerts.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'runtime/sessions/provider-limits.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'runtime/watchers/disk-guard.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'runtime/watchers/worktree-sweep.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'runtime/watchers/input-stall-alert.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'runtime/watchers/left-parts.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'runtime/watchers/outages.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'services/merges/train.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'services/merges/steps.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'services/host-requests/service.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'services/feedback/service.ts': 'PM-1241 part 2: alerts through applyRoute',
-  'services/email-channel/inbound.ts': 'PM-1241 part 2: alerts through applyRoute',
+  'core/messages/relation-notices.ts': ALERTS_PART,
+  'runtime/admission/refinement.ts': ALERTS_PART,
+  'runtime/usage/usage-alerts.ts': ALERTS_PART,
+  'runtime/sessions/provider-limits.ts': ALERTS_PART,
+  'runtime/watchers/disk-guard.ts': ALERTS_PART,
+  'runtime/watchers/worktree-sweep.ts': ALERTS_PART,
+  'runtime/watchers/input-stall-alert.ts': ALERTS_PART,
+  'runtime/watchers/left-parts.ts': ALERTS_PART,
+  'runtime/watchers/outages.ts': ALERTS_PART,
+  'services/merges/train.ts': ALERTS_PART,
+  'services/merges/steps.ts': ALERTS_PART,
+  'services/host-requests/service.ts': ALERTS_PART,
+  'services/feedback/service.ts': ALERTS_PART,
+  'services/email-channel/inbound.ts': ALERTS_PART,
 };
 const OWNER_RECIPIENT_SETTERS: Record<string, string> = {};
 

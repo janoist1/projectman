@@ -5,6 +5,8 @@ import {
   ITEM_ROUTE_TABLE,
   PLAIN_ITEM_ROUTE_KINDS,
   allItemRouteKinds,
+  fixLimitRoutePayload,
+  fixLimitRouteTopic,
   itemRouteRecord,
   routeItem,
   type AlertKind,
@@ -173,5 +175,29 @@ describe('routeItem', () => {
       to: 'integrator_queue',
       reason: 'requested_integrator',
     });
+  });
+});
+
+describe('the payload of a routed fix limit decision', () => {
+  const input = (delegable: boolean, integrator: boolean): ItemRouteInput => ({
+    kind: 'fix_limit',
+    topic: fixLimitRouteTopic(delegable),
+    requested: null,
+    issuerMachineAccess: true,
+    pm: 'available',
+    integrator,
+    decider: false,
+  });
+  const payload = (delegable: boolean, integrator: boolean) =>
+    fixLimitRoutePayload(routeItem(input(delegable, integrator)), delegable, 'NOW');
+
+  it('names the integrator and when it got the item', () => {
+    expect(payload(true, true)).toEqual({ recipient: 'integrator', integratorOpenedAt: 'NOW' });
+  });
+  it('opens at the owners under a topic when no integrator is available', () => {
+    expect(payload(true, false)).toEqual({ recipient: 'owner', ownerTopic: 'product_direction' });
+  });
+  it('keeps a non-delegable item an owner approval with the reason', () => {
+    expect(payload(false, true)).toEqual({ recipient: 'owner', recipientRefusal: 'protected_question' });
   });
 });

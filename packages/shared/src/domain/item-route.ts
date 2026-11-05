@@ -254,6 +254,40 @@ export function routeItem(input: ItemRouteInput): ItemRoute {
   return ITEM_ROUTE_TABLE[input.kind as PlainItemRouteKind](input);
 }
 
+/**
+ * The topic a fix limit decision is routed with: only the narrow delegable shape may wait in the integrator's
+ * queue, any other fix limit item is an approval.
+ */
+export function fixLimitRouteTopic(delegable: boolean): ItemRouteTopic | null {
+  return delegable ? null : 'approval';
+}
+
+/**
+ * What a routed fix limit decision carries on its payload (PM-714, PM-1246): the recipient, when the integrator
+ * got it, why an owner item is not delegable, and the owner topic of an owner decision. The server and the web's
+ * test backend both build the payload from the route here.
+ */
+export function fixLimitRoutePayload(
+  route: ItemRoute,
+  delegable: boolean,
+  now: string,
+): {
+  recipient: 'integrator' | 'owner';
+  integratorOpenedAt?: string;
+  recipientRefusal?: 'protected_question';
+  ownerTopic?: string;
+} {
+  const recipient = route.to === 'integrator_queue' ? 'integrator' : 'owner';
+  return {
+    recipient,
+    ...(recipient === 'integrator' ? { integratorOpenedAt: now } : {}),
+    ...(recipient === 'owner' && !delegable ? { recipientRefusal: 'protected_question' as const } : {}),
+    ...(route.to === 'owner_inbox' && typeof route.topic === 'object'
+      ? { ownerTopic: route.topic.ownerTopic }
+      : {}),
+  };
+}
+
 /** Every route kind there is: the plain ones and one per alert kind. */
 export function allItemRouteKinds(): ItemRouteKind[] {
   return [

@@ -1000,11 +1000,17 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'item_routed': {
       const to = ItemRouteTarget.safeParse(d.to);
       const reason = ItemRouteReason.safeParse(d.reason);
+      const parts = {
+        to: to.success ? t(`timeline.itemRoute.to.${to.data}`) : str(d.to),
+        reason: reason.success ? t(`timeline.itemRoute.reason.${reason.data}`) : str(d.reason),
+      };
       return normal(
-        t('timeline.events.item_routed', {
-          to: to.success ? t(`timeline.itemRoute.to.${to.data}`) : str(d.to),
-          reason: reason.success ? t(`timeline.itemRoute.reason.${reason.data}`) : str(d.reason),
-        }),
+        d.requested === 'owner' || d.requested === 'integrator'
+          ? t('timeline.events.item_routed_requested', {
+              ...parts,
+              requested: t(`timeline.itemRoute.requested.${d.requested}`),
+            })
+          : t('timeline.events.item_routed', parts),
       );
     }
     case 'member_queue_item_closed':

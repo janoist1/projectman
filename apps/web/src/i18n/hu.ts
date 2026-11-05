@@ -5663,6 +5663,11 @@ export const hu = {
     labelsRemoved: 'Levette: {labels}',
     /** Where the route rule put an item and why (PM-1246), in the middle of the `item_routed` row. */
     itemRoute: {
+      /** The recipient the asker named (`requested` on the route record). */
+      requested: {
+        owner: 'a tulajdonos',
+        integrator: 'az integrátor',
+      },
       to: {
         owner_inbox: 'a tulajdonosok postaládája',
         owner_side: 'a tulajdonos oldala',
@@ -5966,6 +5971,7 @@ export const hu = {
       question_recipient_escalated_unavailable:
         'Az Operátornak szóló teendő a tulajdonoshoz került: az Operátor most nem dolgozza fel a sorát.',
       item_routed: 'Az elem útvonala: {to} ({reason}).',
+      item_routed_requested: 'Az elem útvonala: {to} ({reason}); a kérő címzettje: {requested}.',
       fix_limit_recipient_escalated_unavailable:
         'A javítási körök határáról szóló döntés a tulajdonoshoz került: az Operátor most nem dolgozza fel a sorát.',
       fix_limit_recipient_escalated_timeout:

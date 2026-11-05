@@ -22,6 +22,8 @@ import {
   planIntegratorPassOn,
   isUndelegableQuestion,
   isDelegableFixLimitDecision,
+  fixLimitRoutePayload,
+  fixLimitRouteTopic,
   fallbackIntegratorTodo,
   technicalDeciderOf,
   FixLimitOptionId,
@@ -700,9 +702,7 @@ export class InboxService {
       payload: { fixLimit: input.fixLimit },
       options: input.options,
     });
-    // Only the narrow delegable shape may wait in the integrator's queue; any other fix limit item is an approval.
-    const selected = this.applyRoute(config, { kind: 'fix_limit', topic: delegable ? null : 'approval' });
-    const ownerDecision = selected.recipient === 'owner';
+    const selected = this.applyRoute(config, { kind: 'fix_limit', topic: fixLimitRouteTopic(delegable) });
     const content = formatFixLimitItem(config, input.fixLimit, available, selected.recipient);
     return this.ctx.unitOfWork(() =>
       this.create({
@@ -715,12 +715,7 @@ export class InboxService {
         body: content.body,
         payload: {
           fixLimit: input.fixLimit,
-          recipient: selected.recipient,
-          ...(selected.recipient === 'integrator' ? { integratorOpenedAt: isoNow(this.ctx) } : {}),
-          ...(ownerDecision && !delegable ? { recipientRefusal: 'protected_question' } : {}),
-          ...(selected.route.to === 'owner_inbox' && typeof selected.route.topic === 'object'
-            ? { ownerTopic: selected.route.topic.ownerTopic }
-            : {}),
+          ...fixLimitRoutePayload(selected.route, delegable, isoNow(this.ctx)),
         },
         options: content.options,
         routed: selected,
@@ -865,7 +860,6 @@ export class InboxService {
     if (!patch) return false;
     const routed = this.applyRoute(config, { kind: 'integrator_pass_on' });
     const updated = this.ctx.unitOfWork(() => {
-      this.recordRoute(item, routed);
       const row = this.ctx.repos.inbox.updateOpen(
         item.id,
         patch.payload,
@@ -874,6 +868,7 @@ export class InboxService {
         item.kind === 'decision' ? (bodyForOwners(config, item.body) ?? undefined) : undefined,
       );
       if (!row) return null;
+      this.recordRoute(row, routed);
       if (item.kind === 'decision') {
         this.timeline.append({
           projectKey: item.projectKey,

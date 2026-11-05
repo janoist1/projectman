@@ -226,6 +226,8 @@ import {
   MAX_FIX_EXTRA_ROUNDS,
   FixLimitAssessment,
   isDelegableFixLimitDecision,
+  fixLimitRoutePayload,
+  fixLimitRouteTopic,
   itemRouteRecord,
   routeItem,
   fixLimitDeciders,
@@ -1511,7 +1513,7 @@ export class MockBackend {
     const delegable = isDelegableFixLimitDecision(item);
     const routeInput = {
       kind: 'fix_limit' as const,
-      topic: delegable ? null : ('approval' as const),
+      topic: fixLimitRouteTopic(delegable),
       requested: null,
       issuerMachineAccess: true,
       pm: 'available' as const,
@@ -1519,18 +1521,10 @@ export class MockBackend {
       decider: false,
     };
     const route = routeItem(routeInput);
-    const recipient = route.to === 'integrator_queue' ? ('integrator' as const) : ('owner' as const);
+    const routed = fixLimitRoutePayload(route, delegable, nowIso());
     item.route = itemRouteRecord(routeInput, route);
-    item.payload = {
-      ...item.payload,
-      recipient,
-      ...(recipient === 'integrator' ? { integratorOpenedAt: nowIso() } : {}),
-      ...(recipient === 'owner' && !delegable ? { recipientRefusal: 'protected_question' } : {}),
-      ...(route.to === 'owner_inbox' && typeof route.topic === 'object'
-        ? { ownerTopic: route.topic.ownerTopic }
-        : {}),
-    };
-    this.updateTask(task.key, { fixLimit: { ...task.fixLimit!, recipient } });
+    item.payload = { ...item.payload, ...routed };
+    this.updateTask(task.key, { fixLimit: { ...task.fixLimit!, recipient: routed.recipient } });
     this.upsertInbox(item);
     this.addTimeline(task.key, null, 'item_routed', {
       itemId: item.id,

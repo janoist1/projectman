@@ -3306,6 +3306,11 @@ export const en = {
     labelsRemoved: 'Removed {labels}',
     /** Where the route rule put an item and why (PM-1246), in the middle of the `item_routed` row. */
     itemRoute: {
+      /** The recipient the asker named (`requested` on the route record). */
+      requested: {
+        owner: 'the owner',
+        integrator: 'the integrator',
+      },
       to: {
         owner_inbox: 'the owners’ inbox',
         owner_side: 'the owner’s side',
@@ -3613,6 +3618,7 @@ export const en = {
       question_recipient_escalated_unavailable:
         'The to-do for the Operator went to the owner: the Operator isn’t processing its queue now.',
       item_routed: 'The item went to {to} ({reason}).',
+      item_routed_requested: 'The item went to {to} ({reason}); the asker named {requested}.',
       fix_limit_recipient_escalated_unavailable:
         'The decision on the fix round limit went to the owner: the Operator isn’t processing its queue now.',
       fix_limit_recipient_escalated_timeout:

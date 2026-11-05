@@ -4,6 +4,7 @@ import { LeaveGuardContext } from './edit/LeaveGuard';
 
 export type SettingsShow =
   | { type: 'stage' | 'column' | 'label'; id: string }
+  /** `after`: the stage the new one follows; an empty string puts it in front of the first stage. */
   | { type: 'new-stage'; after?: string }
   | { type: 'new-column' }
   | { type: 'new-label'; tag?: string };
@@ -18,7 +19,7 @@ export function parseShow(params: URLSearchParams): SettingsShow | null {
   if (match) return { type: match[1] as 'stage' | 'column' | 'label', id: match[2]! };
   if (value === 'new-stage') {
     const after = params.get('after');
-    return after ? { type: value, after } : { type: value };
+    return after === null ? { type: value } : { type: value, after };
   }
   if (value === 'new-label') {
     const tag = params.get('tag');
@@ -32,7 +33,7 @@ export function showParams(show: SettingsShow | null, from?: 'how-we-work'): URL
   const params = new URLSearchParams();
   if (show) {
     params.set('show', 'id' in show ? `${show.type}:${show.id}` : show.type);
-    if (show.type === 'new-stage' && show.after) params.set('after', show.after);
+    if (show.type === 'new-stage' && show.after !== undefined) params.set('after', show.after);
     if (show.type === 'new-label' && show.tag) params.set('tag', show.tag);
     if (from) params.set('from', from);
   }

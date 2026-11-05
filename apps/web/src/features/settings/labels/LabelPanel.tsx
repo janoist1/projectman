@@ -479,9 +479,9 @@ export function LabelPanel({
                 variant="dangerSolid"
                 loading={edit.saving}
                 onClick={() => {
-                  void edit.remove().then((ok) => {
+                  void edit.remove().then((failure) => {
                     setConfirming(false);
-                    if (!ok) return;
+                    if (failure) return;
                     edit.discard();
                     setRemoved(true);
                   });

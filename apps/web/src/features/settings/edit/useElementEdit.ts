@@ -57,12 +57,22 @@ export interface ElementEdit<D> {
   saving: boolean;
   /** Counts the successful saves (an undo too), so the screen can mark the moment. */
   saves: number;
-  /** Resolves to whether the save went through. */
+  /** True when the draft was saved. */
   save(): Promise<boolean>;
-  /** Deletes the element on its own, undoable like a save; resolves to whether it went through. */
-  remove(): Promise<boolean>;
+  /**
+   * Deletes the element on its own (where `without` says how), undoable like a save, whatever the draft holds;
+   * the answer says why nothing was deleted, null when it was. A refusal also goes onto the panel (the
+   * conflict band, the failure) unless `inline` is set: the caller shows it where the delete was asked.
+   * `restored` runs after the undo brought the element back.
+   */
+  remove(options?: { inline?: boolean; restored?: () => void }): Promise<RemoveFailure | null>;
   discard(): void;
 }
+
+/** Why a delete went nowhere; `reason` is null when the request itself failed (the network, a server fault). */
+export type RemoveFailure =
+  /** Another save came first: the view was reloaded, the person has to look again. */
+  { kind: 'conflict'; author: string } | { kind: 'error'; reason: string | null };
 
 interface Pair<D> {
   key: string;
@@ -154,64 +164,113 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     setSaves((count) => count + 1);
   };
 
-  /** Sends the configuration `next` on the version shown, with an undo for exactly that version. */
-  const commit = async (next: ProjectConfig, shown: string, removal: boolean): Promise<boolean> => {
-    if (!view || draft === null || saving) return false;
-    const before = view;
-    const { key, toPatch, name } = latest.current;
+  /** Writes `next` and offers the undo on the version this write made. Throws what the server refused. */
+  const write = async (
+    next: ProjectConfig,
+    text: string,
+    undoneText: string,
+    key: string,
+    written?: (config: ProjectConfig) => void,
+    restored?: () => void,
+  ) => {
+    const before = view!;
+    const { toPatch } = latest.current;
+    const result = await patch.mutateAsync({ baseVersion: before.version, ...toPatch(next) });
+    written?.(result.config);
+    toast.show(text, 'ok', {
+      action: {
+        label: t('settings.pipeline.edit.undo'),
+        // Only on the version this write made: a later save by anyone is not overwritten.
+        run: () => {
+          patch
+            .mutateAsync({ baseVersion: result.version, ...toPatch(before.config) })
+            .then((undone) => {
+              settle(undone.config, key);
+              toast.show(undoneText);
+              restored?.();
+            })
+            .catch(async (error: unknown) => {
+              if (isApiError(error) && error.code === 'config_conflict') {
+                await query.refetch();
+                toast.show(t('settings.pipeline.edit.undoConflict'), 'error');
+              } else toast.show(errorMessage(error), 'error');
+            });
+        },
+      },
+    });
+  };
+
+  /** Puts what the server refused on the screen: the conflict band, or the failure the form shows. */
+  const refused = async (error: unknown) => {
+    if (isApiError(error) && error.code === 'config_conflict') {
+      const fresh = (await query.refetch()).data;
+      setConflict({ author: fresh?.history[0]?.author ?? '' });
+    } else if (isApiError(error) && error.code === 'config_invalid') {
+      const issues = (error.details as { issues?: IssueRef[] } | undefined)?.issues ?? [];
+      setFailure({ kind: 'issues', issues });
+    } else if (isApiError(error) && error.code === 'owner_only') setFailure({ kind: 'owner_only' });
+    else
+      setFailure({
+        kind: 'error',
+        reason: isApiError(error) && error.status > 0 && error.status < 500 ? errorMessage(error) : null,
+      });
+  };
+
+  /** True when the draft was saved. */
+  const save = async (): Promise<boolean> => {
+    if (!view || !candidate || draft === null || saving) return false;
+    const { key, savedText, name } = latest.current;
     setSaving(true);
     setFailure(null);
     try {
-      const result = await patch.mutateAsync({ baseVersion: before.version, ...toPatch(next) });
-      // A deleted element has no draft to settle: whoever deleted it closes the panel.
-      if (!removal) settle(result.config, key);
-      toast.show(shown, 'ok', {
-        action: {
-          label: t('settings.pipeline.edit.undo'),
-          // Only on the version this save made: a later save by anyone is not overwritten.
-          run: () => {
-            patch
-              .mutateAsync({ baseVersion: result.version, ...toPatch(before.config) })
-              .then((undone) => {
-                settle(undone.config, key);
-                toast.show(t('settings.pipeline.edit.undone', { name: name(draft) }));
-              })
-              .catch(async (error: unknown) => {
-                if (isApiError(error) && error.code === 'config_conflict') {
-                  await query.refetch();
-                  toast.show(t('settings.pipeline.edit.undoConflict'), 'error');
-                } else toast.show(errorMessage(error), 'error');
-              });
-          },
-        },
-      });
+      await write(
+        candidate,
+        savedText(draft),
+        t('settings.pipeline.edit.undone', { name: name(draft) }),
+        key,
+        (config) => settle(config, key),
+      );
       return true;
     } catch (error) {
-      if (isApiError(error) && error.code === 'config_conflict') {
-        const fresh = (await query.refetch()).data;
-        setConflict({ author: fresh?.history[0]?.author ?? '' });
-      } else if (isApiError(error) && error.code === 'config_invalid') {
-        const issues = (error.details as { issues?: IssueRef[] } | undefined)?.issues ?? [];
-        setFailure({ kind: 'issues', issues });
-      } else if (isApiError(error) && error.code === 'owner_only') setFailure({ kind: 'owner_only' });
-      else
-        setFailure({
-          kind: 'error',
-          reason: isApiError(error) && error.status > 0 && error.status < 500 ? errorMessage(error) : null,
-        });
+      await refused(error);
       return false;
     } finally {
       setSaving(false);
     }
   };
-  const save = async () => {
-    if (!candidate || draft === null) return false;
-    return commit(candidate, latest.current.savedText(draft), false);
-  };
-  const remove = async () => {
-    const { without, removedText } = latest.current;
-    if (!view || draft === null || !without || !removedText) return false;
-    return commit(without(view.config), removedText(draft), true);
+
+  /** Deletes the element where `without` says how; a deleted element has no draft to settle, the caller closes. */
+  const remove = async ({
+    inline = false,
+    restored,
+  }: { inline?: boolean; restored?: () => void } = {}): Promise<RemoveFailure | null> => {
+    const { without, removedText, key, name } = latest.current;
+    if (!view || draft === null || !without || !removedText || saving) return { kind: 'error', reason: null };
+    setSaving(true);
+    if (!inline) setFailure(null);
+    try {
+      await write(
+        without(view.config),
+        removedText(draft),
+        t('settings.pipeline.edit.undone', { name: name(draft) }),
+        key,
+        undefined,
+        restored,
+      );
+      return null;
+    } catch (error) {
+      if (!inline) await refused(error);
+      if (isApiError(error) && error.code === 'config_conflict') {
+        const fresh = inline ? (await query.refetch()).data : undefined;
+        return { kind: 'conflict', author: fresh?.history[0]?.author ?? '' };
+      }
+      return {
+        kind: 'error',
+        reason: isApiError(error) && error.status > 0 && error.status < 500 ? errorMessage(error) : null,
+      };
+    } finally {
+      setSaving(false);
+    }
   };
 
   return {

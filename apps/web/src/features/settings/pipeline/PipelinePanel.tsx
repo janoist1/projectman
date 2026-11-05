@@ -15,7 +15,11 @@ import { memberLike } from '../../how-we-work/MapContext';
 import { labelViews } from '../../how-we-work/model';
 import { DetailPanel, MissingSettingsElement } from '../DetailPanel';
 import type { SettingsShow } from '../selection';
+import { ColumnPanel } from './ColumnPanel';
+import type { CardCount } from './deletion';
 import { columnColor, needsOwner } from './flow';
+import { NewColumnPanel } from './NewColumnPanel';
+import { NewStagePanel } from './NewStagePanel';
 import styles from './PipelinePanel.module.css';
 import { StagePanel } from './StagePanel';
 
@@ -32,9 +36,13 @@ interface PipelinePanelProps {
   onClose(): void;
   /** A stage was saved (or a save undone) in the panel. */
   onSaved(stageId: string): void;
+  /** A stage or a column was deleted in the panel. */
+  onDeleted(kind: 'stage' | 'column', id: string): void;
+  /** A new stage or column was saved: the address moves to it. */
+  onCreated(show: SettingsShow): void;
 }
 
-/** The selected stage (an editor for an admin) or column, or the legend while nothing is selected. */
+/** The selected stage or column (an editor for an admin), a new one's form, or the legend while nothing is selected. */
 export function PipelinePanel({
   config,
   show,
@@ -43,6 +51,8 @@ export function PipelinePanel({
   onSelect,
   onClose,
   onSaved,
+  onDeleted,
+  onCreated,
 }: PipelinePanelProps) {
   const { key, can } = useProject();
   const map = useMemo(() => teamMap(config), [config]);
@@ -54,13 +64,39 @@ export function PipelinePanel({
       <PipelineLegend />
     </>
   );
+  if (can.manageTeam && show?.type === 'new-stage')
+    return (
+      <NewStagePanel
+        key={`new-stage:${show.after ?? ''}`}
+        config={config}
+        after={show.after}
+        empty={empty}
+        onClose={onClose}
+        onCreated={(id) => onCreated({ type: 'stage', id })}
+      />
+    );
+  if (can.manageTeam && show?.type === 'new-column')
+    return (
+      <NewColumnPanel
+        config={config}
+        empty={empty}
+        onClose={onClose}
+        onCreated={(id) => onCreated({ type: 'column', id })}
+      />
+    );
   if (target?.type === 'stage') {
     const entry = map.stages.find((candidate) => candidate.stage.id === target.id);
     // An admin's panel is the editor, which also keeps a draft whose stage was deleted meanwhile.
     if (entry || can.manageTeam) {
-      const cards = board.data
-        ? board.data.tasks.filter((task) => !isTheme(task) && task.stageId === target.id).length
-        : null;
+      // The cards in the stage (a theme is not a card), as far as the board is known.
+      const cards: CardCount = board.data
+        ? {
+            status: 'ready',
+            count: board.data.tasks.filter((task) => !isTheme(task) && task.stageId === target.id).length,
+          }
+        : board.isError
+          ? { status: 'failed', retry: () => void board.refetch() }
+          : { status: 'loading' };
       const back = fromHowWeWork ? (
         <Link className={styles.back} to={`/p/${key}/how-we-work?show=stage:${target.id}`}>
           {t('settings.pipeline.back')}
@@ -77,6 +113,8 @@ export function PipelinePanel({
             empty={empty}
             onClose={onClose}
             onSaved={onSaved}
+            onDeleted={(id) => onDeleted('stage', id)}
+            onNewStage={(after) => onSelect({ type: 'new-stage', after })}
           />
         );
       if (entry)
@@ -94,7 +132,7 @@ export function PipelinePanel({
               config={config}
               map={map}
               entry={entry}
-              cards={cards}
+              cards={cards.status === 'ready' ? cards.count : null}
               canEdit={can.manageTeam}
               onSelect={onSelect}
             />
@@ -104,6 +142,18 @@ export function PipelinePanel({
   }
   if (target?.type === 'column') {
     const column = config.pipeline.columns.find((candidate) => candidate.id === target.id);
+    if (can.manageTeam)
+      return (
+        <ColumnPanel
+          key={target.id}
+          config={config}
+          columnId={target.id}
+          empty={empty}
+          onSelect={onSelect}
+          onClose={onClose}
+          onDeleted={(id) => onDeleted('column', id)}
+        />
+      );
     if (column)
       return (
         <DetailPanel

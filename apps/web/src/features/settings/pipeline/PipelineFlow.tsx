@@ -32,13 +32,28 @@ interface PipelineFlowProps {
   problemStages: ReadonlySet<string>;
   /** A stage that was just saved: its row lights up for a moment (`count` repeats it). */
   flash?: { id: string; count: number } | null;
+  /** An admin adds stages and columns from the path itself. */
+  canEdit?: boolean;
   onSelect(show: Selectable): void;
+  /** The "+" under a stage: the new stage goes after it. */
+  onNewStage?(after: string): void;
+  onNewColumn?(): void;
 }
 
 const FLASH_MS = 1400;
 
 /** The pipeline as a vertical path in the language of "Hogyan dolgozunk": columns as boxes, stages with their gates. */
-export function PipelineFlow({ config, map, selected, problemStages, flash, onSelect }: PipelineFlowProps) {
+export function PipelineFlow({
+  config,
+  map,
+  selected,
+  problemStages,
+  flash,
+  canEdit = false,
+  onSelect,
+  onNewStage,
+  onNewColumn,
+}: PipelineFlowProps) {
   const { key } = useProject();
   const flowRef = useRef<HTMLDivElement>(null);
   const runs = useMemo(() => columnRuns(config.pipeline), [config.pipeline]);
@@ -54,7 +69,12 @@ export function PipelineFlow({ config, map, selected, problemStages, flash, onSe
   const returns = map.fixRounds.loops.map((loop) => ({ fromId: loop.fromStageId, toId: loop.toStageId }));
   const refines = projectRefines(config);
   const firstStageId = config.pipeline.stages[0]?.id;
-  const selectedValue = selected && 'id' in selected ? `${selected.type}:${selected.id}` : null;
+  const selectedValue =
+    selected && 'id' in selected
+      ? `${selected.type}:${selected.id}`
+      : selected?.type === 'new-column'
+        ? 'new-column'
+        : null;
   useEffect(() => {
     if (!selectedValue) return;
     const row = [...(flowRef.current?.querySelectorAll<HTMLElement>('[data-show]') ?? [])].find(
@@ -140,6 +160,16 @@ export function PipelineFlow({ config, map, selected, problemStages, flash, onSe
                             </span>
                           </FlowRow>
                         ) : null}
+                        {canEdit && onNewStage && !isEnd(config, stage.id) ? (
+                          <button
+                            type="button"
+                            className={styles.insert}
+                            aria-label={t('settings.pipeline.insertAfter', { name: stage.name })}
+                            onClick={() => onNewStage(stage.id)}
+                          >
+                            <Icon name="plus" size={14} />
+                          </button>
+                        ) : null}
                       </li>
                     );
                   })}
@@ -149,9 +179,11 @@ export function PipelineFlow({ config, map, selected, problemStages, flash, onSe
           );
         })}
       </ol>
-      {empty.length > 0 ? (
+      {empty.length > 0 || canEdit ? (
         <div className={styles.emptyColumns}>
-          <span>{t('settings.pipeline.emptyColumns')}</span>
+          <span>
+            {empty.length > 0 ? t('settings.pipeline.emptyColumns') : t('settings.pipeline.noEmptyColumns')}
+          </span>
           {empty.map((column) => (
             <button
               key={column.id}
@@ -164,10 +196,27 @@ export function PipelineFlow({ config, map, selected, problemStages, flash, onSe
               {column.name}
             </button>
           ))}
+          {canEdit && onNewColumn ? (
+            <button
+              type="button"
+              className={clsx(styles.emptyColumn, styles.addColumn)}
+              aria-pressed={selectedValue === 'new-column'}
+              data-show="new-column"
+              onClick={onNewColumn}
+            >
+              <Icon name="plus" size={13} /> {t('settings.pipeline.addColumn')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
+}
+
+/** Nothing can follow the last stage when it is the end of the path. */
+function isEnd(config: ProjectConfig, stageId: string): boolean {
+  const last = config.pipeline.stages[config.pipeline.stages.length - 1];
+  return last?.id === stageId && last.kind === 'done';
 }
 
 function GateRow({ entry, map }: { entry: TeamMapStage; map: TeamMap }) {

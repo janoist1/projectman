@@ -32,6 +32,30 @@ export function emptyColumns(pipeline: Pipeline): BoardColumn[] {
   return pipeline.columns.filter((column) => !used.has(column.id));
 }
 
+/**
+ * Columns ordered by their first stage; columns with no stage at the end, in their current order.
+ * Only a save that changes the order of the stages or the column of a stage calls it: a name or a colour
+ * leaves an old, differently ordered pipeline as it is. A column without a colour of its own shows the default
+ * of its place, so a column that moves keeps the colour it showed: it is written down.
+ */
+export function orderColumns(pipeline: Pipeline): Pipeline {
+  const first = new Map<string, number>();
+  pipeline.stages.forEach((stage, index) => {
+    if (!first.has(stage.columnId)) first.set(stage.columnId, index);
+  });
+  const before = new Map(pipeline.columns.map((column, index) => [column.id, index]));
+  const used = pipeline.columns
+    .filter((column) => first.has(column.id))
+    .sort((a, b) => first.get(a.id)! - first.get(b.id)!);
+  const unused = pipeline.columns.filter((column) => !first.has(column.id));
+  const columns = [...used, ...unused].map((column, index) =>
+    column.color === undefined && before.get(column.id) !== index
+      ? { ...column, color: defaultBoardColumnColor(before.get(column.id)!) }
+      : column,
+  );
+  return { ...pipeline, columns };
+}
+
 /** Work, intermediate and release stages need someone to carry them; a queue and the end do not. */
 export function needsOwner(entry: TeamMapStage): boolean {
   return entry.stage.kind === 'work' || entry.stage.kind === 'step' || entry.stage.kind === 'release';

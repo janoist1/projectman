@@ -73,6 +73,7 @@ export function EditFooter({
   canSave,
   saveText,
   onClose,
+  cancel,
 }: {
   edit: EditState;
   formId: string;
@@ -80,6 +81,8 @@ export function EditFooter({
   /** The Save button's text when idle (adding names it differently). */
   saveText: string;
   onClose(): void;
+  /** A new element's cancel closes the panel (asking first when something was typed); a saved one's drops the draft. */
+  cancel?: 'close';
 }) {
   if (edit.gone)
     return (
@@ -107,7 +110,11 @@ export function EditFooter({
         <Button type="submit" form={formId} variant="primary" disabled={!canSave} loading={edit.saving}>
           {edit.saving ? t('settings.pipeline.edit.saving') : saveText}
         </Button>
-        <Button variant="secondary" disabled={!edit.dirty || edit.saving} onClick={edit.discard}>
+        <Button
+          variant="secondary"
+          disabled={edit.saving || (cancel === undefined && !edit.dirty)}
+          onClick={cancel === 'close' ? onClose : edit.discard}
+        >
           {t('settings.pipeline.edit.cancel')}
         </Button>
       </div>

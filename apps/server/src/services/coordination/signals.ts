@@ -46,6 +46,7 @@ import type {
   Task,
   TaskStartWaiting,
   TimelineEvent,
+  WorkOutageAlert,
 } from '@projectman/shared';
 import type { OperatorSignalRecord } from '../../db';
 import {
@@ -156,6 +157,33 @@ function obligationOverdueCaseKey(obligationId: string): string {
   return `obligation_overdue:${obligationId}`;
 }
 
+/**
+ * The case key of new relations that need a check (PM-1250): one per card and set of relations. The signal's
+ * subject carries the relations as `kind:KEY` pairs, comma separated, which `relationCheckFacts` reads back.
+ */
+export function relationCheckCase(
+  taskKey: string,
+  relations: readonly { kind: string; key: string }[],
+): { caseKey: string; subject: string } {
+  const subject = relations
+    .map(({ kind, key }) => `${kind}:${key}`)
+    .sort()
+    .join(',');
+  return { caseKey: `relation_check:${taskKey}:${subject}`, subject };
+}
+
+function relationCheckFacts(signal: OperatorSignalRecord): { relations: { kind: string; key: string }[] } {
+  return {
+    relations: (signal.subject ?? '')
+      .split(',')
+      .filter(Boolean)
+      .map((pair) => {
+        const [kind = '', key = ''] = pair.split(':');
+        return { kind, key };
+      }),
+  };
+}
+
 type OpenMerge = ReturnType<DomainContext['repos']['taskMerges']['openOfProject']>[number];
 
 /** What one pass over a project reads once and every check of that pass shares (PM-1120). */
@@ -183,6 +211,8 @@ export class OperatorSignals {
     wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
+    /** What an outage is now (members, cards); null when it is over. The outage has no inbox item since PM-1250. */
+    outageFacts: (projectKey: string, outageId: string) => WorkOutageAlert | null;
     inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal'>;
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
@@ -202,6 +232,7 @@ export class OperatorSignals {
     wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
+    outageFacts: (projectKey: string, outageId: string) => WorkOutageAlert | null;
     inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal'>;
     /** Why the start of AI work on a stored card waits (PM-455): the scheduling reads carry no `startWaiting`. */
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
@@ -691,7 +722,10 @@ export class OperatorSignals {
         this.resolve(key, signal.caseKey);
       if (RETIRED_KINDS.has(signal.kind)) this.resolve(key, signal.caseKey);
       // The step was done, ended or handed over to a person: nothing is left to tell the project manager.
-      if (signal.kind === 'obligation_overdue' && !this.caseHolds(config, signal))
+      if (
+        (signal.kind === 'obligation_overdue' || signal.kind === 'relation_check') &&
+        !this.caseHolds(config, signal)
+      )
         this.resolve(key, signal.caseKey);
       if (
         signal.kind === 'stalled' &&
@@ -843,11 +877,15 @@ export class OperatorSignals {
                     ? this.answerStalledFacts(s)
                     : s.kind === 'start_blocked'
                       ? this.startBlockedFacts(config, s)
-                      : s.inboxItemId
-                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                        : s.subject
-                          ? ctx.repos.sessions.get(s.subject)?.activity
-                          : null,
+                      : s.kind === 'relation_check'
+                        ? relationCheckFacts(s)
+                        : s.inboxItemId
+                          ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                          : s.kind === 'outage'
+                            ? this.deps.outageFacts(s.projectKey, s.subject ?? '')
+                            : s.subject
+                              ? ctx.repos.sessions.get(s.subject)?.activity
+                              : null,
             step: this.stepOf(level, config, s),
             steps_left: structuralKind(s.kind) ? 0 : budget.left,
             next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
@@ -981,6 +1019,11 @@ export class OperatorSignals {
       // The step is still the responsible's and the project manager has been told: any other end closes the case.
       const obligation = ctx.repos.obligations.get(s.subject ?? '');
       return obligation?.state === 'open' && obligation.pmToldAt !== null;
+    }
+    if (s.kind === 'relation_check') {
+      // The new relations matter while the card is open; a done or cancelled card has no work to change.
+      const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
+      return !!task && isOpenTask(task);
     }
     if (s.kind === 'silent' || s.kind === 'stalled') {
       const session = ctx.repos.sessions.get(s.subject ?? '');

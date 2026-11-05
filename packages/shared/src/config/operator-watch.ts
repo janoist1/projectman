@@ -44,6 +44,7 @@ export function ownerQuestionSignalRefusalMessage(kind: OperatorSignalKind): str
 /** The signal kinds the coordinator may close as needing nothing instead of presenting them. */
 export const OPERATOR_DISMISSIBLE_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
   'obligation_overdue',
+  'relation_check',
   ...COORDINATOR_ONLY_SIGNAL_KINDS,
 ];
 

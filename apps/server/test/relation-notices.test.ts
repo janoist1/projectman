@@ -25,9 +25,11 @@ describe('a new relation on a card that is being worked on', () => {
   });
 
   /** A project with the three cards; `analysts` are AI members of the business analyst role. */
-  async function setup(analysts: string[] = ['analyst']): Promise<void> {
+  async function setup(analysts: string[] = ['analyst'], projectManagerAtWork = false): Promise<void> {
     h = await createDomainHarness({
       adjust: (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm');
+        if (pm?.kind === 'ai') pm.onLeave = !projectManagerAtWork;
         for (const handle of analysts)
           config.team.members.push(
             AiMemberConfig.parse({
@@ -364,26 +366,36 @@ describe('a new relation on a card that is being worked on', () => {
       expect(typedInto(family)).toEqual([]);
     });
 
-    it('alerts the owners when there is no analyst to ask', async () => {
+    it('signals the project manager when there is no analyst to ask', async () => {
+      await setup([], true);
+      await worker('dev-1', 'idle');
+
+      await relate('AR-1', [{ kind: 'prerequisite', key: 'AR-2' }], DEV_2);
+
+      // The system's only action message goes to the project manager (its wake-up), none to an analyst.
+      expect(asked().flatMap((m) => m.to)).toEqual(['pm']);
+      expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
+      expect(h.repos.operatorSignals.list('AR')).toEqual([
+        expect.objectContaining({ kind: 'relation_check', taskKey: 'AR-1' }),
+      ]);
+      // The worker still gets the plain notice; the owners get nothing.
+      expect(fromSystem().filter((m) => m.to.includes('dev-1'))).toHaveLength(1);
+      expect(fromSystem().filter((m) => m.to.includes('owner'))).toEqual([]);
+    });
+
+    it('tells the owners in a notice when there is no analyst and no project manager', async () => {
       await setup([]);
       await worker('dev-1', 'idle');
 
       await relate('AR-1', [{ kind: 'prerequisite', key: 'AR-2' }], DEV_2);
 
       expect(asked()).toEqual([]);
-      const alerts = h.domain.inbox.list('AR', { kind: 'alert' });
-      expect(alerts).toHaveLength(1);
-      expect(alerts[0]).toMatchObject({
-        assignees: ['owner'],
-        taskKey: 'AR-1',
-        payload: {
-          alert: 'relation_check',
-          taskKey: 'AR-1',
-          relations: [{ kind: 'prerequisite', key: 'AR-2' }],
-        },
+      expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
+      expect(h.repos.operatorSignals.list('AR')).toEqual([]);
+      expect(fromSystem().find((m) => m.to.includes('owner'))).toMatchObject({
+        origin: { kind: 'system_notice', notice: 'relation_check' },
       });
-      // The worker still gets the plain notice.
-      expect(fromSystem().map((m) => m.to)).toEqual([['dev-1']]);
+      expect(fromSystem().find((m) => m.to.includes('dev-1'))).toBeDefined();
     });
 
     it('does not alert the owners for a relation that needs no check, or when nobody works on the card', async () => {

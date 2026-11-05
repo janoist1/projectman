@@ -11,7 +11,7 @@ interface InputWaitsDeps {
   ctx: DomainContext;
   timers: Pick<SessionTimers, 'arm' | 'disarm'>;
   /** Tells the owners of a session that waits for input unseen; none: nobody is told. */
-  alerts?: Pick<InputStallAlerts, 'raise'>;
+  alerts?: Pick<InputStallAlerts, 'raise' | 'settle'>;
   /** How long a session may wait before they are told. */
   stallMs: number;
   isPaused: (session: Pick<Session, 'id' | 'projectKey'>) => boolean;
@@ -26,6 +26,8 @@ export class InputWaits {
   private readonly deps: InputWaitsDeps;
   /** When each session that waits for input began to wait, until the wait is over. */
   private readonly since = new Map<string, string>();
+  /** The sessions whose wait was reported, until it is over: the todo about it closes then. */
+  private readonly reported = new Set<string>();
 
   constructor(deps: InputWaitsDeps) {
     this.deps = deps;
@@ -37,6 +39,7 @@ export class InputWaits {
     const current = this.since.has(session.id);
     if (!waiting) {
       this.forget(session.id);
+      if (this.reported.delete(session.id)) this.deps.alerts?.settle(session);
       return;
     }
     const { alerts, ctx, stallMs, timers } = this.deps;
@@ -51,7 +54,10 @@ export class InputWaits {
       if (this.deps.isPaused(session)) return;
       try {
         const item = alerts.raise(session.id, since, Math.max(1, Math.round(stallMs / 60_000)));
-        if (item) ctx.logger.warn({ sessionId: session.id, since }, 'session waits for input unseen');
+        if (item) {
+          this.reported.add(session.id);
+          ctx.logger.warn({ sessionId: session.id, since }, 'session waits for input unseen');
+        }
       } catch (err) {
         ctx.logger.warn({ err, sessionId: session.id }, 'input wait alert failed');
       }
@@ -61,11 +67,13 @@ export class InputWaits {
   /** The session ended: its wait is over. */
   ended(sessionId: string): void {
     this.forget(sessionId);
+    this.reported.delete(sessionId);
   }
 
   /** Shutdown: the waits are forgotten (the timers are closed with their set). */
   dispose(): void {
     this.since.clear();
+    this.reported.clear();
   }
 
   private forget(sessionId: string): void {

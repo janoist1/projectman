@@ -4225,6 +4225,20 @@ export const en = {
     send: 'Send',
     sent: 'Message sent.',
     reply: 'Reply',
+    notice: {
+      session_tokens: 'A session used {counted} tokens, above the warning limit of {limit}.',
+      provider_rate_limited: 'The system reached the usage limit of {provider}: {message}',
+      refinement_done: 'The refinement of {taskKey} is done.',
+      feedback_forwarded: 'The feedback processor passed feedback of {author} on to the owners: {reason}',
+      host_request_answered: 'The host answered the request “{title}”: {answer}',
+      host_request_declined: 'The host declined the request “{title}”: {answer}',
+      email_parked: 'The system parked an email from {from} (“{subject}”). {reason}',
+      relation_check:
+        'The new relations of {taskKey} ({relations}) may change its work, and no analyst or project manager can check them.',
+      work_outage: 'An outage ({outage}) blocks the work; affected cards: {tasks}.',
+      waiting_digest:
+        '{todos} integrator todos and {questions} questions in screening have waited more than a day; the oldest for {oldestHours} hours.',
+    },
     email: {
       received: 'Came by email',
       short: 'By email',
@@ -5577,10 +5591,11 @@ export const en = {
         refinement_stalled: '{key}: the refinement turn ended without the label',
         start_blocked: '{key}: the start is quietly waiting',
         obligation_overdue: '{key}: the step is still stuck after the reminder',
+        relation_check: '{key}: a card it relates to changed',
       },
       bodies: {
         loop_suspected: 'The PM checks whether the work is moving; a person decides on a confirmed loop.',
-        outage: 'A provider or an engine isn’t reachable; you see in For you what to do.',
+        outage: 'A provider or an engine isn’t reachable; the PM handles it, and the affected cards show it.',
         process_cleanup_failed:
           'The background processes of a session that ended are still running after it stopped; its workspace stays busy. You can stop them on the Machine panel.',
         nobody: 'According to the settings, no member can take the card right now.',
@@ -5602,6 +5617,8 @@ export const en = {
           'The card’s start is waiting for a repository choice or a stuck workspace. The PM sorts out what a member can; when the cause is gone, the signal closes by itself.',
         obligation_overdue:
           'The assignee still hasn’t done the step after the reminder. The PM looks into it; if the step happened or moved on, the signal closes by itself, otherwise the step goes to the integrator.',
+        relation_check:
+          'The relations of the card changed. The PM checks that they still hold; when they are gone, the signal closes by itself.',
       },
     },
   },

@@ -1,5 +1,4 @@
 import {
-  ALERT_SEEN_OPTION,
   alertPayloadOf,
   DEFAULT_AGENT_PROVIDER,
   isOnLeave,
@@ -185,6 +184,11 @@ export class WorkOutages {
   activeIds(projectKey: string): ReadonlySet<string> | null {
     if (!this.evaluated) return null;
     return new Set(this.projectOutages.get(projectKey)?.keys() ?? []);
+  }
+
+  /** What the outage is now (its members and cards); null when it is over or not known yet. */
+  factsOf(projectKey: string, outageId: string): WorkOutageAlert | null {
+    return this.projectOutages.get(projectKey)?.get(outageId) ?? null;
   }
 
   forTask(task: Task): WorkOutage | undefined {
@@ -525,8 +529,7 @@ export class WorkOutages {
     let ended = false;
     const recoveredEngines = new Set<EngineId>();
     for (const { key } of this.deps.projects.summaries()) {
-      const config = this.deps.projects.cachedConfig(key);
-      if (!config) continue;
+      if (!this.deps.projects.cachedConfig(key)) continue;
       const groups = this.projectOutages.get(key) ?? new Map<string, WorkOutageAlert>();
       for (const payload of groups.values()) {
         payload.members.sort();
@@ -607,24 +610,9 @@ export class WorkOutages {
           if (JSON.stringify(old) !== JSON.stringify(current))
             this.deps.inbox.updateOpenPayload(existing.item.id, payload);
         } else if (!this.toldFor(key).has(payload.outage.id)) {
-          const owners = ownerHandles(config);
-          if (owners.length) {
-            const item = this.deps.inbox.create({
-              projectKey: key,
-              kind: 'alert',
-              assignees: owners,
-              source: 'system',
-              title: this.title(payload.outage),
-              payload,
-              options: [ALERT_SEEN_OPTION],
-            });
-            this.toldFor(key).add(payload.outage.id);
-            await this.deps.ctx.events.emit('work_outage_started', {
-              projectKey: key,
-              outageId: payload.outage.id,
-              inboxItemId: item.id,
-            });
-          }
+          // The route rule sends a new outage to the project manager as a signal; it opens no inbox item.
+          this.deps.inbox.raiseAlert({ projectKey: key, title: this.title(payload.outage), payload });
+          this.toldFor(key).add(payload.outage.id);
         }
       }
       const changedMembers = new Set(

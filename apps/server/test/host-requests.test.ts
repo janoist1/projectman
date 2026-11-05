@@ -11,6 +11,8 @@ import {
   setupOwner,
 } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import { flush } from './helpers/fakes';
+import { systemNotices } from './helpers/notices';
 
 /**
  * The requests the project manager of another owner's project opens to the instance host (PM-1064): the
@@ -148,10 +150,14 @@ describe('requests to the host', () => {
         answeredVia: 'web',
       });
       const { repos, domain } = h.app.projectman;
-      expect(repos.messages.list('BR').find((m) => m.from === 'system')).toMatchObject({ to: ['pm'] });
-      expect(domain.inbox.list('BR', { kind: 'alert' })).toEqual([
-        expect.objectContaining({ payload: expect.objectContaining({ alert: 'host_request_answered' }) }),
+      await flush();
+      expect(
+        repos.messages.list('BR').find((m) => m.from === 'system' && m.origin?.kind !== 'system_notice'),
+      ).toMatchObject({ to: ['pm'] });
+      expect(systemNotices(h.app.projectman, 'host_request_answered', 'BR')).toMatchObject([
+        { to: ['owner'] },
       ]);
+      expect(domain.inbox.list('BR', { kind: 'alert' })).toEqual([]);
       expect(timelineTypes()).toContain('host_request_answered');
     });
 

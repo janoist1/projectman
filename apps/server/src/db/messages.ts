@@ -133,6 +133,12 @@ export function createMessageRepository(db: Db) {
        AND CASE WHEN json_valid(origin) THEN json_extract(origin, '$.kind') ELSE NULL END = 'note'
        AND CASE WHEN json_valid(origin) THEN json_extract(origin, '$.eventId') ELSE NULL END = ? LIMIT 1`,
     ),
+    latestSystemNotice: db.prepare(
+      `SELECT created_at, origin FROM team_messages
+       WHERE CASE WHEN json_valid(origin) THEN json_extract(origin, '$.kind') ELSE NULL END = 'system_notice'
+       AND json_extract(origin, '$.notice') = ? AND (? IS NULL OR project_key = ?)
+       AND (? IS NULL OR json_extract(origin, '$.params.' || ?) = ?) ORDER BY seq DESC LIMIT 1`,
+    ),
     insert: db.prepare(
       `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments, actor_meta, email, location, places)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -242,6 +248,28 @@ export function createMessageRepository(db: Db) {
     /** Whether `from` already sent `to` a message whose text holds `marker` (a once-only note's own key). */
     hasNote(projectKey: string, from: string, to: string, marker: string): boolean {
       return !!statements.hasNote.get(projectKey, from, to, marker);
+    },
+    /**
+     * The newest `system_notice` message of this notice kind (PM-1250), in `projectKey` when given, and with the
+     * param `match.key` equal to `match.value` when given; its time and params, or null. A notice is one message
+     * to all its recipients.
+     */
+    latestSystemNotice(
+      notice: string,
+      scope: { projectKey?: string; match?: { key: string; value: string } } = {},
+    ): { createdAt: string; params: Record<string, unknown> } | null {
+      const { projectKey = null, match } = scope;
+      const row = statements.latestSystemNotice.get(
+        notice,
+        projectKey,
+        projectKey,
+        match?.key ?? null,
+        match?.key ?? null,
+        match?.value ?? null,
+      ) as { created_at: string; origin: string } | undefined;
+      if (!row) return null;
+      const origin = parseJson<{ params?: Record<string, unknown> }>(row.origin, {});
+      return { createdAt: row.created_at, params: origin.params ?? {} };
     },
     insert(m: TeamMessage): void {
       db.transaction(() => {

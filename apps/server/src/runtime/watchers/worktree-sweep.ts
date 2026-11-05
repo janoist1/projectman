@@ -1,7 +1,6 @@
-import { ALERT_SEEN_OPTION, alertPayloadOf, isOpenTask, isTheme } from '@projectman/shared';
+import { isOpenTask, isTheme } from '@projectman/shared';
 import type { ProjectConfig, Task, WorktreeKeptAlert } from '@projectman/shared';
 import type { EngineDirectory, MemberWorkspaceManager, WorktreeManager } from '../../contracts';
-import { ownerHandles } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import type { DiskGuard } from './disk-guard';
 import type { InboxService } from '../../core/inbox';
@@ -186,7 +185,7 @@ export class WorktreeSweep {
     if (!latest || !this.due(latest) || this.hasRunningSession(latest)) return;
     if (status.dirty) {
       report.kept.push(task.key);
-      await this.tellOnce(config, task, path, worktrees);
+      await this.tellOnce(task, path, worktrees);
       return;
     }
     await worktrees.remove({ path });
@@ -200,30 +199,16 @@ export class WorktreeSweep {
       .some((s) => this.sessions.isRunning(s.id));
   }
 
-  /** One alert per closing of the card: an earlier one (`createdAt` after `closedAt`) says it already. */
-  private async tellOnce(
-    config: ProjectConfig,
-    task: Task,
-    path: string,
-    worktrees: WorktreeManager,
-  ): Promise<void> {
-    const owners = ownerHandles(config);
-    if (owners.length === 0) return;
-    const told = this.inbox
-      .list(task.projectKey, { kind: 'alert', taskKey: task.key })
-      .some((item) => alertPayloadOf(item)?.alert === 'worktree_kept' && item.createdAt >= task.closedAt!);
-    if (told) return;
+  /** One todo per closing of the card: an earlier one (`createdAt` after `closedAt`) says it already. */
+  private async tellOnce(task: Task, path: string, worktrees: WorktreeManager): Promise<void> {
     const changes = (await worktrees.head(path))?.changes ?? 0;
     const payload: WorktreeKeptAlert = { alert: 'worktree_kept', taskKey: task.key, path, changes };
-    this.inbox.create({
+    this.inbox.raiseAlert({
       projectKey: task.projectKey,
-      kind: 'alert',
-      assignees: owners,
-      source: 'system',
       taskKey: task.key,
       title: `The worktree of ${task.key} was kept: it has uncommitted changes`,
       payload,
-      options: [ALERT_SEEN_OPTION],
+      onceSince: task.closedAt!,
     });
   }
 }

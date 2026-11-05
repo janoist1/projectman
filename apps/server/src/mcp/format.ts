@@ -247,6 +247,8 @@ function signalLine(signal: OperatorSignal): string {
     process_cleanup_failed:
       "An ended session still has running processes; its workspace remains reserved (subject: the process scope). Bring this to the owners; never stop another member's processes yourself. Only if an owner explicitly asks to free the workspace, run workspace_release with the subject as scopeId and the owner's reason.",
     outage: 'A provider or engine outage needs attention.',
+    relation_check:
+      'A card changed that others relate to (subject: the relations as kind:KEY pairs; facts list them). Check each related card and its relation; fix a relation that no longer holds, then close the case with dismiss_signal and a note. It closes itself when the relations are gone.',
     nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',
     silent: 'The working session has been silent too long.',

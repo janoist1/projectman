@@ -6,6 +6,7 @@ import type { DomainHarness } from './helpers/domain-harness';
 import { StartSpec } from '../src/runtime/admission';
 import { waitFor } from '../src/runner/test-helpers';
 import { deferredStartRecords } from './helpers/deferred-starts';
+import { systemNotices } from './helpers/notices';
 
 describe('NanoGPT provider quota recovery', () => {
   let h: DomainHarness;
@@ -50,10 +51,8 @@ describe('NanoGPT provider quota recovery', () => {
     await h.runner.stop(session.id);
   }
   const waiting = (key: string) => h.domain.tasks.get('AR', key).startWaiting;
-  const alerts = () =>
-    h.repos.inbox
-      .list('AR', { kind: 'alert' })
-      .filter((item) => item.payload.alert === 'provider_rate_limited');
+  /** The owners are told by a notice message, once per hold (PM-1250). */
+  const alerts = () => systemNotices(h, 'provider_rate_limited');
 
   it('parks the affected task until the weekly reset and then resumes without another message', async () => {
     const { task, session } = await setup(100);
@@ -65,10 +64,11 @@ describe('NanoGPT provider quota recovery', () => {
     });
     expect(alerts()).toHaveLength(1);
     expect(alerts()[0]).toMatchObject({
-      source: 'dev-1',
-      assignees: ['owner'],
-      payload: { until: reset, weeklyPercent: 100 },
+      from: 'system',
+      to: ['owner'],
+      origin: { params: { provider: 'nanogpt', until: reset } },
     });
+    expect(h.repos.inbox.list('AR', { kind: 'alert' })).toEqual([]);
     const started = h.runner.started.length;
     for (const at of ['2026-10-06T16:00:00Z', '2026-10-10T12:00:00Z', '2026-10-11T11:59:59Z']) {
       now = new Date(at);
@@ -108,7 +108,7 @@ describe('NanoGPT provider quota recovery', () => {
     await fail(session);
     expect(await waitFor(() => waiting(task.key))).toMatchObject({ reason: 'provider_rate_limited' });
     expect(waiting(task.key)?.until).toBeUndefined();
-    expect(alerts()[0]).toMatchObject({ payload: { until: null, weeklyPercent: null } });
+    expect(alerts()[0]!.origin.params).not.toHaveProperty('until');
     const started = h.runner.started.length;
     const calls = h.runnerModule.planUsage.calls;
     now = new Date('2026-10-07T12:00:00Z');
@@ -229,6 +229,9 @@ describe('Gemini provider quota recovery', () => {
   const reset = '2026-10-25T05:10:58.000Z';
   afterEach(() => h?.cleanup());
 
+  const geminiNotices = () =>
+    systemNotices(h, 'provider_rate_limited').filter((n) => n.origin.params.provider === 'gemini');
+
   async function setup(allGemini = false, persistent = false) {
     now = new Date('2026-10-22T12:00:00Z');
     h = await createDomainHarness({
@@ -298,17 +301,10 @@ describe('Gemini provider quota recovery', () => {
     expect(h.domain.tasks.get('AR', task.key).assignee).not.toBeNull();
   });
 
-  it('restores the hold from an acknowledged alert after the affected card was reassigned', async () => {
+  it('restores the hold from its notice after the affected card was reassigned', async () => {
     const { task, session } = await setup(false, true);
     await fail(session);
     await waitFor(() => h.domain.tasks.get('AR', task.key).assignee === 'dev-2');
-    const alert = h.repos.inbox.latestProviderQuota('gemini')!;
-    h.repos.inbox.close(
-      alert.id,
-      'resolved',
-      { optionId: 'seen', by: 'owner', at: now.toISOString(), note: null },
-      now.toISOString(),
-    );
     h = await restartDomainHarness(h, { now: () => now });
     expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).toThrow(
       expect.objectContaining({
@@ -323,7 +319,7 @@ describe('Gemini provider quota recovery', () => {
   it('uses a thirty-minute hold when no reset duration is reported', async () => {
     const { session } = await setup();
     await fail(session, '');
-    expect(h.repos.inbox.latestProviderQuota('gemini')?.payload.until).toBe('2026-10-22T12:30:00.000Z');
+    expect(geminiNotices().at(-1)?.origin.params.until).toBe('2026-10-22T12:30:00.000Z');
     now = new Date('2026-10-22T12:29:59.999Z');
     expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).toThrow();
     now = new Date('2026-10-22T12:30:00.000Z');
@@ -332,18 +328,15 @@ describe('Gemini provider quota recovery', () => {
   it.each([
     [1, 1],
     [60_000, 2],
-  ])('extends the hold by %i ms with %i owner alerts', async (difference, expectedAlerts) => {
+  ])('extends the hold by %i ms with %i owner notices', async (difference, expectedNotices) => {
     const { session } = await setup(true);
     const other = await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'general' });
     await fail(session);
     const later = new Date(Date.parse(reset) + difference).toISOString();
     await fail(other.session, later);
-    expect(
-      h.repos.inbox
-        .list('AR', { kind: 'alert' })
-        .filter((item) => item.payload.alert === 'provider_rate_limited'),
-    ).toHaveLength(expectedAlerts);
-    expect(h.repos.inbox.latestProviderQuota('gemini')?.payload.until).toBe(later);
+    expect(geminiNotices()).toHaveLength(expectedNotices);
+    // A small difference extends the hold but does not tell the owners again.
+    expect(geminiNotices().at(-1)?.origin.params.until).toBe(expectedNotices === 2 ? later : reset);
     expect(() => h.domain.sessions.assertProviderCooldown('gemini', null)).toThrow(
       expect.objectContaining({ details: expect.objectContaining({ until: later }) }),
     );

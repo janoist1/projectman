@@ -43,7 +43,7 @@ import {
   createSuperOperator,
 } from './services/super-operator';
 import type { OperatorAppOperations, SuperOperations } from './services/super-operator';
-import { createMessaging } from './core/messages';
+import { createAlertNoticeSink, createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
 import { createTaskService } from './core/tasks';
@@ -132,6 +132,7 @@ import {
   LoopTriages,
   OperatorSignals,
   StructuralReviews,
+  createAlertPmSignals,
   wireOperatorSignals,
 } from './services/coordination';
 import { QuestionScreening } from './core/inbox';
@@ -390,6 +391,8 @@ export interface DomainOptions {
   heavyRunSessions?: () => Promise<string[]>;
   /** How often the free disk space is checked (default 1 min). */
   diskCheckMs?: number;
+  /** How often the owners' waiting digest is considered (default 10 min; it is sent at most once a day, PM-1250). */
+  waitingDigestMs?: number;
   /** How often the worktrees of closed cards are swept, starting at startup (default 6 hours). */
   worktreeSweepMs?: number;
   /** How long a closed card's worktree stays (default `CLOSED_WORKTREE_KEEP_MS`, 3 days). */
@@ -781,7 +784,7 @@ export function createDomain(opts: DomainOptions) {
     attachmentDirectory,
     standby: opts.standby,
     usageAlerts: new UsageAlerts({ ctx, projects, inbox }),
-    inputStall: new InputStallAlerts({ ctx, projects, inbox }),
+    inputStall: new InputStallAlerts({ ctx, inbox }),
     inputStallMs: opts.inputStallMs,
   });
   const usage = new PlanUsageMonitor({
@@ -891,6 +894,7 @@ export function createDomain(opts: DomainOptions) {
     routing: messageRouter,
     messageAttachments,
   });
+  inbox.registerAlertNotices(createAlertNoticeSink({ ctx, messaging }));
   const sessionMessages = new SessionMessages({ ctx, projects, tasks, messaging, sessions, delivery });
   const emailChannel = createEmailChannelService({
     ctx,
@@ -1377,6 +1381,7 @@ export function createDomain(opts: DomainOptions) {
     wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
     taskWaits,
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
+    outageFacts: (projectKey, outageId) => outages.factsOf(projectKey, outageId),
     inbox,
     startWaitingOf: (task) => tasks.startWaitingOf(task),
     startAttempting: (task) => tasks.startAttempting(task),
@@ -1389,6 +1394,8 @@ export function createDomain(opts: DomainOptions) {
     dismissed: (projectKey, obligationId) => operatorSignals.obligationDismissed(projectKey, obligationId),
   });
   messaging.registerSignals(operatorSignals);
+  // The alerts the route rule sends to the project manager become signals (PM-1250).
+  inbox.registerAlertPmSignals(createAlertPmSignals({ operatorSignals, background, logger: ctx.logger }));
   const structuralReviews = new StructuralReviews({
     ctx,
     projects,
@@ -2466,6 +2473,13 @@ export function createDomain(opts: DomainOptions) {
             atStart: true,
             run: () => questionScreening.sweep(),
             onError: (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
+          },
+          // What waited more than a day (an integrator todo, a question in screening) is told to the owners once a day (PM-1250).
+          {
+            name: 'waiting-digest',
+            everyMs: opts.waitingDigestMs ?? 10 * 60_000,
+            run: () => inbox.sweepWaitingDigests(),
+            onError: (err) => opts.logger.warn({ err }, 'waiting digest sweep failed'),
           },
           // An open step of an AI member past its deadline: one reminder, then an integrator todo (PM-806).
           {

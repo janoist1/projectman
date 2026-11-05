@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import PostalMime, { addressParser } from 'postal-mime';
 import {
-  ALERT_SEEN_OPTION,
   EMAIL_INBOUND_TEXT_MAX,
   EMAIL_PARKED_ALERTS_PER_DAY,
   EMAIL_SUBJECT_MAX,
@@ -18,7 +17,7 @@ import {
   parseEmailReplyAddress,
   teamMessageRecipientRefusal,
 } from '@projectman/shared';
-import type { EmailParkedAlert, EmailParkReason, InboxItem, ProjectConfig } from '@projectman/shared';
+import type { EmailParkedAlert, EmailParkReason, ProjectConfig } from '@projectman/shared';
 import type { MessageAttachmentOperations } from '../../contracts';
 import type { EmailMessageRecord } from '../../db';
 import type { DomainContext } from '../../core/base';
@@ -109,7 +108,7 @@ async function parse(raw: Uint8Array): Promise<Parsed | null> {
 export function createEmailInbound(deps: {
   ctx: DomainContext;
   repo: DomainContext['repos']['emailChannel'];
-  inbox: InboxService;
+  inbox: Pick<InboxService, 'raiseAlert'>;
   messaging: Messaging;
   messageAttachments: MessageAttachmentOperations;
   projects: ProjectService;
@@ -119,7 +118,6 @@ export function createEmailInbound(deps: {
   now: () => Date;
   changed: (projectKey: string) => void;
   notify: (projectKey: string, member: string, taskKey: string | null, text: string) => Promise<void>;
-  publishInbox: (item: InboxItem | null) => void;
 }): EmailInbound {
   const {
     ctx,
@@ -193,14 +191,7 @@ export function createEmailInbound(deps: {
       throw error;
     }
     const since = new Date(now().getTime() - DAY_MS).toISOString();
-    const assignees = config.team.members
-      .filter((member) => member.kind === 'human' && ['owner', 'admin'].includes(member.access))
-      .map((member) => member.handle);
-    if (
-      !alert ||
-      repo.countAlertedSince(projectKey, since) >= EMAIL_PARKED_ALERTS_PER_DAY ||
-      assignees.length === 0
-    ) {
+    if (!alert || repo.countAlertedSince(projectKey, since) >= EMAIL_PARKED_ALERTS_PER_DAY) {
       logger.warn({ projectKey, providerId: mail.providerId, reason }, 'a mail was parked without an alert');
     } else {
       const payload: EmailParkedAlert = {
@@ -212,18 +203,7 @@ export function createEmailInbound(deps: {
         excerpt: limited(text, EXCERPT_MAX),
         attachmentNames: record.attachmentNames,
       };
-      const item = inbox.create({
-        projectKey,
-        kind: 'alert',
-        assignees,
-        source: 'system',
-        taskKey: null,
-        title: `A received e-mail was parked: ${reason}`,
-        payload,
-        options: [ALERT_SEEN_OPTION],
-      });
-      repo.messages.update(record.id, { inboxItemId: item.id, updatedAt: now().toISOString() });
-      deps.publishInbox(item);
+      inbox.raiseAlert({ projectKey, title: `A received e-mail was parked: ${reason}`, payload });
     }
     changed(projectKey);
     return 'parked';

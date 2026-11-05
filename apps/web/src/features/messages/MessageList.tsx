@@ -11,6 +11,7 @@ import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { actorLabel, isOwnActor, recordActor, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
+import { messageText } from '../../lib/systemNotice';
 import styles from './MessageList.module.css';
 import { attachmentPreview } from './conversations';
 
@@ -112,7 +113,7 @@ export function MessageList({
                   {formatStamp(message.createdAt)}
                 </time>
               </div>
-              {message.email || message.body.trim() ? (
+              {message.email || messageText(message).trim() ? (
                 <p className={styles.body}>
                   {message.email ? (
                     <>
@@ -122,12 +123,12 @@ export function MessageList({
                       {message.email.subject ? (
                         <>
                           <strong>{message.email.subject}</strong>
-                          {message.body.trim() ? ' · ' : null}
+                          {messageText(message).trim() ? ' · ' : null}
                         </>
                       ) : null}
                     </>
                   ) : null}
-                  {message.body}
+                  {messageText(message)}
                 </p>
               ) : null}
               {message.attachments?.length ? (

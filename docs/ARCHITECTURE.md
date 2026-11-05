@@ -387,7 +387,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`cardAnalyst`: the AI member who last set `analysis-ok`, else the first `requirements_analysis`
   duty holder not on leave) also gets an `action` message on that very card (`SendOptions.ownCard`:
   never steered to a family card's session) asking it to check the work; an analyst who is also a
-  worker gets this one only. With no analyst the owners get a `relation_check` alert. The held
+  worker gets this one only. With no analyst the project manager gets a `relation_check` signal (PM-1250), and with no project manager either the owners get a notice message. The held
   notices are in memory: one for a session that ends stays undelivered for the member's next session.
   The messages are the whole trace: the timeline's `team_message` row names the recipient and the time,
   the card thread shows the owner the delivery receipt with its time.
@@ -519,7 +519,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   an AI setter (already working on the card, else not on leave, else least loaded) is started
   (a running session only gets a notice), a person gets a `manual_step` alert. Nothing is done
   while a session is mid-turn on the card; a step is not handed out twice (its member's turn
-  ending without the label raises one `stalled` alert). When every label is on, the system takes
+  ending without the label no longer raises an alert: the `stalled` kind is retired, PM-1250). When every label is on, the system takes
   `refine` off and moves the card to the stage before development. Completion (`done`, PM-594)
   sends a team message to the configured card mover, otherwise the project manager (`info` for a
   human, `action` for an AI member). Without a recipient, only the
@@ -1267,8 +1267,8 @@ Actions review result: its reuse is limited to `engine` runs, so the merge runs 
 `WorktreeSweep` (at start and every 6 h, `DomainOptions.worktreeSweepMs`) goes over the done and cancelled cards
 that have been closed for 3 days (`CLOSED_WORKTREE_KEEP_MS`) and have no running session, and removes the worktree
 of each that is clean (`WorktreeManager.remove`, which keeps the branch; `ensureForTask` makes the worktree again if
-the card restarts). A worktree with uncommitted changes is never removed: the owners get one `worktree_kept` alert
-per closing of the card. What was removed and about how much space it freed goes to the server log only.
+the card restarts). A worktree with uncommitted changes is never removed: the integrator gets one `worktree_kept` todo
+per closing of the card (PM-1250: a machine alert is a todo of the integrator, never an item of the owners). What was removed and about how much space it freed goes to the server log only.
 Since PM-1115 the sweep lists existing task worktrees and snapshot task keys by engine and repository,
 skipping engines that do not hold the project. It reads only those cards, and checks the card and live sessions
 again after status, immediately before worktree removal. Snapshot and leftover incoming refs use the same
@@ -1276,7 +1276,7 @@ three-day retention, skip active merges and are removed in batches of at most 10
 history is scanned, and task branches in durable member clones remain available after snapshot cleanup.
 
 `DiskGuard` (every minute, `DomainOptions.diskCheckMs`) measures the free space of `PROJECTMAN_HOME` with `statfs`.
-Below `team.limits.minFreeDiskGb` (default 10, 0 turns it off) the owners get one `disk_low` alert, withdrawn when
+Below `team.limits.minFreeDiskGb` (default 10, 0 turns it off) the integrator gets one `disk_low` todo, withdrawn when
 there is room again, and `Admission.check` refuses a new AI session with `disk_low` (deferrable: the start waits).
 Running sessions finish their step. A measurement that fails never blocks anything.
 

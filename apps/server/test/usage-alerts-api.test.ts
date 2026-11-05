@@ -3,6 +3,8 @@ import { InboxView, routes } from '@projectman/shared';
 import type { ConfigView, SessionDetail, Task } from '@projectman/shared';
 import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import { flush } from './helpers/fakes';
+import { systemNotices } from './helpers/notices';
 
 /**
  * The warning limit of a session's tokens (PM-187) over HTTP: the owner sets and removes it in the
@@ -41,7 +43,7 @@ describe('session token warning limit through the API', () => {
     expect(await limitsNow()).not.toHaveProperty('warnAboveSessionTokens');
   });
 
-  it("puts one alert in the owner's inbox, marks the session and lets it work on", async () => {
+  it('tells the owners once in a notice, marks the session and lets it work on', async () => {
     expect((await patchLimits({ warnAboveSessionTokens: 10_000 })).statusCode).toBe(200);
     const task = (
       await inject(h.app, 'POST', routes.tasks('AR'), cookie, { title: 'Validate the login form' })
@@ -56,28 +58,30 @@ describe('session token warning limit through the API', () => {
           { model: 'claude-opus-5-5', scope: 'main', input, output: 0, cacheRead: 10_000, cacheWrite: 0 },
         ],
       });
-    const alerts = async () =>
-      InboxView.parse(
-        (await inject(h.app, 'GET', `${routes.inbox('AR')}?state=all`, cookie)).json(),
-      ).items.filter((item) => item.kind === 'alert');
+    const alerts = async () => {
+      await flush();
+      return systemNotices(h.app.projectman, 'session_tokens');
+    };
     // 2 000 input + a tenth of 30 000 cache reads = 5 000.
     usage(1_000);
     usage(1_000);
     usage(0);
     expect(await alerts()).toEqual([]);
 
-    // 7 000 input + a tenth of 40 000 = 11 000: over the limit; more usage raises no second alert.
+    // 7 000 input + a tenth of 40 000 = 11 000: over the limit; more usage raises no second notice.
     usage(5_000);
     usage(5_000);
-    const [item, ...more] = await alerts();
+    const [notice, ...more] = await alerts();
     expect(more).toEqual([]);
-    expect(item).toMatchObject({
-      state: 'open',
-      assignees: ['owner'],
-      sessionId,
-      taskKey: task.key,
-      payload: { alert: 'session_tokens', countedTokens: 11_000, limitTokens: 10_000 },
+    expect(notice).toMatchObject({
+      to: ['owner'],
+      origin: { params: { counted: 11_000, limit: 10_000, taskKey: task.key } },
     });
+    // The owners' inbox stays empty: the notice is the whole alert.
+    const inbox = InboxView.parse(
+      (await inject(h.app, 'GET', `${routes.inbox('AR')}?state=all`, cookie)).json(),
+    );
+    expect(inbox.items.filter((item) => item.kind === 'alert')).toEqual([]);
 
     const detail = (
       await inject(h.app, 'GET', routes.session('AR', sessionId), cookie)
@@ -91,11 +95,5 @@ describe('session token warning limit through the API', () => {
     });
     expect(written.statusCode, written.body).toBe(202);
     expect(h.runner.isRunning(sessionId)).toBe(true);
-
-    const seen = await inject(h.app, 'POST', routes.resolveInbox('AR', item!.id), cookie, {
-      optionId: 'seen',
-    });
-    expect(seen.statusCode, seen.body).toBe(200);
-    expect(await alerts()).toMatchObject([{ state: 'resolved', resolution: { optionId: 'seen' } }]);
   });
 });

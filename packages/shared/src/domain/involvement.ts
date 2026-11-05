@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Actor } from './event';
 import { TaskKey } from './task';
 import { LabelId } from './label';
+import { SystemNoticeKind, SystemNoticeParams } from './system-notice';
 
 export const SessionStartCauseKind = z.enum([
   'start_button',
@@ -60,6 +61,8 @@ export const MessageOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('question_forward'), inboxItemId: z.string() }),
   /** A server-generated continuation after a human approved shared Operator knowledge. */
   z.object({ kind: z.literal('operator_knowledge_approval'), inboxItemId: z.string() }),
+  /** Information from the system, drawn in the interface's language from `notice` and `params` (PM-1250). */
+  z.object({ kind: z.literal('system_notice'), notice: SystemNoticeKind, params: SystemNoticeParams }),
 ]);
 export type MessageOrigin = z.infer<typeof MessageOrigin>;
 

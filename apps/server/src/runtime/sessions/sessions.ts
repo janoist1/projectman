@@ -209,9 +209,9 @@ export interface SessionOrchestratorDeps {
   /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
   usageAlerts?: Pick<UsageAlerts, 'check'>;
   /** Quota alerts are raised once per shared-provider hold (PM-377). */
-  inbox?: Pick<InboxService, 'create' | 'openPermissionOf'>;
+  inbox?: Pick<InboxService, 'create' | 'openPermissionOf' | 'raiseAlert'>;
   /** Tells the owners of a session that waits for input unseen (PM-199). */
-  inputStall?: Pick<InputStallAlerts, 'raise'>;
+  inputStall?: Pick<InputStallAlerts, 'raise' | 'settle'>;
   /** How long a session may wait for input before they are told (default `INPUT_STALL_MS`). */
   inputStallMs?: number;
 }

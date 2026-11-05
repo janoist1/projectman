@@ -233,6 +233,7 @@ export const OperatorSignalKind = z.enum([
   'start_blocked',
   'obligation_overdue',
   'senior_wait',
+  'relation_check',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
 /** The start waits a `start_blocked` signal tells the project manager about (PM-455). */

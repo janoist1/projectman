@@ -32,7 +32,6 @@ export interface DomainEventMap {
   session_cleanup_failed: SessionCleanupFailed;
   session_cleanup_recovered: SessionCleanupRecovered;
   session_cleanup_released: SessionCleanupReleased;
-  work_outage_started: { projectKey: string; outageId: string; inboxItemId: string };
   work_outage_ended: { projectKey: string; outageId: string };
   session_input_stalled: { projectKey: string; sessionId: string; inboxItemId: string };
   pause_changed: { projectKey: string };

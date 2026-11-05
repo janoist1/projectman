@@ -22,7 +22,10 @@ function setup(measured: Partial<Record<EngineId, PlanUsage | null>> = {}) {
     ctx: {
       now: () => at,
       logger: { warn: vi.fn(), error: vi.fn() },
-      repos: { inbox: { latestProviderQuota: () => null } },
+      repos: {
+        inbox: { latestProviderQuota: () => null },
+        messages: { latestSystemNotice: () => null },
+      },
     },
     engines: {
       hostEngine: () => HOST,

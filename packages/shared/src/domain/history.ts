@@ -434,6 +434,8 @@ function messageVisible(viewer: HistoryViewer, message: TeamMessage, related: Hi
     case 'answer':
     case 'question_forward':
       return inboxOk(origin.inboxItemId);
+    case 'system_notice':
+      return true;
   }
 }
 

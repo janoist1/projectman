@@ -1,5 +1,4 @@
 import {
-  ALERT_SEEN_OPTION,
   REFINE_LABEL,
   alertPayloadOf,
   cardMoverHandle,
@@ -444,15 +443,12 @@ export class RefinementSteps {
       reason === 'manual_step'
         ? `${task.key} waits for a person to set the label ${label}`
         : `${task.key} is worked out`;
-    this.inbox.create({
+    this.inbox.raiseAlert({
       projectKey: task.projectKey,
-      kind: 'alert',
       assignees: [...new Set(assignees)],
-      source: 'system',
       taskKey: task.key,
       title: subject,
       payload: { alert: 'refinement', taskKey: task.key, label, reason } satisfies RefinementAlert,
-      options: [ALERT_SEEN_OPTION],
     });
   }
 }

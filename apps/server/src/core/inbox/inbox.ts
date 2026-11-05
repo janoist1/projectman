@@ -9,6 +9,10 @@ import {
   integratorExecution,
 } from '../../kernel';
 import {
+  ALERT_SEEN_OPTION,
+  alertPayloadOf,
+  systemNoticeOf,
+  waitingDigestNotice,
   APPROVAL_OWNER_TOPIC,
   APPROVAL_PAYLOAD_KEYS,
   ownerTopicRefusal,
@@ -68,6 +72,7 @@ import {
 } from '@projectman/shared';
 import type {
   Actor,
+  AlertPayload,
   DelegatedPermissionDecision,
   FixLimitDecisionPayload,
   GateRequestPayload,
@@ -110,7 +115,14 @@ import type { DomainContext } from '../base';
 import { applyRoute } from './apply-route';
 import type { AppliedRoute } from './apply-route';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
-import type { QuestionGroupAnswerer, IntegratorTodoAccess } from './ports';
+import type { QuestionGroupAnswerer, IntegratorTodoAccess, AlertNoticeSink, AlertPmSignals } from './ports';
+import {
+  alertMarkerOf,
+  alertMarkerOfItem,
+  alertMarkerPayload,
+  alertTodoOf,
+  isMachineAlert,
+} from './alert-todo';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
@@ -118,6 +130,10 @@ import { SYSTEM_ACTOR, aiActor, attributedActor, excerpt, humanActor, newId, Key
 
 /** How many screened questions the screened-questions list returns (PM-558). */
 const SCREENED_QUESTIONS_LIMIT = 20;
+/** What waits longer than this (an integrator todo, a question in screening) goes into the owners' digest. */
+const WAITING_DIGEST_AFTER_MS = 24 * 3_600_000;
+/** The owners get at most one digest in this time. */
+const WAITING_DIGEST_EVERY_MS = 24 * 3_600_000;
 
 /** Built-in option ids; the web app translates them (labels repeat the id). */
 export const DECISION_OPTIONS: InboxOption[] = [
@@ -152,6 +168,27 @@ interface CreateInboxItemInput {
   state?: 'open' | 'screening';
   /** How the route rule placed the item: stored on it and written to the timeline as `item_routed` (PM-1246). */
   routed?: AppliedRoute;
+}
+
+/** What happened, as the creator of an alert tells it: the route rule decides who it goes to (PM-1250). */
+export interface RaiseAlertInput {
+  projectKey: string;
+  payload: AlertPayload;
+  /** The English title of the item (or of the todo) the alert becomes. */
+  title: string;
+  /** Who raised it: the member whose session it is about, else `system`. */
+  source?: string;
+  sessionId?: string | null;
+  taskKey?: string | null;
+  /**
+   * For the alert items of people (a `refinement` approval, a `merge_blocked`): who holds the duty. For a notice:
+   * the concerned people when they are not the owners (a `refinement` done goes to who prioritises).
+   */
+  assignees?: string[];
+  /** The owner who caused the alert and needs no message about it. */
+  exceptRecipient?: string | null;
+  /** A machine alert raised once for a stretch of time: not again if one of its kind and card exists since then. */
+  onceSince?: string;
 }
 
 /** A new fix round limit decision (PM-714): the counted rounds and the options that can be carried out now. */
@@ -1826,6 +1863,28 @@ export class InboxService {
     recipientRefusal: QuestionRecipientRefusal | null;
   }> {
     const config = await this.projects.config(input.projectKey);
+    const item = this.openTodoItem(config, input);
+    // The integrator's queue takes every machine todo, so there is no refusal to report any more (PM-1246).
+    return { itemId: item.id, recipient: 'integrator', recipientRefusal: null };
+  }
+
+  /**
+   * The synchronous core of `openIntegratorTodo`, for a caller that already holds the project's config
+   * (`raiseAlert`). `sessionId` and `extraPayload` (the alert marker) are only for the alerts the system raises.
+   */
+  private openTodoItem(
+    config: ProjectConfig,
+    input: {
+      projectKey: string;
+      taskKey: string | null;
+      askedBy: string;
+      question: string;
+      todo: QuestionTodo;
+      obligation?: ObligationRef;
+      sessionId?: string | null;
+      extraPayload?: Record<string, unknown>;
+    },
+  ): InboxItem {
     const owners = ownerHandles(config);
     if (owners.length === 0) throw invalid('no_assignees', 'the project has no owner to give a todo to');
     const at = isoNow(this.ctx);
@@ -1835,7 +1894,7 @@ export class InboxService {
       kind: 'question',
       assignees: owners,
       source: input.askedBy,
-      sessionId: null,
+      sessionId: input.sessionId ?? null,
       taskKey: input.taskKey,
       title: input.question,
       body: null,
@@ -1844,13 +1903,14 @@ export class InboxService {
         requestedRecipient: 'integrator',
         recipient: 'owner',
         ...(input.obligation ? { obligation: input.obligation } : {}),
+        ...input.extraPayload,
       },
       options: [],
       state: 'open',
       resolution: null,
       createdAt: at,
     };
-    const { selected, payload, options, route } = this.releaseFields(
+    const { payload, options, route } = this.releaseFields(
       draft,
       { outcome: 'todo', by: 'system', todo: { ...input.todo, recipient: 'integrator' } },
       config,
@@ -1859,20 +1919,226 @@ export class InboxService {
       null,
       input.askedBy === 'system' && !memberOf(config, 'system') ? 'system_todo' : 'member_todo',
     );
-    const item = this.create({
+    return this.create({
       id: draft.id,
       projectKey: draft.projectKey,
       kind: 'question',
       assignees: owners,
       source: draft.source,
+      sessionId: draft.sessionId,
       taskKey: draft.taskKey,
       title: draft.title,
       payload,
       options,
       ...(route ? { routed: route } : {}),
     });
-    // The integrator's queue takes every machine todo, so there is no refusal to report any more (PM-1246).
-    return { itemId: item.id, recipient: selected.recipient, recipientRefusal: null };
+  }
+
+  private alertNotices?: AlertNoticeSink;
+  private alertPmSignals?: AlertPmSignals;
+
+  /** The sink of the alerts that become a message to the owners (`core/messages` registers it). */
+  registerAlertNotices(sink: AlertNoticeSink): void {
+    this.alertNotices = sink;
+  }
+
+  /** The port of the alerts that become a signal of the project manager. */
+  registerAlertPmSignals(signals: AlertPmSignals): void {
+    this.alertPmSignals = signals;
+  }
+
+  /**
+   * The one place an alert is raised (PM-1250): the creator names what happened, the route rule
+   * (`ALERT_ROUTE_CLASS`) decides who it goes to, and the creator never picks a recipient. Machine alerts become
+   * a todo of the integrator (one open for each kind and card), `pm` alerts the project manager's signal,
+   * information a `system_notice` message, and only a `refinement` approval and a `merge_blocked` for a human
+   * merger stay alert items of people (`assignees`). A retired kind is refused. Returns the item it created, or
+   * null when the alert became a notice or a signal, or one of its kind is open already.
+   */
+  raiseAlert(input: RaiseAlertInput): InboxItem | null {
+    const config = this.projects.cachedConfig(input.projectKey);
+    if (!config) return null;
+    const { payload } = input;
+    const applied = this.applyRoute(config, {
+      kind: `alert:${payload.alert}`,
+      ...(payload.alert === 'refinement' ? { alertReason: payload.reason } : {}),
+    });
+    const owners = ownerHandles(config);
+    const taskKey = input.taskKey ?? null;
+    const sessionId = input.sessionId ?? null;
+    const source = input.source ?? 'system';
+    switch (applied.route.to) {
+      case 'integrator_queue': {
+        if (!isMachineAlert(payload) || owners.length === 0) return null;
+        const marker = alertMarkerOf(payload, { taskKey, sessionId });
+        if (this.alertTodos(input.projectKey, marker, taskKey, input.onceSince).length > 0) return null;
+        if (
+          input.onceSince &&
+          this.legacyAlertSince(input.projectKey, payload.alert, taskKey, input.onceSince)
+        )
+          return null;
+        return this.openTodoItem(config, {
+          projectKey: input.projectKey,
+          taskKey,
+          askedBy: 'system',
+          question: input.title,
+          todo: alertTodoOf(payload, { member: source, sessionId }),
+          sessionId,
+          extraPayload: alertMarkerPayload(marker),
+        });
+      }
+      case 'pm':
+        if (payload.alert === 'relation_check' || payload.alert === 'work_outage')
+          this.alertPmSignals?.raise(input.projectKey, payload);
+        return null;
+      case 'owner_messages': {
+        const notice = systemNoticeOf(payload);
+        // The people the alert went to before it became a message: a parked e-mail also reaches the admins, and a
+        // creator that names who is concerned (refinement: who prioritises) keeps them.
+        const concerned = input.assignees?.length
+          ? input.assignees
+          : payload.alert === 'email_parked'
+            ? config.team.members
+                .filter((member) => member.kind === 'human' && ['owner', 'admin'].includes(member.access))
+                .map((member) => member.handle)
+            : owners;
+        const recipients = concerned.filter((handle) => handle !== input.exceptRecipient);
+        if (notice && recipients.length > 0)
+          void this.alertNotices?.send({ projectKey: input.projectKey, recipients, notice });
+        return null;
+      }
+      case 'owner_inbox':
+      case 'duty_holder': {
+        const assignees = input.assignees?.length ? input.assignees : owners;
+        if (assignees.length === 0) return null;
+        return this.create({
+          projectKey: input.projectKey,
+          kind: 'alert',
+          assignees,
+          source,
+          sessionId,
+          taskKey,
+          title: input.title,
+          payload,
+          options: [ALERT_SEEN_OPTION],
+          routed: applied,
+        });
+      }
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * The todos of one machine alert kind and card that stop a new one: the open ones, or with `since` (the card's
+   * closing) the ones of any state created at or after it. A legacy alert item of the kind is not one.
+   */
+  private alertTodos(
+    projectKey: string,
+    marker: { alert: string; key: string },
+    taskKey: string | null,
+    since?: string,
+  ): InboxItem[] {
+    return this.ctx.repos.inbox
+      .list(projectKey, {
+        kind: 'question',
+        ...(since ? {} : { state: 'open' as const }),
+        ...(taskKey ? { taskKey } : {}),
+      })
+      .filter((item) => {
+        const found = alertMarkerOfItem(item);
+        return (
+          found?.alert === marker.alert && found.key === marker.key && (!since || item.createdAt >= since)
+        );
+      });
+  }
+
+  /** Whether an alert item of an older version, in any state, was raised for the card at or after `since`. */
+  private legacyAlertSince(
+    projectKey: string,
+    alert: string,
+    taskKey: string | null,
+    since: string,
+  ): boolean {
+    return this.ctx.repos.inbox
+      .list(projectKey, { kind: 'alert', ...(taskKey ? { taskKey } : {}) })
+      .some((item) => alertPayloadOf(item)?.alert === alert && item.createdAt >= since);
+  }
+
+  /**
+   * The cause of a machine alert is gone (the disk has room again): its open todo and its open legacy alert
+   * items close, and the next occurrence raises a new todo. `scope.taskKey` and `scope.sessionId` pick the card or
+   * session; with neither, every open item of the kind in the project closes.
+   */
+  settleAlert(
+    projectKey: string,
+    alert: 'disk_low' | 'worktree_kept' | 'session_input',
+    scope: { taskKey?: string | null; sessionId?: string | null } = {},
+  ): number {
+    const key = alert === 'disk_low' ? '' : (scope.taskKey ?? scope.sessionId ?? null);
+    const todos = this.ctx.repos.inbox
+      .list(projectKey, { state: 'open', kind: 'question' })
+      .filter((item) => {
+        const found = alertMarkerOfItem(item);
+        return found?.alert === alert && (key === null || found.key === key);
+      });
+    const legacy = this.ctx.repos.inbox
+      .list(projectKey, { state: 'open', kind: 'alert' })
+      .filter(
+        (item) =>
+          alertPayloadOf(item)?.alert === alert &&
+          (scope.sessionId
+            ? item.sessionId === scope.sessionId
+            : !scope.taskKey || item.taskKey === scope.taskKey),
+      );
+    let closed = 0;
+    for (const item of [...todos, ...legacy]) if (this.cancel(item.id)) closed += 1;
+    return closed;
+  }
+
+  /**
+   * Tells the owners, at most once a day, that an open integrator todo or a question in screening has waited
+   * more than a day (PM-1250). The moment of the last digest is the newest `waiting_digest` notice message, so
+   * a restart does not repeat it.
+   */
+  async sweepWaitingDigests(): Promise<void> {
+    for (const { key } of this.projects.summaries()) await this.sendWaitingDigest(key);
+  }
+
+  /** One project's digest (see `sweepWaitingDigests`). Returns whether a digest was sent. */
+
+  async sendWaitingDigest(projectKey: string): Promise<boolean> {
+    const config = this.projects.cachedConfig(projectKey);
+    if (!config || !this.alertNotices) return false;
+    const recipients = ownerHandles(config);
+    if (recipients.length === 0) return false;
+    const now = this.ctx.now().getTime();
+    const last = this.ctx.repos.messages.latestSystemNotice('waiting_digest', { projectKey });
+    if (last && now - Date.parse(last.createdAt) < WAITING_DIGEST_EVERY_MS) return false;
+    const waitingSince: number[] = [];
+    let todos = 0;
+    let questions = 0;
+    for (const item of this.ctx.repos.inbox.list(projectKey, {
+      kind: 'question',
+      state: ['open', 'screening'],
+    })) {
+      if (item.state === 'screening') {
+        questions += 1;
+        waitingSince.push(Date.parse(item.createdAt));
+      } else if (isIntegratorTodo(item)) {
+        todos += 1;
+        waitingSince.push(Date.parse(questionPayloadOf(item)!.integratorOpenedAt!));
+      }
+    }
+    if (waitingSince.length === 0) return false;
+    const oldestMs = now - Math.min(...waitingSince);
+    if (oldestMs <= WAITING_DIGEST_AFTER_MS) return false;
+    await this.alertNotices.send({
+      projectKey,
+      recipients,
+      notice: waitingDigestNotice({ todos, questions, oldestHours: Math.floor(oldestMs / 3_600_000) }),
+    });
+    return true;
   }
 
   /**

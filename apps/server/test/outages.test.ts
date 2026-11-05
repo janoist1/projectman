@@ -6,7 +6,7 @@ import {
   LOCAL_ENGINE_ID,
   isOnLeave,
 } from '@projectman/shared';
-import type { AgentProvider, EngineId, HumanMemberConfig, Task } from '@projectman/shared';
+import type { AgentProvider, EngineId, HumanMemberConfig, Task, WorkOutageAlert } from '@projectman/shared';
 import type { ProviderStatus, EngineDirectory } from '../src/contracts';
 import type { AutomaticStart } from '../src/runtime/admission';
 import { DeferredStarts } from '../src/runtime/admission';
@@ -62,6 +62,7 @@ describe('work outage watch', () => {
       },
     };
     h = await createDomainHarness({ engines: directory });
+    vi.spyOn(h.domain.inbox, 'raiseAlert');
     probe = vi.fn(async (provider: AgentProvider) => status(provider, false));
     Object.assign(h.runner, { providerStatus: probe });
     deferred = new DeferredStarts();
@@ -94,10 +95,28 @@ describe('work outage watch', () => {
     await h.cleanup();
   });
 
+  /** The outage alerts raised so far: a new outage opens no inbox item, the route rule sends it on (PM-1250). */
+  function raised() {
+    return vi
+      .mocked(h.domain.inbox.raiseAlert)
+      .mock.calls.map(([input]) => ({ ...input, payload: input.payload as WorkOutageAlert }));
+  }
+  /** The outage alert items an earlier version left open: the watch still adopts, updates and closes them. */
   function alerts() {
     return h.domain.inbox
       .list('AR', { kind: 'alert' })
       .filter((item) => alertPayloadOf(item)?.alert === 'work_outage');
+  }
+  function legacyAlert(outageId = raised()[0]!.payload.outage.id) {
+    return h.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'alert',
+      assignees: ['owner'],
+      source: 'system',
+      title: raised()[0]!.title,
+      payload: watch.factsOf('AR', outageId)!,
+      options: [ALERT_SEEN_OPTION],
+    });
   }
   function access(handle = 'owner'): ProjectAccess {
     return {
@@ -144,10 +163,9 @@ describe('work outage watch', () => {
       status(provider, opts.member === 'dev-1' ? false : true, 'cli_missing'),
     );
     await watch.check();
-    expect(alerts()).toHaveLength(1);
-    expect(alerts()[0]).toMatchObject({
-      assignees: ['owner'],
-      source: 'system',
+    expect(raised()).toHaveLength(1);
+    expect(raised()[0]).toMatchObject({
+      projectKey: 'AR',
       payload: {
         alert: 'work_outage',
         members: ['dev-1'],
@@ -155,45 +173,40 @@ describe('work outage watch', () => {
         outage: { provider: DEFAULT_AGENT_PROVIDER, problem: 'cli_missing', engine: null },
       },
     });
+    expect(alerts()).toEqual([]);
     expect(watch.forMember('AR', 'dev-1')?.kind).toBe('provider');
     expect(watch.forMember('AR', 'dev-2')).toBeUndefined();
     expect(probe).toHaveBeenCalledWith('claude', { member: 'dev-1', refresh: true });
   });
 
-  it('updates affected cards, suppresses acknowledged repeats and starts a new episode after recovery', async () => {
+  it('updates affected cards, tells about an episode once and starts a new episode after recovery', async () => {
     const task = await h.domain.tasks.create('AR', { title: 'Waiting work' }, OWNER_ACTOR);
     keep(task);
     await watch.check();
-    const item = alerts()[0]!;
+    const id = 'provider:claude:local';
     const since = watch.forTask(task)?.since;
-    expect(item.payload.tasks).toEqual([task.key]);
-    expect(watch.forTask(task)?.id).toBe('provider:claude:local');
-    const publish = vi.spyOn(h.domain.bus, 'publish');
+    expect(raised()[0]!.payload.tasks).toEqual([task.key]);
+    expect(watch.forTask(task)?.id).toBe(id);
     deferred.drop(task.key);
     await watch.check();
-    expect(alerts()[0]!.payload.tasks).toEqual([]);
-    expect(publish.mock.calls.some(([event]) => event.type === 'inbox_upserted')).toBe(true);
-    publish.mockClear();
+    expect(watch.factsOf('AR', id)?.tasks).toEqual([]);
     await watch.check();
-    expect(publish.mock.calls.some(([event]) => event.type === 'inbox_upserted')).toBe(false);
     await watch.observeRefusal('AR', 'dev-1', 'provider_not_logged_in');
-    expect(alerts()).toHaveLength(1);
-    await h.domain.inbox.resolve('AR', item.id, { optionId: 'seen' }, access());
-    await watch.check();
-    expect(alerts()).toHaveLength(1);
+    expect(raised()).toHaveLength(1);
     expect(watch.forMember('AR', 'dev-1')?.since).toBe(since);
     probe.mockImplementation(async (provider) => status(provider, true));
     await watch.check();
     expect(retry).toHaveBeenCalledTimes(1);
     expect(watch.forMember('AR', 'dev-1')).toBeUndefined();
+    expect(watch.factsOf('AR', id)).toBeNull();
     probe.mockImplementation(async (provider) => status(provider, false));
     await watch.check();
-    expect(alerts()).toHaveLength(2);
+    expect(raised()).toHaveLength(2);
   });
 
   it('resolves an open alert only after confirmed recovery, including a manual check', async () => {
     await watch.check();
-    const item = alerts()[0]!;
+    const item = legacyAlert();
     expect((await watch.checkNow('AR', item.id, access())).stillFailing).toBe(true);
     probe.mockImplementation(async (provider) => status(provider, null));
     expect((await watch.checkNow('AR', item.id, access())).stillFailing).toBe(true);
@@ -227,7 +240,7 @@ describe('work outage watch', () => {
       return 'Put member on leave';
     });
     await watch.check();
-    expect(alerts()[0]!.state).toBe('cancelled');
+    expect(watch.activeIds('AR')!.size).toBe(0);
     expect(retry).not.toHaveBeenCalled();
   });
 
@@ -238,7 +251,7 @@ describe('work outage watch', () => {
     keep(task, 'engine_offline');
     await watch.check();
     expect(probe).not.toHaveBeenCalled();
-    expect(alerts()[0]).toMatchObject({
+    expect(raised()[0]).toMatchObject({
       title: 'Engine "Mac mini" is not connected',
       payload: {
         tasks: [task.key],
@@ -249,7 +262,7 @@ describe('work outage watch', () => {
     probe.mockImplementation(async (provider) => status(provider, null));
     const release = vi.spyOn(h.domain.messageRouter, 'releaseForEngine');
     await watch.recheck({ kind: 'engine', engineId: remote });
-    expect(alerts()[0]).toMatchObject({ state: 'resolved', resolution: { rule: 'outage_ended' } });
+    expect(watch.activeIds('AR')!.size).toBe(0);
     expect(release).toHaveBeenCalledWith(remote);
     expect(probe).not.toHaveBeenCalled();
   });
@@ -260,19 +273,19 @@ describe('work outage watch', () => {
     vi.mocked(h.domain.ctx.now).mockReturnValue(startedAt);
     await h.domain.outages.check();
     await h.domain.outages.observeRefusal('AR', 'dev-1', 'engine_offline');
-    expect(alerts()).toEqual([]);
+    expect(raised()).toEqual([]);
     expect(probe).not.toHaveBeenCalled();
     vi.mocked(h.domain.ctx.now).mockReturnValue(new Date(startedAt.getTime() + ENGINE_OFFLINE_AFTER_MS));
     await h.domain.outages.check();
-    expect(alerts()).toHaveLength(1);
-    expect(alerts()[0]!.payload.outage).toMatchObject({ kind: 'engine', engine: { id: remote } });
+    expect(raised()).toHaveLength(1);
+    expect(raised()[0]!.payload.outage).toMatchObject({ kind: 'engine', engine: { id: remote } });
   });
 
   it('preserves adopted engine alerts during startup grace and manual checks', async () => {
     engineId = remote;
     online = false;
     await watch.check();
-    const item = alerts()[0]!;
+    const item = legacyAlert();
     vi.mocked(h.domain.ctx.now).mockReturnValue(startedAt);
     await watch.stop();
     watch = new WorkOutages({
@@ -311,22 +324,22 @@ describe('work outage watch', () => {
     await watch.check();
     online = false;
     await watch.check();
-    expect(alerts()).toHaveLength(1);
-    expect(alerts()[0]!.payload.outage).toMatchObject({ kind: 'engine' });
+    expect(raised()).toHaveLength(1);
+    expect(raised()[0]!.payload.outage).toMatchObject({ kind: 'engine' });
   });
 
   it('carries remote provider identity and preserves its failure during an engine disconnect', async () => {
     engineId = remote;
     await watch.check();
-    const item = alerts()[0]!;
-    expect(item.payload.outage).toMatchObject({ kind: 'provider', engine: { id: remote, name: 'Mac mini' } });
+    const { outage } = raised()[0]!.payload;
+    expect(outage).toMatchObject({ kind: 'provider', engine: { id: remote, name: 'Mac mini' } });
     online = false;
     await watch.check();
-    expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+    expect(watch.factsOf('AR', outage.id)).not.toBeNull();
     online = true;
     probe.mockImplementation(async (provider) => status(provider, null));
     await watch.check();
-    expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+    expect(watch.factsOf('AR', outage.id)).not.toBeNull();
   });
 
   it('includes cards with messages waiting for an engine, without deferred starts', async () => {
@@ -340,7 +353,7 @@ describe('work outage watch', () => {
     });
     expect(h.domain.messageRouter.pendingTaskKeys('AR', 'dev-1')).toEqual([task.key]);
     await watch.check();
-    expect(alerts()[0]!.payload.tasks).toEqual([task.key]);
+    expect(raised()[0]!.payload.tasks).toEqual([task.key]);
     expect(watch.forTask(task)).toMatchObject({ kind: 'engine', engine: { id: remote } });
     expect(deferred.list()).toEqual([]);
   });
@@ -424,13 +437,12 @@ describe('work outage watch', () => {
     engineId = remote;
     online = false;
     for (const listener of engineListeners) listener(remote, false);
-    await vi.waitFor(() => expect(alerts()).toHaveLength(1));
-    const item = alerts()[0]!;
-    expect(item.payload.outage).toMatchObject({ kind: 'engine' });
+    await vi.waitFor(() => expect(raised()).toHaveLength(1));
+    expect(raised()[0]!.payload.outage).toMatchObject({ kind: 'engine' });
     online = true;
     probe.mockImplementation(async (provider) => status(provider, null));
     for (const listener of engineListeners) listener(remote, true);
-    await vi.waitFor(() => expect(h.domain.inbox.get('AR', item.id).resolution?.rule).toBe('outage_ended'));
+    await vi.waitFor(() => expect(h.domain.outages.activeIds('AR')!.size).toBe(0));
   });
 
   it('rechecks auth errors on the session engine and retains version diagnostics', async () => {
@@ -442,7 +454,7 @@ describe('work outage watch', () => {
     }));
     await watch.observeAuthError('AR', 'dev-1', 'claude', remote);
     expect(probe).toHaveBeenCalledWith('claude', { member: 'dev-1', engineId: remote, refresh: true });
-    expect(alerts()[0]!.payload.outage).toMatchObject({
+    expect(raised()[0]!.payload.outage).toMatchObject({
       problem: 'cli_too_old',
       cliVersion: '1.0.0',
       minCliVersion: '2.0.0',
@@ -452,15 +464,11 @@ describe('work outage watch', () => {
   it('recovers a no-engine warning when a connected engine is chosen', async () => {
     engineId = null;
     await watch.check();
-    const item = alerts()[0]!;
-    expect(item.title).toBe('No engine is connected');
+    expect(raised()[0]!.title).toBe('No engine is connected');
     engineId = remote;
     probe.mockImplementation(async (provider) => status(provider, null));
     await watch.recheck({ kind: 'engine', engineId: remote });
-    expect(h.domain.inbox.get('AR', item.id)).toMatchObject({
-      state: 'resolved',
-      resolution: { rule: 'outage_ended' },
-    });
+    expect(watch.activeIds('AR')!.size).toBe(0);
   });
 
   it('opens setup failures even when login works and resolves them when the deferral ends', async () => {
@@ -473,19 +481,19 @@ describe('work outage watch', () => {
     const task = await h.domain.tasks.create('AR', { title: 'Sandbox setup' }, OWNER_ACTOR);
     keep(task, 'codex_setup_incomplete');
     await watch.observeRefusal('AR', 'dev-1', 'codex_setup_incomplete', { problem: 'sandbox_config' });
-    expect(alerts()[0]!.payload.outage).toMatchObject({ provider: 'codex', problem: 'setup_incomplete' });
+    const { outage } = raised()[0]!.payload;
+    expect(outage).toMatchObject({ provider: 'codex', problem: 'setup_incomplete' });
     await watch.check();
-    expect(alerts()[0]!.state).toBe('open');
+    expect(watch.factsOf('AR', outage.id)).not.toBeNull();
     probe.mockImplementation(async (provider) => status(provider, false));
     await watch.check();
     probe.mockImplementation(async (provider) => status(provider, true));
     await watch.check();
-    expect(alerts()[0]!.state).toBe('open');
-    expect(alerts()[0]!.payload.outage).toMatchObject({ problem: 'setup_incomplete' });
+    expect(watch.factsOf('AR', outage.id)?.outage).toMatchObject({ problem: 'setup_incomplete' });
     deferred.drop(task.key);
     probe.mockImplementation(async (provider) => status(provider, null));
     await watch.check();
-    expect(alerts()[0]!.resolution?.rule).toBe('outage_ended');
+    expect(watch.factsOf('AR', outage.id)).toBeNull();
   });
 
   it('retries a recovered member while another launcher login still fails', async () => {
@@ -494,7 +502,7 @@ describe('work outage watch', () => {
     await watch.check();
     expect(watch.forMember('AR', 'dev-1')).toBeUndefined();
     expect(watch.forMember('AR', 'dev-2')).toBeDefined();
-    expect(alerts()[0]!.state).toBe('open');
+    expect(watch.factsOf('AR', raised()[0]!.payload.outage.id)?.members).not.toContain('dev-1');
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
@@ -504,21 +512,19 @@ describe('work outage watch', () => {
       OWNER,
     );
     await watch.check();
-    const first = alerts()[0]!;
-    const second = h.domain.inbox
-      .list('BR', { state: 'open', kind: 'alert' })
-      .find((item) => alertPayloadOf(item)?.alert === 'work_outage')!;
+    const first = raised().find(({ projectKey }) => projectKey === 'AR')!;
+    const second = raised().find(({ projectKey }) => projectKey === 'BR')!;
     expect(second.payload.outage).toEqual(first.payload.outage);
     probe.mockImplementation(async (provider) => status(provider, true));
     await watch.check();
-    expect(h.domain.inbox.get('BR', second.id).resolution?.rule).toBe('outage_ended');
-    expect(h.domain.inbox.get('AR', first.id).resolution?.rule).toBe('outage_ended');
+    expect(watch.activeIds('BR')!.size).toBe(0);
+    expect(watch.activeIds('AR')!.size).toBe(0);
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it('checks permissions and the alert kind before any probe', async () => {
     await watch.check();
-    const item = alerts()[0]!;
+    const item = legacyAlert();
     probe.mockClear();
     await expect(watch.checkNow('AR', item.id, access('someone'))).rejects.toMatchObject({
       status: 403,
@@ -559,7 +565,7 @@ describe('work outage watch', () => {
       await watch.check();
       await vi.advanceTimersByTimeAsync(20_000);
       await first;
-      expect(alerts()).toEqual([]);
+      expect(raised()).toEqual([]);
       expect(probe.mock.calls.length).toBe(
         h.domain.projects.cachedConfig('AR')!.team.members.filter((m) => m.kind === 'ai' && !isOnLeave(m))
           .length,
@@ -569,7 +575,7 @@ describe('work outage watch', () => {
 
   it('adopts the original start time of an open alert and does not close it on unknown checks', async () => {
     await watch.check();
-    const item = alerts()[0]!;
+    const item = legacyAlert();
     await watch.stop();
     watch = new WorkOutages({
       ctx: h.domain.ctx,

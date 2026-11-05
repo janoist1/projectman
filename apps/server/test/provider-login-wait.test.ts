@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { alertPayloadOf } from '@projectman/shared';
 import type { AgentProvider, ProjectConfig, Session } from '@projectman/shared';
 import { StartSpec } from '../src/runtime/admission';
 import { waitFor } from '../src/runner/test-helpers';
@@ -102,10 +101,13 @@ describe('a start while the provider is not logged in', () => {
     expect(h.runner.started).toEqual([]);
 
     await h.domain.outages.check();
-    const item = h.domain.inbox
-      .list('AR', { kind: 'alert', state: 'open' })
-      .find((item) => alertPayloadOf(item)?.alert === 'work_outage');
-    expect(item).toMatchObject({ payload: { tasks: [task.key], members: ['dev-1'] } });
+    const [outageId] = [...h.domain.outages.activeIds('AR')!];
+    expect(h.domain.outages.factsOf('AR', outageId!)).toMatchObject({
+      tasks: [task.key],
+      members: ['dev-1'],
+    });
+    // The outage is the project manager's signal, not an inbox item (PM-1250).
+    expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
     expect(h.domain.tasks.get('AR', task.key).outage).toMatchObject({ kind: 'provider', provider: 'codex' });
     expect(
       (await h.domain.members.roster('AR')).find((member) => member.handle === 'dev-1')?.outage,
@@ -117,10 +119,7 @@ describe('a start while the provider is not logged in', () => {
     expect(h.runner.started).toHaveLength(1);
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
     expect(h.domain.tasks.get('AR', task.key).outage).toBeUndefined();
-    expect(h.domain.inbox.get('AR', item!.id)).toMatchObject({
-      state: 'resolved',
-      resolution: { rule: 'outage_ended' },
-    });
+    expect(h.domain.outages.factsOf('AR', outageId!)).toBeNull();
   });
 
   it("gives a person's start the refusal instead of waiting", async () => {
@@ -138,12 +137,8 @@ describe('a start while the provider is not logged in', () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
     state.loggedIn = false;
     h.runner.emit({ type: 'auth_error', sessionId: session.id, provider: 'codex', message: 'Login expired' });
-    const item = await waitFor(() =>
-      h.domain.inbox
-        .list('AR', { kind: 'alert', state: 'open' })
-        .find((item) => alertPayloadOf(item)?.alert === 'work_outage'),
-    );
-    expect(item.payload).toMatchObject({
+    const outageId = await waitFor(() => [...(h.domain.outages.activeIds('AR') ?? [])][0]);
+    expect(h.domain.outages.factsOf('AR', outageId)).toMatchObject({
       outage: { kind: 'provider', provider: 'codex' },
       members: ['dev-1'],
     });

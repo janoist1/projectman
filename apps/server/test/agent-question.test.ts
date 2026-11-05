@@ -181,7 +181,13 @@ describe('a session that waits for input unseen', () => {
     vi.useRealTimers();
   });
 
-  const alerts = (): InboxItem[] => h.domain.inbox.list('AR', { kind: 'alert' });
+  /** A stalled wait is a todo for the integrator, one question item marked as the alert of its kind (PM-1250). */
+  const alerts = (): InboxItem[] =>
+    h.domain.inbox
+      .list('AR', { kind: 'question' })
+      .filter(
+        (item) => (item.payload.systemAlert as { alert?: string } | undefined)?.alert === 'session_input',
+      );
 
   it('tells the owners once after the limit, naming the session and what it waits on', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
@@ -196,21 +202,14 @@ describe('a session that waits for input unseen', () => {
     const [alert, ...more] = alerts();
     expect(more).toEqual([]);
     expect(alert).toMatchObject({
-      kind: 'alert',
+      kind: 'question',
       state: 'open',
-      assignees: ['owner'],
-      source: 'cr',
       sessionId: session.id,
       taskKey: 'AR-1',
-      payload: {
-        alert: 'session_input',
-        workItem: task,
-        since: '2026-10-01T12:00:00.000Z',
-        minutes: 10,
-        activity: 'Dialog',
-      },
-      options: [{ id: 'seen', label: 'seen', style: 'primary' }],
+      payload: { systemAlert: { alert: 'session_input', key: 'AR-1' } },
     });
+    // No alert item for the owners.
+    expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
     // Nothing is touched: the session still waits, and no second alert follows.
     expect(h.domain.sessions.get('AR', session.id).state).toBe('waiting_input');
     await vi.advanceTimersByTimeAsync(STALL_MS * 3);
@@ -258,6 +257,6 @@ describe('a session that waits for input unseen', () => {
     });
     h.runner.setState(session.id, 'waiting_input', 'Dialog');
     await vi.advanceTimersByTimeAsync(STALL_MS);
-    expect(alerts().filter((a) => a.payload.alert === 'session_input')).toHaveLength(1);
+    expect(alerts()).toHaveLength(1);
   });
 });

@@ -22,8 +22,19 @@ describe('outage recheck API', () => {
         checkedAt: new Date().toISOString(),
       }),
     });
-    await h.app.projectman.domain.outages.check();
-    item = h.app.projectman.domain.inbox.list('AR', { state: 'open', kind: 'alert' })[0]!;
+    const { outages, inbox } = h.app.projectman.domain;
+    await outages.check();
+    // A new outage opens no inbox item (PM-1250); the item is one an earlier version left open.
+    const [outageId] = [...outages.activeIds('AR')!];
+    item = inbox.create({
+      projectKey: 'AR',
+      kind: 'alert',
+      assignees: ['owner'],
+      source: 'system',
+      title: 'Claude is not logged in',
+      payload: outages.factsOf('AR', outageId!)!,
+      options: [ALERT_SEEN_OPTION],
+    });
   });
   afterEach(() => h?.close());
 

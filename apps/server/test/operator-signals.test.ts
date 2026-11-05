@@ -258,18 +258,11 @@ describe('Operator system signals', () => {
     });
     await h.domain.outages.check();
     await flush();
-    const alert = h.domain.inbox
-      .list('AR', { kind: 'alert', state: 'open' })
-      .find((item) => item.payload.alert === 'work_outage')!;
+    // The outage raises no inbox alert: only the project manager's signal (PM-1250).
+    expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
     const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'outage')!;
     expect(h.domain.outages.activeIds('AR')!.has(signal.subject!)).toBe(true);
-    await h.domain.inbox.resolve(
-      'AR',
-      alert.id,
-      { optionId: 'seen' },
-      (await h.domain.accessFor('AR', 'owner@example.com'))!,
-    );
-    // Acknowledging the warning does not end a still observed outage.
+    // A sweep does not end a still observed outage.
     await h.domain.operatorSignals.sweep('AR');
     expect(get(signal.id).resolvedAt).toBeNull();
     h = await restartDomainHarness(h, { now: () => now });
@@ -609,17 +602,28 @@ describe('Operator system signals', () => {
 
   it('connects outage and stalled events and resolves released input', async () => {
     await setup();
-    await h.domain.ctx.events.emit('work_outage_started', {
+    h.domain.inbox.raiseAlert({
       projectKey: 'AR',
-      outageId: 'provider',
-      inboxItemId: 'alert_1',
+      title: 'Work is blocked by an outage',
+      payload: {
+        alert: 'work_outage',
+        outage: { kind: 'engine', id: 'provider', engine: null, since: new Date().toISOString() },
+        members: [],
+        tasks: [],
+        checkedAt: new Date().toISOString(),
+      },
     });
     await vi.waitFor(() => expect(h.domain.sessions.list('AR', { member: 'pm' })).toHaveLength(1));
     await flush();
     h.runner.setState((await tool()).sessionId, 'idle');
     await flush();
     const outage = h.repos.operatorSignals.list('AR')[0]!;
-    expect(outage).toMatchObject({ kind: 'outage', state: 'open', inboxItemId: 'alert_1' });
+    expect(outage).toMatchObject({
+      kind: 'outage',
+      state: 'open',
+      caseKey: 'outage:provider',
+      inboxItemId: null,
+    });
     await h.domain.ctx.events.emit('work_outage_ended', { projectKey: 'AR', outageId: 'provider' });
     expect(get(outage.id).state).toBe('resolved');
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });

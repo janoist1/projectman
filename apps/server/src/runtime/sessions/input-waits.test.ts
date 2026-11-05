@@ -31,7 +31,13 @@ describe('InputWaits', () => {
       logger,
       repos: { sessions: { get: () => (stored ? { id: 's1', state: stored } : null) } },
     } as unknown as DomainContext;
-    waits = new InputWaits({ ctx, timers, alerts: { raise }, stallMs: STALL, isPaused: () => paused });
+    waits = new InputWaits({
+      ctx,
+      timers,
+      alerts: { raise, settle: vi.fn() },
+      stallMs: STALL,
+      isPaused: () => paused,
+    });
   });
   afterEach(() => {
     timers.close();

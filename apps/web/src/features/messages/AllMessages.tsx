@@ -14,6 +14,7 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { actorLabel, distinctMembers, isOwnActor, recordActor, nameOf, namesOf } from '../../lib/members';
+import { messageText } from '../../lib/systemNotice';
 import { attachmentPreview, plainText } from './conversations';
 import { Icon } from '../../components/Icon';
 import { MessageAttachments } from './MessageAttachments';
@@ -217,8 +218,8 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                       </time>
                       {expanded ? null : (
                         <span className={styles.preview}>
-                          {message.body.trim() ? (
-                            plainText(message.body)
+                          {messageText(message).trim() ? (
+                            plainText(messageText(message))
                           ) : (
                             <>
                               <Icon name="paperclip" size={12} /> {attachmentPreview(message)}
@@ -246,8 +247,8 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                               showApproval={false}
                             />
                           ) : null}
-                          {message.body.trim() ? (
-                            <Markdown text={message.body} className={styles.body} />
+                          {messageText(message).trim() ? (
+                            <Markdown text={messageText(message)} className={styles.body} />
                           ) : null}
                           <MessageAttachments files={message.attachments ?? []} from={message.from} />
                           <div className={styles.more}>

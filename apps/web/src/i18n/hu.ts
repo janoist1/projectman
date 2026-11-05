@@ -4327,11 +4327,12 @@ export const hu = {
         refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
         start_blocked: '{key}: az indítás csöndben vár',
         obligation_overdue: '{key}: a lépés az emlékeztető után is áll',
+        relation_check: '{key}: a kártya új kapcsolatokat kapott',
         senior_wait: '{key}: olyan fejlesztőre vár, aki el tudja vinni',
       },
       bodies: {
         loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
-        outage: 'Egy szolgáltató vagy motor nem érhető el; a Rád vár-ban látod, mi a teendő.',
+        outage: 'Egy szolgáltató vagy motor nem érhető el; a PM kezeli, az érintett kártyákon látszik.',
         process_cleanup_failed:
           'Egy véget ért ülés háttérfolyamatai a leállítás után is futnak; a munkaterülete foglalt marad. A Gép panelen leállíthatók.',
         nobody: 'A kártyát most egy tag sem viheti a beállítások szerint.',
@@ -4352,6 +4353,8 @@ export const hu = {
           'A kártya indítása repóválasztásra vagy beragadt munkaterületre vár. A PM megoldja, amit tag megoldhat; az ok megszűntével a jelzés magától lezárul.',
         obligation_overdue:
           'A felelős az emlékeztető után sem végezte el a lépést. A PM megvizsgálja; ha a lépés megtörtént vagy továbbkerült, a jelzés magától lezárul, különben a lépés az integrátorra száll.',
+        relation_check:
+          'A kártya kapcsolatai megváltoztak. A PM ellenőrzi, hogy még helytállóak-e; ha megszűntek, a jelzés magától lezárul.',
         senior_wait:
           'A kártya olyan fejlesztőre vár, akinek a határa eléri a pontszámát. A PM dönt: várjon a Seniorra, vagy bárki elvihesse; ha a döntés pénzbe kerül, előbb a tulajdonosokat kérdezi. A döntés után a jelzés magától lezárul.',
       },
@@ -6575,6 +6578,23 @@ export const hu = {
     send: 'Elküldöm',
     sent: 'Üzenet elküldve.',
     reply: 'Válasz',
+    /** The system's notices to the owners (PM-1250), drawn from the notice kind and its values. */
+    notice: {
+      session_tokens: 'Egy munkamenet {counted} tokent használt, a figyelmeztető határ {limit}.',
+      provider_rate_limited: 'A(z) {provider} használati korlátját elérte a rendszer: {message}',
+      refinement_done: 'A(z) {taskKey} kártya kidolgozása kész.',
+      feedback_forwarded: '{author} visszajelzését a feldolgozó továbbadta a tulajdonosoknak: {reason}',
+      host_request_answered: 'A gazda válaszolt a(z) „{title}” kérésre: {answer}',
+      host_request_declined: 'A gazda elutasította a(z) „{title}” kérést: {answer}',
+      host_request_answered_plain: 'A gazda válaszolt a(z) „{title}” kérésre.',
+      host_request_declined_plain: 'A gazda elutasította a(z) „{title}” kérést.',
+      email_parked: '{from} levelét („{subject}”) félretette a rendszer. {reason}',
+      relation_check:
+        'A(z) {taskKey} kártya új kapcsolatai ({relations}) változtathatnak a munkáján, és nincs elemző vagy projektmenedzser, aki ellenőrizné.',
+      work_outage: 'Kiesés ({outage}) akadályozza a munkát; érintett kártyák: {tasks}.',
+      waiting_digest:
+        '{todos} integrátori teendő és {questions} szűrésre váró kérdés vár több mint egy napja; a legrégebbi {oldestHours} órája.',
+    },
     email: {
       received: 'E-mailben érkezett',
       short: 'E-mailben',

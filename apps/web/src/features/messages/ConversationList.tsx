@@ -9,6 +9,7 @@ import { formatAge, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { actorLabel, recordActor, nameOf, roleLabel } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
+import { messageText } from '../../lib/systemNotice';
 import { attachmentPreview, plainPreview } from './conversations';
 import { Icon } from '../../components/Icon';
 import type { ConversationRow } from './conversations';
@@ -80,8 +81,8 @@ export function ConversationList({
         const name = nameOf(row.peer, members, myHandle);
         const message = row.lastMessage;
         const preview = message
-          ? message.body.trim()
-            ? plainPreview(message.body)
+          ? messageText(message).trim()
+            ? plainPreview(messageText(message))
             : attachmentPreview(message)
           : '';
         const text = message
@@ -114,7 +115,7 @@ export function ConversationList({
             </span>
             <span className={styles.time}>{rowTime(row.lastAt)}</span>
             <span className={styles.preview}>
-              {message && !message.body.trim() && message.attachments?.length ? (
+              {message && !messageText(message).trim() && message.attachments?.length ? (
                 <Icon name="paperclip" size={12} />
               ) : null}
               {text}

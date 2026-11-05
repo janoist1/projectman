@@ -1,13 +1,15 @@
 import { existsSync } from 'node:fs';
 import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { CreateFeedbackMarkRequest, FeedbackForwardedAlert, Session } from '@projectman/shared';
+import type { CreateFeedbackMarkRequest, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { humanActor } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
+import { flush } from './helpers/fakes';
+import { systemNotices } from './helpers/notices';
 
 const toolError = (promise: Promise<unknown>) => rejection(promise, TeamToolError);
 
@@ -65,6 +67,10 @@ describe('feedback processing', () => {
   const wakeUps = () =>
     h.repos.messages.list('AR', { member: 'pm' }).filter((message) => message.from === 'system');
   const alerts = () => h.repos.inbox.list('AR', { kind: 'alert' });
+  const notices = async () => {
+    await flush();
+    return systemNotices(h, 'feedback_forwarded');
+  };
   /** The project manager's general session (a member has one), on this machine's engine. */
   const session = (id: string): Session => {
     const now = new Date().toISOString();
@@ -269,7 +275,7 @@ describe('feedback processing', () => {
   });
 
   describe('forwarding to the owners', () => {
-    it('raises an alert, shows the mark as waiting and does not let the AI decide it again', async () => {
+    it('tells the owners in a notice, shows the mark as waiting and does not let the AI decide it again', async () => {
       const id = await mark({ body: 'Can the price be lower?' });
       const card = await h.domain.tasks.create('AR', { title: 'Prices' }, OWNER_ACTOR);
       const result = await h.domain.teamTools.forwardFeedback(pm, {
@@ -278,15 +284,14 @@ describe('feedback processing', () => {
         reply: 'We ask the owner.',
       });
       expect(result).toMatchObject({ markId: id, status: 'waiting_owner' });
-      const [alert] = alerts();
-      expect(alert).toMatchObject({ state: 'open', assignees: ['owner'], source: 'system' });
-      expect(alert!.payload as unknown as FeedbackForwardedAlert).toMatchObject({
-        alert: 'feedback_forwarded',
-        markId: id,
-        author: 'cleo',
-        reason: 'A price decision is the owner’s',
+      const [notice] = await notices();
+      expect(notice).toMatchObject({
+        from: 'system',
+        to: ['owner'],
+        origin: { params: { author: 'cleo', reason: 'A price decision is the owner’s' } },
       });
-      expect(h.repos.feedback.getMark(id)).toMatchObject({ status: 'waiting_owner', inboxItemId: alert!.id });
+      expect(alerts()).toEqual([]);
+      expect(h.repos.feedback.getMark(id)).toMatchObject({ status: 'waiting_owner', inboxItemId: null });
 
       for (const step of [
         () => h.domain.teamTools.closeFeedback(pm, { markId: id }),
@@ -296,21 +301,41 @@ describe('feedback processing', () => {
         const err = await toolError(step());
         expect(err.message).toContain('feedback_waiting_owner');
       }
-      expect(alerts()).toHaveLength(1);
+      expect(await notices()).toHaveLength(1);
     });
 
-    it('settles the alert with the rule "feedback_handled" when a person answers', async () => {
+    it('leaves waiting when a person answers', async () => {
       const id = await mark();
       await h.domain.teamTools.forwardFeedback(pm, { markId: id, reason: 'Owner’s call', reply: 'Asked.' });
-      const [alert] = alerts();
       await h.domain.feedback.comment('AR', id, OWNER_ACTOR, 'Yes, go ahead.');
-      const settled = h.repos.inbox.get(alert!.id)!;
-      expect(settled).toMatchObject({
+      expect((await view(id)).status).not.toBe('waiting_owner');
+    });
+
+    it('settles the alert item of a mark forwarded before notices with the rule "feedback_handled"', async () => {
+      const id = await mark();
+      await h.domain.teamTools.forwardFeedback(pm, { markId: id, reason: 'Owner’s call', reply: 'Asked.' });
+      const legacy = h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'alert',
+        assignees: ['owner'],
+        source: 'system',
+        title: 'Feedback needs the owner',
+        payload: {
+          alert: 'feedback_forwarded',
+          markId: id,
+          author: 'cleo',
+          excerpt: '',
+          reason: 'Owner’s call',
+        },
+        options: [{ id: 'seen', label: 'seen', style: 'primary' }],
+      });
+      h.repos.feedback.updateMark(id, { inboxItemId: legacy.id });
+      await h.domain.feedback.comment('AR', id, OWNER_ACTOR, 'Yes, go ahead.');
+      expect(h.repos.inbox.get(legacy.id)).toMatchObject({
         state: 'resolved',
         resolution: { by: 'system', rule: 'feedback_handled' },
       });
       expect(h.repos.feedback.getMark(id)).toMatchObject({ inboxItemId: null });
-      expect((await view(id)).status).not.toBe('waiting_owner');
     });
   });
 

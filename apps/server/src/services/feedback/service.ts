@@ -10,7 +10,6 @@ import {
   feedbackMarkRefusal,
   memberOf,
   normalizeFeedbackOrigin,
-  ownerHandles,
   planFeedbackAction,
 } from '@projectman/shared';
 import type {
@@ -116,7 +115,7 @@ export class FeedbackService {
   private readonly tasks: TaskService;
   private readonly attachments: AttachmentService;
   private readonly timeline: TimelineService;
-  private readonly inbox: Pick<InboxService, 'create' | 'resolveByRule'>;
+  private readonly inbox: Pick<InboxService, 'raiseAlert' | 'resolveByRule'>;
   private readonly screenshots: FeedbackScreenshotStore;
   private readonly publicBaseUrl: string | null;
   private readonly marks = new KeyedMutex();
@@ -127,7 +126,7 @@ export class FeedbackService {
     tasks: TaskService;
     attachments: AttachmentService;
     timeline: TimelineService;
-    inbox: Pick<InboxService, 'create' | 'resolveByRule'>;
+    inbox: Pick<InboxService, 'raiseAlert' | 'resolveByRule'>;
     screenshots: FeedbackScreenshotStore;
     /** The public address of the feedback entrance, when the installation has one. */
     publicBaseUrl?: string | null;
@@ -519,7 +518,7 @@ export class FeedbackService {
 
   /**
    * An AI processor passes the mark on to the owners with a `reason`: the mark waits for the owner,
-   * who is told with an alert. The AI does not act on the mark again; a person's answer settles it.
+   * who is told with a message (PM-1250). The AI does not act on the mark again; a person's answer settles it.
    */
   async forward(
     projectKey: string,
@@ -531,7 +530,6 @@ export class FeedbackService {
     return this.marks.run(markId, async () => {
       const mark = this.requireMark(projectKey, markId);
       const plan = this.plan(mark, 'forward', viewer);
-      const owners = ownerHandles(viewer.config);
       this.ctx.unitOfWork(() => {
         const excerpt = mark.body.replace(/\s+/g, ' ').trim().slice(0, FORWARD_EXCERPT_LENGTH);
         const payload: FeedbackForwardedAlert = {
@@ -541,25 +539,17 @@ export class FeedbackService {
           excerpt,
           reason: request.reason,
         };
-        // An installation always has an owner; without one the mark still waits, and the app shows it.
-        const alert =
-          owners.length > 0
-            ? this.inbox.create({
-                projectKey,
-                kind: 'alert',
-                assignees: owners,
-                source: 'system',
-                title: `Feedback needs the owner: ${excerpt || mark.pagePath}`,
-                payload,
-                options: [ALERT_SEEN_OPTION],
-              })
-            : null;
+        // The owners get a message (PM-1250); the mark itself waits for them, and the app shows it.
+        this.inbox.raiseAlert({
+          projectKey,
+          title: `Feedback needs the owner: ${excerpt || mark.pagePath}`,
+          payload,
+        });
         this.apply(mark, plan, viewer, {
           type: 'forwarded',
           body: request.reason,
           data: {},
           reply: request.reply,
-          ...(alert ? { inboxItemId: alert.id } : {}),
         });
       });
       return this.detailOf(this.requireMark(projectKey, markId), viewer);
@@ -757,8 +747,6 @@ export class FeedbackService {
       data: Record<string, unknown>;
       taskKey?: string;
       reply?: string;
-      /** The owners' alert this step opened (a forward). */
-      inboxItemId?: string;
     },
   ): void {
     const { feedback } = this.ctx.repos;
@@ -779,7 +767,7 @@ export class FeedbackService {
       });
     insertEvent(step.type, step.body ?? null, step.data);
     if (step.reply) insertEvent('comment', step.reply, {});
-    // The alert asked the owner to decide; whoever settles the mark answers it.
+    // An alert item of an older version asked the owner to decide; whoever settles the mark answers it.
     const leavesWaiting = mark.status === 'waiting_owner' && plan.status !== 'waiting_owner';
     if (leavesWaiting && mark.inboxItemId)
       this.inbox.resolveByRule(mark.inboxItemId, ALERT_SEEN_OPTION.id, 'feedback_handled');
@@ -791,7 +779,6 @@ export class FeedbackService {
       ...(step.taskKey !== undefined ? { taskKey: step.taskKey } : {}),
       ...(plan.clearHanded ? { handedTo: null, handedAt: null, handedMessageId: null } : {}),
       ...(leavesWaiting ? { inboxItemId: null } : {}),
-      ...(step.inboxItemId !== undefined ? { inboxItemId: step.inboxItemId } : {}),
     });
     this.ensureColor(mark.projectKey, viewer.member);
     this.changed(mark.projectKey, mark.id);

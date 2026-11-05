@@ -2,12 +2,49 @@ import { coordinationMemberOf, OPERATOR_SILENT_WORK_MINUTES } from '@projectman/
 import type { Session, Task } from '@projectman/shared';
 import type { EventBus } from '../../contracts';
 import type { DomainContext } from '../../core/base';
+import type { AlertPmSignals } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
 import type { BackgroundTasks } from '../../kernel';
+import { relationCheckCase } from './signals';
 import type { OperatorSignals } from './signals';
 
 /** How long a process cleanup may keep failing before the project manager is told (PM-1204). */
 const PROCESS_CLEANUP_SIGNAL_GRACE_MS = 2 * 60_000;
+
+/**
+ * Where the alerts the route rule sends to the project manager land (PM-1250): an outage is the `outage`
+ * signal of its episode, a relation check the `relation_check` signal of the card and its relations. Both
+ * are idempotent per case, so a repeated alert opens no second signal.
+ */
+export function createAlertPmSignals(deps: {
+  operatorSignals: Pick<OperatorSignals, 'raise' | 'deliver'>;
+  background: BackgroundTasks;
+  logger: DomainContext['logger'];
+}): AlertPmSignals {
+  const { operatorSignals, background, logger } = deps;
+  return {
+    raise(projectKey, alert) {
+      if (alert.alert === 'work_outage')
+        operatorSignals.raise({
+          projectKey,
+          kind: 'outage',
+          caseKey: `outage:${alert.outage.id}`,
+          subject: alert.outage.id,
+        });
+      else
+        operatorSignals.raise({
+          projectKey,
+          kind: 'relation_check',
+          taskKey: alert.taskKey,
+          ...relationCheckCase(alert.taskKey, alert.relations),
+        });
+      background.run(
+        () => operatorSignals.deliver(projectKey),
+        (err) => logger.warn({ err, projectKey }, 'operator signal delivery failed'),
+      );
+    },
+  };
+}
 
 /** Register signal lifecycle listeners at their original position in domain assembly. */
 export function wireOperatorSignals(deps: {
@@ -32,16 +69,6 @@ export function wireOperatorSignals(deps: {
       () => operatorSignals.deliver(projectKey),
       (err) => logger.warn({ err, projectKey }, 'operator signal delivery failed'),
     );
-  events.on('work_outage_started', ({ projectKey, outageId, inboxItemId }) => {
-    operatorSignals.raise({
-      projectKey,
-      kind: 'outage',
-      caseKey: `outage:${outageId}`,
-      subject: outageId,
-      inboxItemId,
-    });
-    wakeOperatorSignals(projectKey);
-  });
   events.on('session_cleanup_failed', ({ projectKey, sessionId, scopeId }) => {
     // Slowly exiting processes usually settle on the next retry: signal only a failure that lasted.
     // The record keeps the first failure's time; every retry that fails again emits this event once more.

@@ -590,7 +590,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        'Close an obligation_overdue, structural_pattern or milestone_closed signal of your ' +
+        'Close an obligation_overdue, structural_pattern, milestone_closed or relation_check signal of your ' +
         'wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: ' +
         "role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },

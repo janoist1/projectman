@@ -676,7 +676,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Dismiss a system signal",
     },
-    "description": "Close an obligation_overdue, structural_pattern or milestone_closed signal of your wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
+    "description": "Close an obligation_overdue, structural_pattern, milestone_closed or relation_check signal of your wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

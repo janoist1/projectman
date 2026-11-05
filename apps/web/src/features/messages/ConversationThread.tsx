@@ -26,6 +26,7 @@ import { errorMessage } from '../../lib/errors';
 import { inboxHeading, optionLabel } from '../../lib/inbox';
 import { isOwnActor, recordActor, nameOf, namesOf, roleLabel } from '../../lib/members';
 import { useIsMobile } from '../../lib/hooks';
+import { messageText } from '../../lib/systemNotice';
 import { InboxCard } from '../inbox/InboxCard';
 import { Composer } from '../session/Composer';
 import {
@@ -561,7 +562,7 @@ function MessageBubble({
         ) : null}
         <div className={styles.bubble}>
           {message.email ? <EmailMessageHead email={message.email} /> : null}
-          {message.body.trim() ? <Markdown text={message.body} /> : null}
+          {messageText(message).trim() ? <Markdown text={messageText(message)} /> : null}
           <MessageAttachments files={message.attachments ?? []} from={message.from} />
         </div>
         <div className={styles.meta}>

@@ -217,13 +217,15 @@ export function createEmailChannelRepository(db: Db) {
           .get(projectKey, value, since, ...(statuses ?? [])) as { count: number }
       ).count;
     },
-    /** Parked mails since `since` that raised an alert (the daily limit counts these). */
+    /** Parked mails since `since` that were told to the owners (the daily limit counts these notices). */
     countAlertedSince(projectKey: string, since: string): number {
       return (
         db
           .prepare(
-            `SELECT COUNT(*) AS count FROM email_messages WHERE project_key = ? AND direction = 'inbound'
-            AND status = 'parked' AND inbox_item_id IS NOT NULL AND created_at >= ?`,
+            `SELECT COUNT(DISTINCT json_extract(origin, '$.params.emailId')) AS count FROM team_messages
+            WHERE project_key = ? AND created_at >= ?
+            AND CASE WHEN json_valid(origin) THEN json_extract(origin, '$.kind') ELSE NULL END = 'system_notice'
+            AND json_extract(origin, '$.notice') = 'email_parked'`,
           )
           .get(projectKey, since) as { count: number }
       ).count;

@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';
+import { systemNotices } from './helpers/notices';
 
 /**
  * The warning limit of a session's tokens (PM-187) through the real runner and the fake Claude
@@ -49,7 +50,8 @@ it(
     });
     expect(started.statusCode, started.body).toBe(202);
     const sessionId = started.json<Session>().id;
-    const alerts = () => domain.inbox.list('AR', { kind: 'alert' });
+    // A session's token warning goes to the owners as a message from the system, not as an inbox item.
+    const alerts = () => systemNotices(app.projectman, 'session_tokens');
     const session = () => domain.sessions.get('AR', sessionId);
     const idle = (what: string) => waitFor(() => session().state === 'idle', { what, timeoutMs: 20_000 });
     const said = (text: string) =>
@@ -86,15 +88,13 @@ it(
     await waitFor(() => alerts().length > 0, { what: 'the alert', timeoutMs: 20_000 });
     const [alert] = alerts();
     expect(alert).toMatchObject({
-      state: 'open',
-      assignees: ['owner'],
-      source: 'dev-1',
-      sessionId,
+      to: ['owner'],
       taskKey: null,
-      payload: { alert: 'session_tokens', limitTokens: 10_000, workItem: { type: 'general' } },
+      origin: { kind: 'system_notice', notice: 'session_tokens', params: { limit: 10_000 } },
     });
+    expect(alert!.origin.params).not.toHaveProperty('taskKey');
     // A response's lines may be read together or apart: its output count grows from a placeholder.
-    const counted = alert!.payload.countedTokens as number;
+    const counted = alert!.origin.params.counted as number;
     expect(counted).toBeGreaterThanOrEqual(10_000);
     expect(counted).toBeLessThanOrEqual(2 * TURN);
     expect(session().usageAlert).toMatchObject({ countedTokens: counted, limitTokens: 10_000 });

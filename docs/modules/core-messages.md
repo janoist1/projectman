@@ -51,8 +51,10 @@ service module is imported by this module.
 ## Files
 
 All files live under `apps/server/src/core/messages/`: `index.ts`, `ports.ts`, `messages.ts`
-(stored messages), `messaging.ts` (sending, recording and notices), `relation-notices.ts`, `staleness.ts`
-(wake and stale rules) and `answer-evidence.ts`. The wake-up result test lives beside the runtime
+(stored messages), `messaging.ts` (sending, recording and notices), `relation-notices.ts`, `system-notices.ts`
+(the `system_notice` messages of alerts that need no action, PM-1250: sent from the system to the owners'
+general conversation with the notice kind and values in `origin`, the web draws them in the interface language),
+`staleness.ts` (wake and stale rules) and `answer-evidence.ts`. The wake-up result test lives beside the runtime
 router in `runtime/delivery/message-start-result.test.ts`.
 The authoritative descriptor is
 [`core-messages.ts`](../../apps/server/test/architecture/modules/core-messages.ts),

@@ -324,7 +324,6 @@ export function createEmailChannelService(deps: {
     now,
     changed,
     notify,
-    publishInbox,
   });
   let pruning: ReturnType<typeof setInterval> | undefined;
   const prune = () => {

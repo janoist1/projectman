@@ -85,7 +85,24 @@ whenever the question is not protected and the issuer has machine access, whethe
 an issuer without machine access sends it to the technical decider (PM-1139), and with none the request is refused
 (`issuer_without_machine_access`). Nothing is ever opened for the owners as a fallback. The route is stored on the item
 (`InboxItem.route`, column `route`) and written to the timeline as `item_routed`. `screen_question.todo.recipient` is
-optional and does not decide; what only the owner may do is a `decision`, and the integrator passes a manual step the
+optional and does not decide; **alerts** go through one entry point, `InboxService.raiseAlert` (PM-1250), which
+applies `ALERT_ROUTE_CLASS` and never lets its creator choose the class of the recipient. `disk_low`, `worktree_kept` and
+`session_input` become an integrator todo (a `question` item with Done and Cannot, marked `payload.systemAlert =
+{alert, key}`; one open per kind and card, `settleAlert` cancels it when the cause is gone); `work_outage` and
+`relation_check` become a signal of the project manager through the `AlertPmSignals` port (registered by
+`services/coordination`), and become an owner notice when the project has no project manager; `session_tokens`,
+`provider_rate_limited`, `refinement` done, `feedback_forwarded`, `host_request_answered` and `email_parked` become a
+`system_notice` message through the `AlertNoticeSink` port (`core/messages/system-notices.ts`: no push, no inbox
+item); a notice goes to the owners, a parked e-mail also to the admins, and a `refinement` done to the people its
+creator names (who prioritises). The notice is sent asynchronously, so two events in quick succession may not see each
+other's message (the daily e-mail count, the Gemini hold's stored copy). A `session_input` todo is one per card: when
+two sessions wait on one card, settling one closes the other's todo too. Only a `refinement` `manual_step` (an owner approval) and a `merge_blocked` for a human merger stay alert items.
+`release_failed`, `message_burst`, `parts_left`, `work_stalled` and `refinement` `stalled` are retired: the route
+refuses them (`alert_retired`), the old rows still render, and an open old alert closes with "seen".
+`sendWaitingDigest` (a periodic sweep) tells the owners in one `waiting_digest` notice, at most once a day, when the
+oldest open integrator todo or the oldest question in screening has waited more than 24 hours; the newest such
+notice is its marker, so a restart does not repeat it. The pieces stay on the hub, so no machine-dependent entry
+changes. What only the owner may do is a `decision`, and the integrator passes a manual step the
 owner alone can take on with `integrator_passed_on` (PM-714; `planIntegratorPassOn`). Shared rules protect approvals
 even with malformed raw payload fields, restrict human visibility to owners and exclude the connected Claude's work
 from human counts. Assignees remain real human handles.

@@ -15,6 +15,9 @@ afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, 
 function fixture() {
   const project = mockProject();
   project.backend.config.team.limits.maxFixRounds = 2;
+  // The code reviewer decides first (decision 69); on leave, the held card goes to the owner.
+  const reviewer = project.backend.config.team.members.find((member) => member.handle === 'code-review');
+  if (reviewer?.kind === 'ai') reviewer.onLeave = true;
   for (let i = 0; i < 2; i++)
     project.backend.addTimeline('AC-21', 'code-review', 'task_labels_changed', {
       added: ['code-review-changes'],

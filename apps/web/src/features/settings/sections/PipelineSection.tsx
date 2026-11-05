@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useContext, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { teamMap, validateProjectConfig } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
@@ -7,6 +7,7 @@ import { Button } from '../../../components/Button';
 import { t } from '../../../i18n/t';
 import { readStorage, writeStorage } from '../../../lib/hooks';
 import { SettingsDetailLayout } from '../DetailPanel';
+import { LeaveGuardContext, LeaveGuardProvider } from '../edit/LeaveGuard';
 import { issueTarget } from '../issueTarget';
 import { PipelineEditor } from '../PipelineEditor';
 import { PipelineFlow } from '../pipeline/PipelineFlow';
@@ -18,12 +19,23 @@ import { SettingsSection } from './SettingsSection';
 
 const INTRO_KEY = 'pm.settings.pipelineIntro';
 
-/** The pipeline as a path from top to bottom, with a read-only panel for the selected stage or column. */
+/** The pipeline as a path from top to bottom; the selected stage or column opens in a panel beside it. */
 export function PipelineSection({ config }: { config: ProjectConfig }) {
-  const { key } = useProject();
+  return (
+    <LeaveGuardProvider>
+      <PipelineBody config={config} />
+    </LeaveGuardProvider>
+  );
+}
+
+function PipelineBody({ config }: { config: ProjectConfig }) {
+  const { key, can } = useProject();
   const selection = useSettingsSelection();
+  const guard = useContext(LeaveGuardContext);
   const [legendOpen, setLegendOpen] = useState(false);
   const [introSeen, setIntroSeen] = useState(() => readStorage(INTRO_KEY) === '1');
+  /** The stage that was just saved; `count` makes the same stage flash again. */
+  const [flash, setFlash] = useState<{ id: string; count: number } | null>(null);
   const map = useMemo(() => teamMap(config), [config]);
   const problemStages = useMemo(() => {
     const stages = new Set<string>();
@@ -41,6 +53,8 @@ export function PipelineSection({ config }: { config: ProjectConfig }) {
       <EditableSection
         section="pipeline"
         editor={(props) => <PipelineEditor {...props} />}
+        editLabel={t('settings.pipeline.manage')}
+        beforeStart={guard ? guard.request : undefined}
         onStartEdit={selection.show ? selection.close : undefined}
       >
         <div className={styles.head}>
@@ -64,7 +78,9 @@ export function PipelineSection({ config }: { config: ProjectConfig }) {
           <div className={styles.intro} role="note">
             <div>
               <h3>{t('settings.pipeline.intro.title')}</h3>
-              <p>{t('settings.pipeline.intro.body')}</p>
+              <p>
+                {t(can.manageTeam ? 'settings.pipeline.intro.bodyAdmin' : 'settings.pipeline.intro.body')}
+              </p>
             </div>
             <Button
               variant="secondary"
@@ -84,6 +100,7 @@ export function PipelineSection({ config }: { config: ProjectConfig }) {
             map={map}
             selected={select}
             problemStages={problemStages}
+            flash={flash}
             onSelect={selection.open}
           />
           <PipelinePanel
@@ -96,6 +113,7 @@ export function PipelineSection({ config }: { config: ProjectConfig }) {
               if (selection.show) selection.close();
               setLegendOpen(false);
             }}
+            onSaved={(id) => setFlash((previous) => ({ id, count: (previous?.count ?? 0) + 1 }))}
           />
         </SettingsDetailLayout>
       </EditableSection>

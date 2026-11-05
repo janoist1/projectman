@@ -35,3 +35,8 @@ export function slugId(name: string, taken: readonly string[], options: SlugOpti
   }
   return id;
 }
+
+/** Stage and column ids follow the config's 32-character, lowercase underscore format. */
+export function pipelineId(name: string, ids: string[]): string {
+  return slugId(name, ids, { separator: '_', maxLength: 32, letterPrefix: 'stage_' });
+}

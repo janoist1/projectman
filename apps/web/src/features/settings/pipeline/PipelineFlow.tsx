@@ -30,11 +30,15 @@ interface PipelineFlowProps {
   selected: SettingsShow | null;
   /** Stages a problem of the saved settings points at. */
   problemStages: ReadonlySet<string>;
+  /** A stage that was just saved: its row lights up for a moment (`count` repeats it). */
+  flash?: { id: string; count: number } | null;
   onSelect(show: Selectable): void;
 }
 
+const FLASH_MS = 1400;
+
 /** The pipeline as a vertical path in the language of "Hogyan dolgozunk": columns as boxes, stages with their gates. */
-export function PipelineFlow({ config, map, selected, problemStages, onSelect }: PipelineFlowProps) {
+export function PipelineFlow({ config, map, selected, problemStages, flash, onSelect }: PipelineFlowProps) {
   const { key } = useProject();
   const flowRef = useRef<HTMLDivElement>(null);
   const runs = useMemo(() => columnRuns(config.pipeline), [config.pipeline]);
@@ -58,6 +62,16 @@ export function PipelineFlow({ config, map, selected, problemStages, onSelect }:
     );
     row?.scrollIntoView?.({ block: 'nearest' });
   }, [selectedValue]);
+  useEffect(() => {
+    if (!flash || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const row = [...(flowRef.current?.querySelectorAll<HTMLElement>('[data-show]') ?? [])].find(
+      (element) => element.dataset.show === `stage:${flash.id}`,
+    );
+    row?.animate?.([{ backgroundColor: 'var(--c-accent-bg)' }, { backgroundColor: 'transparent' }], {
+      duration: FLASH_MS,
+      easing: 'ease-out',
+    });
+  }, [flash]);
 
   return (
     <div ref={flowRef} className={styles.flow}>

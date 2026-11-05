@@ -1,0 +1,30 @@
+.errors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.error p {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--c-blocked-text);
+}
+
+.error details {
+  font-size: 12px;
+  color: var(--c-ink-3);
+}
+
+.error summary {
+  cursor: pointer;
+}
+
+.error code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}

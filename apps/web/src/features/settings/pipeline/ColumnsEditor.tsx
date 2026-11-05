@@ -3,9 +3,9 @@ import { BoardColumnColor, defaultBoardColumnColor } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { Button } from '../../../components/Button';
 import { t } from '../../../i18n/t';
+import { pipelineId } from '../../../lib/ids';
 import shared from '../settings.module.css';
 import styles from './ColumnsEditor.module.css';
-import { pipelineId } from './StageFields';
 
 /** The board columns: name and colour of each, add, and remove once no stage uses it. */
 export function ColumnsEditor({

@@ -29,8 +29,12 @@ afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, 
 async function editSection(section: 'project' | 'pipeline' | 'labels') {
   await goTo(section);
   const region = await screen.findByRole('region', { name: t(`settings.sections.${section}`) });
-  fireEvent.click(within(region).getByRole('button', { name: t('memberEdit.edit') }));
+  fireEvent.click(within(region).getByRole('button', { name: t(editButton(section)) }));
   return within(region);
+}
+/** The pipeline's button opens the old form for what the panel does not edit yet (new, removing, columns). */
+function editButton(section: 'project' | 'pipeline' | 'labels') {
+  return section === 'pipeline' ? 'settings.pipeline.manage' : 'memberEdit.edit';
 }
 /** The limits are controls that save at once: there is nothing to open. */
 async function limitsSection() {
@@ -612,7 +616,7 @@ describe('settings section editors', () => {
     expect(section.getByText(t('howWeWork.flow.when', { name: 'Code review rendben' }))).toBeTruthy();
 
     // Reopened, the editor shows the label; "every card" takes it away again.
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.edit') }));
+    fireEvent.click(section.getByRole('button', { name: t(editButton('pipeline')) }));
     const reopened = within(section.getAllByRole('listitem')[1]!);
     const when = reopened.getByLabelText(t('settings.edit.when')) as HTMLSelectElement;
     expect(when.value).toBe('code-review-ok');

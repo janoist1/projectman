@@ -279,12 +279,18 @@ export function EditableSection({
   section,
   editor,
   onStartEdit,
+  beforeStart,
+  editLabel,
   children,
 }: {
   section: Section;
   editor: (props: SectionEditorProps) => ReactNode;
   /** Called when the edit button is pressed, e.g. to close a side panel the editor replaces. */
   onStartEdit?: () => void;
+  /** Lets something ask first (an unsaved change in a side panel): editing begins when it calls `proceed`. */
+  beforeStart?: (proceed: () => void) => void;
+  /** The button's text when the section is also edited elsewhere and this is the rest of it. */
+  editLabel?: string;
   children: ReactNode;
 }) {
   const context = useContext(EditingContext);
@@ -310,17 +316,21 @@ export function EditableSection({
               variant="secondary"
               disabled={edit !== null}
               onClick={() => {
-                save.reset();
-                onStartEdit?.();
-                setEdit({
-                  section,
-                  draft: structuredClone(view.config),
-                  version: view.version,
-                  originalPipeline: view.config.pipeline,
-                });
+                const start = () => {
+                  save.reset();
+                  onStartEdit?.();
+                  setEdit({
+                    section,
+                    draft: structuredClone(view.config),
+                    version: view.version,
+                    originalPipeline: view.config.pipeline,
+                  });
+                };
+                if (beforeStart) beforeStart(start);
+                else start();
               }}
             >
-              {t('memberEdit.edit')}
+              {editLabel ?? t('memberEdit.edit')}
             </Button>
           </div>
         ) : null}

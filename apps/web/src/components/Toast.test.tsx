@@ -24,6 +24,15 @@ function TestConsumer({
   );
 }
 
+function ActionConsumer({ run }: { run(): void }) {
+  const toast = useToast();
+  return (
+    <button type="button" onClick={() => toast.show('Saved', 'ok', { action: { label: 'Undo it', run } })}>
+      Show Toast
+    </button>
+  );
+}
+
 describe('ToastProvider', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -123,6 +132,51 @@ describe('ToastProvider', () => {
     // Unmount before the 7000ms timer fires
     unmount();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('runs the action once and closes the toast', () => {
+    const run = vi.fn();
+    render(
+      <ToastProvider>
+        <ActionConsumer run={run} />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo it' }));
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('keeps a toast with an action for at least 8 seconds', () => {
+    render(
+      <ToastProvider>
+        <ActionConsumer run={() => {}} />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }));
+    act(() => {
+      vi.advanceTimersByTime(7900);
+    });
+    expect(screen.getByText('Saved')).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('does not close a toast with an action while the pointer is over it', () => {
+    render(
+      <ToastProvider>
+        <ActionConsumer run={() => {}} />
+      </ToastProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }));
+    const action = screen.getByRole('button', { name: 'Undo it' });
+    fireEvent.mouseEnter(action.parentElement!);
+    act(() => {
+      vi.advanceTimersByTime(20000);
+    });
+    expect(screen.getByText('Saved')).toBeTruthy();
   });
 
   it('renders listed items with router link when provided', () => {

@@ -148,7 +148,7 @@ describe('pipeline section', () => {
     project.render(<SettingsTestRoutes initialSection="pipeline" />, `${PIPELINE}?show=stage:code_review`);
     expect(await screen.findByRole('dialog')).toBeTruthy();
     const section = await pipelineSection();
-    fireEvent.click(within(section).getByRole('button', { name: t('memberEdit.edit') }));
+    fireEvent.click(within(section).getByRole('button', { name: t('settings.pipeline.manage') }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(within(section).getByRole('button', { name: t('memberEdit.save') })).toBeTruthy();
   });

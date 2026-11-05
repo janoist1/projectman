@@ -1,0 +1,278 @@
+.form {
+  margin: 0 0 14px;
+}
+
+.fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field > label,
+.group > legend {
+  padding: 0;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--c-ink-3);
+}
+
+.field input,
+.field select,
+.field textarea {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.field input,
+.field select {
+  height: 40px;
+}
+
+.field textarea {
+  min-height: 72px;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 0;
+  border-color: var(--c-accent);
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--c-blocked);
+}
+
+.group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group > legend {
+  margin-bottom: 4px;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.radio input {
+  margin: 0;
+  accent-color: var(--c-accent);
+}
+
+.picked {
+  background: var(--c-accent-bg);
+}
+
+.hintText {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--c-ink-3);
+}
+
+.lockText {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--c-ink-3);
+}
+
+.members {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-left: 26px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 2px 4px 2px 6px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: 999px;
+  font-size: 13.5px;
+}
+
+.onLeave {
+  border-style: dashed;
+}
+
+.chipRemove {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--c-ink-3);
+  cursor: pointer;
+}
+
+.chipRemove:hover {
+  background: var(--c-muted);
+  color: var(--c-ink);
+}
+
+.band {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+}
+
+.band p {
+  margin: 0;
+}
+
+.band details {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.band code {
+  display: block;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.warning {
+  background: var(--c-needs-bg);
+  border-color: var(--c-needs-border);
+  color: var(--c-needs-strong);
+}
+
+.danger {
+  background: var(--c-blocked-bg);
+  border-color: var(--c-blocked-border);
+  color: var(--c-blocked-text);
+}
+
+.cards {
+  margin: 0 0 8px;
+  color: var(--c-ink-2);
+}
+
+.id {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--c-ink-3);
+}
+
+.id code {
+  font-family: var(--font-mono);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  width: 100%;
+}
+
+.status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.unsaved {
+  font-weight: 700;
+  color: var(--c-needs-text);
+}
+
+.hint {
+  color: var(--c-ink-3);
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .field input,
+  .field select {
+    height: 44px;
+  }
+
+  .radio {
+    min-height: 40px;
+  }
+
+  .chip {
+    min-height: 40px;
+  }
+
+  .chipRemove {
+    width: 36px;
+    height: 36px;
+  }
+
+  .buttons {
+    width: 100%;
+  }
+
+  .buttons > * {
+    flex: 1;
+  }
+}

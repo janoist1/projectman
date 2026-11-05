@@ -162,7 +162,7 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
   const saved = config.pipeline.stages.find((stage) => stage.id === stageId);
   const savedIndex = config.pipeline.stages.findIndex((stage) => stage.id === stageId);
   const draft = edit.draft;
-  useLeaveGuard(edit.dirty, edit.discard, saved?.name ?? draft?.name ?? '');
+  useLeaveGuard(edit.dirty, edit.discard, draft?.name.trim() || saved?.name || '');
   const saves = edit.saves;
   useEffect(() => {
     if (saves > 0) onSaved(stageId);
@@ -189,6 +189,10 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
 
   const update = (change: Partial<StageDraft>) => edit.setDraft({ ...draft, ...change });
   const issuesAt = (field: string) => sorted?.fields.get(field) ?? [];
+  const errorId = (field: string) => `${formId}-${field}-errors`;
+  /** The error sentence under a field names it for assistive technology. */
+  const describedBy = (field: string) => (issuesAt(field).length > 0 ? errorId(field) : undefined);
+  const invalid = (field: string) => issuesAt(field).length > 0;
   const members = new Map(config.team.members.map((member) => [member.handle, member]));
   const chosen = draft.members.flatMap((handle) => {
     const member = members.get(handle);
@@ -318,11 +322,11 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
               id={`${formId}-name`}
               value={draft.name}
               required
-              aria-invalid={issuesAt('name').length > 0}
-              aria-describedby={issuesAt('name').length > 0 ? `${formId}-name-errors` : undefined}
+              aria-invalid={invalid('name')}
+              aria-describedby={describedBy('name')}
               onChange={(event) => update({ name: event.target.value })}
             />
-            <FieldErrors id={`${formId}-name-errors`} issues={issuesAt('name')} />
+            <FieldErrors id={errorId('name')} issues={issuesAt('name')} />
           </div>
 
           <div className={styles.field}>
@@ -334,7 +338,11 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
             />
           </div>
 
-          <fieldset className={styles.group} disabled={disabled || kindLocked}>
+          <fieldset
+            className={styles.group}
+            disabled={disabled || kindLocked}
+            aria-describedby={describedBy('kind')}
+          >
             <legend>{t('settings.pipeline.edit.kind')}</legend>
             {StageKind.options.map((kind) => (
               <label key={kind} className={clsx(styles.radio, draft.kind === kind && styles.picked)}>
@@ -355,7 +363,7 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
                 <Icon name="lock" size={13} /> {kindLockText}
               </p>
             ) : null}
-            <FieldErrors issues={issuesAt('kind')} />
+            <FieldErrors id={errorId('kind')} issues={issuesAt('kind')} />
           </fieldset>
 
           <div className={styles.field}>
@@ -363,6 +371,8 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
             <select
               id={`${formId}-column`}
               value={draft.columnId}
+              aria-invalid={invalid('column')}
+              aria-describedby={describedBy('column')}
               onChange={(event) => update({ columnId: event.target.value })}
             >
               {config.pipeline.columns.map((column) => (
@@ -371,7 +381,7 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
                 </option>
               ))}
             </select>
-            <FieldErrors issues={issuesAt('column')} />
+            <FieldErrors id={errorId('column')} issues={issuesAt('column')} />
           </div>
 
           <div className={styles.field}>
@@ -379,6 +389,8 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
             <select
               id={`${formId}-duty`}
               value={draft.duty ?? ''}
+              aria-invalid={invalid('duty')}
+              aria-describedby={describedBy('duty')}
               onChange={(event) => {
                 const duty = event.target.value ? (event.target.value as DutyId) : null;
                 update({ duty, ownersMode: duty ? draft.ownersMode : 'names' });
@@ -391,10 +403,10 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
                 </option>
               ))}
             </select>
-            <FieldErrors issues={issuesAt('duty')} />
+            <FieldErrors id={errorId('duty')} issues={issuesAt('duty')} />
           </div>
 
-          <fieldset className={styles.group}>
+          <fieldset className={styles.group} aria-describedby={describedBy('owners')}>
             <legend>{t('settings.pipeline.fields.owners')}</legend>
             <label className={styles.radio}>
               <input
@@ -463,7 +475,7 @@ export function StagePanel({ config, stageId, cards, back, empty, onClose, onSav
                 <Icon name="exclamation" size={13} /> {t('howWeWork.flow.noOwner')}
               </p>
             ) : null}
-            <FieldErrors issues={issuesAt('owners')} />
+            <FieldErrors id={errorId('owners')} issues={issuesAt('owners')} />
           </fieldset>
 
           <GateEditor

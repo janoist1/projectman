@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { gateAcceptsCondition, gateAcceptsWhen, isHumanOnlyLabel } from '@projectman/shared';
 import type { GateCondition, LabelDefinition, StageKind } from '@projectman/shared';
@@ -38,6 +38,8 @@ export function GateEditor({
   onChange,
 }: GateEditorProps) {
   const root = useRef<HTMLFieldSetElement>(null);
+  const base = useId();
+  const gateErrorsId = `${base}-gate-errors`;
   const [added, setAdded] = useState<number | null>(null);
   const release = stageKind === 'release';
   useEffect(() => {
@@ -64,13 +66,24 @@ export function GateEditor({
     onChange(conditions.map((value, i) => (i === index ? next : value)));
 
   return (
-    <fieldset ref={root} className={styles.gate} disabled={disabled}>
+    <fieldset
+      ref={root}
+      className={styles.gate}
+      disabled={disabled}
+      aria-describedby={gateIssues.length > 0 ? gateErrorsId : undefined}
+    >
       <legend className={styles.legend}>{t('settings.pipeline.fields.gate')}</legend>
       {release ? <p className={styles.rule}>{t('settings.pipeline.edit.releaseRule')}</p> : null}
       {conditions.length === 0 ? <p className={styles.none}>{t('settings.pipeline.noGate')}</p> : null}
       {conditions.map((condition, index) => {
         const locked = !isOwner && humanOnly(condition.label);
         const withWhen = condition.when !== undefined;
+        const rowErrors = rowIssues(index);
+        const rowErrorsId = `${base}-row-${index}-errors`;
+        const flagged = {
+          'aria-invalid': rowErrors.length > 0,
+          'aria-describedby': rowErrors.length > 0 ? rowErrorsId : undefined,
+        };
         const accepts = (label: LabelDefinition) =>
           gateAcceptsCondition({ kind: stageKind }, condition, label);
         return (
@@ -86,6 +99,7 @@ export function GateEditor({
                   aria-label={t('settings.edit.condition')}
                   value={condition.type}
                   disabled={locked}
+                  {...flagged}
                   onChange={(event) =>
                     replace(index, { ...condition, type: event.target.value as GateCondition['type'] })
                   }
@@ -99,6 +113,7 @@ export function GateEditor({
                   data-label-select={index}
                   value={condition.label}
                   disabled={locked}
+                  {...flagged}
                   onChange={(event) => replace(index, { ...condition, label: event.target.value })}
                 >
                   {condition.label === '' ? (
@@ -117,6 +132,7 @@ export function GateEditor({
                       aria-label={t('settings.edit.when')}
                       value={withWhen ? 'when' : 'every'}
                       disabled={locked}
+                      {...flagged}
                       onChange={(event) => {
                         const { when: _previous, ...rest } = condition;
                         replace(index, event.target.value === 'when' ? { ...rest, when: '' } : rest);
@@ -133,6 +149,7 @@ export function GateEditor({
                         aria-label={t('settings.pipeline.edit.gateWhen')}
                         value={condition.when}
                         disabled={locked}
+                        {...flagged}
                         onChange={(event) => replace(index, { ...condition, when: event.target.value })}
                       >
                         {condition.when === '' ? (
@@ -160,11 +177,11 @@ export function GateEditor({
               </button>
             </div>
             {locked ? <p className={styles.lockNote}>{t('settings.edit.approvalOwnerOnly')}</p> : null}
-            <FieldErrors issues={rowIssues(index)} />
+            <FieldErrors id={rowErrorsId} issues={rowErrors} />
           </div>
         );
       })}
-      <FieldErrors issues={gateIssues} />
+      <FieldErrors id={gateErrorsId} issues={gateIssues} />
       {labels.length > 0 ? (
         <button
           type="button"

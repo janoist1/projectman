@@ -211,6 +211,7 @@ describe('stage panel editor', () => {
     const flow = await screen.findByRole('region', { name: t('settings.sections.pipeline') });
     fireEvent.click(flow.querySelector('[data-show="stage:qa"]')!);
     const leave = within(await screen.findByRole('dialog', { name: t('settings.pipeline.edit.leaveTitle') }));
+    expect(leave.getByText(t('settings.pipeline.edit.leaveBody', { name: 'Építés' }))).toBeTruthy();
 
     fireEvent.click(leave.getByRole('button', { name: t('settings.pipeline.edit.leaveKeep') }));
     expect(screen.queryByRole('dialog', { name: t('settings.pipeline.edit.leaveTitle') })).toBeNull();
@@ -300,6 +301,16 @@ describe('stage panel editor', () => {
     fireEvent.keyDown(dialog.getByRole('combobox', search), { key: 'Escape' });
     expect(dialog.queryByRole('combobox', search)).toBeNull();
     expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('ties a gate row error to its selects for assistive technology', async () => {
+    renderPanel();
+    const dialog = await panel();
+    fireEvent.click(await dialog.findByRole('button', { name: t('settings.pipeline.edit.addCondition') }));
+    const select = await dialog.findByLabelText(t('settings.edit.label'));
+    await waitFor(() => expect(select.getAttribute('aria-invalid')).toBe('true'));
+    const error = document.getElementById(select.getAttribute('aria-describedby')!);
+    expect(error?.textContent).toContain(t('settings.pipeline.edit.labelRequired'));
   });
 
   it('shows a live error on the name and keeps the save off', async () => {

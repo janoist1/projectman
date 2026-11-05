@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MemberView } from '@projectman/shared';
@@ -11,6 +11,7 @@ import { SettingsTestRoutes } from '../features/settings/testRoutes';
 import { t } from '../i18n/t';
 import { mockProject } from '../test/mockProject';
 import { LeaveChip, leaveSuffix, MemberNames } from './LeaveChip';
+import { ToastProvider } from './Toast';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
@@ -168,22 +169,26 @@ describe('where a member on leave is marked (PM-227)', () => {
     expect(row.textContent).toContain(nameOfMember(project, 'code-review'));
   });
 
-  it('marks a stage owner on leave in settings, and keeps it selectable in the editor', async () => {
+  it('marks a stage owner on leave in settings, and keeps one selectable in the stage panel', async () => {
     const project = mockProject();
-    sendOnLeave(project, 'fe-1');
-    project.render(<SettingsTestRoutes initialSection="pipeline" />);
-    const region = within(await screen.findByRole('region', { name: t('settings.sections.pipeline') }));
-    const owners = (await region.findByText(nameOfMember(project, 'fe-1'))).closest('span')!;
-    expect(within(owners).getByText(onLeave)).toBeTruthy();
+    sendOnLeave(project, 'fe-1', 'code-review');
+    project.render(
+      <ToastProvider>
+        <SettingsTestRoutes initialSection="pipeline" />
+      </ToastProvider>,
+      '/p/AC/settings/pipeline?show=stage:dev',
+    );
+    const dialog = within(await screen.findByRole('dialog'));
+    const chosen = (await dialog.findByText(nameOfMember(project, 'fe-1'))).closest('li')!;
+    expect(within(chosen).getByText(onLeave)).toBeTruthy();
 
-    fireEvent.click(region.getByRole('button', { name: t('memberEdit.edit') }));
-    const options = await waitFor(() => {
-      const found = region.getAllByRole('option', { name: new RegExp(onLeave) }) as HTMLOptionElement[];
-      expect(found.length).toBeGreaterThan(0);
-      return found;
-    });
-    expect(options.every((option) => option.textContent?.includes(nameOfMember(project, 'fe-1')))).toBe(true);
-    expect(options.every((option) => !option.disabled)).toBe(true);
+    fireEvent.click(dialog.getByRole('button', { name: t('settings.pipeline.edit.addMember') }));
+    const reviewer = nameOfMember(project, 'code-review');
+    const option = (await dialog.findAllByRole('option')).find((row) => row.textContent?.includes(reviewer))!;
+    expect(within(option).getByText(onLeave)).toBeTruthy();
+    fireEvent.click(option);
+    const added = (await dialog.findByText(reviewer)).closest('li')!;
+    expect(within(added).getByText(onLeave)).toBeTruthy();
   });
 
   it('marks a recipient on leave, who can still be chosen', async () => {

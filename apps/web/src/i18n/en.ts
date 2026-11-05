@@ -7131,6 +7131,41 @@ export const en = {
         before: 'New stage before',
         after: 'New stage after',
       },
+      /** Changing the order: the handle, the ⋯ menus, the messages. */
+      move: {
+        handle: 'Move: {name}',
+        handleTip: 'Drag it, or grab it with Space',
+        help: 'Grab it with Space, carry it with the up and down arrows, put it down with Space, put it back with Esc.',
+        up: 'Move up',
+        down: 'Move down',
+        upColumn: 'Move up · column: {column}',
+        downColumn: 'Move down · column: {column}',
+        columnUp: 'Move up with its stages',
+        columnDown: 'Move down with its stages',
+        firstStage: 'This is the first stage of the path.',
+        lastStage: 'This is the last stage of the path.',
+        columnFirst: 'This column is already at the start of the path.',
+        columnLast: 'This column is already at the end of the path.',
+        scattered: "The column's stages do not come one after another, so it cannot move with them.",
+        forbidden: 'It cannot go here. {reason}',
+        moved: 'Moved: {name}',
+        movedColumn: 'Moved: {name} with its stages',
+        failed: 'Could not move {name}. Try again.',
+        someone: 'someone else',
+        conflict:
+          'Meanwhile {name} changed the settings as well. The move was not repeated: have a look and try again.',
+        /** What the live region says while a stage is carried with the keyboard. */
+        live: {
+          grabbed:
+            'Grabbed: {name}. Carry it with the up and down arrows, put it down with Space, put it back with Esc.',
+          step: '{name}: place {n}, column: {column}.',
+          start: 'This is the start of the path.',
+          end: 'This is the end of the path.',
+          dropped: '{name} moved: place {n}, column: {column}.',
+          unchanged: 'You put it down, its place did not change.',
+          cancelled: 'Cancelled: {name} is back in its place.',
+        },
+      },
       /** The forms of a new stage and a new column. */
       new: {
         stageTitle: 'New stage',

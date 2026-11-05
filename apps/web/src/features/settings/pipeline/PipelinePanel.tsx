@@ -22,6 +22,7 @@ import { NewColumnPanel } from './NewColumnPanel';
 import { NewStagePanel } from './NewStagePanel';
 import styles from './PipelinePanel.module.css';
 import { StagePanel } from './StagePanel';
+import type { PipelineMove } from './useMove';
 
 const STAGE_KINDS: readonly StageKind[] = ['queue', 'work', 'step', 'release', 'done'];
 
@@ -40,6 +41,8 @@ interface PipelinePanelProps {
   onDeleted(kind: 'stage' | 'column', id: string): void;
   /** A new stage or column was saved: the address moves to it. */
   onCreated(show: SettingsShow): void;
+  /** Saves the moves of the menus. */
+  mover: PipelineMove;
 }
 
 /** The selected stage or column (an editor for an admin), a new one's form, or the legend while nothing is selected. */
@@ -53,6 +56,7 @@ export function PipelinePanel({
   onSaved,
   onDeleted,
   onCreated,
+  mover,
 }: PipelinePanelProps) {
   const { key, can } = useProject();
   const map = useMemo(() => teamMap(config), [config]);
@@ -115,6 +119,7 @@ export function PipelinePanel({
             onSaved={onSaved}
             onDeleted={(id) => onDeleted('stage', id)}
             onNewStage={(after) => onSelect({ type: 'new-stage', after })}
+            mover={mover}
           />
         );
       if (entry)
@@ -149,6 +154,7 @@ export function PipelinePanel({
           config={config}
           columnId={target.id}
           empty={empty}
+          mover={mover}
           onSelect={onSelect}
           onClose={onClose}
           onDeleted={(id) => onDeleted('column', id)}

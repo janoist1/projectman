@@ -2,8 +2,8 @@ import { Fragment, useEffect, useMemo, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import clsx from 'clsx';
 import { Link } from 'react-router';
-import { isOnLeave, projectRefines } from '@projectman/shared';
-import type { MemberConfig, ProjectConfig, TeamMap, TeamMapStage } from '@projectman/shared';
+import { isOnLeave, projectRefines, teamMap } from '@projectman/shared';
+import type { MemberConfig, ProjectConfig, Stage, TeamMap, TeamMapStage } from '@projectman/shared';
 import { useProject } from '../../../app/contexts';
 import { Avatar } from '../../../components/Avatar';
 import { FlowLine } from '../../../components/flow/FlowLine';
@@ -18,6 +18,8 @@ import { labelViews } from '../../how-we-work/model';
 import type { SettingsShow } from '../selection';
 import { columnColor, columnRuns, emptyColumns, needsOwner } from './flow';
 import styles from './PipelineFlow.module.css';
+import type { PipelineMove } from './useMove';
+import { useStageMove } from './useStageMove';
 
 /** The owners shown as avatars in a stage's row (a phone shows nothing else). */
 const SHOWN_AVATARS = 3;
@@ -34,6 +36,8 @@ interface PipelineFlowProps {
   flash?: { id: string; count: number } | null;
   /** An admin adds stages and columns from the path itself. */
   canEdit?: boolean;
+  /** Saves a move of stages made on the path (the drag, the keyboard on the handle). */
+  mover: PipelineMove;
   onSelect(show: Selectable): void;
   /** The "+" under a stage: the new stage goes after it. */
   onNewStage?(after: string): void;
@@ -42,20 +46,31 @@ interface PipelineFlowProps {
 
 const FLASH_MS = 1400;
 
+/** The one hidden instruction every handle points at. */
+const HELP_ID = 'pipeline-move-help';
+
 /** The pipeline as a vertical path in the language of "Hogyan dolgozunk": columns as boxes, stages with their gates. */
 export function PipelineFlow({
-  config,
-  map,
+  config: saved,
+  map: savedMap,
   selected,
   problemStages,
   flash,
   canEdit = false,
+  mover,
   onSelect,
   onNewStage,
   onNewColumn,
 }: PipelineFlowProps) {
-  const { key } = useProject();
+  const { key, isOwner } = useProject();
   const flowRef = useRef<HTMLDivElement>(null);
+  const move = useStageMove({ config: saved, isOwner, mover });
+  // A grabbed stage, or a move being saved, is drawn in its new place without touching the saved settings.
+  const config = useMemo(
+    () => (move.shown ? { ...saved, pipeline: move.shown } : saved),
+    [saved, move.shown],
+  );
+  const map = useMemo(() => (move.shown ? teamMap(config) : savedMap), [config, move.shown, savedMap]);
   const runs = useMemo(() => columnRuns(config.pipeline), [config.pipeline]);
   const empty = useMemo(() => emptyColumns(config.pipeline), [config.pipeline]);
   const members = useMemo(
@@ -83,10 +98,13 @@ export function PipelineFlow({
     row?.scrollIntoView?.({ block: 'nearest' });
   }, [selectedValue]);
   useEffect(() => {
-    if (!flash || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (!flash) return;
     const row = [...(flowRef.current?.querySelectorAll<HTMLElement>('[data-show]') ?? [])].find(
       (element) => element.dataset.show === `stage:${flash.id}`,
     );
+    // Centred: the toast covers the bottom of the screen.
+    row?.scrollIntoView?.({ block: 'center' });
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     row?.animate?.([{ backgroundColor: 'var(--c-accent-bg)' }, { backgroundColor: 'transparent' }], {
       duration: FLASH_MS,
       easing: 'ease-out',
@@ -94,15 +112,27 @@ export function PipelineFlow({
   }, [flash]);
 
   return (
-    <div ref={flowRef} className={styles.flow}>
+    <div ref={flowRef} className={styles.flow} {...(canEdit ? move.pathDrop : {})}>
       <FlowLine containerRef={flowRef} returns={returns} watch={map} />
+      <div className="visually-hidden" aria-live="polite">
+        {move.announcement}
+      </div>
+      {canEdit ? (
+        <p id={HELP_ID} className="visually-hidden">
+          {t('settings.pipeline.move.help')}
+        </p>
+      ) : null}
       <ol className={styles.runs}>
         {runs.map((run) => {
           const color = columnColor(config.pipeline, run.column);
+          const headMark = move.mark?.anchor.kind === 'head' && move.mark.anchor.run.start === run.start;
           return (
             <li key={`${run.column.id}:${run.start}`}>
               <div
-                className={styles.col}
+                className={clsx(
+                  styles.col,
+                  headMark && (move.mark?.reason ? styles.dropHeadRefused : styles.dropHead),
+                )}
                 style={
                   {
                     '--col-bg': `var(--column-${color}-bg)`,
@@ -116,22 +146,56 @@ export function PipelineFlow({
                   aria-pressed={selectedValue === `column:${run.column.id}`}
                   data-show={`column:${run.column.id}`}
                   onClick={() => onSelect({ type: 'column', id: run.column.id })}
+                  {...(canEdit ? move.headDrop(run) : {})}
                 >
                   {t('howWeWork.flow.column', { name: run.column.name })}
                 </button>
+                {headMark && move.mark?.reason ? (
+                  <span className={styles.grabReason} data-testid="drop-reason">
+                    {t('settings.pipeline.move.forbidden', { reason: move.mark.reason })}
+                  </span>
+                ) : null}
                 <ol className={styles.stages}>
                   {run.stages.map((stage, offset) => {
                     const entry = map.stages[run.start + offset]!;
+                    const mark =
+                      move.mark?.anchor.kind === 'stage' && move.mark.anchor.id === stage.id
+                        ? move.mark
+                        : null;
+                    const anchor = mark?.anchor.kind === 'stage' ? mark.anchor : null;
+                    const saving = move.saving.includes(stage.id);
                     return (
-                      <li key={stage.id}>
+                      <li key={stage.id} {...(canEdit ? move.stageDrop(stage) : {})}>
+                        {mark && anchor?.edge === 'before' ? <DropMark reason={mark.reason} /> : null}
                         <GateRow entry={entry} map={map} />
-                        <Station
-                          entry={entry}
-                          members={members}
-                          selected={selectedValue === `stage:${stage.id}`}
-                          problem={problemStages.has(stage.id)}
-                          onSelect={() => onSelect({ type: 'stage', id: stage.id })}
-                        />
+                        <div
+                          className={clsx(
+                            styles.stationWrap,
+                            move.dragging === stage.id && styles.dragging,
+                            move.grabbed === stage.id && styles.grabbed,
+                            move.grabbed === stage.id && move.grabReason && styles.grabbedRefused,
+                            saving && styles.saving,
+                          )}
+                          aria-busy={saving || undefined}
+                        >
+                          {canEdit ? <StageHandle stage={stage} props={move.handleProps(stage)} /> : null}
+                          <Station
+                            entry={entry}
+                            members={members}
+                            selected={selectedValue === `stage:${stage.id}`}
+                            problem={problemStages.has(stage.id)}
+                            onSelect={() => onSelect({ type: 'stage', id: stage.id })}
+                          />
+                        </div>
+                        {saving ? (
+                          <p className={styles.savingMark}>{t('settings.pipeline.edit.saving')}</p>
+                        ) : null}
+                        {move.grabbed === stage.id && move.grabReason ? (
+                          <span className={styles.grabReason}>
+                            {t('settings.pipeline.move.forbidden', { reason: move.grabReason })}
+                          </span>
+                        ) : null}
+                        {mark && anchor?.edge === 'after' ? <DropMark reason={mark.reason} /> : null}
                         {map.fixRounds.loops
                           .filter((loop) => loop.fromStageId === stage.id)
                           .map((loop) => (
@@ -209,6 +273,41 @@ export function PipelineFlow({
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** The line a dragged stage would land on; red with the reason when the place is not allowed. */
+function DropMark({ reason }: { reason: string | null }) {
+  return (
+    <div className={styles.dropMark} data-refused={reason ? '' : undefined}>
+      {reason ? (
+        <span className={styles.reason} data-testid="drop-reason">
+          {t('settings.pipeline.move.forbidden', { reason })}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** The grip at the left of a stage's row: drag it, or grab it with the keyboard. */
+function StageHandle({
+  stage,
+  props,
+}: {
+  stage: Stage;
+  props: ReturnType<ReturnType<typeof useStageMove>['handleProps']>;
+}) {
+  return (
+    <div className={styles.handle} title={t('settings.pipeline.move.handleTip')} {...props.wrap}>
+      <button
+        type="button"
+        aria-label={t('settings.pipeline.move.handle', { name: stage.name })}
+        aria-describedby={HELP_ID}
+        {...props.button}
+      >
+        <Icon name="grip" size={16} />
+      </button>
     </div>
   );
 }

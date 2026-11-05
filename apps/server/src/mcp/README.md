@@ -1,22 +1,8 @@
 # Team tools MCP server (`src/mcp`)
 
-PM-782: `ask_human` accepts optional `recipient: owner | integrator` (default owner), a proposal
-until screening. New `screen_question.todo` requires `recipient` along with `what`, `where` and
-`expected`; it reports the actual `recipient` and optional `recipientRefusal` (`protected_question`
-or `integrator_unavailable`). The Operator chooses independently; approvals and fallback always
-stay with owners. The external bearer MCP alone offers `resolve_integrator_todo` in super mode:
-`{project_key, item_id, option_id: todo_done | todo_cannot, note?}` → `{item}`. Cannot requires a
-reason. It records the integrator's own work, not an owner answer or approval; relay semantics stay
-unchanged. The hub hands unresolved todos to owners after 24 hours, independently of engine state.
-
-PM-801: the same endpoint, in super mode, also offers `list_integrator_inbox` (the open items addressed to the
-integrator, with the full text) and `resolve_integrator_fix_limit`
-(`{item_id, option_id: replan | reassign | another_round | to_owner, note?}`; `to_owner` hands the same item to
-the owners and needs a reason in `note`). `decide_fix_limit` takes an `assessment` that `to_owner` requires.
-
-PM-1046: `list_integrator_inbox` takes an optional `project_key` (without it, every project of the key, each item
-with its `projectKey`), and super mode offers `get_operator_instance_knowledge` and
-`update_operator_instance_knowledge`, the global Operator's own knowledge, with no `project_key`.
+Code names used here: the connected Claude is the `integrator` (key mode `super` or `read`), the project manager's
+internals are `operator…` (`OperatorRequests`, `operator_steps`, `OPERATOR_GUEST_TOOLS`); see "Code names" in
+[ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
 Claude sees its tools as `mcp__team__<tool>`. It replaces the desktop app's SendMessage between
@@ -33,7 +19,7 @@ A module's tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 New tools belong in the module's group and handler, never in either collector.
 
 Assembly creates one shared `ToolCaller` (`caller.ts`) for caller checks, the
-Operator's request and guest access, step logging, and opening session files.
+project manager's request and guest access, step logging, and opening session files.
 Every handler receives that instance so signal-step reservations stay shared.
 Shared definition types, schemas and helpers live in `kit.ts`.
 
@@ -86,9 +72,9 @@ tests use the SDK's own client, which behaves the same way here):
 - It routes even `127.0.0.1` through `HTTP(S)_PROXY` unless `NO_PROXY` names the host, so
   the runner should put `127.0.0.1,localhost` into `NO_PROXY` of every session.
 
-## The integrator's endpoint (`POST /mcp`, PM-760)
+## The connected Claude's endpoint (`POST /mcp`)
 
-A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no session and no engine. Code:
+A second, separate door for the connected Claude's MCP client: a bearer `pmi_` key, no session and no engine. Code:
 `super-operator/` (`route.ts`, `server.ts`, `handler.ts`, `registry.ts`, `tools.ts`) and the shared helpers in `http.ts`.
 
 - Stateless: the SDK `WebStandardStreamableHTTPServerTransport` per request over the low-level `Server`; no session id,
@@ -102,11 +88,22 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
 - A shared tool definition is **denied by default**. To serve it, add an `external` binding in `kit.ts` (`modes`, read
   or write access, how the project and card are named) and a method on `ExternalToolsHandler`; to refuse it, give the
   reason in `EXTERNAL_DENIED` (`super-operator/registry.ts`). A test fails for a tool that is neither. Tools only the
-  integrator has (`list_projects`, the super tools) are in `super-operator/tools.ts`.
-- Legacy keys fail authentication with 401 (PM-1037). `tools/list` is filtered by the key's mode (`super`, `read`); a direct call of a tool the mode does not allow gets
+  the connected Claude has (`list_projects`, the super tools) are in `super-operator/tools.ts`.
+- A key of an older mode fails authentication with 401. `tools/list` is filtered by the key's mode (`super`, `read`); a direct call of a tool the mode does not allow gets
   a domain denial (`integrator_not_allowed`, `integrator_read_only`), the domain `errorCode` is kept in the structured
   result, and super tools answer with structured JSON.
-- The documents (PM-1232): `list_documents`, `read_document` and `document_history` are bound for both modes,
+- The tools only this door has (`super-operator/tools.ts`): `list_projects`, `super_operate`, `get_super_operation`,
+  `get_super_question`, `query_super_diagnostics`, `get_project_doc_write` and `relay_owner_answer`;
+  the connected Claude's own queue: `list_integrator_inbox` (the open items addressed to the connected Claude, with the full
+  text; an optional `project_key`, without it every project of the key), `resolve_integrator_todo`
+  (`{project_key, item_id, option_id: todo_done | todo_cannot, note?}`; "cannot" needs a reason; it records the
+  connected Claude's own work, not an owner answer or approval) and `resolve_integrator_fix_limit`
+  (`{item_id, option_id: replan | reassign | another_round | to_owner, note?}`; `to_owner` hands the item to the owners
+  and needs a reason in `note`); the machine-access requests of members: `list_host_inbox`, `answer_host_request`;
+  and the instance-wide knowledge, with no `project_key`: `get_operator_instance_knowledge`,
+  `update_operator_instance_knowledge`. The hub hands an unresolved todo to the owners only when no owner has a
+  live super key, independently of engine state (see `docs/modules/core-inbox.md`).
+- The documents: `list_documents`, `read_document` and `document_history` are bound for both modes,
   `write_document` for `super` only (a `read` key gets `integrator_read_only`); no delete or restore tool. The
   handler (`listDocuments`, `readDocument`, `writeDocument`, `documentHistory`) shares the argument checks, the
   section lookup and the conflict text with the member handler through `documents/calls.ts`. The viewer is
@@ -116,6 +113,14 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
 - The tunnel and proxy pass `/mcp` and refuse `/mcp/` and `/hooks`; see [DEPLOY.md](../../../../docs/DEPLOY.md).
 
 ## Tools
+
+The table lists the tools every member has. The other groups are in `mcp/<module>/tools.ts`:
+`merges/` (`merge_task`, `prioritize_merge`, `list_merge_checks`), `releases/` (`get_release_status`,
+`publish_release`), `compute-jobs/`, `project-docs/`, `host-requests/` (`ask_host`, `list_host_requests`,
+`withdraw_host_request`), `email-channel/` (`send_email`, `set_email_contact`, `list_email_contacts`),
+`system-feedback/` (`list_system_feedback`, `record_system_feedback`), `watchers/` (`decide_fix_limit`),
+`inbox/` (also `decide_permission_request`), `sessions/` (`get_guide`, `set_current_work`) and `project-manager/`
+(the project manager's tools, below). The bullets under the table describe the less obvious ones.
 
 | Tool                        | Input                                                                                                                                                                                                     | Handler call                                                                                                          |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
@@ -149,108 +154,121 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
 | `search_history`            | `query` (1–400), `project_key?`, `task_key?`, `source_types?`, `since?`, `until?`, `limit?` (1–50, default 10)                                                                                            | `searchHistory(ctx, { query, projectKey?, taskKey?, sourceTypes?, since?, until?, limit? })`                          |
 | `read_history_source`       | `source_id`, `project_key?`, `from_line?`, `line_count?` (1–200, default 80), `commit?` (40 hex, documents)                                                                                               | `readHistorySource(ctx, { sourceId, projectKey?, fromLine?, lineCount?, commit? })`                                   |
 
-- The feedback tools (PM-512) are for AI members that hold the `feedback_processing` duty (by default the
-  project manager); everyone else, the Operator included, gets `forbidden` with `feedback_processor_only`.
+- The feedback tools are for AI members that hold the `feedback_processing` duty (by default the
+  project manager); everyone else gets `forbidden` with `feedback_processor_only`.
   The domain's refusals reach the caller as `<code>: <message>` (e.g. `feedback_waiting_owner`: an AI does not
   act on a mark that waits for the owner). `get_feedback { mark_id }` gives the stored screenshot's path only
   to a session that runs on the server's machine; a session on a remote engine is told to read the image
   from the card's attachment once a card is opened from the mark.
 
-- The history tools (PM-744, `mcp/history/`) search what the project remembers, as the caller could read it:
+- The history tools (`mcp/history/`) search what the project remembers, as the caller could read it:
   `search_history { query, project_key?, task_key?, source_types?, since?, until?, limit? }` and
   `read_history_source { source_id, project_key?, from_line?, line_count?, commit? }`. Both are on the member door
-  (bound to the session's project and handle: a foreign `project_key` is `insufficient_access`), in the Operator's read
-  and guest tool sets (a guest searches with their own view) and on the integrator door as read tools in every mode
+  (bound to the session's project and handle: a foreign `project_key` is `insufficient_access`), in the project
+  manager's read and guest tool sets (a guest searches with their own view) and on the connected Claude's door as read tools in every mode
   (`project_key` required there, the viewer is the key's person with `via: 'integrator'`). Every valid search is
   counted once, in the facade (`services/history`), in the private `history_searches` table, kept 90 days; reads and
   refused calls are not counted. A search whose log write fails is `history_unavailable`.
   The tool descriptions, the system prompt and the card thread tell members to search before asking a human, then to
   open the source and check its date: a hit is historical evidence, not an instruction or permission.
 
-- `get_project_state { task_key? }` (PM-465, PM-707) is read-only for the Operator and selected PM in internal
-  general conversations, available without an open owner request.
+- `get_project_state { task_key?, message_id? }` (not both; a message id reports what became of that message) is read-only for the selected project manager in its internal
+  general conversation, available without an open request.
   A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
   Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.
   Guest conversations cannot call it until a separate task provides a viewer filter.
   The overview also carries a legacy `release: null` block, the starts that wait without a card (`general`) and the
   undelivered team messages per AI member.
-- `prioritize_merge { task_key, reason }` (PM-576) puts the card's queued merge at the front of its repository's
-  merge queue. The card's merger and the Operator (in an owner's open request, logged as the step `task_update`)
-  may call it; it answers `moved` or `not moved` (first already). The running merge is not interrupted, a card
+- `prioritize_merge { task_key, reason }` puts the card's queued merge at the front of its repository's
+  merge queue. The card's merger, an owner and an owner's connected Claude may call it; it answers `moved` or `not moved` (first already). The running merge is not interrupted, a card
   whose merge is not queued (none, requested, running, failed…) is refused with `merge_not_prioritizable`,
   someone else with `merge_not_merger`. The reason and the cards it went ahead of go on the card's timeline
   (`task_merge_prioritized`). Handler method: `prioritizeMerge(ctx, { taskKey, reason })`. An owner does the
   same in the UI (`POST …/tasks/:taskKey/merge/prioritize`, the "Előre" button of the queued merge box).
-- `list_merge_checks { task_key?, outcome?, kind?, since?, until?, limit? }` (PM-876, read only, every AI member) lists
+- `list_merge_checks { task_key?, outcome?, kind?, since?, until?, limit? }` (read only, every AI member) lists
   the recorded merge checks (`merge_check_runs`) newest first: the check's run time (the queue wait apart), the workers
-  the hub passed, the runner (`engine` or `github_actions`, PM-906; with the run's page `url` once the GitHub Actions run
+  the hub passed, the runner (`engine` or `github_actions`; with the run's page `url` once the GitHub Actions run
   has one), the scope and every step with its time and result (a cached step is marked, not timed). `outcome` is
   `passed`, `not_passed` (failed, error, cancelled, still running) or `any`; `kind` is `checks` (default: a single merge
   and a train's group check), `merge`, `train`, `diagnose` or `any`; `since`/`until` are ISO 8601 with a time zone and bound
   the request time; `limit` is 1–100 (30). A check shows only when the caller may see all its cards. A check recorded
   without a step report (an older engine or merge-test script) shows its steps as unknown, never as zero. `get_task`
   adds the card's latest three checks. Handler method: `listMergeChecks(ctx, input)`.
-- `publish_release { summary, repo?, commit?, tag?, preview? }` (PM-968) is the deployment duty holder's tool: it tags
+- `publish_release { summary, repo?, commit?, tag?, preview? }` is the deployment duty holder's tool: it tags
   a merged merge commit (default: the head of the default branch; `tag` default `vYYYY.M.D`, `.N` suffix on a taken
   day) with an annotated tag and makes the public GitHub release, whose notes are the summary and the cards merged since
   the previous publication. It runs on request only, with no owner approval. `preview: true` writes nothing. A repeat
   call finishes an interrupted publication; a commit that is published already, a taken tag, a repository without
-  `github` and a caller without the duty are refused (`release_*` codes). `cloud deploy` is
-  unchanged. Handler method: `publishRelease(ctx, args)`.
+  `github` and a caller without the duty are refused (`release_*` codes). Handler method: `publishRelease(ctx, args)`.
 - `run_compute_job { job, commit, repo?, force?, task_key? }`, `get_compute_job { id }` and
-  `list_compute_jobs { repo?, job?, limit? }` (PM-1148) are the deployment duty holder's tools (the integrator in super
+  `list_compute_jobs { repo?, job?, limit? }` are the deployment duty holder's tools (the connected Claude in super
   mode starts, super and read mode read). `run_compute_job` starts a job the repository's `computeJobs` declare on
   GitHub Actions, through the project's engine, on a commit that is on the remote default branch, and answers with the
   queued run at once; the run row follows it, and `task_key` gets a note at its end. The same commit's live run or
   artifact is returned unless `force`; at most two runs go at a time (`compute_job_busy`); an unknown job and an
   unpublished commit are refused (`compute_job_*` codes). Handler methods: `runComputeJob`, `getComputeJob`,
-  `listComputeJobs` (members and the integrator).
+  `listComputeJobs` (members and the connected Claude).
 - `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
-  (PM-495) are Operator tools for the decision log and the roadmap: the first reads the file at the fresh head of
+  are project manager tools for the decision log and the roadmap: the first reads the file at the fresh head of
   the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text
   in them as one commit pushed to the default branch (the owner's own conversation and an open request only; it
   answers `published`, `queued` or `running`). Handler methods: `readProjectDoc(ctx, { doc, fromLine?, lineCount? })`,
   `writeProjectDocs(ctx, { baseCommit, message, edits })`. See `docs/modules/services-coordination.md`, "Project manager documents".
-- `list_decision_candidates { limit? }` and `mark_decision_candidates { items }` (PM-496) are Operator tools for
+- `list_decision_candidates { limit? }` and `mark_decision_candidates { items }` are project manager tools for
   the owner's answers on cards that may be decisions: the first lists them (a read tool: no open request, not in
   guest conversations; `limit` 1..50, default 20; `{ candidates, more }`), the second records the owner's verdict
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
   `markDecisionCandidates(ctx, { items })`. See `docs/modules/services-coordination.md`, "Decision candidates".
-- `dismiss_signal { signal_id, note }` (PM-679, PM-780) closes a delivered, unpresented `obligation_overdue`
-  that needs nothing (PM-1152), or a coordinator-only
+- `dismiss_signal { signal_id, note }` closes a delivered, unpresented `obligation_overdue`
+  that needs nothing, or a coordinator-only
   `structural_pattern` / `milestone_closed` that needs no review. Structural signals never go in
   `signal_ids`; summarize only worthwhile reviews in one short owner message. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
   `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
-- `open_integrator_todo { task_key?, question, what, where, expected }` (PM-808, PM-1073) lets a member with
-  machine access (`machineAccess`, decision 66; the project manager by default) open a todo in the integrator's
+- `open_integrator_todo { task_key?, question, what, where, expected }` lets a member with
+  machine access (`machineAccess`, decision 66; the project manager by default) open a todo in the connected Claude's
   queue itself, from any of its sessions and with no owner request: the same `InboxService.openIntegratorTodo`
-  the obligation tracking (PM-806) uses, with the member as the asker, so the integrator's answer
+  the obligation tracking uses, with the member as the asker, so the answer
   (`todo_done`, `todo_cannot`) comes back to it. The tool is listed only to such members (`capabilities`) and
   the handler refuses the rest with `machine_access_required`, a guest conversation with `operator_owner_only`.
-  The owners get it when the integrator is not available (the result says so). A project manager's card with
-  an open or handed-over obligation is refused with `obligation_tracked`. `ask_human` with
-  `recipient: integrator` reaches the integrator when the screening member has machine access (the asker's
-  does not matter); a screening member without it sends the todo to the owners (`no_machine_access`).
-  Returns text. Handler: `openIntegratorTodo`.
-- `reassign_task { task_key, assignee | null, reason }` and `cancel_task { task_key, reason }` (PM-1040) let only
+  The owners get it when no connected Claude is available (the result says so). A project manager's card with
+  an open or handed-over obligation is refused with `obligation_tracked`. `ask_human` takes an optional
+  `recipient: owner | integrator` (default owner; a suggestion, screening decides); the connected Claude gets it
+  when the screening member has machine access (the asker's does not matter), otherwise the todo goes to the
+  owners (`no_machine_access`; `recipientRefusal` is `protected_question` or `integrator_unavailable`). Approvals and
+  fallbacks always stay with the owners. Returns text. Handler: `openIntegratorTodo`.
+- `operate { title, operation, plan? }`, `execute_operation { … }` and `get_operation { operation_id }` are the
+  selected project manager's, in its own general conversation during an open owner request (`mcp/project-manager/`).
+  `operate` proposes a configuration, member, session, message or project pause operation: the server runs the
+  immediate ones, asks the owner about the restricted ones and refuses the forbidden. `execute_operation` starts one
+  command on the shared operation path; `get_operation` reads it and its result until it is final. The rules and the
+  fields are in `OPERATIONS_GUIDE`; see `docs/modules/services-coordination.md`.
+- `get_operator_diagnostics { task_key, limit? }` returns the shared `OperatorDiagnostics` projection. Only the
+  selected project manager's internal general session may read it, without an open request. Each list is limited
+  independently to 1–20 entries (default 10), newest first. Session tools and errors come only
+  from structured work metadata. Raw messages, transcripts, screens, tool arguments, commands,
+  environment, SQL and check output are excluded. A reading suggests causes; recheck before
+  claiming one as proven. Offline engine measurements are null; server records remain readable.
+  In cloud mode it also returns a null machine block: the monitor's cached snapshot and CPU
+  reference do not yet identify their engine. Local single-machine metrics keep their sample time.
+- `reassign_task { task_key, assignee | null, reason }` and `cancel_task { task_key, reason }` let only
   the selected PM's internal general session change a card's assignee or close it, with no owner request and
   a reason of 1–500 characters. `TaskService.update` / `cancel` accept the selected PM acting directly
   (`isCoordinationActor`); anyone else stays human-admin only. The reason is the `note` of the `task_assigned`
   event and the `reason` of the cancel event, both under the PM's name. Deleting stays with the owners.
-  Handlers: `reassignTask`, `cancelTask`. PM-1098: `reopen_task { task_key, reason }` reopens a cancelled card
+  Handlers: `reassignTask`, `cancelTask`. `reopen_task { task_key, reason }` reopens a cancelled card
   (`TaskService.reopen`, the reason is on the `task_updated` event). All three, and marking a started card as a
   duplicate (`cancel`), obey `team.projectManagerLifecycle` (`projectManagerMayLifecycle`); a PM the setting
   does not cover gets `project_manager_lifecycle_refused`. Handler: `reopenTask`.
-- `combine_questions { item_ids, question, note }` (PM-695) lets only the selected PM's internal
+- `combine_questions { item_ids, question, note }` lets only the selected PM's internal
   general session group 2–10 semantically equivalent screened owner decisions without an owner request.
   Owners, choices, recommendation and attachment sets must match. The oldest item represents the group;
   its human answer atomically closes all live originals and records a separate message on each original
   card route. A withdrawn primary still represents the others, and combining never adds screening time.
   `answered`, `forwarded` and `todo` screening outcomes refuse groups; `decision` opens the representative,
   while `moot` closes just the named original membership. Linked items never fall back separately.
-- `screen_question { item_id, outcome, note, answer?, forward_to?, todo?, feedback_id?, owner_topic? }` (PM-558, PM-707, PM-562) is the PM's tool for
+- `screen_question { item_id, outcome, note, answer?, forward_to?, todo?, feedback_id?, owner_topic? }` is the PM's tool for
   the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
   `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`
   `{ what, where, expected }`); `note` is always required, a field the outcome does not take is refused
@@ -268,7 +286,7 @@ A second, separate door for the integrator's MCP client: a bearer `pmi_` key, no
   The reference is stored atomically in the screening payload and `question_screened` event. Recording failure
   must not delay a todo or its fallback: omit the reference in that case. Handler method: `screenQuestion(ctx, { itemId,
 outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/services-coordination.md`.
-- `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
+- `hand_off` is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the
   worktree, and the session closes at its next idle moment.
@@ -298,16 +316,16 @@ outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/se
   note is the comment that explains them. `description` replaces the whole description (the
   analyst's specification, the architect's technical plan); the change is recorded in the
   timeline as `task_updated`. `repo` is the name of one of the project's repositories, or `null`
-  to clear it (PM-68); an unknown name is refused with the names the project has. It is refused
+  to clear it; an unknown name is refused with the names the project has. It is refused
   while any session of the task runs, the caller's own included (`task_session_live`); the change
   is recorded as `task_updated` with `fields: ['repo']`, `repo` and `previousRepo`.
-- The project documents tools (PM-149) go through `core/documents` in the caller's name (viewer
+- The project documents tools go through `core/documents` in the caller's name (viewer
   `ai`, actor `ai:<handle>`), so they follow the page's permission rules. They are not in
   `OPERATOR_GUEST_TOOLS`: a project manager's guest conversation is refused by the caller check. An
   unknown `slug#section` is refused with the document's headings, a stale `base_version` with the
   current one; there is no delete tool. The document list at the start of a session is in the
   context pack (`documents`), without any text.
-- Attachments (PM-113) go through the PM-111 attachments service in the caller's name (actor
+- Attachments go through the attachments service in the caller's name (actor
   `ai:<handle>`, never the sponsor), with the REST rules. `get_task` lists the first 20 with the
   total; `list_attachments` pages the rest, so a long list is never cut silently.
   `read_attachment` answers with text only: the local path (an image or PDF has a path with its
@@ -315,9 +333,9 @@ outcome, note, answer?, forwardTo?, todo?, feedbackId? })`. See `docs/modules/se
   tools; the content is never put into the answer and never run. `attach_file` takes no
   directory, uploader or storage place from the caller: the domain reads the session's working
   directory from the session the token names (and, for an absolute path inside it, the session's
-  own folder, PM-268) and has the session's engine open the file with `EngineHost.openWorkspaceFile`
-  (`engine-host/workspace-file.ts`, PM-312). `delete_attachment` deletes only the caller's own.
-- Screenshots (PM-351) are for the members whose own sandbox cannot start Chromium (Codex).
+  own folder) and has the session's engine open the file with `EngineHost.openWorkspaceFile`
+  (`engine-host/workspace-file.ts`). `delete_attachment` deletes only the caller's own.
+- Screenshots are for the members whose own sandbox cannot start Chromium (Codex).
   `take_screenshots` starts `npm run shots` in the caller's worktree, in the server's own `srt`
   sandbox (`services/full-tests/screenshot-runs.ts`, `full-test/screenshots.ts`), and waits at most 40 s; a run
   still going is answered as `running`, and `get_screenshot_run` waits another 40 s. The arguments
@@ -353,12 +371,12 @@ owner.`); they do not repeat the guidance of the description.
 Results are short plain text (a roster, a task card with the last 20 timeline events,
 "Updated AR-21: …", …). Errors are tool results with `isError: true`:
 
-| Case                                | Text                                                                                                                                                   |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)                                                                                  |
-| handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>`; Operator refusals name their domain code, e.g. `operator_only`, in the message |
-| handler does not settle within 45 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
-| any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)                                                                                    |
+| Case                                | Text                                                                                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)                                                                                         |
+| handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>`; project manager refusals name their domain code, e.g. `operator_only`, in the message |
+| handler does not settle within 45 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                          |
+| any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)                                                                                           |
 
 ## What the handler (domain) should do
 
@@ -375,16 +393,6 @@ Results are short plain text (a roster, a task card with the last 20 timeline ev
   (`invalid`), a gate that is not met (`gate_blocked`), and so on.
 
 ## Wiring
-
-`get_operator_diagnostics { task_key, limit? }` (PM-697) returns the shared
-`OperatorDiagnostics` projection. Only the Operator's owner general session and the selected
-PM's internal general session may read it, without an owner request. Each list is limited
-independently to 1–20 entries (default 10), newest first. Session tools and errors come only
-from structured work metadata. Raw messages, transcripts, screens, tool arguments, commands,
-environment, SQL and check output are excluded. A reading suggests causes; recheck before
-claiming one as proven. Offline engine measurements are null; server records remain readable.
-In v1 cloud mode also returns a null machine block: the monitor's cached snapshot and CPU
-reference do not yet identify their engine. Local single-machine metrics keep their sample time.
 
 ```ts
 createMcpModule({ handler, resolveContext, logger: app.log }).registerRoutes(app);

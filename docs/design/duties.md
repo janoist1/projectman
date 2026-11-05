@@ -1,13 +1,12 @@
 # Roles as bundles of duties
 
-Status: built (decision 16). Approval gates became labels afterwards (decision 17): where
-this note once said "approval gates name a duty", an approval is now a label that only humans
-holding a duty may set (`setBy: { duties: [...], humansOnly: true }`).
+Status: built (decision 16). An approval gate is a label that only humans holding a duty may
+set (`setBy: { duties: [...], humansOnly: true }`; decision 17, [labels.md](labels.md)).
 
-The fixed catalogue contains 26 duties. Testing and acceptance form one quality duty;
-standup, refinement and retro facilitation are separate so teams can delegate each ritual.
-Release approval and final decision are human-only. All other duties admit humans and AI,
-including monitoring (the watchdog is no longer artificially AI-only).
+The fixed catalogue (`DUTY_IDS`, `packages/shared/src/domain/duty.ts`) contains 29 duties.
+Testing and acceptance form one quality duty; standup, refinement and retro facilitation are
+separate so teams can delegate each ritual. Release approval and final decision are human-only;
+`project_operation` is AI-only. All other duties admit humans and AI.
 
 Roles are named bundles of duty ids plus prompt-only instructions. Built-in defaults live
 in shared code; `team.roleOverrides` replaces a built-in bundle (removing the entry resets
@@ -58,28 +57,32 @@ the explicit attribution or the assignee fallback.
 
 ## Default bundles
 
-| Role              | Duties                                                                        |
-| ----------------- | ----------------------------------------------------------------------------- |
-| operator          | final decision, release approval, monitoring                                  |
-| product owner     | prioritization, requirements analysis, testing and acceptance, final decision |
-| project manager   | scheduling, triage, standup facilitation, refinement facilitation             |
-| business analyst  | requirements analysis, task breakdown                                         |
-| architect         | technical direction, task breakdown                                           |
-| designer          | UX design                                                                     |
-| developer         | implementation                                                                |
-| code reviewer     | code review                                                                   |
-| security reviewer | security review                                                               |
-| QA                | testing and acceptance                                                        |
-| DevOps            | deployment, monitoring                                                        |
-| communication     | client communication                                                          |
-| support           | support, triage                                                               |
-| researcher        | research                                                                      |
-| maintainer        | maintenance                                                                   |
-| coach             | retro facilitation, process improvement                                       |
-| watchdog          | monitoring                                                                    |
-| content           | content                                                                       |
-| translator        | translation                                                                   |
-| docs              | documentation                                                                 |
+The source is `BUILT_IN_ROLE_DUTIES` (`packages/shared/src/domain/role.ts`); the `operator` role id is the
+human owner-side role (final decision, release approval).
+
+| Role              | Duties                                                                         |
+| ----------------- | ------------------------------------------------------------------------------ |
+| operator          | final decision, release approval, monitoring                                   |
+| product owner     | prioritization, requirements analysis, testing and acceptance, final decision  |
+| project manager   | scheduling, standup facilitation, refinement facilitation, feedback processing |
+| business analyst  | requirements analysis, task breakdown                                          |
+| architect         | technical direction, task breakdown                                            |
+| designer          | UX design                                                                      |
+| developer         | implementation                                                                 |
+| lead developer    | technical direction, code review, boundary authorization                       |
+| code reviewer     | code review                                                                    |
+| security reviewer | security review                                                                |
+| QA                | testing and acceptance                                                         |
+| DevOps            | deployment, monitoring                                                         |
+| communication     | client communication                                                           |
+| support           | support, triage                                                                |
+| researcher        | research                                                                       |
+| maintainer        | maintenance                                                                    |
+| coach             | retro facilitation, process improvement                                        |
+| watchdog          | monitoring                                                                     |
+| content           | content                                                                        |
+| translator        | translation                                                                    |
+| docs              | documentation                                                                  |
 
 Deployment is a read-only source policy: deployment commands still require the normal
 permission decision. It does not grant application-file editing. Mixed read/edit bundles

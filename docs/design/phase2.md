@@ -1,11 +1,10 @@
 # Phase 2: team rituals and bounded adaptation
 
-Status: proposal (backlog PM-44, delivery cards PM-52 to PM-60), waiting for the owner's
-answers to the questions at the end. Nothing here is built yet, except what it reuses:
-duties with their meeting metadata, member schedules, sessions per work item and the team
-tools.
+Status: not planned (decision 37, 2026-10-06). Nothing here is built, except what it reuses: duties with their
+meeting metadata, member schedules, sessions per work item and the team tools. Keep this note
+as a reference only; the "Rendszer" member in particular does not exist.
 
-Proposal for discussion. Preserve subscription sessions, the fixed duty catalogue and human
+Proposal as it was written. Preserve subscription sessions, the fixed duty catalogue and human
 approvals. Configuration belongs in the customization git repository; meeting activity in SQLite.
 UI labels stay in Hungarian locale files; participant content follows the project language.
 

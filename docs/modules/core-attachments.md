@@ -14,7 +14,7 @@ Task and message attachment records, storage, validation, processing, thumbnails
 
 ## Files
 
-Everything lives under `apps/server/src/core/attachments/` (moved there by PM-644):
+Everything lives under `apps/server/src/core/attachments/`:
 
 - `attachments/`: task attachments (`service.ts`, `storage.ts`, `files.ts`, `upload.ts`, `thumbnail.ts`, `file-name.ts`, `media-type.ts`, `index.ts`);
 - `message-attachments/`: message attachments (`service.ts`, `storage.ts`, `image.ts`, `index.ts`);
@@ -24,12 +24,10 @@ Everything lives under `apps/server/src/core/attachments/` (moved there by PM-64
 The authoritative descriptor is
 [`core-attachments.ts`](../../apps/server/test/architecture/modules/core-attachments.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).
-Its only path is `core/attachments/`, with `sealed: true`; id, layer, target and pass
-remain unchanged. The central architecture and machine inventory were finalized in PM-645.
+Its only path is `core/attachments/`, with `sealed: true`.
 
 ## Remote engine
 
-Attachment metadata stays on the server; filesystem storage and session-folder access follow the existing storage/engine contracts and transfer flow. The attachment and message-file inventory entries describe the machine assumptions. The move introduces no new filesystem operation, RPC or transfer payload.
-
-PM-644 only moves the files. It changes no shared contract, database schema,
-configuration, timeline event, file mode or symlink protection.
+Attachment metadata stays on the server; filesystem storage and session-folder access follow the storage/engine
+contracts and the transfer flow. The attachment and message-file entries of
+[MACHINE-DEPENDENT.md](../MACHINE-DEPENDENT.md) describe the machine assumptions.

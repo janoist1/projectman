@@ -8,6 +8,9 @@ trial are on the card PM-590 (and the later cards of the refactor, "Refaktor 2")
 Only in a module that has been rewritten on purpose, behind a plain TypeScript facade. Today:
 
 Each card edits only its own item; the bold first line never changes.
+`apps/server/test/architecture/effect-allowlist.test.ts` reads the `File:`/`Files:` and `Facade:`
+paths of these items and fails when a file outside them imports `effect` or a listed file no
+longer does, so keep that form.
 
 - **the runner's input queue**
 
@@ -58,8 +61,8 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-617 machine and outages**
 
-  Files: `apps/server/src/runtime/watchers/machine-rounds.ts` (facade: `MachineRounds` and
-  `sleepFor`, same file, used by `MachineMonitor`) and
+  Files: `apps/server/src/runtime/watchers/machine-rounds.ts` (facade: `MachineRounds`, same
+  file, used by `MachineMonitor`) and
   `apps/server/src/runtime/watchers/provider-status-wait.ts` (facade: `waitForStatus`, same file,
   used by `WorkOutages`). `MachineMonitor` and `WorkOutages` are exported by
   `runtime/watchers/index.ts`.

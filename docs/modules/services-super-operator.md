@@ -2,72 +2,70 @@
 
 ## Responsibility
 
-The super mode (PM-757): the owner-bound operations an integrator key or the in-app project manager starts, the owner's
-question for a reserved effect, the external MCP endpoint (`mcp/super-operator`), and the closed project diagnostics
-catalogue.
+The typed operations a connected Claude (with an integrator key) or the project manager (in its app session) starts,
+the owner's question for a reserved effect, the external MCP endpoint (`mcp/super-operator`), and the closed project
+diagnostics catalogue. The code names (`super`, `integrator`, `operator-super`) are explained in
+`docs/ARCHITECTURE.md`, "Code names".
 
-## Owner-bound super operations (PM-762, PM-764)
+## Owner-bound super operations
 
-The Operator's queue handoffs (PM-1003) use the existing integrator inbox: `no_grant`, `no_typed_operation`
-and `processing_failed` leave machine work there, with `payload.operatorHandoff` describing the action and
-context. The super client lists it through `list_integrator_inbox` and resolves it through
-`resolve_integrator_todo` or `resolve_integrator_fix_limit` (MCP, including the CLI proxy). With no super
-client running, it waits; held cards remain held. Operator leave or AI being off does not send this work to
-the owner (`integratorSideAvailable` checks only that an Operator exists). Only `owner_reserved` goes to
-the owner, using the operation's existing question when available. The queue outcome records
-`handoff.to` (`super` or `owner`; missing on old rows means owner). The web shows a short outcome, without
-an owner inbox link for super work; no extra owner notification or badge is created.
+The connected Claude's work waits in the existing integrator inbox (todos and fix limit decisions; see
+[core/inbox](core-inbox.md)). A connected Claude lists it through `list_integrator_inbox` and resolves it through
+`resolve_integrator_todo` or `resolve_integrator_fix_limit` (MCP, including the CLI proxy). With no connected Claude
+running, it waits; held cards remain held. Whether the work stays on the integrator side is decided by
+`integratorSideAvailable` (`packages/shared/src/domain/member-queue.ts`): it holds while some owner has a live super
+key, and without one the items go to the owners. No server code writes `payload.operatorHandoff` or a queue outcome
+`handoff` (`reason`, `to`) any more: they are read only, so that old items and rows keep rendering (a missing `to`
+means owner), and the web shows a short outcome, without an owner inbox link for super work.
 
 A super operation runs one `SuperCommand` of a closed set (`operate`, `member_update`, `invite_create`, `merge`,
-`merge_order`, `administration`, and the task, inbox, credential and workspace kinds). The integrator starts it with
-the `super_operate` MCP tool or `POST …/operator-super/operations`, the in-app project manager with
+`merge_order`, and the task, inbox, credential and workspace kinds). A connected Claude starts it with the
+`super_operate` MCP tool or `POST …/operator-super/operations`, the project manager in its app session with
 `execute_operation` (`SuperHandoffService.operate`); one `(project, token, request id)` is one `SuperOperation`, so a
 retry returns the same record and a different command under the same id is 409 `super_request_conflict`. The stored
-handoffs of the retired base-Operator request (`super_handoffs`, PM-762) are no longer created or listed; their
-`super_handoff_changed` timeline events still render, as plain text.
+`super_handoffs` rows are no longer created or listed; their `super_handoff_changed` timeline events still render, as
+plain text. A command of the old `administration` kind stays parseable with an opaque request, but new command schemas
+reject it and execution or continuation answers `administration_unavailable`.
 
-The server classifies the command itself (`superCommandEffects`, a projection onto the closed mutation list of
-PM-759; what cannot be classified is refused). With no deletion, security or cost effect it runs on
-the integrator's own power. With one, the operation waits (`waiting_owner`) and an owner question carries
-`payload.superOperation = {operationId, commandHash, expectedConfigVersion, expiresAt}`; only the owner's own
-login answers it (not the token, not a relay), within 24 hours. After a yes the integrator executes the same
-request id again; the service verifies the config version, the command hash and that the same token is still
-valid (stale: 409 `super_operation_stale`) and opens a grant for that one command only. A no cancels it
-(`owner_declined`); an expiry cancels the operation. After a restart a running operation is
-`unknown` and never started again by itself.
+The server classifies the command itself (`superCommandEffects`, a projection onto the closed mutation list; what
+cannot be classified is refused). With no deletion, security or cost effect it runs on the caller's own power. With one,
+the operation waits (`waiting_owner`) and an owner question carries
+`payload.superOperation = {operationId, commandHash, expectedConfigVersion, expiresAt}`; only the owner's own login
+answers it (not the token, not a relay), within 24 hours. After a yes the caller executes the same request id again; the
+service verifies the config version, the command hash and that the same token is still valid (stale: 409
+`super_operation_stale`) and opens a grant for that one command only. A no cancels it (`owner_declined`); an expiry
+cancels the operation. After a restart a running operation is `unknown` and never started again by itself.
 
-The relay (`POST …/inbox/:id/relay-answer`) lets the integrator give the owner's words as the answer to an open
+The relay (`POST …/inbox/:id/relay-answer`) lets the connected Claude give the owner's words as the answer to an open
 question the asker marked as plain information (`ask_human` `response_purpose: "information"`). It is marked
 `ownerAnswerRelayed`, is not an owner decision and never reaches the decision candidates. The rule lives in
-`services/super-operator/relay.ts`; the REST route and the MCP tool `relay_owner_answer` (PM-760) both call it.
+`services/super-operator/relay.ts`; the REST route and the MCP tool `relay_owner_answer` both call it.
 
-### In-app Operator on the shared path (PM-888, decision 55)
+### The project manager's session on the shared path
 
-The in-app Operator uses the same path as a super-mode key: `execute_operation {request_key, task_key?, command}`
-(not `operate` or `member_update`, which keep `operate`) and `get_operation` (PM-only application coordination).
-They call `SuperOperations`, `SuperOperator.execute` and `SuperHandoffService.operate`, so the
-rights check, audit and owner question for a K3 effect are shared with the key path.
-The supervisor's machine grant, tools and API were removed in PM-1113; its table and rows stay.
+The project manager uses the same path as a super key: `execute_operation {request_key, task_key?, command}` and
+`get_operation` (see [services/coordination](services-coordination.md)). They call `SuperOperations`,
+`SuperOperator.execute` and `SuperHandoffService.operate`, so the rights check, the audit and the owner question for a
+K3 effect are shared with the key path. The old supervisor's machine grant, tools and API are gone; its table and rows
+stay.
 
 - **Credential.** There is no stored key. `services/super-operator/app.ts` issues an `IntegratorPrincipal` with
-  `source: 'app'`, `prefix: 'operator-app'` and `keyId` = the Operator session id, acting as the first owner (by
-  handle) with a user account. The authority wrapped around the key authority accepts an app principal only when it
-  was issued there (a `WeakSet`) and `OperatorAppSessions.active` holds: the session is live, it is the Operator's own
-  general conversation (no guest) and an owner message or answer request is open. Otherwise `insufficient_access`.
+  `source: 'app'`, `prefix: 'operator-app'` and `keyId` = the project manager's session id, acting as the first owner
+  (by handle) with a user account. The authority wrapped around the key authority accepts an app principal only when it
+  was issued there (a `WeakSet`) and `OperatorAppSessions.active` holds: the session is live, it is the project
+  manager's own general conversation (no guest) and an owner message or answer request is open. Otherwise
+  `insufficient_access`.
 - **Idempotence.** The request id of an operation is a UUID v8 from the first 16 bytes of
   `sha256(operatorRequestId:request_key)`, so a retry in the same request is the same operation.
 - **Owner's yes.** The operation waits (`waiting_owner`) with the usual question. After the owner's own login says yes,
   the `inbox_resolved` event calls `SuperHandoffService.resumeApprovedAppOperation`, which re-runs `operate` under an
   approved app principal (no live session needed; the yes, command hash and config version are checked again).
-- **Step log.** `OperatorAction` has `operation`; `operator_steps.operation_id` (migration 96) links the operation.
+- **Step log.** `OperatorAction` has `operation`; `operator_steps.operation_id` links the operation.
 
-**Does this work on a remote engine?** The whole path runs on the hub; a machine operation reaches an engine through the
-existing engine ports for application work. Machine administration uses the owner's integrator.
+## The external MCP endpoint
 
-## The external MCP endpoint (PM-760, part of the super mode PM-757)
-
-`POST /mcp` (no token in the path) is the integrator's MCP door: a bearer `pmi_` key, HTTPS or a local connection,
-no login, no session and no engine. The member door `/mcp/:token` is separate and unchanged (a session token, a local
+`POST /mcp` (no token in the path) is the connected Claude's MCP door: a bearer `pmi_` key, HTTPS or a local
+connection, no login, no session and no engine. The member door `/mcp/:token` is separate (a session token, a local
 connection, `ToolContext` with a `sessionId`).
 
 - **Stateless.** The SDK `WebStandardStreamableHTTPServerTransport` runs per request with no session id, over the SDK's
@@ -79,7 +77,7 @@ connection, `ToolContext` with a `sessionId`).
   (`assertActive`); a key found revoked in the middle of a request turns the whole answer into `401`. The `Authorization`
   and `Cookie` headers are removed before the request reaches the SDK (`requestInfo`) and nothing logs a body or a header.
 - **Its own context.** `ExternalToolContext = {principal, projectKey, actor, requestId}` (`contracts/team-tools.ts`) has
-  no `sessionId`; `ToolContext` is not changed. The shared tool definitions get a caller adapter: a definition is
+  no `sessionId`; `ToolContext` is separate. The shared tool definitions get a caller adapter: a definition is
   **denied by default** until it carries an explicit `external` binding (`mcp/kit.ts`: modes, read or write access, the
   project and card argument). `mcp/super-operator/registry.ts` lists the served tools (`EXTERNAL_TOOLS`) and the denied
   shared ones with the reason (`EXTERNAL_DENIED`); a test checks that every shared tool is exactly one of the two.
@@ -88,24 +86,19 @@ connection, `ToolContext` with a `sessionId`).
   refused alike (`insufficient_access`). `tools/list` is filtered by the key's mode (`super`, `read`); a forbidden
   tool called directly is refused by the same table (`integrator_not_allowed`, `integrator_read_only`).
 - **Same right, same audit.** A call runs through `SuperOperator.execute` (`super` and `read` keys: the REST scope; `super`:
-  the audit row `mcp_<tool>`). Legacy keys fail authentication with 401 (PM-1037). The super tools
-  (`super_operate`, `get_super_operation`, `query_super_diagnostics`,
-  `relay_owner_answer`) are `super` only and answer with structured
-  JSON plus the domain `errorCode`.
-- **Entrance.** The tunnel and proxy rules pass `/mcp` and refuse `/mcp/` and `/hooks` (`^/mcp/` in
-  `scripts/cloud/cloudflare.ts` and `deploy/cloudflare/config.example.yml`); the root auth hook treats `/hooks/` and `/mcp/` as
-  literal prefixes so no spelling opens the member door to a bearer. [DEPLOY.md](../DEPLOY.md) "The integrator's MCP endpoint".
+  the audit row `mcp_<tool>`). Keys of the retired legacy mode fail authentication with 401. The super tools
+  (`super_operate`, `get_super_operation`, `query_super_diagnostics`, `relay_owner_answer`) are `super` only and answer
+  with structured JSON plus the domain `errorCode`.
+- **Entrance.** The Cloudflare tunnel is still on the path of `/mcp`. `scripts/cloud/cloudflare.ts` (`ingressRules`) and
+  `deploy/cloudflare/config.example.yml` pass the bare `/mcp` (on the integrator host, behind Cloudflare Access with the
+  integrator audience) and answer `404` for `/mcp/` and `/hooks` on the board host. The root auth hook treats `/hooks/`
+  and `/mcp/` as literal prefixes so no spelling opens the member door to a bearer. [DEPLOY.md](../DEPLOY.md) describes
+  the endpoint and its host.
 
-**Does this work on a remote engine?** The endpoint, the key check and the audit run on the server and nothing of them
-crosses to an engine: the tools call the same domain facades as the REST routes. A tool that needs an engine (the
-operation reads and a diagnostics run) uses the engine path the matching REST route uses; the key is never sent
-to an engine.
+## Operations and diagnostics
 
-## Super-mode operations and diagnostics (PM-1113)
+A connected Claude starts application commands through the shared operation path and queries the closed project
+diagnostics catalogue. `services/super-operator/facade.ts` exposes `SuperOperations`; machine actions stay with the
+connected Claude on the owner's machine.
 
-The connected integrator starts application commands through the shared operation path and
-queries the closed project diagnostics catalogue. `services/super-operator/facade.ts`
-exposes `SuperOperations`; machine actions stay with the owner's integrator.
-The uninstalled supervisor and its RPC/read tools have been retired. Historical
-`administration` commands remain parseable with an opaque request, but new command
-schemas reject them and execution/continuation returns `administration_unavailable`.
+Machine-dependent parts: see the [machine-dependent inventory](../MACHINE-DEPENDENT.md).

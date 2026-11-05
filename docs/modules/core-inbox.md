@@ -77,15 +77,17 @@ keeps the integrator the asker named (PM-1243): `fallbackIntegratorTodo` (`packa
 a question with `requestedRecipient: integrator` that is not protected, grouped or under an owner topic, and
 `releaseScreened` opens it through the todo path with the system as issuer (the asker asked the integrator
 because it has no machine access itself) and records `question_screening_skipped`, not `question_screened`.
-Without a live integrator it opens for the owners with its own options, as before. A todo's recipient is not chosen by
-the asker or the screening member (PM-1243): `selectTodoRecipient` gives it to the integrator whenever the
-question is not protected, the issuer has machine access and an integrator is available; otherwise to the
-technical decider (PM-1139) or, with the refusal, to the owners. `screen_question.todo.recipient` is optional and
-does not decide; what only the owner may do is a `decision`, and the integrator passes a manual step the
-owner alone can take on with `integrator_passed_on` (PM-714). Shared rules select the recipient, protect approvals even with malformed
-raw payload fields, restrict human visibility to owners, exclude the connected Claude's work from human counts
-and plan the handoff to the owners (no clock: on an explicit owner pass-on or when no owner has a live super key).
-Assignees remain real human handles.
+It opens in the integrator's queue also when no integrator is live. A todo's recipient is not chosen by
+the asker or the screening member (PM-1243, PM-1246): `routeItem` (`packages/shared/src/domain/item-route.ts`) is the one
+rule, and `InboxService.applyRoute` (`apply-route.ts`) executes it. A machine todo goes to the integrator's queue
+whenever the question is not protected and the issuer has machine access, whether or not an integrator is connected;
+an issuer without machine access sends it to the technical decider (PM-1139), and with none the request is refused
+(`issuer_without_machine_access`). Nothing is ever opened for the owners as a fallback. The route is stored on the item
+(`InboxItem.route`, column `route`) and written to the timeline as `item_routed`. `screen_question.todo.recipient` is
+optional and does not decide; what only the owner may do is a `decision`, and the integrator passes a manual step the
+owner alone can take on with `integrator_passed_on` (PM-714; `planIntegratorPassOn`). Shared rules protect approvals
+even with malformed raw payload fields, restrict human visibility to owners and exclude the connected Claude's work
+from human counts. Assignees remain real human handles.
 
 Owner topics (PM-1190, PM-1243): `releaseScreened` checks, under the question lock after loading the
 configuration, that a release by the project manager as `decision` names
@@ -112,27 +114,24 @@ The owner can still resolve with their own login through normal resolution.
 The guarded automatic removal of the last question's `waiting-answer` label runs as system
 cleanup outside the caller's execution scope; generic label edits keep all credential checks.
 
-The hub's `integrator-todos` maintenance job sweeps at startup and every 30 seconds, independently
-of AI availability or engine connectivity. Handoff and resolution serialize on the same lock.
-The sweep hands an item over only when no owner has a live super key (`integrator_unavailable`);
-there is no time limit. A resolution accepted under the lock finishes first. Handoff records
-`question_recipient_escalated` atomically with owner addressing and current owner assignees;
-it sends no answer and does not release the waiting label. Existing inbox change triggers journal
-opening, handoff and closure. No new machine operation or engine-boundary method is needed.
-
-Work waits in the connected Claude's inbox as long as an owner has a live super key; `escalateIntegratorItem`
-(`core/inbox/inbox.ts`) hands an item to the owners under the same question lock. No server code writes
-`payload.operatorHandoff` any more (it is read only, so old items keep rendering; see
+There is no sweep and no time limit (the `integrator-todos` maintenance job is gone, PM-1246): work waits in the
+connected Claude's queue until it is resolved or the integrator passes it on. Handoff and resolution serialize on the
+same lock; a resolution accepted under the lock finishes first. `escalateIntegratorItem` (`core/inbox/inbox.ts`)
+hands an item to the owners under that lock only on the integrator's explicit pass-on, planned by
+`planIntegratorPassOn`; it records the route (`integrator_pass_on`) and `item_routed`, sends no answer and does not
+release the waiting label. Old `question_recipient_escalated` and `fix_limit_recipient_escalated` events keep
+rendering. No server code writes `payload.operatorHandoff` any more (it is read only, so old items keep rendering; see
 [services/super-operator](services-super-operator.md)). Closed items are refused with `inbox_item_closed`, other or
-already handed-off items with `super_relay_refused`.
+already handed-off items with `super_relay_refused`. No new machine operation or engine-boundary method is needed.
 
 ### Fix limit decisions (PM-801)
 
 A fix-limit decision (`payload.fixLimit`, source `system`, only fix-limit options) can be addressed to the
-connected Claude by `selectFixLimitRecipient` when the three extra rounds are used up, the lead passed it on, or no AI
-member can decide; any other shape stays with the owners. `isIntegratorInboxItem` covers todos and these
-decisions, so the sweep escalates both when no owner has a live super key (`planIntegratorInboxEscalation`, event
-`fix_limit_recipient_escalated`). The connected Claude resolves only through `resolveIntegratorFixLimit` (same question
+connected Claude when the three extra rounds are used up, the lead passed it on, or no AI member can decide
+(`isDelegableFixLimitDecision`); any other shape stays with the owners. `routeItem` kind `fix_limit` sends a delegable
+decision to the integrator's queue while an integrator exists and otherwise opens it for the owners under the topic
+`product_direction` (reason `no_integrator`); the route is on the item. `isIntegratorInboxItem` covers todos and these
+decisions. The connected Claude resolves only through `resolveIntegratorFixLimit` (same question
 lock, `integratorExecution()` and owner access checked again): `replan`, `reassign`, `another_round`, or passing
 the same item to the owners with a reason. The text is built by `fix-limit-text.ts` in the project language.
 Hub-side only; no engine-boundary method.

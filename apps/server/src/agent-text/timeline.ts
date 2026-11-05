@@ -204,6 +204,8 @@ export function describeEvent(
       return text('reason') === 'integrator_passed_on'
         ? `the Operator handed the integrator todo to the owner${text('note') ? `: ${text('note')}` : ''}`
         : 'handed the integrator todo to the owner: it was not resolved within 24 hours';
+    case 'item_routed':
+      return `routed ${text('kind') ?? 'an item'} ${text('itemId') ?? ''} to ${text('to') ?? '?'} (${text('reason') ?? '?'}${data.requested ? `, the asker named the ${text('requested')}` : ''})`;
     case 'obligation_woken':
       // Only a kick of the system writes an explicit null; an older or incomplete event keeps the reminder text.
       if (data.responsible === null)

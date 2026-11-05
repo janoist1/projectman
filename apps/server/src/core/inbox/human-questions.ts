@@ -219,6 +219,8 @@ export class HumanQuestions implements HumanQuestionsPort {
         ...(caller.kind === 'external' ? { externalQuestion: caller.origin } : {}),
       },
       options,
+      // The integrator's own question is the owner's side (PM-1246); the other kinds follow in PM-1241 parts 2-4.
+      ...(external ? { routed: this.inbox.applyRoute(config, { kind: 'integrator_question' }) } : {}),
     });
     this.timeline.append({
       projectKey,

@@ -20,6 +20,7 @@ interface InboxRow {
   resolution: string | null;
   created_at: string;
   updated_at: string;
+  route: string | null;
 }
 
 interface InboxFilter {
@@ -62,6 +63,7 @@ const toItem = (r: InboxRow): InboxItem => ({
   state: r.state as InboxState,
   resolution: parseJson<InboxItem['resolution']>(r.resolution, null),
   createdAt: r.created_at,
+  ...(r.route ? { route: parseJson<InboxItem['route']>(r.route, null) } : {}),
 });
 
 export function createInboxRepository(db: Db) {
@@ -69,8 +71,8 @@ export function createInboxRepository(db: Db) {
     get: db.prepare('SELECT * FROM inbox_items WHERE id = ?'),
     insert: db.prepare(
       `INSERT INTO inbox_items (id, project_key, kind, assignees, source, session_id, task_key, title, body, payload,
-         options, state, resolution, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         options, state, resolution, created_at, updated_at, route)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     updateAssignees: db.prepare(
       "UPDATE inbox_items SET assignees = ?, updated_at = ? WHERE id = ? AND state IN ('open', 'screening')",
@@ -325,8 +327,13 @@ export function createInboxRepository(db: Db) {
           item.resolution ? toJson(item.resolution) : null,
           item.createdAt,
           item.createdAt,
+          item.route ? toJson(item.route) : null,
         ),
       );
+    },
+    /** Records the route of an item that exists (an integrator todo handed on; the route rule decided). */
+    setRoute(id: string, route: NonNullable<InboxItem['route']>): void {
+      changing(id, () => db.prepare('UPDATE inbox_items SET route = ? WHERE id = ?').run(toJson(route), id));
     },
     updateAssignees(id: string, assignees: string[], at: string): InboxItem | null {
       changing(id, () => statements.updateAssignees.run(toJson(assignees), at, id));

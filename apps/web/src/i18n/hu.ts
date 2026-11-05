@@ -5661,6 +5661,39 @@ export const hu = {
     fullMessage: 'Teljes üzenet',
     labelsAdded: 'Rátette: {labels}',
     labelsRemoved: 'Levette: {labels}',
+    /** Where the route rule put an item and why (PM-1246), in the middle of the `item_routed` row. */
+    itemRoute: {
+      to: {
+        owner_inbox: 'a tulajdonosok postaládája',
+        owner_side: 'a tulajdonos oldala',
+        integrator_queue: 'az integrátor sora',
+        decider: 'a műszaki döntéshozó',
+        pm: 'a projektmenedzser',
+        wait_pm: 'a projektmenedzser válaszára vár',
+        owner_messages: 'a tulajdonosok üzenetei',
+        duty_holder: 'a feladat felelőse',
+        refuse: 'elutasítva',
+      },
+      reason: {
+        owner_topic: 'tulajdonosi döntés, témával',
+        approval: 'jóváhagyás',
+        protected: 'védett kérdés',
+        machine_work: 'gépi munka',
+        requested_integrator: 'a kérdező az integrátort kérte',
+        system_obligation: 'rendszerkötelezettség',
+        issuer_without_machine_access: 'a feladónak nincs gépi hozzáférése',
+        no_integrator: 'nincs integrátor',
+        pm_pending: 'a projektmenedzser még nem látta',
+        owner_side: 'a tulajdonos saját ügye',
+        owner_topic_missing: 'hiányzó téma',
+        signal_not_for_owner: 'nem a tulajdonosnak szóló jelzés',
+        pm_matter: 'projektmenedzseri ügy',
+        no_pm: 'nincs projektmenedzser',
+        information: 'tájékoztatás',
+        human_duty: 'emberi feladat',
+        retired: 'megszűnt jelzés',
+      },
+    },
     /** The step an obligation stands for (PM-806), in the middle of the timeline rows. */
     obligationSteps: {
       merge: 'beolvasztás',
@@ -5932,6 +5965,7 @@ export const hu = {
       question_recipient_escalated_passed_on: 'Az Operátor a teendőt a tulajdonosnak adta tovább.{note}',
       question_recipient_escalated_unavailable:
         'Az Operátornak szóló teendő a tulajdonoshoz került: az Operátor most nem dolgozza fel a sorát.',
+      item_routed: 'Az elem útvonala: {to} ({reason}).',
       fix_limit_recipient_escalated_unavailable:
         'A javítási körök határáról szóló döntés a tulajdonoshoz került: az Operátor most nem dolgozza fel a sorát.',
       fix_limit_recipient_escalated_timeout:

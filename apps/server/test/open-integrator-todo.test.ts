@@ -87,17 +87,15 @@ describe('open_integrator_todo', () => {
     expect(item(opened.itemId)).toMatchObject({ taskKey: null, state: 'open' });
   });
 
-  it('gives the todo to the owners when the integrator is not available, and says why', async () => {
+  it('keeps the todo in the integrator queue when no integrator is available, never at the owners (PM-1246)', async () => {
     integrator.available = false;
     const opened = await open();
 
-    expect(opened.recipient).toBe('owner');
-    expect(opened.recipientRefusal).toEqual(expect.any(String));
-    expect(questionPayloadOf(item(opened.itemId))).toMatchObject({
-      recipient: 'owner',
-      screening: { recipientRefusal: opened.recipientRefusal },
-    });
-    expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
+    expect(opened.recipient).toBe('integrator');
+    expect(opened.recipientRefusal).toBeNull();
+    expect(questionPayloadOf(item(opened.itemId))).toMatchObject({ recipient: 'integrator' });
+    expect(item(opened.itemId).route).toMatchObject({ kind: 'member_todo', to: 'integrator_queue' });
+    expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
   });
 
   async function developerContext(): Promise<ToolContext> {

@@ -4,6 +4,8 @@ import {
   ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
+  ItemRouteReason,
+  ItemRouteTarget,
   ObligationKind,
   QuestionCloseRule,
   TaskRelationKind,
@@ -995,6 +997,16 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             }),
           )
         : normal(t('timeline.events.fix_limit_recipient_escalated_timeout'));
+    case 'item_routed': {
+      const to = ItemRouteTarget.safeParse(d.to);
+      const reason = ItemRouteReason.safeParse(d.reason);
+      return normal(
+        t('timeline.events.item_routed', {
+          to: to.success ? t(`timeline.itemRoute.to.${to.data}`) : str(d.to),
+          reason: reason.success ? t(`timeline.itemRoute.reason.${reason.data}`) : str(d.reason),
+        }),
+      );
+    }
     case 'member_queue_item_closed':
       return normal(t('timeline.events.member_queue_item_closed'));
     case 'obligation_woken':

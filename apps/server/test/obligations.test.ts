@@ -156,7 +156,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     expect(h.domain.tasks.get('AR', key)).toMatchObject({ labels, stageId: stage });
   });
 
-  it('gives the todo to the owners when no integrator can take it', async () => {
+  it('keeps the todo in the integrator queue when no integrator can take it, never at the owners (PM-1246)', async () => {
     await harness();
     integrator.available = false;
     const key = await create();
@@ -166,12 +166,11 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
     }
     expect(todos()).toHaveLength(1);
-    expect(questionPayloadOf(todos()[0]!)).toMatchObject({ recipient: 'owner' });
-    expect(events('obligation_handed_over')[0]?.data).toMatchObject({
-      recipient: 'owner',
-      recipientRefusal: 'integrator_unavailable',
-    });
-    expect(ownerCount()).toBe(1);
+    expect(questionPayloadOf(todos()[0]!)).toMatchObject({ recipient: 'integrator' });
+    expect(events('obligation_handed_over')[0]?.data).toMatchObject({ recipient: 'integrator' });
+    expect(events('obligation_handed_over')[0]?.data).not.toHaveProperty('recipientRefusal');
+    expect(todos()[0]!.route).toMatchObject({ kind: 'system_todo', to: 'integrator_queue' });
+    expect(ownerCount()).toBe(0);
   });
 
   it('closes without a reminder when the merge lands in time', async () => {

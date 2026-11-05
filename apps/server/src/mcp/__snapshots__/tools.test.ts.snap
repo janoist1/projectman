@@ -1676,7 +1676,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Open a todo for the integrator",
     },
-    "description": "Put machine work (an installation, a setting) in the owners' queue, without an owner request; use this, not a message, for a step that needs the owner's connected integrator. Its answer comes back to you; without an integrator the owners get it. An owner decision is not a todo: use ask_human.",
+    "description": "Put machine work (an installation, a setting) in the integrator's queue, not a message; the owners do not get it, it waits for a connected integrator. Its answer comes back to you. An owner decision is not a todo: use ask_human.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

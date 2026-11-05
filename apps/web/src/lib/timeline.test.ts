@@ -17,6 +17,24 @@ const creation: TimelineEvent = {
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
 it.each([
+  [null, 'timeline.events.item_routed'],
+  ['integrator', 'timeline.events.item_routed_requested'],
+] as const)('shows where a route went, and who the asker named (requested %s)', (requested, key) => {
+  const event = {
+    ...creation,
+    type: 'item_routed' as const,
+    data: { itemId: 'i1', kind: 'member_todo', requested, to: 'integrator_queue', reason: 'machine_work' },
+  };
+  expect(describeEvent(event, context).text).toBe(
+    t(key, {
+      to: t('timeline.itemRoute.to.integrator_queue'),
+      reason: t('timeline.itemRoute.reason.machine_work'),
+      requested: t('timeline.itemRoute.requested.integrator'),
+    }),
+  );
+});
+
+it.each([
   ['question_asked', {}, 'timeline.events.question_asked_topic'],
   ['question_asked', { unscreened: { reason: 'Again' } }, 'timeline.events.question_asked_unscreened_topic'],
   ['question_screened', { outcome: 'decision' }, 'timeline.events.question_screened_decision_topic'],

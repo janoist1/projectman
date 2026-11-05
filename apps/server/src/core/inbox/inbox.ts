@@ -19,9 +19,11 @@ import {
   isIntegratorFixLimitDecision,
   isIntegratorInboxItem,
   wasIntegratorTodo,
-  planIntegratorInboxEscalation,
-  selectFixLimitRecipient,
-  selectTodoRecipient,
+  planIntegratorPassOn,
+  isUndelegableQuestion,
+  isDelegableFixLimitDecision,
+  fixLimitRoutePayload,
+  fixLimitRouteTopic,
   fallbackIntegratorTodo,
   technicalDeciderOf,
   FixLimitOptionId,
@@ -91,7 +93,6 @@ import type {
   OwnerQuestionsReport,
   BoundActor,
   TimelineEventData,
-  TodoRoute,
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
@@ -105,6 +106,8 @@ import {
 } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
+import { applyRoute } from './apply-route';
+import type { AppliedRoute } from './apply-route';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
 import type { QuestionGroupAnswerer, IntegratorTodoAccess } from './ports';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
@@ -146,6 +149,8 @@ interface CreateInboxItemInput {
   options: InboxOption[];
   /** `screening`: the Operator looks at an AI member's question first and no person sees it yet (PM-556). */
   state?: 'open' | 'screening';
+  /** How the route rule placed the item: stored on it and written to the timeline as `item_routed` (PM-1246). */
+  routed?: AppliedRoute;
 }
 
 /** A new fix round limit decision (PM-714): the counted rounds and the options that can be carried out now. */
@@ -643,10 +648,40 @@ export class InboxService {
       state: input.state ?? 'open',
       resolution: null,
       createdAt: isoNow(this.ctx),
+      ...(input.routed ? { route: input.routed.record } : {}),
     };
-    this.ctx.repos.inbox.insert(item);
+    this.ctx.unitOfWork(() => {
+      this.ctx.repos.inbox.insert(item);
+      if (input.routed) this.traceRoute(item, input.routed);
+    });
     this.publish(item);
     return item;
+  }
+
+  /**
+   * The trace of a route (PM-1246): `item_routed` on the card (or the project) with the kind, the recipient the
+   * asker named, the target and the reason. The record on the item itself is written with it.
+   */
+  private recordRoute(item: InboxItem, applied: AppliedRoute): void {
+    this.ctx.repos.inbox.setRoute(item.id, applied.record);
+    this.traceRoute(item, applied);
+  }
+
+  private traceRoute(item: InboxItem, applied: AppliedRoute): void {
+    this.timeline.append({
+      projectKey: item.projectKey,
+      taskKey: item.taskKey,
+      sessionId: item.sessionId,
+      actor: SYSTEM_ACTOR,
+      type: 'item_routed',
+      data: {
+        itemId: item.id,
+        kind: applied.record.kind,
+        requested: applied.record.requested,
+        to: applied.record.to,
+        reason: applied.record.reason,
+      },
+    });
   }
 
   /**
@@ -660,16 +695,14 @@ export class InboxService {
     const available = input.options
       .map((option) => FixLimitOptionId.safeParse(option.id))
       .flatMap((parsed) => (parsed.success ? [parsed.data] : []));
-    const selected = selectFixLimitRecipient(
-      {
-        kind: 'decision',
-        source: 'system',
-        taskKey: input.taskKey,
-        payload: { fixLimit: input.fixLimit },
-        options: input.options,
-      },
-      this.integratorTodoAccess?.available(config) ?? false,
-    );
+    const delegable = isDelegableFixLimitDecision({
+      kind: 'decision',
+      source: 'system',
+      taskKey: input.taskKey,
+      payload: { fixLimit: input.fixLimit },
+      options: input.options,
+    });
+    const selected = this.applyRoute(config, { kind: 'fix_limit', topic: fixLimitRouteTopic(delegable) });
     const content = formatFixLimitItem(config, input.fixLimit, available, selected.recipient);
     return this.ctx.unitOfWork(() =>
       this.create({
@@ -682,13 +715,17 @@ export class InboxService {
         body: content.body,
         payload: {
           fixLimit: input.fixLimit,
-          recipient: selected.recipient,
-          ...(selected.recipient === 'integrator' ? { integratorOpenedAt: isoNow(this.ctx) } : {}),
-          ...('recipientRefusal' in selected ? { recipientRefusal: selected.recipientRefusal } : {}),
+          ...fixLimitRoutePayload(selected.route, delegable, isoNow(this.ctx)),
         },
         options: content.options,
+        routed: selected,
       }),
     );
+  }
+
+  /** Where an item goes (PM-1246): `routeItem` with the facts of this project; a refusal is thrown. */
+  applyRoute(config: ProjectConfig, request: Parameters<typeof applyRoute>[2]): AppliedRoute {
+    return applyRoute(config, this.integratorTodoAccess?.available(config) ?? false, request);
   }
 
   get(projectKey: string, id: string): InboxItem {
@@ -802,26 +839,26 @@ export class InboxService {
 
   /**
    * Gives an open integrator item to the owners: the integrator's explicit pass-on (`how.actor` is its
-   * authenticated super actor, `how.note` the reason). The same item stays open with its payload
-   * and options; only the addressing changes. False when it stays.
+   * authenticated super actor, `how.note` the reason), the `integrator_pass_on` route (PM-1246). The same item
+   * stays open with its payload and options; only the addressing changes. False when it stays.
    */
   private escalateIntegratorItem(
     item: InboxItem,
     config: ProjectConfig,
     how: {
-      reason: 'integrator_passed_on' | 'integrator_unavailable';
       actor?: Actor;
       note?: string;
     },
   ): boolean {
     const at = isoNow(this.ctx);
-    const reason = how.reason;
+    const reason = 'integrator_passed_on';
     // A fix limit decision goes to the people the card's hold names (the technical direction holders among the
     // owners and admins, else the owners), as it would have if no integrator had been asked.
     const people =
       item.kind === 'decision' ? fixLimitDeciders(config, ownerHandles(config)) : ownerHandles(config);
-    const patch = planIntegratorInboxEscalation(item, at, people, reason);
+    const patch = planIntegratorPassOn(item, at, people);
     if (!patch) return false;
+    const routed = this.applyRoute(config, { kind: 'integrator_pass_on' });
     const updated = this.ctx.unitOfWork(() => {
       const row = this.ctx.repos.inbox.updateOpen(
         item.id,
@@ -831,6 +868,7 @@ export class InboxService {
         item.kind === 'decision' ? (bodyForOwners(config, item.body) ?? undefined) : undefined,
       );
       if (!row) return null;
+      this.recordRoute(row, routed);
       if (item.kind === 'decision') {
         this.timeline.append({
           projectKey: item.projectKey,
@@ -911,7 +949,6 @@ export class InboxService {
       if (request.optionId === 'to_owner') {
         if (!note) throw invalid('invalid_request', 'say why the owners must decide', { field: 'note' });
         const moved = this.escalateIntegratorItem(item, config, {
-          reason: 'integrator_passed_on',
           actor: attributedActor(by),
           note,
         });
@@ -954,27 +991,6 @@ export class InboxService {
     const parsed = IntegratorTodoRequestSchema.safeParse(req);
     if (!parsed.success) throw invalid('invalid_request', 'invalid integrator todo result');
     return this.questionLock(id, () => this.resolveLocked(projectKey, id, parsed.data, by, true));
-  }
-
-  /**
-   * Gives every open integrator item (todos and the narrow fix limit decisions) to the owners when no owner
-   * has a live super key (PM-1045): the owner's connected client works them, and without one nobody does.
-   */
-  async sweepIntegratorTodos(): Promise<void> {
-    const open = [...this.ctx.repos.inbox.listOpen('question'), ...this.ctx.repos.inbox.listOpen('decision')];
-    for (const candidate of open) {
-      if (!isIntegratorInboxItem(candidate)) continue;
-      try {
-        await this.questionLock(candidate.id, async () => {
-          const config = await this.projects.config(candidate.projectKey);
-          if (this.integratorTodoAccess?.available(config) ?? false) return;
-          const current = this.ctx.repos.inbox.get(candidate.id);
-          if (current) this.escalateIntegratorItem(current, config, { reason: 'integrator_unavailable' });
-        });
-      } catch (error) {
-        this.ctx.logger.warn({ error, itemId: candidate.id }, 'integrator_todo_sweep_failed');
-      }
-    }
   }
 
   openPermissionOf(projectKey: string, sessionId: string): InboxItem | null {
@@ -1638,23 +1654,13 @@ export class InboxService {
     config: ProjectConfig,
     at: string,
     decider: string | null,
+    kind: 'screened_todo' | 'screening_fallback' | 'member_todo' | 'system_todo' = 'screened_todo',
   ) {
     const { outcome, fallback } = release;
-    const route: TodoRoute =
-      outcome === 'todo'
-        ? selectTodoRecipient(current, {
-            integratorAvailable: this.integratorTodoAccess?.available(config) ?? false,
-            // A skipped screening (`fallback`) is the system's own step: the asker asked for the integrator
-            // because it has no machine access itself (PM-1243).
-            issuerAllowed: machineTodoIssuerAllowed(
-              config,
-              fallback ? 'system' : machineTodoIssuerOf(current.source, release.by),
-            ),
-            decider,
-          })
-        : { recipient: 'owner' };
-    const forwardTo = route.recipient === 'decider' ? route.decider : null;
-    const selected = route.recipient === 'decider' ? { recipient: 'owner' as const } : route;
+    // A question that cannot become a todo (protected, a group) stays an approval of the owners (PM-1246).
+    const route = outcome === 'todo' ? this.todoRoute(current, release, config, decider, kind) : null;
+    const forwardTo = route?.forwardTo ?? null;
+    const selected = { recipient: route?.recipient ?? ('owner' as QuestionRecipient) };
     const todo = release.todo
       ? { ...release.todo, recipient: forwardTo ? release.todo.recipient : selected.recipient }
       : undefined;
@@ -1673,20 +1679,48 @@ export class InboxService {
         ...(todo ? { todo } : {}),
         ...(forwardTo ? { forwardedTo: forwardTo } : {}),
         ...(release.feedbackId !== undefined ? { feedbackId: release.feedbackId } : {}),
-        ...('recipientRefusal' in route ? { recipientRefusal: route.recipientRefusal } : {}),
+        ...(route?.protectedQuestion ? { recipientRefusal: 'protected_question' as const } : {}),
+        // The only reason a todo is forwarded to the decider: the issuer has no machine access.
+        ...(forwardTo ? { recipientRefusal: 'no_machine_access' as const } : {}),
         ...(fallback ? { fallback } : {}),
       },
       at,
     );
     const options = outcome === 'todo' ? [TODO_DONE_OPTION, TODO_CANNOT_OPTION] : current.options;
-    return { selected, forwardTo, todo, payload, options };
+    return { selected, forwardTo, todo, payload, options, route };
+  }
+
+  /**
+   * The route of a todo (PM-1246): machine work goes to the integrator's queue (where it waits when nobody is
+   * connected), a member without machine access cannot put it there (to the technical `decider` when the project has
+   * one, else refused), and a protected question is the owners' approval. The machine access that counts is the
+   * one of `machineTodoIssuerOf`; a skipped screening is the system's own step (PM-1243).
+   */
+  private todoRoute(
+    current: InboxItem,
+    release: ScreeningRelease,
+    config: ProjectConfig,
+    decider: string | null,
+    kind: 'screened_todo' | 'screening_fallback' | 'member_todo' | 'system_todo',
+  ): AppliedRoute & { protectedQuestion: boolean } {
+    const protectedQuestion = isUndelegableQuestion(current);
+    const issuer = kind === 'screening_fallback' ? 'system' : machineTodoIssuerOf(current.source, release.by);
+    const applied = this.applyRoute(config, {
+      kind,
+      topic: protectedQuestion ? 'approval' : null,
+      requested: questionPayloadOf(current)?.requestedRecipient ?? null,
+      issuerMachineAccess: machineTodoIssuerAllowed(config, issuer),
+      decider,
+    });
+    return { ...applied, protectedQuestion };
   }
 
   /**
    * The system opens a todo for the integrator itself (PM-806): nobody asked it, so `askedBy` (`system`, or the
    * project manager's handle) is the item's source and no answer is delivered to anyone. It takes the screening's
-   * todo path (`releaseFields`), but opens at once, without the Operator. When the integrator cannot take it
-   * (`recipientRefusal`), the owners get it. It sets no waiting label. The obligation's id is on the payload, so
+   * todo path (`releaseFields`), but opens at once, without the Operator. It always waits in the integrator's
+   * queue, connected or not (PM-1246); a member without machine access gets a refusal, not the owners. It sets no
+   * waiting label. The obligation's id is on the payload, so
    * a todo whose row was not written (a crash) is found again.
    */
   async openIntegratorTodo(input: {
@@ -1726,13 +1760,14 @@ export class InboxService {
       resolution: null,
       createdAt: at,
     };
-    const { selected, payload, options } = this.releaseFields(
+    const { selected, payload, options, route } = this.releaseFields(
       draft,
       { outcome: 'todo', by: 'system', todo: { ...input.todo, recipient: 'integrator' } },
       config,
       at,
-      // Nobody asked: the owners keep a todo the system opened itself (PM-1139).
+      // Nobody asked a person to decide: a member without machine access gets a refusal, not the owners.
       null,
+      input.askedBy === 'system' && !memberOf(config, 'system') ? 'system_todo' : 'member_todo',
     );
     const item = this.create({
       id: draft.id,
@@ -1744,12 +1779,10 @@ export class InboxService {
       title: draft.title,
       payload,
       options,
+      ...(route ? { routed: route } : {}),
     });
-    return {
-      itemId: item.id,
-      recipient: selected.recipient,
-      recipientRefusal: 'recipientRefusal' in selected ? (selected.recipientRefusal ?? null) : null,
-    };
+    // The integrator's queue takes every machine todo, so there is no refusal to report any more (PM-1246).
+    return { itemId: item.id, recipient: selected.recipient, recipientRefusal: null };
   }
 
   /**
@@ -1779,10 +1812,11 @@ export class InboxService {
    * outcome (`decision`: a person decides; `todo`: a person does something, the options become Done and
    * Cannot do it) or, with no outcome, because the system gave up waiting (`fallback`). Null when the item
    * is not in screening any more (closed or released meanwhile). The timeline records `question_screened`,
-   * or `question_screening_skipped` for a fallback. A todo no integrator can take goes to the project's
-   * technical decider when `forward` is given (PM-1139): the item does not open, it closes as forwarded in the
-   * transaction of the message `forward` sends (`inbox_resolved` follows, as for `settleScreened`). Without
-   * `forward`, or without a decider, it opens for the owners with the `recipientRefusal`.
+   * or `question_screening_skipped` for a fallback. A todo of a member without machine access goes to the
+   * project's technical decider when `forward` is given (PM-1139): the item does not open, it closes as forwarded
+   * in the transaction of the message `forward` sends (`inbox_resolved` follows, as for `settleScreened`). Without
+   * `forward`, or without a decider, the route refuses it (`issuer_without_machine_access`, PM-1246). Every other
+   * todo waits in the integrator's queue. The route is stored on the item and written as `item_routed`.
    */
   releaseScreened(
     id: string,
@@ -1803,27 +1837,26 @@ export class InboxService {
       const config = await this.projects.config(current.projectKey);
       const at = isoNow(this.ctx);
       const { fallback } = release;
-      // A skipped screening keeps a requested integrator (PM-1243): the question opens as the integrator's todo
-      // when one can take it; otherwise it opens for the owners with its own options, as before.
+      // A skipped screening keeps a requested integrator (PM-1243): the question becomes the integrator's todo,
+      // which waits in its queue whether or not one is connected (PM-1246); any other skipped question opens for
+      // the owners with its own options, as before (the project manager's wait comes with PM-1241 part 2).
       const fallbackTodo = fallback && !release.outcome && !group ? fallbackIntegratorTodo(current) : null;
       const taken =
-        fallbackTodo &&
-        selectTodoRecipient(current, {
-          integratorAvailable: this.integratorTodoAccess?.available(config) ?? false,
-          issuerAllowed: machineTodoIssuerAllowed(config, 'system'),
-          decider: null,
-        }).recipient === 'integrator';
+        !!fallbackTodo &&
+        this.todoRoute(current, { fallback }, config, null, 'screening_fallback').route.to ===
+          'integrator_queue';
       const effective: ScreeningRelease =
         fallbackTodo && taken ? { outcome: 'todo', by: 'system', todo: fallbackTodo, fallback } : release;
       const { outcome } = effective;
       const { ownerTopic: _asked, ...rest } = effective;
       const ownerTopic = releaseOwnerTopic(current, effective, config);
-      const { selected, forwardTo, todo, payload, options } = this.releaseFields(
+      const { selected, forwardTo, todo, payload, options, route } = this.releaseFields(
         current,
         ownerTopic ? { ...rest, ownerTopic } : rest,
         config,
         at,
         forward && effective.by ? technicalDeciderOf(config, current.source) : null,
+        fallbackTodo && taken ? 'screening_fallback' : 'screened_todo',
       );
       if (forward && forwardTo && release.by) {
         const resolution = {
@@ -1833,8 +1866,8 @@ export class InboxService {
           note: release.note ?? '',
           rule: 'operator_forwarded' as const,
         };
-        const close = (): InboxItem =>
-          this.recordScreenedClose(current, resolution, payload, {
+        const close = (): InboxItem => {
+          const closed = this.recordScreenedClose(current, resolution, payload, {
             outcome: 'todo',
             by: release.by!,
             note: release.note ?? '',
@@ -1842,6 +1875,9 @@ export class InboxService {
             ...(todo ? { todo } : {}),
             ...(release.feedbackId !== undefined ? { feedbackId: release.feedbackId } : {}),
           });
+          if (route) this.recordRoute(closed, route);
+          return closed;
+        };
         return this.finishScreenedClose(
           id,
           // The item carries the screening record, so the message can name the todo.
@@ -1853,6 +1889,7 @@ export class InboxService {
         if (!this.ctx.repos.inbox.release(id, { payload, options, at })) return null;
         if (selected.recipient === 'integrator')
           this.ctx.repos.inbox.updateOpen(id, payload, ownerHandles(config), at);
+        if (route) this.recordRoute(this.ctx.repos.inbox.get(id)!, route);
         const item = this.ctx.repos.inbox.get(id)!;
         // The fallback decides first: a skipped screening that became an integrator todo is still a skipped one.
         if (fallback) {

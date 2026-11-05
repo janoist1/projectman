@@ -15,6 +15,7 @@ import type {
   QuestionRecipient,
   QuestionRecipientRefusal,
 } from './inbox';
+import type { ItemRouteReason, ItemRouteTarget } from './item-route';
 import type { ObligationKind } from './obligation';
 import type { MemberQueueCloseReason, MemberQueueItemKind } from './member-queue';
 import type { SessionStop } from './involvement';
@@ -108,6 +109,7 @@ export const TimelineEventType = z.enum([
   'question_screened',
   'question_recipient_escalated',
   'fix_limit_recipient_escalated',
+  'item_routed',
   'question_screening_skipped',
   'question_closed',
   'question_answer_delivery',
@@ -490,6 +492,17 @@ export interface TimelineEventData {
     answer: string;
     groupPrimaryItemId?: string;
     integratorTodo?: { optionId: 'todo_done' | 'todo_cannot'; note: string | null };
+  };
+  /**
+   * The route rule placed an item (PM-1246, `routeItem`): `requested` is the recipient the asker named, `to` the
+   * final target and `reason` why. Written for every routed item, on the card or on the project.
+   */
+  item_routed: {
+    itemId: string;
+    kind: string;
+    requested: 'owner' | 'integrator' | null;
+    to: ItemRouteTarget;
+    reason: ItemRouteReason;
   };
   question_recipient_escalated: {
     inboxItemId: string;

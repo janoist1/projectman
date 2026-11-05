@@ -3305,6 +3305,44 @@ export const en = {
     fullMessage: 'Full message',
     labelsAdded: 'Added {labels}',
     labelsRemoved: 'Removed {labels}',
+    /** Where the route rule put an item and why (PM-1246), in the middle of the `item_routed` row. */
+    itemRoute: {
+      /** The recipient the asker named (`requested` on the route record). */
+      requested: {
+        owner: 'the owner',
+        integrator: 'the integrator',
+      },
+      to: {
+        owner_inbox: 'the owners’ inbox',
+        owner_side: 'the owner’s side',
+        integrator_queue: 'the integrator’s queue',
+        decider: 'the technical decider',
+        pm: 'the project manager',
+        wait_pm: 'waiting for the project manager',
+        owner_messages: 'the owners’ messages',
+        duty_holder: 'the person responsible',
+        refuse: 'refused',
+      },
+      reason: {
+        owner_topic: 'an owner decision with a topic',
+        approval: 'an approval',
+        protected: 'a protected question',
+        machine_work: 'machine work',
+        requested_integrator: 'the asker named the integrator',
+        system_obligation: 'a system obligation',
+        issuer_without_machine_access: 'the issuer has no machine access',
+        no_integrator: 'there is no integrator',
+        pm_pending: 'the project manager has not seen it yet',
+        owner_side: 'the owner’s own matter',
+        owner_topic_missing: 'no topic',
+        signal_not_for_owner: 'a signal not meant for the owner',
+        pm_matter: 'a project manager matter',
+        no_pm: 'there is no project manager',
+        information: 'information',
+        human_duty: 'a human duty',
+        retired: 'a retired alert',
+      },
+    },
     /** The step an obligation stands for (PM-806), in the middle of the timeline rows. */
     obligationSteps: {
       merge: 'merge',
@@ -3580,6 +3618,8 @@ export const en = {
       question_recipient_escalated_passed_on: 'The Operator passed the to-do on to the owner.{note}',
       question_recipient_escalated_unavailable:
         'The to-do for the Operator went to the owner: the Operator isn’t processing its queue now.',
+      item_routed: 'The item went to {to} ({reason}).',
+      item_routed_requested: 'The item went to {to} ({reason}); the asker named {requested}.',
       fix_limit_recipient_escalated_unavailable:
         'The decision on the fix round limit went to the owner: the Operator isn’t processing its queue now.',
       fix_limit_recipient_escalated_timeout:

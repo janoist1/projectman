@@ -250,10 +250,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   needs another card. The hub decides from persisted session and queue state; the existing session
   RPC stops the process on its engine, whose workspace manager still refuses dirty checkouts.
   No new path, process or transport assumption is introduced.
-  **Machine work (PM-1045):** an open `integrator` inbox item waits for the connected
-  Claude while a project owner has a live `super` key (`integratorSideAvailable`);
-  otherwise the hub sweep escalates it to the owners. No member session starts and
-  nothing new crosses the boundary.
+  **Machine work (PM-1045, PM-1246):** an open `integrator` inbox item waits in the integrator's
+  queue for the connected Claude, with or without a live `super` key. No sweep hands it to the
+  owners any more (the `integrator-todos` job is gone); `routeItem` (`packages/shared`) decides the
+  recipient once, when the item opens, and leaves `InboxItem.route` and an `item_routed` event.
+  No member session starts and nothing new crosses the boundary.
 
 - **Startup sweep of crash leftovers (PM-837)** — when the engine host is created (the server in local mode,
   the engine process in hybrid mode) two one-shot background sweeps remove what a crash left behind, each
@@ -961,12 +962,12 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     since only the link state crosses the boundary. Signals and team messages already queue on
     `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
     trials belong to PM-664.
-    Machine todo handoff (PM-782, PM-1003, PM-1045, `core/inbox/inbox.ts`) has no timeout:
-    `integrator` work stays for the connected Claude while a project owner has a live
-    `super` key. Owner-reserved work is passed to the owners (`integrator_passed_on`);
-    without an active key the sweep escalates with `integrator_unavailable`.
-    `planIntegratorInboxEscalation` also handles fix-limit items. The hub persists and
-    checks the handoff even while engines are offline; no credential or new RPC crosses.
+    Machine todo handoff (PM-782, PM-1003, PM-1045, PM-1246, `core/inbox/inbox.ts`) has no timeout
+    and no owner fallback: `integrator` work stays in the integrator's queue whether or not a project
+    owner has a live `super` key. Owner-reserved work is passed to the owners (`integrator_passed_on`,
+    `planIntegratorPassOn`); a fix limit with no integrator at all opens at the owners under the
+    topic `product_direction`. The hub persists and checks this even while engines are offline; no
+    credential or new RPC crosses.
     Machine access (decision 66, PM-1073): `AiMemberConfig.machineAccess` (shown as "Külső teendő (MCP)") lets an
     AI member put machine todos in the owners' `integrator` queue. The rule is `machineAccessOf` /
     `machineTodoIssuerAllowed` in `packages/shared/src/config/machine-access.ts`: an absent value follows the
@@ -1338,9 +1339,10 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Document reads/writes, questions and attachment reads use the hub's services.
   Document git calls run on the selected engine; queued writes reactivate and recheck
   their key before execution and push. Attachment chunks come from hub storage.
-  `IntegratorTodoAccess` checks current owners and active `super` keys on the hub;
-  machine items use their authenticated resolution path and escalate only when
-  unavailable or owner-reserved (see **Engine link and machine keys**).
+  `IntegratorTodoAccess` checks current owners and active `super` keys on the hub; it tells whether
+  a fix limit has an integrator, but no longer decides an owner fallback for machine items (PM-1246).
+  Machine items use their authenticated resolution path and go to the owners only when
+  owner-reserved (see **Engine link and machine keys**).
 
   **Machine assumptions:** the connected Claude keeps its key in
   `~/.config/projectman/integrator-key` on its own host. The CLI's

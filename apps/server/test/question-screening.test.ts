@@ -498,7 +498,10 @@ describe('the project manager screens AI members’ questions', () => {
 
       expect(item(inboxItemId).state).toBe('open');
       expect(item(inboxItemId).options.map((o) => o.id)).toEqual(['todo_done', 'todo_cannot']);
-      expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({ outcome: 'todo', todo });
+      expect(questionPayloadOf(item(inboxItemId))?.screening).toMatchObject({
+        outcome: 'todo',
+        todo: { ...todo, recipient: 'integrator' },
+      });
 
       const err = await rejection(
         h.domain.inbox.resolve('AR', inboxItemId, { optionId: 'todo_cannot' }, owner),
@@ -1055,50 +1058,64 @@ describe('a machine step no integrator can take goes to the technical decider', 
       note: 'A machine step.',
     });
 
-  it.each([
-    { cause: 'integrator_unavailable', integratorAvailable: false, pmMachineAccess: true },
-    { cause: 'no_machine_access', integratorAvailable: true, pmMachineAccess: false },
-  ])(
-    'forwards the todo to the lead with no owner todo ($cause)',
-    async ({ cause, integratorAvailable, pmMachineAccess }) => {
-      await start({ lead: true, integratorAvailable, pmMachineAccess });
-      const id = await ask();
-      h.runner.setState(devSession, 'idle');
-      const before = typedInto(devSession).length;
+  it('forwards the todo to the lead with no owner todo when the screening member has no machine access', async () => {
+    await start({ lead: true, integratorAvailable: true, pmMachineAccess: false });
+    const id = await ask();
+    h.runner.setState(devSession, 'idle');
+    const before = typedInto(devSession).length;
 
-      const result = await screenTodo(id);
-      await settle();
+    const result = await screenTodo(id);
+    await settle();
 
-      expect(result).toMatchObject({ forwardedTo: 'lead', recipientRefusal: cause });
-      expect(result).not.toHaveProperty('recipient');
-      expect(item(id)).toMatchObject({
-        state: 'resolved',
-        resolution: { by: 'pm', rule: 'operator_forwarded' },
-      });
-      expect(item(id).payload).toMatchObject({ recipient: 'owner' });
-      expect(item(id).payload).not.toHaveProperty('integratorOpenedAt');
-      expect(questionPayloadOf(item(id))?.screening).toMatchObject({
-        outcome: 'todo',
-        forwardedTo: 'lead',
-        recipientRefusal: cause,
-        todo: { recipient: 'integrator' },
-      });
-      expect(humanQueue()).toEqual([]);
-      const event = h.domain.timeline
-        .list('AR', { taskKey: 'AR-1' })
-        .find((e) => e.type === 'question_screened');
-      expect(event?.data).toMatchObject({ outcome: 'todo', forwardedTo: 'lead', recipientRefusal: cause });
-      expect(event?.data).not.toHaveProperty('recipient');
+    expect(result).toMatchObject({ forwardedTo: 'lead', recipientRefusal: 'no_machine_access' });
+    expect(result).not.toHaveProperty('recipient');
+    expect(item(id)).toMatchObject({
+      state: 'resolved',
+      resolution: { by: 'pm', rule: 'operator_forwarded' },
+    });
+    expect(item(id).payload).toMatchObject({ recipient: 'owner' });
+    expect(item(id).payload).not.toHaveProperty('integratorOpenedAt');
+    expect(questionPayloadOf(item(id))?.screening).toMatchObject({
+      outcome: 'todo',
+      forwardedTo: 'lead',
+      recipientRefusal: 'no_machine_access',
+      todo: { recipient: 'integrator' },
+    });
+    expect(item(id).route).toMatchObject({ kind: 'screened_todo', to: 'decider' });
+    expect(humanQueue()).toEqual([]);
+    const event = h.domain.timeline
+      .list('AR', { taskKey: 'AR-1' })
+      .find((e) => e.type === 'question_screened');
+    expect(event?.data).toMatchObject({
+      outcome: 'todo',
+      forwardedTo: 'lead',
+      recipientRefusal: 'no_machine_access',
+    });
+    expect(event?.data).not.toHaveProperty('recipient');
 
-      // The lead is woken with the step and decides; the asker is told, and is not pointed back at the owners.
-      const woken = typedInto(sessionsOf('lead')[0]!.id).join('\n');
-      expect(woken).toContain('Install the CLI');
-      expect(woken).toContain('Build machine');
-      const told = typedInto(devSession).slice(before).join('\n');
-      expect(told).toContain('went to `lead`');
-      expect(told).not.toContain('reask_of');
-    },
-  );
+    // The lead is woken with the step and decides; the asker is told, and is not pointed back at the owners.
+    const woken = typedInto(sessionsOf('lead')[0]!.id).join('\n');
+    expect(woken).toContain('Install the CLI');
+    expect(woken).toContain('Build machine');
+    const told = typedInto(devSession).slice(before).join('\n');
+    expect(told).toContain('went to `lead`');
+    expect(told).not.toContain('reask_of');
+  });
+
+  it('keeps a machine todo in the integrator queue when no integrator is live, not at the owners (PM-1246)', async () => {
+    await start({ lead: true, integratorAvailable: false, pmMachineAccess: true });
+    const id = await ask();
+
+    const result = await screenTodo(id);
+
+    expect(result).toMatchObject({ recipient: 'integrator' });
+    expect(result).not.toHaveProperty('forwardedTo');
+    expect(item(id).route).toMatchObject({ kind: 'screened_todo', to: 'integrator_queue' });
+    expect(
+      h.domain.timeline.list('AR', { taskKey: 'AR-1' }).find((e) => e.type === 'item_routed')?.data,
+    ).toMatchObject({ itemId: id, kind: 'screened_todo', to: 'integrator_queue' });
+    expect(humanQueue().filter((i) => humanInboxAssignment(i, 'owner'))).toEqual([]);
+  });
 
   it('makes an integrator todo of a todo asked for the owner under a topic while an integrator is live (PM-1243)', async () => {
     await start({ lead: true, integratorAvailable: true, pmMachineAccess: true });
@@ -1149,16 +1166,14 @@ describe('a machine step no integrator can take goes to the technical decider', 
       expect(types).not.toContain('question_screened');
     });
 
-    it('opens the owner question with its own options when no integrator is live', async () => {
+    it('still opens an integrator todo when no integrator is live: it waits in the queue (PM-1246)', async () => {
       await start({ lead: true, integratorAvailable: false, pmMachineAccess: false });
 
       const stored = await askIntegrator('integrator');
 
-      expect(isIntegratorTodo(stored)).toBe(false);
-      expect(stored.state).toBe('open');
-      expect(questionPayloadOf(stored)).toMatchObject({ recipient: 'owner' });
-      expect(questionPayloadOf(stored)?.screening).not.toHaveProperty('outcome');
-      expect(ownerItems()).toHaveLength(1);
+      expect(isIntegratorTodo(stored)).toBe(true);
+      expect(stored.route).toMatchObject({ kind: 'screening_fallback', to: 'integrator_queue' });
+      expect(ownerItems()).toEqual([]);
     });
 
     it('leaves a question asked of the owner an owner question', async () => {
@@ -1188,20 +1203,19 @@ describe('a machine step no integrator can take goes to the technical decider', 
     ).toHaveLength(1);
   });
 
-  it('opens an owner todo with the refusal when there is no technical decider', async () => {
-    await start({ lead: false, integratorAvailable: false, pmMachineAccess: true });
+  it('refuses the todo, never opening an owner todo, when there is no technical decider', async () => {
+    await start({ lead: false, integratorAvailable: true, pmMachineAccess: false });
     const id = await ask();
 
-    const result = await screenTodo(id);
+    const err = await rejection(screenTodo(id), TeamToolError);
 
-    expect(result).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
-    expect(result).not.toHaveProperty('forwardedTo');
-    expect(item(id).state).toBe('open');
-    expect(humanQueue().map((i) => i.id)).toEqual([id]);
+    expect(err.message).toContain('no machine access');
+    expect(item(id).state).toBe('screening');
+    expect(item(id).route).toBeUndefined();
   });
 
-  it('opens an owner todo when the asker is the decider itself', async () => {
-    await start({ lead: true, integratorAvailable: false, pmMachineAccess: true });
+  it('refuses the todo when the asker is the decider itself', async () => {
+    await start({ lead: true, integratorAvailable: true, pmMachineAccess: false });
     await ask();
     const own = h.domain.inbox.create({
       projectKey: 'AR',
@@ -1218,10 +1232,10 @@ describe('a machine step no integrator can take goes to the technical decider', 
       options: [],
     });
 
-    const result = await screenTodo(own.id);
+    const err = await rejection(screenTodo(own.id), TeamToolError);
 
-    expect(result).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
-    expect(item(own.id).state).toBe('open');
+    expect(err.message).toContain('no machine access');
+    expect(item(own.id).state).toBe('screening');
   });
 
   it.each([

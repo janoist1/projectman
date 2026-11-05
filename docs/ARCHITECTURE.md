@@ -1345,9 +1345,10 @@ extras have been given, the lead decides at every limit reach (a card that reach
 round goes back to the lead, reason `again`); once three extras are used, and the card reaches the limit again, the
 decision has reason `extra_exhausted`. The decision item goes to the connected Claude (the integrator queue,
 `recipient: 'integrator'`) when extras are exhausted, when the lead passes it on with `to_owner`, or when no AI
-member can decide, as long as one is available; it falls back to the owners when none is available or it passes
-the item on (no clock; timeline event `fix_limit_recipient_escalated`, reasons `integrator_unavailable` and
-`integrator_passed_on`; older events keep `integrator_timeout`). `decide_fix_limit` with `to_owner` requires an `assessment`
+member can decide, as long as one is available; with none available it opens at the owners under the topic
+`product_direction` (`routeItem`, PM-1246), and the integrator can pass it on (no clock; the route is on the item and
+in the `item_routed` event; older events keep `fix_limit_recipient_escalated` with `integrator_unavailable`,
+`integrator_passed_on` and `integrator_timeout`). `decide_fix_limit` with `to_owner` requires an `assessment`
 (`recurrence`, `currentState`, `recommendation { optionId, reason }`; errors `fix_limit_assessment_required`,
 `fix_limit_invalid_recommendation`). The item carries the whole text (body, round history `fixRoundHistory`, extras,
 assessment, each option's label and consequence), written in the project language by `core/inbox/fix-limit-text.ts`

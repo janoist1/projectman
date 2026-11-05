@@ -155,7 +155,10 @@ it('adds question groups after the refinement stalled signals migration without 
     ).toBeUndefined();
 
     expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
-    expect(db.prepare('SELECT * FROM inbox_items ORDER BY seq').all()).toEqual(before);
+    // The route column (migration 141, PM-1246) is new and empty on the stored rows; the rest is untouched.
+    expect(db.prepare('SELECT * FROM inbox_items ORDER BY seq').all()).toEqual(
+      before.map((row) => ({ ...(row as object), route: null })),
+    );
     expect(db.prepare('SELECT * FROM operator_execution_intents').all()).toEqual([]);
     const inbox = createRepositories(db).inbox;
     inbox.createGroup({

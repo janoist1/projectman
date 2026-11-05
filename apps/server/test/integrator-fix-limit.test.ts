@@ -355,7 +355,8 @@ describe('integrator fix limit decision', () => {
     );
     await domain().fixLimit.decide('lead', 'AR', 'AR-1', 'to_owner', 'Not my call.', ASSESSMENT);
     const created = item(record()!.inboxItemId!);
-    expect(created.payload).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
+    expect(created.payload).toMatchObject({ recipient: 'owner' });
+    expect(created.route).toMatchObject({ kind: 'fix_limit', to: 'owner_inbox', reason: 'no_integrator' });
     expect(created.payload.integratorOpenedAt).toBeUndefined();
     expect(domain().inbox.countOpenFor('AR', 'owner')).toBe(1);
   });

@@ -2458,15 +2458,6 @@ export function createDomain(opts: DomainOptions) {
             run: () => operatorSignals.sweep(),
             onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
           },
-          // Without an owner's live super key nobody connected works the integrator todos and held decisions:
-          // they go to the owners (PM-1045). No timeout otherwise.
-          {
-            name: 'integrator-todos',
-            everyMs: 30_000,
-            atStart: true,
-            run: () => inbox.sweepIntegratorTodos(),
-            onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
-          },
           // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
           // people (PM-558). A question that waited through a restart is looked at now.
           {

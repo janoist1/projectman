@@ -342,52 +342,36 @@ describe('integrator todo REST and durable lifecycle', () => {
     );
   });
 
-  it('falls back to owner when no owner has a live super key (PM-1045)', async () => {
+  it('keeps a todo in the integrator’s queue with or without a live super key, and never gives it to the owners (PM-1246)', async () => {
+    const live = await opened();
     h.app.projectman.auth.revokeIntegratorAccessKey(
       h.app.projectman.repos.users.list()[0]!.id,
       superKey.key.id,
     );
     const item = await opened();
-    expect(item.payload).toMatchObject({
-      recipient: 'owner',
-      screening: { recipientRefusal: 'integrator_unavailable' },
+    for (const todo of [live, item]) {
+      expect(todo.payload).toMatchObject({ recipient: 'integrator' });
+      expect(todo.payload.screening).not.toHaveProperty('recipientRefusal');
+      expect(todo.route).toMatchObject({
+        kind: 'screened_todo',
+        to: 'integrator_queue',
+        reason: 'machine_work',
+      });
+    }
+    expect(h.app.projectman.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+    expect(events('item_routed').map((e) => e.data)).toContainEqual({
+      itemId: item.id,
+      kind: 'screened_todo',
+      requested: 'owner',
+      to: 'integrator_queue',
+      reason: 'machine_work',
     });
   });
 
-  it('keeps a todo on the integrator side while an owner has a live super key (PM-1045)', async () => {
-    const item = await opened();
-    expect(item.payload).toMatchObject({ recipient: 'integrator' });
-    expect(item.payload.screening).not.toHaveProperty('recipientRefusal');
-  });
-
-  it('counts the integrator side by the project’s own owners’ keys, and falls back when their account is revoked (PM-1063)', async () => {
-    const { auth, repos, domain } = h.app.projectman;
-    const tenant = await createOwnerAccountWithProject(h, cookie, 'BR');
-    // The host's live key does not make the other owner's project available, and theirs does not make the host's.
-    expect((await opened({}, 'BR')).payload).toMatchObject({
-      recipient: 'owner',
-      screening: { recipientRefusal: 'integrator_unavailable' },
-    });
-    auth.createIntegratorAccessKey(tenant.userId, { mode: 'super', expiresInDays: 7 });
-    const own = await opened({}, 'BR');
-    expect(own.payload).toMatchObject({ recipient: 'integrator' });
-    expect((await opened()).payload).toMatchObject({ recipient: 'integrator' });
-
-    // Revoking the account ends its key; the sweep sends the todo to the project's owners.
-    repos.ownerAccounts.revoke(tenant.userId, repos.users.list()[0]!.id, now.toISOString());
-    await domain.inbox.sweepIntegratorTodos();
-    expect(domain.inbox.get('BR', own.id).payload).toMatchObject({ recipient: 'owner' });
-  });
-
-  it('does not hand a further owner’s todos to the host’s key when their team lists the host as an owner (PM-1063)', async () => {
+  it('keeps the todo of a project whose owners have no key in the queue, whoever else has a key (PM-1063, PM-1246)', async () => {
     await createOwnerAccountWithProject(h, cookie, 'BR');
     await addHostAsOwnerMember(h, 'BR');
-    expect((await opened({}, 'BR')).payload).toMatchObject({
-      recipient: 'owner',
-      screening: { recipientRefusal: 'integrator_unavailable' },
-    });
-    // The host's own project is unaffected.
-    expect((await opened()).payload).toMatchObject({ recipient: 'integrator' });
+    expect((await opened({}, 'BR')).payload).toMatchObject({ recipient: 'integrator' });
   });
 
   it('never delivers an integrator-origin item to other humans in REST or websocket projection', async () => {
@@ -450,21 +434,6 @@ describe('integrator todo REST and durable lifecycle', () => {
     expect(events('question_recipient_escalated')).toHaveLength(0);
   });
 
-  it('sweeps a todo to the owners once no owner has a live super key (PM-1045)', async () => {
-    const item = await opened();
-    await h.app.projectman.domain.inbox.sweepIntegratorTodos();
-    expect(current(item.id).payload).toMatchObject({ recipient: 'integrator' });
-    expect(events('question_recipient_escalated')).toHaveLength(0);
-
-    h.app.projectman.auth.revokeIntegratorAccessKey(
-      h.app.projectman.repos.users.list()[0]!.id,
-      superKey.key.id,
-    );
-    await h.app.projectman.domain.inbox.sweepIntegratorTodos();
-    expect(current(item.id).payload).toMatchObject({ recipient: 'owner' });
-    expect(events('question_recipient_escalated')).toHaveLength(1);
-  });
-
   it('rechecks credentials immediately before durable closure and refuses forged actors', async () => {
     const item = await opened();
     const { domain, auth, repos } = h.app.projectman;
@@ -494,7 +463,7 @@ describe('integrator todo REST and durable lifecycle', () => {
   });
 });
 
-it('defaults to unavailable when no integrator access adapter was provided', async () => {
+it('still queues the todo for the integrator when no integrator access adapter was provided (PM-1246)', async () => {
   const h = await createDomainHarness();
   try {
     const item = h.domain.inbox.create({
@@ -508,10 +477,8 @@ it('defaults to unavailable when no integrator access adapter was provided', asy
       options: [],
     });
     const result = await h.domain.inbox.releaseScreened(item.id, { outcome: 'todo', todo: step, by: 'pm' });
-    expect(result!.payload).toMatchObject({
-      recipient: 'owner',
-      screening: { recipientRefusal: 'integrator_unavailable' },
-    });
+    expect(result!.payload).toMatchObject({ recipient: 'integrator' });
+    expect(result!.payload.screening).not.toHaveProperty('recipientRefusal');
   } finally {
     await h.cleanup();
   }
@@ -552,12 +519,7 @@ describe('the machine access of the screening member decides, not the asker’s'
     expect(result.payload.screening).not.toHaveProperty('recipientRefusal');
   });
 
-  it('keeps the todo with the owners when the screening member has no machine access', async () => {
-    const result = await releaseAskedByDev(false);
-    expect(inboxRecipientOf(result)).toBe('owner');
-    expect(result.payload).toMatchObject({
-      recipient: 'owner',
-      screening: { recipientRefusal: 'no_machine_access' },
-    });
+  it('refuses the todo when the screening member has no machine access, and does not give it to the owners (PM-1246)', async () => {
+    await expect(releaseAskedByDev(false)).rejects.toMatchObject({ code: 'issuer_without_machine_access' });
   });
 });

@@ -25,9 +25,6 @@ import {
   isCoordinatorOnlySignal,
   humanInboxAssignment,
   isIntegratorTodo,
-  planIntegratorInboxEscalation,
-  integratorSideAvailable,
-  ownerHandles,
   connectedActorOf,
   ownerReservedEffect,
   canonical,
@@ -228,7 +225,11 @@ import {
   remainingFixExtraRounds,
   MAX_FIX_EXTRA_ROUNDS,
   FixLimitAssessment,
-  selectFixLimitRecipient,
+  isDelegableFixLimitDecision,
+  fixLimitRoutePayload,
+  fixLimitRouteTopic,
+  itemRouteRecord,
+  routeItem,
   fixLimitDeciders,
   fixLimitLead,
   fixLimitPlanner,
@@ -510,8 +511,6 @@ export class MockBackend {
   viewerHandle: string = fixtures.OWNER;
   /** Tests can exercise the same credential policy as REST without an HTTP bearer secret. */
   integratorMode: 'super' | 'read' | null = null;
-  /** Whether some owner has a live super key (PM-1045); the integrator's todos go to the owners without one. */
-  liveSuperKey = true;
   private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
   user = { ...fixtures.mockUser };
   /** The system language of whoever is logged in (PM-1177); the mock keeps one for all its accounts. */
@@ -1510,17 +1509,30 @@ export class MockBackend {
       resolution: null,
       createdAt: nowIso(),
     };
-    const recipient = selectFixLimitRecipient(
-      item,
-      this.integratorKeys.some((key) => key.mode === 'super' && key.state === 'active'),
-    );
-    item.payload = {
-      ...item.payload,
-      ...recipient,
-      ...(recipient.recipient === 'integrator' ? { integratorOpenedAt: nowIso() } : {}),
+    // Like the server: the one route rule decides (PM-1246); the owners get a decision with its topic, never a lost item.
+    const delegable = isDelegableFixLimitDecision(item);
+    const routeInput = {
+      kind: 'fix_limit' as const,
+      topic: fixLimitRouteTopic(delegable),
+      requested: null,
+      issuerMachineAccess: true,
+      pm: 'available' as const,
+      integrator: this.integratorKeys.some((key) => key.mode === 'super' && key.state === 'active'),
+      decider: false,
     };
-    this.updateTask(task.key, { fixLimit: { ...task.fixLimit!, recipient: recipient.recipient } });
+    const route = routeItem(routeInput);
+    const routed = fixLimitRoutePayload(route, delegable, nowIso());
+    item.route = itemRouteRecord(routeInput, route);
+    item.payload = { ...item.payload, ...routed };
+    this.updateTask(task.key, { fixLimit: { ...task.fixLimit!, recipient: routed.recipient } });
     this.upsertInbox(item);
+    this.addTimeline(task.key, null, 'item_routed', {
+      itemId: item.id,
+      kind: item.route.kind,
+      requested: item.route.requested,
+      to: item.route.to,
+      reason: item.route.reason,
+    });
     this.addTimeline(
       task.key,
       decider,
@@ -2014,58 +2026,6 @@ export class MockBackend {
     }
   }
 
-  sweepIntegratorTodos(now: string): void {
-    // Like the server: the integrator's items go to the owners only when no owner has a live super key (no clock).
-    if (integratorSideAvailable(this.config, () => this.liveSuperKey)) return;
-    for (const item of this.inbox) {
-      const patch = planIntegratorInboxEscalation(
-        item,
-        now,
-        ownerHandles(this.config),
-        'integrator_unavailable',
-      );
-      if (!patch) continue;
-      this.upsertInbox({ ...item, ...patch });
-      if (fixLimitDecisionOf(item)) {
-        const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
-        if (task?.fixLimit)
-          this.updateTask(task.key, {
-            fixLimit: { ...task.fixLimit, recipient: 'owner', deciders: patch.assignees },
-          });
-        this.addTimeline(
-          item.taskKey,
-          null,
-          'fix_limit_recipient_escalated',
-          {
-            inboxItemId: item.id,
-            from: 'integrator',
-            to: 'owner',
-            reason: 'integrator_unavailable',
-            openedAt: item.payload.integratorOpenedAt as string,
-          },
-          null,
-          now,
-        );
-        continue;
-      }
-      this.addTimeline(
-        item.taskKey,
-        null,
-        'question_recipient_escalated',
-        {
-          inboxItemId: item.id,
-          asker: item.source,
-          from: 'integrator',
-          to: 'owner',
-          openedAt: questionPayloadOf(item)!.integratorOpenedAt!,
-          reason: 'integrator_unavailable',
-        },
-        item.sessionId,
-        now,
-      );
-    }
-  }
-
   private commitConfig(message: string): void {
     this.syncPermissionViews();
     this.configVersion = Array.from({ length: 5 }, () =>
@@ -2087,7 +2047,6 @@ export class MockBackend {
   }
 
   private board(): BoardView {
-    this.sweepIntegratorTodos(nowIso());
     const stages = resolvedStages(this.config);
     return {
       project: {
@@ -3310,7 +3269,6 @@ export class MockBackend {
       }
     }
     if (rest === '/inbox') {
-      this.sweepIntegratorTodos(nowIso());
       // Like the server: open items by default and never cut off; any other state is a history, the newest N.
       const wanted = query.get('state') ?? 'open';
       const limit = Number(query.get('limit')) || (wanted === 'open' || wanted === 'active' ? Infinity : 500);
@@ -6861,7 +6819,6 @@ export class MockBackend {
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {
-    this.sweepIntegratorTodos(nowIso());
     const pending = this.inbox.find((item) => item.id === itemId);
     if (pending && isIntegratorTodo(pending) && (this.integratorMode || this.viewerAccess() !== 'owner'))
       return error(403, 'super_relay_refused', 'Use the dedicated super endpoint or the owner login');

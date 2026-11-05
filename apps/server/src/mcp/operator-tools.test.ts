@@ -153,7 +153,7 @@ describe('Operator MCP tools', () => {
       expected: 'AR-1 in Done',
     });
     expect(toolOutputText(await tool.run({ ctx: devContext, args, handler }))).toBe(
-      'Integrator todo inb_todo_1 opened for integrator.',
+      "Integrator todo inb_todo_1 opened in the integrator's queue.",
     );
     expect(handler.calls[0]).toMatchObject({
       method: 'openIntegratorTodo',

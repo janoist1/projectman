@@ -577,7 +577,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           result.forwardedTo
             ? {
                 ...result,
-                message: `No integrator can take it (${result.recipientRefusal}): it went to \`${result.forwardedTo}\`, who decides whether it is needed and asks the owners if they must act.`,
+                message: `The asker has no machine access to put a todo in the integrator's queue: it went to \`${result.forwardedTo}\`, who decides whether it is needed and asks the owners if they must act.`,
               }
             : result,
         );
@@ -606,9 +606,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Open a todo for the integrator',
       readOnly: false,
       description:
-        "Put machine work (an installation, a setting) in the owners' queue, without an owner request; use " +
-        "this, not a message, for a step that needs the owner's connected integrator. Its answer comes back " +
-        'to you; without an integrator the owners get it. An owner decision is not a todo: use ask_human.',
+        "Put machine work (an installation, a setting) in the integrator's queue, not a message; the owners " +
+        'do not get it, it waits for a connected integrator. Its answer comes back to you. An owner ' +
+        'decision is not a todo: use ask_human.',
       input: {
         task_key: TaskKey.optional().describe(
           'A card projectman already follows (an open or handed-over obligation) is refused with ' +
@@ -627,12 +627,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           where: args.where,
           expected: args.expected,
         });
-        return (
-          `Integrator todo ${result.itemId} opened for ${result.recipient}.` +
-          (result.recipientRefusal
-            ? ` The integrator is not available (${result.recipientRefusal}): the owners got it.`
-            : '')
-        );
+        return `Integrator todo ${result.itemId} opened in the integrator's queue.`;
       },
     }),
 

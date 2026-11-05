@@ -232,12 +232,13 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   the obligation tracking uses, with the member as the asker, so the answer
   (`todo_done`, `todo_cannot`) comes back to it. The tool is listed only to such members (`capabilities`) and
   the handler refuses the rest with `machine_access_required`, a guest conversation with `operator_owner_only`.
-  The owners get it when no connected Claude is available (the result says so). A project manager's card with
+  It waits in the integrator's queue whether or not a connected Claude is available; the owners never get it as
+  a fallback (PM-1246). A project manager's card with
   an open or handed-over obligation is refused with `obligation_tracked`. `ask_human` takes an optional
   `recipient: owner | integrator` (default owner; a suggestion, screening decides); the connected Claude gets it
   when the screening member has machine access (the asker's does not matter), otherwise the todo goes to the
-  owners (`no_machine_access`; `recipientRefusal` is `protected_question` or `integrator_unavailable`). Approvals and
-  fallbacks always stay with the owners. Returns text. Handler: `openIntegratorTodo`.
+  project's technical decider, and without one the screening is refused (`issuer_without_machine_access`).
+  Approvals always stay with the owners. Returns text. Handler: `openIntegratorTodo`.
 - `operate { title, operation, plan? }`, `execute_operation { … }` and `get_operation { operation_id }` are the
   selected project manager's, in its own general conversation during an open owner request (`mcp/project-manager/`).
   `operate` proposes a configuration, member, session, message or project pause operation: the server runs the

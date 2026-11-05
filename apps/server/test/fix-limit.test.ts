@@ -685,7 +685,8 @@ describe('fix round limit', () => {
       for (const id of ['replan', 'reassign', 'another_round']) expect(item.body).toContain(id);
       expect(item.options.every((option) => option.consequence)).toBe(true);
       expect(item.options.find((option) => option.id === 'another_round')?.style).toBe('primary');
-      expect(item.payload).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
+      expect(item.payload).toMatchObject({ recipient: 'owner' });
+      expect(item.route).toMatchObject({ kind: 'fix_limit', to: 'owner_inbox', reason: 'no_integrator' });
     });
 
     it('refuses to_owner without a good assessment and changes nothing', async () => {

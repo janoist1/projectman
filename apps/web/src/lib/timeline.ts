@@ -4,6 +4,8 @@ import {
   ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
+  ItemRouteReason,
+  ItemRouteTarget,
   ObligationKind,
   QuestionCloseRule,
   TaskRelationKind,
@@ -995,6 +997,22 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             }),
           )
         : normal(t('timeline.events.fix_limit_recipient_escalated_timeout'));
+    case 'item_routed': {
+      const to = ItemRouteTarget.safeParse(d.to);
+      const reason = ItemRouteReason.safeParse(d.reason);
+      const parts = {
+        to: to.success ? t(`timeline.itemRoute.to.${to.data}`) : str(d.to),
+        reason: reason.success ? t(`timeline.itemRoute.reason.${reason.data}`) : str(d.reason),
+      };
+      return normal(
+        d.requested === 'owner' || d.requested === 'integrator'
+          ? t('timeline.events.item_routed_requested', {
+              ...parts,
+              requested: t(`timeline.itemRoute.requested.${d.requested}`),
+            })
+          : t('timeline.events.item_routed', parts),
+      );
+    }
     case 'member_queue_item_closed':
       return normal(t('timeline.events.member_queue_item_closed'));
     case 'message_dropped':

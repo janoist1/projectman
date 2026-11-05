@@ -350,6 +350,19 @@ describe('open-step reminders on the timeline (PM-806)', () => {
     );
   });
 
+  it('names the related card the paused deadline waits for (PM-1247)', () => {
+    const paused = describeEvent(
+      {
+        ...creation,
+        actor: { kind: 'system', handle: null },
+        type: 'obligation_paused',
+        data: { kind: 'next_step', responsible: 'dev-1', reason: 'related_inbox', waitingTaskKey: 'PM-304' },
+      },
+      context,
+    ).text;
+    expect(paused).toBe(t('timeline.events.obligation_paused', { step: 'következő lépés', key: 'PM-304' }));
+  });
+
   it('names the responsible, the step and the minutes', () => {
     const data = { kind: 'merge', responsible: 'dev-1', minutes: 30 };
     expect(row('obligation_woken', data)).toBe(

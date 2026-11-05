@@ -2835,4 +2835,36 @@ migrations.push({
     CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, COALESCE(responsible, ''), subject);
     CREATE INDEX obligations_state ON obligations(state);`,
 });
+migrations.push({
+  version: 140,
+  name: 'an obligation pauses while a related card waits for an owner',
+  // PM-1247: the pause reason CHECK grows by 'related_inbox'. The obligations table is rebuilt as in version 139:
+  // every row, column and both indexes carry over unchanged.
+  sql: `DROP INDEX obligations_unique;
+    DROP INDEX obligations_state;
+    ALTER TABLE obligations RENAME TO obligations_old;
+    CREATE TABLE obligations (
+      id              TEXT PRIMARY KEY,
+      project_key     TEXT NOT NULL,
+      task_key        TEXT NOT NULL,
+      kind            TEXT NOT NULL CHECK (kind IN ('merge','fix_limit','refinement_turn','review_step','work','start','senior_wait','next_step')),
+      responsible     TEXT,
+      subject         TEXT NOT NULL,
+      opened_at       TEXT NOT NULL,
+      due_at          TEXT NOT NULL,
+      paused_since    TEXT,
+      pause_reason    TEXT CHECK (pause_reason IN ('held','inbox','permission','start_refused','related_inbox')),
+      woken_at        TEXT,
+      handed_over_at  TEXT,
+      inbox_item_id   TEXT,
+      state           TEXT NOT NULL CHECK (state IN ('open','handed_over','fulfilled','cancelled')),
+      closed_at       TEXT,
+      updated_at      TEXT NOT NULL,
+      pm_told_at      TEXT
+    );
+    INSERT INTO obligations SELECT id, project_key, task_key, kind, responsible, subject, opened_at, due_at, paused_since, pause_reason, woken_at, handed_over_at, inbox_item_id, state, closed_at, updated_at, pm_told_at FROM obligations_old ORDER BY rowid;
+    DROP TABLE obligations_old;
+    CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, COALESCE(responsible, ''), subject);
+    CREATE INDEX obligations_state ON obligations(state);`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

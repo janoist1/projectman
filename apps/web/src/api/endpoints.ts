@@ -65,6 +65,7 @@ import {
   RolesView,
   BoardView,
   CheckOutageResponse,
+  PullWaitingResponse,
   ConfigHistoryView,
   ConfigView,
   InboxView,
@@ -481,6 +482,9 @@ export const api = {
   resolveInbox: (key: string, itemId: string, body: ResolveInboxRequest) =>
     apiRequest<unknown>(routes.resolveInbox(key, itemId), { method: 'POST', body }),
   /** "Check now" on an outage alert (PM-466): the server looks again at once; no body. */
+  /** An owner takes a question that waits for the project manager (PM-1252); the answer is the question as it is now. */
+  pullWaitingQuestion: (key: string, itemId: string) =>
+    apiRequest(routes.pullWaitingQuestion(key, itemId), { method: 'POST', schema: PullWaitingResponse }),
   checkOutage: (key: string, itemId: string) =>
     apiRequest(routes.checkOutage(key, itemId), { method: 'POST', schema: CheckOutageResponse }),
 

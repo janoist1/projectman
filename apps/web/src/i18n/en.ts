@@ -43,6 +43,7 @@ export const en = {
     justNow: 'just now',
     todayAt: 'today {time}',
     minutesAgo: '{count|# minute ago|# minutes ago}',
+    hoursAgo: '{count|# hour ago|# hours ago}',
     today: 'today',
     yesterday: 'yesterday',
     daysAgo: '{count|# day ago|# days ago}',
@@ -5021,6 +5022,36 @@ export const en = {
         other: 'they can’t start right now',
       },
     },
+    // What waits for someone other than the owner: a folded band above the list (PM-1252).
+    waiting: {
+      title: 'Waiting for others',
+      both: '{screening|# question is|# questions are} waiting for the project manager to screen, {integrator|# machine todo|# machine todos} for the connected Claude',
+      onlyScreening: '{count|# question is|# questions are} waiting for the project manager to screen',
+      onlyIntegrator: '{count|# machine todo is|# machine todos are} waiting for the connected Claude',
+      oldest: 'oldest: {age}',
+      show: 'Show',
+      hide: 'Hide',
+      lead: 'These have not reached you yet. If you would rather not wait for the screening, take it over: the question goes to your list and you answer it.',
+      chip: 'Awaiting screening',
+      overdue: 'Screening is late',
+      note: 'waiting, asked {age} · {reason}',
+      reasons: {
+        on_leave: 'the project manager is on leave',
+        paused: 'work is paused',
+        ai_disabled: 'the project manager is switched off',
+        start_deferred: "the project manager's engine is not reachable",
+        start_refused: "the project manager's engine is not reachable",
+        timeout: 'the project manager has not screened it yet and was given it again',
+        no_pm: 'there is no project manager in the project',
+        unknown: 'the project manager has not screened it yet',
+      },
+      pull: 'Take over',
+      pulling: 'Taking over…',
+      pullFor: 'Take over: {subject}',
+      pulled: 'Taken over: the question is in your list.',
+      alreadyHandled: 'The project manager has dealt with it meanwhile, nothing for you to do.',
+      pullFailed: 'Could not take it over. Try again.',
+    },
     /** The folded row of the questions the Operator settled with no person involved (PM-556). */
     operatorTrail: {
       title: 'Handled by the Operator · {count} today',
@@ -5372,6 +5403,27 @@ export const en = {
       methodTopics:
         'The route and the topic are two separate breakdowns of the same weekly question count. Old questions without a topic count too.',
       unknownTopic: 'Unknown topic',
+      nonDecisions: 'Not a decision',
+      methodEstimate:
+        'For old items whose route was not recorded, the reason is estimated from where the question would go today.',
+      ownerItems: {
+        title: 'Every item that came to you',
+        total: 'in total',
+        nonDecisions: 'not a decision · goal: 0',
+        hint: 'Questions, decisions and alerts together. Not a decision: whatever is neither an owner topic nor an approval.',
+        byReason: 'Why did it come to you?',
+        ownerSide: 'Your side',
+        ownerSideHint:
+          'What the connected Claude asked or passed on, and what you took over. It is not a team request, so it does not count as a non-decision.',
+      },
+      reasons: {
+        owner_topic: 'Owner topic',
+        approval: 'Approval',
+        protected: 'Protected question (approval)',
+        no_integrator: 'There was no connected Claude, so it came to you',
+        owner_side: 'Your side',
+        estimated: 'Estimated (old route)',
+      },
       routes: {
         decision: 'Screened decision',
         owner_todo: 'Owner to-do',

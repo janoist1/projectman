@@ -25,7 +25,7 @@ import type {
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { formatAgo, formatStamp, formatTime, formatTokens, intlLocale } from '../i18n/format';
+import { formatAgo, formatStamp, formatTime, formatTokens, formatWaitAge, intlLocale } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
@@ -1030,6 +1030,19 @@ export function operatorTrailMark(item: InboxItem): OperatorTrailMark {
 }
 
 /**
+ * "vár 5 órája · a projektmenedzser szabadságon van": how long a question has waited for the project manager's
+ * screening and why (PM-1252); null when the question does not wait for it.
+ */
+export function waitingNote(item: InboxItem, now: Date = new Date()): string | null {
+  const waiting = screeningOf(item)?.waiting;
+  if (item.state !== 'screening' || !waiting) return null;
+  return t('inbox.waiting.note', {
+    age: formatWaitAge(waiting.since, now),
+    reason: tDynamic(`inbox.waiting.reasons.${waiting.reason}`, t('inbox.waiting.reasons.unknown')),
+  });
+}
+
+/**
  * The line under a trail row: the Operator's note (for a forwarded question, who got it), or for a question
  * still with the Operator when it goes to the people.
  */
@@ -1040,6 +1053,7 @@ export function operatorTrailNote(
 ): string | null {
   const screening = screeningOf(item);
   if (item.state === 'screening' && screening?.queue) return t('inbox.operatorTrail.queued');
+  if (item.state === 'screening' && screening?.waiting) return waitingNote(item);
   if (item.state === 'screening' && screening)
     return t('inbox.operatorTrail.until', { time: formatTime(screening.until) });
   const note = screening?.note?.trim();

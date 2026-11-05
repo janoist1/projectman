@@ -921,6 +921,30 @@ describe('the project manager screens AI members’ questions', () => {
       expect(questionPayloadOf(stored)?.screening?.waiting).toMatchObject({ reason: 'ai_disabled' });
     });
 
+    it('lets the owner pull a waiting question into their list, with an owner_pulled route and its trace (PM-1252)', async () => {
+      await h.domain.pauses.pause({ scope: 'instance' }, PAUSE_BY);
+      const { stored } = await askAtOnce();
+
+      const pulled = await h.domain.inbox.pullWaiting(stored.id, 'owner');
+
+      expect(pulled.state).toBe('open');
+      expect(questionPayloadOf(pulled)?.recipient).toBe('owner');
+      expect(questionPayloadOf(pulled)?.screening?.waiting).toBeUndefined();
+      expect(pulled.route).toMatchObject({ kind: 'owner_pulled', to: 'owner_side', reason: 'owner_side' });
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
+      expect(timelineOf('item_routed').at(-1)?.data).toMatchObject({ kind: 'owner_pulled' });
+    });
+
+    it('refuses to pull a question that does not wait for the project manager any more', async () => {
+      const asked = await h.domain.teamTools.askHuman(dev, { question: 'Which font?' });
+      expect(item(asked.inboxItemId).state).toBe('screening');
+      expect(questionPayloadOf(item(asked.inboxItemId))?.screening?.waiting).toBeUndefined();
+
+      await expect(h.domain.inbox.pullWaiting(asked.inboxItemId, 'owner')).rejects.toMatchObject({
+        code: 'question_not_screening',
+      });
+    });
+
     it.each([
       ['an approval', { question: 'May we set merge-ok?', taskKey: 'AR-1' }, 'open', 'owner'],
       [
@@ -1115,6 +1139,51 @@ describe('GET /api/projects/:key/inbox/screened (PM-558)', () => {
 
     const none = await get(cookie, `?since=${encodeURIComponent('2999-01-01T00:00:00.000Z')}`);
     expect((none.json() as ScreenedQuestionsResponse).today).toBe(0);
+  });
+});
+
+describe('the questions that wait for the project manager over HTTP (PM-1252)', () => {
+  let app: AppHarness;
+  afterEach(() => app.close());
+
+  async function setup() {
+    app = await createAppHarness({ app: { screenQuestions: true } });
+    const cookie = await setupOwner(app.app);
+    await createProject(app, cookie);
+    const { domain } = app.app.projectman;
+    // A paused team cannot screen: the question waits for the project manager.
+    await domain.pauses.pause({ scope: 'instance' }, PAUSE_BY);
+    const ctx = { projectKey: 'AR', member: 'dev-1', sessionId: 'ses_none', taskKey: null };
+    const { inboxItemId } = await domain.teamTools.askHuman(ctx, { question: 'Which font?' });
+    return { cookie, id: inboxItemId };
+  }
+  const inbox = (cookie: string) => app.app.inject({ url: routes.inbox('AR'), headers: { cookie } });
+  const pull = (cookie: string, id: string) =>
+    app.app.inject({ method: 'POST', url: routes.pullWaitingQuestion('AR', id), headers: { cookie } });
+
+  it('summarizes what waits for the owner only', async () => {
+    const { cookie } = await setup();
+    const dana = await addHumanAndLogin(app.app, { handle: 'dana', access: 'developer' });
+
+    const ownerView = (await inbox(cookie)).json() as { waiting?: { screening: { count: number } } };
+    expect(ownerView.waiting?.screening.count).toBe(1);
+    expect(((await inbox(dana)).json() as { waiting?: unknown }).waiting).toBeUndefined();
+  });
+
+  it('lets only an owner pull the question', async () => {
+    const { cookie, id } = await setup();
+    for (const access of ['admin', 'developer', 'client', 'viewer'] as const) {
+      const other = await addHumanAndLogin(app.app, { handle: `user-${access}`, access });
+      expect((await pull(other, id)).statusCode).toBe(403);
+    }
+    expect(
+      (await app.app.inject({ method: 'POST', url: routes.pullWaitingQuestion('AR', id) })).statusCode,
+    ).toBe(401);
+
+    const res = await pull(cookie, id);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { item: { state: string } }).item.state).toBe('open');
+    expect((await pull(cookie, id)).statusCode).toBe(409);
   });
 });
 

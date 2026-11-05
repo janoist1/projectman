@@ -1233,6 +1233,7 @@ export const hu = {
     justNow: 'most',
     todayAt: 'ma {time}',
     minutesAgo: '{count} perce',
+    hoursAgo: '{count} órája',
     today: 'ma',
     yesterday: 'tegnap',
     daysAgo: '{count} napja',
@@ -4108,6 +4109,27 @@ export const hu = {
       methodTopics:
         'Az út és a téma ugyanannak a heti kérdésszámnak két külön bontása. A régi, téma nélküli kérdések is beleszámítanak.',
       unknownTopic: 'Ismeretlen téma',
+      nonDecisions: 'Nem döntés',
+      methodEstimate:
+        'A régi tételeknél, ahol az út még nem volt rögzítve, az okot a kérdés mai útja szerint becsüljük.',
+      ownerItems: {
+        title: 'Minden tétel, ami hozzád jutott',
+        total: 'összesen',
+        nonDecisions: 'nem döntés · cél: 0',
+        hint: 'Kérdés, döntés és riasztás együtt. Nem döntés: ami nem tulajdonosi téma és nem jóváhagyás.',
+        byReason: 'Miért jutott hozzád?',
+        ownerSide: 'A te oldalad',
+        ownerSideHint:
+          'Amit a csatlakoztatott Claude kérdezett vagy továbbadott, és amit te vettél át. Nem csapatkérés, ezért nem számít a nem döntések közé.',
+      },
+      reasons: {
+        owner_topic: 'Tulajdonosi téma',
+        approval: 'Jóváhagyás',
+        protected: 'Védett kérdés (jóváhagyás)',
+        no_integrator: 'Nem volt csatlakoztatott Claude, ezért hozzád jutott',
+        owner_side: 'A te oldalad',
+        estimated: 'Becsült (régi út)',
+      },
       routes: {
         decision: 'Szűrt döntés',
         owner_todo: 'Tulajdonosi teendő',
@@ -5257,6 +5279,36 @@ export const hu = {
         capacity: 'tele a kapacitása',
         other: 'most nem tud indulni',
       },
+    },
+    // What waits for someone other than the owner: a folded band above the list (PM-1252).
+    waiting: {
+      title: 'Másokra vár',
+      both: '{screening} kérdés a projektmenedzser szűrésére vár, {integrator} gépi teendő a csatlakoztatott Claude-ra',
+      onlyScreening: '{count} kérdés a projektmenedzser szűrésére vár',
+      onlyIntegrator: '{count} gépi teendő vár a csatlakoztatott Claude-ra',
+      oldest: 'a legrégebbi {age}',
+      show: 'Megnézem',
+      hide: 'Becsukom',
+      lead: 'Ezek még nem jutottak el hozzád. Ha nem várnád meg a szűrést, vedd át: a kérdés a listádba kerül, és te válaszolsz rá.',
+      chip: 'Szűrésre vár',
+      overdue: 'Késik a szűrés',
+      note: 'vár {age} · {reason}',
+      reasons: {
+        on_leave: 'a projektmenedzser szabadságon van',
+        paused: 'a munka szünetel',
+        ai_disabled: 'a projektmenedzser ki van kapcsolva',
+        start_deferred: 'a projektmenedzser motorja nem érhető el',
+        start_refused: 'a projektmenedzser motorja nem érhető el',
+        timeout: 'a projektmenedzser még nem szűrte, újra megkapta',
+        no_pm: 'nincs projektmenedzser a projektben',
+        unknown: 'a projektmenedzser még nem szűrte',
+      },
+      pull: 'Átveszem',
+      pulling: 'Átveszem…',
+      pullFor: 'Átveszem: {subject}',
+      pulled: 'Átvetted: a kérdés a listádba került.',
+      alreadyHandled: 'Közben a projektmenedzser elintézte, nincs vele teendőd.',
+      pullFailed: 'Nem sikerült átvenni. Próbáld újra.',
     },
     /** The folded row of the questions the Operator settled with no person involved (PM-556). */
     operatorTrail: {

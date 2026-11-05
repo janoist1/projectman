@@ -64,7 +64,7 @@
 .legend,
 .weekSummary {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px 72px 16px;
+  grid-template-columns: minmax(0, 1fr) 60px 60px 60px 16px;
   align-items: center;
   gap: 8px;
 }
@@ -127,6 +127,9 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+}
+.warn {
+  color: var(--c-needs-text);
 }
 .chevron {
   color: var(--c-ink-3);

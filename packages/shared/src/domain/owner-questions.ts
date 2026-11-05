@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { questionPayloadOf } from './inbox';
+import { hasProtectedQuestionPayload, questionPayloadOf } from './inbox';
 import type { InboxItem } from './inbox';
 
 /**
@@ -41,6 +41,23 @@ export type OwnerQuestionsQuery = z.infer<typeof OwnerQuestionsQuery>;
 
 const count = z.number().int().min(0);
 
+/** The `byReason` key of an item stored before its route was recorded: the reason is estimated (PM-1252). */
+const ESTIMATED_OWNER_ITEM_REASON = 'estimated';
+
+/** The reasons that make an owner item a decision of the owners; every other reason is a non decision. */
+const DECISION_REASONS: readonly string[] = ['owner_topic', 'approval', 'protected'];
+
+/** Everything that reached the owners' inbox in a week, whatever its kind (PM-1241, PM-1252). */
+export const OwnerItemsWeek = z.object({
+  /** Questions, decisions and alerts that reached the owners' inbox or their own side. */
+  total: count,
+  /** `total` by the reason of its route (`ItemRouteReason`), or `estimated`; only the reasons that occur. */
+  byReason: z.record(z.string(), count),
+  /** Of `total`: not an owner topic and not an approval, and not the owners' own side (`owner_side`). The goal is 0. */
+  nonDecisions: count,
+});
+export type OwnerItemsWeek = z.infer<typeof OwnerItemsWeek>;
+
 export const OwnerQuestionWeek = z.object({
   /** The week's Monday and Sunday as local dates (YYYY-MM-DD) in the project's time zone. */
   weekStart: z.string(),
@@ -61,6 +78,8 @@ export const OwnerQuestionWeek = z.object({
   integratorTodos: count,
   /** Of `total`: still waiting for an answer. */
   open: count,
+  /** Every item that reached the owners, by route (PM-1252): a separate measure, `total` above counts questions. */
+  ownerItems: OwnerItemsWeek,
 });
 export type OwnerQuestionWeek = z.infer<typeof OwnerQuestionWeek>;
 
@@ -72,7 +91,32 @@ export const OwnerQuestionsReport = z.object({
 });
 export type OwnerQuestionsReport = z.infer<typeof OwnerQuestionsReport>;
 
-type MeasuredItem = Pick<InboxItem, 'kind' | 'source' | 'state' | 'payload' | 'resolution' | 'createdAt'>;
+type MeasuredItem = Pick<
+  InboxItem,
+  'kind' | 'source' | 'state' | 'payload' | 'resolution' | 'createdAt' | 'route'
+>;
+
+/**
+ * How an item reached the owners' inbox, as the reason of its route and whether it is a decision of theirs, or
+ * null when it did not reach them (PM-1252). An item stored before routes were recorded (`route` null), or one
+ * that waited for the project manager and was opened for the owners since, is estimated from what a question
+ * is today (`ownerQuestionRoute`): a decision when it has an owner topic or is protected.
+ */
+function ownerItemReach(
+  item: MeasuredItem,
+  coordinatorHandle: string | null,
+): { reason: string; decision: boolean } | null {
+  const route = item.route;
+  if (route && route.to !== 'wait_pm')
+    return route.to === 'owner_inbox' || route.to === 'owner_side'
+      ? { reason: route.reason, decision: DECISION_REASONS.includes(route.reason) }
+      : null;
+  if (item.kind !== 'question' || !ownerQuestionRoute(item, coordinatorHandle)) return null;
+  return {
+    reason: ESTIMATED_OWNER_ITEM_REASON,
+    decision: !!questionPayloadOf(item)?.ownerTopic || hasProtectedQuestionPayload(item),
+  };
+}
 
 /**
  * The way a question reached the owners, or null when it did not: still in screening, settled by the
@@ -180,13 +224,21 @@ export function weeklyOwnerQuestions(
       answeredByIntegrator: 0,
       integratorTodos: 0,
       open: 0,
+      ownerItems: { total: 0, byReason: {}, nonDecisions: 0 },
     };
   });
   for (const item of items) {
-    if (item.kind !== 'question') continue;
     const index = (current - mondayOf(localDay(format, measuredAt(item)))) / 7;
     const week = weeks[index];
     if (!week) continue;
+    const reach = ownerItemReach(item, input.coordinatorHandle);
+    if (reach) {
+      const owned = week.ownerItems;
+      owned.total += 1;
+      owned.byReason[reach.reason] = (owned.byReason[reach.reason] ?? 0) + 1;
+      if (!reach.decision && reach.reason !== 'owner_side') owned.nonDecisions += 1;
+    }
+    if (item.kind !== 'question') continue;
     if ('integratorOpenedAt' in item.payload) week.integratorTodos += 1;
     const route = ownerQuestionRoute(item, input.coordinatorHandle);
     if (!route) continue;

@@ -70,6 +70,7 @@ import {
   patchOpenInboxCount,
   refreshConfigHistory,
   upsertBy,
+  upsertInboxView,
   writeTask,
   writeTaskDetail,
 } from './cache';
@@ -918,7 +919,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
         },
       };
       const next = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
-        view ? { items: upsertBy(view.items, resolved, (entry) => entry.id) } : view,
+        view ? upsertInboxView(view, resolved) : view,
       );
       if (next) patchOpenInboxCount(client, key, next);
       return { previous };
@@ -951,9 +952,31 @@ export function useCheckOutage(key: string) {
     mutationFn: (itemId: string) => api.checkOutage(key, itemId),
     onSuccess: (response) => {
       const next = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
-        view ? { items: upsertBy(view.items, response.item, (entry) => entry.id) } : view,
+        view ? upsertInboxView(view, response.item) : view,
       );
       if (next) patchOpenInboxCount(client, key, next);
+    },
+  });
+}
+
+/**
+ * "Átveszem" (PM-1252): an owner takes a question that waits for the project manager. The answer holds the
+ * question as it is now (open, the owners' own); it replaces the one in the list, and the summary is read again.
+ */
+export function usePullWaitingQuestion(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) => api.pullWaitingQuestion(key, itemId),
+    onSuccess: (response) => {
+      const next = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
+        view ? upsertInboxView(view, response.item) : view,
+      );
+      if (next) patchOpenInboxCount(client, key, next);
+    },
+    onSettled: () => {
+      // The question left the Operator's trail too.
+      void client.invalidateQueries({ queryKey: queryKeys.screenedQuestionsAll(key) });
+      return client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
     },
   });
 }

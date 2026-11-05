@@ -48,6 +48,8 @@ import {
   SuperAuditQuery,
   OwnerQuestionsQuery,
   weeklyOwnerQuestions,
+  waitingForOthers,
+  screeningWaitingSince,
   isLinkedQuestion,
   coordinationMemberOf,
   InvolvementQuery,
@@ -3293,9 +3295,21 @@ export class MockBackend {
             .slice(-limit)
             .map((item) => visibleQuestionItem(this.taskViewer(), item, (key) => !!this.findTask(key))),
         ),
+        // The owner's summary of what waits for others (PM-1252): the same rule as the server.
+        ...(this.viewerAccess() === 'owner' && !this.integratorMode
+          ? {
+              waiting: waitingForOthers(
+                this.inbox.filter(
+                  (item) =>
+                    ['open', 'screening'].includes(item.state) && canSeeInboxItem(this.taskViewer(), item),
+                ),
+              ),
+            }
+          : {}),
       });
     }
     if (rest === '/inbox/screened' && method === 'GET') return this.screenedQuestions(query);
+    if ((m = /^\/inbox\/([\w-]+)\/pull$/.exec(rest)) && method === 'POST') return this.pullWaiting(m[1]!);
     if ((m = /^\/inbox\/([\w-]+)\/resolve$/.exec(rest)) && method === 'POST')
       return this.resolve(m[1]!, body);
     if ((m = /^\/inbox\/([\w-]+)\/check$/.exec(rest)) && method === 'POST') return this.checkOutage(m[1]!);
@@ -6816,6 +6830,31 @@ export class MockBackend {
       .filter((item) => settled(item) && Date.parse(timeOf(item)) >= Date.parse(since))
       .sort((a, b) => timeOf(b).localeCompare(timeOf(a)));
     return ok({ items: clone(all.slice(0, 20)), today: all.length });
+  }
+
+  /** An owner takes a question that waits for the project manager (PM-1252): it opens for the owners. */
+  private pullWaiting(itemId: string): MockResponse {
+    if (this.viewerAccess() !== 'owner' || this.integratorMode)
+      return error(403, 'insufficient_access', 'Own owner login required');
+    const item = this.inbox.find((entry) => entry.id === itemId);
+    if (!item || !canSeeInboxItem(this.taskViewer(), item))
+      return error(404, 'not_found', 'Unknown inbox item');
+    if (!screeningWaitingSince(item))
+      return error(409, 'question_not_screening', 'The question does not wait for the project manager');
+    const { waiting: _waiting, ...screening } = (item.payload.screening ?? {}) as Record<string, unknown>;
+    const at = nowIso();
+    const pulled: InboxItem = {
+      ...item,
+      state: 'open',
+      payload: {
+        ...item.payload,
+        recipient: 'owner',
+        screening: { ...screening, at, outcome: 'decision', by: this.viewerHandle },
+      },
+      route: { kind: 'owner_pulled', requested: null, to: 'owner_side', reason: 'owner_side' },
+    };
+    this.upsertInbox(pulled);
+    return ok({ item: clone(pulled) });
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {

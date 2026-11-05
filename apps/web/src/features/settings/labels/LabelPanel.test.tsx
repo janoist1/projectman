@@ -95,6 +95,7 @@ describe('label list', () => {
     expect(await screen.findByText(t('settings.labels.edit.found', { count: 0 }))).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: t('settings.labels.edit.clearSearch') }));
     expect((search as HTMLInputElement).value).toBe('');
+    expect(document.activeElement).toBe(search);
     expect(row('urgent')).not.toBeNull();
   });
 

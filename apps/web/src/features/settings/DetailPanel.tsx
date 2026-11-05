@@ -106,7 +106,8 @@ export function DetailPanel({
     const element = panel.current;
     if (!wide || !element) return;
     const measure = () => {
-      const top = Math.max(12, element.getBoundingClientRect().top);
+      const stuck = parseFloat(getComputedStyle(element).top) || 12;
+      const top = Math.max(stuck, element.getBoundingClientRect().top);
       element.style.setProperty('--settings-panel-height', `${Math.max(0, window.innerHeight - top - 12)}px`);
     };
     measure();

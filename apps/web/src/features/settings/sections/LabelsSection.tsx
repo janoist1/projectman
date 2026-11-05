@@ -154,7 +154,8 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
           onClose={selection.close}
           onSaved={(id) => setFlash((previous) => ({ id, count: (previous?.count ?? 0) + 1 }))}
           onCreated={(id) => {
-            createdId.current = { id, seen: false };
+            // The saved config already holds the label, so the list has "seen" it: only its later removal closes the panel.
+            createdId.current = { id, seen: true };
             selection.replace({ type: 'label', id });
           }}
           onRemoved={(id) => {
@@ -235,7 +236,14 @@ function LabelsBody({ config }: { config: ProjectConfig }) {
           ) : shown.length === 0 && undefinedTags.length === 0 ? (
             <p className={styles.empty}>
               {t('settings.labels.edit.noMatch', { q: query.trim() })}{' '}
-              <Button variant="secondary" size="sm" onClick={() => setQuery('')}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setQuery('');
+                  document.getElementById(searchId)?.focus();
+                }}
+              >
                 {t('settings.labels.edit.clearSearch')}
               </Button>
             </p>

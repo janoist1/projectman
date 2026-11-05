@@ -505,7 +505,7 @@ Short and in order: account setup, local credentials, and commands that the owne
 5. **Configuration:** fill `config.json` from `deploy/aws/config.example.json`, including unique bucket names.
 6. **DNS delegation:** done (see "DNS" below). The domain is managed
    through **Route 53 Domains**, even though RDAP names Gandi as the underlying registrar.
-   Check automatic renewal: the owner's recorded expiration is **2026-11-19**; `dns status` reads the current value.
+   Check automatic renewal: the owner's recorded expiration is **2027-11-19** and automatic renewal is on (state of 2026-11-05: the domain was renewed); `dns status` reads the current value.
 7. **First setup:** use the one-time code in `logs`.
 8. **Public checks:** create the mode-600 `login.json` described in "Verification" for `check`. Only with
    `access.boardMode: private` also `brew install cloudflared` and `cloudflared access login https://<hostname>`.

@@ -254,7 +254,7 @@ export function StageForm({
               />
             </div>
           ) : null}
-          {nobody ? (
+          {nobody && issuesAt('owners').length === 0 ? (
             <p className={styles.lockText}>
               <Icon name="exclamation" size={13} /> {t('howWeWork.flow.noOwner')}
             </p>

@@ -189,6 +189,7 @@ export function StagePanel({
       <p className={styles.id}>
         {t('settings.pipeline.id')} <code>{draft.id}</code>
       </p>
+      <p className={styles.id}>{t('settings.pipeline.idFixed')}</p>
       {edit.gone ? null : (
         <DeleteSection
           kind="stage"

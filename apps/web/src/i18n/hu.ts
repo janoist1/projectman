@@ -7136,6 +7136,7 @@ export const hu = {
       cards: 'Most {count} kártya van ebben a lépésben.',
       cardsNone: 'Most nincs kártya ebben a lépésben.',
       id: 'Azonosító:',
+      idFixed: 'Létrehozás után nem módosítható.',
       memberNote: 'A módosításhoz adminisztrátori hozzáférés kell.',
       emptyTitle: 'Válassz egy lépést vagy oszlopot',
       back: '‹ Vissza: Hogyan dolgozunk',

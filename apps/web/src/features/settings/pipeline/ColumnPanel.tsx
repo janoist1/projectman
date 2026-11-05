@@ -126,6 +126,7 @@ export function ColumnPanel({ config, columnId, empty, onSelect, onClose, onDele
       <p className={styles.id}>
         {t('settings.pipeline.id')} <code>{columnId}</code>
       </p>
+      <p className={styles.id}>{t('settings.pipeline.idFixed')}</p>
       {edit.gone ? null : (
         <DeleteSection
           kind="column"

@@ -7136,6 +7136,7 @@ export const en = {
       cards: '{count|# card is|# cards are} in this stage now.',
       cardsNone: 'There are no cards in this stage now.',
       id: 'Identifier:',
+      idFixed: 'It cannot be changed after creation.',
       memberNote: 'Changing it needs administrator access.',
       emptyTitle: 'Pick a stage or a column',
       back: '‹ Back: How we work',

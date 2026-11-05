@@ -220,6 +220,12 @@ over the board is what is relied on). Older signal kinds (`idle`, `merge_waiting
 `refinement_stalled`, `nobody`) stay in the union and in `RETIRED_KINDS` only so old rows and timeline events keep
 rendering; the sweep resolves an open row of such a kind.
 
+**`senior_wait` (PM-1251).** The `senior_wait` obligation's hand-over raises it (`senior_wait:<obligation id>`,
+`OperatorSignals.raiseSeniorWait`) when a card waits past `seniorWaitMinutes` for a developer whose limit reaches its
+points; its facts name the card, the Seniors, since when and the points. The case holds while the obligation is
+`handed_over` and has no `decision`; the pm's `decide_senior_wait` (coordinator only, `SeniorDecisions.decide`) sets it,
+so the next sweep resolves the signal. A project without a pm gets the old owner question instead.
+
 The project manager may use `dismiss_signal { signal_id, note }` without an owner request at every watch level
 (`team.operatorWatch`), for a delivered, unpresented, still valid `obligation_overdue`, `structural_pattern` or
 `milestone_closed` signal and outside guest conversations. It stores the reason in `decision_note` (outside the DTO)

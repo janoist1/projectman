@@ -1190,6 +1190,16 @@ export interface OperatorToolsHandler {
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }>;
   /**
+   * decide_senior_wait (PM-1251): the selected PM decides a card that waits for a developer whose limit
+   * reaches its points: `wait` keeps waiting for the Senior, `any` lets a free developer take it. The
+   * `reason` goes to the card's timeline. Refused for any other caller, and when the wait was not handed to
+   * the PM (`invalid_request`).
+   */
+  decideSeniorWait(
+    ctx: ToolContext,
+    args: { taskKey: string; decision: 'wait' | 'any'; reason: string },
+  ): Promise<{ taskKey: string; decision: 'wait' | 'any' }>;
+  /**
    * The PM opens a todo in the integrator's queue (PM-808), the way the system does for an obligation: the
    * PM is the asker, so the answer comes back to it. The owners get it when the integrator cannot take it.
    * Refused (`obligation_tracked`) on a card projectman follows itself.

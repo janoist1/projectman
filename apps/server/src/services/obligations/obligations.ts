@@ -66,7 +66,10 @@ interface ObligationsDeps {
   projects: Pick<ProjectService, 'summaries' | 'config' | 'cachedConfig'>;
   tasks: Pick<TaskService, 'find' | 'readSchedulingTasks' | 'publish'>;
   taskWaits: Pick<TaskWaits, 'of'>;
-  inbox: Pick<InboxService, 'openIntegratorTodo' | 'closeObligationTodo' | 'create' | 'resolveByRule'>;
+  inbox: Pick<
+    InboxService,
+    'openIntegratorTodo' | 'closeObligationTodo' | 'create' | 'resolveByRule' | 'applyRoute'
+  >;
   messaging: Pick<Messaging, 'send'>;
   messages: Pick<MessageService, 'markRecipientDelivered'>;
   timeline: Pick<TimelineService, 'append' | 'latest'>;
@@ -167,7 +170,15 @@ export class ObligationsService {
             .listOfTypes(projectKey, taskKey, ['task_created'], 1)
             .some((event) => event.createdAt === since && event.data.imported === true),
       },
-      [seniorWaitSource({ ctx: deps.ctx, inbox: deps.inbox, timeline: deps.timeline, tasks: deps.tasks })],
+      [
+        seniorWaitSource({
+          ctx: deps.ctx,
+          inbox: deps.inbox,
+          timeline: deps.timeline,
+          tasks: deps.tasks,
+          notices: () => this.pmNotices,
+        }),
+      ],
     );
   }
 

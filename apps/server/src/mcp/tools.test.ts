@@ -372,6 +372,7 @@ describe('team tool registration', () => {
         'combine_questions',
         'screen_question',
         'dismiss_signal',
+        'decide_senior_wait',
         'open_integrator_todo',
         'start_task',
         'reassign_task',

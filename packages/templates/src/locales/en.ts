@@ -437,6 +437,7 @@ export const en: TemplateLocale = {
     firstNotice: ({ member, project }) =>
       `${member} (AI member, ${project} project). If you'd rather not get more e-mail, just reply and say so.`,
   },
+  seniorWaitItem: { title: '{key} is waiting for a developer who can take it' },
   fixLimitItem: {
     title: 'Fix round limit: {key}',
     summary: '{key} did not pass after {rounds} fix rounds ({parts}). {reason}',

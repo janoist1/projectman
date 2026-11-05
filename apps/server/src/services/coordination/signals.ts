@@ -29,6 +29,8 @@ import {
   memberOf,
   openPrerequisites,
   stageOf,
+  complexityOf,
+  seniorWaitMinutesOf,
   OPERATOR_SILENT_WORK_MINUTES,
   OPERATOR_START_FETCH_FAILED_MINUTES,
   START_BLOCKED_REASONS,
@@ -42,6 +44,7 @@ import type {
   OperatorSignalStepTargets,
   OperatorWatch,
   ProjectConfig,
+  SeniorWaitDecisionPayload,
   StartBlockedReason,
   Task,
   TaskStartWaiting,
@@ -134,11 +137,14 @@ const WAKE_UNRELEASED =
 const WAKE_DISMISS =
   'An obligation_overdue signal says the responsible did not act even after the reminder, and that the step goes to a person at hand_over_at in its facts: check get_task and get_project_state first; when the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners; otherwise take its step or leave it to go to the person.';
 
+const WAKE_SENIOR =
+  'A senior_wait signal is your decision at every level, and the owners are not asked about it unless it costs money: a card waits for a developer whose limit reaches its points. Read get_task and the facts, then call decide_senior_wait (task_key, decision "wait" to keep waiting for the Senior or "any" to let a free developer take the card, and a reason). When the choice needs more capacity (a paid plan, a temp worker), ask the owners with ask_human, the topic cost and the signal_id, and decide when they answer.';
+
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_UNRELEASED} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_UNRELEASED} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
 };
 
 /** The case key of a card's blocked start: one per card and reason (PM-455). */
@@ -154,6 +160,11 @@ function answerStalledMember(caseKey: string): string | null {
 /** The case key of an overdue obligation: one per obligation row (the row is unique for ever). */
 function obligationOverdueCaseKey(obligationId: string): string {
   return `obligation_overdue:${obligationId}`;
+}
+
+/** The case key of a Senior wait that needs the project manager's decision: one per `senior_wait` row (PM-1251). */
+function seniorWaitCaseKey(obligationId: string): string {
+  return `senior_wait:${obligationId}`;
 }
 
 type OpenMerge = ReturnType<DomainContext['repos']['taskMerges']['openOfProject']>[number];
@@ -267,6 +278,21 @@ export class OperatorSignals {
       projectKey: input.projectKey,
       kind: 'obligation_overdue',
       caseKey: obligationOverdueCaseKey(input.obligationId),
+      taskKey: input.taskKey,
+      subject: input.obligationId,
+    }).id;
+  }
+
+  /**
+   * The pending signal of a card that waits for a Senior past the wait limit (PM-1251): the project manager
+   * decides with `decide_senior_wait`. One per `senior_wait` row, stored with the caller's write; `deliver`
+   * brings it to the project manager. Returns the signal id.
+   */
+  raiseSeniorWait(input: { projectKey: string; taskKey: string; obligationId: string }): string {
+    return this.raise({
+      projectKey: input.projectKey,
+      kind: 'senior_wait',
+      caseKey: seniorWaitCaseKey(input.obligationId),
       taskKey: input.taskKey,
       subject: input.obligationId,
     }).id;
@@ -691,7 +717,10 @@ export class OperatorSignals {
         this.resolve(key, signal.caseKey);
       if (RETIRED_KINDS.has(signal.kind)) this.resolve(key, signal.caseKey);
       // The step was done, ended or handed over to a person: nothing is left to tell the project manager.
-      if (signal.kind === 'obligation_overdue' && !this.caseHolds(config, signal))
+      if (
+        (signal.kind === 'obligation_overdue' || signal.kind === 'senior_wait') &&
+        !this.caseHolds(config, signal)
+      )
         this.resolve(key, signal.caseKey);
       if (
         signal.kind === 'stalled' &&
@@ -839,15 +868,17 @@ export class OperatorSignals {
                 ? LoopTriageFacts.parse(JSON.parse(s.subject!))
                 : s.kind === 'obligation_overdue'
                   ? this.obligationOverdueFacts(s)
-                  : s.kind === 'answer_stalled'
-                    ? this.answerStalledFacts(s)
-                    : s.kind === 'start_blocked'
-                      ? this.startBlockedFacts(config, s)
-                      : s.inboxItemId
-                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                        : s.subject
-                          ? ctx.repos.sessions.get(s.subject)?.activity
-                          : null,
+                  : s.kind === 'senior_wait'
+                    ? this.seniorWaitFacts(config, s)
+                    : s.kind === 'answer_stalled'
+                      ? this.answerStalledFacts(s)
+                      : s.kind === 'start_blocked'
+                        ? this.startBlockedFacts(config, s)
+                        : s.inboxItemId
+                          ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                          : s.subject
+                            ? ctx.repos.sessions.get(s.subject)?.activity
+                            : null,
             step: this.stepOf(level, config, s),
             steps_left: structuralKind(s.kind) ? 0 : budget.left,
             next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
@@ -981,6 +1012,11 @@ export class OperatorSignals {
       // The step is still the responsible's and the project manager has been told: any other end closes the case.
       const obligation = ctx.repos.obligations.get(s.subject ?? '');
       return obligation?.state === 'open' && obligation.pmToldAt !== null;
+    }
+    if (s.kind === 'senior_wait') {
+      // The card still waits for the decision: the row was handed over and nobody decided it yet.
+      const obligation = ctx.repos.obligations.get(s.subject ?? '');
+      return obligation?.state === 'handed_over' && obligation.decision === null;
     }
     if (s.kind === 'silent' || s.kind === 'stalled') {
       const session = ctx.repos.sessions.get(s.subject ?? '');
@@ -1177,6 +1213,25 @@ export class OperatorSignals {
         // The step goes to a person when the row's deadline passes (the last rung).
         handOverAt: row.dueAt,
       },
+    };
+  }
+
+  /** What the project manager weighs about a card that waits for a Senior: the wait, its points and the developers it waits for. */
+  private seniorWaitFacts(
+    config: ProjectConfig,
+    signal: OperatorSignalRecord,
+  ): SeniorWaitDecisionPayload | null {
+    const row = this.deps.ctx.repos.obligations.get(signal.subject ?? '');
+    const task = signal.taskKey ? this.deps.ctx.repos.tasks.get(signal.taskKey) : null;
+    if (!row || !task) return null;
+    const points = complexityOf(task);
+    return {
+      taskKey: task.key,
+      since: row.openedAt,
+      minutes: seniorWaitMinutesOf(config.team.limits),
+      seniors: this.deps.startWaitingOf(task)?.seniors ?? [],
+      reason: task.complexity?.reason ?? null,
+      ...(points === null ? {} : { points }),
     };
   }
 

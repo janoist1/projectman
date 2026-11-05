@@ -8,11 +8,13 @@ const ENGINE_OFFLINE = 'engine_offline';
  * The lane of the questions the PM screens (PM-885, PM-558): a `screening` item is the question as the PM's work.
  * The questions go to the PM in one input, the item stays `processing` until the question leaves screening (the
  * PM decided it, the people got it, or it was closed), and the ten minutes run from the delivery (PM-708). When
- * the PM cannot take a question the people get it at once, except while its machine is offline: then the
- * question waits for the machine.
+ * the PM cannot be started, for any code, the question waits for it and the queue retries (PM-1249): only an
+ * approval or a requested integrator leaves screening then (`holdForPm`).
  */
 export function screeningLane(deps: { screening: QuestionScreening }): MemberQueueLane {
   const { screening } = deps;
+  const hold = async (inboxItemId: string, reason: 'start_deferred' | 'start_refused') =>
+    (await screening.holdForPm(inboxItemId, reason)) ? 'wait' : 'closed';
   return {
     kinds: ['screening'],
     completion: 'source',
@@ -28,12 +30,8 @@ export function screeningLane(deps: { screening: QuestionScreening }): MemberQue
         screening.holdForEngine(item.projectKey);
         return 'wait';
       }
-      await screening.releaseUnavailable(item.source.id);
-      return 'closed';
+      return hold(item.source.id, 'start_deferred');
     },
-    refused: async (item) => {
-      await screening.releaseUnavailable(item.source.id);
-      return 'closed';
-    },
+    refused: (item) => hold(item.source.id, 'start_refused'),
   };
 }

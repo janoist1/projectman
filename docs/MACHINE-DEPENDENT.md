@@ -961,7 +961,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     process, shell, socket or credential operation, no new table. Remote engine: works unchanged,
     since only the link state crosses the boundary. Signals and team messages already queue on
     `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
-    trials belong to PM-664.
+    trials belong to PM-664. Since PM-1249 every deferred or refused start of the PM waits in
+    `payload.screening.waiting` (`start_deferred`, `start_refused`), not only an offline engine: no
+    start failure releases a question to the owners (only an approval opens for them, a requested
+    integrator gets a todo), and the queue retries; the ten-minute timeout re-delivers it once
+    (`overdue`). It is all server state; nothing new crosses to the engine.
     Machine todo handoff (PM-782, PM-1003, PM-1045, PM-1246, `core/inbox/inbox.ts`) has no timeout
     and no owner fallback: `integrator` work stays in the integrator's queue whether or not a project
     owner has a live `super` key. Owner-reserved work is passed to the owners (`integrator_passed_on`,

@@ -1416,6 +1416,14 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     queue: memberQueue,
     wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
+    notifyAsker: async (item, text) => {
+      await messaging.send(
+        item.projectKey,
+        SYSTEM_SENDER,
+        { to: [item.source], ...(item.taskKey ? { taskKey: item.taskKey } : {}), text },
+        { kind: 'info' },
+      );
+    },
     // The PM's machine from the engine directory; the last confirmed online moment is the registry's own
     // record (`last_seen_at`, written on connect and on every pong), which survives a restart of this server.
     engine: {

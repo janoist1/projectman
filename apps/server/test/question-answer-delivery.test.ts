@@ -19,7 +19,7 @@ describe('question answer delivery (PM-560)', () => {
     });
     const asked = await h.domain.teamTools.askHuman(
       { projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1', sessionId: session.id },
-      { question: 'Which layout?', options: ['First', 'Second'] },
+      { question: 'Which layout?', options: ['First', 'Second'], ownerTopic: 'cost' },
     );
     await h.domain.sessions.stop('AR', session.id);
     return asked.inboxItemId;

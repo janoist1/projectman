@@ -292,16 +292,17 @@ describe('combined owner questions', () => {
     ).rejects.toThrow('operator_owner_only');
   });
 
-  it('falls back once at the earliest deadline and never opens a linked question', async () => {
+  it('marks the representative overdue once at the earliest deadline, opens no owner question and never touches a linked one', async () => {
     const first = await ask('AR-1', 'First?');
     now = new Date(now.getTime() + 120_000);
     const second = await ask('AR-2', 'Second?');
     await combine([first, second]);
     now = new Date(now.getTime() + 480_001);
     await h.domain.questionScreening.sweep();
-    expect(row(first).state).toBe('open');
+    expect(row(first).state).toBe('screening');
+    expect(questionPayloadOf(row(first))?.screening?.waiting?.overdue).toBe(true);
     expect(h.repos.inbox.get(second)!.state).toBe('screening');
-    expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
+    expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
     expect(await h.domain.inbox.releaseScreened(second, { fallback: 'timeout' })).toBeNull();
   });
 
@@ -425,12 +426,13 @@ describe('combined owner questions', () => {
     expect(row(second).state).toBe('cancelled');
   });
 
-  it('restores the durable group after restart and releases only its representative on timeout', async () => {
+  it('restores the durable group after restart and marks only its representative overdue on timeout', async () => {
     const [first, second] = await pair();
     now = new Date(now.getTime() + 600_001);
     h = await restartDomainHarness(h, { screenQuestions: true, now: () => now });
     await h.domain.questionScreening.sweep();
-    expect(row(first).state).toBe('open');
+    expect(row(first).state).toBe('screening');
+    expect(questionPayloadOf(row(first))?.screening?.waiting?.overdue).toBe(true);
     expect(h.repos.inbox.get(second)!.state).toBe('screening');
     expect(questionPayloadOf(row(first))?.group?.itemIds).toEqual([first, second]);
   });

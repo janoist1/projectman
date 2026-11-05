@@ -8,7 +8,7 @@ import type {
   ProjectConfig,
   QuestionRecipient,
 } from '@projectman/shared';
-import { conflict, invalid } from '../../kernel';
+import { conflict, DomainError, invalid } from '../../kernel';
 
 /** What the caller knows of the item it routes; the rest (the integrator, the project manager) is read here. */
 export interface RouteRequest {
@@ -21,6 +21,8 @@ export interface RouteRequest {
   decider?: string | null;
   alertReason?: string;
   ownerSilentSignal?: boolean;
+  /** What a `owner_topic_required` refusal tells the asker (the project's topics and the other ways out). */
+  topicGuidance?: string;
 }
 
 /** The route as the caller executes it: the item's recipient, the member it is forwarded to, and its trace. */
@@ -60,6 +62,11 @@ export function applyRoute(
       throw conflict(
         'issuer_without_machine_access',
         'the member who classified this as machine work has no machine access, so it cannot go to the integrator',
+      );
+    if (route.refusal === 'owner_topic_required')
+      throw new DomainError(
+        'owner_topic_required',
+        request.topicGuidance ?? 'an owner decision needs the owner topic it falls under',
       );
     throw invalid('invalid_request', `the route refused the item: ${route.refusal}`);
   }

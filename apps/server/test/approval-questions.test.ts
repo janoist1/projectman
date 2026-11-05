@@ -46,6 +46,7 @@ describe('approval questions', () => {
     const plain = await h.domain.teamTools.askHuman(dev, {
       question: 'Which font?',
       responsePurpose: 'information',
+      ownerTopic: 'cost',
     });
     expect(questionPayloadOf(item(plain.inboxItemId))?.responsePurpose).toBe('information');
   });
@@ -73,7 +74,7 @@ describe('approval questions', () => {
     await setup();
     const matched = await ask('merge-ok?');
     const other = await ask('release-ok?');
-    const plain = await ask('Which font?');
+    const plain = await h.domain.teamTools.askHuman(dev, { question: 'Which font?', ownerTopic: 'cost' });
     expect(plain).not.toHaveProperty('approvalLabel');
     expect(questionPayloadOf(item(plain.inboxItemId))).not.toHaveProperty('approvalLabel');
     await h.domain.tasks.changeLabels('AR', 'AR-1', { add: ['merge-ok'] }, OWNER_ACTOR);

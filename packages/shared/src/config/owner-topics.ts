@@ -109,6 +109,7 @@ export function ownerTopicLines(config: Pick<ProjectConfig, 'team'>): string[] {
 export function ownerTopicRefusalMessage(
   config: Pick<ProjectConfig, 'team'>,
   refusal: OwnerTopicRefusal,
+  opts: { unscreened?: boolean } = {},
 ): string {
   const lines = ownerTopicLines(config);
   const head =
@@ -119,8 +120,15 @@ export function ownerTopicRefusalMessage(
     lines.length > 0
       ? `The project's owner topics:\n${lines.join('\n')}`
       : 'The project lists no owner topics: only approvals go to the owner.';
+  // PM-1249: nobody screens this question (the project has no project manager, or the screening is off), so
+  // the asker names the topic itself; machine work asks for the integrator instead.
+  const unscreened = opts.unscreened
+    ? 'Nobody screens your question (the project has no project manager, or the screening is off), so name ' +
+      'the owner topic yourself with owner_topic; a machine step you need done goes to the integrator with ' +
+      'recipient: integrator instead.\n'
+    : '';
   return (
-    `${refusal}: ${head}\n${topics}\n` +
+    `${refusal}: ${head}\n${unscreened}${topics}\n` +
     'Anything else is not the owner’s: answer it yourself with the recommended option when it can be ' +
     'reversed, forward it to the technical decider, or make it an integrator todo.'
   );

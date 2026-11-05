@@ -49,7 +49,8 @@ describe('integrator fix limit decision', () => {
         ['lead', 'lead_developer'],
         ['arch', 'architect'],
       ] as const)
-        draft.team.members.push({
+        // Before the harness's code reviewer `cr`: the first code review holder decides.
+        draft.team.members.unshift({
           kind: 'ai',
           handle,
           displayName: handle,

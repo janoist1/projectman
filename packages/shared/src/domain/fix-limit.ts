@@ -40,7 +40,7 @@ export const FixLimitAssessment = z.object({
 });
 export type FixLimitAssessment = z.infer<typeof FixLimitAssessment>;
 
-/** The duty of the lead developer who decides first, and the duty the lead also has to hold. */
+/** The duty of the member who decides first, and the duty of the one who decides when nobody holds it. */
 const FIX_LIMIT_DECISION_DUTY: DutyId = 'technical_direction';
 const FIX_LIMIT_LEAD_DUTY: DutyId = 'code_review';
 
@@ -176,12 +176,16 @@ function aiHolders(config: Pick<ProjectConfig, 'team'>, duty: DutyId, exclude: r
 }
 
 /**
- * The lead developer who decides first: an AI member who holds the technical direction duty and also
- * the code review duty, not on leave and not in `exclude` (the card's assignee); null when there is none.
+ * The AI member who decides first (decision 69): the one who holds the code review duty, not on leave and
+ * not in `exclude` (the card's assignee); when there is none, the one who holds the technical direction
+ * duty; null when there is neither (a person decides). The lead does not need the technical direction duty.
  */
 export function fixLimitLead(config: Pick<ProjectConfig, 'team'>, exclude: readonly string[]): string | null {
-  const reviewers = new Set(aiHolders(config, FIX_LIMIT_LEAD_DUTY, exclude));
-  return aiHolders(config, FIX_LIMIT_DECISION_DUTY, exclude).find((handle) => reviewers.has(handle)) ?? null;
+  return (
+    aiHolders(config, FIX_LIMIT_LEAD_DUTY, exclude)[0] ??
+    aiHolders(config, FIX_LIMIT_DECISION_DUTY, exclude)[0] ??
+    null
+  );
 }
 
 /**
@@ -197,7 +201,8 @@ export function fixLimitPlanner(
 
 /**
  * Who makes the more exact plan when a person asks for one: the planner that is not the card's assignee
- * and not the lead who would have decided (the lead has already passed the card on); null when there is none.
+ * and not the decider (who has already passed the card on, and may be the architect itself when nobody
+ * holds the code review duty); null when there is none.
  */
 export function fixLimitPlannerForOwner(
   config: Pick<ProjectConfig, 'team'>,

@@ -53,9 +53,16 @@ export interface ElementEdit<D> {
   saving: boolean;
   /** Counts the successful saves (an undo too), so the screen can mark the moment. */
   saves: number;
-  save(): Promise<void>;
+  /** True when the draft was saved. */
+  save(): Promise<boolean>;
+  remove(next: ProjectConfig, name: string): Promise<RemoveFailure | null>;
   discard(): void;
 }
+
+/** Why a delete went nowhere; `reason` is null when the request itself failed (the network, a server fault). */
+export type RemoveFailure =
+  /** Another save came first: the view was reloaded, the person has to look again. */
+  { kind: 'conflict'; author: string } | { kind: 'error'; reason: string | null };
 
 interface Pair<D> {
   key: string;
@@ -147,35 +154,55 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     setSaves((count) => count + 1);
   };
 
-  const save = async () => {
-    if (!view || !candidate || draft === null || saving) return;
-    const before = view;
-    const { key, toPatch, savedText, name } = latest.current;
+  /** Writes `next` and offers the undo on the version this write made. Throws what the server refused. */
+  const write = async (
+    next: ProjectConfig,
+    text: string,
+    undoneText: string,
+    key: string,
+    written?: (config: ProjectConfig) => void,
+  ) => {
+    const before = view!;
+    const { toPatch } = latest.current;
+    const result = await patch.mutateAsync({ baseVersion: before.version, ...toPatch(next) });
+    written?.(result.config);
+    toast.show(text, 'ok', {
+      action: {
+        label: t('settings.pipeline.edit.undo'),
+        // Only on the version this write made: a later save by anyone is not overwritten.
+        run: () => {
+          patch
+            .mutateAsync({ baseVersion: result.version, ...toPatch(before.config) })
+            .then((undone) => {
+              settle(undone.config, key);
+              toast.show(undoneText);
+            })
+            .catch(async (error: unknown) => {
+              if (isApiError(error) && error.code === 'config_conflict') {
+                await query.refetch();
+                toast.show(t('settings.pipeline.edit.undoConflict'), 'error');
+              } else toast.show(errorMessage(error), 'error');
+            });
+        },
+      },
+    });
+  };
+
+  /** True when the draft was saved. */
+  const save = async (): Promise<boolean> => {
+    if (!view || !candidate || draft === null || saving) return false;
+    const { key, savedText, name } = latest.current;
     setSaving(true);
     setFailure(null);
     try {
-      const result = await patch.mutateAsync({ baseVersion: before.version, ...toPatch(candidate) });
-      settle(result.config, key);
-      toast.show(savedText(draft), 'ok', {
-        action: {
-          label: t('settings.pipeline.edit.undo'),
-          // Only on the version this save made: a later save by anyone is not overwritten.
-          run: () => {
-            patch
-              .mutateAsync({ baseVersion: result.version, ...toPatch(before.config) })
-              .then((undone) => {
-                settle(undone.config, key);
-                toast.show(t('settings.pipeline.edit.undone', { name: name(draft) }));
-              })
-              .catch(async (error: unknown) => {
-                if (isApiError(error) && error.code === 'config_conflict') {
-                  await query.refetch();
-                  toast.show(t('settings.pipeline.edit.undoConflict'), 'error');
-                } else toast.show(errorMessage(error), 'error');
-              });
-          },
-        },
-      });
+      await write(
+        candidate,
+        savedText(draft),
+        t('settings.pipeline.edit.undone', { name: name(draft) }),
+        key,
+        (config) => settle(config, key),
+      );
+      return true;
     } catch (error) {
       if (isApiError(error) && error.code === 'config_conflict') {
         const fresh = (await query.refetch()).data;
@@ -189,6 +216,35 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
           kind: 'error',
           reason: isApiError(error) && error.status > 0 && error.status < 500 ? errorMessage(error) : null,
         });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /**
+   * Saves `next` (the configuration without this element) at once, whatever the draft holds. The draft stays
+   * untouched; the answer says why nothing was deleted, null when it was.
+   */
+  const remove = async (next: ProjectConfig, name: string): Promise<RemoveFailure | null> => {
+    if (!view || saving) return { kind: 'error', reason: null };
+    setSaving(true);
+    try {
+      await write(
+        next,
+        t('settings.pipeline.delete.deleted', { name }),
+        t('settings.pipeline.edit.undone', { name }),
+        latest.current.key,
+      );
+      return null;
+    } catch (error) {
+      if (isApiError(error) && error.code === 'config_conflict') {
+        const fresh = (await query.refetch()).data;
+        return { kind: 'conflict', author: fresh?.history[0]?.author ?? '' };
+      }
+      if (isApiError(error) && error.status > 0 && error.status < 500)
+        return { kind: 'error', reason: errorMessage(error) };
+      return { kind: 'error', reason: null };
     } finally {
       setSaving(false);
     }
@@ -207,6 +263,7 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     saving,
     saves,
     save,
+    remove,
     discard,
   };
 }

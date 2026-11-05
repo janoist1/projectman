@@ -286,6 +286,54 @@
   box-shadow: var(--ring-selected);
 }
 
+.addColumn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-style: solid;
+  color: var(--c-accent);
+}
+
+.stages > li {
+  position: relative;
+}
+
+/* The "+" between two stages: shown over the line while the pointer or the keyboard is near it. */
+.insert {
+  position: absolute;
+  left: 12px;
+  bottom: -11px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--c-line-strong);
+  border-radius: 50%;
+  background: var(--c-surface);
+  color: var(--c-accent);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.stages > li:hover > .insert,
+.insert:focus-visible {
+  opacity: 1;
+}
+
+.insert:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+
+/* A touch screen has the header button and the stage's menu instead. */
+@media (hover: none), (max-width: 640px) {
+  .insert {
+    display: none;
+  }
+}
+
 /* The mark column narrows with the flow (components/flow): 44px and an 8px gap. */
 @container flow (max-width: 640px) {
   .colHead {

@@ -1,0 +1,64 @@
+.colors {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.color {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 8px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.color input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.chosen {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 2px var(--c-accent-bg);
+  background: var(--c-accent-bg);
+}
+
+.color:has(input:focus-visible) {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+
+.swatch {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.colorName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .colors {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .color {
+    min-height: 44px;
+  }
+}

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getTemplate, templates } from '@projectman/templates';
 import { t } from '../../../i18n/t';
@@ -143,13 +143,25 @@ describe('pipeline section', () => {
     expect(within(again).queryByText(t('settings.pipeline.intro.title'))).toBeNull();
   });
 
-  it('still opens the old editor for an admin and closes the panel for it', async () => {
-    const project = mockProject();
-    project.render(<SettingsTestRoutes initialSection="pipeline" />, `${PIPELINE}?show=stage:code_review`);
-    expect(await screen.findByRole('dialog')).toBeTruthy();
+  it('offers an admin the new stage and new column entries, and a member none', async () => {
+    const admin = mockProject();
+    admin.render(<SettingsTestRoutes initialSection="pipeline" />, PIPELINE);
     const section = await pipelineSection();
-    fireEvent.click(within(section).getByRole('button', { name: t('settings.pipeline.manage') }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(within(section).getByRole('button', { name: t('memberEdit.save') })).toBeTruthy();
+    await waitFor(() => expect(section.querySelectorAll('[data-show^="stage:"]').length).toBeGreaterThan(0));
+    expect(within(section).getByRole('button', { name: t('settings.pipeline.addStage') })).toBeTruthy();
+    expect(within(section).getByRole('button', { name: t('settings.pipeline.addColumn') })).toBeTruthy();
+    expect(within(section).getByText(t('settings.pipeline.noEmptyColumns'))).toBeTruthy();
+    cleanup();
+
+    const viewer = mockProject();
+    viewer.render(<SettingsTestRoutes initialSection="pipeline" />, PIPELINE, member);
+    const memberSection = await pipelineSection();
+    await waitFor(() =>
+      expect(memberSection.querySelectorAll('[data-show^="stage:"]').length).toBeGreaterThan(0),
+    );
+    expect(within(memberSection).queryByRole('button', { name: t('settings.pipeline.addStage') })).toBeNull();
+    expect(
+      within(memberSection).queryByRole('button', { name: t('settings.pipeline.addColumn') }),
+    ).toBeNull();
   });
 });

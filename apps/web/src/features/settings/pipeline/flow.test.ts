@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultBoardColumnColor } from '@projectman/shared';
 import type { Pipeline, Stage } from '@projectman/shared';
-import { columnColor, columnRuns, emptyColumns } from './flow';
+import { columnColor, columnRuns, emptyColumns, orderColumns } from './flow';
 
 function stage(id: string, columnId: string): Stage {
   return { id, name: id, kind: 'work', owners: [], columnId };
@@ -38,6 +38,41 @@ describe('emptyColumns', () => {
   it('lists the columns no stage uses, in column order', () => {
     const empty = emptyColumns(pipeline([stage('a', 'y')], ['x', 'y', 'z']));
     expect(empty.map((column) => column.id)).toEqual(['x', 'z']);
+  });
+});
+
+describe('orderColumns', () => {
+  const ids = (value: Pipeline) => value.columns.map((column) => column.id);
+
+  it('puts an old, differently ordered pipeline into the order of its stages', () => {
+    const ordered = orderColumns(
+      pipeline([stage('a', 'x'), stage('b', 'y'), stage('c', 'z')], ['z', 'x', 'y']),
+    );
+    expect(ids(ordered)).toEqual(['x', 'y', 'z']);
+  });
+
+  it('orders a scattered column by its first stage', () => {
+    const ordered = orderColumns(pipeline([stage('a', 'y'), stage('b', 'x'), stage('c', 'y')], ['x', 'y']));
+    expect(ids(ordered)).toEqual(['y', 'x']);
+  });
+
+  it('keeps the columns with no stage at the end, in their current order', () => {
+    const ordered = orderColumns(pipeline([stage('a', 'y')], ['w', 'x', 'y', 'z']));
+    expect(ids(ordered)).toEqual(['y', 'w', 'x', 'z']);
+  });
+
+  it('keeps the columns of a pipeline that is in order', () => {
+    const base = pipeline([stage('a', 'x'), stage('b', 'y')], ['x', 'y', 'z']);
+    expect(orderColumns(base)).toEqual(base);
+  });
+
+  it('pins the colour a moved column showed, and leaves one that has its own', () => {
+    const base = pipeline([stage('a', 'y'), stage('b', 'x')], ['x', 'y']);
+    base.columns[1]!.color = 'teal';
+    const ordered = orderColumns(base);
+    expect(ids(ordered)).toEqual(['y', 'x']);
+    expect(ordered.columns[0]!.color).toBe('teal');
+    expect(ordered.columns[1]!.color).toBe(defaultBoardColumnColor(0));
   });
 });
 

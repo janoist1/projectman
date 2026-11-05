@@ -30,13 +30,29 @@ function setRole(backend: MockBackend, handle: string, role: 'lead_developer' | 
   if (member?.kind === 'ai') member.role = role;
 }
 
-/** A team with a lead developer (decides first) and, when asked, another technical member (plans). */
+/**
+ * A team with a lead developer (decides first) and, when asked, another technical member (plans). Without
+ * a lead the code reviewer is on leave, so no AI member decides.
+ */
 function backendWith({ lead = false, planner = false } = {}) {
   const backend = new MockBackend();
   backend.config.team.limits.maxFixRounds = 2;
   if (lead) setRole(backend, 'code-review', 'lead_developer');
+  else {
+    const reviewer = backend.config.team.members.find((member) => member.handle === 'code-review');
+    if (reviewer?.kind === 'ai') reviewer.onLeave = true;
+  }
   if (planner) setRole(backend, 'devops', 'architect');
   return backend;
+}
+
+/** The lead who decided first passes the held card on to the people. */
+function passToOwner(backend: MockBackend) {
+  backend.decideFixLimit('AC-21', 'to_owner', 'The plan itself is wrong.', {
+    recurrence: 'Same issue.',
+    currentState: 'Plan missing.',
+    recommendation: { optionId: 'replan', reason: 'Clarify the plan.' },
+  });
 }
 
 describe('the fix round limit in the fake backend', () => {
@@ -111,8 +127,9 @@ describe('the fix round limit in the fake backend', () => {
       { assignees: ['owner'], state: 'open', options: [{ id: 'reassign' }, { id: 'another_round' }] },
     ]);
 
-    const withPlanner = backendWith({ planner: true });
+    const withPlanner = backendWith({ lead: true, planner: true });
     changeRequests(withPlanner, 2);
+    passToOwner(withPlanner);
     expect(fixItems(withPlanner)[0]?.options.map((option) => option.id)).toEqual([
       'replan',
       'reassign',
@@ -332,8 +349,9 @@ describe('the decision of a held card in the inbox', () => {
   });
 
   it('gives the card to another developer with "Másik megvalósító"', async () => {
-    const project = mockProject(backendWith({ planner: true }));
+    const project = mockProject(backendWith({ lead: true, planner: true }));
     changeRequests(project.backend, 2);
+    passToOwner(project.backend);
     render(project);
     const card = (await screen.findByRole('heading', { name: t('inbox.fixLimit.heading') })).closest(
       'article',
@@ -345,8 +363,9 @@ describe('the decision of a held card in the inbox', () => {
   });
 
   it('asks the planner with "Pontosabb tervet kérek", and the card stays held until it decides', async () => {
-    const project = mockProject(backendWith({ planner: true }));
+    const project = mockProject(backendWith({ lead: true, planner: true }));
     changeRequests(project.backend, 2);
+    passToOwner(project.backend);
     render(project);
     const card = (await screen.findByRole('heading', { name: t('inbox.fixLimit.heading') })).closest(
       'article',

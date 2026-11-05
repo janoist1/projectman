@@ -1330,8 +1330,8 @@ stored as waiting and does not wake it (`Messaging.send` with `held`), and the h
 does not tell it; only people's messages pass, and a person's Start is "one more round". A decision that lets the card go on
 (`another_round`, `continue`) also starts an AI assignee that has no session (a stored message and a
 deferred wake-up when admission refuses, PM-420). When the card goes to
-another implementer (`reassign`) the waiting messages stay with the first one and do not wake it. Who decides: the lead developer first (an AI member who holds
-`technical_direction` and `code_review`, is not on leave and is not the assignee) with the MCP tool
+another implementer (`reassign`) the waiting messages stay with the first one and do not wake it. Who decides (decision 69): first the AI member who holds `code_review` (not on leave, not the assignee), and when there
+is none the AI member who holds `technical_direction`; a person only when neither exists. The decider uses the MCP tool
 `decide_fix_limit` (`continue`, `replan` to another `technical_direction` holder, or `to_owner` with a reason);
 the planner then lets it start with a fresh count (`fixLimitPlannerForOwner`: when a person asks for the plan,
 the planner is not the lead who passed the card on either; if none is left by then, it is one more round). The

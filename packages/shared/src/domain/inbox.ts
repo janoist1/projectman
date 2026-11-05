@@ -732,6 +732,31 @@ const QuestionScreeningQueue = z.object({
 });
 type QuestionScreeningQueue = z.infer<typeof QuestionScreeningQueue>;
 
+/**
+ * Why a screened question waits for the project manager instead of going to the people (PM-1249): the project
+ * manager cannot take it (`no_pm`, `ai_disabled`, `on_leave`, `paused`), the start of its session was deferred or
+ * refused (`start_deferred`, `start_refused`), or it did not settle the question in time (`timeout`).
+ */
+export const ScreeningWaitReason = z.enum([
+  'no_pm',
+  'ai_disabled',
+  'on_leave',
+  'paused',
+  'start_deferred',
+  'start_refused',
+  'timeout',
+]);
+export type ScreeningWaitReason = z.infer<typeof ScreeningWaitReason>;
+
+/** The question waits for the project manager's screening; the people are not asked (`wait_pm` route). */
+const QuestionScreeningWaiting = z.object({
+  /** ISO: when the question started to wait. */
+  since: z.string().datetime(),
+  reason: ScreeningWaitReason,
+  /** The ten minutes passed once: the project manager was given the question again and still has it. */
+  overdue: z.boolean().optional(),
+});
+
 /** `payload.screening` of a question: the Operator looks at it first (PM-556). */
 export const QuestionScreening = z.object({
   /**
@@ -741,6 +766,10 @@ export const QuestionScreening = z.object({
   until: z.string(),
   /** Present while the question waits for an offline machine; the fallback clock does not run (PM-708). */
   queue: QuestionScreeningQueue.optional(),
+  /** Present while the question waits for the project manager (PM-1249); it stays in screening. */
+  waiting: QuestionScreeningWaiting.optional(),
+  /** ISO: when the asking member was told once that its question waits for the screening. */
+  askerInformedAt: z.string().optional(),
   /** The Operator got it. */
   deliveredAt: z.string().optional(),
   outcome: ScreeningOutcome.optional(),

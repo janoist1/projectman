@@ -197,8 +197,9 @@ describe('question screening while the PM’s machine is offline', () => {
     expect(item(id).state).toBe('screening');
     advance(2 * MINUTE);
     await sweep();
-    expect(item(id).state).toBe('open');
-    expect(screeningOf(id)).toMatchObject({ fallback: 'timeout' });
+    // The time is up: the PM gets it once more, marked overdue; no person is asked (PM-1249).
+    expect(item(id).state).toBe('screening');
+    expect(screeningOf(id)?.waiting).toMatchObject({ reason: 'timeout', overdue: true });
   });
 
   it('freezes what is left of a delivered question when the machine goes away, and unfreezes it on return', async () => {
@@ -225,10 +226,11 @@ describe('question screening while the PM’s machine is offline', () => {
     expect(item(id).state).toBe('screening');
     advance(2 * MINUTE);
     await sweep();
-    expect(item(id).state).toBe('open');
+    expect(item(id).state).toBe('screening');
+    expect(screeningOf(id)?.waiting).toMatchObject({ reason: 'timeout', overdue: true });
   });
 
-  it('keeps a delivered question with no online evidence at zero, and sends it to the people on return', async () => {
+  it('keeps a delivered question with no online evidence at zero, and gives it to the PM once more on return', async () => {
     const id = await ask();
     // No engine record at all: nothing says when the machine was last online.
     await setOnline(false);
@@ -239,8 +241,8 @@ describe('question screening while the PM’s machine is offline', () => {
 
     await setOnline(true);
 
-    expect(item(id).state).toBe('open');
-    expect(screeningOf(id)).toMatchObject({ fallback: 'timeout' });
+    expect(item(id).state).toBe('screening');
+    expect(screeningOf(id)?.waiting).toMatchObject({ reason: 'timeout', overdue: true });
   });
 
   it('holds an old screening row that has no queue: undelivered keeps ten minutes, delivered counts from the last online moment', async () => {
@@ -314,7 +316,7 @@ describe('question screening while the PM’s machine is offline', () => {
     expect(skipped()).toEqual([]);
   });
 
-  it('still gives the question to the people at once when the PM cannot take it for another reason', async () => {
+  it('keeps the question waiting for the PM, not with a person, when the PM cannot take it for another reason', async () => {
     await setOnline(false);
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       draft.team.limits.aiEnabled = false;
@@ -322,9 +324,9 @@ describe('question screening while the PM’s machine is offline', () => {
     });
     const id = await ask();
 
-    expect(item(id).state).toBe('open');
-    expect(screeningOf(id)).toMatchObject({ fallback: 'unavailable' });
-    expect(skipped()).toHaveLength(1);
+    expect(item(id).state).toBe('screening');
+    expect(screeningOf(id)?.waiting).toMatchObject({ reason: 'ai_disabled' });
+    expect(skipped()).toHaveLength(0);
   });
 
   it('holds the question, and does not release it, when the first input fails because the machine dropped', async () => {
@@ -454,7 +456,7 @@ describe('question screening while the PM’s machine is offline', () => {
     });
   });
 
-  it('releases a question whose record cannot be read instead of holding it unseen', async () => {
+  it('releases a question whose record cannot be read to the owners as a protected one instead of holding it unseen', async () => {
     await setOnline(false);
     const broken = h.domain.inbox.create({
       projectKey: 'AR',
@@ -496,7 +498,8 @@ describe('question screening while the PM’s machine is offline', () => {
     expect(screeningOf(group.primaryItemId)?.until).toBe(new Date(now.getTime() + 8 * MINUTE).toISOString());
     advance(8 * MINUTE + 1);
     await sweep();
-    expect(humanQueue().map((item) => item.id)).toEqual([group.primaryItemId]);
+    expect(humanQueue()).toHaveLength(0);
+    expect(screeningOf(group.primaryItemId)?.waiting?.overdue).toBe(true);
     expect(h.repos.inbox.get(group.linkedItemIds[0]!)!.state).toBe('screening');
   });
 

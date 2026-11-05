@@ -281,8 +281,9 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   `todo` accepts `owner_topic` but does not record it, and its `recipient` is optional and not decisive
   (PM-1243: the integrator gets it when one can take it). `ask_human` with the `signal_id` of an `unreleased`,
   `structural_pattern` or `milestone_closed` signal answers `signal_not_for_owner`. `ask_human` takes `owner_topic` only
-  for the PM's own question and a re-ask (`owner_topic_not_allowed` otherwise), which need it unless they are
-  information or an approval; the external bearer `ask_human` has no such field. Optional `feedback_id` is accepted only for
+  for the PM's own question, a re-ask and a question nobody screens (no PM, or the screening is off; PM-1249;
+  `owner_topic_not_allowed` otherwise), which need it unless they are information or an approval (a question
+  nobody screens may ask `recipient: integrator` instead and becomes an integrator todo); the external bearer `ask_human` has no such field. Optional `feedback_id` is accepted only for
   `todo` and must identify existing system feedback in the same project (`invalid_outcome_fields` otherwise).
   The reference is stored atomically in the screening payload and `question_screened` event. Recording failure
   must not delay a todo or its fallback: omit the reference in that case. Handler method: `screenQuestion(ctx, { itemId,

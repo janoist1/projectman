@@ -301,6 +301,20 @@ export class MemberQueue {
   }
 
   /**
+   * The PM got the question once and did not settle it in time (PM-1249): its delivered screening item goes
+   * back to the queue without a try counted, so the PM is given the question once more.
+   */
+  redeliverScreening(item: InboxItem): void {
+    const repo = this.ctx.repos.memberQueue;
+    const touched: StoredMemberQueueItem[] = [];
+    for (const open of repo.listOpenOfSource(item.projectKey, { type: 'inbox', id: item.id })) {
+      if (open.kind === 'screening' && open.state === 'processing' && repo.release(open.id))
+        touched.push(open);
+    }
+    this.changed(touched);
+  }
+
+  /**
    * The decision lane's items of a permission request (PM-926): a row per AI decider while the decider still
    * has it to decide, closed when anything ends that. The deciding member's row is done, the other deciders'
    * are cancelled, and every row is handed off when the request went to a person.

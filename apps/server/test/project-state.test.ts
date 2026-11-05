@@ -263,7 +263,7 @@ describe('project state from server records', () => {
     await flush();
     const question = await h.domain.teamTools.askHuman(
       { ...pm, member: 'dev-1', taskKey: 'AR-1', sessionId: session.id },
-      { question: 'Which checkout?', taskKey: 'AR-1', to: ['owner'] },
+      { question: 'Which checkout?', taskKey: 'AR-1', to: ['owner'], ownerTopic: 'cost' },
     );
     const state = await report();
     expect(state.openQuestions).toEqual([

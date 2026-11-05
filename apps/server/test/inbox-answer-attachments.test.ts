@@ -31,7 +31,7 @@ describe('attachments in answers to inbox questions', () => {
         taskKey: 'AR-1',
         sessionId,
       },
-      { question: 'Which layout?', options: ['First', 'Second'] },
+      { question: 'Which layout?', options: ['First', 'Second'], ownerTopic: 'cost' },
     );
   const put = () =>
     h.domain.messageAttachments.upload({

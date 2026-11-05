@@ -67,6 +67,7 @@ describe('ask_human through the MCP endpoint and the inbox API', () => {
       recommended: 'Under the field',
       recommendation_reason: 'It is easier to read on a phone.',
       details,
+      owner_topic: 'cost',
     });
 
     expect(asked.isError).toBe(false);
@@ -102,6 +103,7 @@ describe('ask_human through the MCP endpoint and the inbox API', () => {
       recommended: 'option_1',
       recommendationReason: 'It is easier to read on a phone.',
       details,
+      ownerTopic: 'cost',
     });
 
     const resolved = await inject(h.app, 'POST', routes.resolveInbox('AR', item!.id), cookie, {
@@ -131,7 +133,7 @@ describe('ask_human through the MCP endpoint and the inbox API', () => {
     const question =
       `Should we change how the login page talks to the server? ${'It is complicated. '.repeat(20)}`.trim();
 
-    const asked = await askHuman({ question, options: ['Yes', 'No'] });
+    const asked = await askHuman({ question, options: ['Yes', 'No'], owner_topic: 'cost' });
 
     expect(asked.isError).toBe(false);
     expect(asked.text).toContain('Consider moving detail into details.');
@@ -144,6 +146,7 @@ describe('ask_human through the MCP endpoint and the inbox API', () => {
       requestedRecipient: 'owner',
       recipient: 'owner',
       options: ['Yes', 'No'],
+      ownerTopic: 'cost',
     });
     expect(item!.options.map((o) => o.consequence)).toEqual([undefined, undefined, undefined]);
   });

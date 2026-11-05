@@ -3,12 +3,18 @@ import {
   isOnLeave,
   isWorkPaused,
   coordinationMemberOf,
+  projectManagerOf,
   questionPayloadOf,
   screeningDeadline,
   screeningFrozenRemainingMs,
   technicalDeciderOf,
 } from '@projectman/shared';
-import type { InboxItem, ProjectConfig, QuestionScreening as ScreeningRecord } from '@projectman/shared';
+import type {
+  InboxItem,
+  ProjectConfig,
+  QuestionScreening as ScreeningRecord,
+  ScreeningWaitReason,
+} from '@projectman/shared';
 import type { ScreeningEngineState } from './ports';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
@@ -52,9 +58,11 @@ export class QuestionScreening {
     projects: ProjectService;
     inbox: InboxService;
     /** The member queue keeps the PM's item of each screened question true (a PM that changed gets the item). */
-    queue: Pick<MemberQueue, 'syncInbox'>;
+    queue: Pick<MemberQueue, 'syncInbox' | 'redeliverScreening'>;
     /** Works the member's queue (the driver's `ensure`): the PM takes the questions it has not got. */
     wake: (projectKey: string, member: string) => Promise<void>;
+    /** Tells the asking member, once per question, that its question waits for the PM (an info message). */
+    notifyAsker: (item: InboxItem, text: string) => Promise<void>;
     /** Whether the PM's machine is reachable (PM-708). */
     engine: ScreeningEngineState;
     /** False: no question is screened (tests that are not about screening). */
@@ -71,28 +79,34 @@ export class QuestionScreening {
   }
 
   /**
-   * Whether the PM cannot take questions now: nobody to ask, AI work off, on leave, or the team paused.
-   * The same rule the fallback uses; `ask_human` waits for the release only when this holds.
+   * Why the PM cannot take questions now: nobody to ask, AI work off, on leave, or the team paused; null when it
+   * can. The same rule the fallback uses; `ask_human` waits for the release only when this holds.
    */
+  cannotScreenReason(projectKey: string, config: ProjectConfig): ScreeningWaitReason | null {
+    // A project manager on leave still is the project's: its questions wait for it (PM-1249), they are not unscreened.
+    const operator = projectManagerOf(config);
+    if (!operator) return 'no_pm';
+    if (!config.team.limits.aiEnabled) return 'ai_disabled';
+    if (isOnLeave(operator)) return 'on_leave';
+    if (isWorkPaused(this.deps.ctx.repos.pauses.open(), projectKey)) return 'paused';
+    return null;
+  }
+
   cannotScreen(projectKey: string, config: ProjectConfig): boolean {
-    const operator = coordinationMemberOf(config);
-    return (
-      !operator ||
-      !config.team.limits.aiEnabled ||
-      isOnLeave(operator) ||
-      isWorkPaused(this.deps.ctx.repos.pauses.open(), projectKey)
-    );
+    return this.cannotScreenReason(projectKey, config) !== null;
   }
 
   /**
-   * A question was put into screening: the PM is woken for what it has not got, or the people get the
-   * questions at once when it cannot take them.
+   * A question was put into screening: the PM is woken for what it has not got. When the PM cannot take it,
+   * the question is skipped to its fallback at once (PM-1249): an approval opens for the owners, a requested
+   * integrator gets it as a todo, anything else waits for the PM, which takes it when it is back.
    */
   async enqueue(projectKey: string): Promise<void> {
     const undelivered = this.undelivered(projectKey);
     if (!undelivered.length) return;
-    if (await this.unavailable(projectKey)) {
-      await this.releaseAll(projectKey);
+    const reason = this.cannotScreenReason(projectKey, await this.deps.projects.config(projectKey));
+    if (reason) {
+      await this.releaseAll(projectKey, reason);
       return;
     }
     // The PM's machine is away: the questions wait for it, held with their time; its return wakes this again.
@@ -115,16 +129,18 @@ export class QuestionScreening {
       const now = isoNow(ctx);
       for (const item of this.screening(key)) {
         const screening = questionPayloadOf(item)?.screening;
-        // A record that cannot be read is no time left: it goes to the people, never waits unseen.
+        // A record that cannot be read is no time left: it takes the fallback, never waits unseen. A question
+        // that is already overdue was given to the PM once more (PM-1249) and is never released by time again.
         const timeout =
           !screening ||
-          screeningDeadline({
-            until: screening.until,
-            deliveredAt: screening.deliveredAt ?? null,
-            queue: screening.queue ?? null,
-            now,
-            engineOnline: online,
-          }).timeout;
+          (!screening.waiting?.overdue &&
+            screeningDeadline({
+              until: screening.until,
+              deliveredAt: screening.deliveredAt ?? null,
+              queue: screening.queue ?? null,
+              now,
+              engineOnline: online,
+            }).timeout);
         if (timeout) await this.release(item.id, 'timeout');
       }
       await this.enqueue(key);
@@ -169,7 +185,9 @@ export class QuestionScreening {
       if (group && group.primaryItemId !== current.id) return;
       // The PM got it once: a repeated delivery (a requeued item) does not give it more time.
       if (questionPayloadOf(current)?.screening?.deliveredAt) return;
-      const screening = (current.payload.screening ?? {}) as Record<string, unknown>;
+      const { waiting, ...screening } = (current.payload.screening ?? {}) as Record<string, unknown> & {
+        waiting?: ScreeningRecord['waiting'];
+      };
       const held = questionPayloadOf(current)?.screening?.queue;
       ctx.repos.inbox.updatePayload(
         current.id,
@@ -177,6 +195,8 @@ export class QuestionScreening {
           ...current.payload,
           screening: {
             ...screening,
+            // The PM has it: the wait is over, except the overdue mark of a question it did not settle in time.
+            ...(waiting?.overdue ? { waiting } : {}),
             deliveredAt: at,
             until: new Date(Date.parse(at) + (held?.remainingMs ?? QUESTION_SCREENING_MS)).toISOString(),
           },
@@ -192,9 +212,16 @@ export class QuestionScreening {
     this.applyEngineState(projectKey, true);
   }
 
-  /** The people get the question now: the PM cannot take it. */
-  releaseUnavailable(inboxItemId: string): Promise<void> {
-    return this.release(inboxItemId, 'unavailable');
+  /**
+   * A start for the PM was deferred or refused (PM-1249): the question waits for it and the queue retries. Only
+   * an approval or a requested integrator leaves screening. The cause the PM cannot take it for (leave, AI off,
+   * pause) is recorded rather than the start verdict. Returns whether the question still waits.
+   */
+  holdForPm(inboxItemId: string, reason: 'start_deferred' | 'start_refused'): Promise<boolean> {
+    const item = this.deps.ctx.repos.inbox.get(inboxItemId);
+    const config = item && this.deps.projects.cachedConfig(item.projectKey);
+    const cause = item && config ? this.cannotScreenReason(item.projectKey, config) : null;
+    return this.release(inboxItemId, 'unavailable', cause ?? reason);
   }
 
   private screening(projectKey: string): InboxItem[] {
@@ -280,19 +307,63 @@ export class QuestionScreening {
     });
   }
 
-  private async release(inboxItemId: string, fallback: 'timeout' | 'unavailable'): Promise<void> {
-    await this.deps.inbox.releaseScreened(inboxItemId, { fallback }).catch((err: unknown) => {
-      this.deps.ctx.logger.warn({ err, inboxItemId }, 'could not release a screened question');
+  /**
+   * Skips the screening of a question (PM-1249). Returns whether the question stays in screening, waiting for
+   * the PM: the asker is told once, and a timeout gives the PM the question once more.
+   */
+  private async release(
+    inboxItemId: string,
+    fallback: 'timeout' | 'unavailable',
+    waitReason?: ScreeningWaitReason,
+  ): Promise<boolean> {
+    const item = await this.deps.inbox
+      .releaseScreened(inboxItemId, { fallback, ...(waitReason ? { waitReason } : {}) })
+      .catch((err: unknown) => {
+        this.deps.ctx.logger.warn({ err, inboxItemId }, 'could not release a screened question');
+        return null;
+      });
+    const waiting = item?.state === 'screening' ? questionPayloadOf(item)?.screening?.waiting : undefined;
+    if (!item || !waiting) return false;
+    await this.informAsker(item, waiting.reason);
+    if (fallback === 'timeout') {
+      this.deps.queue.redeliverScreening(item);
+      const pm = coordinationMemberOf(await this.deps.projects.config(item.projectKey));
+      if (pm) await this.deps.wake(item.projectKey, pm.handle);
+    }
+    return true;
+  }
+
+  /** The asking member learns once per question that it waits for the PM's screening, and why. */
+  private async informAsker(item: InboxItem, reason: ScreeningWaitReason): Promise<void> {
+    if (questionPayloadOf(item)?.screening?.askerInformedAt) return;
+    this.writeScreening(item, { askerInformedAt: isoNow(this.deps.ctx) }, isoNow(this.deps.ctx));
+    await this.deps.notifyAsker(item, waitingNotice(reason)).catch((err: unknown) => {
+      this.deps.ctx.logger.warn({ err, id: item.id }, 'could not tell the asker its question waits');
     });
   }
 
-  private async releaseAll(projectKey: string): Promise<void> {
-    for (const item of this.screening(projectKey)) await this.release(item.id, 'unavailable');
+  private async releaseAll(projectKey: string, reason: ScreeningWaitReason): Promise<void> {
+    for (const item of this.screening(projectKey)) await this.release(item.id, 'unavailable', reason);
   }
+}
 
-  private async unavailable(projectKey: string): Promise<boolean> {
-    return this.cannotScreen(projectKey, await this.deps.projects.config(projectKey));
-  }
+const WAIT_REASONS: Record<ScreeningWaitReason, string> = {
+  no_pm: 'the project has no project manager',
+  ai_disabled: 'AI work is switched off',
+  on_leave: 'the project manager is on leave',
+  paused: 'the team is paused',
+  start_deferred: 'the project manager cannot be started right now (a limit, a pause or a login)',
+  start_refused: 'the project manager could not be started',
+  timeout: 'the project manager did not settle it in time',
+};
+
+/** What the asking member is told: the question was not sent to a person, and it waits for the PM's screening. */
+function waitingNotice(reason: ScreeningWaitReason): string {
+  return (
+    `Your question is not lost and did not go to a person: it waits for the project manager's screening, ` +
+    `because ${WAIT_REASONS[reason]}. It is delivered when the project manager can take it. ` +
+    'If this blocks you, carry on with what does not depend on the answer.'
+  );
 }
 
 /** One question as the PM's notice carries it. */

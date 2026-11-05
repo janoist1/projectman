@@ -59,7 +59,7 @@ describe('notices to the members working on a card', () => {
   async function ask(session: Session, question: string, taskKey?: string) {
     const { inboxItemId } = await h.domain.teamTools.askHuman(
       { sessionId: session.id, projectKey: 'AR', member: session.member, taskKey: taskKey ?? 'AR-1' },
-      { question },
+      { question, ownerTopic: 'cost' },
     );
     return inboxItemId;
   }
@@ -316,7 +316,7 @@ describe('notices to the members working on a card', () => {
       const { dev1, dev2 } = await threeWorkers();
       const general = await h.domain.teamTools.askHuman(
         { sessionId: dev1.id, projectKey: 'AR', member: 'dev-1', taskKey: null },
-        { question: 'Is the office open?' },
+        { question: 'Is the office open?', ownerTopic: 'cost' },
       );
       await h.domain.inbox.resolve(
         'AR',

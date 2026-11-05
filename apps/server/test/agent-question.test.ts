@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { InboxItem } from '@projectman/shared';
+import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import { AgentQuestions, agentQuestionsOf } from '../src/core/inbox';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -11,6 +11,12 @@ import { flush } from './helpers/fakes';
  */
 
 const task = { type: 'task' as const, taskKey: 'AR-1' };
+
+/** The project manager is on duty, so the terminal questions are screened and need no owner topic. */
+function withPmOnDuty(config: ProjectConfig): void {
+  const pm = config.team.members.find((m) => m.handle === 'pm');
+  if (pm?.kind === 'ai') pm.onLeave = false;
+}
 const toolInput = {
   questions: [
     {
@@ -76,7 +82,7 @@ describe('a question at the terminal of an AI member', () => {
   let h: DomainHarness;
 
   beforeEach(async () => {
-    h = await createDomainHarness();
+    h = await createDomainHarness({ screenQuestions: true, adjust: withPmOnDuty });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
   });
   afterEach(() => h.cleanup());
@@ -95,8 +101,15 @@ describe('a question at the terminal of an AI member', () => {
       }),
     ).resolves.toBe(true);
 
-    const [item, ...more] = questions();
+    const [screening, ...more] = questions();
     expect(more).toEqual([]);
+    // Nobody can name an owner topic at a terminal: the project manager screens it, here as a decision.
+    await h.domain.inbox.releaseScreened(screening!.id, {
+      outcome: 'decision',
+      by: 'pm',
+      ownerTopic: 'cost',
+    });
+    const [item] = questions();
     expect(item).toMatchObject({
       kind: 'question',
       state: 'open',
@@ -160,7 +173,7 @@ describe('a session that waits for input unseen', () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-01T12:00:00.000Z'));
-    h = await createDomainHarness({ inputStallMs: STALL_MS });
+    h = await createDomainHarness({ inputStallMs: STALL_MS, screenQuestions: true, adjust: withPmOnDuty });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
   });
   afterEach(async () => {

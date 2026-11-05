@@ -67,6 +67,7 @@ describe('files on an ask_human question', () => {
   const ask = (attachmentIds?: string[], extra: { taskKey?: string; to?: string[] } = {}) =>
     h.domain.teamTools.askHuman(dev, {
       question: 'Which of these?',
+      ownerTopic: 'cost',
       ...(attachmentIds ? { attachmentIds } : {}),
       ...extra,
     });
@@ -124,7 +125,11 @@ describe('files on an ask_human question', () => {
       const shot = await upload('AR-2', 'shot.png');
       const general: ToolContext = { ...dev, taskKey: null };
       const error = await refusal(
-        h.domain.teamTools.askHuman(general, { question: 'Which?', attachmentIds: [shot.id] }),
+        h.domain.teamTools.askHuman(general, {
+          question: 'Which?',
+          attachmentIds: [shot.id],
+          ownerTopic: 'cost',
+        }),
       );
       expect(error).toEqual({
         code: 'invalid',
@@ -170,7 +175,11 @@ describe('files on an ask_human question', () => {
       // A card without a parent gets the shorter text.
       const alone = { ...dev, taskKey: 'AR-3' };
       const noParent = await refusal(
-        h.domain.teamTools.askHuman(alone, { question: 'Which?', attachmentIds: ['att_unknown00001'] }),
+        h.domain.teamTools.askHuman(alone, {
+          question: 'Which?',
+          attachmentIds: ['att_unknown00001'],
+          ownerTopic: 'cost',
+        }),
       );
       expect(noParent.message).toBe(
         'attachment_unknown: att_unknown00001 is not a file of AR-3; list_attachments gives the ids.',

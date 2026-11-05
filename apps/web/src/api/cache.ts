@@ -5,6 +5,7 @@ import type {
   ChatItem,
   ConfigHistoryView,
   EngineStatusResponse,
+  InboxItem,
   InboxView,
   Me,
   MemberProfile,
@@ -17,6 +18,7 @@ import type {
 } from '@projectman/shared';
 import {
   hasBoundOrigin,
+  waitingForOthers,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   PROJECT_MANAGER_ROLE,
@@ -25,6 +27,15 @@ import {
 import { openItemsFor } from '../lib/inbox';
 import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
+
+/**
+ * The inbox view with an item replaced or added. The owner's summary of what waits for others (PM-1252) is
+ * worked out again from the new list, with the rule the server uses, so it never lags behind the items.
+ */
+export function upsertInboxView(view: InboxView, item: InboxItem): InboxView {
+  const items = upsertBy(view.items, item, (entry) => entry.id);
+  return { ...view, items, ...(view.waiting ? { waiting: waitingForOthers(items) } : {}) };
+}
 
 /** Replaces the item with the same id, or appends it. Returns the same array when unchanged. */
 export function upsertBy<T>(list: readonly T[], item: T, id: (value: T) => string): T[] {
@@ -321,7 +332,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'inbox_upserted': {
       const { projectKey: key, item } = event;
       const inbox = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
-        view ? { items: upsertBy(view.items, item, (entry) => entry.id) } : view,
+        view ? upsertInboxView(view, item) : view,
       );
       patchOpenInboxCount(client, key, inbox);
       // A closed item joins the history that is on screen; an open one is not part of it.

@@ -1,0 +1,156 @@
+.band {
+  box-sizing: border-box;
+  margin: 0 0 12px;
+  padding: 0 18px;
+  border-radius: var(--radius-2xl);
+  background: var(--c-subtle);
+  border: 1px solid var(--c-line-soft);
+}
+
+.fold {
+  min-width: 0;
+}
+
+.summary,
+.plain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 44px;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.icon {
+  flex: none;
+  color: var(--c-ink-4);
+}
+
+.sentence {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.late {
+  font-weight: 700;
+  color: var(--c-needs-text);
+}
+
+.cue {
+  flex: none;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--c-ink-2);
+}
+
+.cueClose,
+.fold[open] .cueOpen {
+  display: none;
+}
+
+.fold[open] .cueClose {
+  display: inline;
+}
+
+.lead {
+  margin: 0 0 4px;
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--c-line-soft);
+  transition: opacity 160ms ease;
+}
+
+.leaving {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item {
+    transition: none;
+  }
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
+.key {
+  font-family: var(--font-mono);
+  color: var(--c-ink-2);
+}
+
+.subject {
+  font-size: 13.5px;
+  color: var(--c-ink);
+  overflow-wrap: anywhere;
+}
+
+.note {
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+  overflow-wrap: anywhere;
+}
+
+.failure {
+  font-size: var(--text-xs);
+  color: var(--c-needs-text);
+}
+
+.pull {
+  flex: none;
+}
+
+@media (max-width: 640px) {
+  .item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pull {
+    width: 100%;
+    min-height: 44px;
+  }
+}

@@ -47,6 +47,7 @@ export * from './domain/inbox';
 export * from './domain/item-route';
 export * from './domain/system-notice';
 export * from './domain/owner-questions';
+export * from './domain/waiting-for-others';
 export * from './domain/loop-watch';
 export * from './domain/fix-extra-rounds';
 export * from './domain/fix-limit';

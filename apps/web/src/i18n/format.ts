@@ -121,6 +121,15 @@ export function formatAgo(value: string | Date, now: Date = new Date()): string 
   return formatStamp(value, now);
 }
 
+/** How long something has waited: "12 perce", "5 órája", "2 napja" (never "most": a wait is at least a minute). */
+export function formatWaitAge(value: string | Date, now: Date = new Date()): string {
+  const minutes = Math.max(1, Math.floor((now.getTime() - toDate(value).getTime()) / 60_000));
+  if (minutes < 60) return t('time.minutesAgo', { count: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t('time.hoursAgo', { count: hours });
+  return t('time.daysAgo', { count: Math.floor(hours / 24) });
+}
+
 /** A running clock: "0:07", "5:00", "12:03" (minutes unbounded); a negative span reads "0:00". */
 export function formatClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));

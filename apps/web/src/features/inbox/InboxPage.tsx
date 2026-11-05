@@ -63,6 +63,7 @@ import { moveErrorText } from '../board/moveTask';
 import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
 import { InboxCard } from './InboxCard';
 import { OperatorTrail } from './OperatorTrail';
+import { WaitingBand } from './WaitingBand';
 import { FoldedCommand } from './PermissionParts';
 import { QuestionSources } from './QuestionSources';
 import { ReleaseSubject } from './ReleaseInbox';
@@ -533,6 +534,16 @@ export function InboxPage() {
             ]}
           />
         )}
+        {isOwner ? (
+          <WaitingBand
+            projectKey={key}
+            waiting={inbox.data?.waiting}
+            items={items ?? []}
+            members={members}
+            myHandle={myHandle}
+            taskHrefOf={taskHrefOf}
+          />
+        ) : null}
         <div className={styles.list}>
           {grouped ? (
             <>

@@ -158,6 +158,39 @@ describe('weeklyOwnerQuestions', () => {
     expect(week).toMatchObject({ total: 0, integratorTodos: 1 });
   });
 
+  describe('everything that reached the owner (PM-1252)', () => {
+    const routed = (to: string, reason: string, overrides: Partial<InboxItem> = {}) =>
+      question({
+        route: { kind: 'unscreened_question', requested: null, to, reason } as never,
+        ...overrides,
+      });
+
+    it('counts the routed items by reason, the non-decisions apart, the owner side not among them', () => {
+      const week = report([
+        routed('owner_inbox', 'owner_topic'),
+        routed('owner_inbox', 'approval'),
+        routed('owner_inbox', 'no_integrator'),
+        routed('owner_side', 'owner_side'),
+        routed('integrator_queue', 'machine_work'),
+      ]).weeks[0]!;
+
+      expect(week.ownerItems).toEqual({
+        total: 4,
+        nonDecisions: 1,
+        byReason: { owner_topic: 1, approval: 1, no_integrator: 1, owner_side: 1 },
+      });
+    });
+
+    it('estimates an old item without a route from where its question goes today', () => {
+      const decided = question({}, { ownerTopic: 'cost' });
+      const undecided = question({}, {});
+
+      const { ownerItems } = report([decided, undecided]).weeks[0]!;
+
+      expect(ownerItems).toEqual({ total: 2, nonDecisions: 1, byReason: { estimated: 2 } });
+    });
+  });
+
   it('leaves out what falls outside the weeks', () => {
     const { weeks } = report([question({ createdAt: '2026-10-11T08:00:00.000Z' })], 2);
     expect(weeks.map((week) => week.total)).toEqual([0, 0]);

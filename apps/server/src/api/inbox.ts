@@ -10,13 +10,14 @@ import {
   routes,
   visibleQuestionItem,
   isLinkedQuestion,
+  waitingForOthers,
 } from '@projectman/shared';
 import type { InboxItem, InboxView, ScreenedQuestionsResponse } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
 import { parseBody } from '../http';
-import { notFound } from '../kernel';
+import { forbidden, notFound } from '../kernel';
 import { relayOwnerAnswer, resolveIntegratorFixLimit } from '../services/super-operator';
 
 type ProjectParams = { Params: { key: string } };
@@ -73,7 +74,29 @@ export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): vo
       .filter((item) => canSeeInboxItem(access, item) && (!mine || humanInboxAssignment(item, access.handle)))
       .filter((item) => keepLinked || !isLinkedQuestion(item))
       .map((item) => visibleQuestionItem(access, item, (taskKey) => !!domain.tasks.find(key, taskKey)));
-    return { items: await domain.inbox.withAskerStart(key, items) };
+    // What waits for others is the owner's summary (PM-1252): a separate read unless the list already holds it.
+    const waiting =
+      access.access === 'owner' && !access.via
+        ? waitingForOthers(
+            requested === 'active' && !mine && !query.kind && limit === undefined
+              ? items
+              : domain.inbox
+                  .list(key, { state: ACTIVE_STATES })
+                  .filter((item) => canSeeInboxItem(access, item)),
+          )
+        : undefined;
+    return { items: await domain.inbox.withAskerStart(key, items), ...(waiting ? { waiting } : {}) };
+  });
+
+  /** An owner takes a question that waits for the project manager into their own inbox (PM-1252). */
+  app.post<ItemParams>(routes.pullWaitingQuestion(':key', ':itemId'), async (request) => {
+    const { key, itemId } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+    if (access.via)
+      throw forbidden('insufficient_access', 'only an owner using their own login may take a question');
+    if (!canSeeInboxItem(access, domain.inbox.get(key, itemId))) throw notFound('inbox item', itemId);
+    const item = await domain.inbox.pullWaiting(itemId, access.handle);
+    return { item: visibleQuestionItem(access, item, (taskKey) => !!domain.tasks.find(key, taskKey)) };
   });
 
   /** The questions the Operator screened (PM-558): a look for the owners and admins, who can see all of them. */

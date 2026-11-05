@@ -96,6 +96,8 @@ describe('the weekly question measure (PM-1192)', () => {
     expect(counts(current)).toEqual([
       `${t('operator.weekly.total')}: 2`,
       `${t('operator.weekly.viaIntegrator')}: 1`,
+      // Old rows without a recorded route are estimated: only the one without an owner topic is no decision.
+      `${t('operator.weekly.nonDecisions')}: 1`,
     ]);
     expect(screen.queryByRole('textbox', { name: t('operator.composer.label') })).toBeNull();
 
@@ -127,6 +129,31 @@ describe('the weekly question measure (PM-1192)', () => {
     await composer();
     expect(screen.queryByRole('button', { name: new RegExp(`^${t('operator.weekly.entry')}`) })).toBeNull();
     expect(loads(project)).toBe(0);
+  });
+
+  it('shows everything that reached the owner by reason, the owner side apart, and the non-decisions', async () => {
+    const route = (to: string, reason: string) =>
+      ({ kind: 'unscreened_question', requested: null, to, reason }) as InboxItem['route'];
+    setup([
+      question('q-1', {}, { route: route('owner_inbox', 'owner_topic') }),
+      question('q-2', {}, { route: route('owner_inbox', 'no_integrator') }),
+      question('q-3', {}, { route: route('owner_inbox', 'no_integrator') }),
+      question('q-4', {}, { route: route('owner_side', 'owner_side') }),
+    ]);
+    fireEvent.click(await entry());
+    const current = (await screen.findByText(t('operator.weekly.current'))).closest('summary')!;
+    fireEvent.click(current);
+    const week = within(current.closest('details')!);
+
+    expect(week.getByText(t('operator.weekly.ownerItems.title'))).toBeTruthy();
+    const row = (label: string) => week.getByText(label).closest('div')!.querySelector('dd')!.textContent;
+    expect(row(t('operator.weekly.reasons.no_integrator'))).toBe('2');
+    expect(row(t('operator.weekly.reasons.owner_topic'))).toBe('1');
+    // The owner side is a row of its own, not a reason in the breakdown: its name stands once.
+    expect(week.getAllByText(t('operator.weekly.ownerItems.ownerSide'))).toHaveLength(1);
+    expect(week.getByText(t('operator.weekly.ownerItems.ownerSide')).closest('p')!.textContent).toContain(
+      '1',
+    );
   });
 
   it('shows eight zero weeks with the first-use note, and a zero week only says so', async () => {

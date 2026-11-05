@@ -277,7 +277,12 @@ timer and a startup sweep) the question is given to the project manager once mor
 released by time. `screen_question` answers `question_not_screening` only for a question that left screening, except `moot`. An asker may ask a settled question again with
 `ask_human` `reask_of` and `reask_reason`, once per question; the new question is `open` and carries
 `payload.unscreened`. `GET /api/projects/:key/inbox/screened?since=` (owner, admin) lists the latest 20 screened
-questions and the count of today's.
+questions and the count of today's. The owner's `GET /api/projects/:key/inbox?state=active` also returns `waiting`
+(`waitingForOthers`, `packages/shared`): how many questions wait for the screening and how many integrator todos are
+open, with the oldest time of each; it is a summary, never an item, and it is counted nowhere. `POST
+/api/projects/:key/inbox/:itemId/pull` (owner's own login only) takes a question that waits for the project manager
+(`payload.screening.waiting`) over: it opens to the owner by the `owner_pulled` route and leaves an `item_routed`
+trace; a question that no longer waits answers `question_not_screening` (409).
 
 Machine-dependent parts (the engine-side git of a document write, `merge.read_file`, `merge.commit_files`): see the
 [machine-dependent inventory](../MACHINE-DEPENDENT.md).

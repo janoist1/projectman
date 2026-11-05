@@ -2287,6 +2287,40 @@ export class InboxService {
   }
 
   /**
+   * An owner takes a question that waits for the project manager (PM-1252, the `owner_pulled` route): it opens
+   * for the owners as their own decision, without waiting for the screening. Refused (`question_not_screening`)
+   * when the question does not wait any more: it was screened, answered or closed meanwhile.
+   */
+  pullWaiting(id: string, by: string): Promise<InboxItem> {
+    return this.questionLock(id, async () => {
+      const current = this.ctx.repos.inbox.get(id);
+      const waiting =
+        current?.kind === 'question' && current.state === 'screening'
+          ? questionPayloadOf(current)?.screening?.waiting
+          : null;
+      if (!current || !waiting)
+        throw conflict('question_not_screening', 'the question does not wait for the project manager');
+      const config = await this.projects.config(current.projectKey);
+      const at = isoNow(this.ctx);
+      const applied = this.applyRoute(config, { kind: 'owner_pulled' });
+      const payload = withScreening(
+        { ...current.payload, recipient: 'owner' satisfies QuestionRecipient },
+        { at, outcome: 'decision', by },
+        at,
+      );
+      const released = this.ctx.unitOfWork(() => {
+        if (!this.ctx.repos.inbox.release(id, { payload, options: current.options, at })) return null;
+        this.recordRoute(current, applied);
+        return this.ctx.repos.inbox.get(id);
+      });
+      if (!released)
+        throw conflict('question_not_screening', 'the question does not wait for the project manager');
+      this.publish(released);
+      return released;
+    });
+  }
+
+  /**
    * The Operator settles a question it screens with no person involved (PM-558): `answered` and `forwarded`
    * resolve it (`operator_answered`, `operator_forwarded`), `moot` closes it (`operator_moot`). `deliver`
    * carries the answer or the forward to the asking member or to the recipient: it calls `close` inside the

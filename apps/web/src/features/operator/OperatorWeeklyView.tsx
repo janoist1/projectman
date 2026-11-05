@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import {
   APPROVAL_OWNER_TOPIC,
@@ -5,7 +6,7 @@ import {
   UNKNOWN_OWNER_TOPIC,
   ownerDecisionTopicsOf,
 } from '@projectman/shared';
-import type { OwnerQuestionWeek, OwnerTopic, ProjectConfig } from '@projectman/shared';
+import type { OwnerItemsWeek, OwnerQuestionWeek, OwnerTopic, ProjectConfig } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { useConfig } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -25,9 +26,9 @@ function topicLabel(id: string, config: Pick<ProjectConfig, 'team'> | undefined)
 }
 
 /** A number in the week's row, named for a screen reader by the column it stands under. */
-function Count({ label, count }: { label: string; count: number }) {
+function Count({ label, count, warn }: { label: string; count: number; warn?: boolean }) {
   return (
-    <span className={styles.count}>
+    <span className={clsx(styles.count, warn && count > 0 && styles.warn)}>
       <span className="visually-hidden">{label}: </span>
       {count}
     </span>
@@ -51,6 +52,53 @@ function Breakdown({ rows }: { rows: { id: string; label: string; count: number 
         </div>
       ))}
     </dl>
+  );
+}
+
+/** The reason an item reached the owner that is not a team request: kept out of the breakdown and the goal. */
+const OWNER_SIDE_REASON = 'owner_side';
+
+/** Everything that came to the owner in a week, why, and how much of it was not a decision (PM-1252). */
+function OwnerItems({ ownerItems }: { ownerItems: OwnerItemsWeek }) {
+  const ownerSide = ownerItems.byReason[OWNER_SIDE_REASON] ?? 0;
+  const reasons = Object.entries(ownerItems.byReason)
+    .filter(([reason, count]) => reason !== OWNER_SIDE_REASON && count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => ({
+      id: reason,
+      label: tDynamic(`operator.weekly.reasons.${reason}`, reason),
+      count,
+    }));
+  return (
+    <>
+      <h4>{t('operator.weekly.ownerItems.title')}</h4>
+      <div className={styles.facts}>
+        <p>
+          <b>{ownerItems.total}</b>
+          {t('operator.weekly.ownerItems.total')}
+        </p>
+        <p>
+          <b>{ownerItems.nonDecisions}</b>
+          {t('operator.weekly.ownerItems.nonDecisions')}
+        </p>
+      </div>
+      <p className={styles.muted}>{t('operator.weekly.ownerItems.hint')}</p>
+      {reasons.length > 0 ? (
+        <>
+          <h4>{t('operator.weekly.ownerItems.byReason')}</h4>
+          <Breakdown rows={reasons} />
+        </>
+      ) : null}
+      {ownerSide > 0 ? (
+        <div className={styles.separate}>
+          <p className={styles.between}>
+            <strong>{t('operator.weekly.ownerItems.ownerSide')}</strong>
+            <b>{ownerSide}</b>
+          </p>
+          <p className={styles.muted}>{t('operator.weekly.ownerItems.ownerSideHint')}</p>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -85,6 +133,7 @@ function WeekRow({
         </span>
         <Count label={t('operator.weekly.total')} count={week.total} />
         <Count label={t('operator.weekly.viaIntegrator')} count={week.answeredByIntegrator} />
+        <Count label={t('operator.weekly.nonDecisions')} count={week.ownerItems.nonDecisions} warn />
         <Icon name="chevronRight" size={16} strokeWidth={2.2} className={styles.chevron} />
       </summary>
       <div className={styles.weekBody}>
@@ -118,9 +167,10 @@ function WeekRow({
               }))}
             />
           </>
-        ) : (
+        ) : week.ownerItems.total === 0 ? (
           <p className={styles.note}>{t('operator.weekly.emptyWeek')}</p>
-        )}
+        ) : null}
+        {week.ownerItems.total > 0 ? <OwnerItems ownerItems={week.ownerItems} /> : null}
         <div className={styles.separate}>
           <p className={styles.between}>
             <strong>{t('operator.weekly.integratorTodos')}</strong>
@@ -152,7 +202,9 @@ export function OperatorWeeklyView({ onBack }: { onBack: () => void }) {
   const topics = config.data ? ownerDecisionTopicsOf(config.data.config) : [];
   const topicIds = topicOrder(weeks, topics);
   const count = data?.weeks.length ?? 0;
-  const empty = weeks.length > 0 && weeks.every((week) => week.total === 0 && week.integratorTodos === 0);
+  const empty =
+    weeks.length > 0 &&
+    weeks.every((week) => week.total === 0 && week.integratorTodos === 0 && week.ownerItems.total === 0);
   const oldest = weeks.at(-1);
   const newest = weeks[0];
   const refresh = () => {
@@ -245,6 +297,7 @@ export function OperatorWeeklyView({ onBack }: { onBack: () => void }) {
             <span>{t('operator.weekly.week')}</span>
             <span>{t('operator.weekly.total')}</span>
             <span>{t('operator.weekly.viaIntegrator')}</span>
+            <span>{t('operator.weekly.nonDecisions')}</span>
           </div>
           <div className={styles.weeks}>
             {weeks.map((week, index) => (
@@ -261,6 +314,7 @@ export function OperatorWeeklyView({ onBack }: { onBack: () => void }) {
             <p>{t('operator.weekly.methodWeeks', { previous: Math.max(count - 1, 0) })}</p>
             <p>{t('operator.weekly.methodAnswers')}</p>
             <p>{t('operator.weekly.methodTopics')}</p>
+            <p>{t('operator.weekly.methodEstimate')}</p>
           </Fold>
         </>
       )}

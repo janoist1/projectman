@@ -25,6 +25,7 @@ import { CardStep } from '../domain/card-step';
 import { Actor, TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem, InboxOption } from '../domain/inbox';
+import { WaitingForOthers } from '../domain/waiting-for-others';
 import { WorkOutage } from '../domain/outage';
 
 import {
@@ -107,6 +108,10 @@ export const CheckOutageResponse = z.object({
   checkedAt: z.string(),
 });
 export type CheckOutageResponse = z.infer<typeof CheckOutageResponse>;
+
+/** The answer of taking a question that waits for the project manager (PM-1252): the question as it is now. */
+export const PullWaitingResponse = z.object({ item: InboxItem });
+export type PullWaitingResponse = z.infer<typeof PullWaitingResponse>;
 
 const ProjectManagerChannelState = z.enum([
   'available',
@@ -1382,7 +1387,11 @@ export type ReadTeamMessagesRequest = z.infer<typeof ReadTeamMessagesRequest>;
 
 /* ---------- inbox ---------- */
 
-export const InboxView = z.object({ items: z.array(InboxItem) });
+export const InboxView = z.object({
+  items: z.array(InboxItem),
+  /** What waits for the project manager and the connected Claude (PM-1252); only an owner gets it. */
+  waiting: WaitingForOthers.optional(),
+});
 export type InboxView = z.infer<typeof InboxView>;
 
 export const ResolveInboxRequest = z.object({

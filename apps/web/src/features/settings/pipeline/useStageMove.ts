@@ -55,6 +55,8 @@ export function useStageMove({ config, isOwner, mover }: Options) {
   const focusId = useRef<string | null>(null);
   const markKey = useRef('');
   const markRefused = useRef(false);
+  /** Set by a drop target while a dragover bubbles; the path, last on its way, sees whether any target took it. */
+  const onTarget = useRef(false);
   const { pipeline } = config;
 
   const preview = useMemo(() => (grab ? moveStage(pipeline, grab.id, grab.dest) : null), [pipeline, grab]);
@@ -113,6 +115,7 @@ export function useStageMove({ config, isOwner, mover }: Options) {
 
   const hover = (event: DragEvent, anchor: Anchor) => {
     if (!dragId) return;
+    onTarget.current = true;
     event.preventDefault();
     const key = anchor.kind === 'head' ? `head:${anchor.run.start}` : `${anchor.id}:${anchor.edge}`;
     if (key !== markKey.current) {
@@ -125,11 +128,15 @@ export function useStageMove({ config, isOwner, mover }: Options) {
     if (event.dataTransfer) event.dataTransfer.dropEffect = markRefused.current ? 'none' : 'move';
   };
 
-  const clearDrag = () => {
-    setDragId(null);
+  const clearMark = () => {
     setMark(null);
     markKey.current = '';
     markRefused.current = false;
+  };
+
+  const clearDrag = () => {
+    setDragId(null);
+    clearMark();
   };
 
   const drop = (event: DragEvent, anchor: Anchor) => {
@@ -262,6 +269,18 @@ export function useStageMove({ config, isOwner, mover }: Options) {
         });
       },
     }),
+    /** On the whole path: a pointer over no target (a gap, the padding, outside) takes the drop mark away. */
+    pathDrop: {
+      onDragOver: () => {
+        if (!dragId) return;
+        if (!onTarget.current) clearMark();
+        onTarget.current = false;
+      },
+      onDragLeave: (event: DragEvent<HTMLElement>) => {
+        const next = event.relatedTarget as Node | null;
+        if (dragId && (!next || !event.currentTarget.contains(next))) clearMark();
+      },
+    },
     headDrop: (run: ColumnRun) => ({
       onDragOver: (event: DragEvent) => hover(event, { kind: 'head', run }),
       onDrop: (event: DragEvent) => drop(event, { kind: 'head', run }),

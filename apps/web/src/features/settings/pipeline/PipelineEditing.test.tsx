@@ -450,6 +450,17 @@ describe('moving stages and columns', () => {
     expect(stageIds(project).slice(0, 3)).toEqual(['ready', 'qa', 'dev']);
   });
 
+  it('takes the drop mark away when the pointer is over no target', async () => {
+    renderAt(PIPELINE);
+    const wrap = (await handle('Fejlesztés')).parentElement!;
+    const head = document.querySelector('[data-show="column:ready"]') as HTMLElement;
+    fireEvent.dragStart(wrap);
+    fireEvent.dragOver(head);
+    expect(await screen.findByTestId('drop-reason')).toBeTruthy();
+    fireEvent.dragOver(head.closest('ol')!);
+    expect(screen.queryByTestId('drop-reason')).toBeNull();
+  });
+
   it('does not save a drop on the stage own place', async () => {
     const project = renderAt(PIPELINE);
     const wrap = (await handle('Fejlesztés')).parentElement!;

@@ -398,6 +398,13 @@
     0 6px 16px rgba(25, 25, 22, 0.14);
 }
 
+/* The grabbed row at a forbidden place: the same red as a refused drop. */
+.grabbed.grabbedRefused {
+  box-shadow:
+    0 0 0 2px var(--c-blocked),
+    0 6px 16px rgba(25, 25, 22, 0.14);
+}
+
 .saving {
   opacity: 0.7;
 }

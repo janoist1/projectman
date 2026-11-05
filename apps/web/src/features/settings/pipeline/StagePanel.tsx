@@ -2,7 +2,6 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ProjectConfig } from '@projectman/shared';
 import { useProject } from '../../../app/contexts';
-import { Button } from '../../../components/Button';
 import { MoreMenu, MoreMenuItem } from '../../../components/MoreMenu';
 import { t } from '../../../i18n/t';
 import { DetailPanel, MissingSettingsElement } from '../DetailPanel';
@@ -156,28 +155,24 @@ export function StagePanel({
                 : t(direction === 'up' ? 'settings.pipeline.move.up' : 'settings.pipeline.move.down')}
             </MoreMenuItem>
           ))}
-          <Button
-            variant="ghost"
-            size="md"
+          <MoreMenuItem
             onClick={() => {
               close();
               onNewStage(stages[savedIndex - 1]?.id ?? '');
             }}
           >
             {t('settings.pipeline.menu.before')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="md"
+          </MoreMenuItem>
+          <MoreMenuItem
             disabled={lastIsEnd}
+            reason={t('settings.pipeline.edit.kindLast')}
             onClick={() => {
               close();
               onNewStage(stageId);
             }}
           >
             {t('settings.pipeline.menu.after')}
-          </Button>
-          {lastIsEnd ? <p className={styles.hintText}>{t('settings.pipeline.edit.kindLast')}</p> : null}
+          </MoreMenuItem>
         </>
       )}
     </MoreMenu>

@@ -102,7 +102,8 @@ export function PipelineFlow({
     const row = [...(flowRef.current?.querySelectorAll<HTMLElement>('[data-show]') ?? [])].find(
       (element) => element.dataset.show === `stage:${flash.id}`,
     );
-    row?.scrollIntoView?.({ block: 'nearest' });
+    // Centred: the toast covers the bottom of the screen.
+    row?.scrollIntoView?.({ block: 'center' });
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     row?.animate?.([{ backgroundColor: 'var(--c-accent-bg)' }, { backgroundColor: 'transparent' }], {
       duration: FLASH_MS,
@@ -111,7 +112,7 @@ export function PipelineFlow({
   }, [flash]);
 
   return (
-    <div ref={flowRef} className={styles.flow}>
+    <div ref={flowRef} className={styles.flow} {...(canEdit ? move.pathDrop : {})}>
       <FlowLine containerRef={flowRef} returns={returns} watch={map} />
       <div className="visually-hidden" aria-live="polite">
         {move.announcement}
@@ -172,6 +173,7 @@ export function PipelineFlow({
                             styles.stationWrap,
                             move.dragging === stage.id && styles.dragging,
                             move.grabbed === stage.id && styles.grabbed,
+                            move.grabbed === stage.id && move.grabReason && styles.grabbedRefused,
                             saving && styles.saving,
                           )}
                           aria-busy={saving || undefined}

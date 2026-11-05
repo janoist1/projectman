@@ -7151,6 +7151,7 @@ export const en = {
         moved: 'Moved: {name}',
         movedColumn: 'Moved: {name} with its stages',
         failed: 'Could not move {name}. Try again.',
+        someone: 'someone else',
         conflict:
           'Meanwhile {name} changed the settings as well. The move was not repeated: have a look and try again.',
         /** What the live region says while a stage is carried with the keyboard. */

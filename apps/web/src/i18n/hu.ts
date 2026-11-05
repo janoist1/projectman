@@ -7151,6 +7151,7 @@ export const hu = {
         moved: 'Áthelyezve: {name}',
         movedColumn: 'Áthelyezve: {name} a lépéseivel',
         failed: 'Nem sikerült áthelyezni: {name}. Próbáld újra.',
+        someone: 'valaki más',
         conflict:
           'Közben {name} is módosította a beállításokat. Az áthelyezés nem ismétlődött meg: nézd át, és próbáld újra.',
         /** What the live region says while a stage is carried with the keyboard. */

@@ -73,7 +73,11 @@ export function usePipelineMove(onMoved: (stageId: string) => void): PipelineMov
     } catch (error) {
       if (isApiError(error) && error.code === 'config_conflict') {
         const fresh = (await query.refetch()).data;
-        toast.show(t('settings.pipeline.move.conflict', { name: fresh?.history[0]?.author ?? '' }), 'error');
+        const author = fresh?.history[0]?.author;
+        const name =
+          fresh?.config.team.members.find((member) => member.handle === author)?.displayName ??
+          (author || t('settings.pipeline.move.someone'));
+        toast.show(t('settings.pipeline.move.conflict', { name }), 'error');
       } else
         toast.show(
           isApiError(error) && error.status > 0 && error.status < 500

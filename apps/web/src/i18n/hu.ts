@@ -5280,13 +5280,13 @@ export const hu = {
         other: 'most nem tud indulni',
       },
     },
-    /** The folded row of the questions the Operator settled with no person involved (PM-556). */
     // What waits for someone other than the owner: a folded band above the list (PM-1252).
     waiting: {
       title: 'Másokra vár',
-      both: '{screening} kérdés a projektmenedzser szűrésére vár, {integrator} gépi teendő a csatlakoztatott Claude-ra · a legrégebbi {age}',
-      onlyScreening: '{count} kérdés a projektmenedzser szűrésére vár · a legrégebbi {age}',
-      onlyIntegrator: '{count} gépi teendő vár a csatlakoztatott Claude-ra · a legrégebbi {age}',
+      both: '{screening} kérdés a projektmenedzser szűrésére vár, {integrator} gépi teendő a csatlakoztatott Claude-ra',
+      onlyScreening: '{count} kérdés a projektmenedzser szűrésére vár',
+      onlyIntegrator: '{count} gépi teendő vár a csatlakoztatott Claude-ra',
+      oldest: 'a legrégebbi {age}',
       show: 'Megnézem',
       hide: 'Becsukom',
       lead: 'Ezek még nem jutottak el hozzád. Ha nem várnád meg a szűrést, vedd át: a kérdés a listádba kerül, és te válaszolsz rá.',
@@ -5310,6 +5310,7 @@ export const hu = {
       alreadyHandled: 'Közben a projektmenedzser elintézte, nincs vele teendőd.',
       pullFailed: 'Nem sikerült átvenni. Próbáld újra.',
     },
+    /** The folded row of the questions the Operator settled with no person involved (PM-556). */
     operatorTrail: {
       title: 'Az Operátor intézte · ma {count}',
       titleUnknown: 'Az Operátor intézte',

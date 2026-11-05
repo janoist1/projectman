@@ -19,6 +19,7 @@
   box-sizing: border-box;
   min-height: 44px;
   margin: 0;
+  padding: 10px 0;
   font-size: var(--text-sm);
   color: var(--c-ink-3);
 }

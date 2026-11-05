@@ -5022,15 +5022,13 @@ export const en = {
         other: 'they can’t start right now',
       },
     },
-    /** The folded row of the questions the Operator settled with no person involved (PM-556). */
     // What waits for someone other than the owner: a folded band above the list (PM-1252).
     waiting: {
       title: 'Waiting for others',
-      both: '{screening|# question is|# questions are} waiting for the project manager to screen, {integrator|# machine todo|# machine todos} for the connected Claude · oldest: {age}',
-      onlyScreening:
-        '{count|# question is|# questions are} waiting for the project manager to screen · oldest: {age}',
-      onlyIntegrator:
-        '{count|# machine todo is|# machine todos are} waiting for the connected Claude · oldest: {age}',
+      both: '{screening|# question is|# questions are} waiting for the project manager to screen, {integrator|# machine todo|# machine todos} for the connected Claude',
+      onlyScreening: '{count|# question is|# questions are} waiting for the project manager to screen',
+      onlyIntegrator: '{count|# machine todo is|# machine todos are} waiting for the connected Claude',
+      oldest: 'oldest: {age}',
       show: 'Show',
       hide: 'Hide',
       lead: 'These have not reached you yet. If you would rather not wait for the screening, take it over: the question goes to your list and you answer it.',
@@ -5054,6 +5052,7 @@ export const en = {
       alreadyHandled: 'The project manager has dealt with it meanwhile, nothing for you to do.',
       pullFailed: 'Could not take it over. Try again.',
     },
+    /** The folded row of the questions the Operator settled with no person involved (PM-556). */
     operatorTrail: {
       title: 'Handled by the Operator · {count} today',
       titleUnknown: 'Handled by the Operator',

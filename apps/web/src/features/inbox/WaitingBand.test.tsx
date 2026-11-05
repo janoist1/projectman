@@ -135,9 +135,11 @@ describe('the "waiting for others" band on the inbox (PM-1252)', () => {
 
     fireEvent.click(within(region).getByRole('button', { name: /^Átveszem|^Take over/ }));
 
-    expect((await screen.findByRole('status', { name: '' })).textContent).toBe(
-      t('inbox.waiting.alreadyHandled'),
-    );
+    const answer = await screen.findByRole('status', { name: '' });
+    expect(answer.textContent).toBe(t('inbox.waiting.alreadyHandled'));
+    // The pull button is gone: the keyboard focus moves to the answer and the row no longer says it waits.
+    expect(document.activeElement).toBe(answer);
+    expect(within(region).queryByText(t('inbox.waiting.chip'))).toBeNull();
     expect(project.requests.some((request) => request.path.endsWith('/inbox/inb_new/pull'))).toBe(true);
   });
 });

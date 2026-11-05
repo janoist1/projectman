@@ -67,6 +67,9 @@ export const Obligation = z.object({
   handedOverAt: IsoDateTime.nullable(),
   /** The integrator todo. */
   inboxItemId: z.string().nullable(),
+  /** The project manager's decision about a `senior_wait` step (PM-1251); null before it and on every other kind. */
+  decision: z.enum(['wait', 'any']).nullable(),
+  decidedBy: MemberHandle.nullable(),
   state: ObligationState,
   closedAt: IsoDateTime.nullable(),
 });

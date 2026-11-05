@@ -39,7 +39,11 @@ describe('a question the project manager screens: the foundations', () => {
   });
 
   async function ask(question = 'Which font?'): Promise<string> {
-    const { inboxItemId } = await h.domain.teamTools.askHuman(dev, { question, options: ['Yes', 'No'] });
+    const { inboxItemId } = await h.domain.teamTools.askHuman(dev, {
+      question,
+      options: ['Yes', 'No'],
+      ownerTopic: 'cost',
+    });
     return inboxItemId;
   }
   function screen(id: string): void {

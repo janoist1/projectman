@@ -58,6 +58,37 @@ describe('raiseAlert', () => {
     });
   });
 
+  describe('settling an alert of an older version', () => {
+    const legacy = (taskKey: string, sessionId: string | null) =>
+      h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'alert',
+        assignees: ['owner'],
+        source: 'system',
+        taskKey,
+        sessionId,
+        title: 'Old alert',
+        payload: {
+          alert: 'session_input',
+          workItem: { type: 'task', taskKey },
+          since: 'x',
+          minutes: 5,
+          activity: null,
+        },
+        options: [],
+      });
+
+    it('close only the legacy items of the session or the card it was asked for', () => {
+      const mine = legacy('AR-1', 'ses_1');
+      const other = legacy('AR-2', 'ses_2');
+      expect(h.domain.inbox.settleAlert('AR', 'session_input', { taskKey: 'AR-1', sessionId: 'ses_1' })).toBe(
+        1,
+      );
+      expect(h.domain.inbox.get('AR', mine.id)?.state).not.toBe('open');
+      expect(h.domain.inbox.get('AR', other.id)?.state).toBe('open');
+    });
+  });
+
   describe('pm alerts', () => {
     it.each([
       { alert: 'relation_check', taskKey: 'AR-1', relations: [{ kind: 'prerequisite', key: 'AR-2' }] },
@@ -125,6 +156,43 @@ describe('raiseAlert', () => {
         expect(h.domain.inbox.list('AR')).toEqual([]);
       },
     );
+
+    it('tell the admins too of a parked e-mail, and who prioritises of a finished refinement', () => {
+      const sink = { send: vi.fn(async () => undefined) };
+      h.domain.inbox.registerAlertNotices(sink);
+      const parked = {
+        alert: 'email_parked',
+        emailId: 'e',
+        reason: 'unknown_sender',
+        fromAddress: 'a@b.c',
+        subject: 's',
+        excerpt: 'x',
+        attachmentNames: [],
+      } as unknown as AlertPayload;
+      return h.domain.projects
+        .update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+          config.team.members.push({
+            kind: 'human',
+            handle: 'ada',
+            displayName: 'Ada',
+            email: 'ada@example.test',
+            access: 'admin',
+            roles: [],
+          });
+          return 'Add an admin';
+        })
+        .then(() => {
+          raise(parked);
+          expect(sink.send).toHaveBeenLastCalledWith(
+            expect.objectContaining({ recipients: expect.arrayContaining(['owner', 'ada']) }),
+          );
+          raise(
+            { alert: 'refinement', taskKey: 'AR-1', label: null, reason: 'done' },
+            { assignees: ['ada'] },
+          );
+          expect(sink.send).toHaveBeenLastCalledWith(expect.objectContaining({ recipients: ['ada'] }));
+        });
+    });
 
     it('leave out the owner who caused the alert', () => {
       const sink = { send: vi.fn(async () => undefined) };
@@ -203,6 +271,23 @@ describe('raiseAlert', () => {
       now = new Date(now.getTime() + HOUR_MS);
       expect(await h.domain.inbox.sendWaitingDigest('AR')).toBe(true);
       expect(await digests()).toHaveLength(2);
+    });
+
+    it('counts a question that waits in screening, by the time it was asked', async () => {
+      h.domain.inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dev-1',
+        taskKey: null,
+        title: 'Which font?',
+        payload: { question: 'Which font?' },
+        options: [],
+        state: 'screening',
+      });
+      now = new Date(now.getTime() + 25 * HOUR_MS);
+      expect(await h.domain.inbox.sendWaitingDigest('AR')).toBe(true);
+      expect((await digests())[0]).toMatchObject({ origin: { params: { todos: 0, questions: 1 } } });
     });
 
     it('stops once what waited was settled', async () => {

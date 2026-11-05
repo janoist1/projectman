@@ -452,6 +452,7 @@ export const hu: TemplateLocale = {
     firstNotice: ({ member, project }) =>
       `${member} (AI-tag, ${project} projekt). Ha nem kérsz több levelet, írd meg válaszban.`,
   },
+  seniorWaitItem: { title: '{key} olyan fejlesztőre vár, aki el tudja vinni' },
   fixLimitItem: {
     title: 'Javítási körök határa: {key}',
     summary: 'A(z) {key} kártya {rounds} javítási kör után sem ment át ({parts}). {reason}',

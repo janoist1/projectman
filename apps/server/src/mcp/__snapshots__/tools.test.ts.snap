@@ -104,7 +104,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "array",
         },
         "owner_topic": {
-          "description": "Only the project manager's own decision question or a re-ask: the id of the project's owner topic it falls under (role guide); refused without one (owner_topic_required).",
+          "description": "Only the project manager's own decision question, a re-ask, or a question nobody screens: the id of the project's owner topic it falls under (role guide); refused without one (owner_topic_required).",
           "maxLength": 40,
           "minLength": 1,
           "type": "string",
@@ -128,7 +128,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "recipient": {
-          "description": "Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected. When screening is skipped, \`integrator\` stays the recipient while an integrator is live; otherwise the question opens for the owners.",
+          "description": "Suggested todo recipient; it does not decide. Screening sends a todo to the integrator whenever one can take it, to the owner only when none can or the question is protected. When screening is skipped, \`integrator\` stays the recipient as a todo; any other question waits for the project manager.",
           "enum": [
             "owner",
             "integrator",
@@ -597,6 +597,45 @@ exports[`team tool definitions > preserves the public tool definitions across mo
     },
     "name": "decide_permission_request",
     "title": "Decide a delegated permission request",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
+      "title": "Decide how a card that waits for a Senior goes on",
+    },
+    "description": "Decide a card a senior_wait signal names: wait keeps waiting for the Senior, any lets a free developer take it. The reason goes to the card. Only the project manager may call it; if the choice costs money, ask the owners first (topic cost).",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "wait",
+            "any",
+          ],
+          "type": "string",
+        },
+        "reason": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string",
+        },
+        "task_key": {
+          "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "task_key",
+        "decision",
+        "reason",
+      ],
+      "type": "object",
+    },
+    "name": "decide_senior_wait",
+    "title": "Decide how a card that waits for a Senior goes on",
   },
   {
     "annotations": {

@@ -232,6 +232,7 @@ export const OperatorSignalKind = z.enum([
   'refinement_stalled',
   'start_blocked',
   'obligation_overdue',
+  'senior_wait',
   'relation_check',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;

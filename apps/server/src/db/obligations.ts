@@ -16,6 +16,8 @@ interface ObligationRow {
   pm_told_at: string | null;
   handed_over_at: string | null;
   inbox_item_id: string | null;
+  decision: 'wait' | 'any' | null;
+  decided_by: string | null;
   state: ObligationState;
   closed_at: string | null;
 }
@@ -35,6 +37,8 @@ const toRecord = (row: ObligationRow): Obligation => ({
   pmToldAt: row.pm_told_at,
   handedOverAt: row.handed_over_at,
   inboxItemId: row.inbox_item_id,
+  decision: row.decision,
+  decidedBy: row.decided_by,
   state: row.state,
   closedAt: row.closed_at,
 });
@@ -48,6 +52,9 @@ interface ObligationPatch {
   pmToldAt?: string;
   handedOverAt?: string;
   inboxItemId?: string;
+  /** The project manager's decision about a Senior wait and who made it (PM-1251). */
+  decision?: 'wait' | 'any';
+  decidedBy?: string;
 }
 
 /**
@@ -89,6 +96,8 @@ export function createObligationRepository(db: Db) {
          pm_told_at = COALESCE(@pmToldAt, pm_told_at),
          handed_over_at = COALESCE(@handedOverAt, handed_over_at),
          inbox_item_id = COALESCE(@inboxItemId, inbox_item_id),
+         decision = COALESCE(@decision, decision),
+         decided_by = COALESCE(@decidedBy, decided_by),
          state = CASE WHEN @handedOverAt IS NOT NULL THEN 'handed_over' ELSE state END,
          updated_at = @at
        WHERE id = @id AND state IN ('open','handed_over')`,
@@ -150,6 +159,8 @@ export function createObligationRepository(db: Db) {
         pmToldAt: patch.pmToldAt ?? null,
         handedOverAt: patch.handedOverAt ?? null,
         inboxItemId: patch.inboxItemId ?? null,
+        decision: patch.decision ?? null,
+        decidedBy: patch.decidedBy ?? null,
       });
     },
     close(id: string, state: 'fulfilled' | 'cancelled', at: string): void {

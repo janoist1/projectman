@@ -73,7 +73,8 @@ machine-dependent part or new engine-boundary method is added.
 Question addressing is durable payload data (`requestedRecipient`, `recipient`,
 `integratorOpenedAt`, `integratorEscalatedAt`). Missing addressing means owner; there is no migration.
 Decisions and unscreened reasks always remain owner work. A skipped screening (`timeout`, `unavailable`)
-keeps the integrator the asker named (PM-1243): `fallbackIntegratorTodo` (`packages/shared`) makes a todo of
+never opens a question for the owners unless it is an approval (PM-1249): any other waits for the project manager
+(`wait_pm`, `payload.screening.waiting`). It keeps the integrator the asker named (PM-1243): `fallbackIntegratorTodo` (`packages/shared`) makes a todo of
 a question with `requestedRecipient: integrator` that is not protected, grouped or under an owner topic, and
 `releaseScreened` opens it through the todo path with the system as issuer (the asker asked the integrator
 because it has no machine access itself) and records `question_screening_skipped`, not `question_screened`.

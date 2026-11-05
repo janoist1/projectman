@@ -621,7 +621,7 @@ describe('Refinement line', () => {
           member,
           taskKey: 'AR-1',
         },
-        { question: 'Which font?', options: ['Yes', 'No'] },
+        { question: 'Which font?', options: ['Yes', 'No'], ownerTopic: 'cost' },
       );
     const answer = async (inboxItemId: string) => {
       await h.domain.inbox.resolve(

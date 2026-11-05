@@ -1390,6 +1390,7 @@ export function createDomain(opts: DomainOptions) {
   // A step that stands overdue after its reminder goes to the PM as an `obligation_overdue` signal (PM-1152).
   obligations.usePmNotices({
     raise: (input) => operatorSignals.raiseObligationOverdue(input),
+    raiseSeniorWait: (input) => operatorSignals.raiseSeniorWait(input),
     deliver: (projectKey) => operatorSignals.deliver(projectKey),
     dismissed: (projectKey, obligationId) => operatorSignals.obligationDismissed(projectKey, obligationId),
   });
@@ -1423,6 +1424,14 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     queue: memberQueue,
     wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
+    notifyAsker: async (item, text) => {
+      await messaging.send(
+        item.projectKey,
+        SYSTEM_SENDER,
+        { to: [item.source], ...(item.taskKey ? { taskKey: item.taskKey } : {}), text },
+        { kind: 'info' },
+      );
+    },
     // The PM's machine from the engine directory; the last confirmed online moment is the registry's own
     // record (`last_seen_at`, written on connect and on every pong), which survives a restart of this server.
     engine: {
@@ -1598,6 +1607,7 @@ export function createDomain(opts: DomainOptions) {
         messaging,
         projectState,
         taskStarts,
+        seniorDecisions,
         operatorSignals,
         loopTriages,
         checklist,

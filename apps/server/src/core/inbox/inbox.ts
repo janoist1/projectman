@@ -93,6 +93,7 @@ import type {
   ResolveIntegratorFixLimitRequest,
   ResolveIntegratorTodoRequest,
   ScreeningTodo,
+  ScreeningWaitReason,
   ScreenedQuestionsResponse,
   OwnerQuestionsQuery,
   OwnerQuestionsReport,
@@ -179,7 +180,10 @@ export interface RaiseAlertInput {
   source?: string;
   sessionId?: string | null;
   taskKey?: string | null;
-  /** For the alert items of people only (a `refinement` approval, a `merge_blocked`): who holds the duty. */
+  /**
+   * For the alert items of people (a `refinement` approval, a `merge_blocked`): who holds the duty. For a notice:
+   * the concerned people when they are not the owners (a `refinement` done goes to who prioritises).
+   */
   assignees?: string[];
   /** The owner who caused the alert and needs no message about it. */
   exceptRecipient?: string | null;
@@ -219,9 +223,15 @@ interface ScreeningRelease {
   todo?: ScreeningTodo;
   feedbackId?: string;
   fallback?: 'timeout' | 'unavailable';
+  /** A skipped screening that has to wait for the project manager (PM-1249): why (`unavailable` only). */
+  waitReason?: ScreeningWaitReason;
   /** The owner topic of a decision (PM-1190); `releaseOwnerTopic` checks it. */
   ownerTopic?: string;
 }
+
+/** The route kinds an integrator todo comes from (`todoRoute`). */
+type TodoRouteKind =
+  'screened_todo' | 'screening_fallback' | 'member_todo' | 'system_todo' | 'unscreened_question';
 
 /** What the `question_screened` timeline entry says about the Operator's outcome. */
 type ScreenedEntry = Pick<ScreeningSettlement, 'by' | 'note' | 'answer' | 'forwardedTo'> & {
@@ -256,7 +266,11 @@ function withScreening(
   at: string,
 ): Record<string, unknown> {
   // Whatever settles the screening ends its hold for a machine (PM-708).
-  const { queue: _held, ...current } = (payload.screening ?? {}) as Partial<QuestionScreening>;
+  const {
+    queue: _held,
+    waiting: _waiting,
+    ...current
+  } = (payload.screening ?? {}) as Partial<QuestionScreening>;
   return { ...payload, screening: { until: at, ...current, ...patch } };
 }
 
@@ -1688,7 +1702,7 @@ export class InboxService {
     config: ProjectConfig,
     at: string,
     decider: string | null,
-    kind: 'screened_todo' | 'screening_fallback' | 'member_todo' | 'system_todo' = 'screened_todo',
+    kind: TodoRouteKind = 'screened_todo',
   ) {
     const { outcome, fallback } = release;
     // A question that cannot become a todo (protected, a group) stays an approval of the owners (PM-1246).
@@ -1735,10 +1749,14 @@ export class InboxService {
     release: ScreeningRelease,
     config: ProjectConfig,
     decider: string | null,
-    kind: 'screened_todo' | 'screening_fallback' | 'member_todo' | 'system_todo',
+    kind: TodoRouteKind,
   ): AppliedRoute & { protectedQuestion: boolean } {
     const protectedQuestion = isUndelegableQuestion(current);
-    const issuer = kind === 'screening_fallback' ? 'system' : machineTodoIssuerOf(current.source, release.by);
+    // A skipped screening (a fallback, or a question that was never screened) is the system's own step (PM-1243).
+    const issuer =
+      kind === 'screening_fallback' || kind === 'unscreened_question'
+        ? 'system'
+        : machineTodoIssuerOf(current.source, release.by);
     const applied = this.applyRoute(config, {
       kind,
       topic: protectedQuestion ? 'approval' : null,
@@ -1747,6 +1765,81 @@ export class InboxService {
       decider,
     });
     return { ...applied, protectedQuestion };
+  }
+
+  /**
+   * Where a skipped screening sends the question (PM-1249): an approval is the owners', a requested integrator
+   * gets it as a todo, anything else waits for the project manager (`wait_pm`). A combined group never takes the
+   * integrator: it is not a todo.
+   */
+  private fallbackRoute(current: InboxItem, config: ProjectConfig): AppliedRoute {
+    const payload = questionPayloadOf(current);
+    const approval = hasProtectedQuestionPayload(current) || !payload;
+    return this.applyRoute(config, {
+      kind: 'screening_fallback',
+      topic: approval ? 'approval' : null,
+      requested: 'group' in current.payload ? null : (payload?.requestedRecipient ?? null),
+    });
+  }
+
+  /**
+   * The question stays in screening and waits for the project manager (PM-1249): `payload.screening.waiting`
+   * says since when and why. A `timeout` also takes the delivery receipt away, so the queue gives the question to
+   * the project manager once more, marked `overdue`. Returns the question (still in screening); null when it is
+   * gone. The route is written once, when the wait begins.
+   */
+  private waitForPm(
+    current: InboxItem,
+    release: ScreeningRelease,
+    applied: AppliedRoute,
+    at: string,
+  ): InboxItem | null {
+    const prior = questionPayloadOf(current)?.screening?.waiting;
+    const timeout = release.fallback === 'timeout';
+    const reason: ScreeningWaitReason = timeout ? 'timeout' : (release.waitReason ?? 'start_refused');
+    const overdue = timeout || !!prior?.overdue;
+    if (prior && prior.reason === reason && !!prior.overdue === overdue) return current;
+    const screening = { ...((current.payload.screening ?? {}) as Record<string, unknown>) };
+    if (timeout) delete screening.deliveredAt;
+    const saved = this.ctx.unitOfWork(() => {
+      const item = this.ctx.repos.inbox.updatePayload(
+        current.id,
+        {
+          ...current.payload,
+          screening: {
+            ...screening,
+            waiting: { since: prior?.since ?? at, reason, ...(overdue ? { overdue } : {}) },
+          },
+        },
+        at,
+      );
+      if (item && !prior) this.recordRoute(item, applied);
+      return item;
+    });
+    if (saved) this.publish(saved);
+    return saved;
+  }
+
+  /**
+   * The fields of an AI member's question that skips the screening and asks for the integrator (PM-1249): the
+   * integrator's todo, built on the path of a skipped screening (`releaseFields`) with the route
+   * `unscreened_question`. Null when the question is not the integrator's to take.
+   */
+  unscreenedTodo(
+    draft: InboxItem,
+    config: ProjectConfig,
+  ): { payload: Record<string, unknown>; options: InboxOption[]; route: AppliedRoute } | null {
+    const todo = fallbackIntegratorTodo(draft);
+    if (!todo) return null;
+    const { payload, options, route } = this.releaseFields(
+      draft,
+      { outcome: 'todo', by: 'system', todo },
+      config,
+      isoNow(this.ctx),
+      null,
+      'unscreened_question',
+    );
+    return route?.route.to === 'integrator_queue' ? { payload, options, route } : null;
   }
 
   /**
@@ -1900,7 +1993,16 @@ export class InboxService {
         return null;
       case 'owner_messages': {
         const notice = systemNoticeOf(payload);
-        const recipients = owners.filter((handle) => handle !== input.exceptRecipient);
+        // The people the alert went to before it became a message: a parked e-mail also reaches the admins, and a
+        // creator that names who is concerned (refinement: who prioritises) keeps them.
+        const concerned = input.assignees?.length
+          ? input.assignees
+          : payload.alert === 'email_parked'
+            ? config.team.members
+                .filter((member) => member.kind === 'human' && ['owner', 'admin'].includes(member.access))
+                .map((member) => member.handle)
+            : owners;
+        const recipients = concerned.filter((handle) => handle !== input.exceptRecipient);
         if (notice && recipients.length > 0)
           void this.alertNotices?.send({ projectKey: input.projectKey, recipients, notice });
         return null;
@@ -1982,7 +2084,13 @@ export class InboxService {
       });
     const legacy = this.ctx.repos.inbox
       .list(projectKey, { state: 'open', kind: 'alert' })
-      .filter((item) => alertPayloadOf(item)?.alert === alert);
+      .filter(
+        (item) =>
+          alertPayloadOf(item)?.alert === alert &&
+          (scope.sessionId
+            ? item.sessionId === scope.sessionId
+            : !scope.taskKey || item.taskKey === scope.taskKey),
+      );
     let closed = 0;
     for (const item of [...todos, ...legacy]) if (this.cancel(item.id)) closed += 1;
     return closed;
@@ -2083,9 +2191,14 @@ export class InboxService {
       const config = await this.projects.config(current.projectKey);
       const at = isoNow(this.ctx);
       const { fallback } = release;
+      // A skipped screening never gives the question to the owners, unless it is an approval (PM-1249): it keeps
+      // a requested integrator (PM-1243), and any other question waits for the project manager.
+      if (fallback && !release.outcome) {
+        const waits = this.fallbackRoute(current, config);
+        if (waits.route.to === 'wait_pm') return this.waitForPm(current, release, waits, at);
+      }
       // A skipped screening keeps a requested integrator (PM-1243): the question becomes the integrator's todo,
-      // which waits in its queue whether or not one is connected (PM-1246); any other skipped question opens for
-      // the owners with its own options, as before (the project manager's wait comes with PM-1241 part 2).
+      // which waits in its queue whether or not one is connected (PM-1246); an approval opens for the owners.
       const fallbackTodo = fallback && !release.outcome && !group ? fallbackIntegratorTodo(current) : null;
       const taken =
         !!fallbackTodo &&

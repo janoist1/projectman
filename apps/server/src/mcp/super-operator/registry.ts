@@ -56,6 +56,7 @@ export const EXTERNAL_DENIED: Partial<Record<TeamToolName, string>> = {
   reopen_task: OPERATOR,
   decide_permission_request: DECISION,
   decide_fix_limit: DECISION,
+  decide_senior_wait: DECISION,
   hand_off: MEMBER_DUTY,
   merge_task: MEMBER_DUTY,
   prioritize_merge: MEMBER_DUTY,

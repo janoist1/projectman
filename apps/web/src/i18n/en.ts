@@ -5592,6 +5592,7 @@ export const en = {
         start_blocked: '{key}: the start is quietly waiting',
         obligation_overdue: '{key}: the step is still stuck after the reminder',
         relation_check: '{key}: a card it relates to changed',
+        senior_wait: '{key}: waiting for a developer who can take it',
       },
       bodies: {
         loop_suspected: 'The PM checks whether the work is moving; a person decides on a confirmed loop.',
@@ -5619,6 +5620,8 @@ export const en = {
           'The assignee still hasn’t done the step after the reminder. The PM looks into it; if the step happened or moved on, the signal closes by itself, otherwise the step goes to the integrator.',
         relation_check:
           'The relations of the card changed. The PM checks that they still hold; when they are gone, the signal closes by itself.',
+        senior_wait:
+          'The card is waiting for a developer whose limit reaches its points. The PM decides: keep waiting for the Senior, or let anyone take it; if the choice costs money, the PM asks the owners first. The signal closes by itself once decided.',
       },
     },
   },

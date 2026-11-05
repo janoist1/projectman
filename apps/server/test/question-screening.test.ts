@@ -6,6 +6,7 @@ import {
   QUESTION_SCREENING_MINUTES,
   questionPayloadOf,
   routes,
+  SYSTEM_SENDER,
 } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, ScreenedQuestionsResponse, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
@@ -682,8 +683,13 @@ describe('the project manager screens AI members’ questions', () => {
   });
 
   describe('when the project manager does not settle it', () => {
-    it('gives the question to the people when the ten minutes pass, and the Operator can still call it moot', async () => {
-      const { inboxItemId } = await ask();
+    it('gives an approval to the people when the ten minutes pass, and the Operator can still call it moot', async () => {
+      const { inboxItemId } = await h.domain.teamTools.askHuman(dev, {
+        question: 'May we set merge-ok?',
+        taskKey: 'AR-1',
+        options: ['Yes', 'No'],
+      });
+      await settle();
       now = new Date(START.getTime() + (QUESTION_SCREENING_MINUTES - 1) * 60_000);
       await h.domain.questionScreening.sweep();
       expect(item(inboxItemId).state).toBe('screening');
@@ -850,64 +856,187 @@ describe('the project manager screens AI members’ questions', () => {
       return { ...result, stored: item(result.inboxItemId) };
     }
 
-    it('opens it for the people before the call returns while the team is paused', async () => {
+    /** What the system told the asker (PM-1249): the info messages about the wait. */
+    const toldAsker = () =>
+      h.repos.messages.list('AR', { between: [SYSTEM_SENDER, dev.member] }).filter((m) => m.kind === 'info');
+
+    it('keeps it in screening, waiting for the project manager, while the team is paused', async () => {
       await h.domain.pauses.pause({ scope: 'instance' }, PAUSE_BY);
       const { screening, stored } = await askAtOnce();
 
-      expect(screening).toBeUndefined();
-      expect(stored.state).toBe('open');
-      expect(questionPayloadOf(stored)?.screening?.fallback).toBe('unavailable');
+      expect(screening).toBe(true);
+      expect(stored.state).toBe('screening');
+      expect(questionPayloadOf(stored)?.screening?.waiting).toMatchObject({ reason: 'paused' });
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
       expect(sessionsOf('pm')).toEqual([]);
-      expect(timelineOf('question_screening_skipped')[0]?.data).toMatchObject({ reason: 'unavailable' });
+      expect(stored.route).toMatchObject({ kind: 'screening_fallback', to: 'wait_pm' });
     });
 
-    it('opens it for the people when AI work is off', async () => {
+    it('tells the asker once that its question waits, however often the sweep looks at it', async () => {
+      await h.domain.pauses.pause({ scope: 'instance' }, PAUSE_BY);
+      const { stored } = await askAtOnce();
+      await h.domain.questionScreening.sweep();
+      await h.domain.questionScreening.sweep();
+
+      expect(toldAsker()).toHaveLength(1);
+      expect(item(stored.id).state).toBe('screening');
+    });
+
+    it('delivers the waiting question to the project manager when the team is back', async () => {
+      await h.domain.pauses.pause({ scope: 'instance' }, PAUSE_BY);
+      const { stored } = await askAtOnce();
+      await h.domain.pauses.resume({ scope: 'instance' }, PAUSE_BY);
+      await h.domain.questionScreening.sweep();
+      await settle();
+
+      expect(typedInto(sessionsOf('pm')[0]!.id).join('\n')).toContain(stored.id);
+      expect(questionPayloadOf(item(stored.id))?.screening?.waiting).toBeUndefined();
+    });
+
+    it('waits while the project manager is on leave, and hands it over when it is back', async () => {
+      const leave = (onLeave: boolean) =>
+        h.domain.members.update('AR', 'pm', { onLeave }, { actor: OWNER_ACTOR, author: OWNER });
+      await leave(true);
+      const { stored } = await askAtOnce();
+
+      expect(stored.state).toBe('screening');
+      expect(questionPayloadOf(stored)?.screening?.waiting).toMatchObject({ reason: 'on_leave' });
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+      expect(stored.route).toMatchObject({ kind: 'screening_fallback', to: 'wait_pm' });
+      expect(toldAsker()).toHaveLength(1);
+
+      await leave(false);
+      await h.domain.questionScreening.sweep();
+      await settle();
+      expect(typedInto(sessionsOf('pm')[0]!.id).join('\n')).toContain(stored.id);
+    });
+
+    it('waits when AI work is off, too', async () => {
       await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
         draft.team.limits.aiEnabled = false;
         return 'Switch AI work off';
       });
       const { stored } = await askAtOnce();
-      expect(stored.state).toBe('open');
-      expect(questionPayloadOf(stored)?.screening?.fallback).toBe('unavailable');
+      expect(stored.state).toBe('screening');
+      expect(questionPayloadOf(stored)?.screening?.waiting).toMatchObject({ reason: 'ai_disabled' });
     });
 
-    it('opens it for the people when the admission defers the Operator’s start', async () => {
-      // Whatever holds the start back (capacity, plan usage, a full disk): only that it defers matters here.
-      vi.spyOn(h.domain.admission, 'start').mockRejectedValue(conflict('ai_limit_reached', 'limit'));
+    it.each([
+      ['an approval', { question: 'May we set merge-ok?', taskKey: 'AR-1' }, 'open', 'owner'],
+      [
+        'a requested integrator',
+        { question: 'Deploy it?', recipient: 'integrator' as const },
+        'open',
+        'integrator',
+      ],
+    ])(
+      'does not wait with %s: it leaves screening for its recipient',
+      async (_name, input, state, recipient) => {
+        await h.domain.pauses.pause({ scope: 'instance' }, PAUSE_BY);
+        const asked = await h.domain.teamTools.askHuman(dev, { ...input, options: ['Yes', 'No'] });
+        const stored = item(asked.inboxItemId);
+
+        expect(stored.state).toBe(state);
+        expect(questionPayloadOf(stored)?.recipient).toBe(recipient);
+      },
+    );
+
+    it.each([
+      ['defers', conflict('ai_limit_reached', 'limit'), 'start_deferred'],
+      ['refuses', new Error('spawn failed'), 'start_refused'],
+    ])('keeps it waiting when the admission %s the Operator’s start', async (_how, error, reason) => {
+      // Whatever holds the start back (capacity, plan usage, a full disk, a crash): the question waits.
+      vi.spyOn(h.domain.admission, 'start').mockRejectedValue(error);
 
       const { screening, stored } = await askAtOnce();
       await settle();
 
       expect(screening).toBe(true);
-      expect(item(stored.id).state).toBe('open');
-      expect(questionPayloadOf(item(stored.id))?.screening?.fallback).toBe('unavailable');
-      expect(sessionsOf('pm')).toEqual([]);
+      expect(item(stored.id).state).toBe('screening');
+      expect(questionPayloadOf(item(stored.id))?.screening?.waiting).toMatchObject({ reason });
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+    });
+  });
+
+  describe('when the ten minutes pass (PM-1249)', () => {
+    it('gives the question to the project manager once more and marks it overdue, never to a person', async () => {
+      const { inboxItemId } = await ask();
+      const first = typedInto(sessionsOf('pm')[0]!.id).join('\n');
+      expect(first).toContain(inboxItemId);
+      // The project manager finished its turn without settling the question.
+      h.runner.setState(sessionsOf('pm')[0]!.id, 'idle');
+
+      now = new Date(START.getTime() + QUESTION_SCREENING_MINUTES * 60_000);
+      await h.domain.questionScreening.sweep();
+      await settle();
+
+      expect(item(inboxItemId).state).toBe('screening');
+      expect(questionPayloadOf(item(inboxItemId))?.screening?.waiting).toMatchObject({
+        reason: 'timeout',
+        overdue: true,
+      });
+      expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
+      expect(typedInto(sessionsOf('pm')[0]!.id).join('\n').split(inboxItemId).length).toBeGreaterThan(
+        first.split(inboxItemId).length,
+      );
+
+      // Later sweeps change nothing: it was given once more and is never released by time.
+      now = new Date(START.getTime() + 3 * QUESTION_SCREENING_MINUTES * 60_000);
+      await h.domain.questionScreening.sweep();
+      expect(item(inboxItemId).state).toBe('screening');
     });
   });
 });
 
 describe('a team without an Operator', () => {
   let h: DomainHarness;
-  afterEach(async () => {
-    await h.domain.stop();
-    await h.cleanup();
-  });
-
-  it('opens the question for the people at once', async () => {
+  let dev: ToolContext;
+  beforeEach(async () => {
     h = await createDomainHarness({ screenQuestions: true });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
     // The configuration refuses to lose its Operator, so the loaded one is edited.
     const config = h.domain.projects.cachedConfig('AR')!;
     config.team.members = config.team.members.filter((member) => member.handle !== 'pm');
-    const dev = { sessionId: started.session!.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+    dev = { sessionId: started.session!.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+  });
+  afterEach(async () => {
+    await h.domain.stop();
+    await h.cleanup();
+  });
 
-    const { inboxItemId, screening } = await h.domain.teamTools.askHuman(dev, { question: 'Which font?' });
+  it('refuses a question without an owner topic, with the guidance, and stores nothing', async () => {
+    const err = await rejection(h.domain.teamTools.askHuman(dev, { question: 'Which font?' }), TeamToolError);
 
-    expect(screening).toBeUndefined();
+    expect(err.message).toContain('owner_topic_required');
+    expect(err.message).toContain('owner_topic');
+    expect(h.domain.inbox.list('AR', { kind: 'question' })).toEqual([]);
+  });
+
+  it('opens an owner decision when the question names its owner topic', async () => {
+    const { inboxItemId, screening } = await h.domain.teamTools.askHuman(dev, {
+      question: 'Which font?',
+      ownerTopic: 'cost',
+    });
+
     const stored = h.domain.inbox.get('AR', inboxItemId);
+    expect(screening).toBeUndefined();
     expect(stored.state).toBe('open');
-    expect(questionPayloadOf(stored)?.screening?.fallback).toBe('unavailable');
+    expect(questionPayloadOf(stored)?.ownerTopic).toBe('cost');
+    expect(stored.route).toMatchObject({ kind: 'unscreened_question', to: 'owner_inbox' });
+  });
+
+  it('makes an integrator todo of a question that asks for the integrator, without a topic', async () => {
+    const { inboxItemId } = await h.domain.teamTools.askHuman(dev, {
+      question: 'Deploy the hub?',
+      recipient: 'integrator',
+    });
+
+    const stored = h.domain.inbox.get('AR', inboxItemId);
+    expect(isIntegratorTodo(stored)).toBe(true);
+    expect(questionPayloadOf(stored)?.screening).toMatchObject({ outcome: 'todo', by: 'system' });
+    expect(stored.route).toMatchObject({ kind: 'unscreened_question', to: 'integrator_queue' });
+    expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
   });
 });
 
@@ -1176,13 +1305,15 @@ describe('a machine step no integrator can take goes to the technical decider', 
       expect(ownerItems()).toEqual([]);
     });
 
-    it('leaves a question asked of the owner an owner question', async () => {
+    it('makes no owner question of a question asked of the owner: it waits for the project manager (PM-1249)', async () => {
       await start({ lead: true, integratorAvailable: true, pmMachineAccess: false });
 
       const stored = await askIntegrator('owner');
 
       expect(isIntegratorTodo(stored)).toBe(false);
-      expect(ownerItems()).toHaveLength(1);
+      expect(stored.state).toBe('screening');
+      expect(questionPayloadOf(stored)?.screening?.waiting).toMatchObject({ reason: 'paused' });
+      expect(ownerItems()).toEqual([]);
     });
   });
 

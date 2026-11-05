@@ -19,6 +19,8 @@ const obligation = (patch: Partial<Obligation> = {}): Obligation => ({
   pmToldAt: null,
   handedOverAt: null,
   inboxItemId: null,
+  decision: null,
+  decidedBy: null,
   state: 'open',
   closedAt: null,
   ...patch,

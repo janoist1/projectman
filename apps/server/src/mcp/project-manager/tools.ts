@@ -601,6 +601,30 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
 
     defineTool({
+      name: 'decide_senior_wait',
+      audience: { roles: ['project_manager'] },
+      title: 'Decide how a card that waits for a Senior goes on',
+      readOnly: false,
+      description:
+        'Decide a card a senior_wait signal names: wait keeps waiting for the Senior, any lets a free ' +
+        'developer take it. The reason goes to the card. Only the project manager may call it; if the ' +
+        'choice costs money, ask the owners first (topic cost).',
+      input: {
+        task_key: TaskKey,
+        decision: z.enum(['wait', 'any']),
+        reason: z.string().trim().min(1).max(2000),
+      },
+      async run({ ctx, args, handler }) {
+        const result = await handler.decideSeniorWait(ctx, {
+          taskKey: args.task_key,
+          decision: args.decision,
+          reason: args.reason,
+        });
+        return JSON.stringify({ task_key: result.taskKey, decision: result.decision });
+      },
+    }),
+
+    defineTool({
       name: 'open_integrator_todo',
       audience: { capabilities: ['machine_access'] },
       title: 'Open a todo for the integrator',

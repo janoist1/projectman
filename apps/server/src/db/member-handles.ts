@@ -64,7 +64,7 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'super_handoffs', columns: ['requested_by'] },
   { table: 'history_documents', columns: ['author'] },
   { table: 'history_searches', columns: ['member'] },
-  { table: 'obligations', columns: ['responsible'] },
+  { table: 'obligations', columns: ['responsible', 'decided_by'] },
   { table: 'member_queue_items', columns: ['member', 'from_handle'] },
   { table: 'email_contacts', columns: ['handle', 'changed_by', 'requested_by'] },
   { table: 'email_contact_events', columns: ['handle', 'by', 'requested_by'] },

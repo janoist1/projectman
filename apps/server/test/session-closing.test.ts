@@ -490,7 +490,7 @@ describe('closing finished and idle sessions', () => {
       const dev = await setup();
       const { inboxItemId } = await h.domain.teamTools.askHuman(
         { sessionId: dev.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' },
-        { question: 'Which font?', options: ['Yes', 'No'] },
+        { question: 'Which font?', options: ['Yes', 'No'], ownerTopic: 'cost' },
       );
       h.runner.setState(dev.id, 'idle');
       advance(SESSION_IDLE_CLOSE_MINUTES);

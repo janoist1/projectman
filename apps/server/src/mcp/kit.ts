@@ -42,6 +42,7 @@ export const TEAM_TOOL_NAMES = [
   'screen_question',
   'combine_questions',
   'dismiss_signal',
+  'decide_senior_wait',
   'open_integrator_todo',
   'request_structural_review',
   'triage_loop',

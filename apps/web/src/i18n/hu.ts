@@ -4328,6 +4328,7 @@ export const hu = {
         start_blocked: '{key}: az indítás csöndben vár',
         obligation_overdue: '{key}: a lépés az emlékeztető után is áll',
         relation_check: '{key}: egy kapcsolódó kártya megváltozott',
+        senior_wait: '{key}: olyan fejlesztőre vár, aki el tudja vinni',
       },
       bodies: {
         loop_suspected: 'A PM megvizsgálja, halad-e a munka; igazolt körbejárásról ember dönt.',
@@ -4354,6 +4355,8 @@ export const hu = {
           'A felelős az emlékeztető után sem végezte el a lépést. A PM megvizsgálja; ha a lépés megtörtént vagy továbbkerült, a jelzés magától lezárul, különben a lépés az integrátorra száll.',
         relation_check:
           'A kártya kapcsolatai megváltoztak. A PM ellenőrzi, hogy még helytállóak-e; ha megszűntek, a jelzés magától lezárul.',
+        senior_wait:
+          'A kártya olyan fejlesztőre vár, akinek a határa eléri a pontszámát. A PM dönt: várjon a Seniorra, vagy bárki elvihesse; ha a döntés pénzbe kerül, előbb a tulajdonosokat kérdezi. A döntés után a jelzés magától lezárul.',
       },
     },
   },

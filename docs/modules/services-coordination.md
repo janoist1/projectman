@@ -220,6 +220,12 @@ over the board is what is relied on). Older signal kinds (`idle`, `merge_waiting
 `refinement_stalled`, `nobody`) stay in the union and in `RETIRED_KINDS` only so old rows and timeline events keep
 rendering; the sweep resolves an open row of such a kind.
 
+**`senior_wait` (PM-1251).** The `senior_wait` obligation's hand-over raises it (`senior_wait:<obligation id>`,
+`OperatorSignals.raiseSeniorWait`) when a card waits past `seniorWaitMinutes` for a developer whose limit reaches its
+points; its facts name the card, the Seniors, since when and the points. The case holds while the obligation is
+`handed_over` and has no `decision`; the pm's `decide_senior_wait` (coordinator only, `SeniorDecisions.decide`) sets it,
+so the next sweep resolves the signal. A project without a pm gets the old owner question instead.
+
 The project manager may use `dismiss_signal { signal_id, note }` without an owner request at every watch level
 (`team.operatorWatch`), for a delivered, unpresented, still valid `obligation_overdue`, `structural_pattern` or
 `milestone_closed` signal and outside guest conversations. It stores the reason in `decision_note` (outside the DTO)
@@ -254,13 +260,21 @@ the asker); `moot` cancels it (`operator_moot`); `decision` and `todo` release i
 owner-only, default the five built-in topics of `packages/shared` `owner-topics.ts`); the refusal
 (`owner_topic_required`, `owner_topic_unknown`) lists the valid topics and leaves the question in screening. An
 approval question records `approval` without one; the fallback and an integrator todo need none. The project manager's
-own `ask_human` question and a re-ask need one too, unless they are information or an approval. The topic is recorded in
-`payload.ownerTopic` and in `question_asked` and `question_screened`.
+own `ask_human` question (it is not screened: `coordinator_question`) and a re-ask need one too, unless they are
+information or an approval. So does a question nobody screens (`unscreened_question`: the project has no project
+manager, or the screening is off; a project manager on leave still counts, its questions wait): any AI member names the topic itself, or asks `recipient: integrator` and gets an
+integrator todo with the system as issuer, or is refused with `owner_topic_required` and the guidance. The topic is
+recorded in `payload.ownerTopic` and in `question_asked` and `question_screened`.
 
-Every outcome writes a `question_screened` timeline event. The fallback gives the question to the people: at once
-(`unavailable`: no project manager, AI off, the project manager on leave, the team paused, admission defers the start
-or it throws) or when `until` passes (`timeout`, `QuestionScreening.sweep`, a 30-second timer and a startup sweep);
-`screen_question` then answers `question_not_screening`, except `moot`. An asker may ask a settled question again with
+Every outcome writes a `question_screened` timeline event. A skipped screening (`screening_fallback`, PM-1249) no
+longer gives a question to the owners, except an approval. A question that asked for the integrator becomes its todo
+(`requested_integrator`); anything else is `wait_pm`: it stays in `screening` with `payload.screening.waiting`
+(`since`, `reason`, `overdue?`) and the asker is told once, by an `info` message, that it waits for the project
+manager. It waits at once when the project manager cannot take it (no project manager, AI off, on leave, the team
+paused) and when admission defers or refuses the start, for every code (the item stays queued and the queue retries);
+the project manager takes it when it is back. When `until` passes (`timeout`, `QuestionScreening.sweep`, a 30-second
+timer and a startup sweep) the question is given to the project manager once more and marked `overdue`; it is never
+released by time. `screen_question` answers `question_not_screening` only for a question that left screening, except `moot`. An asker may ask a settled question again with
 `ask_human` `reask_of` and `reask_reason`, once per question; the new question is `open` and carries
 `payload.unscreened`. `GET /api/projects/:key/inbox/screened?since=` (owner, admin) lists the latest 20 screened
 questions and the count of today's.

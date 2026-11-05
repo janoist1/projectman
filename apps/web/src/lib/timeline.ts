@@ -1028,6 +1028,17 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         ),
       );
     }
+    case 'obligation_paused': {
+      const kind = ObligationKind.safeParse(d.kind);
+      return normal(
+        t('timeline.events.obligation_paused', {
+          step: kind.success
+            ? t(`timeline.obligationSteps.${kind.data}`)
+            : t('timeline.obligationSteps.step'),
+          key: str(d.waitingTaskKey),
+        }),
+      );
+    }
     case 'question_answered':
       if (d.integratorTodo && typeof d.integratorTodo === 'object') {
         const result = d.integratorTodo as { optionId?: string; note?: string | null };

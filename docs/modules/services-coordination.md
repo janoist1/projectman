@@ -60,9 +60,7 @@ answer (`operator_no_request` otherwise); the connected Claude's super operation
 
 The fields of every kind come from the guide topic `operations` (generated from the schemas).
 
-An older path no longer exists: the approval inbox decider (`operator_approval`), `OperatorActions` and
-`OperatorApprovals`, the `operator-approvals` sweep and the startup recovery of prepared executions. A decision on an
-old `operator_approval` inbox item answers `inbox_item_closed` 409. Closed items, steps and `operator_*` timeline
+A decision on an old `operator_approval` inbox item answers `inbox_item_closed` 409. Closed items, steps and `operator_*` timeline
 events keep rendering (`operatorApprovalOf`, `OperatorApproval.tsx`), and configuration history reads the
 `Projectman-Operator`, `Projectman-Request` and `Projectman-Approved-By` trailers of old commits. A knowledge proposal
 carries no operations (`operations: []`, `changes: []`, `baseConfigVersion: null`); a non-empty `operations` is
@@ -228,6 +226,13 @@ The project manager may use `dismiss_signal { signal_id, note }` without an owne
 and publishes the decision to owners. Presented signals remain the owners' to decide. The `unreleased` signal is the
 one exception to the watch level: its step starts the deployment member, once per 24 hours; nothing live changes before
 the owner's yes.
+
+**Owner-silent signals (PM-1243).** The owners get no question about an `unreleased`, `structural_pattern` or
+`milestone_closed` signal (`OWNER_SILENT_SIGNAL_KINDS`, `ownerQuestionSignalRefusal` in
+`packages/shared/src/config/operator-watch.ts`): the MCP `ask_human` with its `signal_id` answers
+`signal_not_for_owner` and makes no inbox item. An `unreleased` signal ends with the release, so the coordinator
+takes its step (`start_member` on the deployment duty's member, once per 24 hours); a machine step is an
+`open_integrator_todo`, and a signal meant for the coordinator alone is closed with `dismiss_signal`.
 
 ## Question screening
 

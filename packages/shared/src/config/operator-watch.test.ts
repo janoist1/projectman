@@ -4,7 +4,10 @@ import {
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEP_KINDS,
   OPERATOR_UNRELEASED_STEP_GAP_HOURS,
+  OWNER_SILENT_SIGNAL_KINDS,
   operatorSignalBudget,
+  ownerQuestionSignalRefusal,
+  ownerQuestionSignalRefusalMessage,
   operatorSignalStepRefusal,
 } from './operator-watch';
 import type { OperatorSignalStepTargets } from './operator-watch';
@@ -15,6 +18,20 @@ const minutesAgo = (minutes: number) => new Date(Date.parse(NOW) - minutes * 60_
 
 const idleAllowed: OperatorSignalStepTargets = { startTask: 'AR-1', members: [], taskKey: null };
 const mergeAllowed: OperatorSignalStepTargets = { startTask: null, members: ['claude'], taskKey: 'AR-2' };
+
+describe('ownerQuestionSignalRefusal (PM-1243)', () => {
+  it('lists the kinds the owners get no question about', () => {
+    expect(OWNER_SILENT_SIGNAL_KINDS).toEqual(['unreleased', 'structural_pattern', 'milestone_closed']);
+  });
+  it.each(OperatorSignalKind.options)('refuses exactly the owner-silent kinds: %s', (kind) => {
+    const silent = (OWNER_SILENT_SIGNAL_KINDS as readonly string[]).includes(kind);
+    expect(ownerQuestionSignalRefusal(kind)).toBe(silent ? 'signal_not_for_owner' : null);
+  });
+  it('tells the coordinator what to do instead', () => {
+    expect(ownerQuestionSignalRefusalMessage('unreleased')).toContain('start_member');
+    expect(ownerQuestionSignalRefusalMessage('milestone_closed')).toContain('dismiss_signal');
+  });
+});
 
 describe('operatorSignalBudget', () => {
   it('gives no step at report, one at unblock and three at drive', () => {

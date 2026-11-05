@@ -140,6 +140,7 @@ export const TimelineEventType = z.enum([
   'message_dropped',
   'obligation_handed_over',
   'obligation_pm_told',
+  'obligation_paused',
   'workspace_released',
   'host_request_opened',
   'host_request_answered',
@@ -549,6 +550,15 @@ export interface TimelineEventData {
     openedAt: string;
     minutes: number;
     signalId: string;
+  };
+  /** The deadline of a step stands still because a related card waits for an owner (PM-1247, actor system); `waitingTaskKey` is that card. */
+  obligation_paused: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle | null;
+    subject: string;
+    reason: 'related_inbox';
+    waitingTaskKey: string;
   };
   /** An automatic start no longer applies, or failed for a reason retrying cannot clear (PM-927). */
   member_queue_item_closed: {

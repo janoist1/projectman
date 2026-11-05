@@ -1,7 +1,11 @@
 import type { ToolContext } from '../../contracts';
 import { TeamToolError } from '../../contracts';
 import { type ToolCaller, toToolError } from '../caller';
-import { questionPayloadOf } from '@projectman/shared';
+import {
+  ownerQuestionSignalRefusal,
+  ownerQuestionSignalRefusalMessage,
+  questionPayloadOf,
+} from '@projectman/shared';
 import type {
   QuestionAttachment,
   QuestionOptionInput,
@@ -101,6 +105,8 @@ export class InboxTools implements InboxToolsHandler {
           'invalid',
           'signal_not_open: signal_id must name an open signal that was delivered to you.',
         );
+      if (signal && ownerQuestionSignalRefusal(signal.kind))
+        throw new TeamToolError('invalid', ownerQuestionSignalRefusalMessage(signal.kind));
       const taskKey = this.calls.taskKeyFor(ctx, args.taskKey ?? signal?.taskKey ?? undefined);
       return this.humanQuestions.ask(
         ctx.projectKey,

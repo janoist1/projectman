@@ -6,6 +6,7 @@ import {
   TODO_DONE_OPTION,
   TODO_CANNOT_OPTION,
   canSeeInboxItem,
+  fallbackIntegratorTodo,
   humanInboxAssignment,
   inboxRecipientOf,
   isIntegratorFixLimitDecision,
@@ -65,24 +66,54 @@ describe('durable integrator todo rules', () => {
       expect(humanInboxAssignment(item, null)).toBe(false);
     }
   });
-  it('allows screening to override the proposal in either direction', () => {
+  it('gives an unprotected todo to the integrator when one can take it, whatever the asker named', () => {
     const facts = { integratorAvailable: true, issuerAllowed: true, decider: null };
-    expect(selectTodoRecipient(todo(), 'owner', facts)).toEqual({ recipient: 'owner' });
-    expect(selectTodoRecipient(todo(), 'integrator', facts)).toEqual({ recipient: 'integrator' });
-    expect(selectTodoRecipient(todo(), 'integrator', { ...facts, integratorAvailable: false })).toEqual({
+    expect(selectTodoRecipient(todo(), facts)).toEqual({ recipient: 'integrator' });
+    expect(selectTodoRecipient(todo(), { ...facts, integratorAvailable: false })).toEqual({
       recipient: 'owner',
       recipientRefusal: 'integrator_unavailable',
     });
   });
+  describe('fallbackIntegratorTodo (PM-1243)', () => {
+    const asked = (payload: Record<string, unknown>): InboxItem => ({
+      ...todo(),
+      state: 'screening',
+      options: [{ id: 'option_1', label: 'Deploy now', style: 'primary' }],
+      payload: {
+        question: 'Deploy the hub?',
+        requestedRecipient: 'integrator',
+        recommended: 'option_1',
+        ...payload,
+      },
+    });
+
+    it('makes a todo of a question that asked for the integrator, expecting the recommended option', () => {
+      expect(fallbackIntegratorTodo(asked({}))).toEqual({
+        what: 'Deploy the hub?',
+        where: 'AR-1',
+        expected: 'Deploy now',
+        recipient: 'integrator',
+      });
+      expect(fallbackIntegratorTodo(asked({ recommended: undefined }))?.expected).toBe('Deploy the hub?');
+    });
+    it.each([
+      { requestedRecipient: 'owner' },
+      { approvalLabel: null },
+      { group: null },
+      { ownerTopic: 'risk_acceptance' },
+    ])('makes none when the question has %j', (payload) => {
+      expect(fallbackIntegratorTodo(asked(payload))).toBeNull();
+    });
+  });
   it('keeps an asker without machine access out of the integrator queue', () => {
     const facts = { integratorAvailable: true, issuerAllowed: false, decider: null };
-    expect(selectTodoRecipient(todo(), 'integrator', facts)).toEqual({
+    expect(selectTodoRecipient(todo(), facts)).toEqual({
       recipient: 'owner',
       recipientRefusal: 'no_machine_access',
     });
-    expect(
-      selectTodoRecipient(todo(), 'integrator', { ...facts, integratorAvailable: false }).recipientRefusal,
-    ).toBe('no_machine_access');
+    expect(selectTodoRecipient(todo(), { ...facts, integratorAvailable: false }).recipientRefusal).toBe(
+      'no_machine_access',
+    );
   });
   it.each([
     { integratorAvailable: true, issuerAllowed: false, refusal: 'no_machine_access' },
@@ -91,17 +122,18 @@ describe('durable integrator todo rules', () => {
   ])(
     'routes an integrator todo no integrator can take to the decider ($refusal)',
     ({ integratorAvailable, issuerAllowed, refusal }) => {
-      expect(
-        selectTodoRecipient(todo(), 'integrator', { integratorAvailable, issuerAllowed, decider: 'lead' }),
-      ).toEqual({ recipient: 'decider', decider: 'lead', recipientRefusal: refusal });
+      expect(selectTodoRecipient(todo(), { integratorAvailable, issuerAllowed, decider: 'lead' })).toEqual({
+        recipient: 'decider',
+        decider: 'lead',
+        recipientRefusal: refusal,
+      });
     },
   );
-  it('keeps the owner proposal and a protected question away from the decider', () => {
+  it('keeps a protected question away from the decider', () => {
     const facts = { integratorAvailable: false, issuerAllowed: false, decider: 'lead' };
-    expect(selectTodoRecipient(todo(), 'owner', facts)).toEqual({ recipient: 'owner' });
     const group = todo();
     group.payload.group = null;
-    expect(selectTodoRecipient(group, 'integrator', facts)).toEqual({
+    expect(selectTodoRecipient(group, facts)).toEqual({
       recipient: 'owner',
       recipientRefusal: 'protected_question',
     });
@@ -120,7 +152,7 @@ describe('durable integrator todo rules', () => {
     const item = todo();
     item.payload[key] = null;
     expect(
-      selectTodoRecipient(item, 'integrator', {
+      selectTodoRecipient(item, {
         integratorAvailable: true,
         issuerAllowed: true,
         decider: null,

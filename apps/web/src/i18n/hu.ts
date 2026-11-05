@@ -3186,6 +3186,7 @@ export const hu = {
         inbox: 'A határidő áll: nyitott emberi tétel van a kártyán',
         permission: 'A határidő áll: engedélyre vagy válaszra vár',
         start_refused: 'A határidő áll: az indítást most nem lehet elvégezni',
+        related_inbox: 'A határidő áll: egy kapcsolódó kártya tulajdonosi válaszra vár',
       },
       meta: {
         due: 'határidő {time}',
@@ -5944,6 +5945,7 @@ export const hu = {
         'A rendszer újrafuttatta a(z) {step} automatikus lépését: {minutes} perc alatt nem történt semmi.',
       obligation_pm_told:
         'A projektmenedzser jelzést kapott: {responsible} a(z) {step} az emlékeztető után sem végezte el ({minutes} perces lépések).',
+      obligation_paused: 'A(z) {step} határideje áll: a kapcsolódó {key} kártya tulajdonosi válaszra vár.',
       member_queue_item_closed:
         'A várakozó indítás lezárult: az indítás oka megszűnt vagy az indítás nem teljesíthető.',
       message_dropped_place_closed:

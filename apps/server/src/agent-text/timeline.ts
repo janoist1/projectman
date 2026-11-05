@@ -1,5 +1,6 @@
 import type { TimelineEvent, TimelineEventType } from '@projectman/shared';
 import { numberedRef } from './links';
+import { MESSAGE_DROP_REASONS } from './message-notices';
 import { relationPhrase } from './relations';
 import { formatTimestamp, oneLine, PLAIN_STYLE, type TextStyle } from './text';
 
@@ -196,6 +197,14 @@ export function describeEvent(
         ? `${marked} (not typed in yet for ${waiting.join(', ')}; it is on its way, do not resend it)`
         : marked;
     }
+    case 'message_dropped': {
+      const reason = text('reason');
+      const why =
+        reason && reason in MESSAGE_DROP_REASONS
+          ? MESSAGE_DROP_REASONS[reason as keyof typeof MESSAGE_DROP_REASONS]
+          : 'it could not reach them';
+      return `a message to ${member('recipient', 'a member')} was not delivered: ${why}`;
+    }
     case 'question_asked':
       return `asked a human: ${text('question') ?? ''}`.trimEnd();
     case 'question_recipient_escalated':
@@ -213,6 +222,8 @@ export function describeEvent(
       return `reminded ${member('responsible', 'the responsible')} once about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}): no action in ${text('minutes') ?? '?'} minutes`;
     case 'obligation_pm_told':
       return `told the project manager about the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}) of ${member('responsible', 'the responsible')}: still no action after the reminder`;
+    case 'obligation_paused':
+      return `paused the deadline of the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}): the related card ${text('waitingTaskKey') ?? '?'} waits for an owner's answer`;
     case 'obligation_handed_over':
       return `gave the open ${obligationStep(text('kind'))} (${text('subject') ?? '?'}) of ${member('responsible', 'the responsible')} to the ${text('recipient') ?? 'owner'} as a todo${text('recipientRefusal') ? ` (the integrator is not available: ${text('recipientRefusal')})` : ''}: still no action after the reminder`;
     case 'question_answered':

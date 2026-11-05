@@ -1038,7 +1038,9 @@ export function createDomain(opts: DomainOptions) {
       },
     }),
   );
-  memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messageRouter, delivery }));
+  memberQueueDriver.register(
+    messageLane({ ctx, projects, tasks, messages, messageRouter, messaging, timeline, delivery }),
+  );
   memberQueueDriver.register(checklistLane({ ctx, projects, memberQueue }));
   memberQueueDriver.register(
     startLane({

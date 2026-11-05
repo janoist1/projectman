@@ -385,6 +385,97 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       expect(reminders(key)).toHaveLength(1);
     });
 
+    describe('a related card waits for an owner', () => {
+      const askOwner = (taskKey: string) =>
+        h.domain.inbox.create({
+          projectKey: 'AR',
+          kind: 'question',
+          source: 'dev-1',
+          taskKey,
+          assignees: ['owner'],
+          title: 'Which way?',
+          payload: { question: 'Which way?', requestedRecipient: 'owner', recipient: 'owner' },
+          options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
+        });
+
+      /** The card `key` has a merge step open for 10 minutes, then `related` waits for the owner. */
+      const pausedBy = async (setup: () => Promise<{ key: string; related: string }>) => {
+        await harness();
+        const { key, related } = await setup();
+        await requestMerge(key);
+        await sweep();
+        minutes(10);
+        const question = askOwner(related);
+        await sweep();
+        return { key, related, question };
+      };
+
+      it.each([
+        [
+          'an open prerequisite',
+          async () => {
+            const related = await create('The prerequisite');
+            const key = await create('Waits');
+            await h.domain.tasks.update(
+              'AR',
+              key,
+              { relations: { add: [{ kind: 'prerequisite', key: related }] } },
+              OWNER_ACTOR,
+            );
+            return { key, related };
+          },
+        ],
+        [
+          'the parent',
+          async () => {
+            const related = await create('The parent');
+            const key = (
+              await h.domain.tasks.create('AR', { title: 'A part', parentKey: related }, OWNER_ACTOR)
+            ).key;
+            return { key, related };
+          },
+        ],
+      ])('neither wakes, tells the pm nor hands over while %s waits, then goes on', async (_name, setup) => {
+        const { key, related, question } = await pausedBy(setup);
+        expect(rows(key)[0]).toMatchObject({ pauseReason: 'related_inbox' });
+        expect(events('obligation_paused')).toMatchObject([
+          { taskKey: key, data: { reason: 'related_inbox', waitingTaskKey: related } },
+        ]);
+        minutes(120);
+        await sweep();
+        expect(reminders(key)).toHaveLength(0);
+        expect(events('obligation_woken')).toEqual([]);
+        expect(events('obligation_pm_told')).toEqual([]);
+        expect(todos()).toHaveLength(0);
+        await h.domain.inbox.resolve(
+          'AR',
+          question.id,
+          { optionId: 'answer', note: 'Straight on' },
+          { handle: 'owner', access: 'owner' },
+        );
+        await sweep();
+        expect(rows(key)[0]).toMatchObject({ pausedSince: null, pauseReason: null });
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        expect(reminders(key)).toHaveLength(1);
+      });
+
+      it('reads the pending items once per sweep, not once per card', async () => {
+        await harness();
+        const list = vi.spyOn(h.repos.inbox, 'list');
+        await requestMerge(await create('One'));
+        await h.domain.obligations.sweep();
+        list.mockClear();
+        await h.domain.obligations.sweep();
+        const forOne = list.mock.calls.length;
+        for (const title of ['Two', 'Three', 'Four']) await requestMerge(await create(title));
+        await h.domain.obligations.sweep();
+        list.mockClear();
+        await h.domain.obligations.sweep();
+        expect(list.mock.calls.length).toBe(forOne);
+      });
+    });
+
     it('stands still while the team is paused', async () => {
       await harness();
       const key = await create();

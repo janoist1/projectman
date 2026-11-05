@@ -1978,6 +1978,7 @@ export const en = {
         inbox: 'Deadline paused: open item for a person on the card',
         permission: 'Deadline paused: waiting for permission or a reply',
         start_refused: 'Deadline paused: cannot start right now',
+        related_inbox: 'Deadline paused: a related card is waiting for an owner’s answer',
       },
       meta: {
         due: 'due {time}',
@@ -3631,7 +3632,13 @@ export const en = {
         'The system ran the automatic step of the {step} again: nothing happened within {minutes|# minute|# minutes}.',
       obligation_pm_told:
         'The project manager was told: {responsible} did not do the {step} even after the reminder (limit: {minutes|# minute|# minutes}).',
+      obligation_paused:
+        'The deadline of the {step} is paused: {key}, related to this card, is waiting for an owner’s answer.',
       member_queue_item_closed: 'The queued start closed: its reason ended or the start can’t be done.',
+      message_dropped_place_closed:
+        'A message did not reach its recipient ({recipient}): the card closed before it could be delivered.',
+      message_dropped_member_removed:
+        'A message did not reach its recipient ({recipient}): they left the team.',
       obligation_handed_over:
         'The {step} ({responsible}) made no progress even after the reminder, so it became a to-do ({minutes|# minute|# minutes}).',
       obligation_handed_over_refused:

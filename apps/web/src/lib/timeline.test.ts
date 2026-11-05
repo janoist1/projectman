@@ -356,6 +356,28 @@ describe('the reason of a reassignment on the timeline (PM-1040)', () => {
   });
 });
 
+describe('a dropped team message on the timeline (PM-1248)', () => {
+  const row = (reason: string) =>
+    describeEvent(
+      {
+        ...creation,
+        actor: { kind: 'system', handle: null },
+        type: 'message_dropped',
+        data: { messageId: 'msg_1', recipient: 'dev-1', reason },
+      },
+      context,
+    ).text;
+
+  it('names the recipient and tells a closed card from a member who left', () => {
+    expect(row('place_closed')).toBe(
+      t('timeline.events.message_dropped_place_closed', { recipient: 'dev-1' }),
+    );
+    expect(row('member_removed')).toBe(
+      t('timeline.events.message_dropped_member_removed', { recipient: 'dev-1' }),
+    );
+  });
+});
+
 describe('open-step reminders on the timeline (PM-806)', () => {
   const row = (
     type: 'obligation_woken' | 'obligation_pm_told' | 'obligation_handed_over',
@@ -366,6 +388,19 @@ describe('open-step reminders on the timeline (PM-806)', () => {
     expect(row('obligation_pm_told', { kind: 'merge', responsible: 'dev-1', minutes: 20 })).toBe(
       t('timeline.events.obligation_pm_told', { responsible: 'dev-1', step: 'beolvasztás', minutes: 20 }),
     );
+  });
+
+  it('names the related card the paused deadline waits for (PM-1247)', () => {
+    const paused = describeEvent(
+      {
+        ...creation,
+        actor: { kind: 'system', handle: null },
+        type: 'obligation_paused',
+        data: { kind: 'next_step', responsible: 'dev-1', reason: 'related_inbox', waitingTaskKey: 'PM-304' },
+      },
+      context,
+    ).text;
+    expect(paused).toBe(t('timeline.events.obligation_paused', { step: 'következő lépés', key: 'PM-304' }));
   });
 
   it('names the responsible, the step and the minutes', () => {

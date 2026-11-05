@@ -2,11 +2,11 @@
 
 What comes next and what waits for the owner. Cards (`PM-nn`) live on the "PM" board of the
 owner's instance; this file names them so that the plan and the board stay in step. Why we go
-this way: [VISION.md](VISION.md); decisions taken: [DECISIONS.md](DECISIONS.md). The Operator
-updates this file at the owner's request, together with decisions that change the plan, and
-before a release after the owner's yes (decision 50).
+this way: [VISION.md](VISION.md); decisions taken: [DECISIONS.md](DECISIONS.md). The project
+manager updates this file at the owner's request, together with decisions that change the plan,
+and before a release after the owner's yes (decisions 50 and 66).
 
-Last reviewed: 2026-10-25, at the owner's request.
+Last reviewed: 2026-11-05, at the owner's request (PM-1244).
 
 ## Where we stand
 
@@ -19,10 +19,10 @@ team tools, worktrees, admission and capacity; the inbox and the AI decider; car
 themes; pause and resume; four AI providers and the members' sandboxes.
 
 Since 2026-10-18 the owner's order A–G of that day is done, except E and D below: the work keeps
-going on its own (PM-796), super mode (PM-784, PM-875, PM-881), the Mac's limits (PM-798), the
+going on its own (PM-796), the connected Claude's elevated access (PM-784, PM-875, PM-881), the Mac's limits (PM-798), the
 hybrid and cloud remainders (PM-675, PM-736, PM-703, PM-713, PM-723, PM-753, PM-754) and history
 search (PM-767). Also done: the module refactor (PM-577), the public board with its own login
-(PM-930, decision 56), email in and out (decision 60), the first run with the Operator (PM-970),
+(PM-930, decision 56), email in and out (decision 60), the first run of the in-app assistant (PM-970),
 the team map for members (PM-971), client visibility (PM-79, PM-985, decision 59), browser
 notifications (PM-59), traceable involvement (PM-251) and the board's columns on a phone
 (PM-986).
@@ -32,11 +32,8 @@ notifications (PM-59), traceable involvement (PM-251) and the board's columns on
 Hybrid mode runs live: the board in the cloud (EC2, chopper.istvan.io), the AI work on the
 Mac's engine.
 
-- **The Operator, settled (high):** what the Operator and its super mode are, what they must do
-  and how it is fixed for good; the analysis waits for the owner's answer (see the open
-  questions).
-- **Members decide, the system enforces (decision 58):** the team map continued for the
-  Operator and every role (PM-990), short role guides, and what a member gets shown to the
+- **Members decide, the system enforces (decision 58):** the team map continued for
+  every role (PM-990), short role guides, and what a member gets shown to the
   owner on the web (PM-998).
 - **Email mailboxes for AI members (PM-989):** decision 60.
 - **Complexity points (PM-1001):** decision 62.
@@ -46,8 +43,8 @@ Mac's engine.
 
 - **A further refactor:** simplify and cut what is not needed (the owner, 2026-10-25).
 - **The release tool for the member responsible for releases (PM-967).**
-- **E) History search, continued:** recurring answers in the Operator's knowledge (PM-768).
-- **D) An isolated engine for the Operator (later):** PM-699, PM-701, PM-704–706.
+- **E) History search, continued:** recurring answers in the shared approved knowledge (PM-768).
+- **D) An isolated engine for the connected Claude's machine work (later):** PM-699, PM-701, PM-704–706.
 - **F) AROOM client work:** last.
 - Remote work on RunPod and the like (PM-310) and, when needed, a cloud office (PM-378).
 
@@ -55,7 +52,7 @@ Mac's engine.
 
 Planned and mostly designed; the order is decided when the work above is done.
 
-- **The operator's UI (decision 41):** intent-driven control (PM-384) and setting the team's focus
+- **The UI of the person who runs the team (decision 42):** intent-driven control (PM-384) and setting the team's focus
   from the UI (PM-427).
 - **Settings rework (PM-298):** the pipeline, labels and history (PM-303–309), item by item
   editing (PM-73).
@@ -82,9 +79,6 @@ Planned and mostly designed; the order is decided when the work above is done.
 
 ## Open questions for the owner
 
-- **The Operator (2026-10-25):** one Operator with two hands, the in-app one running the board
-  on its own and super doing only machine and infrastructure work, with machine to-dos going
-  to super instead of the owner? Asked with the analysis of 2026-10-25.
 - **Product name (PM-47):** later; until then "projectman".
 - **QA's part on UI cards (PM-337):** should QA also try the behaviour, beside the designer's
   screenshot comparison?

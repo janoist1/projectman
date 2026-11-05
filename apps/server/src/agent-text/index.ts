@@ -32,4 +32,5 @@ export {
   QUESTION_NOTICE_LIMIT,
   ANSWER_NOTICE_LIMIT,
   QUESTION_CLOSE_REASONS,
+  messageDroppedNotice,
 } from './message-notices';

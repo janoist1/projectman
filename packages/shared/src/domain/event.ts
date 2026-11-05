@@ -139,8 +139,10 @@ export const TimelineEventType = z.enum([
   'super_operation_changed',
   'obligation_woken',
   'member_queue_item_closed',
+  'message_dropped',
   'obligation_handed_over',
   'obligation_pm_told',
+  'obligation_paused',
   'workspace_released',
   'host_request_opened',
   'host_request_answered',
@@ -562,11 +564,29 @@ export interface TimelineEventData {
     minutes: number;
     signalId: string;
   };
+  /** The deadline of a step stands still because a related card waits for an owner (PM-1247, actor system); `waitingTaskKey` is that card. */
+  obligation_paused: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle | null;
+    subject: string;
+    reason: 'related_inbox';
+    waitingTaskKey: string;
+  };
   /** An automatic start no longer applies, or failed for a reason retrying cannot clear (PM-927). */
   member_queue_item_closed: {
     itemId: string;
     kind: MemberQueueItemKind;
     reason: MemberQueueCloseReason;
+  };
+  /**
+   * A team message was dropped before it reached `recipient` (PM-1248): its card closed (`place_closed`) or the
+   * recipient left the team (`member_removed`). On the card the message was about, else on the project; the actor is the system.
+   */
+  message_dropped: {
+    messageId: string;
+    recipient: MemberHandle;
+    reason: 'place_closed' | 'member_removed';
   };
   /** The step stayed open after the reminder, so the system gave it to `recipient` as a todo (PM-806, actor system). */
   obligation_handed_over: {

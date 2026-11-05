@@ -26,6 +26,26 @@ export const QUESTION_CLOSE_REASONS: Record<QuestionCloseRule, string> = {
   signal_resolved: 'the signal it was asked about ended by itself: nothing is left to answer',
 };
 
+/** Why a team message was dropped before it reached its recipient, as the sender's notice says it (PM-1248). */
+export const MESSAGE_DROP_REASONS: Record<'place_closed' | 'member_removed', string> = {
+  place_closed: 'the card it was about closed before the message could reach them',
+  member_removed: 'they are no longer a member of the team',
+};
+
+/** The notice to the AI sender of a team message that could not be delivered; it wakes nobody. */
+export function messageDroppedNotice(args: {
+  recipient: string;
+  taskKey: string | null;
+  reason: keyof typeof MESSAGE_DROP_REASONS;
+  quote: string;
+}): string {
+  const card = args.taskKey ? ` about ${args.taskKey}` : '';
+  return (
+    `Your message to \`${args.recipient}\`${card} was not delivered: ${MESSAGE_DROP_REASONS[args.reason]}. ` +
+    `It started with: ${args.quote}`
+  );
+}
+
 /** Why a session joined a card, as the joined notice says it (empty when nothing is known). */
 export function startReason(config: ProjectConfig, cause: SessionStartCause | null): string {
   if (!cause) return '';

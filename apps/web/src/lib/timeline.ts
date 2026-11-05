@@ -1015,6 +1015,15 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     }
     case 'member_queue_item_closed':
       return normal(t('timeline.events.member_queue_item_closed'));
+    case 'message_dropped':
+      return normal(
+        t(
+          d.reason === 'member_removed'
+            ? 'timeline.events.message_dropped_member_removed'
+            : 'timeline.events.message_dropped_place_closed',
+          { recipient: nameOf(str(d.recipient), ctx.members, ctx.myHandle) },
+        ),
+      );
     case 'obligation_woken':
     case 'obligation_pm_told':
     case 'obligation_handed_over': {
@@ -1035,6 +1044,17 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             reason: str(d.recipientRefusal),
           },
         ),
+      );
+    }
+    case 'obligation_paused': {
+      const kind = ObligationKind.safeParse(d.kind);
+      return normal(
+        t('timeline.events.obligation_paused', {
+          step: kind.success
+            ? t(`timeline.obligationSteps.${kind.data}`)
+            : t('timeline.obligationSteps.step'),
+          key: str(d.waitingTaskKey),
+        }),
       );
     }
     case 'question_answered':

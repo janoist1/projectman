@@ -12,6 +12,7 @@ import {
   OWNER_LOGIN,
   type CliAppHarness,
 } from './helpers/app-harness';
+import { systemNotices } from './helpers/notices';
 let h: CliAppHarness | undefined;
 afterEach(async () => {
   await h?.close();
@@ -164,11 +165,14 @@ it(
     await expect(domain.sessions.ensureSession('AR', 'dev-2', { type: 'general' })).rejects.toMatchObject({
       code: 'provider_rate_limited',
     });
-    const alert = domain.inbox
-      .list('AR', { kind: 'alert' })
-      .find((item) => item.payload.alert === 'provider_rate_limited');
-    expect(alert?.payload).toMatchObject({ provider: 'gemini', until: expect.any(String) });
-    const until = Date.parse(String(alert?.payload.until));
+    // The hold is told to the owners as a message from the system (sent in the background).
+    const notice = await vi.waitFor(() => {
+      const [sent] = systemNotices(h!.app.projectman, 'provider_rate_limited');
+      expect(sent).toBeDefined();
+      return sent!;
+    });
+    expect(notice.origin.params).toMatchObject({ provider: 'gemini', until: expect.any(String) });
+    const until = Date.parse(String(notice.origin.params.until));
     expect(until - before).toBeGreaterThanOrEqual((65 * 3600 + 10 * 60 + 58) * 1000);
   },
 );

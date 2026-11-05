@@ -903,6 +903,7 @@ describe('the project manager screens AI members’ questions', () => {
       expect(questionPayloadOf(stored)?.screening?.waiting).toMatchObject({ reason: 'on_leave' });
       expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
       expect(stored.route).toMatchObject({ kind: 'screening_fallback', to: 'wait_pm' });
+      expect(toldAsker()).toHaveLength(1);
 
       await leave(false);
       await h.domain.questionScreening.sweep();

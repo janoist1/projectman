@@ -14,6 +14,7 @@ describe('settings URL selection', () => {
     { type: 'new-stage', after: 'dev' },
     { type: 'new-column' },
     { type: 'new-label' },
+    { type: 'new-label', tag: 'Sürgős' },
   ])('round trips $type', (show) => {
     expect(parseShow(showParams(show, 'how-we-work'))).toEqual(show);
     expect(showParams(show, 'how-we-work').get('from')).toBe('how-we-work');
@@ -39,6 +40,7 @@ describe('settings URL selection', () => {
         </output>
         <button onClick={() => selection.open({ type: 'stage', id: 'dev' })}>Open</button>
         <button onClick={() => selection.open({ type: 'stage', id: 'review' })}>Switch</button>
+        <button onClick={() => selection.replace({ type: 'label', id: 'qa-ok' })}>Replace</button>
         <button onClick={selection.close}>Close</button>
         <button onClick={() => navigate(-1)}>Back</button>
         <button onClick={() => navigate('/settings/pipeline')}>Enter</button>
@@ -62,6 +64,17 @@ describe('settings URL selection', () => {
     renderUi(<Controls />, { route: '/settings/pipeline?show=new-stage&after=dev&from=how-we-work&keep=1' });
     fireEvent.click(screen.getByText('Close'));
     expect(screen.getByRole('status').textContent).toBe('/settings/pipeline?keep=1');
+  });
+  it('replaces the selection without adding a Back entry, and a later close still lands before the panel', () => {
+    renderUi(<Controls />, { route: '/previous' });
+    fireEvent.click(screen.getByText('Enter'));
+    fireEvent.click(screen.getByText('Open'));
+    fireEvent.click(screen.getByText('Replace'));
+    expect(screen.getByRole('status').textContent).toContain('?show=label%3Aqa-ok');
+    fireEvent.click(screen.getByText('Close'));
+    expect(screen.getByRole('status').textContent).toBe('/settings/pipeline');
+    fireEvent.click(screen.getByText('Back'));
+    expect(screen.getByRole('status').textContent).toBe('/previous');
   });
   it('closes all selections opened in the same panel and leaves no empty Back entry', () => {
     renderUi(<Controls />, { route: '/previous' });

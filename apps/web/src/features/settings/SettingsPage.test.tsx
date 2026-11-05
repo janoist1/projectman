@@ -26,14 +26,14 @@ async function goTo(section: string) {
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
-async function editSection(section: 'project' | 'pipeline' | 'labels') {
+async function editSection(section: 'project' | 'pipeline') {
   await goTo(section);
   const region = await screen.findByRole('region', { name: t(`settings.sections.${section}`) });
   fireEvent.click(within(region).getByRole('button', { name: t(editButton(section)) }));
   return within(region);
 }
 /** The pipeline's button opens the old form for what the panel does not edit yet (new, removing, columns). */
-function editButton(section: 'project' | 'pipeline' | 'labels') {
+function editButton(section: 'project' | 'pipeline') {
   return section === 'pipeline' ? 'settings.pipeline.manage' : 'memberEdit.edit';
 }
 /** The limits are controls that save at once: there is nothing to open. */
@@ -636,30 +636,6 @@ describe('settings section editors', () => {
     const when = release.getAllByLabelText(t('settings.edit.when'))[0]!;
     for (const option of within(when).getAllByRole('option') as HTMLOptionElement[])
       expect(option.disabled, option.textContent ?? '').toBe(option.value !== '');
-  });
-
-  it('gives a tag in use a meaning and rules, and keeps approvals for the owner', async () => {
-    const project = mockProject();
-    project.backend.findTask('AC-20')!.labels.push('Sürgős');
-    project.render(<SettingsTestRoutes />);
-    const section = await editSection('labels');
-    const row = within(section.getByText('Sürgős').closest('div')!);
-    fireEvent.click(row.getByRole('button', { name: t('settings.labels.define') }));
-    fireEvent.change(section.getByLabelText(t('settings.labels.meaning')), { target: { value: 'Ma kell.' } });
-    fireEvent.change(section.getByLabelText(t('settings.labels.color')), { target: { value: 'red' } });
-    fireEvent.click(section.getByLabelText(t('settings.labels.blocks')));
-    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
-    await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
-    expect(lastConfigPatch(project.requests).pipeline!.labels.find((label) => label.id === 'Sürgős')).toEqual(
-      {
-        id: 'Sürgős',
-        name: 'Sürgős',
-        color: 'red',
-        meaning: 'Ma kell.',
-        setBy: 'anyone',
-        blocks: true,
-      },
-    );
   });
 
   it('locks human approval fields and removal for admins while allowing other gate edits', async () => {

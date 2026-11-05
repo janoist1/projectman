@@ -1,0 +1,76 @@
+.band {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+}
+
+.band p {
+  margin: 0;
+}
+
+.band details {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.band code {
+  display: block;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.warning {
+  background: var(--c-needs-bg);
+  border-color: var(--c-needs-border);
+  color: var(--c-needs-strong);
+}
+
+.danger {
+  background: var(--c-blocked-bg);
+  border-color: var(--c-blocked-border);
+  color: var(--c-blocked-text);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  width: 100%;
+}
+
+.status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.unsaved {
+  font-weight: 700;
+  color: var(--c-needs-text);
+}
+
+.hint {
+  color: var(--c-ink-3);
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .buttons {
+    width: 100%;
+  }
+
+  .buttons > * {
+    flex: 1;
+  }
+}

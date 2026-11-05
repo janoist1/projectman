@@ -27,6 +27,10 @@ export interface ElementEditOptions<D> {
   savedText(draft: D): string;
   /** The element's name, for the undo's confirmation. */
   name(draft: D): string;
+  /** The configuration without the element; omitted where the element cannot be deleted. */
+  without?(config: ProjectConfig): ProjectConfig;
+  /** "Törölve: Sürgős" */
+  removedText?(draft: D): string;
 }
 
 /** What the server answered to a save, beyond a version conflict. */
@@ -53,7 +57,10 @@ export interface ElementEdit<D> {
   saving: boolean;
   /** Counts the successful saves (an undo too), so the screen can mark the moment. */
   saves: number;
-  save(): Promise<void>;
+  /** Resolves to whether the save went through. */
+  save(): Promise<boolean>;
+  /** Deletes the element on its own, undoable like a save; resolves to whether it went through. */
+  remove(): Promise<boolean>;
   discard(): void;
 }
 
@@ -147,16 +154,18 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     setSaves((count) => count + 1);
   };
 
-  const save = async () => {
-    if (!view || !candidate || draft === null || saving) return;
+  /** Sends the configuration `next` on the version shown, with an undo for exactly that version. */
+  const commit = async (next: ProjectConfig, shown: string, removal: boolean): Promise<boolean> => {
+    if (!view || draft === null || saving) return false;
     const before = view;
-    const { key, toPatch, savedText, name } = latest.current;
+    const { key, toPatch, name } = latest.current;
     setSaving(true);
     setFailure(null);
     try {
-      const result = await patch.mutateAsync({ baseVersion: before.version, ...toPatch(candidate) });
-      settle(result.config, key);
-      toast.show(savedText(draft), 'ok', {
+      const result = await patch.mutateAsync({ baseVersion: before.version, ...toPatch(next) });
+      // A deleted element has no draft to settle: whoever deleted it closes the panel.
+      if (!removal) settle(result.config, key);
+      toast.show(shown, 'ok', {
         action: {
           label: t('settings.pipeline.edit.undo'),
           // Only on the version this save made: a later save by anyone is not overwritten.
@@ -176,6 +185,7 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
           },
         },
       });
+      return true;
     } catch (error) {
       if (isApiError(error) && error.code === 'config_conflict') {
         const fresh = (await query.refetch()).data;
@@ -189,9 +199,19 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
           kind: 'error',
           reason: isApiError(error) && error.status > 0 && error.status < 500 ? errorMessage(error) : null,
         });
+      return false;
     } finally {
       setSaving(false);
     }
+  };
+  const save = async () => {
+    if (!candidate || draft === null) return false;
+    return commit(candidate, latest.current.savedText(draft), false);
+  };
+  const remove = async () => {
+    const { without, removedText } = latest.current;
+    if (!view || draft === null || !without || !removedText) return false;
+    return commit(without(view.config), removedText(draft), true);
   };
 
   return {
@@ -207,6 +227,7 @@ export function useElementEdit<D>(options: ElementEditOptions<D>): ElementEdit<D
     saving,
     saves,
     save,
+    remove,
     discard,
   };
 }

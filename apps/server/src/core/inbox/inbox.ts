@@ -2099,11 +2099,13 @@ export class InboxService {
   /**
    * Tells the owners, at most once a day, that an open integrator todo or a question in screening has waited
    * more than a day (PM-1250). The moment of the last digest is the newest `waiting_digest` notice message, so
-   * a restart does not repeat it. Returns whether a digest was sent.
+   * a restart does not repeat it.
    */
   async sweepWaitingDigests(): Promise<void> {
     for (const { key } of this.projects.summaries()) await this.sendWaitingDigest(key);
   }
+
+  /** One project's digest (see `sweepWaitingDigests`). Returns whether a digest was sent. */
 
   async sendWaitingDigest(projectKey: string): Promise<boolean> {
     const config = this.projects.cachedConfig(projectKey);

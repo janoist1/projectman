@@ -86,14 +86,17 @@ an issuer without machine access sends it to the technical decider (PM-1139), an
 (`issuer_without_machine_access`). Nothing is ever opened for the owners as a fallback. The route is stored on the item
 (`InboxItem.route`, column `route`) and written to the timeline as `item_routed`. `screen_question.todo.recipient` is
 optional and does not decide; **alerts** go through one entry point, `InboxService.raiseAlert` (PM-1250), which
-applies `ALERT_ROUTE_CLASS` and never takes a recipient from its creator. `disk_low`, `worktree_kept` and
+applies `ALERT_ROUTE_CLASS` and never lets its creator choose the class of the recipient. `disk_low`, `worktree_kept` and
 `session_input` become an integrator todo (a `question` item with Done and Cannot, marked `payload.systemAlert =
 {alert, key}`; one open per kind and card, `settleAlert` cancels it when the cause is gone); `work_outage` and
 `relation_check` become a signal of the project manager through the `AlertPmSignals` port (registered by
 `services/coordination`), and become an owner notice when the project has no project manager; `session_tokens`,
 `provider_rate_limited`, `refinement` done, `feedback_forwarded`, `host_request_answered` and `email_parked` become a
 `system_notice` message through the `AlertNoticeSink` port (`core/messages/system-notices.ts`: no push, no inbox
-item). Only a `refinement` `manual_step` (an owner approval) and a `merge_blocked` for a human merger stay alert items.
+item); a notice goes to the owners, a parked e-mail also to the admins, and a `refinement` done to the people its
+creator names (who prioritises). The notice is sent asynchronously, so two events in quick succession may not see each
+other's message (the daily e-mail count, the Gemini hold's stored copy). A `session_input` todo is one per card: when
+two sessions wait on one card, settling one closes the other's todo too. Only a `refinement` `manual_step` (an owner approval) and a `merge_blocked` for a human merger stay alert items.
 `release_failed`, `message_burst`, `parts_left`, `work_stalled` and `refinement` `stalled` are retired: the route
 refuses them (`alert_retired`), the old rows still render, and an open old alert closes with "seen".
 `sendWaitingDigest` (a periodic sweep) tells the owners in one `waiting_digest` notice, at most once a day, when the

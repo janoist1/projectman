@@ -4232,6 +4232,8 @@ export const en = {
       feedback_forwarded: 'The feedback processor passed feedback of {author} on to the owners: {reason}',
       host_request_answered: 'The host answered the request “{title}”: {answer}',
       host_request_declined: 'The host declined the request “{title}”: {answer}',
+      host_request_answered_plain: 'The host answered the request “{title}”.',
+      host_request_declined_plain: 'The host declined the request “{title}”.',
       email_parked: 'The system parked an email from {from} (“{subject}”). {reason}',
       relation_check:
         'The new relations of {taskKey} ({relations}) may change its work, and no analyst or project manager can check them.',
@@ -5591,7 +5593,7 @@ export const en = {
         refinement_stalled: '{key}: the refinement turn ended without the label',
         start_blocked: '{key}: the start is quietly waiting',
         obligation_overdue: '{key}: the step is still stuck after the reminder',
-        relation_check: '{key}: a card it relates to changed',
+        relation_check: '{key}: the card got new relations',
         senior_wait: '{key}: waiting for a developer who can take it',
       },
       bodies: {

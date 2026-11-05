@@ -22,12 +22,14 @@ export function messageText(message: TeamMessage): string {
     case 'feedback_forwarded':
       return t('messages.notice.feedback_forwarded', { author: text('author'), reason: text('reason') });
     case 'host_request_answered':
-      return t(
-        text('outcome') === 'declined'
-          ? 'messages.notice.host_request_declined'
-          : 'messages.notice.host_request_answered',
-        { title: text('title'), answer: text('answer') },
-      );
+      // Without an answer text the sentence ends at the request, not at a colon.
+      if (text('outcome') === 'declined')
+        return text('answer')
+          ? t('messages.notice.host_request_declined', { title: text('title'), answer: text('answer') })
+          : t('messages.notice.host_request_declined_plain', { title: text('title') });
+      return text('answer')
+        ? t('messages.notice.host_request_answered', { title: text('title'), answer: text('answer') })
+        : t('messages.notice.host_request_answered_plain', { title: text('title') });
     case 'email_parked':
       return t('messages.notice.email_parked', {
         from: text('from'),
@@ -44,5 +46,8 @@ export function messageText(message: TeamMessage): string {
         questions: text('questions'),
         oldestHours: text('oldestHours'),
       });
+    default:
+      // A newer server may send a kind this build does not know: show the stored text.
+      return message.body;
   }
 }

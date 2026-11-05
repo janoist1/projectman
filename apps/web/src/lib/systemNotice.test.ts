@@ -42,4 +42,14 @@ describe('messageText', () => {
       messageText(notice('host_request_answered', { ...params, outcome: 'declined' })),
     );
   });
+
+  it('ends a host request notice without an answer at the request, not at a colon', () => {
+    const params = { title: 'Need a right', answer: '' };
+    for (const outcome of ['answered', 'declined'])
+      expect(messageText(notice('host_request_answered', { ...params, outcome }))).not.toMatch(/:\s*$/);
+  });
+
+  it('shows the stored text of a notice kind this build does not know', () => {
+    expect(messageText(notice('from_the_future' as SystemNoticeKind))).toBe('Stored English text');
+  });
 });

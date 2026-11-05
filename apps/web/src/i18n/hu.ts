@@ -4327,7 +4327,7 @@ export const hu = {
         refinement_stalled: '{key}: a kidolgozási kör címke nélkül ért véget',
         start_blocked: '{key}: az indítás csöndben vár',
         obligation_overdue: '{key}: a lépés az emlékeztető után is áll',
-        relation_check: '{key}: egy kapcsolódó kártya megváltozott',
+        relation_check: '{key}: a kártya új kapcsolatokat kapott',
         senior_wait: '{key}: olyan fejlesztőre vár, aki el tudja vinni',
       },
       bodies: {
@@ -6586,6 +6586,8 @@ export const hu = {
       feedback_forwarded: '{author} visszajelzését a feldolgozó továbbadta a tulajdonosoknak: {reason}',
       host_request_answered: 'A gazda válaszolt a(z) „{title}” kérésre: {answer}',
       host_request_declined: 'A gazda elutasította a(z) „{title}” kérést: {answer}',
+      host_request_answered_plain: 'A gazda válaszolt a(z) „{title}” kérésre.',
+      host_request_declined_plain: 'A gazda elutasította a(z) „{title}” kérést.',
       email_parked: '{from} levelét („{subject}”) félretette a rendszer. {reason}',
       relation_check:
         'A(z) {taskKey} kártya új kapcsolatai ({relations}) változtathatnak a munkáján, és nincs elemző vagy projektmenedzser, aki ellenőrizné.',

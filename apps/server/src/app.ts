@@ -60,7 +60,7 @@ import { createDomain } from './assembly';
 import { createEventBus } from './core/base';
 import { freeBytesOf, resolveWorkRoots } from './engine-host';
 import { createHistorySemanticPort } from './history-semantic';
-import { endHeavySessionRuns, readHeavyRunSessions, startPressureMeter } from './full-test';
+import { endHeavySessionRuns, readHeavyRunSessions, readMachineLoad, startPressureMeter } from './full-test';
 import type { Domain } from './assembly';
 import type { ScheduleTimer } from './services/schedules';
 import type { TemplateRegistry } from './core/base';
@@ -665,6 +665,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ...(options.screenQuestions !== undefined ? { screenQuestions: options.screenQuestions } : {}),
       doneTurnLimitMs: options.doneTurnLimitMs,
       freeDiskBytes: options.freeDiskBytes ?? (() => freeBytesOf(home)),
+      machineLoad: options.heavyLockDir ? () => readMachineLoad(options.heavyLockDir!) : undefined,
       heavyRunSessions: options.heavyLockDir ? () => readHeavyRunSessions(options.heavyLockDir!) : undefined,
       endSessionRuns: options.heavyLockDir
         ? (sessionId) => endHeavySessionRuns(options.heavyLockDir!, sessionId)

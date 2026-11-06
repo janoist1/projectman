@@ -450,6 +450,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'host.free_disk'() {
       return engine.freeDiskBytes();
     },
+    async 'host.machine_load'() {
+      return engine.machineLoad();
+    },
     async 'host.end_session_runs'({ sessionId }) {
       if (runner.isRunning(sessionId)) return 0;
       return engine.endSessionRuns(sessionId);

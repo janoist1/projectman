@@ -42,7 +42,7 @@ import type {
 import type { EngineDirectory } from '../../contracts';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
-import type { DiskGuard } from '../watchers';
+import type { DiskGuard, MachineGuard } from '../watchers';
 import { conflict, DomainError } from '../../kernel';
 import type { PlanUsageCache } from '../usage';
 import type { ProjectService } from '../../core/projects';
@@ -110,7 +110,7 @@ export interface StartRounding {
  * run, the member's previous run has ended; the member's capacity (open tasks it has a running session for plus its
  * other running chats); the concurrent AI sessions (`maxConcurrentAi`, when the project sets
  * one: there is no cap otherwise); that the member's provider is logged in (`provider_not_logged_in`,
- * PM-324); the plan usage of the member's provider, when the provider has a measurable one; the free disk space (`disk_low`, PM-243). Decisions and the starts they allow are serialized. An automatic start
+ * PM-324); the plan usage of the member's provider, when the provider has a measurable one; the machine's memory pressure (`machine_busy`, PM-1278); the free disk space (`disk_low`, PM-243). Decisions and the starts they allow are serialized. An automatic start
  * refused for a reason that can clear waits in the deferred-start store, which SQLite backs, and
  * is retried.
  */
@@ -122,6 +122,7 @@ export class Admission {
   private readonly projects: Pick<ProjectService, 'config'>;
   private readonly deferred: DeferredStarts;
   private readonly disk?: Pick<DiskGuard, 'assertRoom'>;
+  private readonly machine?: Pick<MachineGuard, 'assertRoom'>;
   private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'projectEngine' | 'get'>;
   private readonly locks = new KeyedMutex();
   private readonly lockContext = new AsyncLocalStorage<{
@@ -158,6 +159,8 @@ export class Admission {
       details?: Record<string, unknown>,
     ) => void;
     disk?: Pick<DiskGuard, 'assertRoom'>;
+    /** The memory pressure of the engine machine (PM-1278): critical pressure refuses a start (`machine_busy`). */
+    machine?: Pick<MachineGuard, 'assertRoom'>;
     /** The engines (PM-311): a member whose engine is not connected waits (`engine_offline`). */
     engines?: Pick<EngineDirectory, 'engineFor' | 'projectEngine' | 'get'>;
     /** How long a requested retry waits to join the ones that follow it (default `RETRY_DEBOUNCE_MS`). */
@@ -165,6 +168,7 @@ export class Admission {
   }) {
     this.retryDebounceMs = deps.retryDebounceMs ?? RETRY_DEBOUNCE_MS;
     this.disk = deps.disk;
+    this.machine = deps.machine;
     this.engines = deps.engines;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
@@ -222,6 +226,7 @@ export class Admission {
         ...(pausesOnPlanUsage(provider)
           ? [this.planUsage.get(provider, engineId ?? this.usageEngine(projectKey, handle))]
           : []),
+        ...(this.machine ? [this.machine.assertRoom(config, engineId ?? undefined)] : []),
         ...(this.disk ? [this.disk.assertRoom(config, engineId ?? undefined)] : []),
       ]);
     } catch {
@@ -346,7 +351,8 @@ export class Admission {
       );
       this.assertUsageBelowPause(config, provider, usage);
     }
-    // Last, because it measures the disk (PM-243).
+    // The machine's memory before the disk (PM-1278); the disk is last, because it measures the disk (PM-243).
+    if (this.machine) await this.timed('machine', () => this.machine!.assertRoom(config, engineId));
     if (this.disk) await this.timed('disk', () => this.disk!.assertRoom(config, engineId));
   }
 

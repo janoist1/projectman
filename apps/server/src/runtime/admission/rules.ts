@@ -104,6 +104,7 @@ const DEFERRABLE = new Set<ErrorCode>([
   'plan_usage_paused',
   'provider_rate_limited',
   'disk_low',
+  'machine_busy',
   'ai_disabled',
   'team_paused',
   'member_at_capacity',

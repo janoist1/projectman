@@ -60,6 +60,14 @@ const texts = z.array(text);
 const int = z.number().int().nonnegative();
 const empty = z.strictObject({});
 const done = z.null(); // Promise<void> crosses JSON as null.
+const machineLoad = z.strictObject({
+  pressure: z.enum(['normal', 'warn', 'critical']).nullable(),
+  places: z.strictObject({
+    capacity: z.number().int().nonnegative(),
+    used: z.number().int().nonnegative(),
+    waiting: z.number().int().nonnegative(),
+  }),
+});
 const session = z.strictObject({ sessionId: text });
 const pause = z.strictObject({ point: PausePoint, tool: text.nullable() }).nullable();
 const checkout = z.strictObject({ branch: text.nullable(), head: text });
@@ -290,6 +298,7 @@ type ContractResults = {
   'machine.processes': MachineProbe['processes'];
   'machine.signal': MachineProbe['signal'];
   'host.free_disk': EngineHost['freeDiskBytes'];
+  'host.machine_load': EngineHost['machineLoad'];
   'host.heavy_run_sessions': EngineHost['heavyRunSessions'];
   'host.end_session_runs': EngineHost['endSessionRuns'];
   'host.is_directory': (path: string) => Promise<boolean>;
@@ -323,6 +332,7 @@ type ContractResults = {
 /** Named wire parameters are projections of the engine contract's argument tuples. */
 type ContractParams = {
   'host.free_disk': Record<string, never>;
+  'host.machine_load': Record<string, never>;
   'host.heavy_run_sessions': Record<string, never>;
   'host.end_session_runs': { sessionId: string };
   'host.is_directory': { path: string };
@@ -637,6 +647,7 @@ export const methods = {
   'screenshots.run': method(z.strictObject({ runId: text, spec: screenshotSpec }), screenshotEnded),
   'screenshots.cancel': method(z.strictObject({ runId: text }), done),
   'host.free_disk': method(empty, z.number().nonnegative().nullable()),
+  'host.machine_load': method(empty, machineLoad.nullable()),
   'host.heavy_run_sessions': method(empty, texts),
   'host.end_session_runs': method(z.object({ sessionId: text }), z.number().int().nonnegative()),
   'host.is_directory': method(z.strictObject({ path: text }), z.boolean()),

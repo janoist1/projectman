@@ -77,6 +77,8 @@ export type StaleReason = z.infer<typeof StaleReason>;
 
 /** A message between team members (human or AI), optionally about a task. */
 export const TeamMessage = z.object({
+  /** Stored placement of a person's direct conversation; absent on legacy and machine messages. */
+  conversation: z.literal('direct').optional(),
   /** Arrived by e-mail; `direct`: written to the member's own address (PM-989), missing: a reply to the member's mail. */
   email: z.object({ emailId: z.string(), subject: z.string(), direct: z.boolean().optional() }).optional(),
   via: z.literal('integrator').optional(),
@@ -113,6 +115,25 @@ export const TeamMessage = z.object({
   places: z.array(UiPlace).max(MAX_MESSAGE_PLACES).optional(),
 });
 export type TeamMessage = z.infer<typeof TeamMessage>;
+
+/** Classify at write time, using the project's configured member kinds. */
+export function messageConversationOf(message: {
+  fromHuman: boolean;
+  toHuman: boolean;
+  via?: string;
+  origin?: unknown;
+  answer?: unknown;
+  operatorRequest?: unknown;
+  operatorSignal?: unknown;
+}): 'direct' | undefined {
+  if (!message.fromHuman && !message.toHuman) return undefined;
+  if (message.via || message.origin || message.answer || message.operatorRequest || message.operatorSignal)
+    return undefined;
+  return 'direct';
+}
+
+export const isCardMessage = (message: { taskKey: string | null; conversation?: 'direct' }): boolean =>
+  !!message.taskKey && message.conversation !== 'direct';
 
 /** Whether the viewer sees every team message of the project: an owner or an admin. */
 export function canSeeAllTeamMessages(viewer: Pick<TaskViewer, 'access'>): boolean {

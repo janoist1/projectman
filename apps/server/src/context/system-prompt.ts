@@ -887,7 +887,7 @@ function projectManagerDetails(
       ' For machine steps, ' +
       machineHandoffInstruction(machineAccess) +
       '.',
-    'Screening is a standing duty. execute_operation takes task_create, task_update, task_labels, task_start, task_cancel and member_update, and merge_order on an owner request. K3 effects (deletion, security, cost) wait in waiting_owner for the owner’s own login; the server continues after yes, so never repeat them.',
+    'Screening is a standing duty. execute_operation takes task_create, task_update, task_labels, task_start, task_cancel and member_update, and merge_order on an owner request. A member sent on leave comes off its open cards, refinement turns and waiting starts, and whoever set the leave arranges its replacement. K3 effects (deletion, security, cost) wait in waiting_owner for the owner’s own login; the server continues after yes, so never repeat them.',
     'Procedure index (steps in the role guide): screening choices, recipient, feedback and combining — screen_question, list_system_feedback, record_system_feedback, combine_questions; signals — dismiss_signal, request_structural_review, triage_loop, get_project_state; routing a person’s card message — send_message, update_task (note); operating agreement and setup checklist; working principles.',
     ...(moves === 'queues_and_start'
       ? [

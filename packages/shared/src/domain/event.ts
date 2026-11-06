@@ -261,7 +261,8 @@ export interface TimelineEventData {
   task_assigned: {
     assignee: string | null;
     previous?: string | null;
-    reason?: 'member_removed' | 'handover';
+    /** `on_leave`: the assignee was sent on leave and came off its open cards (PM-1300). */
+    reason?: 'member_removed' | 'handover' | 'on_leave';
     from?: string;
     /** Why the project manager reassigned the card (PM-1040); free text, unlike `reason`. */
     note?: string;
@@ -451,6 +452,8 @@ export interface TimelineEventData {
     lastHandoffId?: string;
   };
   team_message: {
+    conversation?: 'direct';
+    noteEventId?: string;
     messageId: string;
     from: string;
     to: string[];
@@ -641,7 +644,8 @@ export interface TimelineEventData {
   refinement_turn: {
     label: string | null;
     member: string | null;
-    reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped';
+    /** `on_leave`: the member of the open turn was sent on leave, and the turn is free again (PM-1300). */
+    reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped' | 'on_leave';
   };
   /** A report-only PM assessment (PM-712); the private note is kept only in the loop record. */
   loop_triaged: {

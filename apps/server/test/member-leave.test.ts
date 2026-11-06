@@ -101,18 +101,32 @@ describe('members on leave (decision 23)', () => {
     expect(result.task.assignee).toBe('dev-2');
   });
 
-  it('refuses a current assignee on leave instead of replacing it', async () => {
+  it('takes a member sent on leave off its open cards, and the next start picks a developer at work (PM-1300)', async () => {
     h = await createDomainHarness();
     const task = await h.domain.tasks.create('AR', { title: 'Fictional feature' }, OWNER_ACTOR);
+    const closed = await h.domain.tasks.create('AR', { title: 'Fictional old feature' }, OWNER_ACTOR);
     h.domain.tasks.assign('AR', task.key, 'dev-1', OWNER_ACTOR);
+    h.domain.tasks.assign('AR', closed.key, 'dev-1', OWNER_ACTOR);
+    await h.domain.tasks.cancel('AR', closed.key, { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
+
     await setLeave('dev-1', true);
-    await expect(
-      h.domain.taskStarts.start('AR', task.key, { actor: OWNER_ACTOR, author: OWNER }),
-    ).rejects.toMatchObject(onLeave);
-    expect(h.domain.tasks.get('AR', task.key).assignee).toBe('dev-1');
+
+    expect(h.domain.tasks.get('AR', task.key).assignee).toBeNull();
+    expect(h.domain.timeline.latest('AR', task.key, 'task_assigned')?.data).toEqual({
+      assignee: null,
+      previous: 'dev-1',
+      reason: 'on_leave',
+    });
+    expect(h.domain.tasks.get('AR', closed.key).assignee).toBe('dev-1');
+    const result = await h.domain.taskStarts.start('AR', task.key, { actor: OWNER_ACTOR, author: OWNER });
+    expect(result.task.assignee).toBe('dev-2');
+
+    // The call-back gives nothing back.
+    await setLeave('dev-1', false);
+    expect(h.domain.tasks.get('AR', task.key).assignee).toBe('dev-2');
   });
 
-  it('does not let a member on leave be named the assignee, but keeps one it already has', async () => {
+  it('does not let a member on leave be named the assignee', async () => {
     h = await createDomainHarness();
     const task = await h.domain.tasks.create('AR', { title: 'Fictional feature' }, OWNER_ACTOR);
     await setLeave('dev-1', true);
@@ -120,13 +134,6 @@ describe('members on leave (decision 23)', () => {
       h.domain.tasks.update('AR', task.key, { assignee: 'dev-1' }, OWNER_ACTOR),
     ).rejects.toMatchObject(onLeave);
     expect(h.domain.tasks.get('AR', task.key).assignee).toBeNull();
-
-    await setLeave('dev-1', false);
-    await h.domain.tasks.update('AR', task.key, { assignee: 'dev-1' }, OWNER_ACTOR);
-    await setLeave('dev-1', true);
-    await expect(
-      h.domain.tasks.update('AR', task.key, { assignee: 'dev-1', title: 'Fictional rename' }, OWNER_ACTOR),
-    ).resolves.toMatchObject({ assignee: 'dev-1', title: 'Fictional rename' });
   });
 
   it('defers a hand-over to a reviewer on leave and starts it after the call-back', async () => {

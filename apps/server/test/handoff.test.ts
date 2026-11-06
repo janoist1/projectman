@@ -227,17 +227,20 @@ describe('the handoff of a card changing its assignee', () => {
       expect(phases()).toEqual(['started', 'fallback', 'taken_over']);
     });
 
-    it('is immediate for a member on leave', async () => {
+    it('is immediate for a member sent on leave, and the next assignee takes the summary (PM-1300)', async () => {
       await setup();
       await h.domain.members.update('AR', 'dev-1', { onLeave: true }, { actor: OWNER_ACTOR, author: OWNER });
 
-      const response = await reassign('dev-2');
-
-      expect(response.handoffStart).toEqual({ mode: 'fallback', from: 'dev-1', reason: 'on_leave' });
       await vi.waitFor(() => expect(open()).toBeUndefined());
-      expect(row()).toMatchObject({ outcome: 'fallback', fallbackReason: 'on_leave', summary });
+      expect(task().assignee).toBeNull();
+      expect(row()).toMatchObject({ outcome: 'fallback', fallbackReason: 'on_leave', to: null, summary });
       expect(h.runner.pauses).toHaveLength(0);
+
+      await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
       await vi.waitFor(() => expect(startedFor('dev-2')).toHaveLength(1));
+      const input = h.contextBuilder.inputs.filter((i) => i.member.handle === 'dev-2').at(-1)!;
+      expect(input.handoff).toMatchObject({ from: 'dev-1', fallbackReason: 'on_leave', summary });
+      expect(phases()).toEqual(['started', 'fallback', 'taken_over']);
     });
 
     it('is immediate when the old conversation has no transcript, with no summary to hand over', async () => {

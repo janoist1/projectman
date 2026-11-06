@@ -158,8 +158,10 @@ export function createTaskHandoffRepository(db: Db) {
     `SELECT * FROM task_handoffs WHERE task_key = ? AND outcome = 'note'
      ORDER BY ended_at DESC, started_at DESC LIMIT 1`,
   );
+  // A handoff to nobody (the card was unassigned, e.g. its member sent on leave) waits for its next assignee.
   const untakenFor = db.prepare(
-    `SELECT * FROM task_handoffs WHERE task_key = ? AND to_member = ? AND outcome IN ('note', 'fallback')
+    `SELECT * FROM task_handoffs WHERE task_key = ? AND (to_member = ? OR to_member IS NULL)
+       AND outcome IN ('note', 'fallback')
        AND taken_over_at IS NULL
      ORDER BY ended_at DESC, started_at DESC LIMIT 1`,
   );

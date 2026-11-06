@@ -66,7 +66,11 @@ export function Composer({
   const touch = useMediaQuery('(pointer: coarse)');
 
   useEffect(() => {
-    if (autoFocus) ref.current?.focus();
+    const element = ref.current;
+    if (!autoFocus || !element) return;
+    element.focus();
+    // A kept draft (PM-1297) is continued at its end, whichever way the browser places the caret.
+    element.setSelectionRange(element.value.length, element.value.length);
   }, [autoFocus]);
 
   useEffect(() => {

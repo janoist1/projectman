@@ -23,6 +23,22 @@ const quoted = (messageId: string) =>
   timeline('session_started', { cause: { messageId, quote: 'a private line' } });
 
 describe('what a member sees of their project', () => {
+  it('filters private message events from both timeline pages and fails closed for missing messages', () => {
+    const privateEvent = timeline('team_message', { messageId: 'private' });
+    const dropped = timeline('message_dropped', { messageId: 'missing' });
+    const publicEvent = timeline('task_created');
+    const detail = {
+      timeline: [privateEvent, publicEvent],
+      earlierEvents: [dropped],
+      sessions: [],
+    } as unknown as TaskDetail;
+    const participants = (id: string) => (id === 'private' ? { from: 'qa', to: ['dev'] } : null);
+    const shown = visibleTaskDetail(client, detail, participants);
+    expect(shown.timeline).toEqual([publicEvent]);
+    expect(shown.earlierEvents).toEqual([]);
+    for (const member of [developer, viewer])
+      expect(visibleTaskDetail(member, detail, participants)).toBe(detail);
+  });
   it('shows a client the whole card, as it shows a read-only member (PM-79)', () => {
     const detail = {
       task: { key: 'AR-1', links: [{ kind: 'prerequisite', ref: 'AR-2' }] },

@@ -125,6 +125,9 @@ import {
   isPendingQuestion,
   questionGroupLiveItemIds,
   canSeeTeamMessage,
+  canSeeTimelineEvent,
+  messageConversationOf,
+  isCardMessage,
   isUnreadBy,
   threadPeersOf,
   canUploadAttachment,
@@ -162,6 +165,13 @@ import {
   labelHolders,
   memberDuties,
   MEMBER_QUEUE_CLOSED_LIMIT,
+  WORK_QUEUE_OPEN_LIMIT,
+  WORK_QUEUE_OPEN_PREVIEW,
+  canSeeWorkQueue,
+  canSeeWorkQueueItem,
+  canSeeWorkQueueItems,
+  workQueueReasonOf,
+  workQueueScopeOf,
   memberOf,
   memberRoles,
   renameMemberInConfig,
@@ -275,6 +285,12 @@ import type {
   EmailApprovalPayload,
   EmailParkedAlert,
   MemberQueueItem,
+  WorkQueueDetail,
+  WorkQueueGroup,
+  WorkQueueItem,
+  WorkQueueRef,
+  WorkQueueViewer,
+  WorkQueueWaitFacts,
   Obligation,
   TaskDetail,
   CreateTaskCommentRequest,
@@ -616,6 +632,7 @@ export class MockBackend {
   });
   inbox: InboxItem[] = clone(fixtures.inbox);
   messages: TeamMessage[] = clone(fixtures.teamMessages);
+  private readonly clientMessageRequests = new Map<string, TeamMessage>();
   /** The feedback marks (PM-511); a project starts without surfaces and marks, a test or scenario fills it. */
   readonly feedback: MockFeedback = new MockFeedback({
     config: () => this.config,
@@ -656,6 +673,10 @@ export class MockBackend {
   operatorSignals: OperatorSignal[] = [];
   /** The member queues (PM-894), every AI member's items in one list; a test fills it, the views are computed from it. */
   queueItems: MemberQueueItem[] = [];
+  /** What the queued items wait on (the stored wait details), by item id: the work queue view shows these facts. */
+  queueWaitFacts: Record<string, WorkQueueWaitFacts> = {};
+  /** The connected Claude's items (PM-1294), as the view gives them; a test fills it. */
+  integratorQueueItems: WorkQueueItem[] = [];
   /** The open obligations of the cards (PM-806); a test fills it, the card's steps are computed from it. */
   obligations: Obligation[] = [];
   /** The grant of machine operations the Operator works with (PM-890): off, and the viewer can manage it. */
@@ -770,6 +791,15 @@ export class MockBackend {
 
   /** Publishes a project event to every subscribed connection. */
   emit(event: ServerEvent): void {
+    if (
+      event.type === 'timeline_appended' &&
+      !canSeeTimelineEvent(
+        this.taskViewer(),
+        event.event,
+        (id) => this.messages.find((m) => m.id === id) ?? null,
+      )
+    )
+      return;
     if (event.type === 'inbox_upserted' && !canSeeInboxItem(this.taskViewer(), event.item)) return;
     if (
       (event.type === 'team_message' || event.type === 'team_message_updated') &&
@@ -1745,7 +1775,7 @@ export class MockBackend {
     relayed?: TeamMessage['relayed'],
     attachments?: MessageAttachmentRef[],
     /** Where the sender was (a person's message) and the places offered (the project manager's), PM-1071. */
-    where?: Pick<TeamMessage, 'location' | 'places'>,
+    where?: Pick<TeamMessage, 'location' | 'places' | 'origin' | 'operatorSignal'>,
   ): TeamMessage {
     const refusal = this.teamMessageRefusal(from, recipients, text, Boolean(attachments?.length));
     if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
@@ -1771,7 +1801,15 @@ export class MockBackend {
       ...(attachments?.length ? { attachments: clone(attachments) } : {}),
       ...(where?.location ? { location: clone(where.location) } : {}),
       ...(where?.places?.length ? { places: clone(where.places) } : {}),
+      ...(where?.origin ? { origin: where.origin } : {}),
+      ...(where?.operatorSignal ? { operatorSignal: where.operatorSignal } : {}),
     };
+    const conversation = messageConversationOf({
+      ...message,
+      fromHuman: memberOf(this.config, from)?.kind === 'human',
+      toHuman: to.some((handle) => memberOf(this.config, handle)?.kind === 'human'),
+    });
+    if (conversation) message.conversation = conversation;
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
     if (taskKey) {
@@ -1783,7 +1821,9 @@ export class MockBackend {
           messageId: message.id,
           from,
           to,
-          excerpt: body.length > 80 ? `${body.slice(0, 77)}…` : body,
+          excerpt: message.origin?.kind === 'note' ? '' : body.length > 80 ? `${body.slice(0, 77)}…` : body,
+          ...(conversation ? { conversation } : {}),
+          ...(message.origin?.kind === 'note' ? { noteEventId: message.origin.eventId } : {}),
         },
         sessionId ?? null,
       );
@@ -2918,8 +2958,13 @@ export class MockBackend {
       }
       return ok({ checklist: clone(this.checklist), canEdit: access === 'owner' });
     }
-    if (rest === '/project-manager/queue' && method === 'GET')
-      return this.memberQueue(projectManagerOf(this.config)?.handle ?? 'pm', query);
+    if (rest === '/work-queues' && method === 'GET') return this.workQueuesView();
+    const workQueue = /^\/work-queues\/(?:members\/([^/]+)|(integrator))$/.exec(rest);
+    if (workQueue && method === 'GET')
+      return this.workQueueDetail(
+        workQueue[1] ? { type: 'member', member: workQueue[1] } : { type: 'integrator' },
+        query.get('closedSince'),
+      );
     if (rest === '/operator/preferences/me' && method === 'GET')
       return ok(
         clone(
@@ -3108,6 +3153,7 @@ export class MockBackend {
         .filter((message) => !peer || threadPeersOf(message, this.viewerHandle).includes(peer))
         .filter((message) => !member || involves(message, member))
         .filter((message) => !taskKey || message.taskKey === taskKey)
+        .filter((message) => !taskKey || query.get('place') !== 'card' || isCardMessage(message))
         .filter((message) => query.get('unreadOnly') !== 'true' || isUnreadBy(message, this.viewerHandle));
       return ok({
         messages: clone(listed.slice(-limit)),
@@ -3258,6 +3304,13 @@ export class MockBackend {
           inbox: clone(this.inbox.filter((i) => i.state === 'open' && i.assignees.includes(handle))),
           timeline: clone(
             this.timeline
+              .filter((event) =>
+                canSeeTimelineEvent(
+                  this.taskViewer(),
+                  event,
+                  (id) => this.messages.find((m) => m.id === id) ?? null,
+                ),
+              )
               .filter(
                 (e) =>
                   e.actor.handle === handle ||
@@ -4296,7 +4349,17 @@ export class MockBackend {
       parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
       subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
       pullRequests: this.taskPullRequests(task),
-      timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
+      timeline: clone(
+        this.timeline.filter(
+          (event) =>
+            event.taskKey === task.key &&
+            canSeeTimelineEvent(
+              this.taskViewer(),
+              event,
+              (id) => this.messages.find((m) => m.id === id) ?? null,
+            ),
+        ),
+      ),
       sessions: clone(this.taskSessions(task.key)),
       rounds: this.cardRounds(task.key),
       fixRounds: { rounds: this.fixRoundsOf(task.key).rounds, limit: this.fixLimitOf(task.key) },
@@ -4450,8 +4513,19 @@ export class MockBackend {
       this.config.team.members.map((member) => member.handle),
       actor.handle,
     );
-    this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions, comment: false });
-    if (mentions.length && actor.handle) this.sendTeamMessage(actor.handle, mentions, task.key, text);
+    const event = this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions, comment: false });
+    if (mentions.length && actor.handle)
+      this.sendTeamMessage(
+        actor.handle,
+        mentions,
+        task.key,
+        text,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { origin: { kind: 'note', eventId: event.id } },
+      );
   }
 
   /** Records a label change already written to the task: the event, the comment, the assignee's notice. */
@@ -4473,6 +4547,11 @@ export class MockBackend {
         [task.assignee],
         task.key,
         [names.join(', '), comment].filter(Boolean).join('\n\n'),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { origin: { kind: 'label', labels: plan.notify } },
       );
     }
   }
@@ -6376,6 +6455,9 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
+    const requestKey = input.clientRequestId ? `${this.viewerHandle}:${input.clientRequestId}` : null;
+    const previous = requestKey ? this.clientMessageRequests.get(requestKey) : undefined;
+    if (previous) return { status: 202, body: clone(previous) };
     // The same rule as the server's (PM-985, PM-1102). A fixture can also mark a viewer by the member's role.
     const recipientRefusal = recipientRefusalForAccess(
       this.config,
@@ -6428,8 +6510,9 @@ export class MockBackend {
       undefined,
       undefined,
       attached as MessageAttachmentRef[],
-      input.location ? { location: input.location } : undefined,
+      { location: input.location, operatorSignal: input.operatorSignal },
     );
+    if (requestKey) this.clientMessageRequests.set(requestKey, message);
     for (const file of attached) file!.messageId = message.id;
     if (signal) {
       signal.state = 'accepted';
@@ -6518,29 +6601,156 @@ export class MockBackend {
       .sort((a, b) => a.queuedAt.localeCompare(b.queuedAt));
   }
 
-  /**
-   * The Operator's queue (PM-894), computed from `queueItems`. The closed items are those closed since
-   * `closedSince` (default 24 hours), the newest first, at most the limit. Access and the unknown-member
-   * answer follow the server.
-   */
-  private memberQueue(handle: string, query = new URLSearchParams()): MockResponse {
-    const viewer = memberOf(this.config, this.viewerHandle);
-    if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
-      return error(403, 'insufficient_access', 'Requires developer access');
-    const ai = this.config.team.members.filter((m) => m.kind === 'ai');
-    if (!ai.some((m) => m.handle === handle)) return error(404, 'unknown_member', 'Unknown AI member');
-    const since = new Date(query.get('closedSince') ?? Date.now() - 24 * 60 * 60_000).getTime();
-    const own = this.queueItems.filter((item) => item.member === handle);
-    const closed = own
-      .filter((item) => item.closedAt !== null && new Date(item.closedAt).getTime() >= since)
-      .sort((a, b) => b.closedAt!.localeCompare(a.closedAt!))
-      .slice(0, MEMBER_QUEUE_CLOSED_LIMIT);
-    return ok({
-      member: handle,
-      items: clone(this.openQueueItems(handle)),
-      closed: clone(closed),
-      everQueued: own.length > 0,
-    });
+  // --- The work queues (PM-1294) -------------------------------------------------------------------------
+  // The views are computed from `queueItems` and `integratorQueueItems` with the shared rules (who sees what,
+  // the reason classes); only the stored rows' mapping is the mock's.
+
+  private workQueueViewer(): WorkQueueViewer {
+    return {
+      handle: this.viewerHandle,
+      access: this.viewerAccess(),
+      ...(this.integratorMode ? { via: 'integrator' as const } : {}),
+    };
+  }
+
+  private workQueueItemOf(stored: MemberQueueItem): WorkQueueItem {
+    const queued = stored.state === 'queued';
+    const code = queued ? (stored.wait?.code ?? null) : null;
+    return {
+      id: stored.id,
+      queue: { type: 'member', member: stored.member },
+      kind: stored.kind,
+      source: stored.source,
+      place: stored.place,
+      title: stored.title,
+      from: stored.from,
+      taskKey: stored.taskKey,
+      state: stored.state,
+      queuedAt: stored.queuedAt,
+      startedAt: stored.startedAt,
+      reason: queued ? workQueueReasonOf({ code, wake: stored.wake, placeLive: false }) : null,
+      reasonCode: code,
+      reasonSince: queued ? (stored.wait?.at ?? null) : null,
+      waitFacts: queued ? (this.queueWaitFacts[stored.id] ?? null) : null,
+      attempts: stored.attempts,
+      restartedAt: stored.restartedAt,
+      closedAt: stored.closedAt,
+      closeReason: stored.closeReason,
+      outcome: stored.outcome,
+    };
+  }
+
+  /** The items of one queue the viewer may read, with the source records the read rules need. */
+  private visibleWorkQueueItems(ref: WorkQueueRef, items: WorkQueueItem[]): WorkQueueItem[] {
+    const viewer = this.workQueueViewer();
+    if (!canSeeWorkQueueItems(viewer, ref)) return [];
+    return items.filter((item) =>
+      canSeeWorkQueueItem(viewer, item, {
+        message:
+          item.source.type === 'message'
+            ? (this.messages.find(
+                (message) => message.id === (item.source as { messageId: string }).messageId,
+              ) ?? null)
+            : null,
+        inbox:
+          item.source.type === 'inbox'
+            ? (this.inbox.find(
+                (entry) => entry.id === (item.source as { inboxItemId: string }).inboxItemId,
+              ) ?? null)
+            : null,
+      }),
+    );
+  }
+
+  private workQueueGroupOf(ref: WorkQueueRef, limit: number): WorkQueueGroup {
+    const all =
+      ref.type === 'member'
+        ? this.queueItems
+            .filter((item) => item.member === ref.member)
+            .map((item) => this.workQueueItemOf(item))
+        : this.integratorQueueItems;
+    const restricted = ref.type === 'integrator' && !canSeeWorkQueueItems(this.workQueueViewer(), ref);
+    const seen = this.visibleWorkQueueItems(ref, all);
+    const open = seen
+      .filter((item) => item.state === 'queued' || item.state === 'processing')
+      .sort(
+        (a, b) =>
+          Number(b.state === 'processing') - Number(a.state === 'processing') ||
+          a.queuedAt.localeCompare(b.queuedAt),
+      );
+    const owner = this.config.team.members.find((m) => m.kind === 'human' && m.access === 'owner');
+    return {
+      queue: ref,
+      items: open.slice(0, limit),
+      queued: restricted ? null : open.filter((item) => item.state === 'queued').length,
+      processing: restricted ? null : open.filter((item) => item.state === 'processing').length,
+      everQueued: !restricted && seen.length > 0,
+      ...(ref.type === 'integrator'
+        ? {
+            connections: this.integratorKeys
+              .filter((key) => key.state === 'active')
+              .map((key) => ({
+                owner: owner?.handle ?? this.viewerHandle,
+                connectionId: key.id,
+                expiresAt: key.expiresAt,
+                lastUsedAt: key.lastUsedAt,
+                lastUsedChannel: key.lastUsedChannel,
+              })),
+          }
+        : {}),
+      restricted,
+    };
+  }
+
+  private workQueueRefs(): WorkQueueRef[] {
+    const viewer = this.workQueueViewer();
+    const manager = projectManagerOf(this.config)?.handle;
+    const refs: WorkQueueRef[] = [
+      ...this.config.team.members
+        .filter((member) => member.kind === 'ai')
+        .map((member): WorkQueueRef => ({ type: 'member', member: member.handle })),
+      { type: 'integrator' },
+    ];
+    return refs.filter((ref) => canSeeWorkQueue(viewer, ref, (handle) => handle === manager));
+  }
+
+  private workQueuesView(): MockResponse {
+    const scope = workQueueScopeOf(this.workQueueViewer());
+    if (!scope) return error(403, 'work_queues_forbidden', 'The work queues are not for this access');
+    return ok(
+      clone({
+        scope,
+        groups: this.workQueueRefs().map((ref) => this.workQueueGroupOf(ref, WORK_QUEUE_OPEN_PREVIEW)),
+        readAt: nowIso(),
+      }),
+    );
+  }
+
+  /** One queue in full with its closed items since `closedSince` (default 24 hours), the newest first. */
+  private workQueueDetail(ref: WorkQueueRef, closedSince: string | null): MockResponse {
+    const manager = projectManagerOf(this.config)?.handle;
+    if (!canSeeWorkQueue(this.workQueueViewer(), ref, (handle) => handle === manager))
+      return error(403, 'work_queues_forbidden', 'This work queue is not for this access');
+    if (
+      ref.type === 'member' &&
+      !this.config.team.members.some((member) => member.kind === 'ai' && member.handle === ref.member)
+    )
+      return error(404, 'unknown_member', 'Unknown AI member');
+    const group = this.workQueueGroupOf(ref, WORK_QUEUE_OPEN_LIMIT);
+    const since = new Date(closedSince ?? Date.now() - 24 * 60 * 60_000).getTime();
+    const closed =
+      ref.type === 'member'
+        ? this.visibleWorkQueueItems(
+            ref,
+            this.queueItems
+              .filter((item) => item.member === ref.member && item.closedAt !== null)
+              .map((item) => this.workQueueItemOf(item)),
+          )
+            .filter((item) => new Date(item.closedAt!).getTime() >= since)
+            .sort((a, b) => b.closedAt!.localeCompare(a.closedAt!))
+            .slice(0, MEMBER_QUEUE_CLOSED_LIMIT)
+        : [];
+    return ok(clone<WorkQueueDetail>({ ...group, closed }));
   }
 
   /** "Most ne": only the owner sets an open signal aside; a closed one is a 409 the card shows. */

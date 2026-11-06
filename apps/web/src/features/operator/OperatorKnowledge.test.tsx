@@ -206,6 +206,8 @@ describe('Operator knowledge approvals', () => {
     const prefill = t('knowledge.proposal.retryPrompt', { title: item.title });
     const composer = await screen.findByRole('textbox', { name: t('operator.composer.label') });
     await waitFor(() => expect((composer as HTMLTextAreaElement).value).toBe(prefill));
+    // The panel keeps what is in the box as a draft (PM-1297); an emptied box leaves nothing to come back.
+    fireEvent.change(composer, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: t('operator.panel.close') }));
     fireEvent.click(
       screen.getByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) }),

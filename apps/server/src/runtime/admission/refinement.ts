@@ -19,6 +19,7 @@ import type {
   RefinementAlert,
   Session,
   Task,
+  TimelineEventData,
 } from '@projectman/shared';
 import { ownerHandles } from '@projectman/shared';
 import type { InboxService } from '../../core/inbox';
@@ -43,10 +44,15 @@ interface RecordedTurn {
   at: string;
 }
 
-/** Whether a recorded turn is over: the card was worked out (`done`) or stopped being refined (`stopped`). */
+/**
+ * Whether a recorded turn is over: the card was worked out (`done`), stopped being refined (`stopped`), or
+ * its member was sent on leave (`on_leave`, PM-1300), so the step is handed out again.
+ */
 function isClosedTurn(reason: string): boolean {
-  return reason === 'done' || reason === 'stopped';
+  return reason === 'done' || reason === 'stopped' || reason === 'on_leave';
 }
+
+type TurnReason = TimelineEventData['refinement_turn']['reason'];
 
 /** Session states in which a member is in the middle of a turn. */
 const ENGAGED = new Set<Session['state']>(['starting', 'working', 'waiting_permission', 'waiting_input']);
@@ -149,6 +155,24 @@ export class RefinementSteps {
   }
 
   /**
+   * The member was sent on leave (PM-1300): every open turn it holds is closed (`on_leave`), and the step is
+   * handed out again by the usual pick, which passes over members on leave. A session still in the middle of
+   * its turn holds the card until it stops; its end looks at the card again.
+   */
+  async releaseOnLeave(projectKey: string, handle: string): Promise<void> {
+    for (const task of this.tasks.readSchedulingTasks(projectKey, { kind: 'open' })) {
+      const key = task.key;
+      if (this.openTurn(projectKey, key)?.member !== handle) continue;
+      await this.cards.run(`${projectKey}:${key}`, async () => {
+        const turn = this.openTurn(projectKey, key);
+        if (turn?.member !== handle) return;
+        this.append(this.tasks.get(projectKey, key), turn.label, handle, 'on_leave');
+        await this.look(projectKey, key);
+      });
+    }
+  }
+
+  /**
    * A refinement start that was deferred when the server stopped, made again from what was stored;
    * null when its task is gone.
    */
@@ -220,7 +244,10 @@ export class RefinementSteps {
         if (owners.length === 0) return;
         const workItem = { type: 'task', taskKey } as const;
         const text = stepText(task, turn);
-        const working = owners.find((m) => this.sessions.findRunning(projectKey, m.handle, workItem));
+        // A member on leave whose session still stops is not told the step.
+        const working = owners.find(
+          (m) => !isOnLeave(m) && this.sessions.findRunning(projectKey, m.handle, workItem),
+        );
         if (working) {
           // A stored message from the system (PM-82); the turn is recorded after it, so it is not held for the turn.
           // The send reads the commit first (a git call): the step may be gone by the time it records, and then
@@ -356,12 +383,7 @@ export class RefinementSteps {
     return true;
   }
 
-  private append(
-    task: Task,
-    label: string | null,
-    member: string | null,
-    reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped',
-  ): void {
+  private append(task: Task, label: string | null, member: string | null, reason: TurnReason): void {
     const previous = this.turnMember(task.projectKey, task.key);
     this.timeline.append({
       projectKey: task.projectKey,

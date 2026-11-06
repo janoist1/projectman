@@ -8,7 +8,7 @@ import { indexPipeline } from '../lib/pipeline';
 import { MockBackend } from '../mocks/backend';
 
 /** The first location of the test router: a path, or a path with the router state a page was navigated with. */
-export type RenderRoute = string | { pathname: string; state?: unknown };
+export type RenderRoute = string | { pathname: string; search?: string; state?: unknown };
 
 /** Renders UI inside a router and a fresh query client (returned, for tests that push server events). */
 export function renderUi(ui: ReactElement, { route = '/' }: { route?: RenderRoute } = {}) {

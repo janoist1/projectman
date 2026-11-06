@@ -1,12 +1,12 @@
 import clsx from 'clsx';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import {
   OWNER_QUESTION_WEEKS_DEFAULT,
   canSeeOperatorSessions,
   canReadOperatorKnowledge,
-  hasAccess,
+  workQueueScopeOf,
 } from '@projectman/shared';
 import type { UiLocation } from '@projectman/shared';
 import { useBoard, useSendTeamMessage } from '../../api/queries';
@@ -23,7 +23,7 @@ import { Composer } from '../session/Composer';
 import { OperatorThread } from './OperatorThread';
 import { OperatorChecklist } from './OperatorChecklist';
 import { OperatorKnowledgeView } from './OperatorKnowledgeView';
-import { OperatorQueueStrip, OperatorQueueView } from './OperatorQueueView';
+import { OperatorQueueStrip } from './OperatorQueueStrip';
 import type { FailedOperatorMessage } from './OperatorThread';
 import { OperatorWaitBanner } from './OperatorWaitBanner';
 import { OperatorWeeklyView } from './OperatorWeeklyView';
@@ -42,9 +42,11 @@ const PANEL_WIDTH = 440;
  * project manager only reads and answers.
  */
 export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElement | null> }) {
-  const { key, me, can, isOwner, closeOperator, operatorPrefill, operatorChecklistRequest } = useProject();
+  const { key, me, can, isOwner, closeOperator, operatorPrefill, operatorChecklistRequest, operatorDraft } =
+    useProject();
   const isMobile = useIsMobile();
-  const { pathname } = useLocation();
+  const { pathname, search, hash } = useLocation();
+  const navigate = useNavigate();
   const openedAt = useRef(pathname);
   const board = useBoard(key);
   const { channel, state, handle, member } = useOperator();
@@ -56,22 +58,21 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const titleId = useId();
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const knowledgeButton = useRef<HTMLButtonElement>(null);
-  const [queueOpen, setQueueOpen] = useState(false);
-  const queueButton = useRef<HTMLButtonElement>(null);
   const [weeklyOpen, setWeeklyOpen] = useState(false);
   const weeklyButton = useRef<HTMLButtonElement>(null);
   const [weeklyLeft, setWeeklyLeft] = useState(0);
-  // The message being written outlives the subviews that replace the composer for a while.
-  const draft = useRef('');
-  const keepDraft = useCallback((text: string) => {
-    draft.current = text;
-  }, []);
+  // The message being written outlives the subviews that replace the composer for a while, and the panel itself.
+  const keepDraft = useCallback(
+    (text: string) => {
+      operatorDraft.current = text;
+    },
+    [operatorDraft],
+  );
   // Keep handled checklist requests across the conversation view's unmounts.
   const appliedChecklistRequest = useRef<number | null>(null);
   useEffect(() => {
     if (!operatorChecklistRequest) return;
     setKnowledgeOpen(false);
-    setQueueOpen(false);
     setWeeklyOpen(false);
   }, [operatorChecklistRequest]);
   // Back from the weekly measure the focus returns to its entry, which is drawn again only then; the
@@ -82,10 +83,19 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const access = me.projects.find((project) => project.key === key)?.access;
   // The weekly question measure is the owner's own (PM-1192): never an integrator key, not even an owner's.
   const weeklyVisible = isOwner && !me.via;
-  const subviewOpen = queueOpen || knowledgeOpen || (weeklyOpen && weeklyVisible);
+  const subviewOpen = knowledgeOpen || (weeklyOpen && weeklyVisible);
   // The queue is for a person's own login with developer access (the server's rule), not for an integrator key.
-  const queueVisible = !me.via && access !== undefined && hasAccess(access, 'developer');
+  const queueVisible = !me.via && access !== undefined && workQueueScopeOf({ access }) !== null;
   const queueLength = state?.queue.open ?? 0;
+  // The project manager's queue is a view of the Team page (PM-1297): the panel closes and the page takes over;
+  // its "back" link brings the panel and this conversation back.
+  const queuePath = handle ? `/p/${key}/team?view=queues&queue=member:${handle}` : null;
+  const queueState = { fromOperator: { path: pathname + search + hash } };
+  const openQueue = () => {
+    if (!queuePath) return;
+    closeOperator();
+    void navigate(queuePath, { state: queueState });
+  };
   const sessionVisible = access !== undefined && canSeeOperatorSessions({ access });
   const readOnly = state?.readOnly ?? false;
 
@@ -103,7 +113,6 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   useEffect(() => {
     if (!operatorPrefill) return;
     setKnowledgeOpen(false);
-    setQueueOpen(false);
     setWeeklyOpen(false);
     setPrefill((previous) => ({ text: operatorPrefill.text, id: (previous?.id ?? 0) + 1 }));
   }, [operatorPrefill]);
@@ -230,25 +239,19 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             <Icon name="external" size={13} strokeWidth={2.2} />
           </Link>
         ) : null}
-        {queueVisible ? (
+        {queueVisible && queuePath ? (
           <span className={styles.queueToggle}>
-            <Button
-              ref={queueButton}
+            <ButtonLink
               className={styles.knowledgeButton}
               variant="ghost"
               size="lg"
               iconOnly
               icon="list"
-              aria-pressed={queueOpen}
-              aria-label={t(queueLength > 0 ? 'operator.queue.toggleCount' : 'operator.queue.toggle', {
-                count: queueLength,
-              })}
-              title={t('operator.queue.toggle')}
-              onClick={() => {
-                setQueueOpen(!queueOpen);
-                setKnowledgeOpen(false);
-                setWeeklyOpen(false);
-              }}
+              to={queuePath}
+              state={queueState}
+              aria-label={t('operator.queue.strip.label')}
+              title={t('operator.queue.strip.label')}
+              onClick={closeOperator}
             />
             {queueLength > 0 ? (
               <span className={styles.queueCount} aria-hidden="true">
@@ -270,7 +273,6 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             title={t(canReadOperatorKnowledge({ access }) ? 'knowledge.title' : 'knowledge.style')}
             onClick={() => {
               setKnowledgeOpen(!knowledgeOpen);
-              setQueueOpen(false);
               setWeeklyOpen(false);
             }}
           />
@@ -292,7 +294,6 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
           className={styles.weeklyEntry}
           onClick={() => {
             setWeeklyOpen(true);
-            setQueueOpen(false);
             setKnowledgeOpen(false);
           }}
         >
@@ -312,13 +313,6 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
           onBack={() => {
             setWeeklyOpen(false);
             setWeeklyLeft((count) => count + 1);
-          }}
-        />
-      ) : queueOpen && queueVisible ? (
-        <OperatorQueueView
-          onBack={() => {
-            setQueueOpen(false);
-            queueButton.current?.focus();
           }}
         />
       ) : knowledgeOpen ? (
@@ -360,15 +354,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         </div>
       ) : (
         <>
-          {queueVisible ? (
-            <OperatorQueueStrip
-              channel={state}
-              onOpen={() => {
-                setQueueOpen(true);
-                setKnowledgeOpen(false);
-              }}
-            />
-          ) : null}
+          {queueVisible ? <OperatorQueueStrip channel={state} onOpen={openQueue} /> : null}
           <OperatorThread
             handle={handle}
             channel={state}
@@ -406,7 +392,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
               disabled={send.isPending}
               attachments={uploads}
               prefill={prefill}
-              initialText={draft.current}
+              initialText={operatorDraft.current}
               onTextChange={keepDraft}
               onSend={(text) =>
                 post(

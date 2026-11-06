@@ -21,6 +21,15 @@ function backend() {
   return b;
 }
 describe('mock team messaging and profiles', () => {
+  it('classifies direct messages and deduplicates client retries', () => {
+    const b = backend();
+    const input = { to: ['kata'], text: 'Hello', clientRequestId: '50aef3dc-0701-4d2a-9c90-b674c595d266' };
+    const first = TeamMessage.parse(b.handle('POST', `${base}/messages`, input).body);
+    const retry = TeamMessage.parse(b.handle('POST', `${base}/messages`, input).body);
+    expect(first.conversation).toBe('direct');
+    expect(retry.id).toBe(first.id);
+    expect(b.messages).toHaveLength(1);
+  });
   it('queues AI messages, delivers them to a reused general session and preserves human receipts', () => {
     const b = backend();
     const message = TeamMessage.parse(

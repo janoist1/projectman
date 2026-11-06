@@ -7,7 +7,7 @@ import { canSeeTeamMessage } from './message';
 import type { TeamMessage } from './message';
 import { TaskKey } from './task';
 import type { Task, TaskViewer } from './task';
-import { visibleTimelineEvent } from './timeline-visibility';
+import { canSeeTimelineEvent, visibleTimelineEvent } from './timeline-visibility';
 
 /**
  * The searchable history of a project (PM-744, PM-786): the cards, the notes on them, the closed
@@ -454,6 +454,7 @@ export function visibleHistorySource(
       return historySourceText(source);
     case 'note': {
       if (!noteVisible(source.event, related)) return null;
+      if (!canSeeTimelineEvent(viewer, source.event, () => null)) return null;
       return historySourceText({ ...source, event: visibleTimelineEvent(viewer, source.event, () => null) });
     }
     case 'question': {

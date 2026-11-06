@@ -40,6 +40,23 @@ describe('human team messages and member profiles', () => {
     return h.app.inject({ url: routes.memberProfile(key, handle), headers: { cookie } });
   }
 
+  it('returns the same message for concurrent retries without duplicate timeline entries', async () => {
+    await human('peer');
+    const clientRequestId = '50aef3dc-0701-4d2a-9c90-b674c595d266';
+    const replies = await Promise.all([
+      send(['peer'], owner, { clientRequestId }),
+      send(['peer'], owner, { clientRequestId }),
+    ]);
+    expect(replies.map((r) => r.statusCode)).toEqual([202, 202]);
+    const message = TeamMessage.parse(replies[0]!.json());
+    expect(TeamMessage.parse(replies[1]!.json()).id).toBe(message.id);
+    const retry = await send(['peer'], owner, { clientRequestId });
+    expect(TeamMessage.parse(retry.json()).id).toBe(message.id);
+    expect(
+      h.app.projectman.domain.timeline.list(key).filter((event) => event.data?.messageId === message.id),
+    ).toHaveLength(1);
+  });
+
   it('does not take the origin of a stored message from the request body', async () => {
     const forged = {
       kind: 'human',
@@ -52,6 +69,7 @@ describe('human team messages and member profiles', () => {
     const stored = h.app.projectman.domain.messages.get(TeamMessage.parse(response.json()).id)!;
     expect(stored.actor).toBeUndefined();
     expect(stored.via).toBeUndefined();
+    expect(stored.conversation).toBe('direct');
   });
 
   it('starts an offline task recipient and delivers the queued message once', async () => {

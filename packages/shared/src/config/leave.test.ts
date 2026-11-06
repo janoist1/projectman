@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyConfigPatch, PatchConfigRequest } from './edit';
-import { aiLimitReached, isHandleOnLeave, isOnLeave } from './leave';
+import { aiLimitReached, isHandleOnLeave, isOnLeave, membersSentOnLeave } from './leave';
 import { memberOf } from './lookup';
 import { ProjectConfig } from './schema';
 
@@ -53,6 +53,15 @@ describe('leave', () => {
 
   it('is not written for members that never went on leave, so older configurations stay as they are', () => {
     expect(memberOf(configWith(), 'dev-1')).not.toHaveProperty('onLeave');
+  });
+
+  it('names only the members a change sent on leave (PM-1300)', () => {
+    const atWork = configWith();
+    const away = configWith({}, true);
+    expect(membersSentOnLeave(atWork, away)).toEqual(['dev-1']);
+    expect(membersSentOnLeave(away, away)).toEqual([]);
+    expect(membersSentOnLeave(away, atWork)).toEqual([]);
+    expect(membersSentOnLeave(null, away)).toEqual([]);
   });
 });
 

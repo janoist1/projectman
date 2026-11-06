@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router';
-import { canSeeAllTeamMessages } from '@projectman/shared';
+import { Link, useSearchParams } from 'react-router';
+import { canSeeAllTeamMessages, workQueueScopeOf } from '@projectman/shared';
 import type { MemberView } from '@projectman/shared';
 import {
   useBoard,
@@ -22,6 +22,8 @@ import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import { aiSponsors, canRenameMember, memberStatusView, nameOf } from '../../lib/members';
 import { MessageList } from '../messages/MessageList';
 import { usePausedRows } from '../pause/usePause';
+import { WorkQueuesView } from '../work-queues/WorkQueuesView';
+import { TeamTabs } from './TeamTabs';
 import { ClosedCardsComparison } from './ClosedCardsComparison';
 import { MemberMenu } from './MemberMenu';
 import { RecentScheduleRuns } from './ScheduledRuns';
@@ -62,8 +64,34 @@ const statusRank: Record<string, number> = {
   retired: 7,
 };
 
-/** "Csapat": one roster of humans and AI members, hiring and retiring. */
+/**
+ * "Csapat": the roster of humans and AI members (hiring and retiring) and, for those who may read them, the work
+ * queues (`?view=queues`, PM-1294).
+ */
 export function TeamPage() {
+  const { key, me } = useProject();
+  const [params] = useSearchParams();
+  const access = me.projects.find((project) => project.key === key)?.access;
+  const tabs = access !== undefined && workQueueScopeOf({ access }) !== null;
+  // A viewer without the tab who types `?view=queues` gets the view's own "forbidden" state.
+  if (params.get('view') === 'queues') return <TeamQueues tabs={tabs} />;
+  return <TeamMembers tabs={tabs} />;
+}
+
+function TeamQueues({ tabs }: { tabs: boolean }) {
+  const { key } = useProject();
+  const board = useBoard(key);
+  useDocumentTitle(t('workQueues.title'), board.data?.project.name);
+  return (
+    <div className={styles.page}>
+      <PageHeader className={styles.header} hideTitleOnPhone title={t('team.title')} />
+      {tabs ? <TeamTabs active="queues" /> : null}
+      <WorkQueuesView />
+    </div>
+  );
+}
+
+function TeamMembers({ tabs }: { tabs: boolean }) {
   const { key, myHandle, can, me, isOwner } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
   const seesAllMessages = access ? canSeeAllTeamMessages({ access }) : false;
@@ -193,6 +221,8 @@ export function TeamPage() {
           </Button>
         ) : null}
       </PageHeader>
+
+      {tabs ? <TeamTabs active="members" /> : null}
 
       {lostDecider.length > 0 ? (
         <div role="status" className={styles.limit} aria-label={t('permissionControls.lostApproverLabel')}>

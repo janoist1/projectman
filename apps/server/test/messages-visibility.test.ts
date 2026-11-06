@@ -56,6 +56,38 @@ describe('team message visibility over REST and websocket', () => {
 
   const all = ['qa-designer task', 'qa-designer-dev', 'dev-qa task', 'owner-acme', 'acme-owner-reader'];
 
+  it('excludes direct conversations only when requesting the card place', async () => {
+    expect(await list('owner', '?taskKey=AR-1&place=card')).toEqual(['qa-designer task']);
+    expect(await list('owner', '?place=card')).toEqual(all);
+  });
+
+  it.each(['acme', 'dev'] as const)(
+    'filters private task timeline events for %s over REST',
+    async (handle) => {
+      const domain = h.app.projectman.domain;
+      const message = record('owner', ['acme'], 'AR-1', 'client conversation');
+      domain.timeline.append({
+        projectKey: key,
+        taskKey: 'AR-1',
+        sessionId: null,
+        actor,
+        type: 'message_dropped',
+        data: { messageId: message.id, recipient: 'acme', reason: 'place_closed' },
+      });
+      const response = await h.app.inject({
+        url: routes.task(key, 'AR-1'),
+        headers: { cookie: cookies[handle]! },
+      });
+      expect(response.statusCode).toBe(200);
+      const events = response.json().timeline as Array<{ type: string; data: { messageId?: string } }>;
+      const ids = events
+        .filter((e) => ['team_message', 'message_dropped'].includes(e.type))
+        .map((e) => e.data.messageId);
+      expect(ids).toContain(message.id);
+      expect(ids.length).toBe(handle === 'acme' ? 2 : 4);
+    },
+  );
+
   it('gives an owner and an admin every message, with and without filters', async () => {
     for (const handle of ['owner', 'admin']) {
       expect(await list(handle)).toEqual(all);
@@ -139,13 +171,27 @@ describe('team message visibility over REST and websocket', () => {
     );
     try {
       await flush();
-      const message = record('qa', ['dev', 'designer'], null, 'for dev');
+      const message = record('qa', ['dev', 'designer'], 'AR-1', 'for dev');
+      h.app.projectman.domain.timeline.append({
+        projectKey: key,
+        taskKey: 'AR-1',
+        sessionId: null,
+        actor,
+        type: 'message_dropped',
+        data: { messageId: message.id, recipient: 'dev', reason: 'place_closed' },
+      });
       const seen = (handle: string) =>
         received[handle]!.some((e) => e.type === 'team_message' && e.message.id === message.id);
       await vi.waitFor(() => expect(seen('owner') && seen('admin') && seen('dev')).toBe(true));
       await flush();
       expect(seen('reader')).toBe(false);
       expect(seen('acme')).toBe(false);
+      const messageEvents = (handle: string) =>
+        received[handle]!.filter(
+          (event) => event.type === 'timeline_appended' && event.event.data?.messageId === message.id,
+        );
+      expect(messageEvents('acme')).toHaveLength(0);
+      expect(messageEvents('dev')).toHaveLength(2);
       // A read receipt is an event of the same message: the outsiders do not get it either.
       h.app.projectman.domain.messages.markRead(key, message.id, 'dev');
       await vi.waitFor(() =>

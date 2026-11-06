@@ -312,6 +312,14 @@ describe('ownerOnlyChanges', () => {
   it('requires an owner to change who may open a new card (PM-1100)', () => {
     expect(changed((c) => void (c.team.taskCreateAccess = 'client'))).toContain('task_create_access');
   });
+  it('requires an owner to change what the project manager may do on its own authority (PM-1284)', () => {
+    expect(changed((c) => void (c.team.projectManagerAuthority = 'owner_request'))).toContain(
+      'project_manager_authority',
+    );
+  });
+  it('leaves restating the default project manager authority to an admin', () => {
+    expect(changed((c) => void (c.team.projectManagerAuthority = 'outside_owner_only'))).toEqual([]);
+  });
   it('leaves restating the default new card access to an admin', () => {
     expect(changed((c) => void (c.team.taskCreateAccess = 'developer'))).toEqual([]);
   });

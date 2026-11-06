@@ -6,8 +6,9 @@ import {
   SuperCommandUnclassifiable,
   canonical,
   coordinationMemberOf,
-  approvalStructureChanged,
   hasMachineAccess,
+  ownerOnlyChanges,
+  ownerYesForMemberOrigin,
   memberRequestCommandRefusal,
   projectManagerCommandRefusal,
   memberOf,
@@ -23,6 +24,7 @@ import {
 import type {
   Actor,
   InboxItem,
+  OwnerOnlyChange,
   OwnerReservedEffect,
   ProjectConfig,
   BoundActor,
@@ -43,6 +45,7 @@ import {
   SYSTEM_ACTOR,
   attributedActor,
   conflict,
+  delegatesOwnerAuthority,
   forbidden,
   humanActor,
   integratorExecution,
@@ -373,7 +376,7 @@ export class SuperHandoffService {
   ): Promise<SuperOperation> {
     const loaded = await this.projects.load(subject.projectKey);
     const executor = this.executorFor(subject.command);
-    const effects = await this.effectsOf(subject, loaded.config, loaded.version);
+    const { effects, ownerOnly } = await this.effectsOf(subject, loaded.config, loaded.version);
     const exec = this.execContext(subject.projectKey, actor, requestId, null);
     const operation = this.audit.run(
       exec,
@@ -402,7 +405,14 @@ export class SuperHandoffService {
         };
         if (waiting) {
           stored.expiresAt = new Date(this.ctx.now().getTime() + SUPER_OWNER_QUESTION_TTL_MS).toISOString();
-          stored.ownerQuestionId = this.openOwnerQuestion(subject, stored, loaded.config, effects, actor).id;
+          stored.ownerQuestionId = this.openOwnerQuestion(
+            subject,
+            stored,
+            loaded.config,
+            effects,
+            ownerOnly,
+            actor,
+          ).id;
         }
         repo.insertOperation(stored);
         this.recordChange(stored, subject.taskKey, attributedActor(access), null, stored.state);
@@ -431,7 +441,7 @@ export class SuperHandoffService {
     if (operation.expectedConfigVersion !== loaded.version)
       return this.refuseStale(operation, actor, 'the configuration changed since the owner answered');
     const executor = this.executorFor(operation.command);
-    const effects = await this.effectsOf(subject, loaded.config, loaded.version);
+    const { effects } = await this.effectsOf(subject, loaded.config, loaded.version);
     const exec = this.execContext(operation.projectKey, actor, operation.requestId, operation.handoffId);
     const running = this.audit.run(
       exec,
@@ -594,7 +604,7 @@ export class SuperHandoffService {
     subject: Subject,
     config: ProjectConfig,
     configVersion: string,
-  ): Promise<OwnerReservedEffect[]> {
+  ): Promise<{ effects: OwnerReservedEffect[]; ownerOnly: OwnerOnlyChange[] }> {
     const command = subject.command;
     const revertVersion =
       command.kind === 'operate' && command.operation.op === 'config_revert'
@@ -625,15 +635,16 @@ export class SuperHandoffService {
         this.members.prepareRetire(next, operation.handle);
       }
       const effects = superCommandEffects(command, context);
-      // A member's request cannot reshape who approves without the owner's yes (PM-1010).
-      if (
-        integratorExecution()?.principal.requestOrigin === 'member' &&
-        next &&
-        approvalStructureChanged(config, next) &&
-        !effects.includes('security')
-      )
-        return [...effects, 'security'];
-      return effects;
+      // A member's request cannot reshape who approves or make an owner-only change without the owner's yes
+      // (PM-1010, PM-1284).
+      if (!delegatesOwnerAuthority() && next && ownerYesForMemberOrigin(config, next)) {
+        const ownerOnly = ownerOnlyChanges(config, next);
+        return {
+          effects: effects.includes('security') ? effects : [...effects, 'security'],
+          ownerOnly,
+        };
+      }
+      return { effects, ownerOnly: [] };
     } catch (error) {
       if (error instanceof SuperCommandUnclassifiable)
         throw forbidden('integrator_not_allowed', 'this command cannot be classified, so it is not run');
@@ -688,6 +699,7 @@ export class SuperHandoffService {
     operation: StoredSuperOperation,
     config: ProjectConfig,
     effects: readonly OwnerReservedEffect[],
+    ownerOnly: readonly OwnerOnlyChange[],
     actor: BoundActor,
   ): InboxItem {
     // The asker is the connected Claude's actor (decision 66), or the selected PM for an in-app super step.
@@ -704,7 +716,7 @@ export class SuperHandoffService {
       title: subject.reason,
       payload: {
         question: subject.reason,
-        details: `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}`,
+        details: `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}${ownerOnly.length ? `; owner-only: ${ownerOnly.join(', ')}` : ''}`,
         options: [SUPER_OWNER_YES, SUPER_OWNER_NO],
         // Only the owner's own login answers it; the server forces this whatever the asker says.
         responsePurpose: 'owner_decision',

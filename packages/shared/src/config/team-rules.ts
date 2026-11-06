@@ -15,9 +15,10 @@ import { projectManagerLifecycleOf } from './lifecycle';
 import { ownerHandles } from './lookup';
 import { prerequisiteOverrideOf } from './prerequisite-override';
 import { prioritySetterMembers } from './priority';
+import { projectManagerAuthorityOf } from './project-manager-authority';
 import { projectManagerMovesOf, projectManagersOf } from './project-manager';
 import { developmentStage, isRefinementStage, projectRefines } from './refinement';
-import type { ProjectConfig, ProjectManagerMoves, ViewerRecipients } from './schema';
+import type { ProjectConfig, ProjectManagerAuthority, ProjectManagerMoves, ViewerRecipients } from './schema';
 import { taskCreateAccessOf } from './task-create';
 import type { TeamRuleId } from './team-rule-ids';
 import { viewerRecipientsOf } from './communication';
@@ -39,6 +40,7 @@ export type TeamRule =
       moves: ProjectManagerMoves;
       lifecycle: string[];
       prerequisiteOverride: boolean;
+      authority: ProjectManagerAuthority;
     }
   | { id: 'fix_limit'; limit: number; labels: string[]; lead: string | null; deciders: string[] }
   | { id: 'refinement'; label: string | null; stageIds: string[]; workStageId: string; steps: string[] }
@@ -101,6 +103,7 @@ export function teamRules(config: Pick<ProjectConfig, 'team' | 'pipeline'>): Tea
       moves: projectManagerMovesOf(config),
       lifecycle: [...projectManagerLifecycleOf(config)],
       prerequisiteOverride: prerequisiteOverrideOf(config) === 'people_and_project_manager',
+      authority: projectManagerAuthorityOf(config),
     });
   rules.push({
     id: 'fix_limit',

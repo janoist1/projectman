@@ -145,9 +145,43 @@ const COMPOUND_NAME = /\b[A-Za-z_$][\w$]*[a-z][A-Z][\w$]*\b/g;
 /** A name the code declares as a property, a parameter or a typed variable (`onLeave: true`). */
 const DECLARED_NAME = /[\s{,(;]([A-Za-z_$][\w$]*)\s*\??:(?!:)/g;
 
+const CALLED_NAME = /\b([A-Za-z_$][\w$]*)\s*\(/g;
+const SHARED_SOURCE = 'packages/shared/src/';
+/** The longest function body read for the fields it uses (up to the next export). */
+const CALLEE_BODY_LINES = 40;
+
+/**
+ * The bodies (comments left out) of the shared functions the changed lines call, one step and no
+ * further: the fields they read are what a test sets to reach the changed behavior.
+ */
+function calledSharedBodies(texts: readonly string[], after: readonly MergeTestFile[]): string[] {
+  const called = new Set<string>();
+  for (const text of texts) for (const match of text.matchAll(CALLED_NAME)) called.add(match[1]!);
+  const bodies: string[] = [];
+  if (!called.size) return bodies;
+  for (const { path, source } of after) {
+    if (!path.startsWith(SHARED_SOURCE) || !isCode(path) || isServerTest(path) || isTestSupport(path))
+      continue;
+    const lines = source.split('\n');
+    lines.forEach((line, index) => {
+      const declared = /^export\s+(?:async\s+)?(?:function\*?|const)\s+([A-Za-z_$][\w$]*)/.exec(line)?.[1];
+      if (!declared || !called.has(declared)) return;
+      const rest = lines.slice(index + 1);
+      const end = rest.findIndex((next) => /^export\s/.test(next));
+      bodies.push(
+        [line, ...rest.slice(0, end < 0 ? CALLEE_BODY_LINES : Math.min(end, CALLEE_BODY_LINES))]
+          .filter((text) => !/^\s*(?:\/\/|\/?\*)/.test(text))
+          .join('\n'),
+      );
+    });
+  }
+  return bodies;
+}
+
 /**
  * The names a change touched: exported names declared on, and compound identifiers used on, the lines
- * that differ between the base and the working tree of a changed non-test code file.
+ * that differ between the base and the working tree of a changed non-test code file, and the fields
+ * read by the shared functions those lines call.
  */
 function changedSymbols(
   changed: readonly string[],
@@ -175,6 +209,9 @@ function changedSymbols(
     for (const match of text.matchAll(EXPORTED_NAME)) if (match[1]!.length >= 5) symbols.add(match[1]!);
     for (const match of text.matchAll(COMPOUND_NAME)) compound.add(match[0]);
   }
+  // One step further: the fields the shared functions called on the changed lines read (`isOnLeave` -> `onLeave`).
+  for (const body of calledSharedBodies(texts, after))
+    for (const match of body.matchAll(COMPOUND_NAME)) compound.add(match[0]);
   // A compound name counts only when the code declares it (a property, a variable): not `localeCompare`.
   if (compound.size)
     for (const source of [...texts, ...after.filter((file) => isCode(file.path)).map((file) => file.source)])

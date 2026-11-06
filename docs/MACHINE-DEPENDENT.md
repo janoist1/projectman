@@ -34,7 +34,7 @@ Entries in the order they appear below (search for the bold name).
   deployment and backup · Connected Claude credentials
 - **Providers and sessions:** Codex project layer check · NanoGPT Codex home and key delivery · Gemini (agy) CLI,
   conversation directories and keychain login · NanoGPT secret store · Session process liveness · Fake CLI pause
-  test gates · Dependency clones and refreshes · Heavy-run queue and worker limits · Server and engine log files ·
+  test gates · Dependency clones and refreshes · Machine places · Server and engine log files ·
   Session output folders · Card attachments · Message attachments · Message file in the session folder · Browser
   installation and screenshots · Machine display and orphan processes · Instance identity for process attribution ·
   Session process termination · Conversation transcripts and resume · Hooks and team MCP over loopback · Private
@@ -1637,9 +1637,17 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
   **Module:** `worktree`
-- **Heavy-run queue and worker limits** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
-  `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
-  `vitest.config.ts` files (PM-332, PM-336). Prompt descriptions of commands, unavailable exit status
+- **Machine places** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
+  `scripts/heavy/{cli,run,messages,vitest-places}`, `packages/shared/src/config/test-workers.ts` and the workspace
+  `vitest.config.ts` files (PM-332, PM-336, PM-1278 A / PM-1313). The machine has one pool of places
+  (`machinePlaces`: from the executing host's cores and memory, 2 to 16); a heavy run takes `all`, or 2 to 4
+  for a workspace vitest and `handover-check`, and its worker count comes from the places it was granted
+  (`placeWorkers`), not from a config. The pool is files in the per-user lock directory below; an older
+  build's entry without `places` counts as all of them. **Remote engine:** the pool, its capacity and the
+  workers belong to the machine that runs the command, so each engine has its own in its own
+  `/tmp/projectman-<uid>/heavy`; part A adds nothing that crosses the server/engine boundary (the ticket and
+  the directory reach a full test's sandbox through its environment, on the engine). The server's view of
+  who holds places (PM-569) already comes from the engine. Prompt descriptions of commands, unavailable exit status
   and PTY skips are opt-in repository `heavyChecks` settings (`context/system-prompt.ts`,
   `runtime/permissions/unattended-commands.ts`, PM-1112); engine environment variables and queue
   execution are unchanged. These descriptions are rendered on the server for local and remote engines.
@@ -2541,6 +2549,18 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
   PM-1059 does not touch this check: it keeps running on the engine the card's merge already uses, and the
   engine-side `gh` client keeps its project-less `MachineGithubService` contract.
+  **Infrastructure faults (PM-1292):** the same executor tells a GitHub infrastructure fault from a fault of the
+  checked code and marks the errored `FullTestResult` with `infra` (`CheckInfraCause`: `runner_not_acquired`
+  when every unsuccessful job got no machine — no runner id or name, no step started —, `verdict_missing`
+  when a job ended without its finished `merge-test` step, `service_unreachable` when a temporary GitHub
+  failure outlasted the tries or the run never appeared). A job that failed in the `merge-test` step always
+  wins: the result is `failed`, whatever happened to the other shards, and a job that started but failed
+  earlier (`npm ci`) is never marked. The detection runs where `gh` runs, on the card's engine, and reads
+  only the jobs the existing client lists (`runner_id`, `runner_name`); **Remote engine:** only the bounded
+  `infra` value crosses the boundary, in the existing `full_test.run`/`attach` result (an optional field of the
+  strict result schema, the protocol version unchanged), so no new machine assumption arises. Install the hub
+  before the engine: an older engine sends no `infra` and keeps the former behavior. The hub records it in
+  `merge_check_runs.infra` and `list_merge_checks` shows it; the local executor never sets it.
   **Compute jobs (PM-1147):** a `full_test.run` that carries `githubJob` (`FullTestSpec.githubJob`, exclusive
   with `githubActions`) runs one job of the general `projectman-job.yml` workflow (PM-1144) instead: no check
   branch is pushed; the workflow is dispatched on the owner's merge branch (`base`) with the inputs `job`,

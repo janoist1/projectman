@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { StageId } from './pipeline';
 import { MemberHandle } from './member';
+import { CheckInfraCause } from './full-test';
 import { MergeCheckRunner, MergeTestReport } from './merge-test';
 
 export const MERGE_ENGINE_WAIT_MINUTES = 15;
@@ -154,6 +155,8 @@ export const MergeCheckRun = z.object({
   status: MergeCheckRunStatus,
   /** `FullTestErrorReason`, `interrupted`, or null. */
   reason: z.string().nullable(),
+  /** The infrastructure cause of an `error` the checked code did not cause (PM-1292), else null. */
+  infra: CheckInfraCause.nullable(),
   /** The worker count the hub passed to the executor. */
   maxWorkers: z.number().int(),
   requestedAt: z.string(),

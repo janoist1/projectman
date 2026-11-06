@@ -116,6 +116,8 @@ import type { DomainContext } from '../base';
 import { applyRoute } from './apply-route';
 import type { AppliedRoute } from './apply-route';
 import { bodyForOwners, formatFixLimitItem } from './fix-limit-text';
+import { InboxMentions } from './mentions';
+import type { CloseMentionsInput, OpenMentionsInput } from './mentions';
 import type { QuestionGroupAnswerer, IntegratorTodoAccess, AlertNoticeSink, AlertPmSignals } from './ports';
 import {
   alertMarkerOf,
@@ -335,6 +337,7 @@ export class InboxService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
   private readonly integratorTodoAccess?: IntegratorTodoAccess;
+  private readonly mentions: InboxMentions;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
   private readonly deciders = new Map<InboxDeciderKey, InboxDecider>();
   private readonly resolvingGates = new Map<string, { projectKey: string; gate: GateRequestPayload }>();
@@ -677,6 +680,21 @@ export class InboxService {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.integratorTodoAccess = deps.integratorTodoAccess;
+    this.mentions = new InboxMentions({
+      ctx: this.ctx,
+      create: (input) => this.create(input),
+      publish: (item) => this.publish(item),
+    });
+  }
+
+  /** Opens the `mention` items of a note, in the unit of work that records it (PM-1307). */
+  openMentions(input: OpenMentionsInput): InboxItem[] {
+    return this.mentions.open(input);
+  }
+
+  /** Closes the replying author's own `mention` items of the thread, in the unit of work of the reply (PM-1307). */
+  closeMentionsByReply(input: CloseMentionsInput): InboxItem[] {
+    return this.mentions.closeByReply(input);
   }
 
   create(input: CreateInboxItemInput): InboxItem {
@@ -1118,12 +1136,12 @@ export class InboxService {
       );
     }
     if (item.kind === 'permission') assertOwnApproval(by);
-    else if (!['question', 'alert'].includes(item.kind)) assertOwnOrSuperApproval(by);
+    else if (!['question', 'alert', 'mention'].includes(item.kind)) assertOwnOrSuperApproval(by);
     if (req.attachmentIds !== undefined && item.kind !== 'question')
       throw invalid('invalid_request', 'only questions accept attachments', { field: 'attachmentIds' });
     if (
       by.via &&
-      !['question', 'alert'].includes(item.kind) &&
+      !['question', 'alert', 'mention'].includes(item.kind) &&
       (!by.superActor || item.kind === 'permission')
     )
       throw forbidden(
@@ -2478,6 +2496,11 @@ export class InboxService {
     for (const item of this.ctx.repos.inbox
       .list(projectKey, { state: PENDING_INBOX_STATES })
       .filter((i) => i.assignees.includes(handle))) {
+      // A mention was for this person only: nobody else is asked to see it (PM-1307).
+      if (item.kind === 'mention') {
+        this.close(item.id, 'cancelled');
+        continue;
+      }
       const remaining = item.assignees.filter((h) => h !== handle);
       const updated = this.ctx.repos.inbox.updateAssignees(
         item.id,
@@ -2491,11 +2514,12 @@ export class InboxService {
   /**
    * Cancels open questions and permission requests raised by a member (e.g. when it is retired).
    * A decision and a release approval outlive their proposer: the release record stays `proposed`
-   * until a human resolves the item, so cancelling it would leave the open release stuck.
+   * until a human resolves the item, so cancelling it would leave the open release stuck. A mention outlives
+   * its author too: the note it points at stays on the card (PM-1307).
    */
   async cancelOpenFromSource(projectKey: string, handle: string): Promise<void> {
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
-      if (item.source !== handle || item.kind === 'decision' || item.kind === 'release') continue;
+      if (item.source !== handle || ['decision', 'release', 'mention'].includes(item.kind)) continue;
       if (item.kind === 'question' && this.ctx.repos.inbox.groupOf(item.id)) {
         await this.closeQuestion(item.id, {
           rule: 'withdrawn',

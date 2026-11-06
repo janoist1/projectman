@@ -41,6 +41,8 @@ export const InboxKind = z.enum([
   'merge_request',
   /** The approval of a proposed release of the instance itself (PM-491); see `ReleaseApprovalPayload`. */
   'release',
+  /** A human was mentioned in a card note (PM-1307); see `MentionPayload`. */
+  'mention',
 ]);
 export type InboxKind = z.infer<typeof InboxKind>;
 
@@ -189,6 +191,8 @@ export const InboxResolutionRule = z.enum([
   'obligation_closed',
   /** The system signal a question was tied to (`signalId`) ended by itself (PM-455): nothing is left to answer. */
   'signal_resolved',
+  /** The mentioned human replied in the thread of the note that mentioned them (PM-1307). */
+  'mention_replied',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -274,15 +278,20 @@ export function canSeeInboxItem(
 
 /**
  * Whether a human may resolve the item: its assignees may, and the owner may resolve any other item except a
- * decision and a release approval, which only their assignees answer. The one rule for the server and the
- * web's fake (PM-1114).
+ * decision, a release approval and a mention, which only their assignees answer. The one rule for the server
+ * and the web's fake (PM-1114, PM-1307).
  */
 export function canResolveInboxItem(
   viewer: TaskViewer,
   item: Pick<InboxItem, 'kind' | 'assignees'>,
 ): boolean {
   if (item.assignees.includes(viewer.handle)) return true;
-  return item.kind !== 'decision' && item.kind !== 'release' && viewer.access === 'owner';
+  return (
+    item.kind !== 'decision' &&
+    item.kind !== 'release' &&
+    item.kind !== 'mention' &&
+    viewer.access === 'owner'
+  );
 }
 
 /**
@@ -453,6 +462,28 @@ export function seniorWaitAnswerOf(
 
 /** The one option of an `alert` item: the owner has seen it. The web app translates the id. */
 export const ALERT_SEEN_OPTION: InboxOption = { id: 'seen', label: 'seen', style: 'primary' };
+
+/** The one option of a `mention` item: the mentioned human has seen it (PM-1307). */
+export const MENTION_SEEN_OPTION: InboxOption = ALERT_SEEN_OPTION;
+
+/**
+ * `payload` of a `mention` item (PM-1307): the note event that mentioned the human, where it was written
+ * and the thread a reply goes to (the comment's own event id for a comment, the normalized parent for a
+ * reply, null for a process note, which has no thread). The author is the item's `source`.
+ */
+export const MentionPayload = z.object({
+  eventId: z.string(),
+  place: z.enum(['comment', 'reply', 'note']),
+  threadId: z.string().nullable(),
+});
+export type MentionPayload = z.infer<typeof MentionPayload>;
+
+/** The mention payload of an item, or null when it is no mention (or an unreadable one). */
+export function mentionPayloadOf(item: Pick<InboxItem, 'kind' | 'payload'>): MentionPayload | null {
+  if (item.kind !== 'mention') return null;
+  const parsed = MentionPayload.safeParse(item.payload);
+  return parsed.success ? parsed.data : null;
+}
 
 /**
  * `payload` of an `alert` item: `alert` names what happened. `session_tokens` (PM-187): a session's

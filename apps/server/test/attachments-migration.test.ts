@@ -8,8 +8,8 @@ describe('attachments migration', () => {
   it('preserves ready card files when upgrading to comment attachment storage', () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version < 147)) db.exec(migration.sql);
-      db.pragma('user_version = 146');
+      for (const migration of migrations.filter((item) => item.version < 148)) db.exec(migration.sql);
+      db.pragma('user_version = 147');
       db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Example', 'v1', 'now', 'now');
         INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, visibility, created_by, created_at, updated_at)
           VALUES ('tsk_old', 'AR', 'AR-1', 1, 'Old task', '', 'dev', 'active', 'internal', 'owner', 'now', 'now');

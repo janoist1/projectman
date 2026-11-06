@@ -410,7 +410,11 @@ export function createWorkspaceDependencyInstaller(
         : err instanceof WorkspaceDependencyError
           ? err
           : err instanceof HeavyLockError
-            ? new WorkspaceDependencyError(err.code, key)
+            ? // The duplicate rule needs a command, which this lock does not give.
+              new WorkspaceDependencyError(
+                err.code === 'heavy_lock_duplicate' ? 'install_failed' : err.code,
+                key,
+              )
             : new WorkspaceDependencyError(
                 err instanceof DependencyPreparationError ? 'invalid_inputs' : 'install_failed',
                 key,

@@ -509,7 +509,12 @@ function mergeCheckLines(run: MergeCheckRun): string[] {
     ...(run.startedAt ? [`started ${formatTimestamp(run.startedAt)}`] : []),
     ...(run.finishedAt ? [`finished ${formatTimestamp(run.finishedAt)}`] : []),
   ].join(' · ');
-  const headLines = [head + queueWait, `  runner: ${run.runner}`, ...(run.url ? [`  url: ${run.url}`] : [])];
+  const headLines = [
+    head + queueWait,
+    `  runner: ${run.runner}`,
+    ...(run.infra ? [`  infra: ${run.infra}`] : []),
+    ...(run.url ? [`  url: ${run.url}`] : []),
+  ];
   if (!report) return [...headLines, '  steps: unknown (no step report from the engine)'];
   if (report.steps.length === 0) return [...headLines, '  steps: none reported'];
   return [

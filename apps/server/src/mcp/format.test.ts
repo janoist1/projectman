@@ -354,8 +354,9 @@ describe('formatTaskDetail', () => {
         taskKeys: ['AR-21', 'AR-22'],
         commit: 'a'.repeat(40),
         base: null,
-        status: 'failed',
-        reason: null,
+        status: 'error',
+        reason: 'github_unavailable',
+        infra: 'runner_not_acquired',
         maxWorkers: 4,
         requestedAt: '2026-10-20T10:00:00.000Z',
         startedAt: null,
@@ -372,6 +373,7 @@ describe('formatTaskDetail', () => {
     expect(text).toContain('workers 4 (seen unknown)');
     expect(text).toContain('steps: unknown');
     expect(text).toContain('runner: github_actions');
+    expect(text).toContain('infra: runner_not_acquired');
     expect(text).toContain('url: https://github.com/o/r/actions/runs/1');
   });
   it('shows the open handoff of the card, else the latest one that ended (PM-342)', () => {

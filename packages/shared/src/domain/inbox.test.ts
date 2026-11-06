@@ -194,6 +194,8 @@ describe('canResolveInboxItem', () => {
     ['the owner leaves a decision to its assignees', 'decision', 'owner', 'owner', false],
     ['the owner leaves a release approval to its assignees', 'release', 'owner', 'owner', false],
     ['another member may not', 'question', 'bob', 'admin', false],
+    ['an assignee resolves a mention', 'mention', 'ann', 'developer', true],
+    ['the owner leaves a mention to its assignee', 'mention', 'owner', 'owner', false],
   ] as const)('%s', (_name, kind, handle, access, allowed) => {
     expect(canResolveInboxItem({ handle, access }, { kind, assignees: ['ann'] })).toBe(allowed);
   });

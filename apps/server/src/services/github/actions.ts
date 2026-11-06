@@ -58,6 +58,8 @@ const JobSchema = z.object({
   conclusion: z.string().nullish(),
   started_at: z.string().nullish(),
   completed_at: z.string().nullish(),
+  runner_id: z.number().int().nonnegative().nullish(),
+  runner_name: z.string().nullish(),
   steps: z.array(StepSchema).nullish(),
 });
 const JobsSchema = z.object({ jobs: z.array(JobSchema) });
@@ -85,6 +87,8 @@ function toJobInfo(job: z.infer<typeof JobSchema>): WorkflowJobInfo {
     conclusion: job.conclusion ?? null,
     startedAt: job.started_at ?? null,
     completedAt: job.completed_at ?? null,
+    runnerId: job.runner_id ?? null,
+    runnerName: job.runner_name ?? null,
     steps: (job.steps ?? []).map((step) => ({
       name: step.name,
       status: step.status ?? '',

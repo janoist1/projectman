@@ -9,6 +9,7 @@ import {
   isTheme,
   LIVE_SESSION_STATES,
   memberOf,
+  mentionItemTargets,
   pageCommentThreads,
   replyParentOf,
   repoOf,
@@ -41,6 +42,7 @@ import type { DomainContext } from '../base';
 import { requireHuman } from '../members';
 import { DomainError, forbidden, invalid, notFound } from '../../kernel';
 import { assertIntegratorAccess, assertOwnApproval } from '../../kernel';
+import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
 
@@ -71,6 +73,7 @@ export class TaskStore {
   readonly timeline: TimelineService;
   readonly projects: ProjectService;
   private readonly startWaiting: StartWaitingReader;
+  private readonly mentions: Pick<InboxService, 'openMentions' | 'closeMentionsByReply'>;
   private readonly outageOf?: (task: Task) => WorkOutage | undefined;
   private readonly readyHold?: (task: Task) => TaskReadyHold | undefined;
   private readonly startOffer?: (task: Task) => TaskStartOffer | undefined;
@@ -89,6 +92,8 @@ export class TaskStore {
     timeline: TimelineService;
     projects: ProjectService;
     startWaiting: StartWaitingReader;
+    /** Where the mention items of a note are opened and closed (PM-1307). */
+    mentions: Pick<InboxService, 'openMentions' | 'closeMentionsByReply'>;
     outageOf?: (task: Task) => WorkOutage | undefined;
     readyHold?: (task: Task) => TaskReadyHold | undefined;
     /** The open offer to start the ready card (PM-804). */
@@ -100,6 +105,7 @@ export class TaskStore {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.startWaiting = deps.startWaiting;
+    this.mentions = deps.mentions;
     this.outageOf = deps.outageOf;
     this.readyHold = deps.readyHold;
     this.startOffer = deps.startOffer;
@@ -495,7 +501,34 @@ export class TaskStore {
         });
         if (this.cover(task) !== coverBefore) this.publish(task);
       }
-      if (!isImported) effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions, task }));
+      if (isImported) return event;
+      // A comment starts its own thread; a reply belongs to its parent's; a process note has none.
+      const threadId = parent ?? (place === 'comment' ? event.id : null);
+      const targets = mentionItemTargets({ config, author: actor, mentions, imported: false });
+      if (targets.length > 0)
+        this.mentions.openMentions({
+          projectKey: task.projectKey,
+          taskKey: task.key,
+          taskTitle: task.title,
+          source: actor.handle!,
+          sessionId,
+          text,
+          targets,
+          payload: {
+            eventId: event.id,
+            place: parent !== undefined ? 'reply' : place === 'comment' ? 'comment' : 'note',
+            threadId,
+          },
+        });
+      if (parent !== undefined && actor.kind === 'human')
+        this.mentions.closeMentionsByReply({
+          projectKey: task.projectKey,
+          taskKey: task.key,
+          author: actor,
+          threadId: parent,
+          at: event.createdAt,
+        });
+      effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions, task }));
       return event;
     });
   }

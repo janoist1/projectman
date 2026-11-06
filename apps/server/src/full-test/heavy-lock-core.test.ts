@@ -6,7 +6,14 @@ import { runPromise } from '../kernel';
 import { holderHeartbeat, waitForLock } from './heavy-lock-core';
 import type { LockWaitDeps, TurnResult } from './heavy-lock-core';
 
-const turn = (): TurnResult => ({ acquired: false, holder: null, ahead: 0 });
+const turn = (): TurnResult => ({
+  acquired: false,
+  holder: null,
+  holders: [],
+  ahead: 0,
+  free: 0,
+  capacity: 4,
+});
 const depsOf = (overrides: Partial<LockWaitDeps> = {}): LockWaitDeps => ({
   takeTurn: async () => turn(),
   remakeQueue: vi.fn(async () => {}),

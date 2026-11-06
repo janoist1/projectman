@@ -233,7 +233,7 @@ export class TaskService implements TaskSchedulingReader {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.handoff = deps.handoff;
-    this.store = new TaskStore(deps);
+    this.store = new TaskStore({ ...deps, mentions: deps.inbox });
     this.labels = new TaskLabels(this.store);
     this.order = new BoardOrder(this.store);
     this.moves = new TaskMoves({

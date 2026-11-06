@@ -37,6 +37,8 @@ type Judgement =
   | { kind: 'failed'; failed: WorkflowJobInfo[] }
   | { kind: 'timeout' }
   | { kind: 'missing'; message: string }
+  /** GitHub gave no machine to the jobs (PM-1292); nothing of the checked code ran there. */
+  | { kind: 'unacquired'; jobs: string[] }
   | { kind: 'error'; message: string };
 
 /**
@@ -65,6 +67,18 @@ function failedInMergeTest(job: WorkflowJobInfo): boolean {
   return job.steps.slice(0, job.steps.indexOf(step)).every((before) => before.conclusion === 'success');
 }
 
+/**
+ * GitHub never gave the job a machine (PM-1292): no runner was assigned and no step started. A job that
+ * started and failed early (`npm ci`, a setup step) is not this: the checked code may have caused it.
+ */
+export function notAcquired(job: WorkflowJobInfo): boolean {
+  if (job.conclusion === 'success') return false;
+  if ((job.runnerId ?? 0) !== 0 || (job.runnerName ?? '') !== '') return false;
+  return job.steps.every(
+    (step) => !step.startedAt && (step.conclusion === null || step.conclusion === 'skipped'),
+  );
+}
+
 function describeJob(job: WorkflowJobInfo): string {
   const step = job.steps.find((candidate) => candidate.conclusion === 'failure');
   return `"${job.name}" ${job.conclusion ?? job.status}${step ? ` (step "${step.name}")` : ''}`;
@@ -77,6 +91,17 @@ export function judge(run: WorkflowRunInfo, commit: string, jobs: readonly Workf
   if (jobs.length === 0) return { kind: 'error', message: 'The run has no jobs.' };
   const skipped = jobs.find((job) => job.conclusion === 'skipped');
   if (skipped) return { kind: 'error', message: `The job "${skipped.name}" was skipped.` };
+  const unsuccessful = jobs.filter((job) => !succeeded(job));
+  if (
+    unsuccessful.some(notAcquired) &&
+    unsuccessful.every((job) => notAcquired(job) || failedInMergeTest(job))
+  ) {
+    const failed = unsuccessful.filter(failedInMergeTest);
+    // A real test failure is the card's, whatever happened to the other shards.
+    return failed.length > 0
+      ? { kind: 'failed', failed }
+      : { kind: 'unacquired', jobs: unsuccessful.map((job) => job.name) };
+  }
   const bare = jobs.find(stepsMissing);
   if (bare)
     return {
@@ -86,7 +111,6 @@ export function judge(run: WorkflowRunInfo, commit: string, jobs: readonly Workf
   const without = jobs.find((job) => !mergeStepOf(job));
   if (without) return { kind: 'error', message: `The job "${without.name}" has no ${MERGE_TEST_STEP} step.` };
   if (jobs.every(succeeded)) return { kind: 'passed' };
-  const unsuccessful = jobs.filter((job) => !succeeded(job));
   if (unsuccessful.every(failedInMergeTest)) return { kind: 'failed', failed: unsuccessful };
   if (jobs.some((job) => job.conclusion === 'timed_out')) return { kind: 'timeout' };
   return {

@@ -143,14 +143,11 @@ npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREEN
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>)
 npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all)
 npm run handover-check      # before hand-over and in fix rounds: dead-code, type check and the nearest tests selected from your diff in every workspace (-- --dry-run lists them; no queue)
-npm run dead-code           # before hand-over and in fix rounds: unused files/exports (fast, no queue)
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
 npx vitest run src/i18n/i18n.test.ts --configLoader runner  # in apps/web: after changing locale keys or their usage
-npx vitest run test/architecture  # in apps/server after adding, moving or renaming files; before hand-over too (no queue)
 npx vitest run test/web-get-contracts.test.ts --configLoader runner  # in apps/server after changing web GET responses or hot-read query costs
 npx vitest related test/helpers/app-harness.ts --run --configLoader runner  # in apps/server after changing the app harness, covering every harness consumer
-npx vitest related ../../scripts/merge-test/scope.ts --run --configLoader runner  # in apps/server after changing merge-test scope, including CLI selection
 npx vitest run test/merge-test-watchdog.test.ts --configLoader runner  # in apps/server after changing merge-test execution or reporting
 npx vitest run test/start-offer.test.ts test/golden-path-small-team.test.ts --configLoader runner  # in apps/server after changing admission wake-ups or start timing
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
@@ -171,24 +168,24 @@ retired tool names, inbox kinds and route or file paths, then run the matching b
 HTTP calls and string fixtures are not covered by import-based related selection.
 When changing the shared `ErrorCode` union, update
 `errors.codes` in `apps/web/src/i18n/hu.ts`, run `npm run typecheck -w @projectman/web`, and
-run the web i18n test listed above. Also run `npm run dead-code` from the repository root
-before hand-over and in fix rounds; it is fast and does not queue. Fix new findings rather
-than extending the baseline. Before hand-over and in fix rounds also run
-`npm run handover-check` from the repository root: it selects the nearest tests of your diff in
-every workspace (a shared schema, the path-reading tests and the tool snapshot included; at most
-60 files, it says how many the merge-test runs on top), runs them with the type check of the
-affected workspaces and `dead-code`, and does not queue. It does not replace the merge-test.
-After changing `apps/web/src/mocks`, run `npx vitest run src/mocks` in `apps/web`. After adding, moving or renaming files, also run
-`npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
-and does not queue. They never run the full suite. The merger (`team.merger`,
+run the web i18n test listed above.
+Before hand-over and in fix rounds run `npm run handover-check` from the repository root. It
+selects the nearest tests of your diff in every workspace (a shared schema, the architecture and
+other path-reading tests and the tool snapshot included; at most 60 files, and it says how many
+the merge-test runs on top), runs them with the type check of the affected workspaces and
+`dead-code`, and does not queue. Fix new `dead-code` findings rather than extending the baseline.
+It does not replace the merge-test. A test that reads the repository by path goes into
+`PATH_READ_TESTS` (`scripts/merge-test/handover.ts`) and a file that starts programs into
+`RUNTIME_ENTRIES`, not into a new line of this list. They never run the full suite. The merger (`team.merger`,
 `lead` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
 before `main` moves: `npm run merge-test`, in the sandbox of the card's engine or on GitHub
 Actions, as the repository is set up (`docs/modules/services-merges.md`).
 Any card adding a merge check that can run quickly in the developer's worktree must update
 the developer hand-over checklist in the same change.
 When a merge fails a check the developer could have run locally, the merger names that
-command in the send-back note; if it was missing from the checklist, propose adding it
-and send the lesson to the project manager for `docs/LESSONS.md`.
+command in the send-back note; if `handover-check` did not select it, propose widening its
+selection (not adding a line to the list) and send the lesson to the project manager for
+`docs/LESSONS.md`.
 Shared code or configuration changes require the whole suite; workspace checks do not queue
 (decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
 (exit status 78), or the sandbox refuses a test (a local port, a pseudo-terminal), it did not

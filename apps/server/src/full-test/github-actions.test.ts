@@ -91,12 +91,9 @@ const job = (
   runnerName: `GitHub Actions ${id}`,
   steps,
 });
-/** A job GitHub gave no machine to: no runner, and every step still pending. */
+/** A job GitHub gave no machine to, as the real failed runs list it: `cancelled`, runner 0 and '', no steps. */
 const unacquiredJob = (id = 13): WorkflowJobInfo => ({
-  ...job(id, 'cancelled', [
-    { name: 'checkout', status: 'pending', conclusion: null, startedAt: null, completedAt: null },
-    { name: 'merge-test', status: 'pending', conclusion: null, startedAt: null, completedAt: null },
-  ]),
+  ...job(id, 'cancelled', []),
   runnerId: 0,
   runnerName: '',
 });

@@ -42,22 +42,22 @@ const green = (id: number) =>
   job(id, 'success', [step('checkout', 'success'), step('merge-test', 'success')]);
 const red = (id: number) => job(id, 'failure', [step('checkout', 'success'), step('merge-test', 'failure')]);
 /**
- * A job as the GitHub REST API lists one that never got a machine: no runner, every step pending. The shape
- * follows the REST documentation (the job JSON of a real `github_run_error` run was not reachable).
+ * A job as the GitHub REST API lists one that never got a machine, read from the real failed runs of this
+ * repository (PM-1311 review): `cancelled`, `runner_id` 0, `runner_name` '' and no steps at all.
  */
 const unacquired = (id: number): WorkflowJobInfo => ({
-  ...job(id, 'cancelled', [step('checkout', null), step('merge-test', null)]),
-  startedAt: null,
-  completedAt: null,
-  runnerId: null,
-  runnerName: null,
+  ...job(id, 'cancelled', []),
+  runnerId: 0,
+  runnerName: '',
 });
 
 describe('notAcquired (PM-1292)', () => {
   it('is true for a job with no runner whose steps never started', () => {
     expect(notAcquired(unacquired(1))).toBe(true);
-    expect(notAcquired({ ...unacquired(1), runnerId: 0, runnerName: '' })).toBe(true);
-    expect(notAcquired({ ...unacquired(1), steps: [] })).toBe(true);
+    expect(notAcquired({ ...unacquired(1), runnerId: null, runnerName: null })).toBe(true);
+    expect(
+      notAcquired({ ...unacquired(1), steps: [step('checkout', null), step('merge-test', null)] }),
+    ).toBe(true);
     expect(notAcquired({ ...unacquired(1), steps: [step('merge-test', 'skipped')] })).toBe(true);
   });
 

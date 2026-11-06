@@ -142,6 +142,15 @@ describe('work queues', () => {
       expect(groupOf(await readView(), 'pm').everQueued).toBe(true);
     });
 
+    it.each([
+      ['an own item behind them', true],
+      ['no own item', false],
+    ])('reads a hidden history longer than one page to its end: %s', async (_name, own) => {
+      if (own) domain().messages.markRecipientDelivered(send('coder', ['pm']).id, 'pm');
+      for (let n = 0; n < 25; n++) domain().messages.markRecipientDelivered(send('owner', ['pm']).id, 'pm');
+      expect(groupOf(await readView('developer'), 'pm').everQueued).toBe(own);
+    });
+
     it('is hidden from the detail’s closed items too', async () => {
       const hidden = send('owner', ['pm']);
       const own = send('coder', ['pm']);

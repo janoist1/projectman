@@ -37,6 +37,9 @@ import type { ProjectService } from '../../core/projects';
 import type { StoredMemberQueueItem } from '../../db';
 import { DomainError, forbidden } from '../../kernel';
 
+/** How many history rows `everQueued` reads and checks at a time. */
+const EVER_QUEUED_PAGE = 20;
+
 interface Deps {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'config'>;
@@ -233,13 +236,20 @@ export class WorkQueues {
     );
   }
 
-  /** `everQueued` from the member's whole history: it is true only if the viewer may see one of its items. */
+  /**
+   * `everQueued` from the member's history: true only if the viewer may see one of its items. The history is read
+   * newest first in pages and the search stops at the first visible item, so a viewer who sees the queue costs one
+   * page; only a history hidden from the viewer is read to its end.
+   */
   private everQueuedVisible(projectKey: string, viewer: WorkQueueViewer, member: string): boolean {
-    const sources = this.deps.ctx.repos.memberQueue
-      .sourcesOfMember(projectKey, member)
-      .map((source) => memberQueueSourceOf(source.type, source.id));
-    const facts = this.factsOf(projectKey, viewer, sources);
-    return sources.some((source) => canSeeWorkQueueItem(viewer, { source }, facts(source)));
+    const { memberQueue } = this.deps.ctx.repos;
+    for (let offset = 0; ; offset += EVER_QUEUED_PAGE) {
+      const page = memberQueue.sourcesOfMember(projectKey, member, EVER_QUEUED_PAGE, offset);
+      const sources = page.map((source) => memberQueueSourceOf(source.type, source.id));
+      const facts = this.factsOf(projectKey, viewer, sources);
+      if (sources.some((source) => canSeeWorkQueueItem(viewer, { source }, facts(source)))) return true;
+      if (page.length < EVER_QUEUED_PAGE) return false;
+    }
   }
 
   /** The source records the sources' read rules need, read together; a source that is missing has none. */

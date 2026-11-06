@@ -135,7 +135,8 @@ export function createMemberQueueRepository(db: Db) {
     ),
     everQueuedMembers: db.prepare('SELECT DISTINCT member FROM member_queue_items WHERE project_key = ?'),
     sourcesOfMember: db.prepare(
-      'SELECT source_type, source_id FROM member_queue_items WHERE project_key = ? AND member = ?',
+      `SELECT source_type, source_id FROM member_queue_items WHERE project_key = ? AND member = ?
+       ORDER BY rowid DESC LIMIT ? OFFSET ?`,
     ),
     closed: db.prepare(
       `SELECT * FROM member_queue_items
@@ -295,10 +296,18 @@ export function createMemberQueueRepository(db: Db) {
         (statements.everQueuedMembers.all(projectKey) as Array<{ member: string }>).map((r) => r.member),
       );
     },
-    /** The sources of every item the member ever had (open or closed): what `everQueued` is checked against. */
-    sourcesOfMember(projectKey: string, member: string): MemberQueueSourceKey[] {
+    /**
+     * The sources of the items the member ever had (open or closed), the newest first, `limit` of them from `offset`:
+     * `everQueued` is checked against them page by page, so it stops at the first one the viewer may see.
+     */
+    sourcesOfMember(
+      projectKey: string,
+      member: string,
+      limit: number,
+      offset: number,
+    ): MemberQueueSourceKey[] {
       return (
-        statements.sourcesOfMember.all(projectKey, member) as Array<{
+        statements.sourcesOfMember.all(projectKey, member, limit, offset) as Array<{
           source_type: MemberQueueSource['type'];
           source_id: string;
         }>

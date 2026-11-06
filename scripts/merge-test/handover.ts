@@ -171,6 +171,7 @@ function calledSharedBodies(texts: readonly string[], after: readonly MergeTestF
       bodies.push(
         [line, ...rest.slice(0, end < 0 ? CALLEE_BODY_LINES : Math.min(end, CALLEE_BODY_LINES))]
           .filter((text) => !/^\s*(?:\/\/|\/?\*)/.test(text))
+          .map((text) => text.replace(/\s\/\/.*$/, ''))
           .join('\n'),
       );
     });

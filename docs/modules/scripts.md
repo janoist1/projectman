@@ -162,7 +162,7 @@ workers follow the machine's size.
      compound name on a changed line is not enough: the code must also declare it (`name:`, a property,
      parameter or typed variable), so `localeCompare` is not a changed name. One step further, a
      `packages/shared/src` function called on a changed line (`isOnLeave(member)`) adds the compound
-     names its body (up to the next export) uses (`onLeave`); the step stops there, the functions that
+     names its body (up to the next export, at most 40 lines; comments left out) uses (`onLeave`); the step stops there, the functions that
      body calls are not followed. A name nearly every test uses (over a
      quarter of them, and more than 10) is ignored; the others rank the tests: those in the workspace
      the change touched most (by changed files) first, then those that set a name to a literal

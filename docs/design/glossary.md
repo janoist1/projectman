@@ -13,7 +13,7 @@ English word, and the same thing is never called two names.
   messages, questions, and every name from the project configuration (stages, labels, members,
   roles, duties, `projectman.structure.yaml`). Only the UI's own words change.
 - **Sentence case** everywhere: "Create project", never "Create Project". Proper names keep
-  their case: projectman (always lower case), Operator, Claude, Codex, Gemini, NanoGPT, GitHub.
+  their case: projectman (always lower case), Claude, Codex, Gemini, NanoGPT, GitHub.
 - **British spelling**, to match the `en-GB` dates and times: cancelled, colour, behaviour,
   organise, licence (noun). Dates and numbers come from `i18n/format.ts`, never hand-written.
 - **Voice:** short, direct, "you". Errors say what happened and what to do:
@@ -100,28 +100,28 @@ English word, and the same thing is never called two names.
 | induló üzenet; rendszerprompt            | kick-off message; system prompt |                                                                                           |
 | Hogyan dolgozunk                         | How we work                     | "Egy kártya útja" → "A card's path"; Alapszabályok → Ground rules; Jelmagyarázat → Legend |
 
-## Waiting for you, Operator, team, messages
+## Waiting for you, connected Claude, team, messages
 
-| Hungarian                     | English                         | Note                                                                                        |
-| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------- |
-| Rád vár (the list, nav, pill) | For you                         | Owner's decision on PM-1178 (2026-10-30). Status of a member or session: "Waiting for you". |
-| teendő                        | to-do                           |                                                                                             |
-| kérdés; döntés                | question; decision              |                                                                                             |
-| tárgytalan                    | moot                            |                                                                                             |
-| szűrés (Operátor)             | screening                       |                                                                                             |
-| Operátor                      | Operator                        | A proper name: capital O.                                                                   |
-| integrátor                    | integrator                      |                                                                                             |
-| csapat                        | team                            |                                                                                             |
-| tag; AI-tag; ember            | member; AI member; person       | "people" in plural, not "humans"                                                            |
-| szerep                        | role                            | Configured role names are not translated.                                                   |
-| tulajdonos                    | owner                           |                                                                                             |
-| meghívás; meghívott           | invite (noun and verb); invited | "invitation" only in e-mail subjects                                                        |
-| felvesz (tagot)               | hire                            |                                                                                             |
-| elbocsát; elbocsátva          | retire; retired                 | "Retired: {handle}"                                                                         |
-| szabadság                     | on leave                        |                                                                                             |
-| üzenet; üzenetváltás          | message; conversation           |                                                                                             |
-| Jelölések; jelölés            | Feedback; mark                  | The feedback widget's pins on a page.                                                       |
-| visszajelzés                  | feedback                        |                                                                                             |
+| Hungarian                       | English                         | Note                                                                                        |
+| ------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------- |
+| Rád vár (the list, nav, pill)   | For you                         | Owner's decision on PM-1178 (2026-10-30). Status of a member or session: "Waiting for you". |
+| teendő                          | to-do                           |                                                                                             |
+| kérdés; döntés                  | question; decision              |                                                                                             |
+| tárgytalan                      | moot                            |                                                                                             |
+| szűrés (csatlakoztatott Claude) | screening                       |                                                                                             |
+| gépi teendő                     | machine to-do                   | Not "integrator to-do" or "Operator to-do" (Fogalomtár, 66. döntés).                        |
+| csatlakoztatott Claude          | connected Claude                | Not "integrator", "Operator" or "super Operator". The code name stays `integrator`.         |
+| csapat                          | team                            |                                                                                             |
+| tag; AI-tag; ember              | member; AI member; person       | "people" in plural, not "humans"                                                            |
+| szerep                          | role                            | Configured role names are not translated.                                                   |
+| tulajdonos                      | owner                           |                                                                                             |
+| meghívás; meghívott             | invite (noun and verb); invited | "invitation" only in e-mail subjects                                                        |
+| felvesz (tagot)                 | hire                            |                                                                                             |
+| elbocsát; elbocsátva            | retire; retired                 | "Retired: {handle}"                                                                         |
+| szabadság                       | on leave                        |                                                                                             |
+| üzenet; üzenetváltás            | message; conversation           |                                                                                             |
+| Jelölések; jelölés              | Feedback; mark                  | The feedback widget's pins on a page.                                                       |
+| visszajelzés                    | feedback                        |                                                                                             |
 
 ## Settings, machine, owners
 
@@ -135,15 +135,15 @@ English word, and the same thing is never called two names.
 | fiók                                                     | account                                           |                                                                                                     |
 | rendszernyelv; csapat nyelve                             | language (your UI language); team language        | Settings label: "Team language".                                                                    |
 | időzóna                                                  | time zone                                         |                                                                                                     |
-| integrátorkulcs                                          | integrator key                                    |                                                                                                     |
+| Claude Code-kulcs                                        | Claude Code key                                   |                                                                                                     |
 | lépés gazdája                                            | handler                                           | Settings > Board: "Handlers", "no handler". Not "owner": owner is a person with the `owner` access. |
 | Keretek; {percent}% keret                                | Limits; {percent}% of plan                        |                                                                                                     |
 | ntfy téma                                                | topic                                             |                                                                                                     |
 | Rád vár (list)                                           | For you                                           |                                                                                                     |
 | Munkaterület                                             | Workspace                                         |                                                                                                     |
-| Operátor jogosítványa                                    | Operator permissions                              |                                                                                                     |
+| Csatlakoztatott Claude (Beállítások)                     | Connected Claude                                  |                                                                                                     |
 | chopper                                                  | chopper                                           | Stays untranslated.                                                                                 |
-| Napló (integrator key); e-mail napló                     | Activity log; Log                                 |                                                                                                     |
+| Napló (Claude Code-kulcs); e-mail napló                  | Activity log; Log                                 |                                                                                                     |
 | belépő                                                   | access file                                       |                                                                                                     |
 | Ütemezés; Élesítés jóváhagyása; Visszajelzés-feldolgozás | Scheduling; Release approval; Feedback processing | Duty names, from the template's `en` locale.                                                        |
 
@@ -177,7 +177,7 @@ Values of the shell enums:
 - **columnColors:** Grey, Blue, Teal, Green, Yellow, Orange, Red, Pink, Purple.
 - **providers:** unchanged proper names.
 
-## Inbox, Operator, team, messages (PM-1181)
+## Inbox, connected Claude, team, messages (PM-1181)
 
 | Hungarian                                 | English                                                                                                                                                                                                                                 | Note                                                                                 |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -185,7 +185,7 @@ Values of the shell enums:
 | tételfajták                               | Permission, Follow-up, Merge, Decision, Question, Approval, Alert, Release, To-do                                                                                                                                                       | `kindsLower`: the same in lower case                                                 |
 | döntőgombok                               | Allow, Always, in this session, Deny, Approve, Reject, Other answer, Seen, Stop the work, Let it run, Needs a sharper plan, Give it to another developer, One more round, Keep waiting, Give it to a free developer, Move on, OK, Merge | Short verb forms, not "I allow". Send answer, Open, Recently decided.                |
 | Mostanában döntöttél                      | Recently decided                                                                                                                                                                                                                        |                                                                                      |
-| Operátor átadta                           | The Operator handed it to you                                                                                                                                                                                                           | handoff                                                                              |
+| A csatlakoztatott Claude átadta           | The connected Claude handed it to you                                                                                                                                                                                                   | handoff                                                                              |
 | Indulás (checklist)                       | Getting started                                                                                                                                                                                                                         |                                                                                      |
 | Projektmenedzser; elosztó                 | Project manager; distributor                                                                                                                                                                                                            |                                                                                      |
 | Engedélyek: Mód; Ha kérdez, ki dönt       | Mode; Who decides when it asks                                                                                                                                                                                                          | A person / AI decider / Nobody                                                       |

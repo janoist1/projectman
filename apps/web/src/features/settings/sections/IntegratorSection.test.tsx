@@ -154,7 +154,7 @@ describe('integrator key settings', () => {
     expect(document.getElementById(warningId!)?.textContent).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('radio', { name: /Scripteknek/ }));
     expect(expiry.getAttribute('aria-describedby')).toBe(warningId);
-    fireEvent.click(within(dialog).getByRole('radio', { name: /Claude Code-nak/ }));
+    fireEvent.click(within(dialog).getByRole('radio', { name: /csatlakoztatott Claude-nak/ }));
     fireEvent.change(expiry, { target: { value: '7' } });
     expect(expiry.getAttribute('aria-describedby')).toBeNull();
     fireEvent.change(expiry, { target: { value: 'never' } });

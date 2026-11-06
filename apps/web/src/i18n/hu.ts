@@ -172,9 +172,9 @@ export const hu = {
     recent: 'Legutóbbi bevonások',
     all: 'Összes bevonás',
     memberAll: 'Összes bevonása',
-    integrator: 'Operátor (Claude Code)',
+    integrator: 'Csatlakoztatott Claude (Claude Code)',
     behalf: 'a tulajdonos megbízásából',
-    integratorFull: 'Operátor · Claude Code-ból, a tulajdonos megbízásából',
+    integratorFull: 'Csatlakoztatott Claude · Claude Code-ból, a tulajdonos megbízásából',
     verbs: {
       started: 'Bevonva',
       resumed: 'Folytatja',
@@ -199,7 +199,7 @@ export const hu = {
       conversation: 'beszélgetés',
       fix_limit: 'javítási kör korlátja',
       loop: 'Körbe fut jelzés',
-      operator_signal: 'rendszerjelzés az Operátornak',
+      operator_signal: 'rendszerjelzés a csatlakoztatott Claude-nak',
       permission_change: 'engedélyváltozás',
       description_changed: 'a leírás megváltozott',
       provider_resume: 'a szolgáltatói keret újra elérhető',
@@ -268,7 +268,7 @@ export const hu = {
     footer:
       'Csak ezt az egy parancsot futtatja, a te felhasználóddal. Ha még egyszer kell, újra megkérdez. A kérdés {time}-kor lejár.',
     outputPrivacy:
-      'A kimenet szűrése nem teljes körű. A kimenetet az Operátor és modellszolgáltatója is megkapja.',
+      'A kimenet szűrése nem teljes körű. A kimenetet a csatlakoztatott Claude és modellszolgáltatója is megkapja.',
     yes: 'Igen, futtathatja',
     no: 'Nem',
     approved: 'Jóváhagytad, a parancs fut.',
@@ -284,9 +284,9 @@ export const hu = {
     audit: 'Napló',
     auditEmpty: 'Még nincs bejegyzés.',
     auditActions: { created: 'Létrehozva', revoked: 'Visszavonva' },
-    modes: { super: 'Operátor jogosítványával', read: 'Csak olvasás', legacy: 'Régi kulcs' },
+    modes: { super: 'Teljes jogosítvánnyal', read: 'Csak olvasás', legacy: 'Régi kulcs' },
     purpose: 'Mire kell?',
-    superHint: 'A Claude Code-nak: ugyanaz, amit az Operátor tehet.',
+    superHint: 'A csatlakoztatott Claude-nak (Claude Code): a te nevedben és jogaiddal dolgozik.',
     readHint: 'Scripteknek: olvasás és események követése, változtatni nem tud.',
     days1: '1 nap',
     days7: '7 nap',
@@ -294,7 +294,7 @@ export const hu = {
     noExpiryHint: 'A kiszivárgott kulcs a visszavonásig érvényes. Bármikor visszavonhatod.',
     readSecretTitle: 'Új olvasó kulcs',
     superSecretTitle: 'Új Claude Code-kulcs',
-    emptyHint: 'Kulcs nélkül a Claude Code nem csatlakozhat. Az Operátor nélküle is dolgozik.',
+    emptyHint: 'Kulcs nélkül a Claude Code nem csatlakozhat. A csapat nélküle is dolgozik.',
     past: 'Korábbi kulcsok ({n})',
     ownerOnly: 'A kulcsokat csak a tulajdonos kezelheti, a saját bejelentkezésével.',
     today:
@@ -333,7 +333,7 @@ export const hu = {
     revokeReadBody:
       'A scriptek minden hívása azonnal elutasítást kap. Amit eddig tettek, a naplóban megmarad.',
     intro:
-      'Ha a Claude Code-dal dolgozol, ezzel a kulccsal ugyanannak az Operátornak a kliense: ugyanazokat a műveleteket éri el, ugyanúgy naplózva. A sor nélküle is halad.',
+      'Ha a Claude Code-dal dolgozol, ezzel a kulccsal a csatlakoztatott Claude-od vagy: a te nevedben, a te jogaiddal éri el a műveleteket, naplózva. A sor nélküle is halad.',
     none: 'Még nincs kulcs.',
     noValid: 'Nincs érvényes kulcs.',
     create: 'Kulcs létrehozása',
@@ -361,11 +361,11 @@ export const hu = {
       'A mostani olvasó kulcs ({prefix}…) azonnal érvényét veszti; a scriptek az újjal dolgoznak tovább.',
     revokeTitle: 'Visszavonod a {prefix}… kulcsot?',
     revokeBody:
-      'A Claude Code minden hívása azonnal elutasítást kap, MCP-n, a parancssorban és az eseményfolyamon is. Amit eddig tett, az Operátor neve alatt megmarad.',
+      'A Claude Code minden hívása azonnal elutasítást kap, MCP-n, a parancssorban és az eseményfolyamon is. Amit eddig tett, a csatlakoztatott Claude neve alatt megmarad.',
     states: { active: 'Aktív', expired: 'Lejárt', revoked: 'Visszavonva' },
     error: 'Nem sikerült betölteni a kulcsokat.',
     activity: 'Mit tett ezzel a kulccsal?',
-    forwarded: 'A tulajdonos válasza, az Operátor rögzítette',
+    forwarded: 'A tulajdonos válasza, a csatlakoztatott Claude rögzítette',
   },
   /** A step made through a connected Claude (decision 66, PM-1075). */
   connected: {
@@ -385,7 +385,7 @@ export const hu = {
   superMode: {
     detailError: 'Nem sikerült betölteni a művelet részleteit.',
     commands: {
-      operate: 'Operátor-művelet',
+      operate: 'Csatlakoztatott Claude-művelet',
       task_create: 'Kártya létrehozása',
       task_update: 'Kártya módosítása',
       task_labels: 'Címkék módosítása',
@@ -400,14 +400,14 @@ export const hu = {
       merge_order: 'Merge-sor rendezése',
       administration: 'Rendszerművelet',
     },
-    name: 'Operátor',
+    name: 'Csatlakoztatott Claude',
     badge: 'super',
-    actor: 'Operátor · super',
-    avatar: 'Operátor, super jogosítvánnyal',
+    actor: 'Csatlakoztatott Claude · super',
+    avatar: 'Csatlakoztatott Claude, super jogosítvánnyal',
     credentialLead: 'Claude Code-ból · kulcs',
-    activity: 'Mit tett az Operátor super jogosítvánnyal?',
+    activity: 'Mit tett a csatlakoztatott Claude super jogosítvánnyal?',
     operationsTitle: 'Műveletek',
-    emptyAll: 'Az Operátor még nem tett semmit super jogosítvánnyal.',
+    emptyAll: 'A csatlakoztatott Claude még nem tett semmit super jogosítvánnyal.',
     operations: {
       member: { update: 'Tag módosítása' },
       'operate:project_pause': 'Csapat szüneteltetése',
@@ -427,7 +427,7 @@ export const hu = {
     operation: 'Super művelet: {operation}',
     unknownHint: 'Nézd meg a naplót, mielőtt újra próbálod.',
     states: {
-      pending: 'Az Operátor sorában',
+      pending: 'A csatlakoztatott Claude sorában',
       waiting_owner: 'Rád vár',
       running: 'Folyamatban',
       succeeded: 'Végrehajtva',
@@ -943,8 +943,8 @@ export const hu = {
       hint: 'Amint a gép futtatja a projektet, a pm köszön a projektben, és végigvezet a többin (GitHub, csapat).',
       optionalSummary: 'Nem kötelező: kösd be az asszisztensedet a projectmanhez is',
       optionalBody:
-        'Így a Claude vagy a Codex asztali alkalmazásod a projektjeidben is dolgozhat (kérdések, gépi teendők). A Beállítások → Integrátor alatt hozz létre kulcsot: ott kész, bemásolható csatlakozási utasítást kapsz az asszisztensnek.',
-      optionalLink: 'Beállítások → Integrátor',
+        'Így a Claude vagy a Codex asztali alkalmazásod a projektjeidben is dolgozhat (kérdések, gépi teendők). A Beállítások → Csatlakoztatott Claude alatt hozz létre kulcsot: ott kész, bemásolható csatlakozási utasítást kapsz az asszisztensnek.',
+      optionalLink: 'Beállítások → Csatlakoztatott Claude',
       continue: 'Tovább a projekthez',
     },
   },
@@ -1790,38 +1790,41 @@ export const hu = {
       role_in_use: 'A szerep még használatban van.',
       project_manager_required:
         'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
-      operator_owner_only: 'Ezt csak a projekt tulajdonosa kérheti az Operátortól.',
+      operator_owner_only: 'Ezt csak a projekt tulajdonosa kérheti a csatlakoztatott Claude-tól.',
       queue_item_not_yours:
         'Ez a sorelem nem nyitott a kulcs tulajdonosának: nem hozzá tartozik, vagy már lezárult, vagy másik projekté.',
       issuer_without_machine_access:
         'A sorelemet kiadónak nincs gépi hozzáférése, ezért a csatlakozott Claude nem végezhet el helyette gépi lépést.',
       operator_no_request:
-        'Az Operátor csak a tulajdonos nyitott kérésére írhat; most nincs ilyen (a köre véget ért, vagy lejárt).',
+        'A csatlakoztatott Claude csak a tulajdonos nyitott kérésére írhat; most nincs ilyen (a köre véget ért, vagy lejárt).',
       operator_never:
-        'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
-      operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+        'Ezt az eszközt a csatlakoztatott Claude nem használhatja: más tagok döntései és az átadások nem az övéi.',
+      operator_only: 'Ezt a műveletet csak a csatlakoztatott Claude használhatja.',
       command_not_for_project_manager:
-        'Ezt a műveletet a projektmenedzser nem végezheti el. Gépi hozzáféréssel integrátor-teendőt adhatsz, egyébként kérd a tulajdonos segítségét.',
+        'Ezt a műveletet a projektmenedzser nem végezheti el. Gépi hozzáféréssel gépi teendőt adhatsz, egyébként kérd a tulajdonos segítségét.',
       project_manager_only:
         'Ezt a műveletet csak az aktuális projektmenedzser használhatja a saját belső beszélgetésében.',
       place_not_target: 'Ide a projektmenedzser nem visz: ez nem a projekt része.',
       place_not_visible: 'Ezt a helyet a címzett nem látja.',
       operator_preference_no_person: 'Nem egyértelmű, kinek a beszélgetési stílusát kell beolvasni.',
-      operator_knowledge_invalid: 'Az Operátor adattára érvénytelen. A meglévő adatok megmaradtak.',
-      operator_knowledge_unavailable: 'Az Operátor adattára most nem érhető el.',
-      operator_knowledge_stale: 'Az Operátor adatai időközben megváltoztak. Olvasd be őket újra.',
-      operator_knowledge_limit: 'Az Operátor jóváhagyási adattára megtelt.',
+      operator_knowledge_invalid:
+        'A csatlakoztatott Claude adattára érvénytelen. A meglévő adatok megmaradtak.',
+      operator_knowledge_unavailable: 'A csatlakoztatott Claude adattára most nem érhető el.',
+      operator_knowledge_stale:
+        'A csatlakoztatott Claude adatai időközben megváltoztak. Olvasd be őket újra.',
+      operator_knowledge_limit: 'A csatlakoztatott Claude jóváhagyási adattára megtelt.',
       operator_signal_closed: 'Ez a jelzés már nem nyitott.',
       operator_approval_used: 'Ez a lépés már lefutott, másodszor nem indul el.',
       operator_plan_required: 'Ehhez a lépéshez terv kell: miért, mi a hatása, visszavonható-e.',
       operator_message_recipient: 'Így csak nem tulajdonos embernek lehet üzenetet küldeni.',
-      operator_owner_approval: 'Nem tulajdonos embernek az Operátor csak a tulajdonos jóváhagyásával írhat.',
-      operator_signal_not_dismissible: 'Ezt a jelzést az Operátor nem zárhatja le.',
+      operator_owner_approval:
+        'Nem tulajdonos embernek a csatlakoztatott Claude csak a tulajdonos jóváhagyásával írhat.',
+      operator_signal_not_dismissible: 'Ezt a jelzést a csatlakoztatott Claude nem zárhatja le.',
       operator_signal_budget:
-        'Ehhez a jelzéshez az Operátor lépéskerete elfogyott, vagy még nem telt el elég idő az előző lépés óta.',
+        'Ehhez a jelzéshez a csatlakoztatott Claude lépéskerete elfogyott, vagy még nem telt el elég idő az előző lépés óta.',
       not_card_role: 'Erre a kártyára nincs szerepe a címzettnek, ezért nem indítható rajta keresztül.',
       operator_approval_stale:
-        'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot az Operátortól.',
+        'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot a csatlakoztatott Claude-tól.',
       operator_agreement_pending: 'A megállapodás még jóváhagyásra vár. Előbb dönts róla.',
       docs_not_configured:
         'A döntésnapló vagy az ütemterv nincs beállítva: add meg a fájl helyét a tároló beállításaiban.',
@@ -1936,8 +1939,8 @@ export const hu = {
       unknown_template: 'Ismeretlen sablon.',
       answer_required: 'Írj választ, mielőtt elküldöd.',
       todo_reason_required: 'Írd le, miért nem végezhető el a teendő.',
-      question_not_screening: 'Ezt a kérdést az Operátor már nem szűri.',
-      question_not_answerable: 'Erre a kérdésre az Operátor nem válaszolhat.',
+      question_not_screening: 'Ezt a kérdést a csatlakoztatott Claude már nem szűri.',
+      question_not_answerable: 'Erre a kérdésre a csatlakoztatott Claude nem válaszolhat.',
       question_group_incompatible: 'Ezek a kérdések nem vonhatók közös döntésbe.',
       invalid_outcome_fields: 'A kimenethez hiányzik vagy fölösleges egy mező.',
       reask_not_allowed: 'Ezt a kérdést nem lehet szűrés nélkül újra feltenni.',
@@ -1951,7 +1954,7 @@ export const hu = {
       operator_grant_owner_only:
         'A super jogosítványt csak a tulajdonos adhatja meg és vonhatja vissza, a saját bejelentkezésével.',
       operator_grant_inactive:
-        'Az Operátornak nincs érvényes super jogosítványa, ezért ez a gépi művelet nem fut. A tulajdonos a Beállításokban adhatja meg.',
+        'A csatlakoztatott Claude-nak nincs érvényes super jogosítványa, ezért ez a gépi művelet nem fut. A tulajdonos a Beállításokban adhatja meg.',
       merge_queue_conflict: 'Az összefésülési sor megváltozott. Frissítsd, majd próbáld újra.',
       super_request_conflict: 'Ugyanezzel az azonosítóval már más kérés érkezett.',
       super_operation_stale:
@@ -1961,7 +1964,8 @@ export const hu = {
       super_owner_decision_pending: 'A tulajdonos döntésére még várunk.',
       super_operation_expired: 'A tulajdonos nem válaszolt időben, a művelet lejárt.',
       super_executor_unavailable: 'Ezt a műveletet ez a telepítés még nem tudja végrehajtani.',
-      super_operation_unsupported: 'Ezt a műveletet az Operátor super jogosítvánnyal sem tudja végrehajtani.',
+      super_operation_unsupported:
+        'Ezt a műveletet a csatlakoztatott Claude super jogosítvánnyal sem tudja végrehajtani.',
       super_relay_refused: 'Ezt a választ nem lehet a tulajdonos nevében továbbítani.',
       history_unavailable: 'Az előzménykereső most nem használható.',
       history_source_changed: 'A dokumentum közben megváltozott: keress újra.',
@@ -1970,7 +1974,7 @@ export const hu = {
       system_feedback_forwarding_mode: 'Ezt a továbbítás jelenlegi módja nem engedi.',
       system_feedback_limit: 'Ez a projekt ma már a megengedett számú új visszajelzést rögzítette.',
       system_feedback_issue_url: 'Ez nem a projectman nyilvános tárolójának egyik hibajegye.',
-      system_feedback_operator_only: 'Visszajelzést csak az Operátor rögzíthet.',
+      system_feedback_operator_only: 'Visszajelzést csak a csatlakoztatott Claude rögzíthet.',
       integrator_https_required: 'A Claude Code-kulcs csak HTTPS-en vagy ezen a gépen használható.',
       integrator_host_required: 'A Claude Code-kulcsot a külön gépi címen kell használni.',
       invalid_event_cursor: 'A változáskövetési kurzor érvénytelen, vagy másik projekté.',
@@ -2087,7 +2091,7 @@ export const hu = {
   templates: {
     starter: {
       name: 'Kezdőcsapat',
-      description: 'Egy fejlesztő, Projektmenedzser és Operátor, egyszerű folyamattal.',
+      description: 'Egy fejlesztő és Projektmenedzser, egyszerű folyamattal.',
     },
     'web-client-project': {
       name: 'Fejlesztés ügyfélnek',
@@ -2112,7 +2116,8 @@ export const hu = {
     emptyBody: 'Egy projekt: egy munkaterület, egy csapat és egy folyamat.',
     create: {
       title: 'Új projekt',
-      intro: 'Három adat, és indulhat. A csapatot és a folyamatot utána az Operátor rakja össze veled.',
+      intro:
+        'Három adat, és indulhat. A csapatot és a folyamatot utána a csatlakoztatott Claude rakja össze veled.',
       projectTitle: 'A projekt',
       codeTitle: 'A kód helye',
       language: 'A csapat nyelve',
@@ -2137,13 +2142,14 @@ export const hu = {
       updateProvider: 'Frissítsd a szerveren {cli}: most {cliVersion}, legalább {minCliVersion} kell.',
       noneReady: 'Egyik szolgáltató sincs kész.',
       noneReadyHelp:
-        'A projektet létrehozhatod, de amíg a {provider} nincs kész, az Operátor nem tud beszélgetni veled, és a tagok munkái várnak.',
+        'A projektet létrehozhatod, de amíg a {provider} nincs kész, a csatlakoztatott Claude nem tud beszélgetni veled, és a tagok munkái várnak.',
       selectedNotReady: 'A {provider} még nincs kész.',
       selectedNotReadyHelp:
-        'A projektet létrehozhatod, de amíg nem lesz kész, az Operátor nem tud beszélgetni veled, és a tagok munkái várnak. Válassz egy kész szolgáltatót, vagy végezd el a teendőt.',
+        'A projektet létrehozhatod, de amíg nem lesz kész, a csatlakoztatott Claude nem tud beszélgetni veled, és a tagok munkái várnak. Válassz egy kész szolgáltatót, vagy végezd el a teendőt.',
       starterPrefix: 'Kezdőcsapat:',
-      starterTeam: 'Projektmenedzser, Operátor és egy fejlesztő ({provider})',
-      starterSuffix: ', egy egyszerű folyamattal. A többit utána az Operátorral alakítjátok ki.',
+      starterTeam: 'Projektmenedzser és egy fejlesztő ({provider})',
+      starterSuffix:
+        ', egy egyszerű folyamattal. A többit utána a csatlakoztatott Claude-dal alakítjátok ki.',
       reposToggle: 'Repók (nem kötelező)',
       rejected: 'A szerver nem hozta létre a projektet: {reason}',
       name: 'Név',
@@ -4081,17 +4087,17 @@ export const hu = {
     },
     weekly: {
       entry: 'Heti kérdésmérés',
-      entryHint: '{weeks} hét · kérdések és integrátori válaszok',
+      entryHint: '{weeks} hét · kérdések és a csatlakoztatott Claude-on át kapott válaszok',
       back: 'Vissza a beszélgetéshez',
       title: 'Heti kérdésmérés',
-      intro: 'Hozzád jutott kérdések és az integrátoron át kapott válaszok.',
+      intro: 'Hozzád jutott kérdések és a csatlakoztatott Claude-on át kapott válaszok.',
       range: 'Utolsó {weeks} hét · {range}',
       timezone: 'Hetek hétfőtől · {timezone}',
       week: 'Hét',
       weekNumber: '{week}. hét',
       current: 'Folyamatban',
       total: 'Hozzád jutott',
-      viaIntegrator: 'Integrátoron át',
+      viaIntegrator: 'Csatlakoztatott Claude-on át',
       updated: 'Frissítve: {date}',
       refresh: 'Frissítés',
       refreshing: 'Frissítés…',
@@ -4101,23 +4107,24 @@ export const hu = {
       retry: 'Újrapróbálom',
       stale: 'A frissítés nem sikerült. A korábban betöltött adatokat látod.',
       denied: 'A heti mérést csak a projekt tulajdonosa láthatja saját bejelentkezéssel.',
-      empty: 'Az elmúlt {weeks} hétben nem jutott hozzád kérdés, és integrátori teendő sem indult.',
+      empty: 'Az elmúlt {weeks} hétben nem jutott hozzád kérdés, és gépi teendő sem indult.',
       firstUse:
         'A mérés automatikusan készül a kérdésekből. A korábbi kérdések is beleszámítanak; ahol nem rögzítettek témát, ott „Ismeretlen téma” szerepel.',
       emptyWeek: 'Ezen a héten nem jutott hozzád kérdés.',
       answeredByOwner: 'Tulajdonos válaszolta',
       open: 'Még nyitott',
-      answerHint: 'Az integrátoron át kapott válaszok a hozzád jutott kérdések közül kerülnek ki.',
+      answerHint:
+        'A csatlakoztatott Claude-on át kapott válaszok a hozzád jutott kérdések közül kerülnek ki.',
       byRoute: 'Hogyan jutott hozzád?',
       byTopic: 'Milyen témában?',
-      integratorTodos: 'Integrátori teendők',
+      integratorTodos: 'Gépi teendők',
       integratorTodosHint:
-        'Külön mutató: az integrátorhoz küldött teendők száma, nem a válaszaié. Nem adódik hozzá a hozzád jutott kérdésekhez.',
+        'Külön mutató: a csatlakoztatott Claude-hoz küldött gépi teendők száma, nem a válaszaié. Nem adódik hozzá a hozzád jutott kérdésekhez.',
       method: 'Hogyan számoljuk?',
       methodWeeks:
         'A folyamatban lévő hét és az előző {previous} hét szerepel, a projekt időzónájában. A kérdés a szűrés dátumának hetéhez tartozik; ha nem volt szűrés, a létrehozás dátumához.',
       methodAnswers:
-        'A válaszok és a nyitott kérdések a heti kérdések jelenlegi állapotát mutatják, ezért korábbi hetek számai is változhatnak. Az integrátoron át érkezett válasz nem jelenti azt, hogy az integrátor hozta meg a tulajdonosi döntést.',
+        'A válaszok és a nyitott kérdések a heti kérdések jelenlegi állapotát mutatják, ezért korábbi hetek számai is változhatnak. A csatlakoztatott Claude-on át érkezett válasz nem jelenti azt, hogy a csatlakoztatott Claude hozta meg a tulajdonosi döntést.',
       methodTopics:
         'Az út és a téma ugyanannak a heti kérdésszámnak két külön bontása. A régi, téma nélküli kérdések is beleszámítanak.',
       unknownTopic: 'Ismeretlen téma',
@@ -4145,8 +4152,8 @@ export const hu = {
       routes: {
         decision: 'Szűrt döntés',
         owner_todo: 'Tulajdonosi teendő',
-        integrator_fallback: 'Az integrátor nem tudta átvenni',
-        integrator_escalated: 'Az integrátor továbbadta',
+        integrator_fallback: 'A csatlakoztatott Claude nem tudta átvenni',
+        integrator_escalated: 'A csatlakoztatott Claude továbbadta',
         screening_fallback: 'A szűrés nem volt elérhető vagy lejárt',
         project_manager: 'A projektmenedzser saját kérdése',
         reask: 'Újrakérdezés',
@@ -4261,8 +4268,8 @@ export const hu = {
       recipients: 'Kinek',
       guest: '· vendég',
       message: 'Az üzenet',
-      messageExact: 'Pontosan ez megy ki, az Operátor nevében.',
-      messageExactTask: 'Pontosan ez megy ki, az Operátor nevében, a {key} kártyáról.',
+      messageExact: 'Pontosan ez megy ki, a csatlakoztatott Claude nevében.',
+      messageExactTask: 'Pontosan ez megy ki, a csatlakoztatott Claude nevében, a {key} kártyáról.',
       expires: 'Lejár: {time}. Ha addig nem döntesz, nem történik semmi.',
       expiresSoon: '{minutes} perc múlva lejár. Ha addig nem döntesz, nem történik semmi.',
       send: 'Elküldöm',
@@ -4280,15 +4287,15 @@ export const hu = {
       stale: 'Elavult',
       staleReasons: {
         expired:
-          'Lejárt, mert 24 órán belül nem döntöttél róla, ezért nem történt semmi. Ha még kell, kérd újra az Operátortól.',
+          'Lejárt, mert 24 órán belül nem döntöttél róla, ezért nem történt semmi. Ha még kell, kérd újra a csatlakoztatott Claude-tól.',
         interrupted:
-          'A végrehajtás megszakadt, és biztonsági okból nem indul újra. Nézd meg, megtörtént-e; ha még kell, kérd újra az Operátortól.',
+          'A végrehajtás megszakadt, és biztonsági okból nem indul újra. Nézd meg, megtörtént-e; ha még kell, kérd újra a csatlakoztatott Claude-tól.',
         config_changed:
-          'Közben megváltozott a beállítás, ezért ez a kérés már nem futtatható. Szóltam az Operátornak; ha még kell, kérd újra tőle.',
+          'Közben megváltozott a beállítás, ezért ez a kérés már nem futtatható. Szóltam a csatlakoztatott Claude-nak; ha még kell, kérd újra tőle.',
         session_changed:
-          'Közben a munkamenet már leállt, vagy máshol tart, ezért ez a kérés már nem futtatható. Ha még kell, kérd újra az Operátortól.',
+          'Közben a munkamenet már leállt, vagy máshol tart, ezért ez a kérés már nem futtatható. Ha még kell, kérd újra a csatlakoztatott Claude-tól.',
         pause_changed:
-          'Közben megváltozott a projekt szüneteltetése, ezért ez a kérés már nem futtatható. Ha még kell, kérd újra az Operátortól.',
+          'Közben megváltozott a projekt szüneteltetése, ezért ez a kérés már nem futtatható. Ha még kell, kérd újra a csatlakoztatott Claude-tól.',
       },
       approved: 'Jóváhagyva: {title}',
       rejected: 'Elvetve, semmi nem változott.',
@@ -4296,7 +4303,7 @@ export const hu = {
         message_send:
           'Jóváhagyás után az üzenet egyszer megy ki. Ha elveted, nem megy ki semmi, és a címzett nem kap értesítést.',
         operator_watch:
-          'A már kiadott jelzések nem változnak; az Operátor a következő ébredésétől e szerint lép jelzésre.',
+          'A már kiadott jelzések nem változnak; a csatlakoztatott Claude a következő ébredésétől e szerint lép jelzésre.',
         network: 'A futó munkamenetek nem változnak; a hálózati szabály az újonnan indulókra érvényes.',
         permission_mode: 'A futó munkamenetek nem változnak; az engedélymód az újonnan indulókra érvényes.',
         pipeline: 'A kártyák helye nem változik, a szabály a következő mozgatástól érvényes.',
@@ -4324,7 +4331,7 @@ export const hu = {
       show: 'Mutasd',
       hide: 'Rejtsd el',
       dismissAll: 'Mind félreteszem ({count})',
-      dismissAllConfirm: '{count} jelzést félreteszel. Az Operátor ezekről nem szól újra.',
+      dismissAllConfirm: '{count} jelzést félreteszel. A csatlakoztatott Claude ezekről nem szól újra.',
       dismissAllYes: 'Igen, mindet félreteszem',
       dismissAllCancel: 'Mégse',
       dismissAllProgress: 'Félreteszem… {done}/{total}',
@@ -4386,7 +4393,7 @@ export const hu = {
         start_blocked:
           'A kártya indítása repóválasztásra vagy beragadt munkaterületre vár. A PM megoldja, amit tag megoldhat; az ok megszűntével a jelzés magától lezárul.',
         obligation_overdue:
-          'A felelős az emlékeztető után sem végezte el a lépést. A PM megvizsgálja; ha a lépés megtörtént vagy továbbkerült, a jelzés magától lezárul, különben a lépés az integrátorra száll.',
+          'A felelős az emlékeztető után sem végezte el a lépést. A PM megvizsgálja; ha a lépés megtörtént vagy továbbkerült, a jelzés magától lezárul, különben a lépés a csatlakoztatott Claude-ra száll.',
         relation_check:
           'A kártya kapcsolatai megváltoztak. A PM ellenőrzi, hogy még helytállóak-e; ha megszűntek, a jelzés magától lezárul.',
         senior_wait:
@@ -4401,8 +4408,7 @@ export const hu = {
     /** The pm is a member of the Messages page like any other; this is its chip there (PM-447). */
     distributor: 'elosztó',
     distributorTitle: 'Ő osztja el magától a napi munkát.',
-    emptyThread:
-      'A Projektmenedzser osztja a munkát. A napi kéréseidet az Operátor intézi, a jobb felső sarokban.',
+    emptyThread: 'A Projektmenedzser osztja a munkát. A napi kéréseidet a csatlakoztatott Claude intézi.',
     required: {
       chip: 'kötelező',
       title: 'A projektben mindig kell egy AI Projektmenedzser.',
@@ -4751,18 +4757,18 @@ export const hu = {
   inbox: {
     handedOff: {
       cannot: 'Nem csinálom meg…',
-      resultNote: 'Az Operátor eredménye: {note}',
+      resultNote: 'A csatlakoztatott Claude eredménye: {note}',
       reasonNote: 'Indoka: {note}',
-      chip: 'Az Operátor átadta',
+      chip: 'A csatlakoztatott Claude átadta',
       why: 'Miért te?',
       detail: 'Mit csinált eddig?',
       openCard: 'Megnyitom a kártyát',
-      legacy: 'Az Operátornak szólt, és hozzád került.',
+      legacy: 'A csatlakoztatott Claude-nak szólt, és hozzád került.',
       reasons: {
         owner_reserved: 'Ez a tiéd marad: törlés, biztonság, fizetős költség vagy engedélydöntés.',
-        no_typed_operation: 'Erre nincs típusos művelet, az Operátor nem tudja elvégezni.',
-        no_grant: 'Az Operátornak nincs super jogosítványa, a gépen nem futtathat.',
-        processing_failed: 'Az Operátor elkezdte, de nem tudta befejezni. Nézd meg, hol tart.',
+        no_typed_operation: 'Erre nincs típusos művelet, a csatlakoztatott Claude nem tudja elvégezni.',
+        no_grant: 'A csatlakoztatott Claude-nak nincs super jogosítványa, a gépen nem futtathat.',
+        processing_failed: 'A csatlakoztatott Claude elkezdte, de nem tudta befejezni. Nézd meg, hol tart.',
       },
     },
     group: {
@@ -5191,7 +5197,7 @@ export const hu = {
       group_withdrawn: 'Minden kérdező visszavonta',
       obligation_closed: 'Tárgytalan: a lépés közben elkészült vagy megszűnt',
       signal_resolved: 'Tárgytalan: a jelzés magától lezárult',
-      operator_moot: 'Tárgytalan: az Operátor szerint',
+      operator_moot: 'Tárgytalan: a csatlakoztatott Claude szerint',
       todo_done: 'Megcsináltad',
       todo_cannot: 'Nem csinálod meg',
     },
@@ -5206,9 +5212,9 @@ export const hu = {
       approval_given: 'Automatikus',
       email_not_allowed: 'Automatikus',
       feedback_handled: 'Automatikus',
-      operator_answered: 'Az Operátor megválaszolta',
-      operator_forwarded: 'Az Operátor továbbadta',
-      operator_moot: 'Az Operátor tárgytalannak zárta',
+      operator_answered: 'A csatlakoztatott Claude megválaszolta',
+      operator_forwarded: 'A csatlakoztatott Claude továbbadta',
+      operator_moot: 'A csatlakoztatott Claude tárgytalannak zárta',
       task_done: 'A kártya Kész lett',
       task_cancelled: 'A kártya megszakadt',
       handed_off: 'Átadták a kártyát',
@@ -5233,7 +5239,7 @@ export const hu = {
       heading: '{key} elakadt: {step}',
       meta: 'Felelős: {member} · nyílt: {when}',
       metaNobody: 'Nincs felelőse · nyílt: {when}',
-      integratorNote: 'Az integrátornak szól, ezért angolul.',
+      integratorNote: 'A csatlakoztatott Claude-nak szól, ezért angolul.',
     },
     /** A todo the Operator made out of a question (PM-556): the step box and the result field. */
     todo: {
@@ -5248,12 +5254,12 @@ export const hu = {
       emptyFilter: 'Ebben nincs teendőd.',
     },
     /** What the Operator said about a question that came to the viewer (PM-556). */
-    operatorNote: 'Operátor:',
+    operatorNote: 'Csatlakoztatott Claude:',
     operatorFallback: {
-      timeout: 'Az Operátor nem nézte át: nem válaszolt 10 percen belül.',
-      unavailable: 'Az Operátor nem nézte át: nem volt elérhető.',
+      timeout: 'A csatlakoztatott Claude nem nézte át: nem válaszolt 10 percen belül.',
+      unavailable: 'A csatlakoztatott Claude nem nézte át: nem volt elérhető.',
     },
-    rerouted: 'Újra kérdezi, az Operátor szűrése nélkül. Indoka: „{reason}”',
+    rerouted: 'Újra kérdezi, a csatlakoztatott Claude szűrése nélkül. Indoka: „{reason}”',
     /** Why a question closed while the viewer had it open, in the middle of a sentence (PM-556). */
     closedReasons: {
       task_done: 'a kártya Kész',
@@ -5264,7 +5270,7 @@ export const hu = {
       group_withdrawn: 'minden kérdező visszavonta',
       obligation_closed: 'a lépés közben elkészült vagy megszűnt',
       signal_resolved: 'a jelzés magától lezárult',
-      operator_moot: 'az Operátor szerint tárgytalan',
+      operator_moot: 'a csatlakoztatott Claude szerint tárgytalan',
     },
     /** The card of a question that closed while the viewer was answering it (PM-556). */
     closedWhileOpen: {
@@ -5324,8 +5330,8 @@ export const hu = {
     },
     /** The folded row of the questions the Operator settled with no person involved (PM-556). */
     operatorTrail: {
-      title: 'Az Operátor intézte · ma {count}',
-      titleUnknown: 'Az Operátor intézte',
+      title: 'A csatlakoztatott Claude intézte · ma {count}',
+      titleUnknown: 'A csatlakoztatott Claude intézte',
       lead: 'Ezek nem jutottak el hozzád. Ha valamelyik mégis rád tartozott volna, a kérdező újra kérdezhet.',
       loading: 'Betöltés…',
       error: 'Nem sikerült betölteni.',
@@ -5336,9 +5342,9 @@ export const hu = {
       moot: 'Tárgytalan',
       forwardedTo: '{name} kapta meg: {note}',
       forwardedToPlain: '{name} kapta meg.',
-      at: 'Operátornál',
+      at: 'A csatlakoztatott Claude-nál',
       until: 'Legkésőbb {time}-kor hozzád kerül.',
-      queued: 'Az Operátor gépére vár; amíg nem érhető el, nem kerül hozzád.',
+      queued: 'A csatlakoztatott Claude gépére vár; amíg nem érhető el, nem kerül hozzád.',
     },
     resolvedBy: '{who} · {time}',
     allDone: 'Ebben a szűrésben minden el van intézve.',
@@ -5657,7 +5663,7 @@ export const hu = {
   /** A card held at its fix round limit (PM-262): the lead developer, then the people decide. */
   fixLimit: {
     box: {
-      integrator: 'az Operátor dönt',
+      integrator: 'a csatlakoztatott Claude dönt',
       extras: 'Extra kör: {used} kiadva a 3-ból.',
       extrasOver: 'Extra kör: {used} kiadva, több a 3-as határnál.',
       title: 'Megállt a javítási körök határánál',
@@ -5737,12 +5743,12 @@ export const hu = {
       /** The recipient the asker named (`requested` on the route record). */
       requested: {
         owner: 'a tulajdonos',
-        integrator: 'az integrátor',
+        integrator: 'a csatlakoztatott Claude',
       },
       to: {
         owner_inbox: 'a tulajdonosok postaládája',
         owner_side: 'a tulajdonos oldala',
-        integrator_queue: 'az integrátor sora',
+        integrator_queue: 'a csatlakoztatott Claude sora',
         decider: 'a műszaki döntéshozó',
         pm: 'a projektmenedzser',
         wait_pm: 'a projektmenedzser válaszára vár',
@@ -5755,10 +5761,10 @@ export const hu = {
         approval: 'jóváhagyás',
         protected: 'védett kérdés',
         machine_work: 'gépi munka',
-        requested_integrator: 'a kérdező az integrátort kérte',
+        requested_integrator: 'a kérdező a csatlakoztatott Claude-ot kérte',
         system_obligation: 'rendszerkötelezettség',
         issuer_without_machine_access: 'a feladónak nincs gépi hozzáférése',
-        no_integrator: 'nincs integrátor',
+        no_integrator: 'nincs csatlakoztatott Claude',
         pm_pending: 'a projektmenedzser még nem látta',
         owner_side: 'a tulajdonos saját ügye',
         owner_topic_missing: 'hiányzó téma',
@@ -6018,13 +6024,14 @@ export const hu = {
       question_asked: 'Kérdés: {question}',
       question_asked_topic: 'Kérdés ({topic}): {question}',
       question_asked_unscreened_topic:
-        'Kérdés újra, az Operátor szűrése nélkül ({topic}): {question} · indok: {reason}',
+        'Kérdés újra, a csatlakoztatott Claude szűrése nélkül ({topic}): {question} · indok: {reason}',
       question_screened_decision_topic: 'Döntésként továbbengedte neked ({topic}): {note}',
       question_screened_todo_topic: 'Teendőként továbbengedte neked ({topic}): {note}',
       question_screened_todo_recorded_topic:
         'Teendőként továbbengedte neked ({topic}): {note} Hiányként rögzítette.',
-      question_asked_screening: 'Kérdés: {question} · az Operátornál',
-      question_asked_unscreened: 'Kérdés újra, az Operátor szűrése nélkül: {question} · indok: {reason}',
+      question_asked_screening: 'Kérdés: {question} · a csatlakoztatott Claude-nál',
+      question_asked_unscreened:
+        'Kérdés újra, a csatlakoztatott Claude szűrése nélkül: {question} · indok: {reason}',
       question_answered: 'Válasz: {answer}',
       question_answered_grouped: 'Válasz a közös kérdésre: {answer}',
       question_grouped: 'Közös kérdésbe vonta: {count} kérdés, egy válasz',
@@ -6034,21 +6041,22 @@ export const hu = {
       question_screened_moot: 'Tárgytalannak zárta {asker} kérdését: {note}',
       question_screened_decision: 'Döntésként továbbengedte neked: {note}',
       question_screened_todo: 'Teendőként továbbengedte neked: {note}',
-      question_screened_integrator: 'Teendőként az Operátor sorába tette: {note}',
-      question_screened_todo_decider: 'Gépi teendő, de integrátor nincs: {to} dönt róla. {note}',
+      question_screened_integrator: 'Gépi teendőként a csatlakoztatott Claude sorába tette: {note}',
+      question_screened_todo_decider: 'Gépi teendő, de csatlakoztatott Claude nincs: {to} dönt róla. {note}',
       question_recipient_escalated:
-        'Az Operátornak szóló teendő a tulajdonoshoz került: 24 óráig nem zárták le.',
-      question_recipient_escalated_passed_on: 'Az Operátor a teendőt a tulajdonosnak adta tovább.{note}',
+        'A csatlakoztatott Claude-nak szóló gépi teendő a tulajdonoshoz került: 24 óráig nem zárták le.',
+      question_recipient_escalated_passed_on:
+        'A csatlakoztatott Claude a teendőt a tulajdonosnak adta tovább.{note}',
       question_recipient_escalated_unavailable:
-        'Az Operátornak szóló teendő a tulajdonoshoz került: az Operátor most nem dolgozza fel a sorát.',
+        'A csatlakoztatott Claude-nak szóló gépi teendő a tulajdonoshoz került: a csatlakoztatott Claude most nem dolgozza fel a sorát.',
       item_routed: 'Az elem útvonala: {to} ({reason}).',
       item_routed_requested: 'Az elem útvonala: {to} ({reason}); a kérő címzettje: {requested}.',
       fix_limit_recipient_escalated_unavailable:
-        'A javítási körök határáról szóló döntés a tulajdonoshoz került: az Operátor most nem dolgozza fel a sorát.',
+        'A javítási körök határáról szóló döntés a tulajdonoshoz került: a csatlakoztatott Claude most nem dolgozza fel a sorát.',
       fix_limit_recipient_escalated_timeout:
-        'A javítási körök határáról szóló döntés az Operátortól a tulajdonoshoz került: 24 óráig nem döntött.',
+        'A javítási körök határáról szóló döntés a csatlakoztatott Claude-tól a tulajdonoshoz került: 24 óráig nem döntött.',
       fix_limit_recipient_escalated_passed_on:
-        'Az Operátor a javítási körök határáról szóló döntést a tulajdonosnak adta tovább.{note}',
+        'A csatlakoztatott Claude a javítási körök határáról szóló döntést a tulajdonosnak adta tovább.{note}',
       obligation_woken:
         'Emlékeztető ment {responsible} részére: a(z) {step} {minutes} perces határideje lejárt.',
       obligation_kicked:
@@ -6065,14 +6073,14 @@ export const hu = {
       obligation_handed_over:
         'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért teendő lett belőle ({minutes} perc).',
       obligation_handed_over_refused:
-        'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért a tulajdonos kapott teendőt ({minutes} perc). Az Operátornak nem lehetett átadni: {reason}.',
+        'A(z) {step} ({responsible}) az emlékeztető után sem haladt, ezért a tulajdonos kapott teendőt ({minutes} perc). A csatlakoztatott Claude-nak nem lehetett átadni: {reason}.',
       integrator_todo_done: 'Lezárta a teendőt: megcsinálta.',
       integrator_todo_cannot: 'Lezárta a teendőt: nem csinálta meg. Indoka: „{note}”',
       question_screened_todo_recorded: 'Teendőként továbbengedte neked: {note} Hiányként rögzítette.',
       question_screening_skipped_timeout:
-        '{asker} kérdése 10 perc után az Operátor szűrése nélkül került hozzád: az Operátor nem válaszolt időben',
+        '{asker} kérdése 10 perc után a csatlakoztatott Claude szűrése nélkül került hozzád: a csatlakoztatott Claude nem válaszolt időben',
       question_screening_skipped_unavailable:
-        '{asker} kérdése 10 perc után az Operátor szűrése nélkül került hozzád: nem volt elérhető',
+        '{asker} kérdése 10 perc után a csatlakoztatott Claude szűrése nélkül került hozzád: nem volt elérhető',
       question_closed: '{asker} kérdése lezárult: {reason}',
       question_closed_withdrawn: '{asker} visszavonta a kérdését: {note}',
       question_answer_waiting: 'A válaszod vár {asker} indulására',
@@ -6088,16 +6096,16 @@ export const hu = {
       contactAdded: 'Kapcsolattartó lett: {name}',
       contactRemoved: 'Már nem kapcsolattartó: {name}',
       operator_approval_waived:
-        'Az Operátor a(z) {version}. megállapodás szerinti elengedéssel módosította a beállításokat.',
+        'A csatlakoztatott Claude a(z) {version}. megállapodás szerinti elengedéssel módosította a beállításokat.',
       operator_knowledge_changed:
-        'Az Operátor megállapodása vagy tanult elvei módosítva. Változat: {revision}.',
+        'A csatlakoztatott Claude megállapodása vagy tanult elvei módosítva. Változat: {revision}.',
       team_paused: 'Szüneteltette a csapatot',
       team_paused_instance: 'Az egész példány szünetelt',
       team_paused_instance_reason: 'Az egész példány szünetelt: {reason}',
       team_resumed: 'Folytatta a csapat munkáját',
       team_resumed_instance: 'Az egész példány folytatta a munkát',
-      super_handoff_changed: 'Az Operátornak átadott gépi munka állapota: {state}',
-      super_operation_changed: 'Az Operátor super műveletének állapota: {state}',
+      super_handoff_changed: 'A csatlakoztatott Claude-nak átadott gépi munka állapota: {state}',
+      super_operation_changed: 'A csatlakoztatott Claude super műveletének állapota: {state}',
       workspace_released: 'Felszabadította a munkaterületet a folyamat-takarítás igazolása nélkül: {reason}',
       gate_requested: 'Jóváhagyást kért: {from} → {to}',
       gate_rejected: 'A jóváhagyást elutasították: {to}',
@@ -6657,7 +6665,7 @@ export const hu = {
         'A(z) {taskKey} kártya új kapcsolatai ({relations}) változtathatnak a munkáján, és nincs elemző vagy projektmenedzser, aki ellenőrizné.',
       work_outage: 'Kiesés ({outage}) akadályozza a munkát; érintett kártyák: {tasks}.',
       waiting_digest:
-        '{todos} integrátori teendő és {questions} szűrésre váró kérdés vár több mint egy napja; a legrégebbi {oldestHours} órája.',
+        '{todos} gépi teendő és {questions} szűrésre váró kérdés vár több mint egy napja; a legrégebbi {oldestHours} órája.',
     },
     email: {
       received: 'E-mailben érkezett',
@@ -6786,7 +6794,7 @@ export const hu = {
     nav: {
       owners: 'Tulajdonosok',
       label: 'Beállítások részei',
-      integrator: 'Operátor jogosítványa',
+      integrator: 'Csatlakoztatott Claude',
       pipeline: 'Folyamat',
       labels: 'Címkék',
       duties: 'Szerepek és feladatkörök',
@@ -7292,7 +7300,7 @@ export const hu = {
     team: {
       ownerTopics: {
         title: 'Tulajdonosi döntések',
-        help: 'Döntést csak ezekben a témákban kérhet tőled a csapat. Minden mást az Operátor intéz. Jóváhagyást mindig kérhetnek.',
+        help: 'Döntést csak ezekben a témákban kérhet tőled a csapat. Minden mást a csatlakoztatott Claude intéz. Jóváhagyást mindig kérhetnek.',
         enabled: 'Bekapcsolva: {topics}',
         empty: 'Egyik téma sincs bekapcsolva.',
         warning: 'Nincs bekapcsolt téma. A csapat csak jóváhagyást kér tőled, más döntést nem.',
@@ -7309,7 +7317,7 @@ export const hu = {
         labelPlaceholder: 'pl. Jogi kérdés',
         hint: 'Mikor jöjjön hozzád?',
         hintPlaceholder: 'pl. Szerződés, adatvédelem, felhasználási feltételek.',
-        hintHelp: 'Ebből érti az Operátor, mi tartozik ide. Egy-két mondat elég.',
+        hintHelp: 'Ebből érti a csatlakoztatott Claude, mi tartozik ide. Egy-két mondat elég.',
         labelRequired: 'Adj nevet a témának.',
         hintRequired: 'Írd le, mikor jöjjön hozzád.',
         limit: 'Legfeljebb 12 téma lehet bekapcsolva. Kapcsolj ki vagy törölj egyet, ha újat vennél fel.',

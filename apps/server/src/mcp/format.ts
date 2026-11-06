@@ -661,6 +661,8 @@ export function formatTaskUpdate(
     relations?: { add: Array<{ kind: string; key: string }>; remove: Array<{ kind: string; key: string }> };
     /** The theme the call set (null: removed); undefined when it did not touch it. */
     themeKey?: string | null | undefined;
+    /** Whether the call archived (true) or restored (false) a theme; undefined when it did not touch it (PM-1283). */
+    archived?: boolean | undefined;
     /** The priority the call set (null: cleared); undefined when it did not touch it (PM-433). */
     priority?: string | null | undefined;
     complexity?: boolean;
@@ -671,6 +673,7 @@ export function formatTaskUpdate(
     done.push(change.priority === null ? 'priority cleared' : `priority set to ${change.priority}`);
   if (change.themeKey !== undefined)
     done.push(change.themeKey === null ? 'theme removed' : `theme set to ${change.themeKey}`);
+  if (change.archived !== undefined) done.push(change.archived ? 'theme archived' : 'theme restored');
   if (change.title) done.push('title changed');
   if (change.description) done.push('description replaced');
   if (change.repo !== undefined)

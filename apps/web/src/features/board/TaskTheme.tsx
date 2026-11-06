@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { isOpenTask } from '@projectman/shared';
+import { isArchivedTheme, isOpenTask } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -57,8 +57,10 @@ export function TaskTheme({ task, tasks }: { task: Task; tasks: readonly Task[] 
     );
   }
 
-  // The open themes, and the card's own when it was closed after the card joined it.
-  const choices = themes.filter((theme) => isOpenTask(theme) || theme.key === current?.key);
+  // The open themes, and the card's own when it was closed or archived after the card joined it.
+  const choices = themes.filter(
+    (theme) => (isOpenTask(theme) && !isArchivedTheme(theme)) || theme.key === current?.key,
+  );
   const value = update.isPending ? (update.variables?.body.themeKey ?? '') : (task.themeKey ?? '');
   return (
     <div className={drawer.prop}>
@@ -86,7 +88,11 @@ export function TaskTheme({ task, tasks }: { task: Task; tasks: readonly Task[] 
         <option value="">{t('task.themeNone')}</option>
         {choices.map((theme) => (
           <option key={theme.key} value={theme.key}>
-            {isOpenTask(theme) ? theme.title : t('task.themeClosed', { title: theme.title })}
+            {isArchivedTheme(theme)
+              ? t('task.themeArchived', { title: theme.title })
+              : isOpenTask(theme)
+                ? theme.title
+                : t('task.themeClosed', { title: theme.title })}
           </option>
         ))}
       </select>

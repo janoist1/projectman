@@ -2,9 +2,9 @@ import { useState } from 'react';
 import type { Ref } from 'react';
 import clsx from 'clsx';
 import { Link, useNavigate } from 'react-router';
-import { isOpenTask } from '@projectman/shared';
+import { isArchivedTheme, isOpenTask } from '@projectman/shared';
 import type { Task, ThemeCard, ThemeCardView } from '@projectman/shared';
-import { useCloseTheme, useReopenTask } from '../../api/queries';
+import { useCloseTheme, useReopenTask, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
@@ -74,9 +74,35 @@ export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task
   const percent = percentOf(progress);
   const cancelled = cancelledIn(task, tasks);
   const change = open ? close : reopen;
+  const archive = useUpdateTask(key);
+  const archived = isArchivedTheme(task);
+  // One error line serves the three actions: a new action drops the error the others left behind.
+  const setArchived = (value: boolean) => {
+    close.reset();
+    reopen.reset();
+    archive.mutate(
+      { taskKey: task.key, body: { archived: value } },
+      {
+        onSuccess: () =>
+          value
+            ? toast.show(t('theme.archivedToast'), undefined, {
+                action: { label: t('theme.undo'), run: () => setArchived(false) },
+              })
+            : toast.show(t('theme.unarchived')),
+      },
+    );
+  };
   return (
     <section className={styles.summary} aria-label={t('theme.progressLabel')}>
-      {!open && task.closedAt ? (
+      {archived ? (
+        <div className={styles.archivedState}>
+          <p className={styles.archivedHead}>
+            <Icon name="archive" size={14} />
+            {t('theme.archivedState', { when: formatAgo(task.archivedAt!) })}
+          </p>
+          <p>{t('theme.archivedNote')}</p>
+        </div>
+      ) : !open && task.closedAt ? (
         <p className={styles.closedState}>
           <Icon name="lock" size={14} />
           {t('theme.closedState', { when: formatAgo(task.closedAt) })}
@@ -112,19 +138,24 @@ export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task
           <Button
             variant={open ? 'secondary' : 'primary'}
             loading={change.isPending}
-            onClick={() =>
-              open
-                ? close.mutate(task.key, { onSuccess: () => toast.show(t('theme.closed')) })
-                : reopen.mutate(task.key, { onSuccess: () => toast.show(t('theme.reopened')) })
-            }
+            onClick={() => {
+              archive.reset();
+              if (open) close.mutate(task.key, { onSuccess: () => toast.show(t('theme.closed')) });
+              else reopen.mutate(task.key, { onSuccess: () => toast.show(t('theme.reopened')) });
+            }}
           >
             {open ? t('theme.close') : t('theme.reopen')}
           </Button>
         ) : null}
+        {can.createTasks ? (
+          <Button variant="secondary" loading={archive.isPending} onClick={() => setArchived(!archived)}>
+            {archived ? t('theme.unarchive') : t('theme.archive')}
+          </Button>
+        ) : null}
       </div>
-      {change.isError ? (
+      {change.isError || archive.isError ? (
         <p role="alert" className={drawer.error}>
-          {errorMessage(change.error)}
+          {errorMessage(change.isError ? change.error : archive.error)}
         </p>
       ) : null}
     </section>

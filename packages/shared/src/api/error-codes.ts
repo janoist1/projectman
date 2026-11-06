@@ -169,6 +169,7 @@ export const ERROR_CODES = [
   'theme_project',
   'theme_not_a_theme',
   'theme_closed',
+  'theme_archived',
   'gate_blocked',
   'approval_requested',
   // A super-mode card update left the requested stage or assignee unchanged (PM-929).

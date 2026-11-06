@@ -200,8 +200,11 @@ export interface TimelineEventData {
   task_created: { title: string; imported?: boolean };
   task_updated: {
     fields: string[];
-    /** `closed`: a theme was closed (PM-192); it is closed like a cancelled card, and reopened the same way. */
-    action?: 'cancelled' | 'reopened' | 'closed';
+    /**
+     * `closed`: a theme was closed (PM-192); it is closed like a cancelled card, and reopened the same way.
+     * `archived` / `unarchived`: a theme was archived or restored (PM-1283).
+     */
+    action?: 'cancelled' | 'reopened' | 'closed' | 'archived' | 'unarchived';
     previousStatus?: string;
     previousAssignee?: string | null;
     /** `fields` names `repo`: the repository it was set to (null: cleared) and the one it had. */

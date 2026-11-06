@@ -5313,6 +5313,9 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "maxItems": 10,
           "type": "array",
         },
+        "archived": {
+          "type": "boolean",
+        },
         "complexity": {
           "anyOf": [
             {

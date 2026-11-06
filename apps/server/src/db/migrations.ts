@@ -2931,4 +2931,11 @@ migrations.push({
   // the interface shows the classic style.
   sql: `ALTER TABLE users ADD COLUMN ui_style TEXT CHECK (ui_style IN ('classic', 'win311'));`,
 });
+migrations.push({
+  version: 145,
+  name: 'archived themes',
+  // PM-1283: a theme can be archived (it leaves the top theme filter and takes no new card). NULL on every row
+  // stored before and on every card that is not an archived theme; nothing is rewritten.
+  sql: `ALTER TABLE tasks ADD COLUMN archived_at TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

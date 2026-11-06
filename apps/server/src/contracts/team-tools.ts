@@ -480,6 +480,8 @@ export interface TaskToolsHandler {
       relations?: RelationsChange;
       /** The theme the card belongs to (PM-192); null removes it. */
       themeKey?: string | null;
+      /** Archives (true) or restores (false) a theme (PM-1283); themes only. */
+      archived?: boolean;
       /** The card priority (PM-433); null clears it. People may set it; an AI member only when the project's priority setting allows it. */
       priority?: TaskPriority | null;
       complexity?: ComplexityRequest;

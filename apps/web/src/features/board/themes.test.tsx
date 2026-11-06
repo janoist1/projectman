@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Task } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import type { MockBackend } from '../../mocks/backend';
 import { findBoardCardLinks, withoutTeamStrip } from '../../test/boardCards';
@@ -200,6 +201,46 @@ describe('themes on the board', () => {
     ).toBeTruthy();
   });
 
+  it('orders the tiles by priority, the most important first, and by number within a level (PM-1283)', async () => {
+    const { project, backend, theme, other } = themed();
+    const third = create(backend, 'Urgent epic', { kind: 'theme' });
+    backend.updateTask(other.key, { priority: 'high' });
+    backend.updateTask(third.key, { priority: 'urgent' });
+    project.render(<BoardPage />);
+    await tile(theme.title, 1, 4);
+    const strip = screen.getByRole('region', { name: t('board.themes.title') });
+    const titles = [theme.title, other.title, third.title];
+    const order = within(strip)
+      .getAllByRole('button')
+      .filter((button) => button.hasAttribute('aria-pressed'))
+      .map((button) => titles.find((title) => button.getAttribute('aria-label')!.includes(title)));
+    expect(order).toEqual([third.title, other.title, theme.title]);
+  });
+
+  it('keeps an archived theme out of the strip until asked, under its own heading (PM-1283)', async () => {
+    const { project, backend, theme, other } = themed();
+    backend.setThemeArchived(other.key, true);
+    project.render(<BoardPage />);
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    await tile(theme.title, 1, 4);
+    expect(screen.queryAllByRole('button', { name: new RegExp(other.title) })).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: t('board.themes.archived', { count: 1 }) }));
+    expect(filterTile(other.title)).toBeTruthy();
+    // The first revealed tile is brought into view of the scrolling row.
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView.mock.contexts[0]).toBe(filterTile(other.title).closest('li'));
+    expect(screen.getByText(t('board.themes.archivedHeading'))).toBeTruthy();
+    expect(screen.getByRole('button', { name: t('board.themes.hideHidden') })).toBeTruthy();
+  });
+
+  it('keeps the archived theme the board is filtered to on show (PM-1283)', async () => {
+    const { project, backend, other } = themed();
+    backend.setThemeArchived(other.key, true);
+    project.render(<BoardPage />, '/', { themeFilter: other.key });
+    expect(await tile(other.title, 0, 0)).toBeTruthy();
+  });
+
   it('shows the same strip and a list without themes on a phone', async () => {
     vi.spyOn(window, 'matchMedia').mockImplementation(
       (query) =>
@@ -253,6 +294,17 @@ describe('creating a theme', () => {
     expect(screen.getByRole('heading', { name: t('newTask.titleTheme') })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: t('newTask.kinds.task') }));
     expect(screen.getByLabelText(t('newTask.fields.repo'))).toBeTruthy();
+  });
+
+  it('lists the themes by priority and leaves an archived one out (PM-1283)', async () => {
+    const { project, backend, theme, other } = themed();
+    const third = create(backend, 'Archived epic', { kind: 'theme' });
+    backend.updateTask(other.key, { priority: 'urgent' });
+    backend.setThemeArchived(third.key, true);
+    project.render(<NewTaskDialog open onClose={() => {}} />);
+    const select = (await screen.findByLabelText(t('newTask.fields.theme'))) as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(3));
+    expect([...select.options].map((option) => option.value)).toEqual(['', other.key, theme.key]);
   });
 
   it('puts a new card into the theme the board is filtered to', async () => {
@@ -317,6 +369,36 @@ describe("a theme's card", () => {
     fireEvent.click(screen.getByRole('button', { name: t('theme.reopen') }));
     await screen.findByRole('button', { name: t('theme.close') });
     expect(backend.findTask(theme.key)!.status).toBe('active');
+  });
+
+  it('archives and restores without touching its cards, and takes the archiving back (PM-1283)', async () => {
+    const { project, backend, theme } = themed();
+    const before = JSON.stringify(backend.tasks.filter((task) => task.themeKey === theme.key));
+    project.render(<ToastProvider>{drawerRoutes}</ToastProvider>, `/p/AC/tasks/${theme.key}`);
+    fireEvent.click(await screen.findByRole('button', { name: t('theme.archive') }));
+    await screen.findByRole('button', { name: t('theme.unarchive') });
+    expect(backend.findTask(theme.key)!.archivedAt).toBeTruthy();
+    expect(JSON.stringify(backend.tasks.filter((task) => task.themeKey === theme.key))).toBe(before);
+    fireEvent.click(await screen.findByRole('button', { name: t('theme.undo') }));
+    await screen.findByRole('button', { name: t('theme.archive') });
+    expect(backend.findTask(theme.key)!.archivedAt ?? null).toBeNull();
+  });
+
+  it('refuses to archive what is no theme', () => {
+    const { backend } = themed();
+    expect(backend.setThemeArchived('AC-20', true)).toMatchObject({
+      status: 409,
+      body: { error: { code: 'task_not_theme' } },
+    });
+  });
+
+  it('offers no archiving to a person who cannot edit (PM-1283)', async () => {
+    const { project, theme } = themed();
+    project.render(drawerRoutes, `/p/AC/tasks/${theme.key}`, {
+      can: { createTasks: false, manageTeam: false, workInSessions: false },
+    });
+    await screen.findByText(t('theme.progress', { done: 1, total: 4 }));
+    expect(screen.queryByRole('button', { name: t('theme.archive') })).toBeNull();
   });
 
   it('offers no closing to a person who cannot edit', async () => {
@@ -385,6 +467,19 @@ describe('the theme of a card in its drawer', () => {
     const select = (await screen.findByLabelText(t('task.theme'))) as HTMLSelectElement;
     await waitFor(() => expect(select.value).toBe(theme.key));
     expect(screen.getByRole('option', { name: t('task.themeClosed', { title: theme.title }) })).toBeTruthy();
+  });
+
+  it('keeps an archived theme the card already has in the list, and offers no other archived one (PM-1283)', async () => {
+    const { project, backend, theme, other } = themed();
+    backend.setThemeArchived(theme.key, true);
+    backend.setThemeArchived(other.key, true);
+    project.render(drawerRoutes, '/p/AC/tasks/AC-24');
+    const select = (await screen.findByLabelText(t('task.theme'))) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).toBe(theme.key));
+    expect([...select.options].map((option) => option.value)).toEqual(['', theme.key]);
+    expect(
+      screen.getByRole('option', { name: t('task.themeArchived', { title: theme.title }) }),
+    ).toBeTruthy();
   });
 
   it('says that the subtasks follow a collecting card', async () => {

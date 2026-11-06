@@ -142,6 +142,7 @@ import {
   handOnDecision,
   handOnRequestOf,
   holdersAllow,
+  isArchivedTheme,
   isBuiltInRole,
   isLiveSession,
   isOnLeave,
@@ -967,6 +968,20 @@ export class MockBackend {
     });
     this.settleSeniorWaits();
     return ok(this.taskDetail(task));
+  }
+
+  /** Archives or restores a theme (PM-1283); null when done, else the refusal. Its cards stay as they are. */
+  setThemeArchived(taskKey: string, archived: boolean): MockResponse | null {
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    if (!isTheme(task)) return error(409, 'task_not_theme', 'Not a theme');
+    if (archived === isArchivedTheme(task)) return null;
+    this.updateTask(taskKey, { archivedAt: archived ? nowIso() : null });
+    this.addTimeline(taskKey, this.viewerHandle, 'task_updated', {
+      action: archived ? 'archived' : 'unarchived',
+      fields: ['archivedAt'],
+    });
+    return null;
   }
 
   /** The card's acceptance items in order (PM-1137); a copy. */

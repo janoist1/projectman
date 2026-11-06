@@ -163,6 +163,8 @@ interface TaskUpdate {
   relations?: RelationsChange;
   /** The theme the card belongs to (PM-192); null removes it. Not for a theme or a subtask. */
   themeKey?: string | null;
+  /** Archives (true) or restores (false) a theme (PM-1283); only a theme can be archived. */
+  archived?: boolean;
   /** A person moves the card into the work stage despite open prerequisites (PM-204). */
   despitePrerequisites?: boolean;
   complexity?: ComplexityRequest;
@@ -682,6 +684,16 @@ export class TaskService implements TaskSchedulingReader {
     // Validate the whole change against the task as it will be.
     const patch: TaskPatch = {};
     const fields: string[] = [];
+    let archiveAction: 'archived' | 'unarchived' | null = null;
+    if (change.archived !== undefined) {
+      if (!isTheme(task))
+        throw conflict('task_not_theme', `${task.key} is not a theme: only a theme is archived`);
+      if (change.archived !== Boolean(task.archivedAt)) {
+        patch.archivedAt = change.archived ? isoNow(this.ctx) : null;
+        fields.push('archivedAt');
+        archiveAction = change.archived ? 'archived' : 'unarchived';
+      }
+    }
     const complexity = change.complexity
       ? planComplexity(config, task, change.complexity, actor, isoNow(this.ctx))
       : null;
@@ -866,6 +878,7 @@ export class TaskService implements TaskSchedulingReader {
           type: 'task_updated',
           data: {
             fields,
+            ...(archiveAction ? { action: archiveAction } : {}),
             ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: task.repo } : {}),
             ...(patch.priority !== undefined
               ? { priority: patch.priority, previousPriority: task.priority }

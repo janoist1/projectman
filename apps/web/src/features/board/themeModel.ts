@@ -1,18 +1,38 @@
-import { isOpenTask, isTheme, taskSeq, themeCards, themeProgress } from '@projectman/shared';
+import {
+  compareThemes,
+  isArchivedTheme,
+  isOpenTask,
+  isTheme,
+  taskSeq,
+  themeCards,
+  themeProgress,
+} from '@projectman/shared';
 import type { Task, ThemeCard, ThemeCardView, ThemeProgress } from '@projectman/shared';
 import { columnSegments } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 
-/** The themes of the project: the open ones first, each group by number. */
-export function sortedThemes(tasks: readonly Task[]): Task[] {
-  return tasks
-    .filter((task) => isTheme(task))
-    .sort((a, b) => Number(!isOpenTask(a)) - Number(!isOpenTask(b)) || taskSeq(a.key) - taskSeq(b.key));
+/**
+ * The themes of the project in three groups, each by priority and number (`compareThemes`, PM-1283): the
+ * open ones that are not archived, the closed ones that are not archived, and the archived ones.
+ */
+export function themeGroups(tasks: readonly Task[]): { open: Task[]; closed: Task[]; archived: Task[] } {
+  const themes = tasks.filter((task) => isTheme(task)).sort(compareThemes);
+  return {
+    open: themes.filter((theme) => !isArchivedTheme(theme) && isOpenTask(theme)),
+    closed: themes.filter((theme) => !isArchivedTheme(theme) && !isOpenTask(theme)),
+    archived: themes.filter((theme) => isArchivedTheme(theme)),
+  };
 }
 
-/** The themes a card can be put into: the open ones. */
+/** Every theme of the project: the open ones first, then the closed, then the archived. */
+export function sortedThemes(tasks: readonly Task[]): Task[] {
+  const { open, closed, archived } = themeGroups(tasks);
+  return [...open, ...closed, ...archived];
+}
+
+/** The themes a card can be put into: the open ones that are not archived. */
 export function openThemes(tasks: readonly Task[]): Task[] {
-  return sortedThemes(tasks).filter((theme) => isOpenTask(theme));
+  return themeGroups(tasks).open;
 }
 
 export function progressOf(theme: Pick<Task, 'key'>, tasks: readonly Task[]): ThemeProgress {

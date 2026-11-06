@@ -163,6 +163,28 @@ describe('themes over REST', () => {
   });
 });
 
+describe('archiving a theme over REST (PM-1283)', () => {
+  it('is done by a developer and refuses a new card with theme_archived; a viewer cannot', async () => {
+    const theme = await create('Epic', { kind: 'theme' });
+    const card = await create('Card', { themeKey: theme.key });
+    expect((await call('viewer', 'PATCH', routes.task('AR', theme.key), { archived: true })).statusCode).toBe(
+      403,
+    );
+    const archived = await call('developer', 'PATCH', routes.task('AR', theme.key), { archived: true });
+    expect(archived.statusCode).toBe(200);
+    expect(Task.parse(archived.json()).archivedAt).toEqual(expect.any(String));
+    const late = await call('developer', 'POST', routes.tasks('AR'), { title: 'Late', themeKey: theme.key });
+    expect(late.statusCode).toBe(400);
+    expect(errorOf(late)).toBe('theme_archived');
+    const list = (await call('owner', 'GET', routes.tasks('AR'))).json<Task[]>();
+    expect(list.find((t) => t.key === card.key)).toMatchObject({ themeKey: theme.key, status: 'active' });
+    expect(list.find((t) => t.key === theme.key)?.archivedAt).toEqual(expect.any(String));
+    const plain = await call('developer', 'PATCH', routes.task('AR', card.key), { archived: true });
+    expect(plain.statusCode).toBe(409);
+    expect(errorOf(plain)).toBe('task_not_theme');
+  });
+});
+
 describe('a theme does not hold a stage in the configuration', () => {
   it('lets a stage be removed that only a theme is in, and still refuses one a card is in', async () => {
     const theme = await create('Epic', { kind: 'theme' });

@@ -410,6 +410,7 @@ export class TeamToolsService implements TeamToolsHandler {
       repo?: string | null;
       relations?: RelationsChange;
       themeKey?: string | null;
+      archived?: boolean;
       priority?: TaskPriority | null;
       complexity?: ComplexityRequest;
       despitePrerequisites?: boolean;

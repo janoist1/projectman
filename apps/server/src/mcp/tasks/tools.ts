@@ -166,6 +166,7 @@ interface UpdateTaskArgs {
   add_relations?: { kind: AddableRelationKind; task_key: string }[] | undefined;
   remove_relations?: { kind: TaskRelationKind; task_key: string }[] | undefined;
   theme_key?: string | null | undefined;
+  archived?: boolean | undefined;
   priority?: TaskPriority | null | undefined;
   despite_prerequisites?: boolean | undefined;
   acceptance?: z.infer<typeof acceptanceChangeInput>[] | undefined;
@@ -196,12 +197,14 @@ async function runUpdateTask<C>({
     add_relations: addRelations,
     remove_relations: removeRelations,
     theme_key: themeKey,
+    archived,
     despite_prerequisites: despitePrerequisites,
   } = args;
   const complexity = complexityArg(args);
   if (
     !stageId &&
     themeKey === undefined &&
+    archived === undefined &&
     priority === undefined &&
     !complexity &&
     !addLabels?.length &&
@@ -217,7 +220,7 @@ async function runUpdateTask<C>({
     throw new TeamToolError(
       'invalid',
       'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-        'add_relations, remove_relations, theme_key, priority, complexity and/or acceptance.',
+        'add_relations, remove_relations, theme_key, archived, priority, complexity and/or acceptance.',
     );
   }
   const acceptance = acceptanceChanges(args.acceptance);
@@ -236,6 +239,7 @@ async function runUpdateTask<C>({
     ...(repo !== undefined ? { repo } : {}),
     ...(relations.add.length + relations.remove.length > 0 ? { relations } : {}),
     ...(themeKey !== undefined ? { themeKey } : {}),
+    ...(archived !== undefined ? { archived } : {}),
     ...(priority !== undefined ? { priority } : {}),
     ...(complexity ? { complexity } : {}),
     ...(despitePrerequisites ? { despitePrerequisites } : {}),
@@ -251,6 +255,7 @@ async function runUpdateTask<C>({
     ...(priority !== undefined ? { priority } : {}),
     ...(complexity ? { complexity: true } : {}),
     ...(themeKey !== undefined ? { themeKey } : {}),
+    ...(archived !== undefined ? { archived } : {}),
     labels: { added: addLabels ?? [], removed: removeLabels ?? [] },
     note: !!note,
     title: !!title,
@@ -426,6 +431,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .nullable()
           .optional()
           .describe('The open theme this card belongs to; null removes it. Not for subtasks and themes.'),
+        // No description: the 40 000-byte tools/list budget of the smaller roles has no room for one.
+        archived: z.boolean().optional(),
         priority: TaskPriority.nullable()
           .optional()
           .describe(

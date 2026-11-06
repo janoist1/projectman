@@ -516,6 +516,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             : t('timeline.events.task_reopened'),
         );
       if (d.action === 'closed') return normal(t('timeline.events.theme_closed'));
+      if (d.action === 'archived') return normal(t('timeline.events.theme_archived'));
+      if (d.action === 'unarchived') return normal(t('timeline.events.theme_unarchived'));
       // Gate outcomes are recorded as task updates by the server.
       const request = record(d.gateRequest);
       if (request) {

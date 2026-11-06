@@ -1175,6 +1175,11 @@ export const UpdateTaskRequest = z.object({
    */
   themeKey: TaskKey.nullable().optional(),
   /**
+   * Archives (true) or restores (false) a theme (PM-1283): an archived theme leaves the top theme filter and
+   * takes no new card; its cards keep it. 409 `task_not_theme` for any other card.
+   */
+  archived: z.boolean().optional(),
+  /**
    * A person moves the card into the work stage after the warning that a prerequisite is open
    * (PM-204): the automatic start that follows does not wait for it. Only a person may send it;
    * the team tool does not offer it, so a card an AI member moves waits.

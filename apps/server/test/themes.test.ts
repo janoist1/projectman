@@ -545,6 +545,61 @@ describe('closing and reopening a theme', () => {
   });
 });
 
+describe('archiving a theme (PM-1283)', () => {
+  const archiveEvents = (key: string) =>
+    h.domain.timeline
+      .list('AR', { taskKey: key })
+      .filter((event) => event.type === 'task_updated')
+      .map((event) => event.data as { fields?: string[]; action?: string })
+      .filter((data) => data.fields?.includes('archivedAt'))
+      .map((data) => data.action);
+
+  it('archives and restores independently of closing, its cards left as they are', async () => {
+    await setTheme('AR-5', 'AR-1');
+    const cards = () => h.domain.tasks.list('AR').filter((task) => task.themeKey === 'AR-1');
+    const before = cards();
+    const archived = await update('AR-1', { archived: true });
+    expect(archived.archivedAt).toEqual(expect.any(String));
+    expect(archived).toMatchObject({ status: 'active', closedAt: null });
+    expect(cards()).toEqual(before);
+    expect(get('AR-1').archivedAt).toBe(archived.archivedAt);
+    const restored = await update('AR-1', { archived: false });
+    expect(restored.archivedAt ?? null).toBeNull();
+    expect(archiveEvents('AR-1')).toEqual(['archived', 'unarchived']);
+  });
+
+  it('takes no new card while archived, but lets a card out and takes cards again once restored', async () => {
+    await setTheme('AR-5', 'AR-1');
+    await update('AR-1', { archived: true });
+    const before = snapshot();
+    await expect(setTheme('AR-6', 'AR-1')).rejects.toMatchObject({ code: 'theme_archived' });
+    await expect(
+      h.domain.tasks.create('AR', { title: 'New', themeKey: 'AR-1' }, OWNER_ACTOR),
+    ).rejects.toMatchObject({ code: 'theme_archived' });
+    expect(snapshot()).toEqual(before);
+    expect(get('AR-5').themeKey).toBe('AR-1');
+    await setTheme('AR-5', null);
+    await update('AR-1', { archived: false });
+    await setTheme('AR-6', 'AR-1');
+    expect(get('AR-6').themeKey).toBe('AR-1');
+  });
+
+  it('records nothing when it is already so, and refuses a card that is no theme', async () => {
+    await update('AR-1', { archived: false });
+    await update('AR-1', { archived: true });
+    await update('AR-1', { archived: true });
+    expect(archiveEvents('AR-1')).toEqual(['archived']);
+    await expect(update('AR-5', { archived: true })).rejects.toMatchObject({ code: 'task_not_theme' });
+  });
+
+  it('is done by an AI member through update_task', async () => {
+    const ctx = { projectKey: 'AR', member: 'dev-1', sessionId: 'ses_example', taskKey: 'AR-5' };
+    const done = await h.domain.teamTools.updateTask(ctx, { taskKey: 'AR-2', archived: true });
+    expect(done.task.archivedAt).toEqual(expect.any(String));
+    expect(archiveEvents('AR-2')).toEqual(['archived']);
+  });
+});
+
 describe('a pull request linked to a theme', () => {
   it('merging it moves nothing and raises no error', async () => {
     h.github.prs.set('acme/web#7', pullRequest());

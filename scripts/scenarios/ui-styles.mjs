@@ -3,8 +3,8 @@
  *
  *   npm run shots -- scripts/scenarios/ui-styles.mjs
  *
- * Screens: the board, an open card with a question and its thread, the "Rád vár" list, the Team page, two Settings
- * pages (engines, owners) and the Megjelenés picker. The style is the account's own setting (PUT /api/me/ui-style), exactly as a user would set it.
+ * Screens: the board (with an urgent card), an open card with a question and its thread, the "Rád vár" list, the Team page, three Settings
+ * pages (engines, owners, and the pipeline with a stage that has no owner) and the Megjelenés picker. The style is the account's own setting (PUT /api/me/ui-style), exactly as a user would set it.
  */
 const QUESTION = 'Which colour should the basket button be?';
 
@@ -33,8 +33,33 @@ export default async ({ instance, open, shoot, step }) => {
       return { ...item, state: 'open', resolution: null, payload: rest };
     });
 
+  // An urgent card on the board, and a work stage without anyone to carry it (the pipeline page's warning places).
+  const urgent = await instance.api('/api/projects/AC/tasks', {
+    method: 'POST',
+    body: { title: 'Urgent: the payment page is down', repo: 'webshop' },
+  });
+  await instance.api(`/api/projects/AC/tasks/${urgent.key}`, {
+    method: 'PATCH',
+    body: { priority: 'urgent' },
+  });
+  const { config, version } = await instance.api('/api/projects/AC/config');
+  const ownerless = config.pipeline.stages.find((stage) => stage.kind === 'work');
+  await instance.api('/api/projects/AC/config', {
+    method: 'PATCH',
+    body: {
+      baseVersion: version,
+      pipeline: {
+        ...config.pipeline,
+        stages: config.pipeline.stages.map((stage) =>
+          stage.id === ownerless.id ? { ...stage, owners: [] } : stage,
+        ),
+      },
+    },
+  });
+
   const screens = [
     { name: 'board', path: '/p/AC', ready: 'text=AC-1' },
+    { name: 'pipeline', path: '/p/AC/settings/pipeline', ready: 'text=nincs gazdája' },
     {
       name: 'card-question',
       path: '/p/AC/tasks/AC-1/steps',

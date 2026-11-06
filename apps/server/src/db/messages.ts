@@ -116,6 +116,7 @@ const toMessage = (r: MessageRow): TeamMessage => {
 export function createMessageRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM team_messages WHERE id = ?'),
+    getMany: db.prepare('SELECT * FROM team_messages WHERE id IN (SELECT value FROM json_each(?))'),
     hasNewerAction: db.prepare(`SELECT 1 FROM team_messages
         WHERE project_key = ? AND from_handle = ? AND task_key IS ?
         AND COALESCE(kind, 'action') = 'action'
@@ -207,6 +208,13 @@ export function createMessageRepository(db: Db) {
 
   return {
     get,
+    /** The messages with these ids in one read: id → message, for those that exist. */
+    getMany(ids: readonly string[]): Map<string, TeamMessage> {
+      if (ids.length === 0) return new Map();
+      return new Map(
+        (statements.getMany.all(JSON.stringify(ids)) as MessageRow[]).map((row) => [row.id, toMessage(row)]),
+      );
+    },
     /**
      * `listener` runs inside the transaction of every write that may change who a message is still pending
      * for (a new message, a receipt change, a delivery), after the write (the member queue keeps its message

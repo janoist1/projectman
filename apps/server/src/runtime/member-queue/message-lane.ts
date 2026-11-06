@@ -1,5 +1,6 @@
 import type { ProjectConfig, TaskStartWaiting, TeamMessage, WorkItemRef } from '@projectman/shared';
 import {
+  MEMBER_QUEUE_HOLD_CODES,
   hasBoundOrigin,
   isOpenTask,
   isTheme,
@@ -23,7 +24,7 @@ import type { SessionStartCause } from '../sessions';
 import type { MemberQueueLane } from './lane';
 
 /** The hold code of a message the fix round limit held for an assignee who has been replaced meanwhile. */
-const STAYS_WITH_FORMER_ASSIGNEE = 'hold_fix_limit_reassigned';
+const STAYS_WITH_FORMER_ASSIGNEE = MEMBER_QUEUE_HOLD_CODES.fix_limit_reassigned;
 
 /** What the message lane needs of the rest of the server. */
 interface MessageLaneDeps {
@@ -110,8 +111,12 @@ export function messageLane(deps: MessageLaneDeps): MemberQueueLane {
       // What the fix round limit held for the assignee stays with them when the card is given to someone else
       // (PM-262), through the handoff that follows: it does not wake a member on a card it no longer has.
       const heldForLimit =
-        item.wait?.code === 'hold_fix_limit' || item.wait?.code === STAYS_WITH_FORMER_ASSIGNEE;
-      if (name) return heldForLimit && name === 'handoff' ? STAYS_WITH_FORMER_ASSIGNEE : `hold_${name}`;
+        item.wait?.code === MEMBER_QUEUE_HOLD_CODES.fix_limit ||
+        item.wait?.code === STAYS_WITH_FORMER_ASSIGNEE;
+      if (name)
+        return heldForLimit && name === 'handoff'
+          ? STAYS_WITH_FORMER_ASSIGNEE
+          : MEMBER_QUEUE_HOLD_CODES[name];
       return heldForLimit && task && task.assignee !== item.member ? STAYS_WITH_FORMER_ASSIGNEE : null;
     },
     wakes: (item, config) => {

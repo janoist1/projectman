@@ -1,4 +1,4 @@
-import { memberQueueSourceOf } from '@projectman/shared';
+import { MEMBER_QUEUE_HOLD_CODES, memberQueueSourceOf } from '@projectman/shared';
 import type { StoredMemberQueueItem } from '../../db';
 import type { MemberQueueLane } from './lane';
 
@@ -13,10 +13,10 @@ interface SignalLaneSignals {
 }
 
 /** The hold code while the wake interval (or the structural window) keeps a signal from the coordinator. */
-const SIGNAL_INTERVAL_HOLD = 'hold_signal_interval';
+const SIGNAL_INTERVAL_HOLD = MEMBER_QUEUE_HOLD_CODES.signal_interval;
 
 /** The hold code while the signal is not owed now though its line is due (its case is gone; the sweep settles it). */
-const SIGNAL_UNREADY_HOLD = 'hold_signal_unready';
+const SIGNAL_UNREADY_HOLD = MEMBER_QUEUE_HOLD_CODES.signal_unready;
 
 /** The signal an item is for, and the follow-up time that makes it a new item. */
 const signalOf = (item: StoredMemberQueueItem): { signalId: string; followUpAt: string | null } => {

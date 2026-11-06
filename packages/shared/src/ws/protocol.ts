@@ -23,6 +23,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   }),
   /** A member's queue changed (PM-894): an item came, was taken or was closed; refetch the queue. */
   z.object({ type: z.literal('member_queue_changed'), projectKey: z.string(), member: MemberHandle }),
+  /** A connected Claude's key was created or revoked (PM-1294): the owner and the admin read the work queues again. */
+  z.object({ type: z.literal('integrator_connections_changed'), projectKey: z.string() }),
   z.object({ type: z.literal('hello'), serverTime: z.string() }),
   z.object({ type: z.literal('task_upserted'), projectKey: z.string(), task: Task }),
   z.object({ type: z.literal('timeline_appended'), projectKey: z.string(), event: TimelineEvent }),

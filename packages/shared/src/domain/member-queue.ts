@@ -116,6 +116,25 @@ export type OperatorHandoffReason = z.infer<typeof OperatorHandoffReason>;
 const MemberQueueWait = z.object({ code: z.string().max(64), at: z.string() });
 type MemberQueueWait = z.infer<typeof MemberQueueWait>;
 
+/**
+ * The codes a lane gives `wait.code` while it holds an item back without an admission refusal (PM-1296): the
+ * message holds are keyed by the hold's name (`MessageHoldName`), the rest by what stops the item. The lanes and
+ * admission take them from here, the work queue view (`workQueueReasonOf`) classifies them.
+ */
+export const MEMBER_QUEUE_HOLD_CODES = {
+  waiting_answer: 'hold_waiting_answer',
+  handoff: 'hold_handoff',
+  refinement_turn: 'hold_refinement_turn',
+  fix_limit: 'hold_fix_limit',
+  full_test: 'hold_full_test',
+  engine: 'hold_engine',
+  fix_limit_reassigned: 'hold_fix_limit_reassigned',
+  signal_interval: 'hold_signal_interval',
+  signal_unready: 'hold_signal_unready',
+  unknown: 'hold_unknown',
+} as const;
+export type MemberQueueHoldCode = (typeof MEMBER_QUEUE_HOLD_CODES)[keyof typeof MEMBER_QUEUE_HOLD_CODES];
+
 export const MEMBER_QUEUE_MAX_ATTEMPTS = 3;
 export const MEMBER_QUEUE_STUCK_MS = 45 * 60_000;
 

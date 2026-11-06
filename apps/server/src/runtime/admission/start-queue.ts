@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { memberOf, stageOf, TaskStartWaiting } from '@projectman/shared';
+import { MEMBER_QUEUE_HOLD_CODES, memberOf, stageOf, TaskStartWaiting } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import type { MemberQueue } from '../../core/member-queue';
@@ -87,7 +87,7 @@ export class StartQueue {
       const { reason, since, member: _member, ...details } = waiting;
       ctx.repos.memberQueue.setWait(
         stored.id,
-        task?.labels.includes('waiting-answer') ? 'hold_waiting_answer' : reason,
+        task?.labels.includes('waiting-answer') ? MEMBER_QUEUE_HOLD_CODES.waiting_answer : reason,
         since,
         details,
       );

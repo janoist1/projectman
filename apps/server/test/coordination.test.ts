@@ -327,12 +327,14 @@ describe('PM authorization', () => {
     const { signal } = await idleSignal();
     await deliverSignals();
     const pm = await ownerMessage('pm');
-    const corner = await h.domain.projectManagerChannels.view('AR', 'owner');
+    const corner = await h.domain.projectManagerChannels.view('AR', { access: 'owner', handle: 'owner' });
     expect(corner).toMatchObject({ member: { handle: 'pm' }, readOnly: false });
     expect(corner.requests.map((r) => r.id)).toEqual([requests().openFor(pm.sessionId)!.id]);
     expect(corner.signals.map((s) => s.id)).toContain(signal.id);
     expect(corner.openSignals).toBeGreaterThan(0);
-    await expect(h.domain.projectManagerChannels.view('AR', 'guest')).resolves.toMatchObject({
+    await expect(
+      h.domain.projectManagerChannels.view('AR', { access: 'developer', handle: 'guest' }),
+    ).resolves.toMatchObject({
       readOnly: true,
       requests: [],
       signals: [],

@@ -22,6 +22,7 @@ import {
   isIntegratorTodo,
   isIntegratorFixLimitDecision,
   isIntegratorInboxItem,
+  wasIntegratorInboxItem,
   wasIntegratorTodo,
   planIntegratorPassOn,
   isUndelegableQuestion,
@@ -813,6 +814,23 @@ export class InboxService {
     } = {},
   ) {
     return this.withQuestionGroups(this.ctx.repos.inbox.list(projectKey, filter));
+  }
+
+  /**
+   * What the integrator is the recipient of that the viewer may read, newest first: the open items, or with `all`
+   * every item that was ever opened to it (PM-714). One read for the integrator inbox tool and the work queues.
+   */
+  integratorQueue(
+    projectKey: string,
+    state: 'open' | 'all',
+    viewer: Parameters<typeof canSeeInboxItem>[0],
+    limit: number,
+  ): InboxItem[] {
+    return this.list(projectKey, state === 'open' ? { state: 'open', limit } : { limit }).filter(
+      (item) =>
+        canSeeInboxItem(viewer, item) &&
+        (state === 'open' ? isIntegratorInboxItem(item) : wasIntegratorInboxItem(item)),
+    );
   }
 
   /** `withQuestionGroup` of many items, the groups read together instead of one by one. */

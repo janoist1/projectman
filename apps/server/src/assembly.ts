@@ -136,7 +136,7 @@ import {
   wireOperatorSignals,
 } from './services/coordination';
 import { QuestionScreening } from './core/inbox';
-import { ProjectManagerChannels } from './services/coordination';
+import { ProjectManagerChannels, WorkQueues } from './services/coordination';
 import { ProjectState } from './services/coordination';
 import { PmReplyRelay } from './services/coordination';
 import { CardQuestions } from './core/inbox';
@@ -1467,6 +1467,7 @@ export function createDomain(opts: DomainOptions) {
       (err) => opts.logger.warn({ err, projectKey }, 'operator knowledge recheck failed'),
     );
   });
+  const workQueues = new WorkQueues({ ctx, projects, inbox, integratorAccess: opts.integratorTodoAccess });
   const projectState = new ProjectState({
     ctx,
     projects,
@@ -2255,7 +2256,9 @@ export function createDomain(opts: DomainOptions) {
       pauses,
       operatorRequests,
       operatorSignals,
+      workQueues,
     }),
+    workQueues,
     bus,
     templates,
     timeline,

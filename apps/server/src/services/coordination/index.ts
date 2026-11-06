@@ -6,6 +6,7 @@ export { OperatorKnowledge } from './knowledge';
 export * from './requests';
 export { ProjectState } from './project-state';
 export { ProjectManagerChannels } from './project-manager';
+export { WorkQueues } from './work-queues';
 export { PmReplyRelay, RELAY_WINDOW_MS } from './pm-reply-relay';
 export type * from './ports';
 export { createAlertPmSignals, wireOperatorSignals } from './signal-events';

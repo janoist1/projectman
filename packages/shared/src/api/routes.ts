@@ -28,6 +28,12 @@ export const routes = {
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
   /** GET the project manager's member queue (`MemberQueueView`, PM-894, PM-1042); `?closedSince=<iso>`. */
   projectManagerQueue: (key: string) => `/api/projects/${key}/project-manager/queue`,
+  /** GET every AI member's work queue and the integrator's, as the viewer may read them (`WorkQueuesView`, PM-1294). */
+  workQueues: (key: string) => `/api/projects/${key}/work-queues`,
+  /** GET one AI member's work queue (`WorkQueueDetail`); `?closedSince=<iso>`. */
+  workQueueMember: (key: string, handle: string) => `/api/projects/${key}/work-queues/members/${handle}`,
+  /** GET the connected Claude's work queue (`WorkQueueDetail`); `?closedSince=<iso>`. */
+  workQueueIntegrator: (key: string) => `/api/projects/${key}/work-queues/integrator`,
   operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
   operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
   /** GET the weekly owner question measure (`OwnerQuestionsReport`, PM-1192); `?weeks=8`; the owner's own login only. */

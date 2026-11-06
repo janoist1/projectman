@@ -5,9 +5,16 @@ import type { TaskService } from '../core/tasks';
 import type { EngineRegistry, SessionOrchestrator } from '../runtime/sessions';
 import type { MessageService } from '../core/messages';
 import type { MemberService, PresenceService, ProjectAccess } from '../core/members';
+import type { ProjectService } from '../core/projects';
 
 import type { FastifyInstance } from 'fastify';
-import { canSeeOperatorSessions, ClientCommand, routes, systemFeedbackAccess } from '@projectman/shared';
+import {
+  canSeeOperatorSessions,
+  ClientCommand,
+  projectManagerOf,
+  routes,
+  systemFeedbackAccess,
+} from '@projectman/shared';
 import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../kernel';
 import type { AuthService, AuthUser } from '../auth';
@@ -23,6 +30,7 @@ interface WsDomain {
   readonly messages: MessageService;
   readonly members: MemberService;
   readonly presence: PresenceService;
+  readonly projects: Pick<ProjectService, 'config'>;
   projectsFor(email: string): Promise<Me['projects']>;
   accessFor(projectKey: string, email: string): Promise<ProjectAccess | null>;
 }
@@ -185,7 +193,20 @@ export function registerWebsocket(
             const access = await domain.accessFor(event.projectKey, client.user.email).catch(() => null);
             if (!access) client.projects.delete(event.projectKey);
             else {
-              if (canSeeProjectEvent(access, event, (id) => domain.sessions.isRestrictedSession(id)))
+              // Only a developer's reading of a queue depends on who the project manager is.
+              const config =
+                event.type === 'member_queue_changed' && access.access === 'developer'
+                  ? await domain.projects.config(event.projectKey).catch(() => null)
+                  : null;
+              const manager = config ? projectManagerOf(config) : null;
+              if (
+                canSeeProjectEvent(
+                  access,
+                  event,
+                  (id) => domain.sessions.isRestrictedSession(id),
+                  (handle) => manager?.handle === handle,
+                )
+              )
                 send(
                   client,
                   visibleProjectEvent(access, event, (id) => domain.messages.get(id)),

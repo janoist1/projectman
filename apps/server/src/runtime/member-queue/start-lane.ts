@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { SessionStartCause } from '@projectman/shared';
-import { memberOf } from '@projectman/shared';
+import { MEMBER_QUEUE_HOLD_CODES, memberOf } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
 import type { StoredMemberQueueItem } from '../../db';
@@ -79,7 +79,7 @@ export function startLane(deps: StartLaneDeps): MemberQueueLane {
     },
     hold: async (item) => {
       const task = taskOf(item);
-      if (task?.labels.includes('waiting-answer')) return 'hold_waiting_answer';
+      if (task?.labels.includes('waiting-answer')) return MEMBER_QUEUE_HOLD_CODES.waiting_answer;
       const payload = deps.queue.payload(item);
       const start = payload ? startOf(item) : null;
       return start && payload ? deps.admission.retryHold({ start, waiting: payload.waiting }) : null;

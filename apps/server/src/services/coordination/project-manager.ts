@@ -13,11 +13,13 @@ import type {
   ProjectManagerChannel,
   ProjectManagerCorner,
   WorkItemRef,
+  WorkQueueViewer,
 } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../../core/base';
 import type { OperatorRequests } from './requests';
 import type { OperatorSignals } from './signals';
+import type { WorkQueues } from './work-queues';
 import type { ProjectService } from '../../core/projects';
 
 /** The project's permanent project-manager conversation and why it may have to wait. */
@@ -28,6 +30,7 @@ export class ProjectManagerChannels {
     pauses: Pick<OperatorPauses, 'projectView'>;
     operatorRequests: OperatorRequests;
     operatorSignals: OperatorSignals;
+    workQueues: Pick<WorkQueues, 'pmSummary'>;
   };
 
   constructor(deps: ProjectManagerChannels['deps']) {
@@ -37,21 +40,21 @@ export class ProjectManagerChannels {
   /**
    * The viewer's conversation with the project manager in the corner (PM-1042), plus its latest requests and
    * their steps: the owners share one, every other person has their own and only reads and answers in it
-   * (PM-475, decision 59). The system signals and the queue are the owners' business, so a person reading along
-   * sees them empty.
+   * (PM-475, decision 59). The system signals are the owners' business, so a person reading along sees them
+   * empty; the queue count is the viewer's own reading of the manager's work queue (PM-1294).
    */
-  async view(projectKey: string, viewer: string): Promise<ProjectManagerCorner> {
+  async view(projectKey: string, viewer: WorkQueueViewer): Promise<ProjectManagerCorner> {
     const config = await this.deps.projects.config(projectKey);
     const manager = projectManagerOf(config);
     return this.cornerOf(
       projectKey,
       viewer,
       manager,
-      managerConversationOf(config, viewer),
+      managerConversationOf(config, viewer.handle),
       // The session and its state are where a message to the manager really goes, so they follow the route when
       // a person who is not an owner gets a conversation of their own (PM-1080).
       manager
-        ? nominalMessagePlace(config, manager.handle, { type: 'general' }, viewer)
+        ? nominalMessagePlace(config, manager.handle, { type: 'general' }, viewer.handle)
         : { type: 'general' },
       ownerHandles(config),
     );
@@ -59,7 +62,7 @@ export class ProjectManagerChannels {
 
   private async cornerOf(
     projectKey: string,
-    viewer: string,
+    viewer: WorkQueueViewer,
     member: AiMemberConfig | null,
     conversation: WorkItemRef,
     place: WorkItemRef,
@@ -67,21 +70,18 @@ export class ProjectManagerChannels {
   ): Promise<ProjectManagerCorner> {
     const channel = await this.channelOf(projectKey, member, place);
     const readOnly = conversation.type === 'general' && conversation.with !== undefined;
-    // Like the signals, the queue is the owners' business: a person reading along sees it empty.
-    const queued =
-      member && !readOnly ? this.deps.ctx.repos.memberQueue.listOpen(projectKey, member.handle) : [];
-    const current = queued.find((item) => item.state === 'processing');
+    const queue = await this.deps.workQueues.pmSummary(projectKey, viewer);
     return {
       ...channel,
       requests: this.deps.operatorRequests.views(
         projectKey,
-        readOnly ? [viewer] : ownerRequestSenders,
+        readOnly ? [viewer.handle] : ownerRequestSenders,
         member?.handle,
       ),
       readOnly,
       // The system signals are the owners' business (a card key, a subject): a person reading along sees none.
       ...(readOnly ? { signals: [], openSignals: 0 } : this.deps.operatorSignals.channel(projectKey)),
-      queue: { open: queued.length, current: current ? { id: current.id, title: current.title } : null },
+      queue,
     };
   }
 

@@ -1,9 +1,4 @@
-import {
-  ResolveIntegratorFixLimitRequest,
-  isIntegratorInboxItem,
-  visibleQuestionItem,
-  wasIntegratorInboxItem,
-} from '@projectman/shared';
+import { ResolveIntegratorFixLimitRequest, visibleQuestionItem } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import type { InboxService } from '../../core/inbox';
 import type { ProjectAccess } from '../../core/members';
@@ -49,7 +44,7 @@ export async function resolveIntegratorFixLimit(
  * with `all` every item that was ever opened to it, newest first. The same visibility rule as the inbox list.
  */
 export function listIntegratorInbox(
-  deps: Deps & { inbox: Pick<InboxService, 'get' | 'list'> },
+  deps: Deps & { inbox: Pick<InboxService, 'get' | 'integratorQueue'> },
   projectKey: string,
   state: 'open' | 'all',
   access: ProjectAccess,
@@ -57,15 +52,7 @@ export function listIntegratorInbox(
   if (!access.superActor)
     throw forbidden('integrator_not_allowed', 'an explicit super credential is required');
   const items = deps.inbox
-    .list(
-      projectKey,
-      state === 'open' ? { state: 'open', limit: INTEGRATOR_INBOX_LIMIT } : { limit: INTEGRATOR_INBOX_LIMIT },
-    )
-    .filter(
-      (item) =>
-        canSeeInboxItem(access, item) &&
-        (state === 'open' ? isIntegratorInboxItem(item) : wasIntegratorInboxItem(item)),
-    )
+    .integratorQueue(projectKey, state, access, INTEGRATOR_INBOX_LIMIT)
     .map((item) => visible(deps, projectKey, item, access));
   return { items };
 }

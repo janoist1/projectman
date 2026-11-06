@@ -129,6 +129,14 @@ export function createMemberQueueRepository(db: Db) {
       `SELECT * FROM member_queue_items
        WHERE project_key = ? AND member = ? AND state IN ('queued','processing') ORDER BY queued_at, rowid`,
     ),
+    openOfProject: db.prepare(
+      `SELECT * FROM member_queue_items
+       WHERE project_key = ? AND state IN ('queued','processing') ORDER BY queued_at, rowid`,
+    ),
+    everQueuedMembers: db.prepare('SELECT DISTINCT member FROM member_queue_items WHERE project_key = ?'),
+    sourcesOfMember: db.prepare(
+      'SELECT source_type, source_id FROM member_queue_items WHERE project_key = ? AND member = ?',
+    ),
     closed: db.prepare(
       `SELECT * FROM member_queue_items
        WHERE project_key = ? AND member = ? AND state IN ('done','handed_off','cancelled') AND closed_at >= ?
@@ -276,6 +284,25 @@ export function createMemberQueueRepository(db: Db) {
     /** The member's open items, the oldest first. */
     listOpen(projectKey: string, member: string): StoredMemberQueueItem[] {
       return all(statements.open.all(projectKey, member));
+    },
+    /** The open items of every member of the project in one read, the oldest first. */
+    listOpenOfProject(projectKey: string): StoredMemberQueueItem[] {
+      return all(statements.openOfProject.all(projectKey));
+    },
+    /** The members that ever had an item in the project, open or closed. */
+    everQueuedMembers(projectKey: string): Set<string> {
+      return new Set(
+        (statements.everQueuedMembers.all(projectKey) as Array<{ member: string }>).map((r) => r.member),
+      );
+    },
+    /** The sources of every item the member ever had (open or closed): what `everQueued` is checked against. */
+    sourcesOfMember(projectKey: string, member: string): MemberQueueSourceKey[] {
+      return (
+        statements.sourcesOfMember.all(projectKey, member) as Array<{
+          source_type: MemberQueueSource['type'];
+          source_id: string;
+        }>
+      ).map((row) => ({ type: row.source_type, id: row.source_id }));
     },
     /** The member's items closed at or after `since`, the newest first. */
     listClosed(projectKey: string, member: string, since: string, limit: number): StoredMemberQueueItem[] {

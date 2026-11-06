@@ -1798,6 +1798,7 @@ export const hu = {
       project_manager_required:
         'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
       operator_owner_only: 'Ezt csak a projekt tulajdonosa kérheti a csatlakoztatott Claude-tól.',
+      work_queues_forbidden: 'A munkasorokat a hozzáférésed nem látja, vagy ezt a sort nem.',
       queue_item_not_yours:
         'Ez a sorelem nem nyitott a kulcs tulajdonosának: nem hozzá tartozik, vagy már lezárult, vagy másik projekté.',
       issuer_without_machine_access:

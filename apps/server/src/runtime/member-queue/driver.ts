@@ -1,6 +1,7 @@
 import type { AiMemberConfig, MemberConfig, ProjectConfig, Session, WorkItemRef } from '@projectman/shared';
 import type { WakeStart } from '../../contracts';
 import {
+  MEMBER_QUEUE_HOLD_CODES,
   MEMBER_QUEUE_MAX_ATTEMPTS,
   MEMBER_QUEUE_STUCK_MS,
   MEMBER_QUOTA_WAIT_REASONS,
@@ -291,7 +292,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
         { err, itemIds: items.map((item) => item.id) },
         'a member queue hold could not be decided',
       );
-      for (const item of items) holds.set(item.id, 'hold_unknown');
+      for (const item of items) holds.set(item.id, MEMBER_QUEUE_HOLD_CODES.unknown);
     };
     const lanes = new Set(owed.map((entry) => entry.lane));
     for (const lane of lanes) {

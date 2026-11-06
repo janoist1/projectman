@@ -14,6 +14,7 @@ import {
   isWorkingOnTask,
   isWorkPaused,
   LOCAL_ENGINE_ID,
+  MEMBER_QUEUE_HOLD_CODES,
   complexityLimitOf,
   complexityOf,
   reachingDevelopers,
@@ -796,7 +797,7 @@ export class Admission {
     configs: Map<string, ProjectConfig | null>,
   ): Promise<string | null> {
     const { reason, member } = waiting;
-    if (this.deferred.held(start)) return 'hold_waiting_answer';
+    if (this.deferred.held(start)) return MEMBER_QUEUE_HOLD_CODES.waiting_answer;
     if (reason === 'team_paused' && isWorkPaused(this.ctx.repos.pauses.open(), start.projectKey))
       return reason;
     if (reason === 'ai_disabled' || reason === 'member_on_leave') {

@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OperatorSignal } from '@projectman/shared';
-import type { AiMemberConfig, OperatorSignalKind, ProjectConfig } from '@projectman/shared';
+import { appRequestOrigin, connectedActorOf, OperatorSignal } from '@projectman/shared';
+import type {
+  Actor,
+  AiMemberConfig,
+  OperatorSignalKind,
+  ProjectConfig,
+  WorkItemRef,
+} from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { CoordinationRequests, OperatorRequests, OperatorSteps } from '../src/services/coordination';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
@@ -249,6 +255,71 @@ describe('PM authorization', () => {
     expect(
       (await h.domain.projects.config('AR')).team.members.find((member) => member.handle === 'dev-1'),
     ).toMatchObject({ capacity: 2 });
+  });
+
+  describe('an instruction through the owner connected Claude (decision 66)', () => {
+    const CREDENTIAL = { id: 'cred_connected', prefix: 'pmi_conn' };
+    /** Records the message as the server stores it and delivers it to the PM. */
+    function deliver(actor: Actor, opts: { from?: string; routes?: Record<string, WorkItemRef> } = {}) {
+      const message = h.domain.messages.record({
+        projectKey: 'AR',
+        from: opts.from ?? actor.handle!,
+        to: ['pm'],
+        taskKey: null,
+        body: 'Record this decision.',
+        actor,
+        ...(opts.routes ? { routes: opts.routes } : {}),
+      });
+      h.domain.messages.markRecipientDelivered(message.id, 'pm');
+      return message;
+    }
+
+    it('opens an owner request for the owner holder in person', async () => {
+      await setup();
+      const pm = await internal();
+      const message = deliver(connectedActorOf('owner', CREDENTIAL));
+      const request = requests().openFor(pm.sessionId)!;
+      expect(request).toMatchObject({ source: 'message', messageId: message.id, fromHandle: 'owner' });
+      expect(appRequestOrigin(h.domain.projects.cachedConfig('AR')!, request)).toBe('owner');
+      await expect(
+        h.domain.teamTools.startMember(pm, { member: 'dev-2', text: 'Work.' }),
+      ).resolves.toHaveProperty('messageId');
+    });
+
+    it.each([
+      ['an AI issuer step', () => deliver(connectedActorOf('owner', CREDENTIAL, { issuer: 'dev-1' }))],
+      ['a holder who is no owner', () => deliver(connectedActorOf('guest', CREDENTIAL))],
+      [
+        'a guest route',
+        () =>
+          deliver(connectedActorOf('owner', CREDENTIAL), {
+            routes: { pm: { type: 'general', with: 'guest' } },
+          }),
+      ],
+      [
+        'an actor other than the sender',
+        () => {
+          // `record` refuses this pairing; a stored row is checked again when its request would open.
+          const actor = connectedActorOf('owner', CREDENTIAL);
+          const stored = h.domain.messages.record({
+            projectKey: 'AR',
+            from: 'owner',
+            to: ['pm'],
+            taskKey: null,
+            body: 'Record this decision.',
+            actor,
+          });
+          const forged = { ...stored, id: 'msg_forged', actor: { ...actor, handle: 'guest' } };
+          h.repos.messages.insert(forged);
+          h.domain.messages.markRecipientDelivered(forged.id, 'pm');
+        },
+      ],
+    ] as const)('opens nothing for %s', async (_name, send) => {
+      await setup();
+      const pm = await internal();
+      send();
+      expect(requests().openFor(pm.sessionId)).toBeNull();
+    });
   });
 
   it("gives the corner the PM's own requests and delivered signals, and a guest none of them", async () => {

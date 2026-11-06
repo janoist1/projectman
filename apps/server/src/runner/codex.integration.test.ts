@@ -812,4 +812,19 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     const failed = events.findLast((e) => e.type === 'state' && e.sessionId === s.sessionId);
     expect(failed).toMatchObject({ state: 'failed', activity: expect.stringContaining('refresh token') });
   });
+
+  it('names an invalid team MCP configuration when Codex exits before it is ready (PM-1279)', async () => {
+    await setup();
+    process.env.FAKE_CODEX_DROP_MCP_COMMAND = 'team';
+    const s = spec();
+    await runner.runner.start(s);
+    await waitFor(() => events.some((e) => e.type === 'exit' && e.sessionId === s.sessionId), {
+      what: 'exit',
+    });
+    const failed = events.findLast((e) => e.type === 'state' && e.sessionId === s.sessionId);
+    expect(failed).toMatchObject({
+      state: 'failed',
+      activity: expect.stringContaining('MCP server configuration is invalid (mcp_servers.team'),
+    });
+  });
 });

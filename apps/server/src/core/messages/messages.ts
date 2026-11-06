@@ -2,6 +2,8 @@ import {
   coordinationMemberOf,
   hasGuestConversations,
   hasBoundOrigin,
+  hasConnectedOrigin,
+  isConnectedOwnerActor,
   structuralReviewOf,
   structuralReviewContinuation,
   isProjectManager,
@@ -270,7 +272,11 @@ export class MessageService {
       });
   }
 
-  /** Only a delivered owner's own-login message or answer opens a PM request. Signal rounds never do. */
+  /**
+   * Only a delivered owner's own-login message or answer opens a PM request, or an owner's connected Claude
+   * (decision 66): then the stored actor, written by the server from the authenticated key, must be the
+   * holder in person and the sender. A `via` message without it opens nothing. Signal rounds never do.
+   */
   private openCoordinationRequest(message: TeamMessage, handle: string): void {
     const config = this.projects.cachedConfig(message.projectKey);
     if (!config || coordinationMemberOf(config)?.handle !== handle) return;
@@ -278,7 +284,13 @@ export class MessageService {
     if (
       owner?.kind !== 'human' ||
       owner.access !== 'owner' ||
-      message.via ||
+      (message.via &&
+        !(
+          message.actor &&
+          hasConnectedOrigin(message.actor) &&
+          isConnectedOwnerActor(config, message.actor) &&
+          message.actor.handle === message.from
+        )) ||
       !message.to.includes(handle) ||
       message.operatorRequest ||
       (message.origin && message.origin.kind !== 'answer')

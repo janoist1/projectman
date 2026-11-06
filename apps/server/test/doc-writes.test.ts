@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { coordinatorSuperActorOf } from '@projectman/shared';
+import { connectedActorOf, coordinatorSuperActorOf } from '@projectman/shared';
 import type { ProjectConfig, ProjectDoc, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type {
@@ -197,6 +197,29 @@ describe('project manager documents (PM-1044)', () => {
       requestId,
     });
     expect(stepsOf(requestId)).toMatchObject([{ action: 'docs_write', status: 'done' }]);
+  });
+
+  it('publishes decisions on the owner instruction sent through their connected Claude', async () => {
+    await setup(fakeDocsMerger(), { pm: true });
+    const ctx = await internal();
+    expect(await refusal(write(ctx))).toMatch(/^operator_no_request:/);
+    const message = h.domain.messages.record({
+      projectKey: 'AR',
+      from: 'owner',
+      to: ['pm'],
+      taskKey: null,
+      body: 'Record decision 3.',
+      actor: connectedActorOf('owner', { id: 'cred_connected', prefix: 'pmi_conn' }),
+    });
+    h.domain.messages.markRecipientDelivered(message.id, 'pm');
+    const request = h.repos.operatorRequests.openOfSession(ctx.sessionId)[0]!;
+    expect(request).toMatchObject({ source: 'message', messageId: message.id });
+    const result = await write(ctx);
+    expect(result).toMatchObject({ state: 'published', paths: [DECISIONS] });
+    expect(h.repos.docWrites.get(result.write_id)).toMatchObject({
+      requestedBy: 'owner',
+      requestId: request.id,
+    });
   });
 
   it('reads decisions without an owner request', async () => {

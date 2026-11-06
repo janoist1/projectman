@@ -53,6 +53,27 @@ describe('exitOutputTail', () => {
     expect(tail.startsWith('…')).toBe(true);
   });
 
+  it('names an invalid MCP server configuration first, even when its line is cut at the limit', () => {
+    const screen = `Codex failed: ${'x '.repeat(100)}thread/start failed: error creating thread: failed to load configuration: invalid transport in \`mcp_servers.team\`\n`;
+    const tail = exitOutputTail(screen);
+    expect(tail.startsWith('MCP server configuration is invalid (mcp_servers.team')).toBe(true);
+  });
+
+  it('keeps the reason of another configuration refusal, redacted', () => {
+    const tail = exitOutputTail(
+      'Error: failed to load configuration: bad key at line 3 token=abcdefghijklmnop\n',
+    );
+    expect(tail).toContain('configuration could not be loaded (bad key at line 3');
+    expect(tail).not.toContain('abcdefghijklmnop');
+  });
+
+  it('keeps the reason of a thread that could not be created after a long prefix', () => {
+    const tail = exitOutputTail(
+      `Error: Failed to start a fresh session through the app server: thread/start failed during TUI bootstrap: thread/start failed: error creating thread: failed to lock the state database\n`,
+    );
+    expect(tail).toContain('the session thread could not be created (failed to lock the state database)');
+  });
+
   it('is empty for an empty screen', () => {
     expect(exitOutputTail('\n  \n')).toBe('');
   });

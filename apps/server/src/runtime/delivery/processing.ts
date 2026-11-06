@@ -1,4 +1,10 @@
-import { memberOf, mentionPayloadOf, messageProcessingOf } from '@projectman/shared';
+import {
+  commentMentionFacts,
+  commentReplyOf,
+  memberOf,
+  mentionPayloadOf,
+  messageProcessingOf,
+} from '@projectman/shared';
 import type {
   MessageProcessing,
   MessageProcessingFacts,
@@ -107,8 +113,7 @@ export class MessageProcessingReader {
           messageProcessingOf({
             handle,
             now: pass.now,
-            notSent: !item,
-            deliveredAt: item?.createdAt,
+            ...commentMentionFacts({ hasNotice: false, itemCreatedAt: item?.createdAt }),
             reply,
           }),
         );
@@ -231,26 +236,14 @@ export class MessageProcessingReader {
     deliveredAt: string,
     pass: Pass,
   ): Reply | null {
-    const thread =
-      typeof comment.data.replyTo === 'string' && comment.data.replyTo ? comment.data.replyTo : comment.id;
-    const note = this.notesOf(projectKey, taskKey, pass).find(
-      (candidate) =>
-        candidate.actor.handle === handle &&
-        candidate.createdAt >= deliveredAt &&
-        candidate.data.replyTo === thread,
-    );
-    if (note) return { at: note.createdAt, reply: { eventId: note.id } };
-    const author = comment.actor.handle;
-    const answer = author
-      ? this.sentBy(projectKey, handle, pass).find(
-          (sent) =>
-            sent.conversation === 'direct' &&
-            sent.taskKey === taskKey &&
-            sent.to.includes(author) &&
-            sent.createdAt >= deliveredAt,
-        )
-      : undefined;
-    return answer ? { at: answer.createdAt, reply: { messageId: answer.id } } : null;
+    return commentReplyOf({
+      comment,
+      taskKey,
+      handle,
+      deliveredAt,
+      notes: this.notesOf(projectKey, taskKey, pass),
+      sent: this.sentBy(projectKey, handle, pass),
+    });
   }
 
   private notesOf(projectKey: string, taskKey: string, pass: Pass): TimelineEvent[] {

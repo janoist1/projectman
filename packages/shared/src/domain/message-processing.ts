@@ -84,6 +84,79 @@ export interface MessageProcessingFacts {
   reply?: { at: string; reply: { eventId: string } | { messageId: string } } | null | undefined;
 }
 
+/** A card note, as far as the answer rule reads it. */
+interface ReplyNote {
+  id: string;
+  createdAt: string;
+  actor: { handle: string | null };
+  data: Record<string, unknown>;
+}
+
+/** The recipient's message, as far as the answer rule reads it. */
+interface ReplyMessage {
+  id: string;
+  createdAt: string;
+  conversation?: 'direct' | undefined;
+  taskKey: string | null;
+  to: readonly string[];
+}
+
+/**
+ * The recipient's first answer to a comment after it reached them (PM-1290): a note in the comment's thread,
+ * else a direct message to the comment's author about the same card. `notes` are the card's notes, `sent` the
+ * messages the recipient sent. The server and the fake backend share this rule.
+ */
+export function commentReplyOf(input: {
+  comment: ReplyNote;
+  taskKey: string;
+  handle: string;
+  deliveredAt: string;
+  notes: readonly ReplyNote[];
+  sent: readonly ReplyMessage[];
+}): NonNullable<MessageProcessingFacts['reply']> | null {
+  const { comment, handle, deliveredAt } = input;
+  const thread =
+    typeof comment.data.replyTo === 'string' && comment.data.replyTo ? comment.data.replyTo : comment.id;
+  const note = input.notes.find(
+    (candidate) =>
+      candidate.actor.handle === handle &&
+      candidate.createdAt >= deliveredAt &&
+      candidate.data.replyTo === thread,
+  );
+  if (note) return { at: note.createdAt, reply: { eventId: note.id } };
+  const author = comment.actor.handle;
+  const answer = author
+    ? input.sent.find(
+        (message) =>
+          message.conversation === 'direct' &&
+          message.taskKey === input.taskKey &&
+          message.to.includes(author) &&
+          message.createdAt >= deliveredAt,
+      )
+    : undefined;
+  return answer ? { at: answer.createdAt, reply: { messageId: answer.id } } : null;
+}
+
+/**
+ * What a comment's mention of one member stands on: the notice message's receipt, else (a person) the mention
+ * item that notified them, counted from the item's creation whether it is still open or closed (Láttam is no
+ * read receipt), else nothing was sent.
+ */
+export function commentMentionFacts(input: {
+  notice?: { deliveredAt: string | null; readAt: string | null; handedOffTo: string | null } | null;
+  hasNotice: boolean;
+  itemCreatedAt?: string | null | undefined;
+}): Pick<MessageProcessingFacts, 'notSent' | 'deliveredAt' | 'readAt' | 'handedOffTo'> {
+  if (input.hasNotice)
+    return {
+      deliveredAt: input.notice?.deliveredAt ?? null,
+      readAt: input.notice?.readAt ?? null,
+      handedOffTo: input.notice?.handedOffTo ?? null,
+    };
+  if (input.itemCreatedAt) return { deliveredAt: input.itemCreatedAt };
+  return { notSent: true };
+}
+
 /**
  * The processing of a message for one recipient, by the precedence: replied, turn ended, the open turn (stale,
  * waiting, working), handed on, read, delivered, starting, held, stored. A closed turn is final: the session's
@@ -107,8 +180,14 @@ export function messageProcessingOf(facts: MessageProcessingFacts): MessageProce
       return { handle, state: 'waiting', reason: 'input', since: session.stateSince };
     if (session.pausedSince)
       return { handle, state: 'waiting', reason: 'paused', since: session.pausedSince };
-    if (session.state === 'working' && session.stateSince >= turn.typedAt)
-      return { handle, state: 'working', since: session.stateSince };
+    // The turn is open until the session goes idle, so a working session is working on it, though it entered
+    // that state before the message was acknowledged (the hook that types the message starts the work first).
+    if (session.state === 'working')
+      return {
+        handle,
+        state: 'working',
+        since: session.stateSince > turn.typedAt ? session.stateSince : turn.typedAt,
+      };
   }
   if (facts.handedOffTo && facts.deliveredAt)
     return { handle, state: 'handed_off', to: facts.handedOffTo, at: facts.deliveredAt };

@@ -128,6 +128,9 @@ import {
   canSeeAllTeamMessages,
   canSeeTeamMessage,
   canSeeTimelineEvent,
+  commentMentionFacts,
+  commentReplyOf,
+  mentionPayloadOf,
   messageProcessingOf,
   visibleProcessing,
   messageConversationOf,
@@ -4422,20 +4425,42 @@ export class MockBackend {
         const mentions = Array.isArray(thread.comment.data.mentions)
           ? (thread.comment.data.mentions as string[]).filter((handle) => handle !== author)
           : [];
-        const notice = this.messages.find(
-          (message) => message.origin?.kind === 'note' && message.origin.eventId === thread.comment.id,
+        const notes = this.timeline.filter(
+          (event) => event.taskKey === taskKey && event.type === 'task_note',
         );
         const items = visibleProcessing(
           viewer,
           author,
-          mentions.map((handle) =>
-            messageProcessingOf({
-              handle,
-              now: Date.now(),
-              notSent: !notice?.to.includes(handle),
-              ...this.receiptFacts(notice, handle),
-            }),
-          ),
+          mentions.map((handle) => {
+            // The notice message of the mention, else (a person) its Rád vár item, by the server's shared rule.
+            const notice = this.messages.find(
+              (message) =>
+                message.origin?.kind === 'note' &&
+                message.origin.eventId === thread.comment.id &&
+                message.to.includes(handle),
+            );
+            const item = this.inbox.find(
+              (candidate) =>
+                mentionPayloadOf(candidate)?.eventId === thread.comment.id &&
+                candidate.assignees.includes(handle),
+            );
+            const facts = commentMentionFacts({
+              hasNotice: !!notice,
+              notice: this.receiptFacts(notice, handle),
+              itemCreatedAt: item?.createdAt,
+            });
+            const reply = facts.deliveredAt
+              ? commentReplyOf({
+                  comment: thread.comment,
+                  taskKey,
+                  handle,
+                  deliveredAt: facts.deliveredAt,
+                  notes,
+                  sent: this.messages.filter((message) => message.from === handle),
+                })
+              : null;
+            return messageProcessingOf({ handle, now: Date.now(), ...facts, reply });
+          }),
         );
         return items ? { ...thread, processing: items } : thread;
       }),

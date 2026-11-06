@@ -101,6 +101,15 @@ describe('message processing', () => {
     expect(stateOf()).toMatchObject([{ state: 'replied' }]);
   });
 
+  it('is working when the session started working before the message was acknowledged', async () => {
+    const { session, message } = await setup();
+    h.repos.sessions.update(session.id, { state: 'working', stateSince: later(-5) });
+    now = new Date(now.getTime() + 1000);
+    h.domain.messages.markRecipientDelivered(message.id, 'pm', session.id);
+    const items = h.domain.messageProcessing.ofMessages([h.repos.messages.get(message.id)!]).get(message.id);
+    expect(items).toMatchObject([{ handle: 'pm', state: 'working', since: now.toISOString() }]);
+  });
+
   it('tells which recipient of a message was handled and which was not', async () => {
     const { session } = await setup();
     const both = h.domain.messages.record({
@@ -171,6 +180,19 @@ describe('the manager’s reply to a comment', () => {
     await flush();
     expect(notesOf(task.key).filter((candidate) => candidate.actor.handle === 'pm')).toHaveLength(1);
   });
+
+  it('is not added when the manager already wrote to the author directly about the card', async () => {
+    const { session, task } = await comment();
+    await h.domain.messaging.send(
+      'AR',
+      'pm',
+      { to: ['owner'], taskKey: task.key, text: 'Direct answer' },
+      { kind: 'info' },
+    );
+    await h.domain.ctx.events.emit('session_idle', session);
+    await flush();
+    expect(notesOf(task.key).filter((candidate) => candidate.actor.handle === 'pm')).toEqual([]);
+  });
 });
 
 describe('who is told that processing changed', () => {
@@ -197,6 +219,60 @@ describe('who is told that processing changed', () => {
     const changes = events.filter((candidate) => candidate.type === 'message_processing_changed');
     expect(changes.length).toBeGreaterThanOrEqual(2);
     expect(changes[0]).toMatchObject({ messageId: message.id, from: 'owner' });
+  });
+
+  it('is published when a session with an open turn changes state, and not after the turn closed', async () => {
+    const { session, message } = await setup();
+    h.domain.messages.markRecipientDelivered(message.id, 'pm', session.id);
+    const events = published();
+    await h.domain.ctx.events.emit('session_state_changed', { ...session, state: 'waiting_permission' });
+    expect(events.filter((event) => event.type === 'message_processing_changed')).toMatchObject([
+      { messageId: message.id },
+    ]);
+    await h.domain.ctx.events.emit('session_idle', idle(session, later(5)));
+    events.length = 0;
+    await h.domain.ctx.events.emit('session_state_changed', { ...session, state: 'working' });
+    expect(events.filter((event) => event.type === 'message_processing_changed')).toEqual([]);
+  });
+
+  it('is published when a message to the sender answers it', async () => {
+    const { session, message, task } = await setup();
+    h.domain.messages.markRecipientDelivered(message.id, 'pm', session.id);
+    const events = published();
+    await h.domain.messaging.send(
+      'AR',
+      'pm',
+      { to: ['owner'], taskKey: task.key, text: 'Next is the review' },
+      { kind: 'info' },
+    );
+    expect(events.filter((event) => event.type === 'message_processing_changed')).toMatchObject([
+      { messageId: message.id, from: 'owner' },
+    ]);
+  });
+
+  it('is published for the notice of a reply comment when the thread is answered', async () => {
+    const { task } = await setup();
+    const top = await h.domain.tasks.addNote('AR', task.key, 'First', OWNER_ACTOR, null);
+    const reply = await h.domain.tasks.addNote('AR', task.key, 'Second', OWNER_ACTOR, null, {
+      replyTo: top.id,
+    });
+    const notice = h.domain.messages.record({
+      projectKey: 'AR',
+      from: 'owner',
+      to: ['pm'],
+      taskKey: task.key,
+      body: 'Second',
+      actor: OWNER_ACTOR,
+      delivered: true,
+      origin: { kind: 'note', eventId: reply.id },
+    });
+    const events = published();
+    await h.domain.tasks.addNote('AR', task.key, 'Answer', { kind: 'ai', handle: 'pm' }, null, {
+      replyTo: top.id,
+    });
+    expect(events.filter((event) => event.type === 'message_processing_changed')).toMatchObject([
+      { messageId: notice.id },
+    ]);
   });
 });
 
@@ -238,6 +314,69 @@ describe('a comment that mentions an AI member (boundary)', () => {
       });
       expect(stateOf()).toMatchObject([{ state: 'replied' }]);
       expect(events.some((event) => event.type === 'message_processing_changed')).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe('a comment that mentions a person (boundary)', () => {
+  it('counts the mention item as the notice, stays delivered once seen, and is replied by a thread answer', async () => {
+    let tick = Date.now();
+    const app = await createAppHarness({ now: () => new Date((tick += 5)) });
+    try {
+      const owner = await setupOwner(app.app);
+      await createProject(app, owner);
+      const robin = await addHumanAndLogin(app.app, { handle: 'robin', name: 'Robin', roles: ['developer'] });
+      const { domain } = app.app.projectman;
+      await domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
+      const post = (cookie: string, payload: Record<string, unknown>) =>
+        app.app.inject({
+          method: 'POST',
+          url: routes.taskComments('AR', 'AR-1'),
+          headers: { cookie },
+          payload,
+        });
+      const top = TaskDetail.parse((await post(owner, { text: '@robin look' })).json()).timeline.find(
+        (event) => event.type === 'task_note',
+      )!;
+      const processing = () =>
+        domain.messageProcessing
+          .ofComments('AR', 'AR-1', [top])
+          .get(top.id)!
+          .filter((i) => i.handle === 'robin');
+      expect(processing()).toMatchObject([{ state: 'delivered' }]);
+      // Láttam closes the item, but it is no read receipt.
+      const [item] = domain.inbox.list('AR', { kind: 'mention' });
+      const seen = await app.app.inject({
+        method: 'POST',
+        url: routes.resolveInbox('AR', item!.id),
+        headers: { cookie: robin },
+        payload: { optionId: 'seen' },
+      });
+      expect(seen.statusCode).toBe(200);
+      expect(processing()).toMatchObject([{ state: 'delivered' }]);
+      const answer = await post(robin, { text: 'Looked', replyTo: top.id });
+      expect(answer.statusCode).toBe(201);
+      expect(processing()).toMatchObject([{ state: 'replied', reply: { eventId: expect.any(String) } }]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('is not sent when neither a notice nor a mention item exists', async () => {
+    const app = await createAppHarness();
+    try {
+      const owner = await setupOwner(app.app);
+      await createProject(app, owner);
+      await addHumanAndLogin(app.app, { handle: 'robin', name: 'Robin', roles: ['developer'] });
+      const { domain } = app.app.projectman;
+      await domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
+      const note = await domain.tasks.addNote('AR', 'AR-1', 'no notice', OWNER_ACTOR, null);
+      const comment = { ...note, data: { ...note.data, mentions: ['robin'] } };
+      expect(domain.messageProcessing.ofComments('AR', 'AR-1', [comment]).get(note.id)).toMatchObject([
+        { handle: 'robin', state: 'not_sent' },
+      ]);
     } finally {
       await app.close();
     }

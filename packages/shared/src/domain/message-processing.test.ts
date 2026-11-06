@@ -59,11 +59,21 @@ describe('messageProcessingOf', () => {
     expect(project({ turn, session: session({ state: 'waiting_permission' }) }).state).toBe('turn_ended');
   });
 
-  it('is not working when the session entered that state before the message was typed', () => {
+  it('is working when the session entered that state before the message was acknowledged', () => {
     expect(
       project({
         turn: { typedAt: at(4), endedAt: null },
         session: session({ stateSince: at(10) }),
+        deliveredAt: at(4),
+      }),
+    ).toMatchObject({ state: 'working', since: at(4) });
+  });
+
+  it('is only delivered while the turn’s session is not working yet', () => {
+    expect(
+      project({
+        turn: { typedAt: at(4), endedAt: null },
+        session: session({ state: 'idle' }),
         deliveredAt: at(4),
       }).state,
     ).toBe('delivered');

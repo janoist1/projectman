@@ -39,6 +39,9 @@ import { MessageTurns } from './turns';
 import { forbidden, notFound } from '../../kernel';
 import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 
+/** How far back a new message looks for the messages it may answer. */
+const ANSWER_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 interface RecordMessageInput {
   clientRequestId?: string;
   id?: string;
@@ -160,6 +163,7 @@ export class MessageService {
     return this.ctx.unitOfWork(() => {
       this.ctx.repos.messages.insert(message, input.clientRequestId);
       this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+      this.turns.announce(this.answeredBy(message));
       this.timeline.append({
         projectKey: message.projectKey,
         taskKey: message.taskKey,
@@ -241,11 +245,41 @@ export class MessageService {
 
   /** A comment answering another was recorded: the notices of that comment to its author are read again. */
   commentReplied(event: TimelineEvent): void {
-    const replyTo = event.data.replyTo;
-    if (typeof replyTo !== 'string' || !event.actor.handle) return;
+    const thread = event.data.replyTo;
+    const handle = event.actor.handle;
+    if (typeof thread !== 'string' || !handle || !event.taskKey) return;
+    // The answer closes the thread: the notices of its first comment and of every reply in it are read again.
+    const comments = [
+      thread,
+      ...this.ctx.repos.timeline
+        .notesOfCard(event.projectKey, event.taskKey)
+        .filter((note) => note.data.replyTo === thread)
+        .map((note) => note.id),
+    ];
     this.turns.announce(
-      this.ctx.repos.messages.noticesOfNotes([replyTo]).filter((m) => m.to.includes(event.actor.handle!)),
+      this.ctx.repos.messages.noticesOfNotes(comments).filter((m) => m.to.includes(handle)),
     );
+  }
+
+  /**
+   * The messages this one may answer for its sender (PM-1290): a message from one of its recipients to the sender,
+   * delivered already, that is the relayed question, in the same conversation about the same card, or a comment
+   * notice about the card when this is a direct message. Their processing is read again.
+   */
+  private answeredBy(message: TeamMessage): TeamMessage[] {
+    const since = new Date(this.ctx.now().getTime() - ANSWER_WINDOW_MS).toISOString();
+    return this.ctx.repos.messages
+      .listWindow(message.projectKey, message.from, since)
+      .filter(
+        (candidate) =>
+          message.to.includes(candidate.from) &&
+          candidate.to.includes(message.from) &&
+          !!candidate.receipts?.find((receipt) => receipt.handle === message.from)?.deliveredAt &&
+          (message.relayed?.inReplyTo === candidate.id ||
+            (candidate.taskKey === message.taskKey &&
+              (candidate.conversation === message.conversation ||
+                (message.conversation === 'direct' && candidate.origin?.kind === 'note')))),
+      );
   }
 
   private markRecipientDeliveredLocked(id: string, handle: string, sessionId?: string): TeamMessage | null {

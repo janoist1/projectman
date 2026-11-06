@@ -22,10 +22,12 @@ describe('work queues', () => {
   let h: AppHarness;
   let cookie: string;
   let userId: string;
+  let clock: string;
   const cookies: Record<string, string> = {};
 
   beforeEach(async () => {
-    h = await createAppHarness({ now: () => new Date(START) });
+    clock = START;
+    h = await createAppHarness({ now: () => new Date(clock) });
     cookie = await setupOwner(h.app);
     await createProject(h, cookie);
     userId = h.app.projectman.repos.users.list()[0]!.id;
@@ -225,6 +227,86 @@ describe('work queues', () => {
       // The token and its prefix never leave the server.
       expect(JSON.stringify(owner)).not.toContain(key.secret);
       expect(JSON.stringify(owner)).not.toContain(key.secret.slice(0, 12));
+    });
+  });
+
+  describe('the project manager’s overview in get_project_state', () => {
+    const overview = async () => (await domain().projectState.overview('AR')).workQueues;
+    const queue = () => h.app.projectman.repos.memberQueue;
+    const insertItem = (
+      id: string,
+      member: string,
+      source: { type: 'start' | 'message'; id: string },
+      queuedAt = clock,
+    ) =>
+      queue().insert({
+        id,
+        projectKey: 'AR',
+        member,
+        kind: 'todo',
+        source,
+        place: { type: 'task', taskKey: 'AR-7' },
+        taskKey: 'AR-7',
+        wake: true,
+        title: 'Secret subject line',
+        from: 'owner',
+        queuedAt,
+      });
+
+    it('counts each member’s queued, processing, long waiting items and reasons, without titles or senders', async () => {
+      const old = new Date(Date.parse(START) - 40 * 60_000).toISOString();
+      insertItem('mqi_busy', 'dev-1', { type: 'message', id: 'msg_a' }, old);
+      queue().claim('mqi_busy', 'ses_none', old);
+      insertItem('mqi_old', 'dev-1', { type: 'message', id: 'msg_b' }, old);
+      queue().setWait('mqi_old', 'plan_usage_paused', old);
+      insertItem('mqi_new', 'dev-1', { type: 'message', id: 'msg_c' });
+      queue().setWait('mqi_new', 'team_paused', START);
+      expect((await overview()).members).toEqual([
+        {
+          member: 'dev-1',
+          queued: 2,
+          processing: 1,
+          longWait: 1,
+          oldestQueuedAt: old,
+          reasons: { usage: 1, paused: 1 },
+          oldestTaskKey: null,
+        },
+      ]);
+      const text = JSON.stringify(await domain().projectState.overview('AR'));
+      for (const hidden of ['Secret subject', 'msg_', 'mqi_']) expect(text).not.toContain(hidden);
+    });
+
+    it('names the card of the oldest queued item only for a card-level source', async () => {
+      insertItem('mqi_start', 'dev-1', { type: 'start', id: 'AR-7' });
+      insertItem('mqi_message', 'dev-2', { type: 'message', id: 'msg_x' });
+      const byMember = Object.fromEntries((await overview()).members.map((m) => [m.member, m.oldestTaskKey]));
+      expect(byMember).toEqual({ 'dev-1': 'AR-7', 'dev-2': null });
+    });
+
+    it('leaves a member without an open item out', async () => {
+      expect((await overview()).members).toEqual([]);
+    });
+
+    it('tells only whether a Claude is connected, with no count for the integrator queue', async () => {
+      const todo = domain().inbox.create({
+        projectKey: 'AR',
+        kind: 'question',
+        source: 'pm',
+        assignees: ['owner'],
+        title: 'Measure the hub',
+        payload: { question: 'Measure the hub', requestedRecipient: 'owner', recipient: 'owner' },
+        state: 'screening',
+        options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
+      });
+      await domain().inbox.releaseScreened(todo.id, {
+        outcome: 'todo',
+        by: 'pm',
+        note: 'External technical work',
+        todo: { what: 'Measure the hub', where: 'Hub', expected: 'Latency report', recipient: 'integrator' },
+      });
+      expect(await overview()).toEqual({ members: [], integratorConnected: false });
+      auth().createIntegratorAccessKey(userId, { mode: 'super', expiresInDays: 7 });
+      expect(await overview()).toEqual({ members: [], integratorConnected: true });
     });
   });
 

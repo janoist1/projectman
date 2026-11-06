@@ -1477,6 +1477,7 @@ export function createDomain(opts: DomainOptions) {
     taskWaits,
     operatorSignals,
     requests: operatorRequests,
+    workQueues,
     diagnostics: {
       checks(projectKey, taskKey) {
         const checks = opts.repos.fullTestRuns.forTask(taskKey).flatMap((run) =>

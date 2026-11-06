@@ -26,6 +26,7 @@ import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService, TaskWaits } from '../../core/tasks';
 import type { OperatorSignals } from './signals';
+import type { WorkQueues } from './work-queues';
 import { LIVE_SESSION_STATES } from '@projectman/shared';
 import { forbidden, invalid, notFound } from '../../kernel';
 import { staleReasonFor, wakeFactsFor } from '../../core/messages';
@@ -41,6 +42,7 @@ export class ProjectState {
     taskWaits: Pick<TaskWaits, 'ofCard'>;
     operatorSignals: Pick<OperatorSignals, 'active'>;
     requests: Pick<OperatorRequests, 'openFor'>;
+    workQueues: Pick<WorkQueues, 'overview'>;
     diagnostics: OperatorDiagnosticSources;
   };
 
@@ -329,6 +331,7 @@ export class ProjectState {
         .map((item) => ({ id: item.id, kind: item.kind, taskKey: item.taskKey, title: item.title })),
       release: null,
       waitingMessages,
+      workQueues: await this.deps.workQueues.overview(projectKey),
     };
   }
 }

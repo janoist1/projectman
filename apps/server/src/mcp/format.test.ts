@@ -165,6 +165,20 @@ describe('formatProjectState', () => {
       ],
       openOwnerItems: [{ id: 'q_1', kind: 'question', taskKey: 'AR-21', title: 'Choose checkout' }],
       waitingMessages: [{ member: 'dev-2', count: 3, oldestAt: '2026-10-10T08:00:00.000Z' }],
+      workQueues: {
+        members: [
+          {
+            member: 'dev-2',
+            queued: 2,
+            processing: 1,
+            longWait: 1,
+            oldestQueuedAt: '2026-10-10T07:00:00.000Z',
+            reasons: { usage: 2 },
+            oldestTaskKey: 'AR-22',
+          },
+        ],
+        integratorConnected: true,
+      },
       release: {
         running: { version: 'a'.repeat(40), commit: 'a'.repeat(40), tag: 'v2026.10.11' },
         latestLive: {
@@ -191,6 +205,11 @@ describe('formatProjectState', () => {
     expect(text).toContain('- AR-31 Fix the cart: commit bbbbbbbb, 2026-10-12T10:00:00.000Z, by claude');
     expect(text).toContain('- general, dev-2: member_on_leave');
     expect(text).toContain('- dev-2: 3, the oldest sent 2026-10-10T08:00:00.000Z');
+    expect(text).toContain('Work queues:');
+    expect(text).toContain('- dev-2: 2 queued, 1 processing, 1 waiting long');
+    expect(text).toContain('(AR-22)');
+    expect(text).toContain('reasons: usage 2');
+    expect(text).toContain('Connected Claude (integrator): yes');
     expect(text).toContain('Pause: project true; instance false.');
     expect(text).toContain('- dev: 2');
     expect(text).toContain('dev-1, task AR-21, idle, since 2026-10-10');

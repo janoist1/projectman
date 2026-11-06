@@ -19,7 +19,7 @@
   --radius-xl: 0;
   --radius-2xl: 0;
 
-  /* 14px is the smallest text. */
+  /* 14px for body text; 13px (--text-xs) is the smallest reading text, 12px for non-reading marks only. */
   --text-2xs: 12px;
   --text-xs: 13px;
   --text-sm: 14px;

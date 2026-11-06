@@ -98,11 +98,21 @@ Reference: Windows for Workgroups 3.11. Not a joke and not a skin: it is a serio
 - **Avoid:** gradients, glow, glass blur and decorative illustrations in both styles; a second signal colour; text
   below 13 px in Win 3.11; round shapes or soft shadows in Win 3.11; mixing the styles on one screen; hard-coded
   hex values in components; pseudo-Windows kitsch (fake icons of old programs, "Program Manager" gags, sounds).
-- Win 3.11 is mainly a **look**: the information order, the labels and the flows are the same as Classic. The
-  accepted sample also has window forms (title bars on dialogs and panels, bevelled lists and tabs, a menu bar)
-  that are **not all built yet**: today the columns, buttons, fields, dialogs and the picker have them. Treat the
-  rest as the goal, follow the sample, and build a form with its tokens when you touch the screen. The remaining
-  forms are tracked on their own card.
+- In Win 3.11 the **information order, the wording and the flows are the same** as in Classic; the frame around them
+  differs (a window, a bevel, a title bar).
+
+### Not built yet
+
+The accepted sample (`pm363-g.html`, attached to PM-363) shows more than the token layer does today. Built: the
+tokens, columns as windows, buttons, fields, dialogs and the picker. Still missing, tracked on PM-1273; treat them as
+the goal and follow the sample when you touch the screen:
+
+- the top bar as a menu bar with underlined Alt letters, and a status bar at the bottom;
+- a column as a window with a centred "Name (n)" title and a white sunken list;
+- chips in the window style;
+- radio buttons instead of the segmented switch;
+- the card drawer's head as an active (navy) title bar;
+- the phone's bottom row of bevelled buttons.
 
 ## Reference images
 

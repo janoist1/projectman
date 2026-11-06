@@ -40,6 +40,12 @@ export default async ({ instance, open, shoot, step }) => {
       path: '/p/AC/tasks/AC-1/steps',
       ready: `text=${QUESTION} >> visible=true`,
     },
+    {
+      name: 'card-thread',
+      path: '/p/AC/tasks/AC-1/thread',
+      ready: `text=${QUESTION} >> visible=true`,
+      inbox: true,
+    },
     { name: 'waiting-list', path: '/p/AC/inbox', ready: `text=${QUESTION} >> visible=true`, inbox: true },
     { name: 'team', path: '/p/AC/team' },
     { name: 'settings', path: '/p/AC/settings/engines' },

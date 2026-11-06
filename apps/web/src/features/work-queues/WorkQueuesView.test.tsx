@@ -142,6 +142,23 @@ describe('the long-wait mark', () => {
     expect(marked('Dolgozik')).toBeNull();
   });
 
+  it('counts the age of an item being processed from its start, with no second "processing" text', async () => {
+    setup({
+      items: [
+        queueItem({
+          id: 'c',
+          title: 'Dolgozik',
+          state: 'processing',
+          queuedAt: minutesAgo(120),
+          startedAt: minutesAgo(3),
+        }),
+      ],
+    });
+    const row = (await screen.findByText('Dolgozik')).closest('li')!;
+    expect(within(row).getByText(t('time.minutesAgo', { count: 3 }))).toBeTruthy();
+    expect(within(row).getAllByText(t('workQueues.item.processing'))).toHaveLength(1);
+  });
+
   it('filters to the long waits with the checkbox and writes it into the URL', async () => {
     setup({
       items: [
@@ -169,6 +186,33 @@ describe('the filters in the URL', () => {
     await waitFor(() => expect(url()).toContain('queue=integrator'));
     expect(url()).toContain('view=queues');
     expect(url()).toContain('reason=human');
+  });
+
+  it('counts the tiles over the picked queue only', async () => {
+    setup({
+      route: '/p/AC/team?view=queues&queue=member:pm',
+      items: [queueItem({ id: 'a' }), queueItem({ id: 'b' })],
+      integrator: [integratorItem({ id: 'i1' })],
+    });
+    await screen.findByText('Item a');
+    const tiles = screen.getByRole('group', { name: t('workQueues.tiles.label') });
+    expect(within(tiles).getByText(t('workQueues.tiles.queued')).previousElementSibling?.textContent).toBe(
+      '2',
+    );
+  });
+
+  it('shows a picked restricted queue as its header alone, with no tiles and no empty-result notice', async () => {
+    setup({
+      viewer: 'kata',
+      access: 'admin',
+      route: '/p/AC/team?view=queues&queue=integrator',
+      items: [queueItem({ id: 'a' })],
+      integrator: [integratorItem({ id: 'i1' })],
+    });
+    expect(await screen.findByText(t('workQueues.integrator.restricted'))).toBeTruthy();
+    expect(screen.queryByRole('group', { name: t('workQueues.tiles.label') })).toBeNull();
+    expect(screen.queryByText(t('workQueues.noMatch'))).toBeNull();
+    expect(screen.queryByRole('button', { name: t('workQueues.clear') })).toBeNull();
   });
 
   it('drops an invalid reason or long flag from the URL without a word', async () => {
@@ -290,6 +334,14 @@ describe('the states of the view', () => {
       await screen.findByText(new RegExp(t('workQueues.stale', { time: '.*' }).split('.*')[0] ?? '')),
     ).toBeTruthy();
     expect(screen.getByText('Marad')).toBeTruthy();
+    expect(screen.queryByText('!')).toBeNull();
+  });
+
+  it('leads the title to the inbox item and the card key to the card', async () => {
+    setup({ integrator: [integratorItem({ id: 'i1', title: 'Levél', taskKey: 'AC-7' })] });
+    const title = await screen.findByRole('link', { name: 'Levél' });
+    expect(title.getAttribute('href')).toContain('/p/AC/inbox#');
+    expect(screen.getByRole('link', { name: 'AC-7' }).getAttribute('href')).toBe('/p/AC/tasks/AC-7');
   });
 
   it('refreshes the list on a member_queue_changed event', async () => {

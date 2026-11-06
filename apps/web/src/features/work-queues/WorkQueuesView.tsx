@@ -12,7 +12,7 @@ import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { errorCode } from '../../lib/errors';
 import { nameOf } from '../../lib/members';
-import { parseWorkQueueRef, workQueueRefId } from '../../lib/workQueues';
+import { parseWorkQueueRef, sameWorkQueue, workQueueRefId } from '../../lib/workQueues';
 import { useOperator } from '../operator/useOperator';
 import { RestrictedWorkQueueGroup, WorkQueueGroup } from './WorkQueueGroup';
 import { WorkQueueClosed } from './WorkQueueClosed';
@@ -122,7 +122,14 @@ export function WorkQueuesView() {
     );
   } else {
     const layout = layoutWorkQueues(view, filter, nowMs);
-    const totals = workQueueTotals(view.groups, nowMs);
+    // The tiles follow the queue filter; the other filters do not narrow them.
+    const pickedQueue = filter.queue;
+    const totals = workQueueTotals(
+      pickedQueue ? view.groups.filter((group) => sameWorkQueue(group.queue, pickedQueue)) : view.groups,
+      nowMs,
+    );
+    // A picked queue the viewer may not read has no numbers to show, and no items to filter.
+    const pickedRestricted = pickedQueue !== null && layout.restricted !== null;
     const filtered = isWorkQueueFiltered(filter);
     const pmQueue: WorkQueueRef | null = operator.handle ? { type: 'member', member: operator.handle } : null;
     const reasonOptions = WorkQueueReason.options;
@@ -137,25 +144,27 @@ export function WorkQueuesView() {
             </Button>
           </div>
         ) : null}
-        <div className={styles.metrics} role="group" aria-label={t('workQueues.tiles.label')}>
-          <div className={styles.metric}>
-            <b>{totals.queued}</b>
-            <span>{t('workQueues.tiles.queued')}</span>
+        {pickedRestricted ? null : (
+          <div className={styles.metrics} role="group" aria-label={t('workQueues.tiles.label')}>
+            <div className={styles.metric}>
+              <b>{totals.queued}</b>
+              <span>{t('workQueues.tiles.queued')}</span>
+            </div>
+            <div className={styles.metric}>
+              <b>{totals.processing}</b>
+              <span>{t('workQueues.tiles.processing')}</span>
+            </div>
+            <button
+              type="button"
+              className={clsx(styles.metric, styles.metricWarn)}
+              aria-pressed={filter.long}
+              onClick={() => update({ long: !filter.long })}
+            >
+              <b>{totals.longAtLeast ? `≥ ${totals.long}` : totals.long}</b>
+              <span>{t('workQueues.tiles.long')}</span>
+            </button>
           </div>
-          <div className={styles.metric}>
-            <b>{totals.processing}</b>
-            <span>{t('workQueues.tiles.processing')}</span>
-          </div>
-          <button
-            type="button"
-            className={clsx(styles.metric, styles.metricWarn)}
-            aria-pressed={filter.long}
-            onClick={() => update({ long: !filter.long })}
-          >
-            <b>{totals.longAtLeast ? `≥ ${totals.long}` : totals.long}</b>
-            <span>{t('workQueues.tiles.long')}</span>
-          </button>
-        </div>
+        )}
         <div className={styles.tools} role="group" aria-label={t('workQueues.filtersLabel')}>
           <input
             type="search"
@@ -208,7 +217,7 @@ export function WorkQueuesView() {
         </div>
         <div className={styles.statusLine}>
           <span>{t('workQueues.status.updated', { time: lastUpdate })}</span>
-          <span>{stale ? '!' : `✓ ${t('workQueues.status.live')}`}</span>
+          {stale ? null : <span>{`✓ ${t('workQueues.status.live')}`}</span>}
         </div>
 
         {layout.missingQueue ? (
@@ -225,7 +234,7 @@ export function WorkQueuesView() {
             title={t(layout.everQueued ? 'workQueues.empty.title' : 'workQueues.first.title')}
             lead={t(layout.everQueued ? 'workQueues.empty.lead' : 'workQueues.first.lead')}
           />
-        ) : layout.itemized.length === 0 && filtered ? (
+        ) : layout.itemized.length === 0 && filtered && !pickedRestricted ? (
           <Notice
             title={t('workQueues.noMatch')}
             action={

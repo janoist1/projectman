@@ -44,13 +44,15 @@ a.title:hover {
 .meta {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: 6px;
   font-size: var(--text-sm);
   color: var(--c-ink-3);
 }
 
+/* The 24px target grows below the text, so the key stays on the baseline of its neighbours. */
 .cardLink {
+  display: inline-block;
   min-height: 24px;
   font-family: var(--font-mono);
   color: var(--c-accent-text);

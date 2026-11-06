@@ -12,11 +12,11 @@ import { nameOf } from '../../lib/members';
 import { workQueueReasonDetail, workQueueReasonText } from './workQueueText';
 import styles from './WorkQueueItem.module.css';
 
-/** Where the item's own title leads: its card, else its inbox item; nothing for a source with no page. */
+/** Where the item's own title leads: its inbox item, else its card; nothing for a source with no page. The card key links to the card. */
 function useItemLink(item: Item): string | null {
   const { key } = useProject();
-  if (item.taskKey) return `/p/${key}/tasks/${item.taskKey}`;
   if (item.source.type === 'inbox') return `/p/${key}/inbox#${inboxItemDomId(item.source.inboxItemId)}`;
+  if (item.taskKey) return `/p/${key}/tasks/${item.taskKey}`;
   return null;
 }
 
@@ -79,16 +79,15 @@ export function OpenWorkQueueItem({ item, nowMs }: { item: Item; nowMs: number }
         </span>
       </div>
       <div className={styles.age}>
-        <b>{formatWaitAge(item.queuedAt, now)}</b>
+        {/* An item being processed counts from its start; the chip beside it already says it is in work. */}
+        <b>{formatWaitAge(processing && item.startedAt ? item.startedAt : item.queuedAt, now)}</b>
         {long ? (
           <span className={clsx(styles.chip, styles.chipWarn)}>
             <Icon name="alertCircle" size={13} />
             {t('workQueues.item.long')}
           </span>
-        ) : (
-          <span className={styles.muted}>
-            {processing ? t('workQueues.item.processing') : t('workQueues.item.waiting')}
-          </span>
+        ) : processing ? null : (
+          <span className={styles.muted}>{t('workQueues.item.waiting')}</span>
         )}
       </div>
       <details className={styles.details}>

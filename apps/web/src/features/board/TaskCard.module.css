@@ -26,12 +26,17 @@
  * The cards no longer sit by what they wait for (PM-118), so what waits for a person, or is blocked,
  * is told by a stripe on the card's edge.
  */
-.card[data-phase='needs_you']:not(.selected, .fileTarget),
-.card[data-phase='stuck']:not(.selected, .fileTarget) {
+.card[data-phase='needs_you']:not(.selected, .fileTarget) {
   background: var(--c-card-needs);
   box-shadow:
     var(--shadow-xs),
-    inset 3px 0 0 var(--c-needs);
+    inset 3px 0 0 var(--c-needs-mark);
+}
+.card[data-phase='stuck']:not(.selected, .fileTarget) {
+  background: var(--c-card-warn);
+  box-shadow:
+    var(--shadow-xs),
+    inset 3px 0 0 var(--c-warn);
 }
 .card[data-phase='blocked']:not(.selected, .fileTarget) {
   box-shadow:
@@ -151,9 +156,9 @@
   gap: 4px;
   max-width: 100%;
   min-width: 0;
-  background: var(--c-needs-bg);
-  color: var(--c-needs-text);
-  box-shadow: inset 0 0 0 1px var(--c-needs-border);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
+  box-shadow: inset 0 0 0 1px var(--c-warn-border);
   animation: pm-fade-in 160ms ease-out;
 }
 

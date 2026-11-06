@@ -39,9 +39,11 @@ describe('the interface style choice (PM-363)', () => {
     fireEvent.click(await radio(new RegExp(t('settings.account.appearance.win311'))));
     expect(await screen.findByText(new RegExp(t('settings.account.appearance.saveFailed')))).toBeTruthy();
     expect(document.documentElement.dataset.style).toBe('win311');
+    expect(window.localStorage.getItem('pm:ui-style-pending')).toBe('win311');
     project.backend.failUiStyleSave = false;
     fireEvent.click(screen.getByRole('button', { name: t('settings.account.appearance.retry') }));
     await waitFor(() => expect(project.backend.uiStyle).toBe('win311'));
     await waitFor(() => expect(screen.queryByText(t('settings.account.appearance.saveFailed'))).toBeNull());
+    expect(window.localStorage.getItem('pm:ui-style-pending')).toBe('');
   });
 });

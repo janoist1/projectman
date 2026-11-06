@@ -99,6 +99,7 @@
   flex-shrink: 0;
   border-radius: 50%;
   background: var(--phase-dot, var(--status-dot, var(--c-mark-muted)));
+  box-shadow: var(--mark-ring);
 }
 
 .dotStatus {

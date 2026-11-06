@@ -632,6 +632,7 @@ export function InboxCard({
       id={inboxItemDomId(item.id)}
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
       data-kind={displayKind}
+      data-open={open ? '' : undefined}
       data-handoff={handoff ? 'operator' : undefined}
       data-alert={outageAlert ? 'work_outage' : releaseAlert ? 'release_failed' : undefined}
       data-recipient={isIntegratorInboxItem(item) ? 'integrator' : undefined}

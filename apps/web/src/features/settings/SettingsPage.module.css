@@ -75,11 +75,11 @@
   display: inline-flex;
   gap: 3px;
   align-items: center;
-  color: var(--c-needs-mark);
+  color: var(--c-warn-mark);
   white-space: nowrap;
 }
 .disabled {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .account {
   margin-top: 6px;

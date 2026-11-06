@@ -11,11 +11,15 @@
   min-width: 0;
 }
 
+/* What waits for a person takes the card background of "needs you" (white in the classic style, yellow in Win 3.11). */
+.card[data-open] {
+  background: var(--c-card-needs);
+}
 .card[data-recipient='integrator'] {
   background: var(--c-subtle);
 }
 .card[data-handoff='operator'] {
-  box-shadow: inset 3px 0 0 var(--c-needs);
+  box-shadow: inset 3px 0 0 var(--c-needs-mark);
 }
 .integratorMoved {
   display: flex;
@@ -30,12 +34,14 @@
 
 /* An outage (PM-468): the orange stripe of what stops the work. */
 .card[data-alert='work_outage'] {
-  box-shadow: inset 3px 0 0 var(--c-needs);
+  background: var(--c-card-warn);
+  box-shadow: inset 3px 0 0 var(--c-warn);
 }
 
 /* A deploy that stopped with the old version not running either (PM-492): the same stripe. */
 .card[data-alert='release_failed'][data-severity='down'] {
-  box-shadow: inset 3px 0 0 var(--c-needs);
+  background: var(--c-card-warn);
+  box-shadow: inset 3px 0 0 var(--c-warn);
 }
 
 /* The card a "Ugrás a jóváhagyáshoz" link led to: the frame lights once (a still frame with reduced motion). */

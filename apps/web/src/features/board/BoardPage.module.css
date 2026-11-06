@@ -176,7 +176,7 @@
 .columnOrder {
   margin-left: auto;
   font-size: var(--text-xs);
-  color: var(--c-ink-4);
+  color: var(--c-titlebar-fg-soft);
 }
 
 /*

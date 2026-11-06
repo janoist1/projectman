@@ -51,7 +51,7 @@
 }
 
 .choice:has(.input:focus-visible) {
-  outline: 2px solid var(--c-accent);
+  outline: 2px var(--focus-line) var(--c-accent);
   outline-offset: 2px;
 }
 
@@ -97,18 +97,26 @@
 }
 
 .preview[data-preview='classic'] {
-  background: #f5f4ef;
-  border: 1px solid #e4e1d8;
+  background: #efece2;
+  border: 1px solid #b9b3a2;
 }
 
 .preview[data-preview='classic'] .previewBar {
-  background: #eceae3;
+  background: #ffffff;
+  border-bottom: 1px solid #b9b3a2;
 }
 
 .preview[data-preview='classic'] .previewCard {
-  background: #e8eefb;
+  background: #ffffff;
+  border: 1px solid #b9b3a2;
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(25, 25, 22, 0.12);
+  box-shadow: 0 1px 3px rgba(25, 25, 22, 0.2);
+}
+
+.preview[data-preview='classic'] .previewCard:first-child {
+  box-shadow:
+    0 1px 3px rgba(25, 25, 22, 0.2),
+    inset 3px 0 0 #c2410c;
 }
 
 .preview[data-preview='win311'] {

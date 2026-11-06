@@ -114,6 +114,24 @@
   /* The background of a card that waits for a person: the classic style marks it with a stripe only. */
   --c-card-needs: var(--c-surface);
 
+  /*
+   * A warning that is not "needs you" (a loaded machine, a nearly used plan, a stuck card, a failed delivery). The
+   * classic style shows it in the same orange as "needs you"; the Win 3.11 style keeps yellow for "needs you" alone.
+   */
+  --c-warn: var(--c-needs);
+  --c-warn-text: var(--c-needs-text);
+  --c-warn-strong: var(--c-needs-strong);
+  --c-warn-bg: var(--c-needs-bg);
+  --c-warn-soft: var(--c-needs-soft);
+  --c-warn-border: var(--c-needs-border);
+  --c-warn-code-border: var(--c-needs-code-border);
+  --c-warn-icon-bg: var(--c-needs-icon-bg);
+  --c-on-warn: var(--c-on-needs);
+  --c-warn-mark: var(--c-needs-mark);
+  --c-card-warn: var(--c-card-needs);
+  /* A ring around a "needs you" mark, so a yellow mark shows on a yellow or white surface (none in the classic style). */
+  --mark-ring: 0 0 0 0 transparent;
+
   /* ok */
   --c-ok: #0f766e;
   --c-ok-text: #0f5c55;
@@ -208,6 +226,7 @@
    */
   --c-button: var(--c-surface);
   --c-button-hover: var(--c-subtle);
+  --focus-line: solid;
   --bevel-raised: 0 0 0 0 transparent;
   --bevel-sunken: 0 0 0 0 transparent;
   --titlebar-pad-y: 0;

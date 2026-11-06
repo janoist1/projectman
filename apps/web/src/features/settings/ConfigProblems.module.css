@@ -1,8 +1,8 @@
 .banner {
   padding: 14px 16px;
-  border: 1px solid var(--c-needs-border);
+  border: 1px solid var(--c-warn-border);
   border-radius: 12px;
-  background: var(--c-needs-bg);
+  background: var(--c-warn-bg);
   font-size: 13px;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -13,7 +13,7 @@
   align-items: flex-start;
 }
 .intro > svg {
-  color: var(--c-needs-mark);
+  color: var(--c-warn-mark);
   flex-shrink: 0;
 }
 .intro h2 {

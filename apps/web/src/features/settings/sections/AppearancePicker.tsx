@@ -4,7 +4,13 @@ import { useSetUiStyle } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
 import { Icon } from '../../../components/Icon';
 import { t } from '../../../i18n/t';
-import { applyUiStyle, storedUiStyle } from '../../../lib/uiStyle';
+import {
+  applyUiStyle,
+  clearUiStylePending,
+  markUiStylePending,
+  pendingUiStyle,
+  storedUiStyle,
+} from '../../../lib/uiStyle';
 import styles from './AppearancePicker.module.css';
 
 const CHOICES: { style: UiStyle; name: () => string; summary: () => string }[] = [
@@ -28,11 +34,23 @@ const CHOICES: { style: UiStyle; name: () => string; summary: () => string }[] =
 export function AppearancePicker() {
   const { me } = useProject();
   const save = useSetUiStyle();
-  const [current, setCurrent] = useState<UiStyle>(me.uiStyle ?? storedUiStyle());
-  const [unsaved, setUnsaved] = useState(false);
+  const [current, setCurrent] = useState<UiStyle>(pendingUiStyle() ?? me.uiStyle ?? storedUiStyle());
+  const [unsaved, setUnsaved] = useState(pendingUiStyle() !== null);
 
-  const persist = (style: UiStyle) =>
-    save.mutate({ style }, { onSuccess: () => setUnsaved(false), onError: () => setUnsaved(true) });
+  // The choice is marked pending until the account has it: a reload or a lost connection does not lose it.
+  const persist = (style: UiStyle) => {
+    markUiStylePending(style);
+    save.mutate(
+      { style },
+      {
+        onSuccess: () => {
+          clearUiStylePending(style);
+          setUnsaved(false);
+        },
+        onError: () => setUnsaved(true),
+      },
+    );
+  };
 
   const choose = (style: UiStyle) => {
     setCurrent(style);
@@ -42,10 +60,12 @@ export function AppearancePicker() {
 
   useEffect(() => {
     if (!unsaved) return;
-    const retry = () => save.mutate({ style: current }, { onSuccess: () => setUnsaved(false) });
+    const retry = () => persist(current);
     window.addEventListener('online', retry);
     return () => window.removeEventListener('online', retry);
-  }, [unsaved, current, save]);
+    // `persist` only closes over `save`, whose `mutate` is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unsaved, current]);
 
   return (
     <div className={styles.picker}>

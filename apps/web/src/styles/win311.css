@@ -88,6 +88,7 @@
   --c-on-primary: #ffffff;
   --c-button: #c0c0c0;
   --c-button-hover: #d0d0d0;
+  --focus-line: dotted;
 
   /* working = blue */
   --c-accent: #0000a8;
@@ -111,6 +112,20 @@
   --c-on-needs: #000000;
   --c-needs-mark: #000000;
   --c-card-needs: #ffff00;
+  --mark-ring: 0 0 0 1px #000000;
+
+  /* a warning that is not "needs you": a machine load, a nearly used plan, a stuck card; brown, never yellow */
+  --c-warn: #c06000;
+  --c-warn-text: #6b3a00;
+  --c-warn-strong: #6b3a00;
+  --c-warn-bg: #f2e2c4;
+  --c-warn-soft: #f8efde;
+  --c-warn-border: #6b3a00;
+  --c-warn-code-border: #a07030;
+  --c-warn-icon-bg: #f2e2c4;
+  --c-on-warn: #000000;
+  --c-warn-mark: #6b3a00;
+  --c-card-warn: #f2e2c4;
 
   --c-ok: #008000;
   --c-ok-text: #006400;
@@ -219,6 +234,18 @@
     --c-needs-code-border: #808000;
     --c-needs-mark: #ffff00;
     --c-card-needs: #3d3d00;
+
+    --c-warn: #ffb060;
+    --c-warn-text: #ffb060;
+    --c-warn-strong: #ffd0a0;
+    --c-warn-bg: #4a3000;
+    --c-warn-soft: #3a2600;
+    --c-warn-border: #ffb060;
+    --c-warn-code-border: #806030;
+    --c-warn-icon-bg: #4a3000;
+    --c-on-warn: #000000;
+    --c-warn-mark: #ffb060;
+    --c-card-warn: #3d2a00;
 
     --c-ok: #5fd35f;
     --c-ok-text: #7be67b;

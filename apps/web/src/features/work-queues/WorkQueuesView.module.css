@@ -1,0 +1,259 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.back {
+  align-self: flex-start;
+  min-height: 24px;
+  margin-bottom: 8px;
+  color: var(--c-accent-text);
+  font-weight: 600;
+}
+
+.title {
+  margin: 0;
+  font: 600 var(--text-2xl) / 1.4 var(--font-display);
+}
+
+.title:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 3px;
+}
+
+.lead {
+  margin: 10px 0;
+  color: var(--c-ink-3);
+}
+
+.muted {
+  color: var(--c-ink-3);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.metric {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  font: inherit;
+  text-align: left;
+}
+
+.metric b {
+  font: 600 var(--text-display) / 1.1 var(--font-display);
+}
+
+button.metric {
+  cursor: pointer;
+}
+
+.metricWarn {
+  border-color: var(--c-warn-border);
+  background: var(--c-warn-soft);
+  color: var(--c-warn-text);
+}
+
+.metricWarn[aria-pressed='true'] {
+  background: var(--c-warn-bg);
+  box-shadow: 0 0 0 2px var(--c-warn);
+}
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.search {
+  flex: 1;
+  min-width: 180px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  font: inherit;
+}
+
+.select {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  font: inherit;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.check input {
+  width: 22px;
+  height: 22px;
+}
+
+.statusLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.stale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--c-warn-border);
+  border-radius: var(--radius-md);
+  background: var(--c-warn-soft);
+  color: var(--c-warn-text);
+}
+
+.notice {
+  padding: 32px 20px;
+  text-align: center;
+}
+
+.notice h3 {
+  margin: 0;
+}
+
+.notice p {
+  max-width: 560px;
+  margin: 8px auto;
+  color: var(--c-ink-3);
+}
+
+.skeleton {
+  height: 84px;
+  margin: 16px 0;
+  border-radius: var(--radius-md);
+  background: var(--c-muted);
+}
+
+.rest {
+  margin: 12px 0;
+  padding: 12px 20px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+}
+
+.rest summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.restGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.restButton {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hint {
+  margin: 20px 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+@media (max-width: 700px) {
+  .lead {
+    display: none;
+  }
+
+  .metrics {
+    gap: 8px;
+  }
+
+  .metric {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 12px 8px;
+    font-size: var(--text-sm);
+  }
+
+  .metric b {
+    font-size: var(--text-2xl);
+  }
+
+  .tools {
+    align-items: stretch;
+    gap: 8px;
+    margin: 14px 0;
+  }
+
+  .search {
+    flex-basis: 100%;
+  }
+
+  .select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .check {
+    flex-basis: 100%;
+  }
+
+  .restGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .rest {
+    padding: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view * {
+    animation: none;
+    transition: none;
+  }
+}

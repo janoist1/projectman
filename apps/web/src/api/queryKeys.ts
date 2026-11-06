@@ -18,10 +18,11 @@ export const queryKeys = {
   serverVersion: ['server-version'] as const,
   operatorKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
   ownerQuestions: (key: string) => ['project', key, 'owner-questions'] as const,
-  /** The corner member's queue (PM-894, PM-1042); the shorter key is every member and `closedSince` of it. */
-  operatorQueueAll: (key: string) => ['project', key, 'operator-queue'] as const,
-  operatorQueue: (key: string, handle: string, closedSince: string) =>
-    ['project', key, 'operator-queue', handle, closedSince] as const,
+  /** The work queues overview (PM-1294), and one queue in full: `member:<handle>` or `integrator` and `closedSince`. */
+  workQueues: (key: string) => ['project', key, 'workQueues'] as const,
+  workQueueAll: (key: string) => ['project', key, 'workQueue'] as const,
+  workQueue: (key: string, queue: string, closedSince: string | null) =>
+    ['project', key, 'workQueue', queue, closedSince] as const,
   /** The Operator's grant for machine operations (PM-881); one for the whole instance. */
   operatorPreferenceMeAll: (key: string) => ['project', key, 'operator-preference'] as const,
   operatorPreferenceMe: (key: string, handle: string | null) =>

@@ -58,6 +58,7 @@ export function ProjectLayout() {
   } | null>(null);
   const [operatorPrefill, setOperatorPrefill] = useState<{ text: string; id: number } | null>(null);
   const operatorTrigger = useRef<HTMLElement | null>(null);
+  const operatorDraft = useRef('');
   // The pause this viewer asked for: its details open by themselves.
   const [requestedPauseId, setRequestedPauseId] = useState<string | null>(null);
   const [themeFilter, setThemeFilter] = useState<string | null>(null);
@@ -90,7 +91,16 @@ export function ProjectLayout() {
     setOperatorOpen(false);
     setOperatorPrefill(null);
     setOperatorChecklistRequest(null);
+    operatorDraft.current = '';
   }, [projectKey]);
+
+  // The work queues' way back (PM-1297): the panel opens again where the person left it.
+  useEffect(() => {
+    if (!location.state?.operatorOpen) return;
+    setOperatorOpen(true);
+    const { operatorOpen: _, ...rest } = location.state;
+    void navigate(location.pathname + location.search + location.hash, { replace: true, state: rest });
+  }, [location, navigate]);
 
   useEffect(() => {
     if (!location.state?.operatorChecklist) return;
@@ -131,6 +141,7 @@ export function ProjectLayout() {
         setOperatorPrefill(null);
         setOperatorChecklistRequest(null);
       },
+      operatorDraft,
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
       setThemeFilter,

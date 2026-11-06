@@ -21,6 +21,7 @@ import {
   waitingForOthers,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
+  wasIntegratorInboxItem,
   PROJECT_MANAGER_ROLE,
   withSessionWork,
 } from '@projectman/shared';
@@ -174,6 +175,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   // System feedback (PM-472) is the installation's, not a project's: its screen reads it fresh.
   if (event.type === 'system_feedback_changed') return;
   const invalidate = (queryKey: QueryKey) => invalidateOnce(client, queryKey);
+  // The overview and every queue read in full (PM-1294).
+  const invalidateWorkQueues = (key: string) => {
+    invalidate(queryKeys.workQueues(key));
+    invalidate(queryKeys.workQueueAll(key));
+  };
   if (
     'projectKey' in event &&
     event.projectKey !== undefined &&
@@ -348,6 +354,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       );
       // The Operator's trail follows a question that moves through screening (PM-561).
       if (item.kind === 'question') invalidate(queryKeys.screenedQuestionsAll(key));
+      // An item of the connected Claude's queue came, was resolved or passed on (PM-1294).
+      if (wasIntegratorInboxItem(item)) invalidateWorkQueues(key);
       return;
     }
     case 'team_message':
@@ -377,9 +385,14 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       return;
     }
     case 'member_queue_changed': {
-      // An item came, was taken or was closed: the corner shows the count (PM-894), its panel the list.
+      // An item came, was taken or was closed: the corner shows the count (PM-894), the work queues the list.
       invalidate(queryKeys.projectManager(event.projectKey));
-      invalidate(queryKeys.operatorQueueAll(event.projectKey));
+      invalidateWorkQueues(event.projectKey);
+      return;
+    }
+    case 'integrator_connections_changed': {
+      // A key was created or revoked: the connected Claude's group shows who is connected (PM-1294).
+      invalidateWorkQueues(event.projectKey);
       return;
     }
     case 'operator_signal': {

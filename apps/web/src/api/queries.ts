@@ -8,6 +8,7 @@ import {
 import type { QueryClient } from '@tanstack/react-query';
 import { SESSION_CHAT_WINDOW } from '@projectman/shared';
 import type {
+  WorkQueueRef,
   CreateDocumentRequest,
   DeleteDocumentQuery,
   RestoreDocumentRequest,
@@ -77,6 +78,7 @@ import {
 } from './cache';
 import { api } from './endpoints';
 import { unsubscribeThisDevice } from '../lib/pushDevice';
+import { workQueueRefId } from '../lib/workQueues';
 import { queryKeys } from './queryKeys';
 import type { AllMessagesFilter } from './queryKeys';
 
@@ -1463,13 +1465,26 @@ export function useProjectManagerChannel(key: string, enabled: boolean) {
 }
 
 /**
- * The project manager's queue (PM-890, PM-1042): the open items and those closed since `closedSince`. A new
- * `closedSince` keeps the list on screen while it loads, and a refetch keeps the old list when it fails.
+ * Every work queue the viewer may read (PM-1294). A refetch that fails keeps the old data on screen, so the
+ * view can say the data may be stale.
  */
-export function useOperatorQueue(key: string, handle: string, closedSince: string, enabled: boolean) {
+export function useWorkQueues(key: string, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.operatorQueue(key, handle, closedSince),
-    queryFn: () => api.projectManagerQueue(key, closedSince),
+    queryKey: queryKeys.workQueues(key),
+    queryFn: () => api.workQueues(key),
+    enabled,
+  });
+}
+
+/**
+ * One work queue in full (PM-1294): its open items up to the detail limit, and, with `closedSince`, those closed
+ * since. It loads only on demand (`enabled`): the "További tételek" button and the closed items. A new
+ * `closedSince` keeps the list on screen while it loads.
+ */
+export function useWorkQueue(key: string, queue: WorkQueueRef, closedSince: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.workQueue(key, workQueueRefId(queue), closedSince),
+    queryFn: () => api.workQueue(key, queue, closedSince ?? undefined),
     placeholderData: keepPreviousData,
     enabled,
   });

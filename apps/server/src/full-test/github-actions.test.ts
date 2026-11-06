@@ -91,9 +91,11 @@ const job = (
   runnerName: `GitHub Actions ${id}`,
   steps,
 });
-/** A job GitHub gave no machine to, as the real failed runs list it: `cancelled`, runner 0 and '', no steps. */
+/** A job GitHub gave no machine to, as the real run 42253831611 lists it: `cancelled`, runner 0 and '', no steps, job times filled. */
 const unacquiredJob = (id = 13): WorkflowJobInfo => ({
   ...job(id, 'cancelled', []),
+  startedAt: '2026-11-06T16:35:38Z',
+  completedAt: '2026-11-06T16:50:40Z',
   runnerId: 0,
   runnerName: '',
 });

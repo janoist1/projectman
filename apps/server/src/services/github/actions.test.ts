@@ -251,8 +251,9 @@ describe('createGithubActionsClient', () => {
   });
 
   it('maps the runner of a job, and a job that no runner took (null, 0 or missing) to null or 0 (PM-1292)', async () => {
-    // A real failed run lists a job with no machine as `cancelled`, runner_id 0, runner_name '' and `steps: []`
-    // (checked on 18 runs, PM-1311 review); the REST documentation allows null, and an older payload omits both.
+    // A real failed run (42253831611, and 17 more) lists a job with no machine as `cancelled`, runner_id 0,
+    // runner_name '', `steps: []` and its own started_at / completed_at; the REST documentation allows null,
+    // and an older payload omits both.
     const pending = { name: 'merge-test', status: 'pending', conclusion: null, started_at: null };
     const actions = await client({
       [`GET repos/${REPO}/actions/runs/7/jobs`]: {
@@ -281,6 +282,8 @@ describe('createGithubActionsClient', () => {
               name: 'zero',
               status: 'completed',
               conclusion: 'cancelled',
+              started_at: '2026-11-06T16:35:38Z',
+              completed_at: '2026-11-06T16:50:40Z',
               runner_id: 0,
               runner_name: '',
               steps: [],

@@ -8,6 +8,7 @@ export { StartRound } from './start-round';
 export { StageHandOver } from './hand-over';
 export { MessageStarts } from './message-starts';
 export { RefinementSteps } from './refinement';
+export { LeaveRelease } from './leave';
 export {
   assertAiEnabled,
   assertNotOnLeave,

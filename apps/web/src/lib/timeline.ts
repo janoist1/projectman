@@ -648,6 +648,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     }
     case 'task_assigned': {
+      // The assignee went on leave and came off the card (PM-1300).
+      if (!d.assignee && d.previous && d.reason === 'on_leave')
+        return normal(
+          t('timeline.events.task_unassigned_on_leave', {
+            previous: nameOf(str(d.previous), ctx.members, ctx.myHandle),
+          }),
+        );
       const assignment = d.assignee
         ? t('timeline.events.task_assigned', { assignee: nameOf(str(d.assignee), ctx.members, ctx.myHandle) })
         : t('timeline.events.task_unassigned');
@@ -667,6 +674,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       const label = d.label ? labelName(str(d.label), ctx.labels ?? []) : '';
       if (d.reason === 'done') return normal(t('timeline.refinement.done'));
       if (d.reason === 'stopped') return normal(t('timeline.refinement.stopped'));
+      if (d.reason === 'on_leave')
+        return normal(
+          t('timeline.refinement.on_leave', {
+            label,
+            member: nameOf(str(d.member), ctx.members, ctx.myHandle),
+          }),
+        );
       // An event of a reason this web app does not know reads like a step that followed the last one.
       const reason = d.reason === 'started' || d.reason === 'label_removed' ? d.reason : 'label_set';
       return normal(

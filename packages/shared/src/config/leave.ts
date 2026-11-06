@@ -21,6 +21,23 @@ export function isHandleOnLeave(
 }
 
 /**
+ * The handles of the members a configuration change sent on leave (PM-1300): members of the team before
+ * who were not on leave then and are now. A new configuration (no `previous`) sends nobody.
+ */
+export function membersSentOnLeave(
+  previous: Pick<ProjectConfig, 'team'> | null | undefined,
+  next: Pick<ProjectConfig, 'team'>,
+): string[] {
+  if (!previous) return [];
+  return next.team.members
+    .filter((member) => {
+      const before = memberOf(previous, member.handle);
+      return isOnLeave(member) && before !== undefined && !isOnLeave(before);
+    })
+    .map((member) => member.handle);
+}
+
+/**
  * Whether `busy` working AI sessions reach the project's cap. There is no cap unless the limits
  * name one (decision 23).
  */

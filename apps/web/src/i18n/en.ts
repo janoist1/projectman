@@ -3398,6 +3398,7 @@ export const en = {
       },
       done: 'Refined: every step is done',
       stopped: 'Refinement stopped before every step was done',
+      on_leave: '{member} went on leave, the step can be handed out again: “{label}”',
     },
     labelReasons: {
       approval: 'with approval',
@@ -3571,6 +3572,7 @@ export const en = {
       review_repinned: 'New review round: handed-over commit {commit} instead of {previous}',
       task_assigned: 'Assigned: {assignee}',
       task_unassigned: 'Assignment withdrawn',
+      task_unassigned_on_leave: 'Assignment withdrawn: {previous} went on leave',
       task_check_changed: '{check}: {state}',
       loop_triaged: 'Looked into the suspected back-and-forth.',
       task_link_added: '{link} linked',

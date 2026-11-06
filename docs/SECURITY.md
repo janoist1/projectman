@@ -429,6 +429,11 @@ Textual agreement or `message.operatorSignal` alone is insufficient.
 Old `operator_signals` rows with null or foreign delivery bindings grant no current
 manager authority; unpresented cases are rebound by delivery, while earlier actors remain readable.
 Explicit owner requests do not reset signal budgets or mute state.
+Under `projectManagerAuthority = outside_owner_only` (default) the manager's own steps in `operate`, `execute_operation`,
+`start_task` and `start_member` need no owner request (PM-1287). They run on the session's own round with origin
+`member`, so K3 effects and owner-only changes still wait for the owner's own yes, merges, `inbox_resolve`,
+`workspace_release` and invitations are `operator_owner_only`, and such a step does not use a signal's budget. A signal
+grants no right of its own. `owner_request` keeps the owner-request requirement; guest and approval conversations stay refused.
 `operator_signal` WebSocket events reach only owners.
 
 Question screening is the selected project manager's standing duty.

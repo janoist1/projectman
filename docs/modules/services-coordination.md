@@ -48,8 +48,16 @@ stays taken for good: older events and messages name it.
 ## Operations (`operate`, `execute_operation`, `get_operation`)
 
 These are live project manager tools (`mcp/project-manager/tools.ts`), served by `services/super-operator` (see
-[services/super-operator](services-super-operator.md)). They need the project manager's own open owner message or
-answer (`operator_no_request` otherwise); the connected Claude's super operations use the same path under its own key.
+[services/super-operator](services-super-operator.md)). With `team.projectManagerAuthority = outside_owner_only` (the
+default, PM-1284/PM-1287) the project manager acts on its own authority in its own internal general conversation,
+with no owner request: `CoordinationRequests.actingRequest` returns the open request, or opens (once per session) the
+session's own round (source `signal`, no `signalId`), so its steps log on that round, with origin `member`: K3 effects
+and owner-only changes wait in `waiting_owner`, and `OWNER_REQUEST_SUPER_COMMANDS` are `operator_owner_only`. A step
+without a `signalId` does not use a signal's step budget. An open owner request keeps its origin `owner`. Under
+`owner_request` the project manager needs its own open owner message or answer (`operator_no_request` otherwise).
+Guest conversations and approval continuations are refused in both. `get_operation` and `get_role_configuration`
+read in the project manager's own conversation with no request. The connected Claude's super operations use the same
+path under its own key.
 
 - `operate` proposes a configuration, member, session, message or project pause change; the server runs an immediate
   change, asks the owner for a restricted one and refuses a forbidden one.

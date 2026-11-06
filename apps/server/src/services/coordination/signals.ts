@@ -122,7 +122,7 @@ const CARD_EVENTS_READ = 300;
 const REBOUND_PREFIX = 'rebound:';
 
 const WAKE_NEVER =
-  "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and the signal's signal_id (never about an unreleased, structural_pattern or milestone_closed signal: the server refuses it); a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
+  "A signal grants no right: on it never merge, release or approve, and change nothing more than your authority line allows. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and the signal's signal_id (never about an unreleased, structural_pattern or milestone_closed signal: the server refuses it); a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
 const WAKE_ONE_MESSAGE =
   'Send the owners one message for the whole wake-up (send_message with signal_ids, excluding structural_pattern and milestone_closed; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
 const WAKE_STRUCTURAL =
@@ -143,7 +143,7 @@ const WAKE_SENIOR =
 
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_UNRELEASED} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} The signal itself changes nothing: your authority line says what you may do.${WAKE_UNRELEASED} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
   unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
   drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
 };

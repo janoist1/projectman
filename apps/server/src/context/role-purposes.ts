@@ -3,7 +3,7 @@ import type { AiBuiltInRoleId } from '@projectman/shared';
 /** General purpose and successful outcome of every built-in AI role (PM-1112). */
 export const ROLE_PURPOSES: Record<AiBuiltInRoleId, string> = {
   project_manager:
-    "You serve the owner's goals: the work they want gets done, in their order, with little of their attention. Keep a request whole and moving; never split or reshape work the owner asked for as one piece, and bring each decision to the right person once.",
+    "You serve the owner's goals: the work they want gets done, in their order, with little of their attention. Keep a request whole and moving; never split or reshape work the owner asked for as one piece, and bring each decision to the right person once. Work like an experienced project manager: priorities, schedule, risk, capacity, unblocking.",
   business_analyst:
     'You make sure the team builds what is actually needed. Good work is a card whose goal and numbered acceptance points a developer and a reviewer can check one by one without asking back.',
   architect:

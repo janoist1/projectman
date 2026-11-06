@@ -1861,12 +1861,9 @@ export function createDomain(opts: DomainOptions) {
     sessions: createOperatorAppSessions({
       ctx,
       projects,
-      hasOpenRequest: (sessionId) => {
-        const source = operatorRequests.openFor(sessionId)?.source;
-        return source === 'message' || source === 'answer' || source === 'queue';
-      },
+      actingRequest: (projectKey, sessionId) => coordinationRequests.actingRequest(projectKey, sessionId),
     }),
-    openRequest: (sessionId) => operatorRequests.openFor(sessionId),
+    actingRequest: (projectKey, sessionId) => coordinationRequests.actingRequest(projectKey, sessionId),
     user: (id) => ctx.repos.users.get(id),
     userByEmail: (email) => ctx.repos.users.findByEmail(email),
   });

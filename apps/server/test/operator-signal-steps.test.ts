@@ -162,6 +162,7 @@ describe('level unblock', () => {
 
   it('keeps the signal round out of every owner request lookup', async () => {
     await setup('unblock');
+    h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
     const { card, signal } = await overdueCard();
     await startAssignee(card, signal);
     const { sessionId } = await operator();
@@ -540,5 +541,49 @@ describe('follow-up', () => {
     const delivered = h.repos.operatorSignals.get(signal.id)!.deliveredAt;
     await h.domain.operatorSignals.deliver('AR');
     expect(h.repos.operatorSignals.get(signal.id)).toMatchObject({ deliveredAt: delivered });
+  });
+});
+
+describe('the project manager on its own authority (PM-1287)', () => {
+  const ownSteps = () => roundSteps().filter((step) => step.signalId === null);
+  const pmContext = async (): Promise<ToolContext> => ({
+    projectKey: 'AR',
+    member: 'pm',
+    taskKey: null,
+    sessionId: (await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general' })).session.id,
+  });
+
+  it('starts a card`s assignee and a member on the card without an owner request or a signal', async () => {
+    await setup('report');
+    const card = await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
+    const pm = await pmContext();
+    await h.domain.teamTools.startTask(pm, { taskKey: card.key });
+    expect(h.domain.sessions.list('AR', { member: 'dev-1' })).toHaveLength(1);
+    await h.domain.teamTools.startMember(pm, { member: 'dev-1', text: 'Look.', taskKey: card.key });
+    expect(ownSteps()).toMatchObject([
+      { action: 'task_start', taskKey: card.key, status: 'done' },
+      { action: 'task_start', taskKey: card.key, status: 'done' },
+    ]);
+  });
+
+  it('does not use the signal`s step budget', async () => {
+    await setup('unblock');
+    const { card, signal } = await overdueCard();
+    await h.domain.teamTools.startTask(await operator(), { taskKey: card.key });
+    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
+    await startAssignee(card, signal);
+    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toHaveLength(1);
+  });
+
+  it('keeps the owner_request setting`s ban', async () => {
+    await setup('unblock');
+    h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
+    const card = await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
+    await expect(
+      h.domain.teamTools.startTask(await pmContext(), { taskKey: card.key }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('operator_no_request'),
+    });
+    expect(ownSteps()).toEqual([]);
   });
 });

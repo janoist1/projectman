@@ -5,6 +5,7 @@ import {
   operatorKnowledgeApprovalOf,
   operatorKnowledgeContinuationOf,
   OPERATOR_SIGNAL_ROUND_FROM,
+  projectManagerAuthorityOf,
 } from '@projectman/shared';
 import type {
   ConfigChangeRow,
@@ -136,7 +137,8 @@ interface OpenOperatorRequest {
  * The owner's requests to the Operator (PM-463). A request opens when an owner's message, or an owner's
  * answer to the Operator's question, enters its session; it closes when that session's turn ends
  * (`closeForSession` on `session_idle` and `session_ended`), when a new request opens, or after
- * `OPERATOR_REQUEST_TTL_MS`. The Operator writes only while one is open (`openFor`).
+ * `OPERATOR_REQUEST_TTL_MS`. The Operator writes only while one is open (`openFor`); the project manager
+ * under `outside_owner_only` also writes on its session's own round (`actingRequest`, PM-1287).
  */
 export class OperatorRequests {
   private readonly ctx: DomainContext;
@@ -220,8 +222,9 @@ export class OperatorRequests {
   }
 
   /**
-   * The signal round of the session (PM-545): the row its own steps on system signals hang on, open until
-   * the turn ends or its time is up. It authorizes nothing: `openFor` never returns it.
+   * The session's round (PM-545): the row its own steps hang on, open until the turn ends or its time is up.
+   * It holds the steps on system signals, and (PM-1287) the PM's steps on its own authority, which carry no
+   * signal. It authorizes nothing: `openFor` never returns it; `CoordinationRequests.actingRequest` does.
    */
   roundFor(sessionId: string): OperatorRequestRecord | null {
     for (const request of this.ctx.repos.operatorRequests.openOfSession(sessionId))
@@ -321,6 +324,24 @@ export class CoordinationRequests extends OperatorRequests {
     )
       return null;
     return request;
+  }
+
+  /**
+   * The request the PM acts on in this session (PM-1287): the open owner request, as `openFor` has it. With none,
+   * under `outside_owner_only` and in the PM's own internal general conversation (never a guest's), the session's
+   * own round: the PM acts on its own authority, and its steps hang on the round without a signal. Else null.
+   */
+  actingRequest(projectKey: string, sessionId: string): OperatorRequestRecord | null {
+    const request = this.openFor(sessionId);
+    if (request) return request;
+    const config = this.projects.cachedConfig(projectKey);
+    if (
+      !config ||
+      projectManagerAuthorityOf(config) !== 'outside_owner_only' ||
+      !this.isCoordinationSession(sessionId, projectKey)
+    )
+      return null;
+    return this.openRound(projectKey, sessionId);
   }
 
   private validApproval(input: OpenCoordinationRequest): boolean {

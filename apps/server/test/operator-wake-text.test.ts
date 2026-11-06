@@ -96,7 +96,7 @@ describe('level report', () => {
   it('keeps the ban, adds the one message and gives no step', async () => {
     await setup('report');
     const { signal } = await overdueCard();
-    expect(header()).toContain('Change nothing until an owner says yes.');
+    expect(header()).toContain('The signal itself changes nothing');
     expect(header()).toContain('one message for the whole wake-up');
     expect(header()).toContain('signal_ids');
     expect(header()).toContain('dismiss_signal and a note');
@@ -108,7 +108,7 @@ describe('level report', () => {
   it('is the default when the project sets no level', async () => {
     await setup(undefined);
     await overdueCard();
-    expect(header()).toContain('Change nothing until an owner says yes.');
+    expect(header()).toContain('The signal itself changes nothing');
     expect(wakeRows()).toMatchObject([noStep]);
   });
 });
@@ -121,7 +121,7 @@ describe('level unblock', () => {
     expect(text).not.toContain('Change nothing');
     expect(text).toContain('you may take it yourself with its signal_id after weighing it');
     expect(text).toContain('follow_up true');
-    expect(text).toContain('On a signal never merge, release, approve, move a card');
+    expect(text).toContain('on it never merge, release or approve');
     // The same sense as the system prompt's signal rules: the two texts must not contradict each other.
     expect(text).toContain(
       'When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human',

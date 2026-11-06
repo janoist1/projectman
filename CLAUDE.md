@@ -136,12 +136,12 @@ folder to the YAML as well (`structure-map.test.ts` checks it).
 
 ```
 npm install          # once per checkout / worktree
-npm run typecheck    # all workspaces; waits its turn in the machine's heavy-run queue
+npm run typecheck    # all workspaces; takes 2 machine places, at its turn
 npm test             # all workspaces; waits its turn in the machine's heavy-run queue
 npm run dev          # server (4700) + web (5173)
-npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); queues too
+npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); takes 3 places
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>, --places all|<n>|<min>-<max>)
-npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all)
+npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all); takes all places, none again when the server runs it
 npm run handover-check      # before hand-over and in fix rounds: dead-code, type check and the nearest tests selected from your diff in every workspace (-- --dry-run lists them); takes 2-4 machine places once
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (takes 2-4 machine places)
@@ -150,13 +150,16 @@ npx vitest run test/web-get-contracts.test.ts --configLoader runner  # in apps/s
 npx vitest related test/helpers/app-harness.ts --run --configLoader runner  # in apps/server after changing the app harness, covering every harness consumer
 npx vitest run test/merge-test-watchdog.test.ts --configLoader runner  # in apps/server after changing merge-test execution or reporting
 npx vitest run test/start-offer.test.ts test/golden-path-small-team.test.ts --configLoader runner  # in apps/server after changing admission wake-ups or start timing
-npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
+npm run typecheck -w <workspace>  # type check only the workspaces you touched (1 place; none again under a holder's ticket)
 ```
 
 The machine has one pool of places (PM-332, PM-1278, `docs/modules/scripts.md` "Machine places"):
-the root `npm test`, `typecheck` and `shots` and the server's full test take all of them; a workspace
-`vitest` run and `handover-check` take two to four, so a few of them run side by side and a full run
-waits for them (first come, first served, nobody overtakes). They print who they wait for. The same
+every heavy command takes its places from it. The root `npm test`, the server's full test and
+`merge-test` take all of them; the root `typecheck` and the `npm ci` of the members' dependencies take
+two, `shots` three, a workspace `typecheck` or `build` one, a workspace `vitest` run and `handover-check`
+two to four, so a few of them run side by side and a full run waits for them (first come, first served,
+nobody overtakes). A run inside a holder (the root `typecheck`, `handover-check`, the server's merge
+check) carries its ticket and takes no place again. They print who they wait for. The same
 command from the same session while the first one lives exits 79 ("already running"): wait for the
 running one, and do not restart a backgrounded run. Only Claude Code members run them in the
 background: Claude Code sends a completion notification. Codex, Gemini (agy) and NanoGPT
@@ -193,8 +196,8 @@ When a merge fails a check the developer could have run locally, the merger name
 command in the send-back note; if `handover-check` did not select it, propose widening its
 selection (not adding a line to the list) and send the lesson to the project manager for
 `docs/LESSONS.md`.
-Shared code or configuration changes require the whole suite; workspace checks take few places
-(decision 40, PM-380, PM-386, PM-1278). If a heavy command says its queue cannot be used
+Shared code or configuration changes require the whole suite; every heavy command gets its places from
+the machine's pool (decision 40, PM-380, PM-386, PM-1278). If a heavy command says its queue cannot be used
 (exit status 78), or the sandbox refuses a test (a local port, a pseudo-terminal), it did not
 run: note on your card what did not run and why, and hand over; the merge test runs it.
 Never run it another way, and do not ask anyone to run it outside your sandbox (PM-346, PM-656).

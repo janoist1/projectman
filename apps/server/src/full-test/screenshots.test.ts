@@ -162,6 +162,7 @@ describe('the screenshot executor', () => {
       waiting = (await readHeavyQueue(dir)).waiting;
     }
     expect(waiting.map((entry) => entry.label)).toEqual(['shots PM-1 codex']);
+    expect(waiting.map((entry) => entry.places)).toEqual([{ min: 3, max: 3 }]);
     await other.release();
     await running;
   });

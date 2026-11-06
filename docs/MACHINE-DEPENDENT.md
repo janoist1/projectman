@@ -1641,7 +1641,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `scripts/heavy/{cli,run,messages,vitest-places}`, `packages/shared/src/config/test-workers.ts` and the workspace
   `vitest.config.ts` files (PM-332, PM-336, PM-1278 A / PM-1313). The machine has one pool of places
   (`machinePlaces`: from the executing host's cores and memory, 2 to 16); a heavy run takes `all`, or 2 to 4
-  for a workspace vitest and `handover-check`, and its worker count comes from the places it was granted
+  for a workspace vitest and `handover-check`, 2 for the root typecheck and the members' `npm ci`, 3 for
+  screenshots, 1 for a workspace typecheck or build (PM-1316, PM-1278 C; a run inside a holder asks for
+  none), and its worker count comes from the places it was granted
   (`placeWorkers`), not from a config. The pool is files in the per-user lock directory below; an older
   build's entry without `places` counts as all of them. **Remote engine:** the pool, its capacity and the
   workers belong to the machine that runs the command, so each engine has its own in its own

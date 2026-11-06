@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import {
   cardMerger,
@@ -20,6 +20,8 @@ import {
   prioritySetterCandidates,
   prioritySetterMembers,
   prioritySettersOf,
+  ProjectManagerAuthority,
+  projectManagerAuthorityOf,
   ProjectManagerLifecycleAction,
   projectManagerLifecycleOf,
   projectManagerMovesOf,
@@ -197,6 +199,63 @@ function ProjectManagerMovesControls({ config }: { config: ProjectConfig }) {
         <option value="queues_and_start">{t('settings.team.projectManagerMoves.queues_and_start')}</option>
         <option value="start_only">{t('settings.team.projectManagerMoves.start_only')}</option>
       </SelectField>
+      {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
+    </fieldset>
+  );
+}
+
+/**
+ * What the project manager handles on its own (PM-1284): two radios with a line each, saved at once. A
+ * disabled fieldset drops the keyboard focus to the page while it saves, so the checked radio gets it back.
+ */
+function ProjectManagerAuthorityControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const chosen = projectManagerAuthorityOf(shown);
+  const noteId = useId();
+  const group = useRef<HTMLFieldSetElement>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (saving || !refocus.current) return;
+    refocus.current = false;
+    group.current?.querySelector<HTMLInputElement>('input:checked')?.focus();
+  }, [saving]);
+  return (
+    <fieldset
+      ref={group}
+      className={shared.controls}
+      disabled={locked || saving}
+      aria-busy={saving}
+      aria-describedby={helpId}
+    >
+      <legend className={shared.setterLegend}>{t('settings.team.projectManagerAuthority.question')}</legend>
+      <div className={shared.choiceList}>
+        {ProjectManagerAuthority.options.map((authority) => (
+          <label key={authority} className={`${shared.contactRow} ${shared.choiceRow}`}>
+            <input
+              type="radio"
+              name="pm-authority"
+              value={authority}
+              checked={chosen === authority}
+              aria-describedby={`${noteId}-${authority}`}
+              onChange={() => {
+                refocus.current = true;
+                commit((draft) => {
+                  draft.team.projectManagerAuthority = authority;
+                });
+              }}
+            />
+            <span className={shared.dutyText}>
+              <span>{t(`settings.team.projectManagerAuthority.options.${authority}`)}</span>
+              <span id={`${noteId}-${authority}`} className={shared.dutyHolders}>
+                {t(`settings.team.projectManagerAuthority.options.${authority}Note`)}
+              </span>
+            </span>
+          </label>
+        ))}
+      </div>
+      {projectManagerOf(shown) === null ? (
+        <p className={shared.muted}>{t('settings.team.projectManagerAuthority.noProjectManager')}</p>
+      ) : null}
       {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
     </fieldset>
   );
@@ -783,6 +842,7 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
   const assigneeFitHelpId = useId();
   const lifecycleHelpId = useId();
   const prerequisiteHelpId = useId();
+  const authorityHelpId = useId();
   return (
     <SettingsSection id="settings-team" title={t('settings.sections.team')}>
       <ul className={shared.members}>
@@ -851,6 +911,33 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
                 <dd>{moverValue(config)}</dd>
               </div>
             </dl>
+          )}
+        </div>
+      </section>
+      <section aria-labelledby="settings-pm-authority-title">
+        <h3 id="settings-pm-authority-title" className={shared.groupTitle}>
+          {t('settings.team.projectManagerAuthority.title')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={authorityHelpId} className={shared.help}>
+            {t('settings.team.projectManagerAuthority.help')}
+          </p>
+          {isOwner ? (
+            <ProjectManagerAuthorityControls config={config} helpId={authorityHelpId} />
+          ) : (
+            <>
+              <dl className={shared.facts}>
+                <div>
+                  <dt>{t('settings.team.projectManagerAuthority.question')}</dt>
+                  <dd>
+                    {t(`settings.team.projectManagerAuthority.options.${projectManagerAuthorityOf(config)}`)}
+                  </dd>
+                </div>
+              </dl>
+              {can.manageTeam ? (
+                <p className={shared.help}>{t('settings.team.projectManagerAuthority.ownerOnly')}</p>
+              ) : null}
+            </>
           )}
         </div>
       </section>

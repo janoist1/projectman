@@ -150,6 +150,38 @@ describe('the card mover in the settings (PM-439)', () => {
     expect(group.getByText(t('settings.team.taskCreate.ownerOnly'))).toBeTruthy();
   });
 
+  it('shows the project manager handling everything outside the owner-only circle by default, and saves the owner’s choice at once (PM-1284)', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const group = within(
+      await screen.findByRole('region', { name: t('settings.team.projectManagerAuthority.title') }),
+    );
+    const radio = (authority: 'outside_owner_only' | 'owner_request') =>
+      group.getByRole('radio', {
+        name: new RegExp(t(`settings.team.projectManagerAuthority.options.${authority}`)),
+      }) as HTMLInputElement;
+    expect(radio('outside_owner_only').checked).toBe(true);
+    fireEvent.click(radio('owner_request'));
+    await waitFor(() => expect(project.backend.config.team.projectManagerAuthority).toBe('owner_request'));
+    expect(lastConfigPatch(project.requests).projectManagerAuthority).toBe('owner_request');
+    await waitFor(() => expect(radio('owner_request').checked).toBe(true));
+  });
+
+  it('tells an admin the project manager’s authority as a line, and that only the owner changes it (PM-1284)', async () => {
+    const project = mockProject();
+    project.backend.config.team.projectManagerAuthority = 'owner_request';
+    project.render(<SettingsTestRoutes initialSection="team" />, '/', {
+      isOwner: false,
+      can: { manageTeam: true },
+    });
+    const group = within(
+      await screen.findByRole('region', { name: t('settings.team.projectManagerAuthority.title') }),
+    );
+    expect(group.queryByRole('radio')).toBeNull();
+    expect(group.getByText(t('settings.team.projectManagerAuthority.options.owner_request'))).toBeTruthy();
+    expect(group.getByText(t('settings.team.projectManagerAuthority.ownerOnly'))).toBeTruthy();
+  });
+
   it('shows assigning and cancelling as the default PM lifecycle actions, and saves a ticked reopen at once (PM-1098)', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes initialSection="team" />);

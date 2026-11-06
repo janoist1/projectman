@@ -2546,8 +2546,14 @@ export const en = {
       project_manager_rights: {
         title: 'The project manager’s rights',
         why: 'So the project manager can help, but the owner’s decisions can’t be bypassed.',
-        lineStartOnly: '**The project manager can only start cards,** not move them between queues.',
-        lineQueues: '**The project manager can also move cards between queues,** and start them.',
+        lineOwn:
+          '**The project manager handles everything on its own** that isn’t only the owner’s to decide.',
+        lineOwnerRequest:
+          '**The project manager waits for the owner’s request** to change settings or members and to start work.',
+        authorityOwn:
+          'Without the owner asking, it can change settings and members and start work. Anything only the owner can decide waits for the owner’s yes.',
+        authorityOwnerRequest:
+          'It changes settings and members and starts work only when the owner asks. Anything only the owner can decide still waits for the owner’s yes.',
         lead: 'What the project manager can do on its own, without the owner asking:',
         movesStartOnly: 'It can only start cards.',
         movesQueues: 'It can move cards between queues, and start them.',
@@ -7408,6 +7414,21 @@ export const en = {
         },
         clientNote: 'A client’s card always starts in the first row: {stage}.',
         ownerOnly: 'Only the owner can set this.',
+      },
+      /** What the project manager handles on its own, before the owner asks (PM-1284). */
+      projectManagerAuthority: {
+        title: 'The project manager’s authority',
+        help: 'What they can handle on their own, without the owner asking. Anything only the owner can decide (such as permissions, the approval order, deletions or paid costs) waits for the owner’s yes either way.',
+        question: 'What can they handle on their own?',
+        options: {
+          outside_owner_only: 'Everything that isn’t only the owner’s to decide',
+          outside_owner_onlyNote:
+            'They can change settings and members (for example, send an AI member on leave) and start work.',
+          owner_request: 'Settings, members and starting work need the owner’s request',
+          owner_requestNote: 'Moving and assigning cards still follows the settings below.',
+        },
+        ownerOnly: 'Only the owner can change this.',
+        noProjectManager: 'There’s no project manager on the team right now.',
       },
       projectManagerMoves: {
         title: 'The project manager’s right to move cards',

@@ -388,6 +388,29 @@ describe('the item on show', () => {
   );
 });
 
+describe('the project manager’s authority in the rules (PM-1284)', () => {
+  it.each(['outside_owner_only', 'owner_request'] as const)(
+    'shows the authority %s on the rule’s line and in its panel',
+    async (authority) => {
+      const project = mockProject();
+      project.backend.config.team.projectManagerAuthority = authority;
+      renderPage(project, '/?show=rule:project_manager_rights');
+      const dialog = await screen.findByRole('dialog');
+      const line = authority === 'owner_request' ? 'lineOwnerRequest' : 'lineOwn';
+      const lead = authority === 'owner_request' ? 'authorityOwnerRequest' : 'authorityOwn';
+      const row = ruleRows().find(
+        (entry) => entry.getAttribute('data-show') === 'rule:project_manager_rights',
+      );
+      expect(row?.textContent).toContain(
+        t(`howWeWork.rules.project_manager_rights.${line}`).replaceAll('**', ''),
+      );
+      expect(within(dialog).getByText(t(`howWeWork.rules.project_manager_rights.${lead}`))).toBeTruthy();
+      const link = within(dialog).getByRole('link', { name: t('howWeWork.rules.editLink') });
+      expect(link.getAttribute('href')).toContain('#settings-pm-authority-title');
+    },
+  );
+});
+
 describe('the reasons of the rules (PM-1137)', () => {
   const reasonKey = 'howWeWork.rules.assignee_fit.why';
   const ruleRow = (id: string) => ruleRows().find((row) => row.getAttribute('data-show') === `rule:${id}`);

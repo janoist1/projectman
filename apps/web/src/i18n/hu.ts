@@ -3520,10 +3520,13 @@ export const hu = {
       project_manager_rights: {
         title: 'A projektmenedzser jogai',
         why: 'Hogy a projektmenedzser segíteni tudjon, de a tulajdonos döntései ne kerülhessenek meg.',
-        lineStartOnly:
-          '**A projektmenedzser a kártyákat csak elindíthatja,** a sorok között nem mozgathatja.',
-        lineQueues:
-          '**A projektmenedzser a sorok között is mozgathatja a kártyákat,** és el is indíthatja őket.',
+        lineOwn: '**A projektmenedzser magától intéz mindent,** ami nem csak a tulajdonosra tartozik.',
+        lineOwnerRequest:
+          '**A projektmenedzser a tulajdonos kérését várja** beállításhoz, taghoz és munkaindításhoz.',
+        authorityOwn:
+          'A tulajdonos kérése nélkül módosíthat beállítást és tagot, és munkát indíthat. Ami csak a tulajdonosra tartozik, az a tulajdonos igenjére vár.',
+        authorityOwnerRequest:
+          'Beállítást, tagot és munkaindítást csak a tulajdonos kérésére intéz. Ami csak a tulajdonosra tartozik, az ezen felül is a tulajdonos igenjére vár.',
         lead: 'Amit a projektmenedzser a tulajdonos kérése nélkül, magától megtehet:',
         movesStartOnly: 'A kártyákat csak elindíthatja.',
         movesQueues: 'A kártyákat a sorok között is mozgathatja, és elindíthatja.',
@@ -7438,6 +7441,22 @@ export const hu = {
         },
         clientNote: 'Az ügyfél kártyája mindig az első sorban indul: {stage}.',
         ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+      },
+      /** What the project manager handles on its own, before the owner asks (PM-1284). */
+      projectManagerAuthority: {
+        title: 'A Projektmenedzser hatásköre',
+        help: 'Mit intézhet magától, a tulajdonos kérése nélkül. Ami csak a tulajdonosra tartozik (például jogosultságok, jóváhagyási rend, törlés, fizetős költség), az mindkét esetben a tulajdonos igenjére vár.',
+        question: 'Mit intézhet magától?',
+        options: {
+          outside_owner_only: 'Mindent, ami nem csak a tulajdonosra tartozik',
+          outside_owner_onlyNote:
+            'Beállítást és tagot módosíthat (például szabadságra küldhet egy AI-tagot), és munkát indíthat.',
+          owner_request: 'Beállításhoz, taghoz és munkaindításhoz a tulajdonos kérése kell',
+          owner_requestNote:
+            'A kártyák mozgatását és kiosztását továbbra is a lenti beállítások szabják meg.',
+        },
+        ownerOnly: 'Ezt csak a tulajdonos állíthatja.',
+        noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
       },
       projectManagerMoves: {
         title: 'A Projektmenedzser mozgatási joga',

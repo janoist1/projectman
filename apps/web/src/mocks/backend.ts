@@ -125,8 +125,11 @@ import {
   visibleQuestionItem,
   isPendingQuestion,
   questionGroupLiveItemIds,
+  canSeeAllTeamMessages,
   canSeeTeamMessage,
   canSeeTimelineEvent,
+  messageProcessingOf,
+  visibleProcessing,
   messageConversationOf,
   isCardMessage,
   isUnreadBy,
@@ -3161,8 +3164,17 @@ export class MockBackend {
         .filter((message) => !taskKey || message.taskKey === taskKey)
         .filter((message) => !taskKey || query.get('place') !== 'card' || isCardMessage(message))
         .filter((message) => query.get('unreadOnly') !== 'true' || isUnreadBy(message, this.viewerHandle));
+      const viewer = this.taskViewer();
       return ok({
-        messages: clone(listed.slice(-limit)),
+        messages: clone(
+          listed.slice(-limit).map((message) => {
+            const items =
+              message.from === this.viewerHandle || canSeeAllTeamMessages(viewer)
+                ? visibleProcessing(viewer, message.from, this.processingOfMessage(message))
+                : undefined;
+            return items ? { ...message, processing: items } : message;
+          }),
+        ),
         unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
       });
     }
@@ -4397,10 +4409,73 @@ export class MockBackend {
 
   /** One page of the card's comment threads (PM-1290); null when `before` or `around` names no comment. */
   taskComments(taskKey: string, query: TaskCommentsQuery): TaskCommentsPage | null {
-    return pageCommentThreads(
+    const page = pageCommentThreads(
       clone(this.timeline.filter((event) => event.taskKey === taskKey && event.type === 'task_note')),
       query,
     );
+    if (!page) return page;
+    const viewer = this.taskViewer();
+    return {
+      ...page,
+      threads: page.threads.map((thread) => {
+        const author = thread.comment.actor.handle ?? '';
+        const mentions = Array.isArray(thread.comment.data.mentions)
+          ? (thread.comment.data.mentions as string[]).filter((handle) => handle !== author)
+          : [];
+        const notice = this.messages.find(
+          (message) => message.origin?.kind === 'note' && message.origin.eventId === thread.comment.id,
+        );
+        const items = visibleProcessing(
+          viewer,
+          author,
+          mentions.map((handle) =>
+            messageProcessingOf({
+              handle,
+              now: Date.now(),
+              notSent: !notice?.to.includes(handle),
+              ...this.receiptFacts(notice, handle),
+            }),
+          ),
+        );
+        return items ? { ...thread, processing: items } : thread;
+      }),
+    };
+  }
+
+  /** The receipt facts of a message for a recipient, as the projection reads them. */
+  private receiptFacts(message: TeamMessage | undefined, handle: string) {
+    const receipt = message?.receipts?.find((candidate) => candidate.handle === handle);
+    return {
+      deliveredAt: receipt?.deliveredAt ?? null,
+      readAt: receipt?.readAt ?? null,
+      handedOffTo: receipt?.handedOffTo ?? null,
+    };
+  }
+
+  /**
+   * What became of a message for its recipients, with the rule the server uses (`messageProcessingOf`). The fake
+   * has no sessions, so it shows the receipts and the recipient's answer.
+   */
+  private processingOfMessage(message: TeamMessage) {
+    return message.to.map((handle) => {
+      const facts = this.receiptFacts(message, handle);
+      const answer = facts.deliveredAt
+        ? this.messages.find(
+            (candidate) =>
+              candidate.from === handle &&
+              candidate.to.includes(message.from) &&
+              candidate.createdAt >= (facts.deliveredAt ?? '') &&
+              (candidate.relayed?.inReplyTo === message.id ||
+                (candidate.conversation === message.conversation && candidate.taskKey === message.taskKey)),
+          )
+        : undefined;
+      return messageProcessingOf({
+        handle,
+        now: Date.now(),
+        ...facts,
+        reply: answer ? { at: answer.createdAt, reply: { messageId: answer.id } } : null,
+      });
+    });
   }
 
   taskDetail(task: Task): TaskDetail {

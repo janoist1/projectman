@@ -1,4 +1,4 @@
-import type { SessionMessages } from '../runtime/delivery';
+import type { MessageProcessingReader, SessionMessages } from '../runtime/delivery';
 import type { ReleasePublishService } from '../services/releases';
 import type { AuthDomain } from '../auth';
 import type { WebPushService } from '../services/web-push';
@@ -69,6 +69,7 @@ export interface ApiDomain extends AuthDomain {
   readonly messages: MessageService;
   readonly memberQueue: MemberQueue;
   readonly messaging: Messaging;
+  readonly messageProcessing: MessageProcessingReader;
   readonly sessionMessages: SessionMessages;
   readonly operatorSignals: OperatorSignals;
   readonly operatorPreferences: OperatorPreferences;

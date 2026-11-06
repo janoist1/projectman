@@ -5,6 +5,7 @@ import type { DomainContext } from '../../core/base';
 import type { BackgroundTasks } from '../../kernel';
 import type { MessageService } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
+import type { TaskService } from '../../core/tasks';
 import { aiActor, KeyedMutex } from '../../kernel';
 
 export const RELAY_WINDOW_MS = 2 * 60 * 60 * 1000;
@@ -19,6 +20,7 @@ export class PmReplyRelay {
     projects: ProjectService;
     sessions: Pick<OperatorSessions, 'detail'>;
     messages: MessageService;
+    tasks: Pick<TaskService, 'addNote'>;
     background: BackgroundTasks;
   };
 
@@ -26,8 +28,24 @@ export class PmReplyRelay {
     this.deps = deps;
   }
 
+  /** The manager already answered in the comment's thread after the message was delivered. */
+  private pmRepliedInThread(session: Session, message: TeamMessage, delivered: number): boolean {
+    const { ctx } = this.deps;
+    if (message.origin?.kind !== 'note' || !message.taskKey) return false;
+    const notes = ctx.repos.timeline.notesOfCard(session.projectKey, message.taskKey);
+    const eventId = message.origin.eventId;
+    const origin = notes.find((note) => note.id === eventId);
+    const thread = typeof origin?.data.replyTo === 'string' ? origin.data.replyTo : origin?.id;
+    return notes.some(
+      (note) =>
+        note.actor.handle === session.member &&
+        Date.parse(note.createdAt) > delivered &&
+        (note.id === thread || note.data.replyTo === thread),
+    );
+  }
+
   finish(session: Session): void {
-    const { ctx, projects, sessions, messages, background } = this.deps;
+    const { ctx, projects, sessions, messages, tasks, background } = this.deps;
     const config = projects.cachedConfig(session.projectKey);
     if (!config || session.workItem.type !== 'general') return;
     const manager = memberOf(config, session.member);
@@ -65,6 +83,7 @@ export class PmReplyRelay {
       if (!at) continue;
       const delivered = Date.parse(at);
       if (!(delivered >= cutoff) || !unanswered(message, delivered)) continue;
+      if (this.pmRepliedInThread(session, message, delivered)) continue;
       const previous = latest.get(message.from);
       if (!previous || delivered >= previous.delivered) latest.set(message.from, { message, delivered });
     }
@@ -86,6 +105,19 @@ export class PmReplyRelay {
             );
             if (reply?.kind !== 'assistant_text' || !reply.text.trim() || !current(message, delivered))
               continue;
+            // The answer to a comment belongs in its thread (PM-1290), where the author asked.
+            if (message.origin?.kind === 'note' && message.taskKey) {
+              if (this.pmRepliedInThread(session, message, delivered)) continue;
+              await tasks.addNote(
+                session.projectKey,
+                message.taskKey,
+                reply.text.slice(-20000),
+                aiActor(session.member),
+                session.id,
+                { replyTo: message.origin.eventId, relayedFrom: session.id },
+              );
+              continue;
+            }
             // No await between the final duplicate check and recording the stored message.
             messages.record({
               projectKey: session.projectKey,

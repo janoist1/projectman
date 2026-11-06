@@ -56,6 +56,17 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('team_message'), projectKey: z.string(), message: TeamMessage }),
   /** A stored message changed without being a new one (a file of it was deleted, PM-515): no timeline entry goes with it. */
   z.object({ type: z.literal('team_message_updated'), projectKey: z.string(), message: TeamMessage }),
+  /**
+   * What became of a message for a recipient changed (PM-1290). Names the sender: the event reaches only them and
+   * the owner and admin, who read the processing again. It carries no state and no session.
+   */
+  z.object({
+    type: z.literal('message_processing_changed'),
+    projectKey: z.string(),
+    messageId: z.string(),
+    taskKey: TaskKey.nullable(),
+    from: MemberHandle,
+  }),
   z.object({
     type: z.literal('chat_appended'),
     projectKey: z.string(),

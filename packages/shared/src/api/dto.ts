@@ -44,6 +44,7 @@ import {
 import { ObligationKind } from '../domain/obligation';
 import { TeamMessage } from '../domain/message';
 import { MAX_MESSAGE_ATTACHMENTS, MessageAttachmentId } from '../domain/message-attachment';
+import { MessageProcessing } from '../domain/message-processing';
 import { LabelDefinition, LabelId } from '../domain/label';
 import { PauseRequest, ProjectPauseView } from '../domain/pause';
 import { BoardColumn, GateCondition, Stage, StageId } from '../domain/pipeline';
@@ -1300,6 +1301,8 @@ const TaskCommentThread = z.object({
   comment: TimelineEvent,
   /** All the replies of the thread, oldest first. */
   replies: z.array(TimelineEvent),
+  /** What became of the comment's mentions, per recipient (PM-1290); only for its author and an owner/admin. */
+  processing: z.array(MessageProcessing).optional(),
 });
 export const TaskCommentsPage = z.object({
   /** The threads of the page, oldest first. */

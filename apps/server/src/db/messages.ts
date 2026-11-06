@@ -122,6 +122,11 @@ export function createMessageRepository(db: Db) {
     ),
     get: db.prepare('SELECT * FROM team_messages WHERE id = ?'),
     getMany: db.prepare('SELECT * FROM team_messages WHERE id IN (SELECT value FROM json_each(?))'),
+    // The expression is the one of the `team_messages_origin_event` index.
+    byOriginEvents: db.prepare(
+      `SELECT * FROM team_messages WHERE json_extract(origin, '$.eventId') IN (SELECT value FROM json_each(?))
+       AND json_extract(origin, '$.kind') = 'note' ORDER BY seq`,
+    ),
     hasNewerAction: db.prepare(`SELECT 1 FROM team_messages
         WHERE project_key = ? AND from_handle = ? AND task_key IS ?
         AND COALESCE(kind, 'action') = 'action'
@@ -223,6 +228,11 @@ export function createMessageRepository(db: Db) {
       return new Map(
         (statements.getMany.all(JSON.stringify(ids)) as MessageRow[]).map((row) => [row.id, toMessage(row)]),
       );
+    },
+    /** The notice messages (`origin: note`) of these comments in one read, oldest first. */
+    noticesOfNotes(eventIds: readonly string[]): TeamMessage[] {
+      if (eventIds.length === 0) return [];
+      return (statements.byOriginEvents.all(JSON.stringify(eventIds)) as MessageRow[]).map(toMessage);
     },
     /**
      * `listener` runs inside the transaction of every write that may change who a message is still pending

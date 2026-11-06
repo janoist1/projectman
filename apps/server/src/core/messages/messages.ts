@@ -21,8 +21,10 @@ import type {
   InboxItem,
   MessageAttachmentRef,
   ProjectConfig,
+  Session,
   TeamMessage,
   TeamMessageAnswer,
+  TimelineEvent,
   TeamThread,
   WorkItemRef,
 } from '@projectman/shared';
@@ -32,6 +34,8 @@ import type { DomainContext } from '../../core/base';
 import type { MessageRequests } from './ports';
 import type { TimelineService } from '../../core/timeline';
 import type { ProjectService } from '../../core/projects';
+import type { MessageTurnEnd } from '../../db';
+import { MessageTurns } from './turns';
 import { forbidden, notFound } from '../../kernel';
 import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 
@@ -85,6 +89,7 @@ export class MessageService {
   private readonly projects: ProjectService;
 
   private readonly coordinationRequests: MessageRequests;
+  private readonly turns: MessageTurns;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -96,6 +101,7 @@ export class MessageService {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.coordinationRequests = deps.coordinationRequests;
+    this.turns = new MessageTurns({ ctx: deps.ctx });
   }
 
   get(id: string): TeamMessage | null {
@@ -212,13 +218,37 @@ export class MessageService {
     return message;
   }
 
-  markRecipientDelivered(id: string, handle: string): TeamMessage | null {
+  /**
+   * `sessionId` is the session the message was typed into: its turn is written with the receipt (PM-1290), once
+   * per message and recipient however often the message is typed.
+   */
+  markRecipientDelivered(id: string, handle: string, sessionId?: string): TeamMessage | null {
     // Receipt and authorization must commit together: a crash cannot consume a continuation
     // without opening its request, nor open a request for a receipt that rolled back.
-    return this.ctx.unitOfWork(() => this.markRecipientDeliveredLocked(id, handle));
+    return this.ctx.unitOfWork(() => this.markRecipientDeliveredLocked(id, handle, sessionId));
   }
 
-  private markRecipientDeliveredLocked(id: string, handle: string): TeamMessage | null {
+  /** The session's turn ended (it went idle, or it ended): the messages typed into it before that are processed. */
+  closeTurns(session: Session, endState: MessageTurnEnd): void {
+    const at = (endState === 'idle' ? session.stateSince : session.endedAt) ?? session.lastActivityAt;
+    this.ctx.unitOfWork(() => this.turns.close(session, at, endState));
+  }
+
+  /** The session's state changed: the messages of its open turns show it. */
+  sessionStateChanged(session: Session): void {
+    this.turns.stateChanged(session);
+  }
+
+  /** A comment answering another was recorded: the notices of that comment to its author are read again. */
+  commentReplied(event: TimelineEvent): void {
+    const replyTo = event.data.replyTo;
+    if (typeof replyTo !== 'string' || !event.actor.handle) return;
+    this.turns.announce(
+      this.ctx.repos.messages.noticesOfNotes([replyTo]).filter((m) => m.to.includes(event.actor.handle!)),
+    );
+  }
+
+  private markRecipientDeliveredLocked(id: string, handle: string, sessionId?: string): TeamMessage | null {
     const before = this.ctx.repos.messages.get(id);
     if (!before) return null;
     const at = isoNow(this.ctx);
@@ -235,6 +265,7 @@ export class MessageService {
     const message = this.ctx.repos.messages.updateReceipts(id, receipts, deliveredAt);
     if (message) {
       this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+      if (sessionId) this.turns.open(message, handle, sessionId, at);
       const first = !(before.receipts
         ? before.receipts.find((r) => r.handle === handle)?.deliveredAt
         : before.deliveredAt);

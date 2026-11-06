@@ -429,7 +429,7 @@ export class TaskStore {
     place: NotePlace,
     extra: NoteExtra = {},
   ): TimelineEvent {
-    const { clientRequestId, replyTo, ...imported } = extra;
+    const { clientRequestId, replyTo, relayedFrom, ...imported } = extra;
     if (clientRequestId !== undefined) {
       const first = this.timeline.noteByClientRequest(task.projectKey, task.key, actor, clientRequestId);
       if (first) return first;
@@ -458,6 +458,7 @@ export class TaskStore {
           comment: place === 'comment' || parent !== undefined,
           ...(parent !== undefined ? { replyTo: parent } : {}),
           ...(clientRequestId !== undefined ? { clientRequestId } : {}),
+          ...(relayedFrom !== undefined ? { relayedFrom } : {}),
         },
       });
       if (isImported) return appended;
@@ -517,7 +518,10 @@ export type NotePlace = 'comment' | 'process';
 export type NoteExtra = Pick<
   CreateTaskCommentRequest,
   'importedAuthor' | 'importedAt' | 'replyTo' | 'clientRequestId'
->;
+> & {
+  /** The session whose closing text the reply relay recorded as this comment (PM-1290). */
+  relayedFrom?: string;
+};
 
 /** The stage with this id, or 400 unknown_stage. */
 export function requireStage(config: ProjectConfig, stageId: string): Stage {

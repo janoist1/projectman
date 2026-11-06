@@ -18,40 +18,44 @@ import styles from './EarlierConversations.module.css';
 
 /** How long a message reached by a link stays highlighted. */
 const FLASH_MS = 2000;
-/** How long a linked message is kept in the middle while the content above it settles. */
+/** How long the page waits for a linked message to appear (the messages and the story load after the page opens). */
+const LINK_WAIT_MS = 10_000;
+/** How long a linked message is kept in the middle while the content around it settles. */
 const KEEP_CENTERED_MS = 4000;
+/** The reader taking over the scroll ends the keeping. */
+const READER_INPUT = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
 
-/** Who wrote a message: a connected Claude's step names how it was made; the old integrator rows stay as they were. */
 /**
- * The content above a linked message may still grow (the story loads) after the page scrolled to it: while that goes on,
- * the message is brought back to the middle. The reader's own wheel or touch ends it. Returns the cleanup.
+ * Leads the page to a linked message: waits for it to appear, then keeps it in the middle (the content above it may
+ * still grow) until the reader scrolls on their own. `onReached` runs once, when the message is found. Returns the cleanup.
  */
-function keepCentered(target: HTMLElement, ms: number): () => void {
-  if (typeof ResizeObserver === 'undefined') return () => undefined;
-  let scroller = target.parentElement;
-  while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY))
-    scroller = scroller.parentElement;
-  // No scrolling area of its own: the page scrolls.
-  const area = scroller ?? document.body;
-  let first = true;
-  const observer = new ResizeObserver(() => {
-    // The first call only reports the sizes the observer started with.
-    if (first) first = false;
-    else target.scrollIntoView({ block: 'center', behavior: 'instant' });
-  });
-  for (const child of area.children) observer.observe(child);
+function leadTo(find: () => HTMLElement | null, onReached: (target: HTMLElement) => void): () => void {
+  const started = performance.now();
+  let reachedAt: number | null = null;
+  let frame = 0;
   const stop = () => {
-    observer.disconnect();
-    clearTimeout(timer);
-    area.removeEventListener('wheel', stop);
-    area.removeEventListener('touchstart', stop);
+    cancelAnimationFrame(frame);
+    for (const type of READER_INPUT) document.removeEventListener(type, stop, true);
   };
-  const timer = setTimeout(stop, ms);
-  area.addEventListener('wheel', stop, { passive: true });
-  area.addEventListener('touchstart', stop, { passive: true });
+  const tick = () => {
+    const now = performance.now();
+    const target = find();
+    if (target && reachedAt === null) {
+      reachedAt = now;
+      onReached(target);
+    }
+    if (target && reachedAt !== null) {
+      if (now - reachedAt > KEEP_CENTERED_MS) return stop();
+      target.scrollIntoView?.({ block: 'center', behavior: 'instant' });
+    } else if (now - started > LINK_WAIT_MS) return stop();
+    frame = requestAnimationFrame(tick);
+  };
+  for (const type of READER_INPUT) document.addEventListener(type, stop, true);
+  frame = requestAnimationFrame(tick);
   return stop;
 }
 
+/** Who wrote a message: a connected Claude's step names how it was made; the old integrator rows stay as they were. */
 function senderOf(message: TeamMessage, members: MemberIndex, myHandle: string | null): string {
   if (hasConnectedOrigin(message.actor)) return actorByline(message.actor, members, myHandle);
   return message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
@@ -182,25 +186,26 @@ export function EarlierConversations({
   // The old link: the block opens, the message is scrolled to the middle and framed for a moment.
   const reached = useRef<string | null>(null);
   useEffect(() => {
-    if (!active || !messageParam || reached.current === messageParam || messages.length === 0) return;
-    const target = [...(box.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [])].find(
-      (element) => element.dataset.messageId === messageParam,
+    if (!active || !messageParam || reached.current === messageParam) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = leadTo(
+      () =>
+        [...(box.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [])].find(
+          (element) => element.dataset.messageId === messageParam,
+        ) ?? null,
+      (target) => {
+        reached.current = messageParam;
+        target.focus({ preventScroll: true });
+        setFlash(messageParam);
+        timer = setTimeout(() => setFlash(null), FLASH_MS);
+      },
     );
-    if (!target) return;
-    reached.current = messageParam;
-    target.scrollIntoView?.({
-      behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
-      block: 'center',
-    });
-    target.focus({ preventScroll: true });
-    setFlash(messageParam);
-    const timer = setTimeout(() => setFlash(null), FLASH_MS);
-    const stopKeeping = keepCentered(target, KEEP_CENTERED_MS);
     return () => {
+      stop();
       clearTimeout(timer);
-      stopKeeping();
+      setFlash(null);
     };
-  }, [active, messageParam, messages.length, open]);
+  }, [active, messageParam]);
 
   // Reading: the incoming unread messages of the open block, one request.
   const unreadKey = messages

@@ -194,6 +194,7 @@ export function TaskComments({
 
   // The comment a link led to: scrolled to the middle, focused and framed for a moment.
   const reached = useRef<string | null>(null);
+  const framed = useRef<{ row: HTMLElement; timer: ReturnType<typeof setTimeout> } | null>(null);
   const found =
     target !== null &&
     threads.some((item) => item.comment.id === target || item.replies.some((entry) => entry.id === target));
@@ -208,12 +209,18 @@ export function TaskComments({
     });
     row.focus({ preventScroll: true });
     row.classList.add(styles.flash!);
-    const timer = setTimeout(() => row.classList.remove(styles.flash!), HIGHLIGHT_MS);
-    return () => {
-      clearTimeout(timer);
-      row.classList.remove(styles.flash!);
-    };
+    framed.current = { row, timer: setTimeout(() => row.classList.remove(styles.flash!), HIGHLIGHT_MS) };
   }, [active, target, found, threads]);
+  // The frame outlives the list updates that follow the jump; it ends with its time or with the link.
+  useEffect(
+    () => () => {
+      if (!framed.current) return;
+      clearTimeout(framed.current.timer);
+      framed.current.row.classList.remove(styles.flash!);
+      framed.current = null;
+    },
+    [target],
+  );
 
   // A box the reader opened comes whole into view (the list ends above the pinned box): the buttons included.
   const replyBox = useRef<HTMLLIElement>(null);

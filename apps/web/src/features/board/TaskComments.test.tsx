@@ -221,6 +221,9 @@ describe('the Comments view (PM-1304)', () => {
     await screen.findByText('The one in the link');
     await waitFor(() => expect(reached).toContain(`timeline-${target.id}`));
     expect(document.activeElement?.id).toBe(`timeline-${target.id}`);
+    // The newest page joins the list after the jump: the frame stays.
+    await screen.findByText('Later words');
+    expect(document.getElementById(`timeline-${target.id}`)?.className).toMatch(/flash/);
   });
 
   it('offers no newer comments after a jump when the newest one is loaded, and keeps the count on the tab', async () => {

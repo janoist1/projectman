@@ -89,20 +89,31 @@ export default async ({ instance, open, shoot, step }) => {
         deliveredAt: at(290),
       },
     ];
-    const page = await open({ path: '/p/AC' });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.route(
-      (url) => url.searchParams.get('place') === 'card' && url.searchParams.get('taskKey') === 'AC-1',
-      (route) => route.fulfill({ json: { messages: earlier } }),
-    );
-    await page.goto(`${instance.webUrl}/p/AC/tasks/AC-1/thread?message=msg_demo_2`);
-    await page.locator('[data-flash]').waitFor();
-    await page.waitForTimeout(800);
-    const box = await page.locator('[data-flash]').boundingBox();
-    console.log(
-      `message link: top ${Math.round(box.y)}, bottom ${Math.round(box.y + box.height)}, window 844`,
-    );
-    await shoot(page, 'earlier-linked-390', { widths: [390] });
+    // The messages arrive at once, late and later still: the message is in the window and framed each time.
+    for (const [width, height, delay] of [
+      [390, 844, 0],
+      [390, 844, 600],
+      [390, 844, 1800],
+      [1512, 982, 0],
+    ]) {
+      const page = await open({ path: '/p/AC' });
+      await page.setViewportSize({ width, height });
+      await page.route(
+        (url) => url.searchParams.get('place') === 'card' && url.searchParams.get('taskKey') === 'AC-1',
+        async (route) => {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          await route.fulfill({ json: { messages: earlier } });
+        },
+      );
+      await page.goto(`${instance.webUrl}/p/AC/tasks/AC-1/thread?message=msg_demo_2`);
+      await page.locator('[data-flash]').waitFor();
+      await page.waitForTimeout(800);
+      const box = await page.locator('[data-flash]').boundingBox();
+      console.log(
+        `message link at ${width}px (messages after ${delay} ms): top ${Math.round(box.y)}, bottom ${Math.round(box.y + box.height)}, window ${height}`,
+      );
+      if (delay === 0) await shoot(page, `earlier-linked-${width}`, { widths: [width] });
+    }
   });
 
   await step('the Process tab', async () => {

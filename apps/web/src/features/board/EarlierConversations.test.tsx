@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { openStory } from '../../test/cardStory';
-import { mockProject } from '../../test/mockProject';
+import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
 
 afterEach(() => {
@@ -168,31 +168,32 @@ describe('the links into the earlier conversations (PM-1290)', () => {
     await waitFor(() => expect(row('msg_04')?.hasAttribute('data-flash')).toBe(true));
   });
 
-  it('brings the linked message back to the middle while the content above it still changes size', async () => {
+  it('keeps the linked message in the middle while the page settles, until the reader scrolls', async () => {
     const project = mockProject();
-    let resized: () => void = () => undefined;
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        constructor(callback: () => void) {
-          resized = callback;
-        }
-        observe() {}
-        disconnect() {}
-      },
-    );
     const scrolls: unknown[] = [];
     vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation((arg) => {
       scrolls.push(arg);
     });
     project.render(card, '/p/AC/tasks/AC-21/steps?message=msg_04');
     await waitFor(() => expect(row('msg_04')?.hasAttribute('data-flash')).toBe(true));
-    const initial = scrolls.length;
-    resized(); // the observer's first report is the starting sizes
-    expect(scrolls).toHaveLength(initial);
-    resized();
+    // A scroll that is not smooth, so a later change of the layout cannot cut it short, and again on a later frame.
+    await waitFor(() => expect(scrolls.length).toBeGreaterThan(1));
     expect(scrolls.at(-1)).toMatchObject({ block: 'center', behavior: 'instant' });
-    vi.unstubAllGlobals();
+    fireEvent.wheel(document.body);
+    const stopped = scrolls.length;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(scrolls).toHaveLength(stopped);
+  });
+
+  it('waits for a linked message that appears after the page opened', async () => {
+    const project = mockProject();
+    const answer = createMockFetch(project.backend, project.requests);
+    setFetchImplementation(async (input, init) => {
+      if (String(input).includes('place=card')) await new Promise((resolve) => setTimeout(resolve, 150));
+      return answer(input, init);
+    });
+    project.render(card, '/p/AC/tasks/AC-21/steps?message=msg_04');
+    await waitFor(() => expect(row('msg_04')?.hasAttribute('data-flash')).toBe(true));
   });
 
   it('leads the older conversation link, /thread?message=, to the Process view', async () => {

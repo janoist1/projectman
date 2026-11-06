@@ -11,6 +11,7 @@
         "deploy/cloud/*.mjs",
         "scripts/lib/*guard*.mjs",
         "scripts/merge-test/dead-code-cli.ts",
+        "scripts/merge-test/handover-cli.ts",
         "scripts/merge-test/reporter.ts"
       ],
       "project": ["scripts/**/*.{ts,mjs}", "deploy/**/*.mjs"]

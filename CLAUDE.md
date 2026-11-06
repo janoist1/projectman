@@ -142,6 +142,7 @@ npm run dev          # server (4700) + web (5173)
 npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); queues too
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>)
 npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all)
+npm run handover-check      # before hand-over and in fix rounds: dead-code, type check and the nearest tests selected from your diff in every workspace (-- --dry-run lists them; no queue)
 npm run dead-code           # before hand-over and in fix rounds: unused files/exports (fast, no queue)
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
@@ -172,7 +173,11 @@ When changing the shared `ErrorCode` union, update
 `errors.codes` in `apps/web/src/i18n/hu.ts`, run `npm run typecheck -w @projectman/web`, and
 run the web i18n test listed above. Also run `npm run dead-code` from the repository root
 before hand-over and in fix rounds; it is fast and does not queue. Fix new findings rather
-than extending the baseline.
+than extending the baseline. Before hand-over and in fix rounds also run
+`npm run handover-check` from the repository root: it selects the nearest tests of your diff in
+every workspace (a shared schema, the path-reading tests and the tool snapshot included; at most
+60 files, it says how many the merge-test runs on top), runs them with the type check of the
+affected workspaces and `dead-code`, and does not queue. It does not replace the merge-test.
 After changing `apps/web/src/mocks`, run `npx vitest run src/mocks` in `apps/web`. After adding, moving or renaming files, also run
 `npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
 and does not queue. They never run the full suite. The merger (`team.merger`,

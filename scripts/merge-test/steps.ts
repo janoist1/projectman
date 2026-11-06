@@ -137,7 +137,7 @@ export function shardSteps(steps: readonly MergeTestStep[], shard: MergeTestShar
 }
 
 /** The workspace a repository path belongs to, or undefined. */
-export function workspaceOf(path: string): string | undefined {
+export function workspaceOf(path: string): (typeof MERGE_TEST_WORKSPACES)[number] | undefined {
   return MERGE_TEST_WORKSPACES.find((workspace) => path.startsWith(`${workspace}/`));
 }
 

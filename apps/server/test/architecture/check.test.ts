@@ -33,22 +33,26 @@ describe('importSpecifiers', () => {
   test('ignores import words inside regular expression literals', () => {
     expect(sourceImports('const pattern = /(?:import|export)[\\w-]*/;')).toEqual({
       specifiers: [],
+      typeOnly: [],
       uncertain: false,
     });
   });
   test('recognizes regex literals after return at a statement boundary', () => {
     expect(sourceImports('function pattern() { return /import|export/; }')).toEqual({
       specifiers: [],
+      typeOnly: [],
       uncertain: false,
     });
   });
   test('keeps imports after quoted regex content and ignores regex examples in strings', () => {
     expect(sourceImports('const pattern = /["\' ]import/; import "./real";')).toEqual({
       specifiers: ['./real'],
+      typeOnly: [],
       uncertain: false,
     });
     expect(sourceImports('const example = "= /"; import "./real";')).toEqual({
       specifiers: ['./real'],
+      typeOnly: [],
       uncertain: false,
     });
   });
@@ -65,11 +69,16 @@ describe('importSpecifiers', () => {
   ])('does not hide an import after division by %s', (expression) => {
     expect(sourceImports(`${expression} / import('./real') / 2;`)).toEqual({
       specifiers: ['./real'],
+      typeOnly: [],
       uncertain: false,
     });
   });
   test('keeps an unclosed regular expression uncertain', () => {
-    expect(sourceImports('const pattern = /import(variable)')).toEqual({ specifiers: [], uncertain: true });
+    expect(sourceImports('const pattern = /import(variable)')).toEqual({
+      specifiers: [],
+      typeOnly: [],
+      uncertain: true,
+    });
   });
   test('shares trivia recognition with export analysis while preserving source offsets', () => {
     const source = '// export default\nexport const A = /["\' ]export/; const text = "import";';
@@ -86,7 +95,7 @@ describe('importSpecifiers', () => {
     'import(`./${name}`)',
     'import /* comment */ (name)',
   ])('marks dynamic expressions uncertain: %s', (source) => {
-    expect(sourceImports(source)).toEqual({ specifiers: [], uncertain: true });
+    expect(sourceImports(source)).toEqual({ specifiers: [], typeOnly: [], uncertain: true });
   });
   test('accepts literal templates and ignores ordinary method calls', () => {
     expect(
@@ -95,8 +104,19 @@ describe('importSpecifiers', () => {
       ),
     ).toEqual({
       specifiers: ['./literal'],
+      typeOnly: [],
       uncertain: false,
     });
+  });
+  test('reports a specifier as type-only only when every statement of it is a type statement', () => {
+    const source = [
+      "import type { A } from './only-type';",
+      "export type { B } from './only-type-export';",
+      "import type { C } from './both';",
+      "import { D } from './both';",
+      "import { type E } from './inline';",
+    ].join('\n');
+    expect(sourceImports(source).typeOnly).toEqual(['./only-type', './only-type-export']);
   });
   test('reads type, multiline, re-export, side-effect and dynamic imports', () => {
     expect(

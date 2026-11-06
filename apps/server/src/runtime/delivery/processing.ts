@@ -4,6 +4,7 @@ import {
   memberOf,
   mentionPayloadOf,
   messageProcessingOf,
+  messageReplyOf,
 } from '@projectman/shared';
 import type {
   MessageProcessing,
@@ -204,24 +205,19 @@ export class MessageProcessingReader {
    * session's final text, else the first message to the sender in the same conversation.
    */
   private messageReply(message: TeamMessage, handle: string, deliveredAt: string, pass: Pass): Reply | null {
-    if (message.origin?.kind === 'note' && message.taskKey) {
-      const eventId = message.origin.eventId;
-      const origin = this.notesOf(message.projectKey, message.taskKey, pass).find(
-        (note) => note.id === eventId,
-      );
-      const byNote = origin
-        ? this.commentReply(message.projectKey, message.taskKey, origin, handle, deliveredAt, pass)
-        : null;
-      if (byNote) return byNote;
-    }
-    const answer = this.sentBy(message.projectKey, handle, pass).find(
-      (sent) =>
-        sent.to.includes(message.from) &&
-        sent.createdAt >= deliveredAt &&
-        (sent.relayed?.inReplyTo === message.id ||
-          (sent.conversation === message.conversation && sent.taskKey === message.taskKey)),
-    );
-    return answer ? { at: answer.createdAt, reply: { messageId: answer.id } } : null;
+    const notes =
+      message.origin?.kind === 'note' && message.taskKey
+        ? this.notesOf(message.projectKey, message.taskKey, pass)
+        : [];
+    const eventId = message.origin?.kind === 'note' ? message.origin.eventId : null;
+    return messageReplyOf({
+      message,
+      handle,
+      deliveredAt,
+      origin: notes.find((note) => note.id === eventId) ?? null,
+      notes,
+      sent: this.sentBy(message.projectKey, handle, pass),
+    });
   }
 
   /**
@@ -260,9 +256,7 @@ export class MessageProcessingReader {
     const key = `${projectKey}\0${handle}`;
     let sent = pass.sent.get(key);
     if (!sent) {
-      sent = this.ctx.repos.messages
-        .listWindow(projectKey, handle, pass.since)
-        .filter((message) => message.from === handle);
+      sent = this.ctx.repos.messages.sentSince(projectKey, [handle], pass.since);
       pass.sent.set(key, sent);
     }
     return sent;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MessageProcessingFacts, ProcessingSession } from './message-processing';
-import { messageProcessingOf, PROCESSING_STALE_MS } from './message-processing';
+import { answersMessage, messageProcessingOf, PROCESSING_STALE_MS } from './message-processing';
 import { visibleProcessing } from './message';
 import type { TaskViewer } from './task';
 
@@ -125,5 +125,30 @@ describe('visibleProcessing', () => {
   it('leaves the waiting reason out for a client', () => {
     const [waiting] = visibleProcessing(viewer('client', 'ugyfel'), 'ugyfel', items)!;
     expect(waiting).toEqual({ handle: 'designer', state: 'waiting', since: items[0]!.since });
+  });
+});
+
+describe('answersMessage', () => {
+  const question = { id: 'q', from: 'owner', taskKey: 'AR-1' };
+  const note = { ...question, origin: { kind: 'note' } };
+  const answer = { id: 'a', createdAt: at(1), to: ['owner'], taskKey: 'AR-1' };
+
+  it.each<
+    [string, Parameters<typeof answersMessage>[0], Partial<Parameters<typeof answersMessage>[1]>, boolean]
+  >([
+    ['a message to the sender about the same card', question, {}, true],
+    [
+      'the relay of the final text, whatever the card',
+      question,
+      { relayed: { inReplyTo: 'q' }, taskKey: null },
+      true,
+    ],
+    ['a message to somebody else', question, { to: ['dev'] }, false],
+    ['a message about another card', question, { taskKey: 'AR-2' }, false],
+    ['a message from before the delivery', question, { createdAt: at(9) }, false],
+    ['a direct message to a card message', question, { conversation: 'direct' }, false],
+    ['a direct message about the card to a comment', note, { conversation: 'direct' }, true],
+  ])('takes %s', (_name, target, patch, answers) => {
+    expect(answersMessage(target, { ...answer, ...patch }, at(4))).toBe(answers);
   });
 });

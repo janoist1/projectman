@@ -2958,7 +2958,8 @@ migrations.push({
   name: 'message turns',
   // PM-1290/PM-1303: the turn a message was typed into, per recipient. It ties a message to the session that
   // processes it, so a later state of that session cannot rewrite an older message's feedback. `ended_at` is
-  // NULL while the turn runs. The expression index finds the notice messages of a comment (`origin.eventId`).
+  // NULL while the turn runs. The expression index finds the notice messages of a comment (`origin.eventId`);
+  // the sender index serves the answers of a member since a time, without reading the project's messages.
   sql: `CREATE TABLE message_turns (
       project_key TEXT NOT NULL, message_id TEXT NOT NULL, handle TEXT NOT NULL,
       session_id TEXT NOT NULL, typed_at TEXT NOT NULL,
@@ -2966,6 +2967,7 @@ migrations.push({
       PRIMARY KEY (message_id, handle)
     );
     CREATE INDEX message_turns_open ON message_turns(session_id) WHERE ended_at IS NULL;
-    CREATE INDEX team_messages_origin_event ON team_messages(json_extract(origin, '$.eventId'));`,
+    CREATE INDEX team_messages_origin_event ON team_messages(json_extract(origin, '$.eventId'));
+    CREATE INDEX team_messages_from ON team_messages(project_key, from_handle, created_at);`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -132,6 +132,7 @@ import {
   commentReplyOf,
   mentionPayloadOf,
   messageProcessingOf,
+  messageReplyOf,
   visibleProcessing,
   messageConversationOf,
   isCardMessage,
@@ -4484,22 +4485,21 @@ export class MockBackend {
   private processingOfMessage(message: TeamMessage) {
     return message.to.map((handle) => {
       const facts = this.receiptFacts(message, handle);
-      const answer = facts.deliveredAt
-        ? this.messages.find(
-            (candidate) =>
-              candidate.from === handle &&
-              candidate.to.includes(message.from) &&
-              candidate.createdAt >= (facts.deliveredAt ?? '') &&
-              (candidate.relayed?.inReplyTo === message.id ||
-                (candidate.conversation === message.conversation && candidate.taskKey === message.taskKey)),
-          )
-        : undefined;
-      return messageProcessingOf({
-        handle,
-        now: Date.now(),
-        ...facts,
-        reply: answer ? { at: answer.createdAt, reply: { messageId: answer.id } } : null,
-      });
+      const notes = message.taskKey
+        ? this.timeline.filter((event) => event.taskKey === message.taskKey && event.type === 'task_note')
+        : [];
+      const eventId = message.origin?.kind === 'note' ? message.origin.eventId : null;
+      const reply = facts.deliveredAt
+        ? messageReplyOf({
+            message,
+            handle,
+            deliveredAt: facts.deliveredAt,
+            origin: notes.find((note) => note.id === eventId) ?? null,
+            notes,
+            sent: this.messages.filter((candidate) => candidate.from === handle),
+          })
+        : null;
+      return messageProcessingOf({ handle, now: Date.now(), ...facts, reply });
     });
   }
 

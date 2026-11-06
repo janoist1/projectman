@@ -190,6 +190,10 @@ export function createMessageRepository(db: Db) {
          WHERE json_extract(value, '$.handle') = ? AND json_extract(value, '$.deliveredAt') >= ?))
        AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
     ),
+    sentSince: db.prepare(
+      `SELECT * FROM team_messages WHERE project_key = ? AND from_handle IN (SELECT value FROM json_each(?))
+       AND created_at >= ? ORDER BY created_at, seq`,
+    ),
     pendingFrom: db.prepare(
       `SELECT * FROM team_messages WHERE task_key = ? AND project_key = ? AND from_handle = ?
        AND delivered_at IS NULL AND receipts IS NOT NULL ORDER BY seq`,
@@ -399,6 +403,15 @@ export function createMessageRepository(db: Db) {
      */
     listWindow(projectKey: string, member: string, since: string): TeamMessage[] {
       return (statements.window.all(projectKey, since, member, since, member, member) as MessageRow[]).map(
+        toMessage,
+      );
+    },
+    /**
+     * The messages these members sent at or after `since`, oldest first, from the sender index: what the
+     * answer rule of the processing reads (PM-1290), on every message write and every list read.
+     */
+    sentSince(projectKey: string, senders: readonly string[], since: string): TeamMessage[] {
+      return (statements.sentSince.all(projectKey, JSON.stringify(senders), since) as MessageRow[]).map(
         toMessage,
       );
     },

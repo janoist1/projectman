@@ -1,4 +1,5 @@
 import {
+  answersMessage,
   coordinationMemberOf,
   hasGuestConversations,
   hasBoundOrigin,
@@ -263,23 +264,14 @@ export class MessageService {
 
   /**
    * The messages this one may answer for its sender (PM-1290): a message from one of its recipients to the sender,
-   * delivered already, that is the relayed question, in the same conversation about the same card, or a comment
-   * notice about the card when this is a direct message. Their processing is read again.
+   * delivered already, that `answersMessage` says it answers. Their processing is read again.
    */
   private answeredBy(message: TeamMessage): TeamMessage[] {
     const since = new Date(this.ctx.now().getTime() - ANSWER_WINDOW_MS).toISOString();
-    return this.ctx.repos.messages
-      .listWindow(message.projectKey, message.from, since)
-      .filter(
-        (candidate) =>
-          message.to.includes(candidate.from) &&
-          candidate.to.includes(message.from) &&
-          !!candidate.receipts?.find((receipt) => receipt.handle === message.from)?.deliveredAt &&
-          (message.relayed?.inReplyTo === candidate.id ||
-            (candidate.taskKey === message.taskKey &&
-              (candidate.conversation === message.conversation ||
-                (message.conversation === 'direct' && candidate.origin?.kind === 'note')))),
-      );
+    return this.ctx.repos.messages.sentSince(message.projectKey, message.to, since).filter((candidate) => {
+      const deliveredAt = candidate.receipts?.find((receipt) => receipt.handle === message.from)?.deliveredAt;
+      return !!deliveredAt && answersMessage(candidate, message, deliveredAt);
+    });
   }
 
   private markRecipientDeliveredLocked(id: string, handle: string, sessionId?: string): TeamMessage | null {

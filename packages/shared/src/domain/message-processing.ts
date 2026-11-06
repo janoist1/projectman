@@ -92,13 +92,40 @@ interface ReplyNote {
   data: Record<string, unknown>;
 }
 
-/** The recipient's message, as far as the answer rule reads it. */
-interface ReplyMessage {
+/** The message an answer is looked for: a team message, or a comment seen as one from its author. */
+interface AnswerTarget {
+  id: string;
+  from: string;
+  taskKey: string | null;
+  conversation?: 'direct' | undefined;
+  /** A comment's notice (or the comment itself) is answered in the direct conversation, too. */
+  origin?: { kind: string } | undefined;
+}
+
+/** A message that may answer a target. */
+interface AnswerCandidate {
   id: string;
   createdAt: string;
   conversation?: 'direct' | undefined;
   taskKey: string | null;
   to: readonly string[];
+  relayed?: { inReplyTo: string } | undefined;
+}
+
+/**
+ * Whether `answer`, a message of one of the target's recipients, answers it once it had reached them at
+ * `deliveredAt` (PM-1290): the relay of their final text for it, or a message to its sender in the same
+ * conversation about the same card, or, for a comment, a direct message about the card. The one rule of the
+ * server's projection, of the announcements and of the fake backend.
+ */
+export function answersMessage(target: AnswerTarget, answer: AnswerCandidate, deliveredAt: string): boolean {
+  if (!answer.to.includes(target.from) || answer.createdAt < deliveredAt) return false;
+  if (answer.relayed?.inReplyTo === target.id) return true;
+  if (answer.taskKey !== target.taskKey) return false;
+  return (
+    answer.conversation === target.conversation ||
+    (target.origin?.kind === 'note' && answer.conversation === 'direct')
+  );
 }
 
 /**
@@ -112,7 +139,7 @@ export function commentReplyOf(input: {
   handle: string;
   deliveredAt: string;
   notes: readonly ReplyNote[];
-  sent: readonly ReplyMessage[];
+  sent: readonly AnswerCandidate[];
 }): NonNullable<MessageProcessingFacts['reply']> | null {
   const { comment, handle, deliveredAt } = input;
   const thread =
@@ -125,15 +152,42 @@ export function commentReplyOf(input: {
   );
   if (note) return { at: note.createdAt, reply: { eventId: note.id } };
   const author = comment.actor.handle;
-  const answer = author
-    ? input.sent.find(
-        (message) =>
-          message.conversation === 'direct' &&
-          message.taskKey === input.taskKey &&
-          message.to.includes(author) &&
-          message.createdAt >= deliveredAt,
-      )
-    : undefined;
+  if (!author) return null;
+  const target: AnswerTarget = {
+    id: comment.id,
+    from: author,
+    taskKey: input.taskKey,
+    origin: { kind: 'note' },
+  };
+  const answer = input.sent.find((message) => answersMessage(target, message, deliveredAt));
+  return answer ? { at: answer.createdAt, reply: { messageId: answer.id } } : null;
+}
+
+/**
+ * The recipient's first answer to a team message that reached them at `deliveredAt`: for a comment's notice
+ * (`origin` is the comment) the answer in the comment's thread first, then any message `answersMessage` accepts.
+ */
+export function messageReplyOf(input: {
+  message: AnswerTarget;
+  handle: string;
+  deliveredAt: string;
+  origin: ReplyNote | null;
+  notes: readonly ReplyNote[];
+  sent: readonly AnswerCandidate[];
+}): NonNullable<MessageProcessingFacts['reply']> | null {
+  const { message, handle, deliveredAt } = input;
+  if (input.origin && message.taskKey) {
+    const byComment = commentReplyOf({
+      comment: input.origin,
+      taskKey: message.taskKey,
+      handle,
+      deliveredAt,
+      notes: input.notes,
+      sent: input.sent,
+    });
+    if (byComment) return byComment;
+  }
+  const answer = input.sent.find((candidate) => answersMessage(message, candidate, deliveredAt));
   return answer ? { at: answer.createdAt, reply: { messageId: answer.id } } : null;
 }
 

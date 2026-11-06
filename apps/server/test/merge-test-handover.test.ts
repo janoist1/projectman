@@ -171,6 +171,30 @@ describe('handover selection', () => {
     expect(selection.tests.flatMap((entry) => entry.files)).toContain('apps/server/test/zz-name.test.ts');
   });
 
+  it('ranks a test that sets the changed name before one that only reads it, and integration tests last (PM-1306)', () => {
+    const tree = [
+      file('apps/server/src/core/a.ts', 'export const a = { onLeave: false };'),
+      file('apps/server/test/m-read.test.ts', 'expect(member.onLeave).toBe(true);'),
+      file('apps/server/test/m-read.integration.test.ts', 'expect(member.onLeave).toBe(true);'),
+      file('apps/server/test/z-set.test.ts', 'update({ onLeave: true });'),
+    ];
+    const after = tree.map((f) =>
+      f.path.endsWith('/a.ts') ? file(f.path, 'export const a = { onLeave: true };') : f,
+    );
+    const selection = handoverSelection({
+      changed: ['apps/server/src/core/a.ts'],
+      added: [],
+      deleted: [],
+      before: tree,
+      after,
+    });
+    expect(selection.tests[0]!.files).toEqual([
+      'apps/server/test/z-set.test.ts',
+      'apps/server/test/m-read.test.ts',
+      'apps/server/test/m-read.integration.test.ts',
+    ]);
+  });
+
   it('selects nothing but the dead-code check for a documentation-only change', () => {
     expect(select(teamToolTree, ['docs/ARCHITECTURE.md'])).toMatchObject({
       kind: 'none',

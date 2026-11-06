@@ -66,6 +66,13 @@ function header(selection: HandoverSelection, count: number): string {
   return `handover-check: ${count} changed files; kind: ${selection.kind}; type check: ${selection.typecheck.join(', ') || 'none'}; tests: ${tests || 'none'}`;
 }
 
+const NAMED_MAX = 20;
+/** The first tests by name, the rest as a count. */
+const named = (paths: readonly string[]): string =>
+  paths.length > NAMED_MAX
+    ? `${paths.slice(0, NAMED_MAX).join(', ')} (+${paths.length - NAMED_MAX} more)`
+    : paths.join(', ');
+
 /** What the run left out, printed last so it is the end of the output. */
 function footer(selection: HandoverSelection): string[] {
   return [
@@ -82,7 +89,7 @@ function footer(selection: HandoverSelection): string[] {
     // The nearer tests the cap cut are named: run them yourself (npx vitest run <files>).
     ...PROXIMITIES.filter((p) => p !== 'graph' && selection.omittedByProximity[p].length).map(
       (p) =>
-        `handover-check: the cap left out ${selection.omittedByProximity[p].length} ${PROXIMITY_LABELS[p]} test(s), run them yourself: ${selection.omittedByProximity[p].join(', ')}`,
+        `handover-check: the cap left out ${selection.omittedByProximity[p].length} ${PROXIMITY_LABELS[p]} test(s), run them yourself: ${named(selection.omittedByProximity[p])}`,
     ),
     ...(selection.unmapped.length
       ? [

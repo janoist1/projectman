@@ -158,16 +158,20 @@ workers follow the machine's size.
   2. `rule`: the tests a `SELECTION_RULES` entry chose;
   3. `name`: tests (inside the merge check's scope) that use a changed name without importing the
      file: an exported name declared, or a compound identifier (`onLeave`, `TeamToolInput`) used, on a
-     line that differs from the base in a changed non-test file. A name nearly every test uses
-     (over a quarter of them) is ignored; the others rank the tests: those in a workspace the change
-     touched first, then those using more and rarer changed names, then by path;
+     line that differs from the base in a changed non-test file (comments do not count; a compound
+     name must be declared as `name:` somewhere in the code). A name nearly every test uses (over a
+     quarter of them, and more than 10) is ignored; the others rank the tests: those in a workspace
+     the change touched first, then those that set a name (`name: value`, `name = value`) rather than
+     only read it, then those using more and rarer changed names, then by path. Integration tests
+     (`*.integration.test.*`, skipped in a sandbox) go behind the others in the `direct`, `name` and
+     `graph` tiers;
   4. `graph`: the tests reached through further imports (snapshot tests first, then by distance).
 
   A test counts once, at its nearest proximity. Over the cap the last lines say
   `ran 60 of M (cap 60); the merge-test runs the other M-60` (exit 0) and
   `left out by proximity: <n> direct, <n> selection-rule, <n> name-usage, <n> farther import-graph`,
-  and name every omitted test of the nearer proximities (run them yourself with
-  `npx vitest run <files>`); it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
+  and name the omitted tests of the nearer proximities, at most 20 per line and then `(+N more)`
+  (run them yourself with `npx vitest run <files>`); it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
   git error. `--dry-run` prints the steps only. A merge-test change keeps the merge-test output
   unchanged; the shared import analysis is only extended (`valueConsumers`, `typeOnly`).
   **Merge check records.** Every merge check is recorded in `merge_check_runs` (time, queue wait, the `maxWorkers`

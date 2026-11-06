@@ -67,6 +67,13 @@ describe('exitOutputTail', () => {
     expect(tail).not.toContain('abcdefghijklmnop');
   });
 
+  it('keeps the reason of a thread that could not be created after a long prefix', () => {
+    const tail = exitOutputTail(
+      `Error: Failed to start a fresh session through the app server: thread/start failed during TUI bootstrap: thread/start failed: error creating thread: failed to lock the state database\n`,
+    );
+    expect(tail).toContain('the session thread could not be created (failed to lock the state database)');
+  });
+
   it('is empty for an empty screen', () => {
     expect(exitOutputTail('\n  \n')).toBe('');
   });

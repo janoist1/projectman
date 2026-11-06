@@ -1,5 +1,5 @@
 /** Longest line, line count and total length kept from a CLI's last output (it ends up in the session's activity). */
-const MAX_LINE = 160;
+const MAX_LINE = 400;
 const MAX_LINES = 8;
 const MAX_TOTAL = 480;
 
@@ -65,6 +65,8 @@ const MAX_CONFIG_REASON = 200;
 /** Codex: "failed to load configuration: invalid transport in `mcp_servers.team`" (PM-1279). */
 const MCP_CONFIG_FAILURE = /invalid transport in\s+[`'"]?mcp_servers\.([A-Za-z0-9_-]+)/i;
 const CONFIG_FAILURE = /failed to load configuration:\s*(.{1,200})/i;
+/** Codex's TUI bootstrap: "thread/start failed during TUI bootstrap: … error creating thread: <reason>". */
+const THREAD_FAILURE = /error creating thread:\s*(.{1,200})/i;
 
 /**
  * Why a CLI refused its own configuration, named before the output is cut line by line: a long
@@ -76,8 +78,11 @@ function configFailure(screenText: string): string | null {
   const mcp = MCP_CONFIG_FAILURE.exec(flat);
   if (mcp) return `MCP server configuration is invalid (mcp_servers.${mcp[1]}: invalid transport)`;
   const other = CONFIG_FAILURE.exec(flat);
-  return other
-    ? `configuration could not be loaded (${redactOutput(other[1]!).slice(0, MAX_CONFIG_REASON)})`
+  if (other)
+    return `configuration could not be loaded (${redactOutput(other[1]!).slice(0, MAX_CONFIG_REASON).trim()})`;
+  const thread = THREAD_FAILURE.exec(flat);
+  return thread
+    ? `the session thread could not be created (${redactOutput(thread[1]!).slice(0, MAX_CONFIG_REASON).trim()})`
     : null;
 }
 

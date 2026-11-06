@@ -195,6 +195,68 @@ describe('handover selection', () => {
     ]);
   });
 
+  it('follows a shared function called on a changed line to the fields it reads (PM-1308)', () => {
+    const far = Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
+      file(`apps/server/src/core/f${String(i).padStart(2, '0')}.test.ts`, "import { b } from './b';"),
+    );
+    const leave = [
+      '/** Whether a member is on leave (onLeaveRule). */',
+      'export function isOnLeave(member: { kind: string; onLeave?: boolean }): boolean {',
+      "  return member.kind === 'ai' && member.onLeave === true;",
+      '}',
+      'export const unrelatedShared = { someOtherField: 1 };',
+    ].join('\n');
+    const tree = [
+      file('packages/shared/src/leave.ts', leave),
+      file(
+        'apps/server/src/core/a.ts',
+        "import { isOnLeave } from '@projectman/shared';\nexport const a = (m) => isOnLeave(m);",
+      ),
+      file('apps/server/src/core/b.ts', "import { a } from './a';\nexport const b = a;"),
+      ...far,
+      file('apps/server/src/core/zz-name.test.ts', 'setup({ onLeave: true });'),
+    ];
+    const after = tree.map((f) =>
+      f.path.endsWith('/a.ts')
+        ? file(
+            f.path,
+            "import { isOnLeave } from '@projectman/shared';\nexport const a = (m) => isOnLeave(m) || m.paused;",
+          )
+        : f,
+    );
+    const selection = handoverSelection({
+      changed: ['apps/server/src/core/a.ts'],
+      added: [],
+      deleted: [],
+      before: tree,
+      after,
+    });
+    expect(selection.tests[0]!.files[0]).toBe('apps/server/src/core/zz-name.test.ts');
+    expect(selection.omittedByProximity.name).toEqual([]);
+  });
+
+  it('ranks a test that sets a name to a literal before one that stubs a rarer name (PM-1308)', () => {
+    const tree = [
+      file('apps/server/src/core/a.ts', 'export const a = { onLeave: false, findRunning: 1 };'),
+      file('apps/server/test/m-stub.test.ts', 'make({ findRunning: () => [] });'),
+      file('apps/server/test/z-set.test.ts', 'update({ onLeave: true });'),
+    ];
+    const after = tree.map((f) =>
+      f.path.endsWith('/a.ts') ? file(f.path, 'export const a = { onLeave: true, findRunning: 2 };') : f,
+    );
+    const selection = handoverSelection({
+      changed: ['apps/server/src/core/a.ts'],
+      added: [],
+      deleted: [],
+      before: tree,
+      after,
+    });
+    expect(selection.tests.find((entry) => entry.workspace === 'apps/server')!.files).toEqual([
+      'apps/server/test/z-set.test.ts',
+      'apps/server/test/m-stub.test.ts',
+    ]);
+  });
+
   it('selects nothing but the dead-code check for a documentation-only change', () => {
     expect(select(teamToolTree, ['docs/ARCHITECTURE.md'])).toMatchObject({
       kind: 'none',

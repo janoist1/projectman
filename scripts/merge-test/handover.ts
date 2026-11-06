@@ -145,9 +145,43 @@ const COMPOUND_NAME = /\b[A-Za-z_$][\w$]*[a-z][A-Z][\w$]*\b/g;
 /** A name the code declares as a property, a parameter or a typed variable (`onLeave: true`). */
 const DECLARED_NAME = /[\s{,(;]([A-Za-z_$][\w$]*)\s*\??:(?!:)/g;
 
+const CALLED_NAME = /\b([A-Za-z_$][\w$]*)\s*\(/g;
+const SHARED_SOURCE = 'packages/shared/src/';
+/** The longest function body read for the fields it uses (up to the next export). */
+const CALLEE_BODY_LINES = 40;
+
+/**
+ * The bodies (comments left out) of the shared functions the changed lines call, one step and no
+ * further: the fields they read are what a test sets to reach the changed behavior.
+ */
+function calledSharedBodies(texts: readonly string[], after: readonly MergeTestFile[]): string[] {
+  const called = new Set<string>();
+  for (const text of texts) for (const match of text.matchAll(CALLED_NAME)) called.add(match[1]!);
+  const bodies: string[] = [];
+  if (!called.size) return bodies;
+  for (const { path, source } of after) {
+    if (!path.startsWith(SHARED_SOURCE) || !isCode(path) || isServerTest(path) || isTestSupport(path))
+      continue;
+    const lines = source.split('\n');
+    lines.forEach((line, index) => {
+      const declared = /^export\s+(?:async\s+)?(?:function\*?|const)\s+([A-Za-z_$][\w$]*)/.exec(line)?.[1];
+      if (!declared || !called.has(declared)) return;
+      const rest = lines.slice(index + 1);
+      const end = rest.findIndex((next) => /^export\s/.test(next));
+      bodies.push(
+        [line, ...rest.slice(0, end < 0 ? CALLEE_BODY_LINES : Math.min(end, CALLEE_BODY_LINES))]
+          .filter((text) => !/^\s*(?:\/\/|\/?\*)/.test(text))
+          .join('\n'),
+      );
+    });
+  }
+  return bodies;
+}
+
 /**
  * The names a change touched: exported names declared on, and compound identifiers used on, the lines
- * that differ between the base and the working tree of a changed non-test code file.
+ * that differ between the base and the working tree of a changed non-test code file, and the fields
+ * read by the shared functions those lines call.
  */
 function changedSymbols(
   changed: readonly string[],
@@ -175,6 +209,9 @@ function changedSymbols(
     for (const match of text.matchAll(EXPORTED_NAME)) if (match[1]!.length >= 5) symbols.add(match[1]!);
     for (const match of text.matchAll(COMPOUND_NAME)) compound.add(match[0]);
   }
+  // One step further: the fields the shared functions called on the changed lines read (`isOnLeave` -> `onLeave`).
+  for (const body of calledSharedBodies(texts, after))
+    for (const match of body.matchAll(COMPOUND_NAME)) compound.add(match[0]);
   // A compound name counts only when the code declares it (a property, a variable): not `localeCompare`.
   if (compound.size)
     for (const source of [...texts, ...after.filter((file) => isCode(file.path)).map((file) => file.source)])
@@ -188,17 +225,19 @@ const isIntegration = (path: string): boolean => path.includes('.integration.tes
 /** A name used by more than this share of the candidate tests (`toEqual`, `readFileSync`) tells nothing. */
 const COMMON_NAME_SHARE = 0.25;
 const COMMON_NAME_MIN = 10;
+/** What a test gives a name to set it (`onLeave: true`): a literal, not a stubbed function or a lookup. */
+const LITERAL = '(?:true\\b|false\\b|null\\b|-?\\d|[\'"`])';
 
 /**
- * The candidate tests that use a changed name, nearest first: those in a workspace the change touched,
- * then those that set a changed name (`name: value`, `name = value`) rather than only read it, then
+ * The candidate tests that use a changed name, nearest first: those in the workspace the change touched
+ * most (by changed files), then those that set a changed name (`name: value`, `name = value`) rather than only read it, then
  * those that use more, and rarer, changed names (a name only a few tests use says the most), then the
  * tests that need no pseudo-terminal, then by path. A name nearly every test uses is ignored.
  */
 function nameUsers(
   symbols: readonly string[],
   candidates: readonly MergeTestFile[],
-  changedWorkspaces: ReadonlySet<MergeTestWorkspace>,
+  changedWorkspaces: ReadonlyMap<MergeTestWorkspace, number>,
 ): string[] {
   const wanted = new Set(symbols);
   const users = new Map<string, MergeTestFile[]>();
@@ -209,13 +248,15 @@ function nameUsers(
   const setters = new Set<string>();
   for (const [name, files] of users)
     if (files.length <= Math.max(COMMON_NAME_MIN, candidates.length * COMMON_NAME_SHARE)) {
-      const setting = new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}\\s*\\??(?::|=(?!=))`);
+      const setting = new RegExp(
+        `(?<![\\w$.])${name.replace(/\$/g, '\\$')}\\s*\\??(?::|=(?!=))\\s*${LITERAL}`,
+      );
       for (const { path, source } of files) {
         score.set(path, (score.get(path) ?? 0) + 1 / files.length);
         if (setting.test(source)) setters.add(path);
       }
     }
-  const here = (path: string) => Number(changedWorkspaces.has(workspaceOf(path)!));
+  const here = (path: string) => changedWorkspaces.get(workspaceOf(path)!) ?? 0;
   return [...score.keys()].sort(
     (a, b) =>
       here(b) - here(a) ||
@@ -370,10 +411,15 @@ export function handoverSelection(
     Number(isIntegration(a)) - Number(isIntegration(b)) ||
     byDistance(a, b);
   // The names a test may use without importing a changed file (a setting, a method of an injected object).
+  const changedPerWorkspace = new Map<MergeTestWorkspace, number>();
+  for (const file of changed) {
+    const workspace = checkedBy(file);
+    if (workspace) changedPerWorkspace.set(workspace, (changedPerWorkspace.get(workspace) ?? 0) + 1);
+  }
   const nameTests = nameUsers(
     changedSymbols(changed, input.before, input.after),
     input.after.filter((file) => isTest(file.path) && mergeRuns(merge, file.path)),
-    new Set(changed.map(checkedBy).filter((workspace) => workspace !== undefined)),
+    changedPerWorkspace,
   );
   // The tests that import a changed file themselves; a consumer of a changed package export is not one.
   const importers = new Set(

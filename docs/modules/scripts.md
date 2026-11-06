@@ -158,11 +158,15 @@ workers follow the machine's size.
   2. `rule`: the tests a `SELECTION_RULES` entry chose;
   3. `name`: tests (inside the merge check's scope) that use a changed name without importing the
      file: an exported name declared, or a compound identifier (`onLeave`, `TeamToolInput`) used, on a
-     line that differs from the base in a changed non-test file (comments do not count; a compound
-     name must be declared as `name:` somewhere in the code). A name nearly every test uses (over a
-     quarter of them, and more than 10) is ignored; the others rank the tests: those in a workspace
-     the change touched first, then those that set a name (`name: value`, `name = value`) rather than
-     only read it, then those using more and rarer changed names, then by path. Integration tests
+     line that differs from the base in a changed non-test file (comments do not count). Using a
+     compound name on a changed line is not enough: the code must also declare it (`name:`, a property,
+     parameter or typed variable), so `localeCompare` is not a changed name. One step further, a
+     `packages/shared/src` function called on a changed line (`isOnLeave(member)`) adds the compound
+     names its body (up to the next export) uses (`onLeave`); the step stops there, the functions that
+     body calls are not followed. A name nearly every test uses (over a
+     quarter of them, and more than 10) is ignored; the others rank the tests: those in the workspace
+     the change touched most (by changed files) first, then those that set a name to a literal
+     (`name: true`, `name = 'x'`) rather than only read it or stub it (`name: () => []`), then those using more and rarer changed names, then by path. Integration tests
      (`*.integration.test.*`, skipped in a sandbox) go behind the others in the `direct`, `name` and
      `graph` tiers;
   4. `graph`: the tests reached through further imports (snapshot tests first, then by distance).

@@ -13,7 +13,7 @@ type LeaveMember = Parameters<typeof isOnLeave>[0];
  * responsible. It shows nothing for a member at work, a person or one not (yet) known.
  */
 export function LeaveChip({ member }: { member: LeaveMember | null | undefined }) {
-  return isOnLeave(member) ? <Chip tone="needs">{t('leave.onLeave')}</Chip> : null;
+  return isOnLeave(member) ? <Chip tone="warn">{t('leave.onLeave')}</Chip> : null;
 }
 
 /** " · Szabadságon" or nothing: for a native `<option>` or an aria-label, where a chip cannot be drawn. */

@@ -82,7 +82,7 @@ export function PipelineSection({ config }: { config: ProjectConfig }) {
                 <div className={shared.gate}>
                   <span className={shared.label}>{t('settings.pipeline.gate')}</span>
                   {stage.gate.conditions.map((condition, index) => (
-                    <Chip key={index} tone="needs" icon="lock">
+                    <Chip key={index} tone="warn" icon="lock">
                       {gateConditionText(condition, labels)}
                     </Chip>
                   ))}

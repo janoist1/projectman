@@ -580,7 +580,7 @@ export function InboxCard({
       >
         <div className={styles.head}>
           <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
-          {isStale ? <Chip tone="needs">{t('operator.approval.stale')}</Chip> : null}
+          {isStale ? <Chip tone="warn">{t('operator.approval.stale')}</Chip> : null}
           <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
           <span className={styles.source}>{nameOf(item.source, members, myHandle)}</span>
           <span className={styles.spacer} />

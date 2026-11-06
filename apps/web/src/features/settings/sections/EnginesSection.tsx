@@ -138,7 +138,7 @@ export function EnginesSection() {
                   </span>
                 )}
                 {engine.versionMismatch && (
-                  <Chip tone="needs" size="sm" title={t('engines.mismatchHint')}>
+                  <Chip tone="warn" size="sm" title={t('engines.mismatchHint')}>
                     {t('engines.mismatch')}
                   </Chip>
                 )}

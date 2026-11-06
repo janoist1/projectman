@@ -4653,6 +4653,7 @@ export const en = {
       approval: 'Approval',
       alert: 'Alert',
       release: 'Release',
+      mention: 'Mention',
       // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
       todo: 'To-do',
     },
@@ -4665,6 +4666,7 @@ export const en = {
       approval: 'approval',
       alert: 'alert',
       release: 'release',
+      mention: 'mention',
       todo: 'to-do',
     },
     options: {
@@ -5071,6 +5073,7 @@ export const en = {
       group_withdrawn: 'Every asker withdrew it',
       obligation_closed: 'The step was finished or dropped in the meantime',
       signal_resolved: 'The alert closed by itself',
+      mention_replied: 'You replied to the mention',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count|# automatic decision|# automatic decisions}',

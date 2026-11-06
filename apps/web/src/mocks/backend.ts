@@ -136,6 +136,10 @@ import {
   recipientRefusalForAccess,
   accessOfHandle,
   commentMentions,
+  MENTION_SEEN_OPTION,
+  mentionExcerpt,
+  mentionItemTargets,
+  mentionsClosedByReply,
   configSchemaIssues,
   coverAttachmentId,
   TaskCoverRequest,
@@ -333,6 +337,7 @@ import type {
   HumanAccess,
   GateRequestPayload,
   InboxItem,
+  MentionPayload,
   OperatorApprovalPayload,
   OperatorRequestView,
   OperatorSignal,
@@ -4318,19 +4323,76 @@ export class MockBackend {
       if (!resolved) return error(400, 'reply_target_invalid', 'Not a comment of this card');
       parent = resolved;
     }
-    this.addTimeline(taskKey, this.viewerHandle, 'task_note', {
+    const mentions = commentMentions(
       text,
-      mentions: commentMentions(
-        text,
-        this.config.team.members.map((member) => member.handle),
-        this.viewerHandle,
-      ),
+      this.config.team.members.map((member) => member.handle),
+      this.viewerHandle,
+    );
+    const event = this.addTimeline(taskKey, this.viewerHandle, 'task_note', {
+      text,
+      mentions,
       comment: true,
       ...(parent ? { replyTo: parent } : {}),
       ...(clientRequestId ? { clientRequestId } : {}),
       ...imported,
     });
+    const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
+    if (!isImported)
+      this.syncMentionItems(event, text, mentions, parent ? 'reply' : 'comment', parent ?? event.id);
     return null;
+  }
+
+  /**
+   * The mention items a note opens for the mentioned humans, and the ones the author's reply closes, by the
+   * server's shared rules (PM-1307). `threadId` is the thread a reply goes to; null for a process note.
+   */
+  private syncMentionItems(
+    event: TimelineEvent,
+    text: string,
+    mentions: readonly string[],
+    place: MentionPayload['place'],
+    threadId: string | null,
+  ): void {
+    const author = event.actor;
+    const task = event.taskKey ? this.findTask(event.taskKey) : undefined;
+    if (!task) return;
+    for (const handle of mentionItemTargets({ config: this.config, author, mentions, imported: false })) {
+      this.upsertInbox({
+        id: mockId('inb'),
+        projectKey: event.projectKey,
+        kind: 'mention',
+        assignees: [handle],
+        source: author.handle!,
+        sessionId: event.sessionId,
+        taskKey: task.key,
+        title: task.title,
+        body: mentionExcerpt(text, handle),
+        payload: { eventId: event.id, place, threadId },
+        options: [MENTION_SEEN_OPTION],
+        state: 'open',
+        resolution: null,
+        createdAt: event.createdAt,
+      });
+    }
+    if (place !== 'reply' || author.kind !== 'human' || !author.handle || threadId === null) return;
+    const closing = mentionsClosedByReply(this.inbox, {
+      author: author.handle,
+      taskKey: task.key,
+      threadId,
+      at: event.createdAt,
+    });
+    for (const item of closing)
+      this.upsertInbox({
+        ...item,
+        state: 'resolved',
+        resolution: {
+          optionId: 'replied',
+          by: author.handle,
+          at: event.createdAt,
+          note: null,
+          rule: 'mention_replied',
+        },
+      });
   }
 
   /** One page of the card's comment threads (PM-1290); null when `before` or `around` names no comment. */
@@ -4515,10 +4577,13 @@ export class MockBackend {
       actor.handle,
     );
     const event = this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions, comment: false });
-    if (mentions.length && actor.handle)
+    this.syncMentionItems(event, text, mentions, 'note', null);
+    // A mentioned person gets a Rád vár item instead of a team message (PM-1307).
+    const aiMentions = mentions.filter((handle) => memberOf(this.config, handle)?.kind === 'ai');
+    if (aiMentions.length && actor.handle)
       this.sendTeamMessage(
         actor.handle,
-        mentions,
+        aiMentions,
         task.key,
         text,
         undefined,

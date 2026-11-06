@@ -311,6 +311,8 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
     if (item.kind === 'question' && item.payload.groupWithdrawn === true) return false;
     // Legacy completion notices ask for acknowledgement, not an action on the card.
     if (isInformationalAlert(item)) return false;
+    // A mention asks a person to look, not the card to act (PM-1307).
+    if (item.kind === 'mention') return false;
     return item.state === 'open' || isPendingQuestion(item);
   });
   const waiting = task.startWaiting;

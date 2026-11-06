@@ -58,7 +58,7 @@ const githubSpec = (runId: string, mergeId: string): FullTestSpec => ({
 
 function fullTestHarness(
   run: FullTestExecutor['run'] = async () => passed,
-  options: { now?: () => number; worktreesRoot?: string | null } = {},
+  options: { now?: () => number; worktreesRoot?: string | null; executor?: FullTestExecutor | null } = {},
 ) {
   const registered = new Map<string, (params: unknown, context: { id: string }) => Promise<unknown>>();
   const checkoutForCheck = vi.fn(async () => ({ path: checkCwd, gitDir: '/fictional/git' }));
@@ -72,7 +72,7 @@ function fullTestHarness(
     transcripts: {} as never,
     planUsageFor: (() => ({})) as never,
     engine: {
-      fullTestExecutor: { run },
+      fullTestExecutor: options.executor === undefined ? { run } : (options.executor ?? undefined),
       paths: () => ({
         worktreesRoot: options.worktreesRoot === undefined ? checkRoot : options.worktreesRoot,
       }),
@@ -337,6 +337,32 @@ describe('engine handlers', () => {
   });
 
   describe('full test results', () => {
+    it('reports current sandbox readiness from the engine executor', async () => {
+      const executor: FullTestExecutor = {
+        available: vi.fn(async () => ({ ok: true as const })),
+        run: async () => passed,
+      };
+      const { call } = fullTestHarness(undefined, { executor });
+      await expect(call('full_test.available', {})).resolves.toEqual({ ok: true });
+      expect(executor.available).toHaveBeenCalledTimes(1);
+    });
+
+    it('bounds the unavailable sandbox reason at the RPC boundary', async () => {
+      const executor: FullTestExecutor = {
+        available: async () => ({ ok: false, reason: 'x'.repeat(600) }),
+        run: async () => passed,
+      };
+      const { call } = fullTestHarness(undefined, { executor });
+      const answer = await call('full_test.available', {});
+      expect(answer).toEqual({ ok: false, reason: 'x'.repeat(500) });
+      expect(methods['full_test.available'].result.safeParse(answer).success).toBe(true);
+    });
+
+    it('reports unavailable without a full test executor', async () => {
+      const { call } = fullTestHarness(undefined, { executor: null });
+      await expect(call('full_test.available', {})).resolves.toMatchObject({ ok: false });
+    });
+
     it('lets multiple attachments wait for the same running test and retains its result', async () => {
       const started = deferred<void>();
       const ended = deferred<FullTestResult>();

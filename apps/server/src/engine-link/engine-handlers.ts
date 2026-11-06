@@ -375,6 +375,11 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       watches.delete(watchId);
       return none;
     },
+    async 'full_test.available'() {
+      if (!engine.fullTestExecutor) return { ok: false, reason: 'This engine runs no full test' };
+      const answer = await engine.fullTestExecutor.available();
+      return answer.ok ? answer : { ok: false, reason: answer.reason.slice(0, 500) };
+    },
     async 'full_test.run'({ spec }) {
       pruneFullRunRecords();
       if (!engine.fullTestExecutor)

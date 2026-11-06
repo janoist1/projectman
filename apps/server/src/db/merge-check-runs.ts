@@ -135,6 +135,15 @@ export function createMergeCheckRunRepository(db: Db) {
   });
 
   return {
+    /** The latest completed GitHub check of this repository, including successful runs that close the breaker. */
+    latestGithub(projectKey: string, repo: string): MergeCheckRun | null {
+      const row = db
+        .prepare(
+          "SELECT * FROM merge_check_runs WHERE project_key = ? AND repo = ? AND runner = 'github_actions' AND finished_at IS NOT NULL ORDER BY finished_at DESC, rowid DESC LIMIT 1",
+        )
+        .get(projectKey, repo) as RunRow | undefined;
+      return row ? toRun(row, tasksOf([row.id])) : null;
+    },
     start(run: MergeCheckRunStart): void {
       db.transaction(() => {
         insert.run(run);

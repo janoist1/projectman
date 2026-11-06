@@ -11,9 +11,39 @@ const GITHUB_FILES_MAX = 20;
 export const GITHUB_RUNNER_NEEDS_REPO =
   "reviewTest.runner github_actions needs the repository's github owner/name";
 
-/** Where a repository's merge check runs: no `runner` means the card's engine. */
-export function mergeCheckRunner(reviewTest: Pick<ReviewTestConfig, 'runner'>): MergeCheckRunner {
-  return reviewTest.runner ?? 'engine';
+/** Whether the card engine has a ready sandbox; a lost link means no fallback. */
+export async function engineCheckAvailable(engine: EngineHost): Promise<boolean> {
+  try {
+    const executor = engine.fullTestExecutor;
+    if (!executor) return false;
+    return executor.sandboxReady ? await executor.sandboxReady() : (await executor.available()).ok === true;
+  } catch (err) {
+    if (err instanceof EngineLinkLostError) return false;
+    throw err;
+  }
+}
+
+export async function chooseMergeCheckRunner(
+  engine: EngineHost,
+  input: { configured: MergeCheckRunner; requested?: MergeCheckRunner; githubOutage: boolean },
+): Promise<
+  | { ok: true; runner: MergeCheckRunner; executor: FullTestExecutor; fallback: boolean }
+  | { ok: false; reason: string }
+> {
+  const fallback =
+    input.configured === 'github_actions' &&
+    (input.requested === 'engine' || input.githubOutage) &&
+    (await engineCheckAvailable(engine));
+  const runner = fallback ? 'engine' : input.configured;
+  // A GitHub configuration never waits for an offline fallback engine. Probe only once: the
+  // availability may change between calls, which must not turn the GitHub path into a block.
+  const available =
+    input.configured === 'github_actions'
+      ? engine.fullTestExecutor
+        ? { ok: true as const, executor: engine.fullTestExecutor }
+        : { ok: false as const, reason: 'No full test executor is available' }
+      : await mergeCheckExecutor(engine, runner);
+  return available.ok ? { ...available, runner, fallback } : available;
 }
 
 /**

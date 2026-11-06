@@ -58,7 +58,23 @@ diagnosis, the failed files, at most 20) instead of `requireHeavyLock`/`npmCi`; 
 (`github-actions:owner/name`). The executor of the card's engine runs the workflow and answers with the
 usual `FullTestResult` plus `externalUrl`, the run's page (the engine side is PM-907; the local executor and an
 older engine refuse the descriptor with `github_unavailable`, a run that stopped with no result is
-`github_run_error`). Both are operational errors: the merge or train blocks, nothing is split or blamed.
+`github_run_error`). An `error` with `infra` starts a bounded series of at most four attempts
+(PM-1312): wait 5, 15 and 30 minutes, or immediately use the card engine's sandbox when
+available after a GitHub fault. `check-retry.ts` owns the rule. A repository circuit breaker
+opens for 30 minutes after its latest completed GitHub check reports `runner_not_acquired`
+or `service_unreachable`; it directs checks to an available engine sandbox. `verdict_missing`
+does not open it. Without a sandbox checks continue on GitHub. The remote executor's
+`sandboxReady()` probes the engine through `full_test.available`; an older engine or a failed
+probe has no fallback. Ordinary `available()` retains its existing link-only meaning there.
+The merge stays `queued` with durable `retry.at`, keeping its queue rank and priority;
+other cards can use the slot. A single scoped timer wakes the earliest retry and is rebuilt
+at startup. Train members return to the queue with the greatest member attempt count.
+Every retry writes a system note; every attempt has its own measured check row and actual runner.
+Exhaustion creates one `check_infra` block and merger notification; the existing `merge_blocked`
+signal names `check_infra` for the project manager. No card is blamed or split for infra errors.
+Other operational errors still block with `check_error`; failed checks retain the existing
+failure/send-back path. Terminal states and non-infrastructure results clear retry state;
+an explicit retry of a blocked or failed merge starts a new series.
 `endChecksIn` also stops a descriptor run by its `mergeId`, as the merge has no checkout path to match.
 A train groups only cards of the same runner (`train-selection.ts`). `merge_check_runs` records the
 `runner` and the `url` (migration 95); `list_merge_checks` shows both.
@@ -73,8 +89,8 @@ other unsuccessful job failed in its `merge-test` step; a real `merge-test` fail
 `runner_not_acquired` (`unacquired`), `verdict_missing` (the job ended without a finished `merge-test` step) and
 `service_unreachable` (a `TRANSIENT` dispatch, lookup or read failure that lasted, a run that did not appear,
 GitHub unreachable until the time limit). Permanent failures (`FATAL` codes, upstream mismatch, push,
-timeout, a descriptor the executor refuses) carry none, and the local executor never sets it. The merge still
-blocks as before; the cause is recorded and visible, and PM-1292 B builds the retry on it.
+timeout, a descriptor the executor refuses) carry none, and the local executor never sets it. The hub
+uses the classified cause for the bounded retries described above (PM-1312); unclassified errors still block.
 
 `task_merged` stands on the member who started the merge (`startedBy`, `{ kind, handle }`); a merge found
 already in the default branch stays a system event.
@@ -97,7 +113,7 @@ rowid` (`QUEUE_ORDER` in `db/task-merges.ts`; `prioritized_at` is a nullable col
 (`isConnectedOwnerActor`) only, takes a `queued` merge only
 (`merge_not_prioritizable` otherwise), sets `prioritized_at`, writes `task_merge_prioritized` (`mergeId`, `repo`,
 `reason`, `ahead`: the keys of the queued cards it went ahead of) on the card with the caller as its actor, and
-pumps the queue. The mark is cleared when the merge starts running. A merge already first changes nothing (no
+pumps the queue. The mark survives an infrastructure retry and is cleared when the merge settles. A merge already first changes nothing (no
 event). The running merge is not interrupted. The queue is on the server and the engine is not involved.
 
 **Durable train foundation (PM-659, part of PM-652).** `db/merge-trains.ts`, exposed as

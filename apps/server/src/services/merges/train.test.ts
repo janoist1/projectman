@@ -149,6 +149,38 @@ describe('merge train execution', () => {
     peerBusy = false;
     h.domain.merges.pump();
   };
+
+  it('requeues every member with the greatest retry attempt after a group infra error', async () => {
+    await setup(2, true, undefined, 'acme/web');
+    vi.mocked(executor.available).mockResolvedValue({ ok: false, reason: 'sandbox_unavailable' });
+    vi.mocked(executor.run).mockResolvedValue({ ...passed, outcome: 'error', infra: 'verdict_missing' });
+    const first = row('AR-1')!;
+    h.repos.taskMerges.save({
+      ...first,
+      retry: {
+        attempt: 2,
+        cause: 'verdict_missing',
+        at: new Date(0).toISOString(),
+        runner: 'github_actions',
+        lastRunId: 'previous',
+      },
+    });
+    pump();
+    await settled();
+    for (const key of ['AR-1', 'AR-2']) {
+      expect(row(key)).toMatchObject({
+        state: 'queued',
+        step: 'queued',
+        retry: { attempt: 3, runner: 'github_actions' },
+      });
+      expect(row(key)?.block).toBeUndefined();
+      expect(row(key)?.trainId).toBeUndefined();
+      expect(
+        h.domain.timeline.list('AR', { taskKey: key }).filter((event) => event.type === 'task_note'),
+      ).toHaveLength(1);
+    }
+    expect(executor.run).toHaveBeenCalledTimes(1);
+  });
   afterEach(async () => {
     if (h) await h.cleanup();
     remoteCheck?.close();

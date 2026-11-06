@@ -311,6 +311,7 @@ export class Merges {
           });
         this.steps.save(row, {
           trainId: undefined,
+          retry: undefined,
           ...(row.landed === 'remote' ? {} : source),
           state: 'queued',
           step: 'queued',

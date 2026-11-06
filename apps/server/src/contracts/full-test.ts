@@ -218,8 +218,10 @@ export interface FullTestRunOptions {
 }
 
 export interface FullTestExecutor {
-  /** Whether the sandbox can run here; `reason` says why not. */
+  /** Local sandbox availability, or link availability on a remote proxy; `reason` says why not. */
   available(): Promise<{ ok: true } | { ok: false; reason: string }>;
+  /** Current sandbox readiness on the executing machine; absent: use local `available()`. */
+  sandboxReady?(): Promise<boolean>;
   /**
    * Aborting the signal stops the run (the whole process group); it ends as `error` / `killed`. Never throws for a run that failed.
    * `onStarted` is called once the run got its turn in the machine's heavy-run queue (at once without

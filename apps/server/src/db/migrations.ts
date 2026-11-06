@@ -2961,4 +2961,9 @@ migrations.push({
     CREATE INDEX attachments_unsent_comment ON attachments(project_key, uploaded_by_kind, uploaded_by_handle, created_at)
       WHERE comment_upload = 1 AND comment_event_id IS NULL;`,
 });
+migrations.push({
+  version: 149,
+  name: 'merge check retries',
+  sql: `ALTER TABLE task_merges ADD COLUMN retry_json TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

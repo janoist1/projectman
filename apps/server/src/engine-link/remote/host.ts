@@ -383,8 +383,18 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
 
     const fullTestExecutor: FullTestExecutor = {
       async available() {
-        // The engine's own sandbox answers at the run; here only whether it can be reached at all.
+        // Keep ordinary availability link-only; sandboxReady probes the engine's sandbox separately.
         return hub.link(id) ? { ok: true } : { ok: false, reason: 'engine_offline' };
+      },
+      async sandboxReady() {
+        if (!hub.link(id)) return false;
+        try {
+          return (await call('full_test.available', {}, { timeoutMs: FULL_TEST_REPORT_TIMEOUT_MS })).ok;
+        } catch (err) {
+          if (!(err instanceof EngineCallError && err.linkCode === 'unknown_method'))
+            logger.info({ err, engineId: id }, 'could not probe the engine full test sandbox');
+          return false;
+        }
       },
       async run(spec, signal, onStarted, options) {
         const result = await runFullTest(spec, signal, onStarted, options);

@@ -1,4 +1,4 @@
-import { Data, Effect, FiberMap } from 'effect';
+import { Data, Effect, Exit, FiberMap } from 'effect';
 import type { Scope } from 'effect';
 import { openPrerequisites } from '@projectman/shared';
 import { prerequisiteCards } from '../../core/tasks';
@@ -9,9 +9,10 @@ import { abortable, runFork } from '../../kernel';
 import type { MergeRun } from './deps';
 import type { MergeSlotPeer } from './ports';
 import type { MergeSteps } from './steps';
+import { waitingForRetry } from './check-retry';
 
 export type MergeQueueDeps = {
-  ctx: Pick<DomainContext, 'repos' | 'logger'>;
+  ctx: Pick<DomainContext, 'repos' | 'logger' | 'now'>;
   tasks: TaskSchedulingReader & {
     find(projectKey: string, taskKey: string): Task | null | undefined;
   };
@@ -45,6 +46,7 @@ class MergeRunFailed extends Data.TaggedError('MergeRunFailed')<{ cause: unknown
 export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEffects, never, Scope.Scope> =>
   Effect.gen(function* () {
     const slots = yield* FiberMap.make<string>();
+    const timers = yield* FiberMap.make<string>();
     // State, not a Ref (docs/EFFECT.md). `pushing` is set by the steps while the merge runs.
     const active = new Map<string, MergeRun>();
     const keyOf = (run: MergeRun) => `${run.row.projectKey}:${run.row.repo}`;
@@ -81,6 +83,7 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
     const pump: Effect.Effect<void> = Effect.gen(function* () {
       if (deps.stopped()) return;
       const queued = deps.ctx.repos.taskMerges.list('queued');
+      const now = deps.ctx.now();
       // A startup leader must finish the old publication before a new candidate can use this repo.
       const recovering = new Map<string, string>();
       for (const row of queued)
@@ -89,6 +92,7 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
           if (!recovering.has(key)) recovering.set(key, row.id);
         }
       for (const row of queued) {
+        if (waitingForRetry(row, now)) continue;
         const key = `${row.projectKey}:${row.repo}`;
         if (recovering.has(key) && recovering.get(key) !== row.id) continue;
         const task = deps.tasks.find(row.projectKey, row.taskKey);
@@ -110,6 +114,16 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
           // A waiting document write takes the free slot before the next merge.
           deps.peer()?.pump();
           runFork(pump);
+        });
+      }
+      const next = queued
+        .filter((row) => waitingForRetry(row, now))
+        .reduce((earliest, row) => Math.min(earliest, Date.parse(row.retry!.at)), Infinity);
+      yield* FiberMap.remove(timers, 'retry');
+      if (Number.isFinite(next)) {
+        const timer = yield* FiberMap.run(timers, 'retry', Effect.sleep(Math.max(1, next - now.getTime())));
+        timer.addObserver((exit) => {
+          if (Exit.isSuccess(exit) && !deps.stopped()) runFork(pump);
         });
       }
     });

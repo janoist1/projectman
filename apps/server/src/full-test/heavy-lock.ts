@@ -2,6 +2,7 @@ import { machinePlaces } from '@projectman/shared';
 import { Effect, Exit, Scope } from 'effect';
 import { runPromise } from '../kernel';
 import { holderHeartbeat, waitForLock } from './heavy-lock-core';
+import { readFreshPressure } from './machine-pressure';
 import type { HeavyWait, LockWaitAborted, LockWaitTimedOut, LockQueueUnusable } from './heavy-lock-core';
 import { randomBytes } from 'node:crypto';
 import { readFileSync, rmSync } from 'node:fs';
@@ -25,7 +26,9 @@ export type { HeavyWait } from './heavy-lock-core';
  * - `holders/<ticket>.json`: a partial grant, with the places in `granted`;
  * - `holder/owner.json`: a grant of all places (`mkdir` of `holder/` is atomic). The older builds had only
  *   this one holder: their entry has no `granted` and counts as all places, and a request without `places`
- *   counts as `'all'`. A new full grant takes `holder/` too, so an older build waits behind it.
+ *   counts as `'all'`. A new full grant takes `holder/` too, so an older build waits behind it;
+ * - `pressure.json`: the engine's reading of the machine's memory pressure (`machine-pressure.ts`). While a
+ *   fresh one is `critical` the head hands out nothing; a stale or missing one holds nothing back.
  */
 
 /** `'all'` is `{ min: capacity, max: capacity }`. */
@@ -457,6 +460,8 @@ export async function acquireHeavyLock(opts: HeavyLockOptions): Promise<HeavyLoc
     }
     const used = holding.reduce((sum, h) => sum + h.granted, 0);
     const free = Math.max(0, capacity - (halfMade ? capacity : used));
+    // The engine's reading of the machine (PM-1314): a fresh critical one hands out nothing.
+    const critical = (await readFreshPressure(dir)) === 'critical';
     const waitInfo = (): Round => ({
       acquired: false,
       holder: holding[0]?.entry ?? null,
@@ -464,8 +469,9 @@ export async function acquireHeavyLock(opts: HeavyLockOptions): Promise<HeavyLoc
       ahead,
       free,
       capacity,
+      ...(critical ? { pressure: 'critical' as const } : {}),
     });
-    if (!head || free < wantMin) return waitInfo();
+    if (!head || free < wantMin || critical) return waitInfo();
     const count = Math.min(wantMax, free);
     const since = new Date().toISOString();
     const grantedEntry = { ...entry, since, granted: count };

@@ -54,6 +54,8 @@ export {
 } from './heavy-lock';
 export { defaultHeavyLockDir } from './heavy-lock-dir';
 export type { HeavyLock, HeavyLockEntry, HeavyLockOptions } from './heavy-lock';
+export { startPressureMeter } from './machine-pressure';
+export type { PressureMeter, PressureReading } from './machine-pressure';
 export { runSandboxed, srtCli } from './run-sandboxed';
 export type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
 export { createScreenshotExecutor, screenshotEnv, screenshotSettings } from './screenshots';

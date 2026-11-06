@@ -97,7 +97,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   sessions stop (their conversations stay, so a call-back resumes them), it is not picked or named
   as an assignee, a stage hand-over goes to another owner, and the messages for it wait.
 - **Duties and roles** (decision 16, [design/duties.md](design/duties.md)) — a fixed,
-  code-backed catalogue of 29 duties (implementation, code review, testing and acceptance,
+  code-backed catalogue of 28 duties (implementation, code review, testing and acceptance,
   release approval, …) defines who may hold them, the English prompt fragment an AI holder
   receives and its tool policy. A **role** is a named bundle of duties: 21 built-in roles with
   default bundles (`team.roleOverrides` replaces one) and custom roles defined in `team.yaml`.

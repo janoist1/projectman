@@ -197,7 +197,6 @@ describe('reserved mutation effects (PM-759)', () => {
         }),
       null,
     ],
-    ['approval waiver', (c: ProjectConfig): unknown => (c.team.operatorApprovalWaiver = true), 'security'],
     [
       'new paid member',
       (c: ProjectConfig) => {
@@ -277,10 +276,10 @@ describe('reserved mutation effects (PM-759)', () => {
   it('uses deterministic precedence and refuses unknown or incomplete projections', () => {
     const next = structuredClone(config());
     next.team.members.pop();
-    next.team.operatorApprovalWaiver = true;
+    next.team.boundary = { enabled: true, leadTimeoutSeconds: 120 };
     expect(ownerReservedEffect(config(), { kind: 'config_change', next })).toBe('deletion');
     const securityAndCost = structuredClone(config());
-    securityAndCost.team.operatorApprovalWaiver = true;
+    securityAndCost.team.boundary = { enabled: true, leadTimeoutSeconds: 120 };
     securityAndCost.team.limits.aiEnabled = true;
     const paidDev = securityAndCost.team.members.find((m) => m.kind === 'ai')!;
     if (paidDev.kind === 'ai') paidDev.provider = 'nanogpt';

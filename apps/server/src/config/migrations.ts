@@ -369,6 +369,60 @@ function removeOperator(raw: unknown, { projectKey, logger }: MigrationContext):
 }
 
 /**
+ * The owner-only `team.operatorApprovalWaiver` switch is gone (PM-1259): nothing ever read it, so the stored
+ * value is dropped. Idempotent.
+ */
+function dropApprovalWaiver(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (!team || !('operatorApprovalWaiver' in team)) return raw;
+  delete team.operatorApprovalWaiver;
+  logger.warn({ projectKey }, 'Dropped the removed Operator approval waiver setting');
+  return raw;
+}
+
+/**
+ * The `project_operation` duty is gone (PM-1259): no built-in role held it and its only text was the
+ * Operator's own rule. It leaves the duties of the custom roles, the role overrides and the complexity
+ * setters, and a stage no longer names it. A label only that duty could set falls to the system, so no one
+ * gains the right (an empty `setBy` does not parse). Idempotent.
+ */
+function dropProjectOperationDuty(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const RETIRED = 'project_operation';
+  const fields: string[] = [];
+  const without = (owner: Record<string, unknown> | undefined, field: string, label: string) => {
+    const list = owner?.[field];
+    if (!owner || !Array.isArray(list) || !list.includes(RETIRED)) return;
+    owner[field] = list.filter((duty) => duty !== RETIRED);
+    fields.push(label);
+  };
+  const config = asRecord(raw);
+  const team = asRecord(config?.team);
+  if (Array.isArray(team?.roles))
+    for (const role of team.roles.map(asRecord)) without(role, 'duties', 'roles.duties');
+  for (const bundle of Object.values(asRecord(team?.roleOverrides) ?? {}))
+    without(asRecord(bundle), 'duties', 'roleOverrides.duties');
+  without(team, 'complexitySetters', 'complexitySetters');
+  const pipeline = asRecord(config?.pipeline);
+  if (Array.isArray(pipeline?.stages))
+    for (const stage of pipeline.stages.map(asRecord)) {
+      if (stage?.duty !== RETIRED) continue;
+      delete stage.duty;
+      fields.push('stages.duty');
+    }
+  if (Array.isArray(pipeline?.labels))
+    for (const label of pipeline.labels.map(asRecord)) {
+      const setBy = asRecord(label?.setBy);
+      if (!label || !setBy) continue;
+      without(setBy, 'duties', 'labels.setBy.duties');
+      if (Array.isArray(setBy.duties) && !setBy.duties.length) delete setBy.duties;
+      if (!setBy.duties && !(Array.isArray(setBy.members) && setBy.members.length)) label.setBy = 'system';
+    }
+  if (fields.length)
+    logger.warn({ projectKey, fields: [...new Set(fields)] }, 'Dropped the removed project operation duty');
+  return raw;
+}
+
+/**
  * A project without a merger (PM-470) gets the one its pipeline implies: the code reviewer when a code
  * review stage comes before the merge target, else the developer. A configuration that does not parse is
  * left alone: at run time the same rule (`mergerOf`) applies to the missing value.
@@ -414,6 +468,8 @@ function addTempMaxPoints(raw: unknown): unknown {
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
  *   - invalid project document paths are dropped with a warning (above);
+ *   - the removed Operator approval waiver setting and the removed `project_operation` duty are dropped
+ *     (above, PM-1259);
  *   - a custom role with a built-in role's id becomes that role's override (above);
  *   - the removed `scheduled` AI role becomes `maintainer` (above);
  *   - a Codex member in `bypassPermissions` becomes `acceptEdits` (above);
@@ -438,6 +494,8 @@ function addTempMaxPoints(raw: unknown): unknown {
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
   raw = dropInvalidDocPaths(raw, context);
+  raw = dropApprovalWaiver(raw, context);
+  raw = dropProjectOperationDuty(raw, context);
   return addTempMaxPoints(
     addFeedbackProcessing(
       addMerger(

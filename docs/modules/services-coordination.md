@@ -31,9 +31,9 @@ stays taken for good: older events and messages name it.
   (`packages/shared/src/config/operator.ts`) compares the end results of a configuration change and returns the rows
   (`ConfigChangeRow`: area, target, field, before, after, level) and the highest `OperatorLevel`: `now`, `never` or
   `approval`. Everything not named is `approval`, so a new configuration field is closed until a rule opens it.
-  `integratorConfigRefusal` and `ownerOnlyChanges` name more that is at least `approval`. The verdict also returns
-  `waiverEligible`; the setting `team.operatorApprovalWaiver` (optional, owner-only, stored in `team.yaml`) is read by
-  nothing at run time and changes no behavior. Both are still computed and shown; the rules run on the server.
+  `integratorConfigRefusal` and `ownerOnlyChanges` name more that is at least `approval`. The rules run on the
+  server. (The approval waiver setting `team.operatorApprovalWaiver`, with the verdict's `waiverEligible`, was
+  removed in PM-1259: nothing read it. A configuration migration drops the field from older configurations.)
 - **Targeted configuration edits.** `get_role_configuration` reads one built-in role (the version, the stored override
   or `null`, the effective full bundle) and needs an open owner request. A `config_patch` command can replace only
   named roles (`roleOverrides`; `null` resets one) or label entries (`labels`: `name`, `color`, `meaning` per label id);

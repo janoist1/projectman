@@ -16,8 +16,9 @@ export const ActorCredential = z.object({
 export type ActorCredential = z.infer<typeof ActorCredential>;
 
 /**
- * The credential prefix of the in-app Operator on the shared super-operation path (decision 55, PM-888):
- * its credential id is the Operator session's id, and no stored key stands behind it.
+ * The credential prefix of the project manager's `operate` tool on the shared super-operation path
+ * (decision 55, PM-888): its credential id is the project manager session's id, and no stored key stands
+ * behind it.
  */
 export const OPERATOR_APP_CREDENTIAL_PREFIX = 'operator-app';
 

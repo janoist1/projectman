@@ -5,8 +5,6 @@ export function createProjectService(deps: ConstructorParameters<typeof ProjectS
 import { isAbsolute } from 'node:path';
 import {
   canCreateProject,
-  hasOperatorWaiverField,
-  operatorWaiverChanged,
   DEFAULT_PROJECT_LANGUAGE,
   ProjectConfig,
   applyConfigPatch,
@@ -37,7 +35,6 @@ import type {
   ProjectSummary,
   BoundActor,
   OperatorOperation,
-  OperatorApprovalWaiverRequest,
   UiLanguage,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../../config';
@@ -50,12 +47,7 @@ import { conflict, DomainError, forbidden, invalid, notFound } from '../../kerne
 import { createSuperAuditService } from '../timeline';
 import type { SuperAuditService, TimelineService } from '../timeline';
 import { humanActor, KeyedMutex } from '../../kernel';
-import {
-  assertIntegratorAccess,
-  assertOwnApproval,
-  authorizeSuperMutation,
-  integratorExecution,
-} from '../../kernel';
+import { assertIntegratorAccess, authorizeSuperMutation, integratorExecution } from '../../kernel';
 
 export interface LoadedProject {
   config: ProjectConfig;
@@ -136,7 +128,6 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   review_test: 'only an owner may change the full test of a repository',
   compute_jobs: 'only an owner may change the compute jobs of a repository',
   operator_watch: 'only an owner may change how much the Operator does on its own on a signal',
-  operator_approval_waiver: 'only an owner may change the Operator approval waiver',
   task_create_access: 'only an owner may change who may open new cards',
   owner_decision_topics: 'only an owner may change the topics AI members may ask the owner to decide',
 };
@@ -240,43 +231,9 @@ export class ProjectService {
   private readonly versionCache = new Map<string, ProjectConfig | null>();
   private readonly locks = new KeyedMutex();
   private agreementVersion?: (key: string) => Promise<number | null>;
-  private readonly waiverEdits = new WeakSet<ConfigChangeMeta>();
 
   useAgreementVersion(agreementVersion: (key: string) => Promise<number | null>): void {
     this.agreementVersion = agreementVersion;
-  }
-
-  async setOperatorApprovalWaiver(key: string, input: OperatorApprovalWaiverRequest, meta: ConfigEditMeta) {
-    assertOwnApproval(meta.actor);
-    return this.locks.run(`config:${key}`, async () => {
-      const current = await this.load(key);
-      const person = memberOf(current.config, meta.actor.handle);
-      if (
-        meta.actor.kind !== 'human' ||
-        meta.actor.via ||
-        meta.author.via ||
-        person?.kind !== 'human' ||
-        person.access !== 'owner'
-      )
-        throw forbidden(
-          'owner_approval_required',
-          'only an owner using their own login may change the waiver',
-        );
-      if (current.version !== input.baseVersion) throw conflict('config_conflict', 'configuration changed');
-      const agreementVersion = await this.agreementVersion?.(key);
-      if (input.enabled && agreementVersion !== input.agreementVersion)
-        throw conflict('operator_knowledge_stale', 'the approved agreement changed or is missing');
-      const next = structuredClone(current.config);
-      next.team.operatorApprovalWaiver = input.enabled;
-      const commit = { actor: meta.actor, author: meta.author, message: 'Update Operator approval waiver' };
-      this.waiverEdits.add(commit);
-      const saved = await this.commitLocked(key, current, next, commit);
-      return {
-        version: saved.version,
-        enabled: input.enabled,
-        agreementVersion: agreementVersion ?? input.agreementVersion,
-      };
-    });
   }
 
   constructor(deps: {
@@ -506,8 +463,6 @@ export class ProjectService {
     patch: PatchConfigRequest,
     meta: Omit<ConfigEditMeta, 'message' | 'expectedVersion'>,
   ): Promise<LoadedProject> {
-    if (hasOperatorWaiverField(patch))
-      throw forbidden('owner_approval_required', 'use the dedicated owner waiver endpoint');
     return this.edit(
       key,
       { ...meta, message: patch.message, expectedVersion: patch.baseVersion },
@@ -657,11 +612,6 @@ export class ProjectService {
     meta: Pick<ConfigChangeMeta, 'actor' | 'author' | 'invitationBinding'>,
   ): Promise<void> {
     const executingOwner = assertIntegratorAccess(previous, 'write', meta.actor);
-    if (operatorWaiverChanged(previous, next) && !this.waiverEdits.has(meta as ConfigChangeMeta))
-      throw forbidden(
-        'owner_approval_required',
-        'the waiver can only change through its dedicated owner endpoint',
-      );
     const member = memberOf(previous, meta.actor.handle);
     if (hasBoundOrigin(meta.actor)) {
       // A step in the Operator's super mode (PM-757), or the connected Claude's direct instruction (decision 66):

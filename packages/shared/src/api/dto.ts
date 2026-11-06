@@ -1481,19 +1481,6 @@ export const ConfigHistoryQuery = z.object({
 });
 export type ConfigHistoryQuery = z.infer<typeof ConfigHistoryQuery>;
 
-export const OperatorApprovalWaiverRequest = z.strictObject({
-  baseVersion: z.string(),
-  enabled: z.boolean(),
-  agreementVersion: z.number().int().min(1),
-});
-export type OperatorApprovalWaiverRequest = z.infer<typeof OperatorApprovalWaiverRequest>;
-export const OperatorApprovalWaiverResponse = z.object({
-  version: z.string(),
-  enabled: z.boolean(),
-  agreementVersion: z.number().int().min(1),
-});
-export type OperatorApprovalWaiverResponse = z.infer<typeof OperatorApprovalWaiverResponse>;
-
 export const RevertConfigRequest = z.object({ version: z.string() });
 export type RevertConfigRequest = z.infer<typeof RevertConfigRequest>;
 

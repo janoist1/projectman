@@ -451,8 +451,6 @@ export const ProjectConfig = z.object({
   }),
   team: z.object({
     operatorWatch: OperatorWatch.optional(),
-    /** Owner-controlled approval waiver; absent means every approval still needs a click. */
-    operatorApprovalWaiver: z.boolean().optional(),
     cardMover: CardMover.optional(),
     /** Lowest human access that may open a new card (PM-1100); absent: its `TEAM_SETTING_POLICY` default. */
     taskCreateAccess: TaskCreateAccess.optional(),

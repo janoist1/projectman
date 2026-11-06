@@ -207,7 +207,7 @@ describe('targeted Operator label patches', () => {
 
 describe('duty bundles', () => {
   it('has a fixed catalogue, English fragments, integration metadata and derived eligibility', () => {
-    expect(DUTY_IDS).toHaveLength(29);
+    expect(DUTY_IDS).toHaveLength(28);
     for (const id of DUTY_IDS) {
       expect(DUTIES[id].id).toBe(id);
       if (DUTIES[id].holders !== 'human') expect(DUTIES[id].prompt).not.toBe('');

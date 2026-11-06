@@ -30,7 +30,6 @@ import {
   canonical,
   canReadOperatorKnowledge,
   DEFAULT_OPERATOR_PREFERENCE,
-  OperatorApprovalWaiverRequest,
   OperatorKnowledgeDocument,
   OperatorPreferenceDocument,
   operatorKnowledgeApprovalOf,
@@ -111,8 +110,6 @@ import {
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
-  hasOperatorWaiverField,
-  operatorWaiverChanged,
   unknownPatchRepo,
   approvalRefusal,
   attachmentPreviewOf,
@@ -2922,23 +2919,6 @@ export class MockBackend {
               })),
           });
     }
-    if (rest === '/operator/approval-waiver' && method === 'PUT') {
-      if (this.viewerAccess() !== 'owner')
-        return error(403, 'owner_approval_required', 'Owner login required');
-      const input = parseBody(OperatorApprovalWaiverRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid waiver request');
-      if (input.baseVersion !== this.configVersion)
-        return error(409, 'config_conflict', 'Configuration changed');
-      if (input.agreementVersion !== this.operatorKnowledge.agreement?.version)
-        return error(409, 'operator_knowledge_stale', 'Agreement changed');
-      this.config.team.operatorApprovalWaiver = input.enabled;
-      this.configVersion = mockId('config');
-      return ok({
-        version: this.configVersion,
-        enabled: input.enabled,
-        agreementVersion: input.agreementVersion,
-      });
-    }
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
     if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
@@ -3355,8 +3335,6 @@ export class MockBackend {
           effect,
         });
     }
-    if (operatorWaiverChanged(this.config, next))
-      return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind !== 'human' || !['owner', 'admin'].includes(viewer.access))
       return error(403, 'insufficient_access', 'Requires admin access');
@@ -3410,8 +3388,6 @@ export class MockBackend {
   }
 
   private patchConfig(body: unknown): MockResponse {
-    if (hasOperatorWaiverField(body))
-      return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const member = memberOf(this.config, this.viewerHandle);
     if (member?.kind !== 'human' || !['owner', 'admin'].includes(member.access)) {
       return error(403, 'insufficient_access', 'Requires admin access');
@@ -5913,8 +5889,6 @@ export class MockBackend {
 
   /** Hires an AI member with the role's defaults, named and handled like the server does. */
   private hire(body: unknown): MockResponse {
-    if (hasOperatorWaiverField(body))
-      return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const input = parseBody(HireMemberRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid hire request');
     const failure = this.validateRole(input.role, 'ai');

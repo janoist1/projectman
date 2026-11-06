@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, OperatorKnowledgeApprovalPayload } from '@projectman/shared';
 import { DEFAULT_OPERATOR_PREFERENCE } from '@projectman/shared';
@@ -93,10 +93,6 @@ function proposal(
     resolution: null,
   };
 }
-const toggle = () => screen.findByRole('switch', { name: t('knowledge.waiver.title') });
-const puts = (project: ReturnType<typeof setup>) =>
-  project.requests.filter((request) => request.method === 'PUT');
-
 describe('Operator knowledge view', () => {
   it('reads the agreement and personal style, and prefills edits without sending', async () => {
     const project = setup();
@@ -163,88 +159,6 @@ describe('Operator knowledge view', () => {
     expect(screen.queryByRole('button', { name: t('knowledge.rewrite') })).toBeNull();
     fireEvent.click(screen.getByText(t('knowledge.others', { count: 1 })));
     expect(await screen.findByText(/Részletes ·/)).toBeTruthy();
-  });
-
-  it('requires an agreement before enabling the waiver', async () => {
-    const project = setup();
-    project.backend.operatorKnowledge.agreement = null;
-    renderView(project);
-    expect(((await toggle()) as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(t('knowledge.emptyOwner'))).toBeTruthy();
-  });
-
-  it('keeps the old value while saving, confirms once and accepts only the server value', async () => {
-    const project = setup();
-    const transport = createMockFetch(project.backend, project.requests);
-    let finish: (() => void) | undefined;
-    setFetchImplementation(async (path, init) => {
-      if (init?.method === 'PUT')
-        await new Promise<void>((resolve) => {
-          finish = resolve;
-        });
-      return transport(path, init);
-    });
-    renderView(project);
-    const control = await toggle();
-    fireEvent.click(control);
-    const dialog = screen.getByRole('dialog');
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        within(dialog).getByRole('button', { name: t('knowledge.waiver.cancel') }),
-      ),
-    );
-    const confirm = within(dialog).getByRole('button', { name: t('knowledge.waiver.enable') });
-    fireEvent.click(confirm);
-    fireEvent.click(confirm);
-    expect((control as HTMLInputElement).checked).toBe(false);
-    expect((control as HTMLInputElement).disabled).toBe(true);
-    finish?.();
-    await waitFor(() => expect((control as HTMLInputElement).checked).toBe(true));
-    expect(puts(project)).toHaveLength(1);
-    expect(puts(project)[0]!.body).toEqual({
-      baseVersion: expect.any(String),
-      enabled: true,
-      agreementVersion: 2,
-    });
-    await waitFor(() => expect(document.activeElement).toBe(control));
-  });
-
-  it('disables immediately and uses the returned value even when it differs from the request', async () => {
-    const project = setup();
-    project.backend.config.team.operatorApprovalWaiver = true;
-    const transport = createMockFetch(project.backend, project.requests);
-    setFetchImplementation(async (path, init) => {
-      const result = await transport(path, init);
-      if (init?.method !== 'PUT') return result;
-      project.backend.config.team.operatorApprovalWaiver = true;
-      return new Response(
-        JSON.stringify({ version: project.backend.configVersion, enabled: true, agreementVersion: 2 }),
-        { status: 200 },
-      );
-    });
-    renderView(project);
-    const control = await toggle();
-    fireEvent.click(control);
-    await waitFor(() => expect(puts(project)).toHaveLength(1));
-    await waitFor(() => expect((control as HTMLInputElement).disabled).toBe(false));
-    expect((control as HTMLInputElement).checked).toBe(true);
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(puts(project)[0]!.body).toMatchObject({ enabled: false });
-  });
-
-  it('refreshes after a conflict without retrying or enabling', async () => {
-    const project = setup();
-    renderView(project);
-    const control = await toggle();
-    fireEvent.click(control);
-    project.backend.operatorKnowledge.agreement!.version = 3;
-    fireEvent.click(screen.getByRole('button', { name: t('knowledge.waiver.enable') }));
-    expect((await screen.findByRole('alert')).textContent).toContain(t('knowledge.waiver.conflict'));
-    expect((control as HTMLInputElement).checked).toBe(false);
-    expect(puts(project)).toHaveLength(1);
-    expect(project.requests.filter((request) => request.path.endsWith('/operator/knowledge'))).toHaveLength(
-      2,
-    );
   });
 
   it('keeps the personal style visible when shared knowledge fails', async () => {

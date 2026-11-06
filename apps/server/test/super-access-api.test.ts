@@ -603,14 +603,6 @@ describe('credential REST and domain access (PM-759)', () => {
     });
     expect(approval.statusCode, approval.body).toBe(200);
     expect(domain.tasks.get('AR', task.key).labels).toEqual(['merge-ok']);
-    const waiver = await h.app.inject({
-      method: 'PUT',
-      url: routes.operatorApprovalWaiver('AR'),
-      headers,
-      payload: { enabled: true, baseVersion: policy.json().version, agreementVersion: 1 },
-    });
-    expect(waiver.statusCode).toBe(403);
-    expect(waiver.json().error.code).toBe('owner_approval_required');
   });
 
   it('keeps permission decisions exclusive to a person at REST and domain entry', async () => {

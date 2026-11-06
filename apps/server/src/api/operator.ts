@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
   routes,
-  OperatorApprovalWaiverRequest,
   canReadOperatorKnowledge,
   OwnerQuestionsQuery,
   SuperAuditQuery,
@@ -15,24 +14,13 @@ import type {
 } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
-import { requireAccess, actorOf, authorOf } from './context';
+import { requireAccess } from './context';
 import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 
 export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: ApiDomain }): void {
   const { domain } = deps;
-  app.put<ProjectParams>(routes.operatorApprovalWaiver(':key'), async (request) => {
-    const key = request.params.key;
-    const access = await requireAccess(domain, request, key);
-    if (access.via || access.access !== 'owner')
-      throw forbidden('owner_approval_required', 'only an owner using their own login may change the waiver');
-    const input = parseBody(OperatorApprovalWaiverRequest, request.body);
-    return domain.projects.setOperatorApprovalWaiver(key, input, {
-      actor: actorOf(access),
-      author: authorOf(request, access),
-    });
-  });
   /** The super mode's audit (PM-757): the owner's own login reads it by token prefix; never a key. */
   app.get<ProjectParams>(routes.operatorSuperAudit(':key'), async (request): Promise<SuperAuditPage> => {
     const key = request.params.key;

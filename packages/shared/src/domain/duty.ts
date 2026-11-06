@@ -28,7 +28,6 @@ export const DUTY_IDS = [
   'process_improvement',
   'research',
   'final_decision',
-  'project_operation',
   'feedback_processing',
 ] as const;
 export const DutyId = z.enum(DUTY_IDS);
@@ -344,17 +343,6 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'team',
     holders: 'human',
     prompt: '',
-    toolPolicy: 'read_only',
-    meetings: [],
-    events: [],
-    recommended: false,
-  },
-  project_operation: {
-    id: 'project_operation',
-    group: 'direction',
-    holders: 'ai',
-    prompt:
-      "Carry out the owner's requests as the owner's right hand inside the app; the Operator's own rule says how.",
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

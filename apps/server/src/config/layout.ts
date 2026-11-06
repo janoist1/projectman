@@ -40,7 +40,6 @@ export function splitProjectConfig(config: ProjectConfig): Record<ProjectFileNam
       contacts: config.team.contacts?.length ? config.team.contacts : undefined,
       viewerRecipients: config.team.viewerRecipients,
       operatorWatch: config.team.operatorWatch,
-      operatorApprovalWaiver: config.team.operatorApprovalWaiver,
       boundary: config.team.boundary,
     }),
     'pipeline.yaml': yaml({
@@ -98,9 +97,6 @@ export function mergeProjectFiles(files: Record<ProjectFileName, unknown>): unkn
       contacts: team.contacts,
       viewerRecipients: team.viewerRecipients,
       ...(team.operatorWatch !== undefined ? { operatorWatch: team.operatorWatch } : {}),
-      ...(team.operatorApprovalWaiver !== undefined
-        ? { operatorApprovalWaiver: team.operatorApprovalWaiver }
-        : {}),
       boundary: team.boundary,
       limits: asRecord(project.team).limits ?? {},
     },

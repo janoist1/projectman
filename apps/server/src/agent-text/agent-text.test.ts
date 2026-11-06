@@ -107,6 +107,34 @@ describe('links', () => {
 
 describe('describeEvent', () => {
   it.each([
+    { text: 'With text', comment: false },
+    { text: 'With text', comment: true },
+    { text: '', comment: true },
+    { text: 'Reply', comment: true, replyTo: 'evt_top' },
+    {
+      text: 'Imported',
+      comment: true,
+      replyTo: 'evt_top',
+      importedAuthor: 'Dani',
+      importedAt: '2026-03-02T09:15:00.000Z',
+    },
+  ])('keeps comment framing with files for %j', (data) => {
+    const note = event('task_note', {
+      ...data,
+      attachments: [
+        { id: 'att_commentfile1', fileName: 'a.png' },
+        { id: 'att_commentfile2', fileName: 'b.pdf', gone: true },
+      ],
+    });
+    const out = describeEvent(note, 280);
+    expect(out).toContain('files: att_commentfile1 "a.png", att_commentfile2 "b.pdf" (deleted)');
+    if (data.comment) expect(out).toContain(note.id);
+    else expect(out).toMatch(/^note:/);
+    if (data.replyTo) expect(out).toContain(`to comment ${data.replyTo}`);
+    if (data.importedAuthor) expect(out).toContain(data.importedAuthor);
+    expect(out.includes(' · files:')).toBe(data.text.length > 0);
+  });
+  it.each([
     [{ points: 5, reason: 'two modules', previous: null }, ['5', 'two modules']],
     [{ points: null, reason: null, previous: { points: 8, reason: null } }, ['removed', '8']],
   ])('describes a complexity change: %j', (data, required) => {

@@ -712,6 +712,38 @@ describe('formatTaskDetail', () => {
     expect(out).not.toContain('Timeline (oldest first)');
   });
 
+  it('shows comment files in both the event view and the attachment list', () => {
+    const detail = sampleTaskDetail();
+    const file = {
+      id: 'att_commentfile1',
+      fileName: 'a.pdf',
+      size: 4,
+      mediaType: 'application/pdf',
+      preview: 'pdf' as const,
+    };
+    const event = note(5, 'With file');
+    event.data.attachments = [{ ...file, gone: true }];
+    expect(formatTaskDetail({ ...detail, event })).toContain(`${file.id} "a.pdf" (deleted)`);
+    const listed = formatTaskDetail({
+      ...detail,
+      attachments: {
+        total: 1,
+        offset: 0,
+        attachments: [
+          {
+            ...file,
+            projectKey: 'AR',
+            taskKey: detail.task.key,
+            uploadedBy: event.actor,
+            createdAt: event.createdAt,
+            comment: { eventId: event.id },
+          },
+        ],
+      },
+    });
+    expect(listed).toContain(`in comment ${event.id}`);
+  });
+
   it('shows a longer description in parts and says what is missing and how to read it', () => {
     const detail = sampleTaskDetail();
     detail.task.description = `${'a'.repeat(20_000)}${'b'.repeat(5_000)}`;

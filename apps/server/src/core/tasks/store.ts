@@ -40,7 +40,7 @@ import type { TaskPatch } from '../../db';
 import { mergeState, mergedState } from '../../db';
 import type { DomainContext } from '../base';
 import { requireHuman } from '../members';
-import { forbidden, invalid, notFound } from '../../kernel';
+import { DomainError, forbidden, invalid, notFound } from '../../kernel';
 import { assertIntegratorAccess, assertOwnApproval } from '../../kernel';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
@@ -429,23 +429,48 @@ export class TaskStore {
     place: NotePlace,
     extra: NoteExtra = {},
   ): TimelineEvent {
-    const { clientRequestId, replyTo, ...imported } = extra;
-    if (clientRequestId !== undefined) {
-      const first = this.timeline.noteByClientRequest(task.projectKey, task.key, actor, clientRequestId);
-      if (first) return first;
-    }
-    const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
-    if (isImported) assertOwnApproval(actor);
-    // One level of replies: an answer to a reply lands on the reply's parent.
-    const parent = replyTo === undefined ? undefined : this.replyParent(task, replyTo);
-    const mentions = commentMentions(
-      text,
-      config.team.members.map((member) => member.handle),
-      actor.handle,
-    );
-    // The note, the mention items it opens and the ones its reply closes stand or fall together (PM-1307).
-    const event = this.ctx.unitOfWork(() => {
-      const appended = this.timeline.append({
+    return this.ctx.unitOfWork(() => {
+      const { clientRequestId, replyTo, attachmentIds, ...imported } = extra;
+      if (clientRequestId !== undefined) {
+        const first = this.timeline.noteByClientRequest(task.projectKey, task.key, actor, clientRequestId);
+        if (first) return first;
+      }
+      const coverBefore = attachmentIds?.length ? this.cover(task) : null;
+      const files = (attachmentIds ?? []).map((id) => {
+        const file = this.ctx.repos.attachments.get(id);
+        if (
+          !file ||
+          file.projectKey !== task.projectKey ||
+          file.taskKey !== task.key ||
+          file.state !== 'ready' ||
+          !file.commentUpload ||
+          file.commentEventId !== null ||
+          file.uploadedBy.kind !== actor.kind ||
+          file.uploadedBy.handle !== actor.handle
+        ) {
+          throw new DomainError('comment_attachment_unavailable', 'comment file is unavailable', {
+            status: 409,
+            details: { id },
+          });
+        }
+        return {
+          id,
+          fileName: file.fileName,
+          size: file.size,
+          mediaType: file.mediaType,
+          preview: file.preview,
+        };
+      });
+      const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
+      if (isImported) assertOwnApproval(actor);
+      // One level of replies: an answer to a reply lands on the reply's parent.
+      const parent = replyTo === undefined ? undefined : this.replyParent(task, replyTo);
+      const mentions = commentMentions(
+        text,
+        config.team.members.map((member) => member.handle),
+        actor.handle,
+      );
+      const event = this.timeline.append({
         projectKey: task.projectKey,
         taskKey: task.key,
         sessionId,
@@ -454,15 +479,31 @@ export class TaskStore {
         data: {
           text,
           mentions,
+          ...(files.length ? { attachments: files } : {}),
           ...imported,
           comment: place === 'comment' || parent !== undefined,
           ...(parent !== undefined ? { replyTo: parent } : {}),
           ...(clientRequestId !== undefined ? { clientRequestId } : {}),
         },
       });
-      if (isImported) return appended;
+      if (files.length) {
+        for (const file of files) {
+          if (this.ctx.repos.attachments.bindToComment(file.id, event.id) !== 1)
+            throw new DomainError('comment_attachment_unavailable', 'comment file is unavailable', {
+              status: 409,
+              details: { id: file.id },
+            });
+        }
+        this.ctx.bus.publish({
+          type: 'task_attachments_changed',
+          projectKey: task.projectKey,
+          taskKey: task.key,
+        });
+        if (this.cover(task) !== coverBefore) this.publish(task);
+      }
+      if (isImported) return event;
       // A comment starts its own thread; a reply belongs to its parent's; a process note has none.
-      const threadId = parent ?? (place === 'comment' ? appended.id : null);
+      const threadId = parent ?? (place === 'comment' ? event.id : null);
       const targets = mentionItemTargets({ config, author: actor, mentions, imported: false });
       if (targets.length > 0)
         this.mentions.openMentions({
@@ -474,7 +515,7 @@ export class TaskStore {
           text,
           targets,
           payload: {
-            eventId: appended.id,
+            eventId: event.id,
             place: parent !== undefined ? 'reply' : place === 'comment' ? 'comment' : 'note',
             threadId,
           },
@@ -485,12 +526,11 @@ export class TaskStore {
           taskKey: task.key,
           author: actor,
           threadId: parent,
-          at: appended.createdAt,
+          at: event.createdAt,
         });
-      return appended;
+      effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions, task }));
+      return event;
     });
-    if (!isImported) effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions, task }));
-    return event;
   }
 
   /** The comment a reply to `target` lands on; 400 `reply_target_invalid` unless it is a comment of this card. */
@@ -517,7 +557,7 @@ export type NotePlace = 'comment' | 'process';
 export type NoteExtra = Pick<
   CreateTaskCommentRequest,
   'importedAuthor' | 'importedAt' | 'replyTo' | 'clientRequestId'
->;
+> & { attachmentIds?: readonly string[] };
 
 /** The stage with this id, or 400 unknown_stage. */
 export function requireStage(config: ProjectConfig, stageId: string): Stage {

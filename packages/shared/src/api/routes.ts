@@ -130,6 +130,9 @@ export const routes = {
 
   /** GET lists, POST uploads one file (multipart/form-data, field "file"). */
   taskAttachments: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/attachments`,
+  /** POST uploads a file for a comment; returns UploadAttachmentResponse. */
+  taskCommentAttachments: (key: string, taskKey: string) =>
+    `/api/projects/${key}/tasks/${taskKey}/comment-attachments`,
   /** DELETE removes the attachment. */
   taskAttachment: (key: string, taskKey: string, id: string) =>
     `/api/projects/${key}/tasks/${taskKey}/attachments/${id}`,

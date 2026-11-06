@@ -1776,6 +1776,8 @@ export const hu = {
       merge_fix_engine_mismatch: 'A javító munkafának a kártya motorján kell lennie.',
       task_not_merged: 'A jóváhagyott commit még nincs a fő ágban.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
+      comment_attachment_unavailable: 'Egy hozzászólásfájl már nem érhető el: vedd ki, és csatold újra.',
+      comment_attachment_limit: 'Projektenként legfeljebb 20 el nem küldött hozzászólásfájlod lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
       document_not_found: 'Nincs ilyen dokumentum vagy változat.',
       document_conflict:

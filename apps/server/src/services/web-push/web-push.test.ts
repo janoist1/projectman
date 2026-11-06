@@ -257,6 +257,29 @@ describe('web push service', () => {
     });
 
     it.each([
+      ['hu', 1],
+      ['en', 2],
+    ] as const)('counts file-only comments in %s without sending file names', async (language, count) => {
+      repos.users.setLanguage(user.id, language);
+      subscribe();
+      comment.data = {
+        text: '',
+        attachments: Array.from({ length: count }, (_, i) => ({
+          id: `att_commentfile${i}`,
+          fileName: 'Private name',
+        })),
+      };
+      await service.onNote(comment, [], task);
+      const payload = PushPayload.parse(JSON.parse(transport.calls[0]!.payload));
+      const files = getLocale(language).webPush.files;
+      expect(payload.body).toBe(
+        `AR-1 · ${count === 1 ? files.one : files.many.replace('{n}', String(count))}`,
+      );
+      expect(transport.calls[0]!.payload).not.toContain('Private name');
+      expect(transport.calls[0]!.payload).not.toContain('dani');
+    });
+
+    it.each([
       ['their own comment', {}, 1],
       ['an imported comment', { importedAuthor: 'Dani', importedAt: '2026-03-02T09:15:00.000Z' }, 0],
     ])('tells the author of %s about an AI member’s reply (PM-1275)', async (_, imported, sent) => {
@@ -272,6 +295,31 @@ describe('web push service', () => {
         task,
       );
       expect(transport.calls).toHaveLength(sent);
+    });
+
+    it('notifies the parent author about a file-only reply with a file count', async () => {
+      subscribe();
+      repos.timeline.insert({
+        ...noteBy({ kind: 'human', handle: 'owner' }),
+        id: 'evt_files_parent',
+        data: { text: 'Question' },
+      });
+      await service.onNote(
+        {
+          ...noteBy({ kind: 'ai', handle: 'dev' }),
+          data: {
+            text: '',
+            replyTo: 'evt_files_parent',
+            attachments: [{ id: 'att_commentfile1', fileName: 'Private name' }],
+          },
+        },
+        [],
+        task,
+      );
+      expect(transport.calls).toHaveLength(1);
+      const payload = PushPayload.parse(JSON.parse(transport.calls[0]!.payload));
+      expect(payload.body).toBe(`AR-1 · ${getLocale('hu').webPush.files.one}`);
+      expect(transport.calls[0]!.payload).not.toContain('Private name');
     });
 
     it.each(['categories', 'viewing', 'quiet'] as const)('is not sent while %s block it', async (reason) => {

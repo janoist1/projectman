@@ -2226,6 +2226,7 @@ export function createDomain(opts: DomainOptions) {
 
   let sweeps: RunningSweeps | undefined;
   let stopMessageSweep: (() => void) | undefined;
+  let stopCommentSweep: (() => void) | undefined;
 
   /** What the engine's settings view counts (PM-315): its sessions and what waits for it. */
   const engineCounters = (id: EngineId): EngineCounters => ({
@@ -2375,6 +2376,7 @@ export function createDomain(opts: DomainOptions) {
       }
       // Uploads no message took within a day are deleted (now, and hourly).
       stopMessageSweep = messageAttachments.startSweeping();
+      stopCommentSweep = attachments.startSweeping();
       emailChannel.start();
       emailQueue?.start();
       githubSync.start();
@@ -2569,6 +2571,7 @@ export function createDomain(opts: DomainOptions) {
       unsubscribeSignalActivity();
       usage.stop();
       stopMessageSweep?.();
+      stopCommentSweep?.();
       emailChannel.stop();
       await emailQueue?.stop();
       const drained = schedules.stop();

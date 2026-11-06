@@ -1791,6 +1791,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   **Module:** `engine-host`
 
 - **Card attachments (PM-644)** — `core/attachments/attachments/{service,storage,thumbnail}.ts`
+  Comment files (PM-1309) use the same server storage and authenticated transfer to remote engines; unsent visibility, binding and cleanup stay on the server without a new engine boundary.
   (through `core/attachments/index.ts`) and `contracts/attachments.ts`. Records and the private
   `<PROJECTMAN_HOME>/attachments` store belong to the server; local storage uses 0700 directories,
   0600 files and no-follow opens, and `sharp`/libvips generates thumbnails there.

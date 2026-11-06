@@ -317,7 +317,10 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Standby copies never create keys or send; cloud restore rehearsals additionally set
   `PROJECTMAN_WEB_PUSH_ENABLED=0`. A request to the instance host (PM-1064, `notifyHost`) is pushed
   to the host directly, not through an inbox item: the payload carries only the request title and a
-  link to the host's own first project. **Remote engine:** fully supported; nothing runs on the
+  link to the host's own first project. A comment or mention on a card (PM-1271, `onNote`) is pushed
+  the same way, from the hub's `task_note_added` event (an AI member's `update_task` note reaches the
+  hub through the engine relay) without an inbox item or claim; the payload carries only the card key.
+  **Remote engine:** fully supported; nothing runs on the
   engine and no new data crosses the server/engine boundary.
 
 - **ntfy phone channel (PM-901)** — `apps/server/src/services/ntfy`, `contracts/ntfy.ts` and the personal

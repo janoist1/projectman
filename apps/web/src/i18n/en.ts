@@ -6376,7 +6376,8 @@ export const en = {
   // server (packages/templates `webPush`); these are the page’s own texts.
   notifications: {
     title: 'Notifications',
-    subtitle: 'We’ll let you know when something is waiting for you, even when the board isn’t open.',
+    subtitle:
+      'We’ll let you know when something is waiting for you or someone comments on a card, even when the board isn’t open.',
     thisDevice: 'This device',
     unavailable: {
       title: 'Notifications are switched off on the server',
@@ -6384,7 +6385,7 @@ export const en = {
     },
     off: {
       title: 'No notifications on this device',
-      text: 'We’ll let you know when a question, decision or approval is waiting for you, even when the board isn’t open.',
+      text: 'We’ll let you know when a question, decision, approval or comment is waiting for you, even when the board isn’t open.',
       action: 'Turn on',
       hint: 'The browser asks for permission: choose Allow.',
     },
@@ -6495,7 +6496,7 @@ export const en = {
       loadFailed: 'Couldn’t load the ntfy setting.',
       unavailable: 'Notifications aren’t switched on on this instance, so ntfy doesn’t work either.',
       intro:
-        'If the browser notification doesn’t reach your phone, the ntfy app can alert you too. Only this goes out: “New item in For you”, and a link here. No title, project or content.',
+        'If the browser notification doesn’t reach your phone, the ntfy app can alert you too. Only this goes out: “New item in For you” or “There’s a new comment or mention.”, and a link here. No title, project, card key or content.',
       setUp: 'Set it up',
       setUpFailed: 'Couldn’t set it up. Try again.',
       created: 'Done. Add the topic below in the ntfy app.',
@@ -6568,9 +6569,13 @@ export const en = {
       permissionHint: 'A member asks for permission for an action.',
       release: 'Release',
       releaseHint: 'A new release is waiting for your approval.',
+      comment: 'Comment',
+      commentHint: 'A new comment on a card you’re involved in.',
+      mention: 'Mention',
+      mentionHint: 'Someone @mentions you in a card comment.',
       hostRequest: 'Request to the host',
       hostRequestHint: 'Another owner’s project manager sent you a request.',
-      foot: 'We don’t send notifications about informational messages and signals. Nor while the board is open in front of you.',
+      foot: 'We don’t send notifications about informational messages and signals. Nor while the board is open in front of you. Nor about your own comments. The categories also apply to browser and ntfy notifications.',
       saved: 'Saved.',
       saveFailed: 'Couldn’t save. Try again.',
     },
@@ -6579,7 +6584,7 @@ export const en = {
       hint: 'Applies to all your devices',
       switchLabel: 'Quiet hours',
       switchHint:
-        'We don’t send notifications during this time. At the end, you get a summary of the items still open.',
+        'We don’t send notifications during this time. At the end, you get a summary of the items still open, but not of comments and mentions.',
       start: 'Start',
       end: 'End',
       endNextDay: 'End (next day)',

@@ -6,6 +6,7 @@ import {
   holdsOwnershipByEmail,
   isAllowedPushEndpoint,
   isPushableItem,
+  notePushTargets,
   pushCategoryOf,
   quietWindowAt,
 } from '@projectman/shared';
@@ -15,6 +16,8 @@ import type {
   PushPayload,
   PushSettings,
   SubscribePushRequest,
+  Task,
+  TimelineEvent,
 } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import type { FastifyBaseLogger } from 'fastify';
@@ -369,6 +372,50 @@ export function createWebPushService(opts: WebPushOptions) {
         },
         { ...textFor(user.id).ntfy.item, urgent: true },
       );
+    },
+    /**
+     * Tells the people a card note concerns (PM-1271; who: `notePushTargets`). A note is no inbox item, so it has
+     * no claim; it is left out when the person switched its categories off, is looking at the app or the quiet
+     * hours run (no digest: the note stays on the card). The text of the note never leaves the hub.
+     */
+    async onNote(event: TimelineEvent, mentions: string[], task: Task): Promise<void> {
+      if (!key) return;
+      const config = await opts.config(task.projectKey);
+      const members = config.team.members;
+      const targets = notePushTargets({
+        author: event.actor,
+        mentions,
+        creator: task.createdBy,
+        assignee: task.assignee,
+        earlierAuthors: opts.repos.timeline.humanNoteAuthors(task.projectKey, task.key),
+        humans: members.filter((m) => m.kind === 'human').map((m) => m.handle),
+      });
+      const seen = new Set<string>();
+      for (const target of targets) {
+        const member = members.find((m) => m.handle.toLowerCase() === target.handle.toLowerCase());
+        if (!member || member.kind !== 'human' || !member.email) continue;
+        if (!projectAccessFor(config, member.email)) continue;
+        const user = opts.repos.users.findByEmail(member.email);
+        if (!user || seen.has(user.id) || !reachable(user.id)) continue;
+        seen.add(user.id);
+        const settings = repo.settings(user.id);
+        const category = target.categories.find((c) => settings.categories[c]);
+        if (!category || opts.presence.isViewing(user.email)) continue;
+        if (quietWindowAt(settings.quietHours, now()).quiet) continue;
+        await sendAll(
+          user.id,
+          {
+            v: 1,
+            kind: 'item',
+            title: textFor(user.id).title[category],
+            body: task.key,
+            tag: `note-${task.projectKey}-${task.key}`,
+            url: `/p/${encodeURIComponent(task.projectKey)}/tasks/${encodeURIComponent(task.key)}#timeline-${encodeURIComponent(event.id)}`,
+            projectKey: task.projectKey,
+          },
+          { ...textFor(user.id).ntfy.note, urgent: category === 'mention' },
+        );
+      }
     },
     sweep(): Promise<void> {
       return (sweeping ??= sweepRound().finally(() => {

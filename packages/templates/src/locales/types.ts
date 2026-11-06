@@ -51,12 +51,17 @@ export type ChecklistItemKey =
 export type TemplateMemberKey = 'daily_worker';
 
 export interface WebPushText {
-  title: Record<'question' | 'decision' | 'approval' | 'permission' | 'release' | 'host_request', string>;
+  title: Record<
+    'question' | 'decision' | 'approval' | 'permission' | 'release' | 'host_request' | 'comment' | 'mention',
+    string
+  >;
   digest: { title: string; body: string };
   test: { title: string; body: string };
   /** The ntfy message is generic on purpose: the topic name is its only secret (PM-901). */
   ntfy: {
     item: { title: string; body: string };
+    /** A comment or mention on a card (PM-1271): no card key, project name or comment text. */
+    note: { title: string; body: string };
     digest: { title: string; body: string };
     test: { title: string; body: string };
   };

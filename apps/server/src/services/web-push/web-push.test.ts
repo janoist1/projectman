@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PUSH_SETTINGS, PushPayload } from '@projectman/shared';
-import type { InboxItem, PushSettings } from '@projectman/shared';
+import type { InboxItem, PushSettings, Task, TimelineEvent } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { createRepositories } from '../../db';
 import { PresenceService } from '../../core/members';
@@ -199,6 +199,85 @@ describe('web push service', () => {
         question: false,
         host_request: true,
       });
+    });
+  });
+  describe('a comment or mention on a card (PM-1271)', () => {
+    // The owner opened the card; a colleague who is not a configured member writes in it.
+    const task = { key: 'AR-1', projectKey: 'AR', createdBy: 'owner', assignee: null } as unknown as Task;
+    const noteBy = (actor: TimelineEvent['actor']): TimelineEvent => ({
+      id: 'evt_1',
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      sessionId: null,
+      actor,
+      type: 'task_note',
+      data: { text: 'Private comment' },
+      createdAt: time.toISOString(),
+    });
+    let comment: TimelineEvent;
+    beforeEach(() => {
+      comment = noteBy({ kind: 'human', handle: 'dani' });
+    });
+    const setCategories = (change: Partial<PushSettings['categories']>) =>
+      service.settings(user.id, {
+        ...DEFAULT_PUSH_SETTINGS,
+        categories: { ...DEFAULT_PUSH_SETTINGS.categories, ...change },
+      });
+
+    it('sends a general push to the card’s opener, with a link to the comment and without its text', async () => {
+      subscribe();
+      await service.onNote(comment, [], task);
+      expect(transport.calls).toHaveLength(1);
+      expect(PushPayload.parse(JSON.parse(transport.calls[0]!.payload))).toMatchObject({
+        kind: 'item',
+        title: getLocale('hu').webPush.title.comment,
+        body: 'AR-1',
+        tag: 'note-AR-AR-1',
+        url: '/p/AR/tasks/AR-1#timeline-evt_1',
+      });
+      expect(transport.calls[0]!.payload).not.toContain('Private');
+    });
+
+    it('lets a mention decide first, and the comment category when the mention is off', async () => {
+      subscribe();
+      await service.onNote(comment, ['owner'], task);
+      setCategories({ mention: false });
+      await service.onNote(comment, ['owner'], task);
+      const titles = transport.calls.map((c) => PushPayload.parse(JSON.parse(c.payload)).title);
+      expect(titles).toEqual([getLocale('hu').webPush.title.mention, getLocale('hu').webPush.title.comment]);
+    });
+
+    it('tells an AI member’s mention but not its plain note', async () => {
+      subscribe();
+      const aiNote = noteBy({ kind: 'ai', handle: 'dev' });
+      await service.onNote(aiNote, [], task);
+      expect(transport.calls).toHaveLength(0);
+      await service.onNote(aiNote, ['owner'], task);
+      expect(transport.calls).toHaveLength(1);
+    });
+
+    it.each(['categories', 'viewing', 'quiet'] as const)('is not sent while %s block it', async (reason) => {
+      subscribe();
+      if (reason === 'categories') setCategories({ comment: false, mention: false });
+      if (reason === 'viewing') presence.setVisible('connection', user.email, true);
+      if (reason === 'quiet') {
+        time = new Date('2026-10-20T23:00:00Z');
+        service.settings(user.id, {
+          ...DEFAULT_PUSH_SETTINGS,
+          quietHours: { ...DEFAULT_PUSH_SETTINGS.quietHours, enabled: true },
+        });
+      }
+      await service.onNote(comment, ['owner'], task);
+      expect(transport.calls).toHaveLength(0);
+    });
+
+    it('is not sent to a member who lost access to the project', async () => {
+      subscribe();
+      const changed = structuredClone(config);
+      changed.team.members = changed.team.members.filter((m) => m.kind !== 'human');
+      service = build({ config: async () => changed });
+      await service.onNote(comment, ['owner'], task);
+      expect(transport.calls).toHaveLength(0);
     });
   });
   it('delivers an item to each enabled device', async () => {

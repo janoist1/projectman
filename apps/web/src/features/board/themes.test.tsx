@@ -221,10 +221,15 @@ describe('themes on the board', () => {
     const { project, backend, theme, other } = themed();
     backend.setThemeArchived(other.key, true);
     project.render(<BoardPage />);
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
     await tile(theme.title, 1, 4);
     expect(screen.queryAllByRole('button', { name: new RegExp(other.title) })).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: t('board.themes.archived', { count: 1 }) }));
     expect(filterTile(other.title)).toBeTruthy();
+    // The first revealed tile is brought into view of the scrolling row.
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView.mock.contexts[0]).toBe(filterTile(other.title).closest('li'));
     expect(screen.getByText(t('board.themes.archivedHeading'))).toBeTruthy();
     expect(screen.getByRole('button', { name: t('board.themes.hideHidden') })).toBeTruthy();
   });

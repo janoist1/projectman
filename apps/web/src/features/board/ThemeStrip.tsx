@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { isArchivedTheme, isOpenTask } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { Button } from '../../components/Button';
@@ -34,6 +34,17 @@ export function ThemeStrip({
   onNew?: () => void;
 }) {
   const [showHidden, setShowHidden] = useState(false);
+  const firstHidden = useRef<HTMLLIElement | null>(null);
+  // The closed and archived tiles open at the end of the row, maybe out of sight: bring the first into view.
+  useEffect(() => {
+    if (!showHidden) return;
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    firstHidden.current?.scrollIntoView?.({
+      block: 'nearest',
+      inline: 'nearest',
+      behavior: reduced ? 'auto' : 'smooth',
+    });
+  }, [showHidden]);
   const { open, closed, archived } = themeGroups(tasks);
   if (open.length + closed.length + archived.length === 0) return null;
   const hiddenCount = closed.length + archived.length;
@@ -64,6 +75,7 @@ export function ThemeStrip({
                 <li className={styles.heading}>{t('board.themes.archivedHeading')}</li>
               ) : null}
               <li
+                ref={index === open.length ? firstHidden : undefined}
                 className={clsx(
                   styles.tile,
                   pressed && styles.active,

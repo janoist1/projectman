@@ -182,13 +182,18 @@ function changedSymbols(
   return [...symbols];
 }
 
+/** Integration tests start programs (and are skipped in a sandbox): they go behind the others of a tier. */
+const isIntegration = (path: string): boolean => path.includes('.integration.test.');
+
 /** A name used by more than this share of the candidate tests (`toEqual`, `readFileSync`) tells nothing. */
 const COMMON_NAME_SHARE = 0.25;
+const COMMON_NAME_MIN = 10;
 
 /**
  * The candidate tests that use a changed name, nearest first: those in a workspace the change touched,
- * then those that use more, and rarer, changed names (a name only a few tests use says the most),
- * then by path. A name nearly every test uses is ignored.
+ * then those that set a changed name (`name: value`, `name = value`) rather than only read it, then
+ * those that use more, and rarer, changed names (a name only a few tests use says the most), then the
+ * tests that need no pseudo-terminal, then by path. A name nearly every test uses is ignored.
  */
 function nameUsers(
   symbols: readonly string[],
@@ -196,17 +201,28 @@ function nameUsers(
   changedWorkspaces: ReadonlySet<MergeTestWorkspace>,
 ): string[] {
   const wanted = new Set(symbols);
-  const users = new Map<string, string[]>();
-  for (const { path, source } of candidates)
-    for (const name of new Set(source.match(/[\w$]+/g) ?? []))
-      if (wanted.has(name)) users.set(name, [...(users.get(name) ?? []), path]);
+  const users = new Map<string, MergeTestFile[]>();
+  for (const file of candidates)
+    for (const name of new Set(file.source.match(/[\w$]+/g) ?? []))
+      if (wanted.has(name)) users.set(name, [...(users.get(name) ?? []), file]);
   const score = new Map<string, number>();
-  for (const paths of users.values())
-    if (paths.length <= candidates.length * COMMON_NAME_SHARE)
-      for (const path of paths) score.set(path, (score.get(path) ?? 0) + 1 / paths.length);
+  const setters = new Set<string>();
+  for (const [name, files] of users)
+    if (files.length <= Math.max(COMMON_NAME_MIN, candidates.length * COMMON_NAME_SHARE)) {
+      const setting = new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}\\s*\\??(?::|=(?!=))`);
+      for (const { path, source } of files) {
+        score.set(path, (score.get(path) ?? 0) + 1 / files.length);
+        if (setting.test(source)) setters.add(path);
+      }
+    }
   const here = (path: string) => Number(changedWorkspaces.has(workspaceOf(path)!));
   return [...score.keys()].sort(
-    (a, b) => here(b) - here(a) || score.get(b)! - score.get(a)! || a.localeCompare(b),
+    (a, b) =>
+      here(b) - here(a) ||
+      Number(setters.has(b)) - Number(setters.has(a)) ||
+      score.get(b)! - score.get(a)! ||
+      Number(isIntegration(a)) - Number(isIntegration(b)) ||
+      a.localeCompare(b),
   );
 }
 
@@ -350,7 +366,9 @@ export function handoverSelection(
   const reachedTests = [...distance.keys()].filter(isTest).filter((path) => mergeRuns(merge, path));
   const byDistance = (a: string, b: string) => distance.get(a)! - distance.get(b)! || a.localeCompare(b);
   const bySnapshotThenDistance = (a: string, b: string) =>
-    Number(hasSnapshot(b)) - Number(hasSnapshot(a)) || byDistance(a, b);
+    Number(hasSnapshot(b)) - Number(hasSnapshot(a)) ||
+    Number(isIntegration(a)) - Number(isIntegration(b)) ||
+    byDistance(a, b);
   // The names a test may use without importing a changed file (a setting, a method of an injected object).
   const nameTests = nameUsers(
     changedSymbols(changed, input.before, input.after),

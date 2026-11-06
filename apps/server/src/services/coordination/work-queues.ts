@@ -8,6 +8,7 @@ import {
   canSeeWorkQueueItem,
   canSeeWorkQueueItems,
   isIntegratorFixLimitDecision,
+  isWorkQueueLongWait,
   memberQueueSourceOf,
   projectManagerOf,
   sameWorkItem,
@@ -26,11 +27,13 @@ import type {
   WorkQueueDetail,
   WorkQueueGroup,
   WorkQueueItem,
+  WorkQueueReason,
   WorkQueueRef,
   WorkQueueSourceFacts,
   WorkQueueViewer,
   WorkQueuesView,
 } from '@projectman/shared';
+import type { ProjectStateReport } from '../../contracts';
 import type { DomainContext } from '../../core/base';
 import type { InboxService, IntegratorTodoAccess } from '../../core/inbox';
 import type { ProjectService } from '../../core/projects';
@@ -55,6 +58,9 @@ interface Reading {
   restricted: boolean;
   connections?: WorkQueueConnection[];
 }
+
+/** The sources whose card is a fact the board shows anyway (`canSeeWorkQueueItem` lets everyone read them). */
+const CARD_LEVEL_SOURCES: ReadonlySet<string> = new Set(['start', 'obligation', 'fix_limit']);
 
 const byQueueOrder = (a: WorkQueueItem, b: WorkQueueItem) =>
   Number(b.state === 'processing') - Number(a.state === 'processing') ||
@@ -104,6 +110,44 @@ export class WorkQueues {
       return this.groupOf(ref, reading, WORK_QUEUE_OPEN_PREVIEW);
     });
     return { scope, groups, readAt: this.deps.ctx.now().toISOString() };
+  }
+
+  /**
+   * The project manager's summary of every AI member's open queue (PM-1294): counts, the oldest wait and the
+   * reasons, no titles, senders or ids. It reads the same level of fact as the undelivered team messages, so the
+   * items are not filtered by source. The integrator queue is the owner's alone: only whether a Claude is connected.
+   */
+  async overview(projectKey: string): Promise<ProjectStateReport['workQueues']> {
+    const config = await this.deps.projects.config(projectKey);
+    const openOfProject = this.deps.ctx.repos.memberQueue.listOpenOfProject(projectKey);
+    const live = this.deps.ctx.repos.sessions.listLive(projectKey);
+    const nowMs = this.deps.ctx.now().getTime();
+    const members: ProjectStateReport['workQueues']['members'] = [];
+    for (const ai of config.team.members) {
+      if (ai.kind !== 'ai') continue;
+      const ref: WorkQueueRef = { type: 'member', member: ai.handle };
+      const liveOf = live.filter((session) => session.member === ai.handle);
+      const open = openOfProject
+        .filter((item) => item.member === ai.handle)
+        .map((item) => this.itemOf(item, ref, liveOf, ai))
+        .sort(byQueueOrder);
+      if (open.length === 0) continue;
+      const queued = open.filter((item) => item.state === 'queued');
+      const oldest = queued[0];
+      const reasons: Partial<Record<WorkQueueReason, number>> = {};
+      for (const item of queued) if (item.reason) reasons[item.reason] = (reasons[item.reason] ?? 0) + 1;
+      members.push({
+        member: ai.handle,
+        queued: queued.length,
+        processing: open.length - queued.length,
+        longWait: queued.filter((item) => isWorkQueueLongWait(item, nowMs)).length,
+        oldestQueuedAt: oldest?.queuedAt ?? null,
+        reasons,
+        oldestTaskKey: oldest && CARD_LEVEL_SOURCES.has(oldest.source.type) ? (oldest.taskKey ?? null) : null,
+      });
+    }
+    const integratorConnected = (this.deps.integratorAccess?.connections?.(config) ?? []).length > 0;
+    return { members, integratorConnected };
   }
 
   /** One queue with its closed items since `closedSince` (default 24 hours). */

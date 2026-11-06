@@ -659,6 +659,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         signals: [],
         release: null,
         waitingMessages: [],
+        workQueues: { members: [], integratorConnected: false },
       };
     },
     async getTask(ctx, args) {

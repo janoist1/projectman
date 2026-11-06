@@ -68,6 +68,11 @@ function footer(selection: HandoverSelection): string[] {
           `handover-check: ran ${selection.cap} of ${selection.reached} (cap ${selection.cap}); the merge-test runs the other ${selection.omitted}`,
         ]
       : []),
+    ...(selection.omittedRuleTests.length
+      ? [
+          `handover-check: the cap left out ${selection.omittedRuleTests.length} test(s) a selection rule chose: ${selection.omittedRuleTests.join(', ')}`,
+        ]
+      : []),
     ...(selection.unmapped.length
       ? [
           `handover-check: not mapped to a test (the merge-test covers them): ${selection.unmapped.join(', ')}`,

@@ -140,13 +140,19 @@ workers follow the machine's size.
   those test files (no queue, no step cache). It reuses the merge-test's scope, shared export
   analysis and server module analysis and then follows the file-level **value** import graph
   (a statement-level `import type` carries no change into a test), so it never selects a test the
-  merge check would not run (path-read tests aside). Tests that read the repository by path (a
-  glob, the structure map) cannot be reached by imports: they are listed in `PATH_READ_TESTS`
-  (`scripts/merge-test/handover.ts`), and a guard test fails when an `import.meta.glob` test is
-  missing. The order is: changed tests, path-read tests, tests with a snapshot, then by import
-  distance; at most `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`) files
+  merge check would not run (rule tests aside). **Selection rules (PM-1299).** A dependency no import
+  shows (a test that reads the repository by path, such as a glob or the structure map, or one that
+  reaches the code over HTTP or a domain call, such as the `operator-*` tests) is one entry of
+  `SELECTION_RULES` (`scripts/merge-test/handover.ts`): `reason`, `sources` (path patterns: a
+  changed file matching one selects the tests), `tests` (test file patterns that then run) and
+  optionally `on: 'add-delete'` (only an added or deleted file counts). Patterns are repository
+  paths: `*` stays in a folder, `**` crosses folders, a trailing `/` is the folder's subtree. A guard
+  test fails when an `import.meta.glob` test is not covered by a rule or a rule names no existing
+  test. The tool-definition snapshot and the `*-migration` tests need no rule: the shared export
+  analysis and the import graph reach them. The order is: changed tests, rule tests, tests with a
+  snapshot, then by import distance; at most `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`) files
   run, and over it the last line says `ran 60 of M (cap 60); the merge-test runs the other M-60`
-  (exit 0): it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
+  (exit 0), and it names the rule-chosen tests the cap left out; it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
   git error. `--dry-run` prints the steps only. A merge-test change keeps the merge-test output
   unchanged; the shared import analysis is only extended (`valueConsumers`, `typeOnly`).
   **Merge check records.** Every merge check is recorded in `merge_check_runs` (time, queue wait, the `maxWorkers`

@@ -16,47 +16,87 @@ export interface HandoverChange {
 }
 
 /**
- * A test that reads the repository by path (a glob, a directory walk, the structure map), so no import
- * leads to it. It runs when `when` holds for the change. A new such test goes here, not into a hand-over
- * list; a guard test checks that every glob or structure-map reading test is listed.
+ * A dependency no import shows: a test reads the repository by path (a glob, a directory walk, the
+ * structure map), or reaches the code over HTTP or a domain call. When a changed path matches one of
+ * `sources`, every test file matching one of `tests` runs (at most the cap, after the changed tests).
+ * Patterns are repository paths: `*` is within a folder, `**` crosses folders, a trailing `/` stands for
+ * the folder's whole subtree. A new such dependency goes here, not into a hand-over list; a guard test
+ * checks that every `import.meta.glob` test is covered by a rule.
  */
-export interface PathReadTest {
-  /** A test file, or a folder (ending in `/`) whose test files all run. */
-  test: string;
-  /** What the test reads. */
-  reads: string;
-  when: (change: HandoverChange) => boolean;
+export interface SelectionRule {
+  /** Why no import leads from the sources to the tests. */
+  reason: string;
+  /** Source path patterns: a changed (or, per `on`, added or deleted) file matching one selects the tests. */
+  sources: readonly string[];
+  /** Test file patterns that run. */
+  tests: readonly string[];
+  /** `any`: a changed, added or deleted file counts (the default); `add-delete`: only an added or deleted one. */
+  on?: 'any' | 'add-delete';
 }
 
 const STRUCTURE_MAP = 'projectman.structure.yaml';
-const changedUnder = (change: HandoverChange, prefixes: readonly string[]): boolean =>
-  change.changed.some((file) => prefixes.some((prefix) => file.startsWith(prefix)));
-const webCodeChanged = (change: HandoverChange): boolean =>
-  change.changed.some((file) => file.startsWith('apps/web/src/') && isCode(file));
+const WEB_CODE = ['apps/web/src/**/*.ts', 'apps/web/src/**/*.tsx'];
 
-export const PATH_READ_TESTS: readonly PathReadTest[] = [
+/** The regular expression of a path pattern (`*`, `**`, a trailing `/`). */
+const patternRegExp = (pattern: string): RegExp => {
+  const body = (pattern.endsWith('/') ? `${pattern}**` : pattern)
+    .split(/(\*\*\/|\*\*|\*)/)
+    .map((part) =>
+      part === '**/'
+        ? '(?:.*/)?'
+        : part === '**'
+          ? '.*'
+          : part === '*'
+            ? '[^/]*'
+            : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'),
+    )
+    .join('');
+  return new RegExp(`^${body}$`);
+};
+export const matchesPattern = (path: string, patterns: readonly string[]): boolean =>
+  patterns.some((pattern) => patternRegExp(pattern).test(path));
+
+const ruleApplies = (rule: SelectionRule, change: HandoverChange): boolean =>
+  (rule.on === 'add-delete' ? [...change.added, ...change.deleted] : change.changed).some((path) =>
+    matchesPattern(path, rule.sources),
+  );
+
+export const SELECTION_RULES: readonly SelectionRule[] = [
   {
-    test: 'apps/server/test/architecture/',
-    reads: 'the server source folder, the module map and the structure map',
-    when: (change) =>
-      changedUnder(change, ['apps/server/', 'scripts/']) || change.changed.includes(STRUCTURE_MAP),
+    reason: 'the architecture tests read the server source folder, the module map and the structure map',
+    sources: ['apps/server/', 'scripts/', STRUCTURE_MAP],
+    tests: ['apps/server/test/architecture/'],
   },
   {
-    test: 'apps/server/test/architecture/structure-map.test.ts',
-    reads: 'every tracked file of the repository',
-    when: (change) =>
-      change.added.length > 0 || change.deleted.length > 0 || change.changed.includes(STRUCTURE_MAP),
-  },
-  { test: 'apps/web/src/i18n/i18n.test.ts', reads: 'apps/web/src (import.meta.glob)', when: webCodeChanged },
-  {
-    test: 'apps/web/src/components/LeaveChip.test.tsx',
-    reads: 'apps/web/src (import.meta.glob)',
-    when: webCodeChanged,
+    reason: 'the structure map test reads every tracked file of the repository',
+    sources: ['**'],
+    on: 'add-delete',
+    tests: ['apps/server/test/architecture/structure-map.test.ts'],
   },
   {
-    test: 'apps/feedback-widget/src/ui/escaping.test.tsx',
-    reads: 'apps/feedback-widget/src/ui/*.tsx (import.meta.glob)',
-    when: (change) => changedUnder(change, ['apps/feedback-widget/src/ui/']),
+    reason: 'the structure map test reads the structure map',
+    sources: [STRUCTURE_MAP],
+    tests: ['apps/server/test/architecture/structure-map.test.ts'],
+  },
+  {
+    reason: 'import.meta.glob over apps/web/src',
+    sources: WEB_CODE,
+    tests: ['apps/web/src/i18n/i18n.test.ts', 'apps/web/src/components/LeaveChip.test.tsx'],
+  },
+  {
+    reason: 'import.meta.glob over apps/feedback-widget/src/ui/*.tsx',
+    sources: ['apps/feedback-widget/src/ui/'],
+    tests: ['apps/feedback-widget/src/ui/escaping.test.tsx'],
+  },
+  {
+    reason:
+      'the operator tests use the request and permission rules over HTTP or domain calls, not by import (PM-1287)',
+    sources: [
+      'apps/server/src/services/coordination/',
+      'apps/server/src/mcp/caller.ts',
+      'apps/server/src/mcp/project-manager/',
+    ],
+    tests: ['apps/server/test/operator-*.test.ts'],
   },
 ];
 
@@ -72,6 +112,8 @@ export interface HandoverSelection {
   reached: number;
   cap: number;
   omitted: number;
+  /** The tests a selection rule chose that the cap left out. */
+  omittedRuleTests: string[];
   /** Changed files no check of this command maps to a test. */
   unmapped: string[];
 }
@@ -84,6 +126,7 @@ const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({
   reached: 0,
   cap: TARGETED_TEST_FILES_MAX,
   omitted: 0,
+  omittedRuleTests: [],
   unmapped: [],
 });
 
@@ -213,20 +256,22 @@ export function handoverSelection(
     afterPaths.has(`${path.slice(0, path.lastIndexOf('/'))}/__snapshots__/${path.split('/').at(-1)}.snap`);
 
   const change: HandoverChange = { changed: input.changed, added: input.added, deleted: input.deleted };
-  const pathRead = PATH_READ_TESTS.filter((entry) => entry.when(change)).flatMap((entry) =>
-    entry.test.endsWith('/')
-      ? input.after.map((file) => file.path).filter((path) => path.startsWith(entry.test) && isTest(path))
-      : isTest(entry.test)
-        ? [entry.test]
-        : [],
-  );
+  const ruleTests = [
+    ...new Set(
+      SELECTION_RULES.filter((rule) => ruleApplies(rule, change)).flatMap((rule) =>
+        input.after
+          .map((file) => file.path)
+          .filter((path) => isTest(path) && matchesPattern(path, rule.tests)),
+      ),
+    ),
+  ];
   const reachedTests = [...distance.keys()].filter(isTest).filter((path) => mergeRuns(merge, path));
   const byDistance = (a: string, b: string) => distance.get(a)! - distance.get(b)! || a.localeCompare(b);
-  // Nearest first: the change's own tests, the path readers, the snapshot tests, then by distance.
+  // Nearest first: the change's own tests, the rule tests, the snapshot tests, then by distance.
   const ordered = [
     ...new Set([
       ...[...snapshotOwners, ...changed.filter(isTest)].sort(),
-      ...pathRead,
+      ...ruleTests,
       ...reachedTests.filter(hasSnapshot).sort(byDistance),
       ...reachedTests.sort(byDistance),
     ]),
@@ -243,6 +288,7 @@ export function handoverSelection(
     reached: ordered.length,
     cap: TARGETED_TEST_FILES_MAX,
     omitted: Math.max(0, ordered.length - TARGETED_TEST_FILES_MAX),
+    omittedRuleTests: ruleTests.filter((path) => !run.includes(path)),
     unmapped,
   };
 }

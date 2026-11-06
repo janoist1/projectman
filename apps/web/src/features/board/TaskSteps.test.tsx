@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MemberQueueItem, Obligation } from '@projectman/shared';
+import type { Actor, MemberQueueItem, Obligation } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
@@ -216,6 +216,53 @@ describe('the story of the Process view (PM-1160)', () => {
     fireEvent.click(more);
     expect(within(story()).queryByRole('button', { name: /^Korábbiak/ })).toBeNull();
     expect(within(story()).getByText('Note 0')).toBeTruthy();
+  });
+
+  describe('what the story keeps of the conversations (PM-1290)', () => {
+    const seed = (
+      project: Project,
+      type: 'task_note' | 'team_message',
+      data: Record<string, unknown>,
+      actor?: Actor,
+    ) => project.backend.addTimeline('AC-21', 'kata', type, data, null, ago(1), actor);
+
+    it('leaves out a comment and a direct message, and keeps an ordinary note', async () => {
+      window.localStorage.setItem('pm:cardStory.view', 'all');
+      const project = mockProject();
+      seed(project, 'task_note', { text: 'A plain note', comment: false });
+      seed(project, 'task_note', { text: 'A comment', comment: true });
+      seed(project, 'team_message', { text: 'A private word', conversation: 'direct', to: ['kata'] });
+      await openProcess(project);
+      expect(await within(story()).findByText('A plain note')).toBeTruthy();
+      expect(within(story()).queryByText('A comment')).toBeNull();
+      expect(within(story()).queryByText('A private word')).toBeNull();
+    });
+
+    it('shows a forwarded comment as one line with a link to it, without the text', async () => {
+      window.localStorage.setItem('pm:cardStory.view', 'all');
+      const project = mockProject();
+      const note = seed(project, 'task_note', { text: 'The comment text', comment: true });
+      seed(project, 'team_message', { text: 'The comment text', noteEventId: note.id, to: ['kata'] });
+      await openProcess(project);
+      const link = await within(story()).findByRole('link', { name: t('timeline.forwardedJump') });
+      expect(link.getAttribute('href')).toContain(`#timeline-${note.id}`);
+      expect(link.closest('li')?.textContent).toContain('@kata');
+      expect(within(story()).queryByText('The comment text')).toBeNull();
+    });
+
+    it('names a request of the connected Claude to the project manager', async () => {
+      window.localStorage.setItem('pm:cardStory.view', 'all');
+      const project = mockProject();
+      const actor: Actor = {
+        kind: 'human',
+        handle: 'kata',
+        via: 'integrator',
+        through: { holder: 'kata', credential: { id: 'key_mock', prefix: 'abcd' } },
+      };
+      seed(project, 'team_message', { text: 'Please look at this', to: ['pm'] }, actor);
+      await openProcess(project);
+      expect(await within(story()).findByText(t('timeline.machineRequest'))).toBeTruthy();
+    });
   });
 
   it('helps a card that has no story yet, without the choice of view', async () => {

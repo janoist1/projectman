@@ -1,20 +1,18 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MEMBER_QUEUE_CLOSED_LIMIT } from '@projectman/shared';
-import type { MemberQueueItem } from '@projectman/shared';
-import { applyServerEvent } from '../../api/cache';
 import { setFetchImplementation } from '../../api/client';
 import { MeContext } from '../../app/contexts';
 import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
-import { inboxItemDomId } from '../../lib/inbox';
-import { createMockFetch, mockProject } from '../../test/mockProject';
+import { mockProject } from '../../test/mockProject';
+import { minutesAgo, queueItem } from '../../test/workQueueItems';
+import { TeamPage } from '../team/TeamPage';
 
 /**
- * The project manager's queue in the corner (PM-890, PM-1042), against the fake backend: the count on the button,
- * the strip in the panel, and the Sor view with its open list, today's closed items and the states around them.
+ * The project manager's queue in the corner (PM-890, PM-1042, PM-1297), against the fake backend: the count on the
+ * button, the strip in the panel, and the way to the work queues view and back to the conversation.
  */
 afterEach(() => {
   vi.restoreAllMocks();
@@ -24,37 +22,8 @@ afterEach(() => {
 type Project = ReturnType<typeof mockProject>;
 type Access = 'owner' | 'developer' | 'client';
 
-const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
-
-function item(partial: Partial<MemberQueueItem> & Pick<MemberQueueItem, 'id'>): MemberQueueItem {
-  return {
-    projectKey: 'AC',
-    member: 'pm',
-    kind: 'todo',
-    source: { type: 'inbox', inboxItemId: partial.id },
-    place: { type: 'general' },
-    wake: true,
-    state: 'queued',
-    title: `Item ${partial.id}`,
-    from: 'owner',
-    taskKey: null,
-    queuedAt: ago(5),
-    startedAt: null,
-    closedAt: null,
-    closeReason: null,
-    attempts: 0,
-    restartedAt: null,
-    sessionId: null,
-    wait: null,
-    outcome: null,
-    ...partial,
-  };
-}
-
-/** A closed item that ended with the given outcome, a minute ago. */
-function closed(id: string, state: MemberQueueItem['state'], outcome: MemberQueueItem['outcome']) {
-  return item({ id, state, outcome, queuedAt: ago(30), closedAt: ago(1), closeReason: 'finished' });
-}
+const ago = minutesAgo;
+const item = queueItem;
 
 /** `owner` is the project's owner; `kata` another person, whose access the test sets. */
 function renderLayout(project: Project, options: { viewer?: 'owner' | 'kata'; access?: Access } = {}) {
@@ -77,6 +46,7 @@ function renderLayout(project: Project, options: { viewer?: 'owner' | 'kata'; ac
         <Routes>
           <Route path="/p/:projectKey" element={<ProjectLayout />}>
             <Route index element={<p>board</p>} />
+            <Route path="team" element={<TeamPage />} />
           </Route>
         </Routes>
       </MeContext.Provider>
@@ -87,17 +57,8 @@ function renderLayout(project: Project, options: { viewer?: 'owner' | 'kata'; ac
 
 const button = () =>
   screen.findByRole('button', { name: new RegExp(`^${t('operator.button.aria', { status: '' })}`) });
-const toggle = () => screen.findByRole('button', { name: new RegExp(`^${t('operator.queue.toggle')}`) });
-const closedList = () => screen.findByRole('list', { name: t('operator.queue.closedList') });
-
-/** Opens the panel and then the queue view; returns the query client, for the tests that push server events. */
-async function openQueue(project: Project, options: Parameters<typeof renderLayout>[1] = {}) {
-  const { client } = renderLayout(project, options);
-  fireEvent.click(await button());
-  fireEvent.click(await toggle());
-  await screen.findByRole('heading', { name: t('operator.queue.title') });
-  return client;
-}
+const queueLink = () => screen.findByRole('link', { name: t('operator.queue.strip.label') });
+const composer = () => screen.findByRole('textbox', { name: t('operator.composer.label' as const) });
 
 describe('the Operator button with a queue', () => {
   it('names the queue length and shows the count', async () => {
@@ -122,8 +83,8 @@ describe('the Operator button with a queue', () => {
   });
 });
 
-describe('the strip in the panel', () => {
-  it('names the item in work and how many more wait, and opens the queue', async () => {
+describe('the strip and the queue icon in the panel', () => {
+  it('names the item in work and how many more wait, and opens the filtered work queues', async () => {
     const project = mockProject();
     project.backend.queueItems = [
       item({ id: 'q1', state: 'processing', title: 'Állítsd át a szövegírót', startedAt: ago(1) }),
@@ -138,16 +99,30 @@ describe('the strip in the panel', () => {
     // The visible text is the name; the purpose is the description (WCAG 2.5.3).
     expect(screen.getByRole('button', { name: new RegExp('Állítsd át a szövegírót') })).toBe(strip);
     fireEvent.click(strip);
-    const heading = await screen.findByRole('heading', { name: t('operator.queue.title') });
+    const heading = await screen.findByRole('heading', { name: t('workQueues.title') });
     await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(
+      (screen.getByRole('combobox', { name: t('workQueues.queueFilter') }) as HTMLSelectElement).value,
+    ).toBe('member:pm');
+    expect(await screen.findByText('Állítsd át a szövegírót')).toBeTruthy();
   });
 
   it('is not there for an empty queue', async () => {
     const project = mockProject();
     renderLayout(project);
     fireEvent.click(await button());
-    await toggle();
+    await queueLink();
     expect(screen.queryByTestId('operator-queue-strip')).toBeNull();
+  });
+
+  it('links the icon to the project manager queue of the Team page', async () => {
+    const project = mockProject();
+    renderLayout(project, { viewer: 'kata', access: 'developer' });
+    fireEvent.click(await button());
+    const link = await queueLink();
+    expect(link.getAttribute('href')).toBe('/p/AC/team?view=queues&queue=member:pm');
+    expect(link.getAttribute('aria-pressed')).toBeNull();
   });
 
   it('is not offered to a person without developer access', async () => {
@@ -155,253 +130,38 @@ describe('the strip in the panel', () => {
     project.backend.queueItems = [item({ id: 'q1' })];
     renderLayout(project, { viewer: 'kata', access: 'client' });
     fireEvent.click(await button());
-    await screen.findByRole('textbox', { name: t('operator.composer.label') });
-    expect(screen.queryByRole('button', { name: new RegExp(`^${t('operator.queue.toggle')}`) })).toBeNull();
+    await composer();
+    expect(screen.queryByRole('link', { name: t('operator.queue.strip.label') })).toBeNull();
     expect(screen.queryByTestId('operator-queue-strip')).toBeNull();
   });
 });
 
-describe('the Sor view', () => {
-  it('lists what waits, with the item in work marked and the reason of a wait', async () => {
+describe('the way back to the conversation', () => {
+  it('reopens the panel on the same page with the draft kept and the caret at its end', async () => {
     const project = mockProject();
-    project.backend.queueItems = [
-      item({ id: 'q1', state: 'processing', title: 'Dolgozik rajta' }),
-      item({
-        id: 'q2',
-        title: 'Vár',
-        kind: 'message',
-        taskKey: 'AC-12',
-        wait: { code: 'team_paused', at: ago(2) },
-      }),
-    ];
-    await openQueue(project);
-    const list = await screen.findByRole('list', { name: t('operator.queue.openList') });
-    const rows = within(list).getAllByRole('listitem');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]!.textContent).toContain(t('operator.queue.now'));
-    expect(rows[1]!.textContent).toContain(t('operator.queue.wait.team_paused'));
-    expect(within(rows[1]!).getByRole('link', { name: 'AC-12' }).getAttribute('href')).toBe(
-      '/p/AC/tasks/AC-12',
-    );
+    renderLayout(project);
+    fireEvent.click(await button());
+    fireEvent.change(await composer(), { target: { value: 'Félkész üzenet' } });
+    fireEvent.click(await queueLink());
+    await screen.findByRole('heading', { name: t('workQueues.title') });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('link', { name: t('workQueues.back') }));
+    const box = (await composer()) as HTMLTextAreaElement;
+    expect(box.value).toBe('Félkész üzenet');
+    await waitFor(() => expect(document.activeElement).toBe(box));
+    expect(box.selectionStart).toBe(box.value.length);
+    expect(screen.getByText('board')).toBeTruthy();
   });
 
-  it('shows a skeleton while the queue loads', async () => {
+  it('shows the back link only when the person came from the panel', async () => {
     const project = mockProject();
-    const fetch = createMockFetch(project.backend, project.requests);
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    setFetchImplementation(async (path, init) => {
-      if (path.includes('/project-manager/queue')) await gate;
-      return fetch(path, init);
-    });
-    await openQueue(project);
-    expect(screen.getByRole('status', { name: t('app.loading') })).toBeTruthy();
-    release();
-    await waitFor(() => expect(screen.queryByRole('status', { name: t('app.loading') })).toBeNull());
-  });
-
-  it('says it could not load the queue and tries again on "Újra"', async () => {
-    const project = mockProject();
-    project.backend.queueItems = [item({ id: 'q1', title: 'Megjön' })];
-    const fetch = createMockFetch(project.backend, project.requests);
-    let fail = true;
-    setFetchImplementation(async (path, init) => {
-      if (fail && path.includes('/project-manager/queue'))
-        return new Response(JSON.stringify({ error: { code: 'internal', message: 'Failed' } }), {
-          status: 500,
-        });
-      return fetch(path, init);
-    });
-    await openQueue(project);
-    expect(await screen.findByText(t('operator.queue.loadFailed'))).toBeTruthy();
-    fail = false;
-    fireEvent.click(screen.getByRole('button', { name: /Újra/ }));
-    expect(await screen.findByText('Megjön')).toBeTruthy();
-  });
-
-  it('keeps the list on screen and shows one line when a reload fails', async () => {
-    const project = mockProject();
-    project.backend.queueItems = [item({ id: 'q1', title: 'Marad' })];
-    const fetch = createMockFetch(project.backend, project.requests);
-    let fail = false;
-    setFetchImplementation(async (path, init) => {
-      if (fail && path.includes('/project-manager/queue'))
-        return new Response(JSON.stringify({ error: { code: 'internal', message: 'Failed' } }), {
-          status: 500,
-        });
-      return fetch(path, init);
-    });
-    const client = await openQueue(project);
-    await screen.findByText('Marad');
-    fail = true;
-    applyServerEvent(client, { type: 'member_queue_changed', projectKey: 'AC', member: 'pm' });
-    expect(await screen.findByText(t('operator.queue.refreshFailed'))).toBeTruthy();
-    expect(screen.getByText('Marad')).toBeTruthy();
-  });
-
-  it('explains the screen on first use', async () => {
-    const project = mockProject();
-    await openQueue(project);
-    expect(await screen.findByText(t('operator.queue.first.title'))).toBeTruthy();
-    expect(screen.queryByRole('list', { name: t('operator.queue.closedList') })).toBeNull();
-  });
-
-  it('says the queue is empty once the Operator has had work, and lists today closed items', async () => {
-    const project = mockProject();
-    project.backend.queueItems = [
-      closed('c1', 'done', { summary: 'Átállította', operationIds: [], machine: false, handoff: null }),
-    ];
-    await openQueue(project);
-    expect(await screen.findByText(t('operator.queue.summary.empty'))).toBeTruthy();
-    expect((await closedList()).textContent).toContain('Átállította');
-  });
-
-  it('tells that the Operator was restarted', async () => {
-    const project = mockProject();
-    project.backend.queueItems = [item({ id: 'q1', state: 'processing', restartedAt: ago(2) })];
-    await openQueue(project);
-    expect(await screen.findByText(new RegExp(t('operator.queue.restarted', { time: '.*' })))).toBeTruthy();
-  });
-
-  it('shows the owner-addressed handoff to another member without an inbox link', async () => {
-    const project = mockProject();
-    project.backend.queueItems = [
-      closed('c1', 'handed_off', {
-        summary: '',
-        operationIds: [],
-        machine: false,
-        handoff: { reason: 'owner_reserved', inboxItemId: 'inb_1' },
-      }),
-    ];
-    await openQueue(project, { viewer: 'kata', access: 'developer' });
-    const list = await closedList();
-    expect(list.textContent).toContain(
-      t('operator.queue.outcome.handedOffOwner', {
-        reason: t('operator.queue.outcome.reasonsOther.owner_reserved'),
-      }),
-    );
-    expect(
-      within(list).queryByRole('link', { name: new RegExp(t('operator.queue.outcome.inbox')) }),
-    ).toBeNull();
-  });
-
-  it.each<{
-    name: string;
-    state: MemberQueueItem['state'];
-    outcome: MemberQueueItem['outcome'];
-    text: () => string;
-    inbox: boolean;
-  }>([
-    {
-      name: 'done',
-      state: 'done' as const,
-      outcome: { summary: 'Átállította a szövegírót', operationIds: [], machine: false, handoff: null },
-      text: () => 'Átállította a szövegírót',
-      inbox: false,
-    },
-    {
-      name: 'handed to the owner',
-      state: 'handed_off' as const,
-      outcome: {
-        summary: '',
-        operationIds: [],
-        machine: false,
-        handoff: { reason: 'no_grant' as const, inboxItemId: 'inb_7' },
-      },
-      text: () =>
-        t('operator.queue.outcome.handedOff', { reason: t('operator.queue.outcome.reasons.no_grant') }),
-      inbox: true,
-    },
-    {
-      name: 'failed and handed over',
-      state: 'handed_off' as const,
-      outcome: {
-        summary: '',
-        operationIds: [],
-        machine: false,
-        handoff: { reason: 'processing_failed' as const, inboxItemId: 'inb_7' },
-      },
-      text: () => t('operator.queue.outcome.failed'),
-      inbox: true,
-    },
-    {
-      name: 'handed to the super side',
-      state: 'handed_off',
-      outcome: {
-        summary: '',
-        operationIds: [],
-        machine: false,
-        handoff: { reason: 'no_grant', inboxItemId: 'inb_7', to: 'super' },
-      },
-      text: () =>
-        t('operator.queue.outcome.handedOffSuper', {
-          reason: t('operator.queue.outcome.reasonsOther.no_grant'),
-        }),
-      inbox: false,
-    },
-    {
-      name: 'failed and handed to the super side',
-      state: 'handed_off',
-      outcome: {
-        summary: '',
-        operationIds: [],
-        machine: false,
-        handoff: { reason: 'processing_failed', inboxItemId: 'inb_7', to: 'super' },
-      },
-      text: () => t('operator.queue.outcome.failedSuper'),
-      inbox: false,
-    },
-    {
-      name: 'cancelled',
-      state: 'cancelled' as const,
-      outcome: null,
-      text: () => t('operator.queue.outcome.cancelled'),
-      inbox: false,
-    },
-  ])('shows how a $name item ended', async ({ state, outcome, text, inbox }) => {
-    const project = mockProject();
-    project.backend.queueItems = [closed('c1', state, outcome)];
-    await openQueue(project);
-    const list = await closedList();
-    expect(list.textContent).toContain(text());
-    const link = within(list).queryByRole('link', { name: new RegExp(t('operator.queue.outcome.inbox')) });
-    if (inbox) expect(link?.getAttribute('href')).toBe(`/p/AC/inbox#${inboxItemDomId('inb_7')}`);
-    else expect(link).toBeNull();
-  });
-
-  it('reads the earlier week on "Korábbiak" and says when the list is cut', async () => {
-    const project = mockProject();
-    project.backend.queueItems = Array.from({ length: MEMBER_QUEUE_CLOSED_LIMIT }, (_, index) =>
-      closed(`c${index}`, 'done', {
-        summary: `Kész ${index}`,
-        operationIds: [],
-        machine: false,
-        handoff: null,
-      }),
-    );
-    await openQueue(project);
-    await closedList();
-    expect(screen.getByText(t('operator.queue.limit', { count: MEMBER_QUEUE_CLOSED_LIMIT }))).toBeTruthy();
-    const queueRequests = () => project.requests.filter((r) => r.path.includes('/project-manager/queue'));
-    const before = queueRequests().length;
-    fireEvent.click(screen.getByRole('button', { name: t('operator.queue.earlier') }));
-    await waitFor(() => expect(queueRequests().length).toBeGreaterThan(before));
-    expect(screen.queryByRole('button', { name: t('operator.queue.earlier') })).toBeNull();
-    expect(
-      await screen.findByRole('heading', {
-        name: new RegExp('^' + t('operator.queue.closedWeek', { count: '.*' })),
-      }),
-    ).toBeTruthy();
-  });
-
-  it('reads the queue again when the server says it changed', async () => {
-    const project = mockProject();
-    const client = await openQueue(project);
-    await screen.findByText(t('operator.queue.first.title'));
-    project.backend.queueItems = [item({ id: 'q1', title: 'Új tétel' })];
-    applyServerEvent(client, { type: 'member_queue_changed', projectKey: 'AC', member: 'pm' });
-    expect(await screen.findByText('Új tétel')).toBeTruthy();
+    renderLayout(project);
+    fireEvent.click(await button());
+    fireEvent.click(await queueLink());
+    await screen.findByRole('heading', { name: t('workQueues.title') });
+    expect(screen.getByRole('link', { name: t('workQueues.back') })).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: t('workQueues.tabs.members') }));
+    await screen.findByRole('heading', { name: t('team.title') });
+    expect(screen.queryByRole('link', { name: t('workQueues.back') })).toBeNull();
   });
 });

@@ -337,16 +337,45 @@ describe('applyServerEvent', () => {
   });
 });
 
-describe('the Operator queue events', () => {
-  it('reads the queue and the corner when the queue changes', () => {
-    const client = new QueryClient();
+describe('the work queue events', () => {
+  const pm = 'member:operator';
+  const seed = (client: QueryClient) => {
     const keys = [
       queryKeys.projectManager(KEY),
-      queryKeys.operatorQueue(KEY, 'pm', '2026-10-22T00:00:00.000Z'),
+      queryKeys.workQueues(KEY),
+      queryKeys.workQueue(KEY, pm, '2026-10-22T00:00:00.000Z'),
     ];
     keys.forEach((key) => client.setQueryData(key, {}));
+    return keys;
+  };
+
+  it('reads the queue views and the corner when a member queue changes', () => {
+    const client = new QueryClient();
+    const keys = seed(client);
     applyServerEvent(client, { type: 'member_queue_changed', projectKey: KEY, member: 'operator' });
     keys.forEach((key) => expect(client.getQueryState(key)!.isInvalidated).toBe(true));
+  });
+
+  it('reads the queue views when the connected Claude connects or leaves', () => {
+    const client = new QueryClient();
+    client.setQueryData(queryKeys.workQueues(KEY), {});
+    applyServerEvent(client, { type: 'integrator_connections_changed', projectKey: KEY });
+    expect(client.getQueryState(queryKeys.workQueues(KEY))!.isInvalidated).toBe(true);
+  });
+
+  it('reads the queue views when an item of the connected Claude changes, and only then', () => {
+    const client = new QueryClient();
+    client.setQueryData(queryKeys.workQueues(KEY), {});
+    const plain = inbox.find((entry) => entry.id === 'inb_perm_push')!;
+    applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item: plain });
+    expect(client.getQueryState(queryKeys.workQueues(KEY))!.isInvalidated).toBe(false);
+    const integrator = {
+      ...plain,
+      kind: 'decision' as const,
+      payload: { integratorOpenedAt: '2026-10-22T10:00:00.000Z' },
+    };
+    applyServerEvent(client, { type: 'inbox_upserted', projectKey: KEY, item: integrator });
+    expect(client.getQueryState(queryKeys.workQueues(KEY))!.isInvalidated).toBe(true);
   });
 });
 

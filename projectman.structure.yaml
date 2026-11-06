@@ -544,6 +544,12 @@ modules:
     summary: A csapat tagjai, szerepei és hozzáférései.
     paths:
       - apps/web/src/features/team/
+  - id: web/work-queues
+    area: ui
+    name: Munkasorok
+    summary: Mi vár az AI-tagokra és a csatlakoztatott Claude-ra, mióta és miért (Csapat → Munkasorok).
+    paths:
+      - apps/web/src/features/work-queues/
   - id: web/shell
     area: ui
     name: Webes keret

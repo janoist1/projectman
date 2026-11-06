@@ -88,6 +88,7 @@ export function mockProject(backend = new MockBackend()) {
     operatorOpen: false,
     openOperator: () => {},
     closeOperator: () => {},
+    operatorDraft: { current: '' },
     openNewTask: () => {},
     themeFilter: null,
     setThemeFilter: () => {},

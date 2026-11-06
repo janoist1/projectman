@@ -26,7 +26,8 @@ import {
   OWNER_QUESTION_WEEKS_DEFAULT,
   OwnerQuestionsReport,
   OperatorPreferenceDocument,
-  MemberQueueView,
+  WorkQueueDetail,
+  WorkQueuesView,
   EmailLoginCodeRequested,
   CreateEngineResponse,
   EngineProvidersView,
@@ -92,6 +93,7 @@ import type {
   RestoreDocumentRequest,
   UpdateDocumentRequest,
   CreateOwnerInviteRequest,
+  WorkQueueRef,
   AnswerHostRequestRequest,
   SetChecklistItemStateRequest,
   CreateIntegratorAccessKeyRequest,
@@ -424,11 +426,16 @@ export const api = {
    * steps, signals and the queue (PM-434, PM-475, PM-1042).
    */
   projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerCorner }),
-  /** The project manager's queue: the open items and those closed since `closedSince` (PM-894, PM-1042). */
-  projectManagerQueue: (key: string, closedSince: string) =>
-    apiRequest(`${routes.projectManagerQueue(key)}?closedSince=${encodeURIComponent(closedSince)}`, {
-      schema: MemberQueueView,
-    }),
+  /** Every work queue the viewer may read: the AI members' and the connected Claude's (PM-1294). */
+  workQueues: (key: string) => apiRequest(routes.workQueues(key), { schema: WorkQueuesView }),
+  /** One work queue in full: its open items (up to the detail limit) and those closed since `closedSince`. */
+  workQueue: (key: string, queue: WorkQueueRef, closedSince?: string) =>
+    apiRequest(
+      `${queue.type === 'member' ? routes.workQueueMember(key, queue.member) : routes.workQueueIntegrator(key)}${
+        closedSince ? `?closedSince=${encodeURIComponent(closedSince)}` : ''
+      }`,
+      { schema: WorkQueueDetail },
+    ),
   /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */
   operatorKnowledge: (key: string) =>
     apiRequest(routes.operatorKnowledge(key), { schema: OperatorKnowledgeDocument }),

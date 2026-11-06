@@ -1,0 +1,128 @@
+.group {
+  margin: 12px 0;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+  overflow: hidden;
+}
+
+:global([data-style='win311']) .group {
+  box-shadow: var(--bevel-raised);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 20px;
+  background: var(--c-subtle);
+}
+
+:global([data-style='win311']) .head {
+  background: var(--c-titlebar-active-bg);
+  color: var(--c-titlebar-active-fg);
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.identity small {
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+:global([data-style='win311']) .identity small {
+  color: inherit;
+}
+
+.name {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  background: var(--c-muted);
+  color: var(--c-ink);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--text-sm);
+}
+
+.live {
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+}
+
+.warn {
+  color: var(--c-warn-text);
+}
+
+:global([data-style='win311']) .head .warn {
+  color: inherit;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 20px;
+  text-align: center;
+  color: var(--c-ink-3);
+}
+
+.more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.limited {
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--c-line-soft);
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+@media (max-width: 700px) {
+  .head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: 14px 12px;
+  }
+
+  .counts {
+    padding-left: 50px;
+  }
+
+  .more {
+    padding: 12px;
+  }
+}

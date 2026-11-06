@@ -143,6 +143,34 @@ describe('handover selection', () => {
     expect(selection.omittedByProximity.graph).toHaveLength(7);
   });
 
+  it('does not count the consumers of a changed package export as direct, and ranks a rarely used name first (PM-1306)', () => {
+    const consumers = Array.from({ length: TARGETED_TEST_FILES_MAX + 20 }, (_, i) =>
+      file(
+        `apps/server/test/c${String(i).padStart(3, '0')}.test.ts`,
+        // Some of them use `onLeave` too: it is used by many tests, yet not by nearly all.
+        `import { LEAVE } from '@projectman/shared';\n${i % 8 === 1 ? 'x({ onLeave: false });' : ''}`,
+      ),
+    );
+    const tree = [
+      file('packages/shared/src/index.ts', "export * from './leave';"),
+      file('packages/shared/src/leave.ts', 'export const LEAVE = { onLeave: false };'),
+      ...consumers,
+      file('apps/server/test/zz-name.test.ts', 'x({ onLeave: true });'),
+    ];
+    const after = tree.map((f) =>
+      f.path.endsWith('/leave.ts') ? file(f.path, 'export const LEAVE = { onLeave: true };') : f,
+    );
+    const selection = handoverSelection({
+      changed: ['packages/shared/src/leave.ts'],
+      added: [],
+      deleted: [],
+      before: tree,
+      after,
+    });
+    expect(selection.omittedByProximity.direct).toEqual([]);
+    expect(selection.tests.flatMap((entry) => entry.files)).toContain('apps/server/test/zz-name.test.ts');
+  });
+
   it('selects nothing but the dead-code check for a documentation-only change', () => {
     expect(select(teamToolTree, ['docs/ARCHITECTURE.md'])).toMatchObject({
       kind: 'none',

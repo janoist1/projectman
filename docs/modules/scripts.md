@@ -153,11 +153,14 @@ workers follow the machine's size.
   `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`) files run, so the
   nearest come first and the alphabet only decides between tests of the same proximity:
   1. `direct`: the changed tests, the tests of a changed snapshot, and the tests that import a changed
-     file themselves (snapshot tests first);
+     file themselves (snapshot tests first). A test that only imports a changed `packages/shared`
+     export through the package is not direct: it is `graph`, however many there are;
   2. `rule`: the tests a `SELECTION_RULES` entry chose;
   3. `name`: tests (inside the merge check's scope) that use a changed name without importing the
      file: an exported name declared, or a compound identifier (`onLeave`, `TeamToolInput`) used, on a
-     line that differs from the base in a changed non-test file;
+     line that differs from the base in a changed non-test file. A name nearly every test uses
+     (over a quarter of them) is ignored; the others rank the tests: those in a workspace the change
+     touched first, then those using more and rarer changed names, then by path;
   4. `graph`: the tests reached through further imports (snapshot tests first, then by distance).
 
   A test counts once, at its nearest proximity. Over the cap the last lines say

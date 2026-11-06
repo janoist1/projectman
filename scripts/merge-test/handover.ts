@@ -142,6 +142,8 @@ const EXPORTED_NAME =
   /^[\t ]*export\s+(?:declare\s+)?(?:default\s+)?(?:async\s+)?(?:abstract\s+)?(?:const|let|var|function\*?|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm;
 /** A compound identifier (`onLeave`, `TeamToolInput`): short or one-word names match too much. */
 const COMPOUND_NAME = /\b[A-Za-z_$][\w$]*[a-z][A-Z][\w$]*\b/g;
+/** A name the code declares as a property, a parameter or a typed variable (`onLeave: true`). */
+const DECLARED_NAME = /[\s{,(;]([A-Za-z_$][\w$]*)\s*\??:(?!:)/g;
 
 /**
  * The names a change touched: exported names declared on, and compound identifiers used on, the lines
@@ -155,6 +157,8 @@ function changedSymbols(
   const beforeSource = new Map(before.map((file) => [file.path, file.source]));
   const afterSource = new Map(after.map((file) => [file.path, file.source]));
   const symbols = new Set<string>();
+  const compound = new Set<string>();
+  const texts: string[] = [];
   for (const path of changed) {
     if (!isCode(path) || isServerTest(path) || isTestSupport(path)) continue;
     const was = (beforeSource.get(path) ?? '').split('\n');
@@ -162,26 +166,48 @@ function changedSymbols(
     const wasSet = new Set(was);
     const isSet = new Set(is);
     const differing = [...is.filter((line) => !wasSet.has(line)), ...was.filter((line) => !isSet.has(line))];
-    const text = differing.join('\n');
+    // Comments name things without using them.
+    const text = differing
+      .filter((line) => !/^\s*(?:\/\/|\/?\*)/.test(line))
+      .map((line) => line.replace(/\s\/\/.*$/, ''))
+      .join('\n');
+    texts.push(text);
     for (const match of text.matchAll(EXPORTED_NAME)) if (match[1]!.length >= 5) symbols.add(match[1]!);
-    for (const match of text.matchAll(COMPOUND_NAME)) symbols.add(match[0]);
+    for (const match of text.matchAll(COMPOUND_NAME)) compound.add(match[0]);
   }
+  // A compound name counts only when the code declares it (a property, a variable): not `localeCompare`.
+  if (compound.size)
+    for (const source of [...texts, ...after.filter((file) => isCode(file.path)).map((file) => file.source)])
+      for (const match of source.matchAll(DECLARED_NAME)) if (compound.has(match[1]!)) symbols.add(match[1]!);
   return [...symbols];
 }
 
 /** A name used by more than this share of the candidate tests (`toEqual`, `readFileSync`) tells nothing. */
-const COMMON_NAME_SHARE = 0.05;
-const COMMON_NAME_MIN = 10;
+const COMMON_NAME_SHARE = 0.25;
 
-/** The candidate tests that use a changed name, ignoring the names nearly every test uses; sorted. */
-function nameUsers(symbols: readonly string[], candidates: readonly MergeTestFile[]): string[] {
+/**
+ * The candidate tests that use a changed name, nearest first: those in a workspace the change touched,
+ * then those that use more, and rarer, changed names (a name only a few tests use says the most),
+ * then by path. A name nearly every test uses is ignored.
+ */
+function nameUsers(
+  symbols: readonly string[],
+  candidates: readonly MergeTestFile[],
+  changedWorkspaces: ReadonlySet<MergeTestWorkspace>,
+): string[] {
   const wanted = new Set(symbols);
   const users = new Map<string, string[]>();
   for (const { path, source } of candidates)
     for (const name of new Set(source.match(/[\w$]+/g) ?? []))
       if (wanted.has(name)) users.set(name, [...(users.get(name) ?? []), path]);
-  const limit = Math.max(COMMON_NAME_MIN, candidates.length * COMMON_NAME_SHARE);
-  return [...new Set([...users.values()].filter((paths) => paths.length <= limit).flat())].sort();
+  const score = new Map<string, number>();
+  for (const paths of users.values())
+    if (paths.length <= candidates.length * COMMON_NAME_SHARE)
+      for (const path of paths) score.set(path, (score.get(path) ?? 0) + 1 / paths.length);
+  const here = (path: string) => Number(changedWorkspaces.has(workspaceOf(path)!));
+  return [...score.keys()].sort(
+    (a, b) => here(b) - here(a) || score.get(b)! - score.get(a)! || a.localeCompare(b),
+  );
 }
 
 /** The workspace whose checks cover a path: the scripts belong to the server's. */
@@ -247,6 +273,7 @@ export function handoverSelection(
       for (const target of targets) reverse.set(target, (reverse.get(target) ?? new Set()).add(from));
 
   const seeds = new Set<string>();
+  const changedFiles: string[] = [];
   const snapshotOwners = new Set<string>();
   const unmapped: string[] = [];
   const typecheck = new Set<MergeTestWorkspace>();
@@ -266,6 +293,7 @@ export function handoverSelection(
     if (!mapped && !reverse.has(file) && file !== STRUCTURE_MAP) unmapped.push(file);
     if (isCode(file) && workspace) typecheck.add(workspace);
     seeds.add(file);
+    changedFiles.push(file);
   }
 
   // The packages other workspaces import by name: only a value import carries a change into their tests.
@@ -327,6 +355,13 @@ export function handoverSelection(
   const nameTests = nameUsers(
     changedSymbols(changed, input.before, input.after),
     input.after.filter((file) => isTest(file.path) && mergeRuns(merge, file.path)),
+    new Set(changed.map(checkedBy).filter((workspace) => workspace !== undefined)),
+  );
+  // The tests that import a changed file themselves; a consumer of a changed package export is not one.
+  const importers = new Set(
+    changedFiles
+      .flatMap((file) => [...(reverse.get(file) ?? [])])
+      .filter((path) => reachedTests.includes(path)),
   );
 
   // Nearest first. Alphabetical order only decides between tests of the same proximity.
@@ -334,7 +369,7 @@ export function handoverSelection(
     // The change's own tests, then the tests that import a changed file themselves.
     direct: [
       ...[...snapshotOwners, ...changed.filter(isTest)].sort(),
-      ...reachedTests.filter((path) => distance.get(path)! <= 1).sort(bySnapshotThenDistance),
+      ...[...importers].sort(bySnapshotThenDistance),
     ],
     rule: ruleTests,
     name: nameTests,

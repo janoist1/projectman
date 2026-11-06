@@ -48,6 +48,7 @@ import {
   createWorkspaceDependencyInstaller,
   defaultHeavyLockDir,
   readHeavyRunSessions,
+  endHeavySessionRuns,
   withGithubRuns,
 } from './full-test';
 import { createCheckBranchGit, createKeepAwake, freeBytesOf, spawnKeepAwakeProcess } from './engine-host';
@@ -512,6 +513,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
           ? Math.min(await freeBytesOf(home), await freeBytesOf(roots.worktrees))
           : freeBytesOf(home),
       heavyRunSessions: () => readHeavyRunSessions(heavyLockDir),
+      endSessionRuns: (sessionId) => endHeavySessionRuns(heavyLockDir, sessionId),
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
       repoPath: boundRepoPath,

@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   acquireHeavyLock,
+  endHeavySessionRuns,
   defaultHeavyLockDir,
   heavyHeldBy,
   HeavyLockError,
@@ -36,6 +37,66 @@ it('lets a holder process exit naturally after release', async () => {
 });
 
 describe('heavy-run sessions', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('terminates fresh queue, partial and full holders, then kills them after ten seconds', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    writeHolder({ sessionId: 'ended', pid: 101 });
+    writeTicket('waiting', { sessionId: 'ended', pid: 102 });
+    const partial = writeTicket('partial', { sessionId: 'ended', pid: 103 });
+    mkdirSync(path.join(dir, 'holders'), { recursive: true });
+    writeFileSync(path.join(dir, 'holders', 'partial.json'), readFileSync(partial));
+    rmSync(partial);
+    const kill = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(3);
+    expect(kill.mock.calls).toEqual([
+      [102, 'SIGTERM'],
+      [101, 'SIGTERM'],
+      [103, 'SIGTERM'],
+    ]);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(kill).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(kill).toHaveBeenCalledTimes(6));
+    expect(kill.mock.calls.slice(3)).toEqual([
+      [102, 'SIGKILL'],
+      [101, 'SIGKILL'],
+      [103, 'SIGKILL'],
+    ]);
+  });
+
+  it('does not signal stale entries, including the thirty-second boundary', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    writeHolder({ sessionId: 'ended' }, 60_000);
+    writeTicket('stale', { sessionId: 'ended' }, 30_000);
+    const kill = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(0);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it('leaves other sessions and anonymous runs alone', async () => {
+    writeHolder({ sessionId: 'other' });
+    writeTicket('anonymous', {});
+    const kill = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(0);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it('does not escalate removed, replaced or stale entries', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    const removed = writeTicket('removed', { sessionId: 'ended', pid: 101 });
+    writeTicket('replaced', { sessionId: 'ended', pid: 102 });
+    writeTicket('aging', { sessionId: 'ended', pid: 103 }, 25_000);
+    writeTicket('fresh', { sessionId: 'ended', pid: 105 });
+    const kill = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(4);
+    rmSync(removed);
+    writeTicket('replaced', { sessionId: 'ended', pid: 104 });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.waitFor(() => expect(kill).toHaveBeenCalledTimes(5));
+    expect(kill.mock.calls.filter(([, signal]) => signal === 'SIGKILL')).toEqual([[105, 'SIGKILL']]);
+  });
+
   it('includes live holders and waiters once and does not remove stale entries', async () => {
     writeHolder({ sessionId: 'holder' });
     writeTicket('fresh', { sessionId: 'waiter' });

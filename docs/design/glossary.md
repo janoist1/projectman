@@ -78,7 +78,8 @@ English word, and the same thing is never called two names.
 | munkamenet                               | session                         |                                                                                           |
 | általános beszélgetés                    | general chat                    |                                                                                           |
 | megbeszélés                              | meeting                         |                                                                                           |
-| Beszélgetés (tab) / Terminál / Részletek | Chat / Terminal / Details       |                                                                                           |
+| Beszélgetés (tab) / Terminál / Részletek | Chat / Terminal / Details       | A session-nézet fülei                                                                     |
+| Beszélgetés (kártyafül)                  | Comments                        | A kártya nézetváltójában; a session-fül „Chat” marad                                      |
 | munkakönyvtár                            | working directory               |                                                                                           |
 | szolgáltató                              | provider                        |                                                                                           |
 | engedély; mód                            | permission; mode                |                                                                                           |

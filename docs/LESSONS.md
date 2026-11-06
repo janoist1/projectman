@@ -5,6 +5,10 @@ where it went. Newest first. The owner's decisions stay in [DECISIONS.md](DECISI
 file keeps the experience behind them, so that members and the project manager do not learn it
 twice. Anyone may propose a lesson; the project manager adds it.
 
+## 2026-11-06: a snapshot in another workspace
+
+**The MCP tool snapshot failed three merges.** PM-1196, PM-1274 and PM-1285 changed a `packages/shared` schema that a team tool takes as input. The tool definition snapshot (`apps/server/src/mcp/__snapshots__/tools.test.ts.snap`) changed with it, but `vitest related` run in `packages/shared` does not select a test in `apps/server`, and the merge test failed. _Lesson:_ after changing a schema a team tool uses, run `npx vitest run src/mcp/tools.test.ts --configLoader runner` in `apps/server` (update with `-u`). A third checklist line for one more cross-workspace case is a patch (decision 75): the hand-over check should select the affected tests across workspaces from the diff, as the merge test does. (PM-1196, PM-1274, PM-1285)
+
 ## 2026-11-06: a "related" run that was the whole suite
 
 **Eight related runs filled the Mac's memory.** On PM-363 a developer ran `npx vitest related src/db/migrations.ts src/auth/... --run` eight times. `migrations.ts` is imported almost everywhere, so each run selected 348 test files, the whole server suite, about 2 GB each. One run passed the foreground timeout and went to the background; the member started the same run again beside it, while PM-1271 ran another large related run. With 16 GB and a full swap they ran over 20 minutes until the owner's connected Claude stopped them. _Lesson:_ `vitest related` on a hub file (`db/migrations.ts`, `contracts`, `packages/shared`) is the full suite: run the specific test files instead. Never start a second copy of a run that is still going in the background. If it happens again, a guard in the heavy-run queue should catch a related selection above a set number of files. (PM-363, PM-1271)

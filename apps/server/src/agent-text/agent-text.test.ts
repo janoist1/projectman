@@ -106,6 +106,20 @@ describe('links', () => {
 });
 
 describe('describeEvent', () => {
+  it.each(['With text', ''])('names comment files and marks deleted files with text %j', (text) => {
+    const out = describeEvent(
+      event('task_note', {
+        text,
+        attachments: [
+          { id: 'att_commentfile1', fileName: 'a.png' },
+          { id: 'att_commentfile2', fileName: 'b.pdf', gone: true },
+        ],
+      }),
+      280,
+    );
+    expect(out).toContain('files: att_commentfile1 "a.png", att_commentfile2 "b.pdf" (deleted)');
+    if (text) expect(out).toContain(text);
+  });
   it.each([
     [{ points: 5, reason: 'two modules', previous: null }, ['5', 'two modules']],
     [{ points: null, reason: null, previous: { points: 8, reason: null } }, ['removed', '8']],

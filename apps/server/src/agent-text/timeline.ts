@@ -1,4 +1,4 @@
-import type { TimelineEvent, TimelineEventType } from '@projectman/shared';
+import type { CommentAttachmentRef, TimelineEvent, TimelineEventType } from '@projectman/shared';
 import { numberedRef } from './links';
 import { MESSAGE_DROP_REASONS } from './message-notices';
 import { relationPhrase } from './relations';
@@ -164,8 +164,15 @@ export function describeEvent(
       return text('phase') === 'alerted'
         ? `told the owners that ${list('parts').join(', ')} stayed in the first stage after ${text('member') ?? '?'}'s reminder`
         : `reminded ${text('member') ?? '?'} that ${list('parts').join(', ')} are left in the first stage`;
-    case 'task_note':
-      return `note: ${text('text') ?? ''}`.trimEnd();
+    case 'task_note': {
+      const files = Array.isArray(data.attachments) ? (data.attachments as CommentAttachmentRef[]) : [];
+      const note = `note: ${text('text') ?? ''}`.trimEnd();
+      if (!files.length) return note;
+      const names = files
+        .map((file) => `${file.id} ${JSON.stringify(file.fileName)}${file.gone ? ' (deleted)' : ''}`)
+        .join(', ');
+      return `${note}${text('text') ? ' ·' : ''} files: ${names}`;
+    }
     case 'attachment_added':
       return `attached the file ${text('fileName') ?? '?'}`;
     case 'attachment_deleted':

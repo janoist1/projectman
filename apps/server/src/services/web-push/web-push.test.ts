@@ -256,6 +256,29 @@ describe('web push service', () => {
       expect(transport.calls).toHaveLength(1);
     });
 
+    it.each([
+      ['hu', 1],
+      ['en', 2],
+    ] as const)('counts file-only comments in %s without sending file names', async (language, count) => {
+      repos.users.setLanguage(user.id, language);
+      subscribe();
+      comment.data = {
+        text: '',
+        attachments: Array.from({ length: count }, (_, i) => ({
+          id: `att_commentfile${i}`,
+          fileName: 'Private name',
+        })),
+      };
+      await service.onNote(comment, [], task);
+      const payload = PushPayload.parse(JSON.parse(transport.calls[0]!.payload));
+      const files = getLocale(language).webPush.files;
+      expect(payload.body).toBe(
+        `AR-1 · ${count === 1 ? files.one : files.many.replace('{n}', String(count))}`,
+      );
+      expect(transport.calls[0]!.payload).not.toContain('Private name');
+      expect(transport.calls[0]!.payload).not.toContain('dani');
+    });
+
     it.each(['categories', 'viewing', 'quiet'] as const)('is not sent while %s block it', async (reason) => {
       subscribe();
       if (reason === 'categories') setCategories({ comment: false, mention: false });

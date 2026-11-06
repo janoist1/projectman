@@ -396,6 +396,8 @@ export const en = {
       merge_fix_engine_mismatch: 'The fixing worktree must be on the card’s engine.',
       task_not_merged: 'The approved commit isn’t on the main branch yet.',
       attachment_too_large: 'An attachment can be at most 25 MB.',
+      comment_attachment_unavailable: 'A comment file is no longer available: remove it and attach it again.',
+      comment_attachment_limit: 'You can have at most 20 unsent comment files per project.',
       attachment_storage_failed: 'The attachment couldn’t be stored or read; try again later.',
       document_not_found: 'There is no such document or version.',
       document_conflict:

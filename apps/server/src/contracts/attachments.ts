@@ -7,6 +7,7 @@ import type { Actor, Attachment, MessageAttachment } from '@projectman/shared';
  * asks. Access is judged for the acting member against the current roster.
  */
 export interface AttachmentUploadInput {
+  forComment?: true;
   projectKey: string;
   taskKey: string;
   actor: Actor;
@@ -31,7 +32,12 @@ export interface AttachmentOperations {
   /** The readable attachments of a task, oldest first. */
   list(projectKey: string, taskKey: string, actor: Actor): Promise<Attachment[]>;
   /** Refuses (as `upload` would at its start) unless the actor may upload to the task. */
-  assertCanUpload(projectKey: string, taskKey: string, actor: Actor): Promise<void>;
+  assertCanUpload(
+    projectKey: string,
+    taskKey: string,
+    actor: Actor,
+    options?: { forComment?: true },
+  ): Promise<void>;
   upload(input: AttachmentUploadInput): Promise<Attachment>;
   /** Opens a ready attachment of this task; the caller must close the stream. */
   open(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<AttachmentContent>;

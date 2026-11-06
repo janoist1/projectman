@@ -2946,4 +2946,12 @@ migrations.push({
     CREATE UNIQUE INDEX team_messages_client_request ON team_messages(project_key, from_handle, client_request_id)
       WHERE client_request_id IS NOT NULL;`,
 });
+migrations.push({
+  version: 147,
+  name: 'comment attachments',
+  sql: `ALTER TABLE attachments ADD COLUMN comment_upload INTEGER NOT NULL DEFAULT 0 CHECK (comment_upload IN (0, 1));
+    ALTER TABLE attachments ADD COLUMN comment_event_id TEXT;
+    CREATE INDEX attachments_unsent_comment ON attachments(project_key, uploaded_by_kind, uploaded_by_handle, created_at)
+      WHERE comment_upload = 1 AND comment_event_id IS NULL;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -398,6 +398,9 @@ function formatTimelineEvent(task: Task, event: TimelineEvent): string {
     head,
     `${formatTimestamp(event.createdAt)} · ${actor} · ${event.type} · ${Array.from(full).length} characters, shown whole:`,
     full,
+    ...(event.type === 'task_note' && Array.isArray(event.data.attachments)
+      ? [timelineLine({ ...event, data: { ...event.data, text: '' } }, Number.MAX_SAFE_INTEGER)]
+      : []),
   ].join('\n');
 }
 
@@ -544,7 +547,9 @@ function attachmentLines(taskKey: string, page: AttachmentPage): string[] {
   const range = first === 1 && last === page.total ? `${page.total}` : `${first}–${last} of ${page.total}`;
   const lines = [
     `Attachments (${range}, oldest first):`,
-    ...page.attachments.map((a) => `- ${describeAttachment(a)}`),
+    ...page.attachments.map(
+      (a) => `- ${describeAttachment(a)}${a.comment?.eventId ? ` · in comment ${a.comment.eventId}` : ''}`,
+    ),
   ];
   if (last < page.total)
     lines.push(`${page.total - last} more: list_attachments with task_key ${taskKey} and offset ${last}.`);

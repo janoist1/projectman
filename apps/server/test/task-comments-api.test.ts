@@ -10,6 +10,7 @@ import {
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { fileBody, pngBytes } from './helpers/attachments';
 
 describe('task comments API', () => {
   let h: AppHarness;
@@ -107,6 +108,36 @@ describe('task comments API', () => {
   it('refuses a viewer', async () => {
     await setRobin('viewer');
     const response = await comment({ text: 'Comment' }, developer);
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe('insufficient_access');
+  });
+
+  it('lets a client upload and send a file-only comment', async () => {
+    await setRobin('client');
+    const body = fileBody(pngBytes());
+    const uploaded = await h.app.inject({
+      method: 'POST',
+      url: routes.taskCommentAttachments('AR', 'AR-1'),
+      headers: { ...body.headers, cookie: developer },
+      payload: body.payload,
+    });
+    expect(uploaded.statusCode).toBe(201);
+    const file = uploaded.json().attachment;
+    expect(file.comment).toEqual({ eventId: null });
+    const response = await comment({ attachmentIds: [file.id] }, developer);
+    expect(response.statusCode).toBe(201);
+    expect(
+      TaskDetail.parse(response.json()).timeline.find((event) => event.type === 'task_note'),
+    ).toMatchObject({ data: { text: '', attachments: [{ id: file.id }] } });
+  });
+
+  it('refuses a viewer before reading comment upload bytes', async () => {
+    await setRobin('viewer');
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.taskCommentAttachments('AR', 'AR-1'),
+      headers: { cookie: developer },
+    });
     expect(response.statusCode).toBe(403);
     expect(response.json().error.code).toBe('insufficient_access');
   });

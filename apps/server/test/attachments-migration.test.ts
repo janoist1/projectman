@@ -5,6 +5,35 @@ import { createRepositories, LATEST_SCHEMA_VERSION, migrate, schemaVersion } fro
 import { migrations } from '../src/db/migrations';
 
 describe('attachments migration', () => {
+  it('preserves ready card files when upgrading to comment attachment storage', () => {
+    const db = new Database(':memory:');
+    try {
+      for (const migration of migrations.filter((item) => item.version < 147)) db.exec(migration.sql);
+      db.pragma('user_version = 146');
+      db.exec(`INSERT INTO projects (key, name, config_version, created_at, updated_at) VALUES ('AR', 'Example', 'v1', 'now', 'now');
+        INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, visibility, created_by, created_at, updated_at)
+          VALUES ('tsk_old', 'AR', 'AR-1', 1, 'Old task', '', 'dev', 'active', 'internal', 'owner', 'now', 'now');
+        INSERT INTO attachments (id, project_key, task_key, file_name, size, media_type, preview, uploaded_by_kind, uploaded_by_handle, created_at, state)
+          VALUES ('att_migrationtest1', 'AR', 'AR-1', 'old.png', 4, 'image/png', 'image', 'human', 'owner', 'now', 'ready');`);
+      migrate(db);
+      const repos = createRepositories(db);
+      expect(repos.attachments.listReady('AR', 'AR-1')).toMatchObject([
+        { id: 'att_migrationtest1', commentUpload: false, commentEventId: null },
+      ]);
+      expect(repos.attachments.get('att_migrationtest1')?.comment).toBeUndefined();
+      expect(repos.attachments.readyImagesOf(['AR-1']).get('AR-1')).toEqual(['att_migrationtest1']);
+      expect(repos.attachments.unsentCommentCount('AR', { kind: 'human', handle: 'owner' })).toBe(0);
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'attachments_unsent_comment'",
+          )
+          .get(),
+      ).toBeDefined();
+    } finally {
+      db.close();
+    }
+  });
   it('adds the table next to the existing data without touching it, and only once', () => {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');

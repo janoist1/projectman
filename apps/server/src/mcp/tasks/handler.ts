@@ -42,7 +42,15 @@ export class TaskTools implements TaskToolsHandler {
   private readonly ctx: DomainContext;
   private readonly tasks: Pick<
     TaskService,
-    'listQuery' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
+    | 'listQuery'
+    | 'find'
+    | 'get'
+    | 'detail'
+    | 'relationsOf'
+    | 'themeOf'
+    | 'update'
+    | 'create'
+    | 'commentFileState'
   >;
   private readonly timeline: Pick<TimelineService, 'get'>;
   private readonly attachments: Pick<AttachmentOperations, 'list'>;
@@ -55,7 +63,15 @@ export class TaskTools implements TaskToolsHandler {
     ctx: DomainContext;
     tasks: Pick<
       TaskService,
-      'listQuery' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
+      | 'listQuery'
+      | 'find'
+      | 'get'
+      | 'detail'
+      | 'relationsOf'
+      | 'themeOf'
+      | 'update'
+      | 'create'
+      | 'commentFileState'
     >;
     timeline: Pick<TimelineService, 'get'>;
     attachments: Pick<AttachmentOperations, 'list'>;
@@ -240,7 +256,7 @@ export class TaskTools implements TaskToolsHandler {
       const event = this.timeline.get(ctx.projectKey, eventId);
       if (!event || event.taskKey !== taskKey)
         throw new TeamToolError('not_found', `${taskKey} has no timeline event ${eventId}.`);
-      return { ...detail, event };
+      return { ...detail, event: this.tasks.commentFileState(ctx.projectKey, taskKey, [event])[0]! };
     }
     const attachments = await this.attachments.list(
       ctx.projectKey,

@@ -57,6 +57,33 @@ describe('attachment team tools', () => {
   const events = (type: string) =>
     h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((event) => event.type === type);
 
+  it('shows sent comment files and deletion state in get_task and reads them through read_attachment', async () => {
+    const file = await h.domain.attachments.upload({
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      actor: OWNER_ACTOR,
+      fileName: 'comment.png',
+      content: Readable.from([pngBytes()]),
+      forComment: true,
+    });
+    await expect(
+      h.domain.teamTools.readAttachment(dev, { taskKey: 'AR-1', attachmentId: file.id }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    const note = await h.domain.tasks.addNote('AR', 'AR-1', 'Comment', OWNER_ACTOR, null, {
+      attachmentIds: [file.id],
+    });
+    const detail = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' });
+    expect(detail.timeline.find((event) => event.id === note.id)?.data.attachments).toMatchObject([
+      { id: file.id, fileName: 'comment.png' },
+    ]);
+    expect(
+      await h.domain.teamTools.readAttachment(dev, { taskKey: 'AR-1', attachmentId: file.id }),
+    ).toMatchObject({ attachment: { id: file.id, comment: { eventId: note.id } } });
+    await h.domain.attachments.delete('AR', 'AR-1', file.id, OWNER_ACTOR);
+    const eventView = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1', eventId: note.id });
+    expect(eventView.event?.data.attachments).toMatchObject([{ id: file.id, gone: true }]);
+  });
+
   describe('attach_file', () => {
     it('attaches a file of the session directory in the calling AI member’s name', async () => {
       const { attachment } = await h.domain.teamTools.attachFile(dev, {

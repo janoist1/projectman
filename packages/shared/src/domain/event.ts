@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { CommentAttachmentRef } from './attachment';
 import type { ConfigChangeRow } from '../config/operator';
 import type { OperatorKnowledgeChange } from './operator-knowledge';
 import type { AcceptanceChange } from './acceptance';
@@ -383,6 +384,7 @@ export interface TimelineEventData {
   };
   task_note: {
     text: string;
+    attachments?: CommentAttachmentRef[];
     mentions?: string[];
     importedAuthor?: string;
     importedAt?: string;

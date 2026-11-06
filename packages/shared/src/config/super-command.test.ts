@@ -328,7 +328,7 @@ describe('super command classification (PM-762)', () => {
             op: 'config_patch',
             patch: {
               roleOverrides: {
-                [role]: { duties: ['project_operation'], instructions: 'Updated role instructions' },
+                [role]: { duties: ['docs'], instructions: 'Updated role instructions' },
               },
             },
           })

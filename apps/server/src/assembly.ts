@@ -1854,8 +1854,8 @@ export function createDomain(opts: DomainOptions) {
   );
   // The durable handoff of work to the super-mode integrator (PM-762): its grants are the only way a reserved
   // effect passes the mutation checks, and the owner's own answer is the only way the waiting operation goes on.
-  // The in-app Operator acts on the same path as a super-mode key (PM-888): its credential is the Operator's
-  // session while an owner request is open. Stored keys still go to the key authority.
+  // The project manager's operate tool acts on the same path as a super-mode key (PM-888): its credential is the
+  // project manager's session while an owner request is open. Stored keys still go to the key authority.
   const appCredentials = createOperatorAppCredentials({
     base: opts.integratorCredentials,
     sessions: createOperatorAppSessions({

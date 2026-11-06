@@ -47,22 +47,6 @@ describe('ConfigStore (customization repository)', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it.each([false, true])('round-trips the waiver %s in YAML, history and revert', async (enabled) => {
-    const config = testConfig();
-    config.team.operatorApprovalWaiver = enabled;
-    const original = await store.save('AR', config, { author, message: 'Set waiver' });
-    expect(readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8')).toContain(
-      `operatorApprovalWaiver: ${enabled}`,
-    );
-    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
-    expect((await store.loadVersion('AR', original.version)).team.operatorApprovalWaiver).toBe(enabled);
-    delete config.team.operatorApprovalWaiver;
-    await store.save('AR', config, { author, message: 'Clear waiver' });
-    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBeUndefined();
-    await store.revertTo('AR', original.version, { author });
-    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
-  });
-
   it('keeps the prerequisite override through a save and a load (PM-1099)', async () => {
     const config = testConfig();
     config.team.prerequisiteOverride = 'people_and_project_manager';

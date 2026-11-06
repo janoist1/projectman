@@ -31,7 +31,6 @@ import { TEAM_SETTING_KEYS, TEAM_SETTING_POLICY, teamSettingValue } from './team
  * - `compute_jobs`: a repository's compute jobs, `computeJobs`: their commands run on GitHub with the right to
  *   attest their outputs (PM-1148);
  * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548);
- * - `operator_approval_waiver`: whether eligible Operator changes may skip the approval click (PM-691);
  * - `email_send_policy`: whether an AI member can send email without human approval (PM-940), except
  *   that switching sending on or off clears the bypass with it (PM-956);
  * - `machine_access`: whether an AI member may put machine work in the owners' queue (decision 66), by its
@@ -51,7 +50,6 @@ const OWNER_ONLY_CHANGES = [
   'review_test',
   'compute_jobs',
   'operator_watch',
-  'operator_approval_waiver',
   'email_send_policy',
   'machine_access',
   'task_create_access',

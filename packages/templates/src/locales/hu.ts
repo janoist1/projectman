@@ -204,11 +204,6 @@ export const hu: TemplateLocale = {
       name: 'Végső döntés',
       description: 'Dönt az eszkalált kérdésekben. Csak ember töltheti be.',
     },
-    project_operation: {
-      name: 'Projekt működtetése',
-      description:
-        'A tulajdonos kérésére átállítja, hogyan dolgozik a projekt. Csak AI töltheti be, és csak kérésre dolgozik.',
-    },
   },
   roles: {
     operator: {

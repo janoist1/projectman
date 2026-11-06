@@ -448,8 +448,8 @@ injection remains possible within the recipient's existing authority.
 `ProjectService.assertCommitAllowed` in `core/projects/projects.ts` checks configuration
 commits under the configuration lock. A bound actor must match the authenticated execution,
 the author metadata and a current owner; an actor supplied in JSON grants nothing.
-The actor's owner-only change rules still apply. A waiver change requires its dedicated
-owner endpoint, and a stage containing cards cannot be removed (`stage_in_use`).
+The actor's owner-only change rules still apply, and a stage containing cards cannot be removed
+(`stage_in_use`).
 Audited shared operations use the command classification described under
 [Connected Claude](#connected-claude); they do not revive a separate approval path.
 

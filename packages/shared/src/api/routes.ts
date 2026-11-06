@@ -35,7 +35,6 @@ export const routes = {
   projectChecklist: (key: string) => `/api/projects/${key}/checklist`,
   projectChecklistItemState: (key: string, itemId: string) =>
     `/api/projects/${key}/checklist/items/${itemId}/state`,
-  operatorApprovalWaiver: (key: string) => `/api/projects/${key}/operator/approval-waiver`,
   /** GET the super mode's audit (`SuperAuditPage`, PM-757), newest first; the owner's own login only. */
   operatorSuperAudit: (key: string) => `/api/projects/${key}/operator-super/audit`,
   /** POST `SuperOperateRequest`: starts a command; 202 `{operation}` (PM-764). */

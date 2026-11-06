@@ -3,10 +3,10 @@
 Status: built (decision 16). An approval gate is a label that only humans holding a duty may
 set (`setBy: { duties: [...], humansOnly: true }`; decision 17, [labels.md](labels.md)).
 
-The fixed catalogue (`DUTY_IDS`, `packages/shared/src/domain/duty.ts`) contains 29 duties.
+The fixed catalogue (`DUTY_IDS`, `packages/shared/src/domain/duty.ts`) contains 28 duties.
 Testing and acceptance form one quality duty; standup, refinement and retro facilitation are
-separate so teams can delegate each ritual. Release approval and final decision are human-only;
-`project_operation` is AI-only. All other duties admit humans and AI.
+separate so teams can delegate each ritual. Release approval and final decision are human-only.
+All other duties admit humans and AI.
 
 Roles are named bundles of duty ids plus prompt-only instructions. Built-in defaults live
 in shared code; `team.roleOverrides` replaces a built-in bundle (removing the entry resets

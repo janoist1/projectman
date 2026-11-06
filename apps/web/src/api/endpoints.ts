@@ -26,7 +26,6 @@ import {
   OWNER_QUESTION_WEEKS_DEFAULT,
   OwnerQuestionsReport,
   OperatorPreferenceDocument,
-  OperatorApprovalWaiverResponse,
   MemberQueueView,
   EmailLoginCodeRequested,
   CreateEngineResponse,
@@ -96,7 +95,6 @@ import type {
   AnswerHostRequestRequest,
   SetChecklistItemStateRequest,
   CreateIntegratorAccessKeyRequest,
-  OperatorApprovalWaiverRequest,
   CloseFeedbackRequest,
   CreateTaskFromFeedbackRequest,
   CreateTaskFromFeedbackResponse,
@@ -442,12 +440,6 @@ export const api = {
     apiRequest<{ items: { handle: string; preference: OperatorPreferenceDocument }[] }>(
       routes.operatorPreferences(key),
     ),
-  operatorApprovalWaiver: (key: string, body: OperatorApprovalWaiverRequest) =>
-    apiRequest(routes.operatorApprovalWaiver(key), {
-      method: 'PUT',
-      body,
-      schema: OperatorApprovalWaiverResponse,
-    }),
   /** "Most ne": the owner sets a signal aside (PM-476); the answer is the signal as it is now. */
   dismissOperatorSignal: (key: string, signalId: string) =>
     apiRequest(routes.dismissOperatorSignal(key, signalId), { method: 'POST', schema: OperatorSignal }),

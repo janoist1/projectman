@@ -188,11 +188,6 @@ export const en: TemplateLocale = {
       name: 'Final decision',
       description: 'Settle escalated decisions. Only humans may hold this duty.',
     },
-    project_operation: {
-      name: 'Project operation',
-      description:
-        "Change how the project works at the owner's request. Only AI may hold this duty, and only on request.",
-    },
   },
   roles: {
     operator: {

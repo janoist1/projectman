@@ -80,7 +80,6 @@ const TEAM_SECTION = {
   viewerRecipients: 'team',
   ownerDecisionTopics: 'team',
   operatorWatch: 'team',
-  operatorApprovalWaiver: 'team',
   ruleReasons: 'team',
   roles: 'duties',
   roleOverrides: 'duties',

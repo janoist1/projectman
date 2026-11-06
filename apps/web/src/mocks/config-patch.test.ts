@@ -93,6 +93,23 @@ describe('mock configuration PATCH', () => {
     }
   });
 
+  it('answers owner_only to an admin changing the project manager’s authority, and saves the owner’s (PM-1284)', () => {
+    const backend = new MockBackend();
+    const input = { baseVersion: backend.configVersion, projectManagerAuthority: 'owner_request' };
+    expect(backend.handle('PATCH', path, input).status).toBe(200);
+    expect(backend.config.team.projectManagerAuthority).toBe('owner_request');
+    backend.viewerHandle = 'kata';
+    const admin = backend.config.team.members.find(({ handle }) => handle === 'kata')!;
+    if (admin.kind === 'human') admin.access = 'admin';
+    expect(
+      backend.handle('PATCH', path, {
+        baseVersion: backend.configVersion,
+        projectManagerAuthority: 'outside_owner_only',
+      }),
+    ).toMatchObject({ status: 403, body: { error: { code: 'owner_only' } } });
+    expect(backend.config.team.projectManagerAuthority).toBe('owner_request');
+  });
+
   it('lets admins edit limits but answers owner_only for an owner-only change', () => {
     const backend = new MockBackend();
     backend.viewerHandle = 'kata';

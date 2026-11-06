@@ -322,11 +322,21 @@ const RULE_TEXTS: { [K in TeamRuleId]: RuleText<RuleOf<K>> } = {
     icon: 'user',
     title: () => t('howWeWork.rules.project_manager_rights.title'),
     line: (rule) =>
-      rule.moves === 'start_only'
-        ? rich('howWeWork.rules.project_manager_rights.lineStartOnly', {})
-        : rich('howWeWork.rules.project_manager_rights.lineQueues', {}),
+      rich(
+        rule.authority === 'owner_request'
+          ? 'howWeWork.rules.project_manager_rights.lineOwnerRequest'
+          : 'howWeWork.rules.project_manager_rights.lineOwn',
+        {},
+      ),
     panel: (rule) => (
       <>
+        <p className={styles.lead}>
+          {t(
+            rule.authority === 'owner_request'
+              ? 'howWeWork.rules.project_manager_rights.authorityOwnerRequest'
+              : 'howWeWork.rules.project_manager_rights.authorityOwn',
+          )}
+        </p>
         <p className={styles.lead}>{t('howWeWork.rules.project_manager_rights.lead')}</p>
         <ul className={styles.dList}>
           <Item icon="arrowRight">
@@ -474,7 +484,7 @@ const EDIT_HASH: Partial<Record<TeamRuleId, string>> = {
   complexity_setters: 'settings-complexity-title',
   assignee_fit: 'settings-assignee-fit-title',
   acceptance: 'settings-pipeline',
-  project_manager_rights: 'settings-pm-moves-title',
+  project_manager_rights: 'settings-pm-authority-title',
   fix_limit: 'settings-limits',
   refinement: 'settings-pipeline',
   waiting_answer: 'settings-labels',

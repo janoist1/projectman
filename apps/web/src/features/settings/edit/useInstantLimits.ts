@@ -2,6 +2,7 @@ import {
   complexitySettersOf,
   PrioritySetter,
   prioritySettersOf,
+  projectManagerAuthorityOf,
   ProjectManagerLifecycleAction,
   projectManagerLifecycleOf,
   taskCreateAccessOf,
@@ -51,6 +52,11 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.prerequisiteOverride !== saved.team.prerequisiteOverride
       ? draft.team.prerequisiteOverride
       : undefined;
+  // The project manager's authority goes only when it differs from the saved value (PM-1284); owner-only on the server.
+  const projectManagerAuthority =
+    projectManagerAuthorityOf(draft) !== projectManagerAuthorityOf(saved)
+      ? projectManagerAuthorityOf(draft)
+      : undefined;
   // The priority setters go as the whole list when it changed, [] too; compared in the options' order.
   const settersOf = (config: ProjectConfig) => {
     const chosen = prioritySettersOf(config);
@@ -83,6 +89,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     ...(projectManagerMoves ? { projectManagerMoves } : {}),
     ...(lifecycleChanged ? { projectManagerLifecycle } : {}),
     ...(prerequisiteOverride ? { prerequisiteOverride } : {}),
+    ...(projectManagerAuthority ? { projectManagerAuthority } : {}),
     ...(prioritySettersChanged ? { prioritySetters } : {}),
     ...(complexityChanged ? { complexitySetters: [...complexitySetters] } : {}),
     ...(contactsChanged ? { contacts } : {}),

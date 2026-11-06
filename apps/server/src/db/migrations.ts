@@ -2953,4 +2953,9 @@ migrations.push({
   // NULL on every row stored before and on every check whose cause is the checked code or unknown.
   sql: `ALTER TABLE merge_check_runs ADD COLUMN infra TEXT;`,
 });
+migrations.push({
+  version: 148,
+  name: 'merge check retries',
+  sql: `ALTER TABLE task_merges ADD COLUMN retry_json TEXT;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

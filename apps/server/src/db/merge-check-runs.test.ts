@@ -47,6 +47,34 @@ describe('merge check repository (PM-876)', () => {
   const ids = (query: Partial<Parameters<Repositories['mergeCheckRuns']['list']>[0]> = {}) =>
     repos.mergeCheckRuns.list({ projectKey: 'PM', limit: 10, ...query }).runs.map((run) => run.id);
 
+  it('reads the latest completed GitHub result per repository and lets a successful run close the breaker', () => {
+    expect(repos.mergeCheckRuns.latestGithub('PM', 'projectman')).toBeNull();
+    repos.mergeCheckRuns.start(start(1, { runner: 'github_actions' }));
+    repos.mergeCheckRuns.finish('mergecheck_1', {
+      ...end('failed', 1),
+      status: 'error',
+      infra: 'runner_not_acquired',
+    });
+    for (const [n, patch] of [
+      [2, {}],
+      [3, { runner: 'github_actions' as const, repo: 'other' }],
+      [4, { runner: 'github_actions' as const, projectKey: 'OTHER' }],
+    ] as const) {
+      repos.mergeCheckRuns.start(start(n, patch));
+      repos.mergeCheckRuns.finish(`mergecheck_${n}`, end('passed', n));
+    }
+    repos.mergeCheckRuns.start(start(5, { runner: 'github_actions' }));
+    expect(repos.mergeCheckRuns.latestGithub('PM', 'projectman')).toMatchObject({
+      id: 'mergecheck_1',
+      infra: 'runner_not_acquired',
+    });
+    repos.mergeCheckRuns.finish('mergecheck_5', end('passed', 5));
+    expect(repos.mergeCheckRuns.latestGithub('PM', 'projectman')).toMatchObject({
+      id: 'mergecheck_5',
+      infra: null,
+    });
+  });
+
   it('round-trips a run with its ordered cards, queue turn and report, and reads an unparsable report as unknown', () => {
     const report = {
       scope: 'modules' as const,

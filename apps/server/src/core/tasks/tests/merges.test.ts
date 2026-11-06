@@ -105,6 +105,7 @@ describe('member initiated merge', () => {
       executor?: FullTestExecutor;
       adjust?: (config: ProjectConfig) => void;
       persistent?: boolean;
+      now?: () => Date;
       unavailable?: boolean;
       /** Keeps the merge and release stages of the test template (a web client project). */
       fullPipeline?: boolean;
@@ -116,6 +117,7 @@ describe('member initiated merge', () => {
       merger: opts.unavailable ? null : merger,
       fullTestExecutor: opts.executor,
       persistent: opts.persistent,
+      now: opts.now,
       adjust(config) {
         config.project.repos[0]!.requireMerge = true;
         config.team.merger = { kind: 'member', handle: 'dev-1' };
@@ -1305,6 +1307,117 @@ describe('member initiated merge', () => {
       repo.github = github;
     };
 
+    it('retries an infrastructure fault in the engine sandbox and records both runs', async () => {
+      const executor = fakeExecutor();
+      vi.mocked(executor.run).mockResolvedValueOnce({
+        ...passed,
+        outcome: 'error',
+        infra: 'runner_not_acquired',
+      });
+      await setup({ executor, adjust: viaGithub('acme/web') });
+      await start();
+      await merged();
+      expect(executor.run).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(executor.run).mock.calls.map(([spec]) => !!spec.githubActions)).toEqual([true, false]);
+      const runs = h!.repos.mergeCheckRuns.list({ projectKey: 'AR', limit: 10 }).runs;
+      expect(runs.map((run) => [run.runner, run.infra])).toEqual([
+        ['engine', null],
+        ['github_actions', 'runner_not_acquired'],
+      ]);
+      expect(task().merged?.check?.runner).toBe('engine');
+      expect(events('task_note')).toHaveLength(1);
+      expect(events('task_merge_blocked')).toHaveLength(0);
+    });
+
+    it('queues an infra retry without notification and frees the slot for another card', async () => {
+      const executor = fakeExecutor();
+      vi.mocked(executor.available).mockResolvedValue({ ok: false, reason: 'sandbox_unavailable' });
+      vi.mocked(executor.run).mockResolvedValueOnce({
+        ...passed,
+        outcome: 'error',
+        infra: 'verdict_missing',
+      });
+      await setup({ executor, adjust: viaGithub('acme/web') });
+      await start();
+      await vi.waitFor(() => expect(row()?.retry?.attempt).toBe(2));
+      expect(row()).toMatchObject({
+        state: 'queued',
+        step: 'queued',
+        landed: 'nowhere',
+        retry: { runner: 'github_actions' },
+      });
+      expect(task().merge?.retry).toMatchObject({ attempt: 2, cause: 'verdict_missing' });
+      expect(task().merge?.retry).not.toHaveProperty('lastRunId');
+      expect(events('task_note')).toHaveLength(1);
+      expect(events('task_merge_blocked')).toHaveLength(0);
+      await vi.waitFor(() => expect(h!.domain.merges.busy('AR', 'web')).toBe(false));
+      await card('AR-2', 'web', 'dev-2');
+      await start('AR-2');
+      await vi.waitFor(() => expect(task('AR-2').merged).toBeDefined());
+      expect(row()?.state).toBe('queued');
+    });
+
+    it('blocks once on exhaustion and explicitly retrying starts a new series', async () => {
+      const executor = fakeExecutor({ ...passed, outcome: 'error', infra: 'runner_not_acquired' });
+      vi.mocked(executor.available).mockResolvedValue({ ok: false, reason: 'sandbox_unavailable' });
+      await setup({ executor, adjust: viaGithub('acme/web') });
+      await start();
+      await vi.waitFor(() => expect(row()?.retry?.attempt).toBe(2));
+      for (const attempt of [2, 3, 4]) {
+        const current = row()!;
+        h!.repos.taskMerges.save({ ...current, retry: { ...current.retry!, at: new Date(0).toISOString() } });
+        h!.domain.merges.pump();
+        await vi.waitFor(() =>
+          expect(attempt === 4 ? row()?.state : row()?.retry?.attempt).toBe(
+            attempt === 4 ? 'blocked' : attempt + 1,
+          ),
+        );
+        await vi.waitFor(() => expect(h!.domain.merges.busy('AR', 'web')).toBe(false));
+      }
+      expect(row()?.block).toMatchObject({
+        reason: 'check_infra',
+        message: expect.stringContaining('runner_not_acquired'),
+      });
+      expect(row()?.retry).toBeUndefined();
+      expect(events('task_merge_blocked')).toHaveLength(1);
+      await h!.domain.operatorSignals.sweep('AR');
+      await h!.domain.operatorSignals.sweep('AR');
+      expect(
+        h!.repos.operatorSignals.list('AR').filter((signal) => signal.kind === 'merge_blocked'),
+      ).toMatchObject([{ subject: 'check_infra' }]);
+      const messages = h!.repos.messages.list('AR', { taskKey: 'AR-1' });
+      expect(messages.filter((message) => message.body.includes('blocked (check_infra)'))).toHaveLength(1);
+      h!.domain.merges.pump();
+      expect(executor.run).toHaveBeenCalledTimes(4);
+      await start();
+      await vi.waitFor(() => expect(row()?.retry?.attempt).toBe(2));
+    });
+
+    it('restores a persisted retry after restart without running before its deadline', async () => {
+      let now = new Date();
+      const executor = fakeExecutor();
+      vi.mocked(executor.available).mockResolvedValue({ ok: false, reason: 'sandbox_unavailable' });
+      vi.mocked(executor.run).mockResolvedValueOnce({
+        ...passed,
+        outcome: 'error',
+        infra: 'service_unreachable',
+      });
+      await setup({ executor, adjust: viaGithub('acme/web'), persistent: true, now: () => now });
+      await start();
+      await vi.waitFor(() => expect(row()?.retry?.attempt).toBe(2));
+      await vi.waitFor(() => expect(h!.domain.merges.busy('AR', 'web')).toBe(false));
+      const retry = row()!.retry!;
+      const nextMerger = fakeMerger();
+      h = await restartDomainHarness(h!, { merger: nextMerger, fullTestExecutor: executor, now: () => now });
+      merger = nextMerger;
+      expect(row()?.retry).toEqual(retry);
+      expect(executor.run).toHaveBeenCalledTimes(1);
+      now = new Date(retry.at);
+      h.domain.merges.pump();
+      await merged();
+      expect(executor.run).toHaveBeenCalledTimes(2);
+    });
+
     it('sends the descriptor with no checkout, heavy-run lock or installation, and records the runner and the run page', async () => {
       const url = 'https://github.com/acme/web/actions/runs/7';
       const executor = fakeExecutor({ ...passed, externalUrl: url });
@@ -1339,13 +1452,16 @@ describe('member initiated merge', () => {
 
     it('keeps the runner and the run page on the failed merge for the card (PM-918)', async () => {
       const url = 'https://github.com/acme/web/actions/runs/8';
+      const executor = fakeExecutor({ ...passed, outcome: 'failed', externalUrl: url });
       await setup({
-        executor: fakeExecutor({ ...passed, outcome: 'failed', externalUrl: url }),
+        executor,
         adjust: viaGithub('acme/web'),
       });
       await start();
       await vi.waitFor(() => expect(row()?.state).toBe('failed'));
       expect(row()?.check).toMatchObject({ status: 'failed', runner: 'github_actions', url });
+      expect(executor.run).toHaveBeenCalledTimes(1);
+      expect(row()?.retry).toBeUndefined();
     });
 
     it('blocks as check_unavailable when the configuration no longer names the github owner/name', async () => {

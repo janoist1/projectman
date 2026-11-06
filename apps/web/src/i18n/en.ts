@@ -1887,6 +1887,8 @@ export const en = {
             'Uncommitted changes in the local {base} checkout would be overwritten. Commit or discard them and try again.',
           local_checkout_remote:
             'Pushed to GitHub, but uncommitted changes prevented updating the local {base} checkout. Commit or discard them and try again.',
+          check_infra:
+            'The check runner remained unavailable after automatic retries. Tell the project manager and try again when the runner is available.',
           check_error:
             'The check ({check}) stopped with an error before completing. This was an execution error, not a failed check. Read the details and try again.',
           check_unavailable:

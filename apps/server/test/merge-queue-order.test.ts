@@ -24,6 +24,58 @@ function row(taskKey: string, extra: Partial<MergeRecord> = {}): MergeRecord {
 }
 
 describe('repository merge queue compare-and-swap', () => {
+  it('keeps retry queue rank and priority while ordinary requeues go to the tail', () => {
+    const db = new Database(':memory:');
+    try {
+      migrate(db);
+      const { taskMerges: queue } = createRepositories(db);
+      queue.save(row('AR-1'));
+      queue.save(row('AR-2'));
+      const order = queue.queueOrder('AR', 'web');
+      queue.orderQueue('AR', 'web', order.revision, ['AR-2', 'AR-1'], { taskKey: 'AR-2', at });
+      const retrying = queue.get('merge_AR-2')!;
+      queue.save({ ...retrying, state: 'running' });
+      const retry = {
+        attempt: 2,
+        at,
+        cause: 'verdict_missing' as const,
+        runner: 'github_actions' as const,
+        lastRunId: 'run',
+      };
+      queue.save({ ...retrying, state: 'queued', retry });
+      expect(queue.queueOrder('AR', 'web').taskKeys).toEqual(['AR-2', 'AR-1']);
+      expect(queue.get(retrying.id)).toMatchObject({ retry, prioritizedAt: at, queueRank: 0 });
+      queue.save({ ...retrying, state: 'running' });
+      queue.save({ ...retrying, state: 'queued' });
+      expect(queue.queueOrder('AR', 'web').taskKeys).toEqual(['AR-1', 'AR-2']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each(['merged', 'failed', 'blocked', 'cancelled'] as const)(
+    'clears retry state when the row becomes %s',
+    (state) => {
+      const db = new Database(':memory:');
+      try {
+        migrate(db);
+        const { taskMerges: queue } = createRepositories(db);
+        const retry = {
+          attempt: 2,
+          at,
+          cause: 'verdict_missing' as const,
+          runner: 'github_actions' as const,
+          lastRunId: 'run',
+        };
+        queue.save(row('AR-1', { retry }));
+        queue.save({ ...queue.get('merge_AR-1')!, state });
+        expect(queue.get('merge_AR-1')?.retry).toBeUndefined();
+      } finally {
+        db.close();
+      }
+    },
+  );
+
   it.each([79, 80, 81])('preserves old queue order and starts revision at zero from schema %i', (version) => {
     const db = new Database(':memory:');
     try {

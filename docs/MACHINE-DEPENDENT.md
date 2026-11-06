@@ -2395,7 +2395,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   **Remote engine:** `session.start` prepares trust on the engine as the executing
   account for the canonical checkout. Changing hub-account trust cannot unblock that CLI.
   **Module:** `runner`
-- **Server full test before review** — PM-909: with `reviewTest.beforeReview: github_actions` the run is not
+- **Server full test before review** —
+  PM-1312 also uses the existing sandbox executor as the merge check's fallback after a GitHub
+  infrastructure fault or while its repository breaker is open. `services/merges/check-preparation.ts`
+  probes `available()` on the card engine; without a ready sandbox (or while offline) there is no
+  fallback. The checkout and heavy-run reservation stay on that engine through the existing
+  `checkoutForCheck` and `full_test.run` boundary; the hub owns durable retries and timers.
+  Review-test runner selection itself is unchanged. PM-909: with `reviewTest.beforeReview: github_actions` the run is not
   local: no sandbox, `srt` or local checkout; see "GitHub Actions runs (merge check, compute jobs)" for its machine assumptions and
   for the remote engine (the run needs only an engine with a full test executor and `gh`). `services/full-tests/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine), PM-846: with a work root the
@@ -2528,7 +2534,15 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   the inputs `check_id` and `files` (PM-909: or `all`, for the review test, with a four-shard scope check), follows the run (`gh api`), and builds the `FullTestResult` from the
   jobs' conclusions and logs (the `merge-test` marker lines and timing report the local run prints).
   A timeout or an abort cancels the run; the check branch is deleted at every end, and a run sweeps a few
-  check branches older than two hours. **Machine assumptions:** `gh` installed and logged in on the executing
+  check branches older than two hours.
+  PM-1312: `services/merges/check-retry.ts` retries infrastructure failures up to four attempts,
+  with 5/15/30 minute delays or an immediate card-engine sandbox fallback when available.
+  A 30-minute repository circuit breaker uses the sandbox after `runner_not_acquired` or
+  `service_unreachable` (not `verdict_missing`). The hub stores `retry.at`, preserves FIFO and
+  frees the repository slot while waiting; restart re-arms one timer. Exhaustion emits one
+  `check_infra` block/notification. **Remote engine:** sandbox runs require the existing ready
+  macOS sandbox on the card engine; other engines retry GitHub. No new RPC or machine access.
+  **Machine assumptions:** `gh` installed and logged in on the executing
   machine with the right to run workflows of the repository (`repos[].github`); the base's upstream remote
   is that repository on github.com and `git push` works to it unprompted; outbound HTTPS to GitHub. The
   tests do not run on the machine: no macOS, no `srt`, no heavy-run queue, no step cache.

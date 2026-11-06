@@ -142,7 +142,8 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
     // Imported comments (author and time from elsewhere) are owner-only; the domain enforces it.
     const { text, ...extra } = parseBody(CreateTaskCommentRequest, request.body);
     await domain.tasks.addNote(key, taskKey, text, actorOf(access), null, extra);
-    return reply.code(201).send(domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)));
+    // The commenter gets the card as their GET shows it, a client's filter included (PM-1275).
+    return reply.code(201).send(await detailFor(access, key, taskKey));
   });
 
   app.post<TaskParams>(routes.taskLabels(':key', ':taskKey'), async (request): Promise<TaskDetail> => {

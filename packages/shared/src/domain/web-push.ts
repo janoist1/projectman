@@ -145,6 +145,8 @@ export interface NotePushInput {
   earlierAuthors: readonly string[];
   /** The handles of the project's human members. */
   humans: readonly string[];
+  /** The author of the comment a reply answers, when a person wrote it and it is not imported (PM-1275). */
+  replyToAuthor: string | null;
 }
 export interface NotePushTarget {
   handle: string;
@@ -154,7 +156,8 @@ export interface NotePushTarget {
 /**
  * Who a card note is pushed to (PM-1271). A human note reaches the mentioned people and the card's human
  * followers (opener, assignee, earlier commenters); an AI member's note only the people it mentions; a system
- * note nobody. The author never gets their own note, and a person appears once: a mention outranks a comment.
+ * note nobody. A reply, an AI member's too, also reaches the author of the comment it answers (PM-1275). The
+ * author never gets their own note, and a person appears once: a mention outranks a comment.
  */
 export function notePushTargets(input: NotePushInput): NotePushTarget[] {
   if (input.author.kind === 'system') return [];
@@ -169,10 +172,10 @@ export function notePushTargets(input: NotePushInput): NotePushTarget[] {
     else targets.set(id, { handle, categories: [category] });
   };
   for (const handle of input.mentions) add(handle, 'mention');
-  if (input.author.kind === 'human')
-    for (const handle of [input.creator, input.assignee, ...input.earlierAuthors])
-      if (handle && !targets.get(handle.toLowerCase())?.categories.includes('comment'))
-        add(handle, 'comment');
+  const followers =
+    input.author.kind === 'human' ? [input.creator, input.assignee, ...input.earlierAuthors] : [];
+  for (const handle of [input.replyToAuthor, ...followers])
+    if (handle && !targets.get(handle.toLowerCase())?.categories.includes('comment')) add(handle, 'comment');
   return [...targets.values()];
 }
 const minuteOf = (clock: string): number => Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3));

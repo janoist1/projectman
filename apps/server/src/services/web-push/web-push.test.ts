@@ -256,6 +256,24 @@ describe('web push service', () => {
       expect(transport.calls).toHaveLength(1);
     });
 
+    it.each([
+      ['their own comment', {}, 1],
+      ['an imported comment', { importedAuthor: 'Dani', importedAt: '2026-03-02T09:15:00.000Z' }, 0],
+    ])('tells the author of %s about an AI member’s reply (PM-1275)', async (_, imported, sent) => {
+      subscribe();
+      repos.timeline.insert({
+        ...noteBy({ kind: 'human', handle: 'owner' }),
+        id: 'evt_top',
+        data: { text: 'Why?', ...imported },
+      });
+      await service.onNote(
+        { ...noteBy({ kind: 'ai', handle: 'dev' }), data: { text: 'Because', replyTo: 'evt_top' } },
+        [],
+        task,
+      );
+      expect(transport.calls).toHaveLength(sent);
+    });
+
     it.each(['categories', 'viewing', 'quiet'] as const)('is not sent while %s block it', async (reason) => {
       subscribe();
       if (reason === 'categories') setCategories({ comment: false, mention: false });

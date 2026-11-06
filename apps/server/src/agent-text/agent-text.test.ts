@@ -349,6 +349,29 @@ describe('describeEvent', () => {
     );
   });
 
+  it.each([
+    ['a Process note', { text: 'Done', comment: false }, 'note: Done'],
+    ['a comment', { text: 'Why?', comment: true }, 'comment {id}: Why?'],
+    [
+      'a reply',
+      { text: 'Because', comment: true, replyTo: 'evt_top' },
+      'reply {id} to comment evt_top: Because',
+    ],
+    [
+      'an imported reply',
+      {
+        text: 'Ok',
+        replyTo: 'evt_top',
+        importedAuthor: 'Dani\nK',
+        importedAt: '2026-03-02T09:15:00.000Z',
+      },
+      'reply {id} to comment evt_top (imported: written by "Dani K" on 2026-03-02 09:15 UTC): Ok',
+    ],
+  ])('names the id and the parent of %s by the comment rule (PM-1275)', (_, data, expected) => {
+    const note = event('task_note', data);
+    expect(describeEvent(note, 100)).toBe(expected.replace('{id}', note.id));
+  });
+
   it('shortens free text to the limit', () => {
     const note = event('task_note', { text: `multi\nline ${'y'.repeat(500)}` });
     const text = describeEvent(note, 50);

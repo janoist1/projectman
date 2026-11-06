@@ -1661,7 +1661,13 @@ export const en = {
     editDescription: 'Edit description',
     descriptionNone: 'No description yet.',
     save: 'Save',
-    view: { label: 'Card views', card: 'Card', thread: 'Chat', attachments: 'Attachments', steps: 'Process' },
+    view: {
+      label: 'Card views',
+      card: 'Card',
+      thread: 'Comments',
+      attachments: 'Attachments',
+      steps: 'Process',
+    },
     thread: {
       label: 'Card conversation',
       limited: 'You only see messages sent to you or by you.',

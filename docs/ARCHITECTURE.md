@@ -95,7 +95,13 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   An AI member can be sent **on leave** (decision 23, the optional `onLeave` flag of its
   configuration; `isOnLeave` in `packages/shared`): nothing starts a session for it, its running
   sessions stop (their conversations stay, so a call-back resumes them), it is not picked or named
-  as an assignee, a stage hand-over goes to another owner, and the messages for it wait.
+  as an assignee, a stage hand-over goes to another owner, and the messages for it wait. Sending
+  it on leave also takes it off what it carried (PM-1300, `LeaveRelease` in `runtime/admission`):
+  its open cards lose it as assignee (`task_assigned` with reason `on_leave`), its open refinement
+  turns close (`refinement_turn` with reason `on_leave`) and go to another setter by the usual pick,
+  and the deferred starts are retried, so a start that waited in its queue moves to the member the
+  pick chooses now. Nothing is handed to anyone by name, whoever set the leave arranges the
+  replacement, and a call-back gives nothing back.
 - **Duties and roles** (decision 16, [design/duties.md](design/duties.md)) — a fixed,
   code-backed catalogue of 28 duties (implementation, code review, testing and acceptance,
   release approval, …) defines who may hold them, the English prompt fragment an AI holder
@@ -525,7 +531,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   an AI setter (already working on the card, else not on leave, else least loaded) is started
   (a running session only gets a notice), a person gets a `manual_step` alert. Nothing is done
   while a session is mid-turn on the card; a step is not handed out twice (its member's turn
-  ending without the label no longer raises an alert: the `stalled` kind is retired, PM-1250). When every label is on, the system takes
+  ending without the label no longer raises an alert: the `stalled` kind is retired, PM-1250),
+  unless its member is sent on leave: that closes the turn (`on_leave`, PM-1300) and the step is
+  handed out again. When every label is on, the system takes
   `refine` off and moves the card to the stage before development. Completion (`done`, PM-594)
   sends a team message to the configured card mover, otherwise the project manager (`info` for a
   human, `action` for an AI member). Without a recipient, only the

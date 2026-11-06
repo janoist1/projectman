@@ -5826,6 +5826,7 @@ export const hu = {
       },
       done: 'Kidolgozva: minden lépés kész',
       stopped: 'Kidolgozás leállt, mielőtt minden lépés kész lett',
+      on_leave: '{member} szabadságra ment, a lépése újra kiosztható: „{label}”',
     },
     labelReasons: {
       approval: 'jóváhagyással',
@@ -5999,6 +6000,7 @@ export const hu = {
       review_repinned: 'Új átnézési kör: az átadott commit {previous} helyett {commit}',
       task_assigned: 'Kiosztva: {assignee}',
       task_unassigned: 'Kiosztás visszavonva',
+      task_unassigned_on_leave: 'Kiosztás visszavonva: {previous} szabadságra ment',
       task_check_changed: '{check}: {state}',
       loop_triaged: 'Megvizsgálta a körbejárás gyanúját.',
       task_link_added: '{link} csatolva',

@@ -354,6 +354,14 @@ describe('the reason of a reassignment on the timeline (PM-1040)', () => {
     ).text;
     expect(line).toContain('dev-2 is busy');
   });
+
+  it('says the assignee came off the card because it went on leave (PM-1300)', () => {
+    const line = describeEvent(
+      { ...creation, type: 'task_assigned', data: { assignee: null, previous: 'dev-1', reason: 'on_leave' } },
+      context,
+    ).text;
+    expect(line).toBe(t('timeline.events.task_unassigned_on_leave', { previous: 'dev-1' }));
+  });
 });
 
 describe('a dropped team message on the timeline (PM-1248)', () => {
@@ -709,6 +717,12 @@ describe('the refinement line', () => {
   it('says the refinement stopped before every step was done (PM-420)', () => {
     expect(text(turn({ label: null, member: null, reason: 'stopped' }))).toBe(
       t('timeline.refinement.stopped'),
+    );
+  });
+
+  it('says the member of the turn went on leave and its step is free again (PM-1300)', () => {
+    expect(text(turn({ label: 'scope-ok', member: 'arch', reason: 'on_leave' }))).toBe(
+      t('timeline.refinement.on_leave', { member: 'arch', label: 'Követelmény kész' }),
     );
   });
 });

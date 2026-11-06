@@ -1354,6 +1354,19 @@ export class TaskService implements TaskSchedulingReader {
     });
   }
 
+  /**
+   * A member sent on leave comes off its open cards (PM-1300): they lose their assignee, and the next start
+   * picks a member at work. Whoever set the leave arranges the replacement; the call-back gives nothing back.
+   */
+  releaseOnLeave(projectKey: string, handle: string, actor: Actor): void {
+    this.ctx.unitOfWork(() => {
+      for (const task of this.ctx.repos.tasks.listByAssignee(projectKey, handle)) {
+        if (!isOpenTask(task)) continue;
+        this.assign(projectKey, task.key, null, actor, { reason: 'on_leave', handoff: 'manual' });
+      }
+    });
+  }
+
   publish(task: Task): void {
     this.store.publish(task);
   }

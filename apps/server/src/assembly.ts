@@ -102,6 +102,7 @@ import type { ProjectAccess } from './core/members';
 import {
   Admission,
   DeferredStarts,
+  LeaveRelease,
   StartQueue,
   UsageWake,
   UrgentPull,
@@ -1705,6 +1706,7 @@ export function createDomain(opts: DomainOptions) {
   // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
   if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.retryWaiting());
   const retryDeferredStarts = () => admission.requestRetry();
+  const leaveRelease = new LeaveRelease({ tasks, refinement, retry: retryDeferredStarts });
   const usageWake = new UsageWake({
     projects,
     ctx,
@@ -1801,6 +1803,7 @@ export function createDomain(opts: DomainOptions) {
     tasks.handOverTasks(change.projectKey, removed, change.actor, change.handovers);
   });
   events.on('config_changed', (change) => sessions.handleConfigChange(change));
+  events.on('config_changed', (change) => leaveRelease.configChanged(change));
   events.on('config_changed', () => inbox.sweepDelegations());
   events.on('config_changed', (change) => emailChannel.onConfigChanged(change.projectKey));
   // AI work switched back on: the deferred starts continue.

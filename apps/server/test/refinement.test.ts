@@ -182,6 +182,53 @@ describe('Refinement line', () => {
     expect(alerts()).toEqual([]);
   });
 
+  it('hands the turn of a member sent on leave to the other setter of its step (PM-1300)', async () => {
+    await prepare();
+    await label({ add: ['refine'] });
+    await vi.waitFor(() => expect(members()).toEqual(['ana']));
+    const ana = sessionsOf()[0]!;
+    h.runner.setState(ana.id, 'working');
+
+    await h.domain.members.update('AR', 'ana', { onLeave: true }, { actor: OWNER_ACTOR, author: OWNER });
+
+    await vi.waitFor(() => expect(members()).toEqual(['ana', 'ana2']));
+    expect(h.runner.isRunning(ana.id)).toBe(false);
+    const turns = h.domain.timeline
+      .list('AR', { taskKey: 'AR-1' })
+      .filter((event) => event.type === 'refinement_turn')
+      .map((event) => event.data);
+    expect(turns.slice(-2)).toEqual([
+      { label: 'scope-ok', member: 'ana', reason: 'on_leave' },
+      { label: 'scope-ok', member: 'ana2', reason: 'started' },
+    ]);
+    expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana2');
+
+    // The call-back gives nothing back: the turn stays with ana2.
+    await h.domain.members.update('AR', 'ana', { onLeave: false }, { actor: OWNER_ACTOR, author: OWNER });
+    await flush();
+    expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana2');
+  });
+
+  it('moves a refinement start that waited in the queue of a member sent on leave to the other setter (PM-1300)', async () => {
+    h = await createDomainHarness({
+      persistent: true,
+      adjust: (config) => {
+        setup()(config);
+        config.team.limits.maxConcurrentAi = 1;
+      },
+    });
+    await h.domain.tasks.create('AR', { title: 'Screen', labels: ['ui'] }, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
+    await label({ add: ['refine'] });
+    const waiting = () => h.repos.memberQueue.listOpenOfType('start').map((item) => item.member);
+    await vi.waitFor(() => expect(waiting()).toEqual(['ana']));
+
+    await h.domain.members.update('AR', 'ana', { onLeave: true }, { actor: OWNER_ACTOR, author: OWNER });
+
+    await vi.waitFor(() => expect(waiting()).toEqual(['ana2']));
+    expect(sessionsOf()).toEqual([]);
+  });
+
   it('closes the session of a member whose turn passed on, once its turn ended (PM-295)', async () => {
     await prepare();
     await label({ add: ['refine'] });

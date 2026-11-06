@@ -354,6 +354,22 @@ for (const feature of opts.disable) applyOverride(config, `features.${feature}=f
 
 const codexHome = process.env.CODEX_HOME || path.join(os.tmpdir(), 'fake-codex-home');
 
+// Like Codex, an `mcp_servers` entry needs exactly one transport (`command` or `url`). The real CLI
+// fails to start when the merged configuration has an entry without one. FAKE_CODEX_DROP_MCP_COMMAND
+// = <name> simulates a configuration layer that leaves that entry without its command (PM-1279).
+if (process.env.FAKE_CODEX_DROP_MCP_COMMAND)
+  delete config.mcp_servers?.[process.env.FAKE_CODEX_DROP_MCP_COMMAND]?.command;
+for (const [name, server] of Object.entries(config.mcp_servers ?? {})) {
+  if (!server || typeof server !== 'object' || 'command' in server === 'url' in server) {
+    if (server?.enabled === false) continue;
+    process.stderr.write(
+      'Failed to start a fresh session through the app server: thread/start failed: thread/start failed: ' +
+        `error creating thread: failed to load configuration: invalid transport in \`mcp_servers.${name}\`\n`,
+    );
+    process.exit(1);
+  }
+}
+
 if (process.env.FAKE_CODEX_ARGS_FILE)
   writeArgsFile(process.env.FAKE_CODEX_ARGS_FILE, { config, envNames: Object.keys(process.env).sort() });
 

@@ -6,7 +6,7 @@ import { RUNTIME_ENTRIES } from './runtime-entries';
 export type MergeTestFile = { path: string; source: string };
 type ServerTestImpact = { modules: string[]; tests: string[]; fallback?: string };
 const src = 'apps/server/src/';
-const isCode = (path: string): boolean => /\.[cm]?[jt]sx?$/.test(path);
+export const isCode = (path: string): boolean => /\.[cm]?[jt]sx?$/.test(path);
 export const isRuntimeImport = (specifier: string): boolean =>
   /^(?:node:)?(?:child_process|worker_threads|vm|module)$/.test(specifier) ||
   specifier === '@lydell/node-pty';
@@ -16,6 +16,89 @@ const isTestSupport = (path: string): boolean =>
 const isProduction = (path: string): boolean =>
   path.startsWith(src) && isCode(path) && !isServerTest(path) && !isTestSupport(path);
 const sorted = (values: Iterable<string>) => [...new Set(values)].sort();
+
+export type ImportGraph = {
+  /** Every resolved file-level import edge (a runtime entry adds its loaded files). */
+  edges: Map<string, Set<string>>;
+  /** The edges whose import is not a statement-level `import type` / `export type`. */
+  valueEdges: Map<string, Set<string>>;
+  /** Files with a dependency the graph cannot see. */
+  uncertain: Set<string>;
+  /** Set when a file listed by `production` cannot be resolved safely: the graph is then incomplete. */
+  failure?: string;
+};
+
+/**
+ * The file-level import graph of one tree. `production` names the files that must resolve exactly: an
+ * unresolved or non-literal dependency there is a `failure`. `reject` may stop the walk before a file.
+ */
+export function importGraph(
+  tree: readonly MergeTestFile[],
+  options: {
+    production?: (path: string) => boolean;
+    reject?: (file: MergeTestFile) => string | undefined;
+  } = {},
+): ImportGraph {
+  const graph: ImportGraph = { edges: new Map(), valueEdges: new Map(), uncertain: new Set() };
+  const { edges, valueEdges, uncertain } = graph;
+  const paths = new Set(tree.map((f) => f.path));
+  const fail = (failure: string): ImportGraph => ({ ...graph, failure });
+  for (const file of tree) {
+    if (!isCode(file.path)) continue;
+    const production = options.production?.(file.path) ?? false;
+    const rejected = options.reject?.(file);
+    if (rejected) return fail(rejected);
+    const imports = sourceImports(file.source);
+    if (imports.uncertain) {
+      if (production) return fail(`nonliteral dependency: ${file.path}`);
+      uncertain.add(file.path);
+    }
+    const addEdge = (target: string, value: boolean): void => {
+      const deps = edges.get(file.path) ?? new Set<string>();
+      deps.add(target);
+      edges.set(file.path, deps);
+      if (!value) return;
+      const valueDeps = valueEdges.get(file.path) ?? new Set<string>();
+      valueDeps.add(target);
+      valueEdges.set(file.path, valueDeps);
+    };
+    if (Object.hasOwn(RUNTIME_ENTRIES, file.path)) {
+      for (const target of RUNTIME_ENTRIES[file.path]!) {
+        // A historical revision may predate an entry. Keep its callers in the baseline.
+        if (!paths.has(target)) uncertain.add(file.path);
+        else addEdge(target, true);
+      }
+    }
+    for (const specifier of imports.specifiers) {
+      if (!specifier.startsWith('.')) {
+        // Audited runtime entries supply explicit edges; unknown launchers stay conservative.
+        if (isRuntimeImport(specifier) && !Object.hasOwn(RUNTIME_ENTRIES, file.path))
+          uncertain.add(file.path);
+        // Node builtins and packages are external; aliases cannot be resolved safely.
+        if (specifier.startsWith('/') || specifier.startsWith('#') || specifier.startsWith('@/')) {
+          if (production) return fail(`unresolved internal import: ${file.path}: ${specifier}`);
+          uncertain.add(file.path);
+        }
+        continue;
+      }
+      const base = posix.normalize(posix.join(posix.dirname(file.path), specifier));
+      const stem = base.replace(/\.[cm]?js$/, '');
+      const target = [
+        base,
+        ...['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '.json'].map((ext) => stem + ext),
+        `${base}/index.ts`,
+        `${base}/index.js`,
+      ].find((p) => paths.has(p));
+      if (!target) {
+        if (production) return fail(`unresolved internal import: ${file.path}: ${specifier}`);
+        uncertain.add(file.path);
+        continue;
+      }
+      addEdge(target, !imports.typeOnly.includes(specifier));
+    }
+  }
+  return graph;
+}
 
 export function serverTestImpact(input: {
   changed: readonly string[];
@@ -57,63 +140,27 @@ export function serverTestImpact(input: {
     selected.add(id);
   }
   for (const tree of [input.before, input.after]) {
-    const paths = new Set(tree.map((f) => f.path));
-    for (const file of tree) {
-      if (!isCode(file.path)) continue;
-      const production = isProduction(file.path);
-      const from = owner(file.path);
-      if (production && !from) return fail(`unmapped source: ${file.path}`);
-      const imports = sourceImports(file.source);
-      if (imports.uncertain) {
-        if (production) return fail(`nonliteral dependency: ${file.path}`);
-        uncertain.add(file.path);
-      }
-      const addEdge = (target: string): void => {
-        const deps = edges.get(file.path) ?? new Set<string>();
-        deps.add(target);
-        edges.set(file.path, deps);
+    const graph = importGraph(tree, {
+      production: isProduction,
+      reject: (file) =>
+        isProduction(file.path) && !owner(file.path) ? `unmapped source: ${file.path}` : undefined,
+    });
+    if (graph.failure) return fail(graph.failure);
+    for (const [path, targets] of graph.edges) {
+      const deps = edges.get(path) ?? new Set<string>();
+      for (const target of targets) deps.add(target);
+      edges.set(path, deps);
+      const from = owner(path);
+      if (!isProduction(path) || !from) continue;
+      for (const target of targets) {
         const to = owner(target);
-        if (production && from && to && from !== to) {
-          const dependents = reverse.get(to) ?? new Set<string>();
-          dependents.add(from);
-          reverse.set(to, dependents);
-        }
-      };
-      if (Object.hasOwn(RUNTIME_ENTRIES, file.path)) {
-        for (const target of RUNTIME_ENTRIES[file.path]!) {
-          // A historical revision may predate an entry. Keep its callers in the baseline.
-          if (!paths.has(target)) uncertain.add(file.path);
-          else addEdge(target);
-        }
-      }
-      for (const specifier of imports.specifiers) {
-        if (!specifier.startsWith('.')) {
-          // Audited runtime entries supply explicit edges; unknown launchers stay conservative.
-          if (isRuntimeImport(specifier) && !Object.hasOwn(RUNTIME_ENTRIES, file.path))
-            uncertain.add(file.path);
-          // Node builtins and packages are external; aliases cannot be resolved safely.
-          if (specifier.startsWith('/') || specifier.startsWith('#') || specifier.startsWith('@/')) {
-            if (production) return fail(`unresolved internal import: ${file.path}: ${specifier}`);
-            uncertain.add(file.path);
-          }
-          continue;
-        }
-        const base = posix.normalize(posix.join(posix.dirname(file.path), specifier));
-        const stem = base.replace(/\.[cm]?js$/, '');
-        const target = [
-          base,
-          ...['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs', '.json'].map((ext) => stem + ext),
-          `${base}/index.ts`,
-          `${base}/index.js`,
-        ].find((p) => paths.has(p));
-        if (!target) {
-          if (production) return fail(`unresolved internal import: ${file.path}: ${specifier}`);
-          uncertain.add(file.path);
-          continue;
-        }
-        addEdge(target);
+        if (!to || to === from) continue;
+        const dependents = reverse.get(to) ?? new Set<string>();
+        dependents.add(from);
+        reverse.set(to, dependents);
       }
     }
+    for (const path of graph.uncertain) uncertain.add(path);
   }
   for (const id of selected) for (const dependent of reverse.get(id) ?? []) selected.add(dependent);
   function reachesSelected(path: string, visited = new Set<string>()): boolean {

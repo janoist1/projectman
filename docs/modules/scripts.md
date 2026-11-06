@@ -133,6 +133,22 @@ workers follow the machine's size.
   It compares against the commit's first parent; a non-merge commit retains the full-run scope.
   Scope, selected modules, test count and fallback reason are logged before and after execution. The executor holds
   the machine's lock, so the nested root scripts do not queue again.
+  **Hand-over check (PM-1289).** `npm run handover-check [-- --base <rev>] [--dry-run]`
+  (`scripts/merge-test/handover*.ts`) is the developer's version of the merge check: from the diff
+  against `merge-base HEAD main` plus uncommitted and untracked files it selects the nearest tests
+  of every workspace and runs `npm run dead-code`, the type check of the affected workspaces and
+  those test files (no queue, no step cache). It reuses the merge-test's scope, shared export
+  analysis and server module analysis and then follows the file-level **value** import graph
+  (a statement-level `import type` carries no change into a test), so it never selects a test the
+  merge check would not run (path-read tests aside). Tests that read the repository by path (a
+  glob, the structure map) cannot be reached by imports: they are listed in `PATH_READ_TESTS`
+  (`scripts/merge-test/handover.ts`), and a guard test fails when an `import.meta.glob` test is
+  missing. The order is: changed tests, path-read tests, tests with a snapshot, then by import
+  distance; at most `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`) files
+  run, and over it the last line says `ran 60 of M (cap 60); the merge-test runs the other M-60`
+  (exit 0): it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
+  git error. `--dry-run` prints the steps only. A merge-test change keeps the merge-test output
+  unchanged; the shared import analysis is only extended (`valueConsumers`, `typeOnly`).
   **Merge check records.** Every merge check is recorded in `merge_check_runs` (time, queue wait, the `maxWorkers`
   the hub passed, scope and step timings from the engine; `list_merge_checks`, `get_task`). Requested-to-merged
   timeline intervals include queue time and retries, so they are upper bounds, not run times.

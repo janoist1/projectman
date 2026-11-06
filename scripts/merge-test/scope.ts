@@ -24,11 +24,24 @@ function isFullRunConfig(file: string): boolean {
   );
 }
 
+/** The vitest filters of the cloud scope: the deploy and release tests plus the checks that guard them. */
+export const CLOUD_TEST_FILTERS = [
+  'apps/server/test/cloud-',
+  'apps/server/test/deploy-',
+  'apps/server/test/release-',
+  'apps/server/test/architecture/',
+  'apps/server/test/merge-test-',
+  // The real Unix control socket boundary (PM-754): never skipped in a merge.
+  'apps/server/test/control-socket.integration.test.ts',
+];
+
+/** A change no check reads: documents and the dead-code tool's ignore files. */
+export function isDocumentFile(file: string): boolean {
+  return file.startsWith('docs/') || /^[^/]+\.md$/.test(file) || ['.gitignore', 'knip.json'].includes(file);
+}
+
 export function mergeTestScope(changed: readonly string[]): MergeTestScope {
-  const files = changed.filter(
-    (file) =>
-      !file.startsWith('docs/') && !/^[^/]+\.md$/.test(file) && !['.gitignore', 'knip.json'].includes(file),
-  );
+  const files = changed.filter((file) => !isDocumentFile(file));
   const isCloudInfra = (file: string): boolean =>
     ['scripts/cloud/', 'deploy/aws/', 'deploy/cloud/'].some((prefix) => file.startsWith(prefix));
   if (

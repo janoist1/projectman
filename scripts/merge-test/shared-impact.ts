@@ -6,7 +6,13 @@ const ROOT = 'packages/shared/src/';
 const CONSUMERS = ['apps/server', 'apps/web', 'apps/feedback-widget', 'packages/templates'] as const;
 const CONSUMER_ROOTS = [...CONSUMERS, 'scripts'] as const;
 type Consumer = (typeof CONSUMERS)[number];
-type SharedImpact = { fallback: string } | { exports: string[]; consumers: Record<Consumer, string[]> };
+/**
+ * `consumers` reference an affected export in any way; `valueConsumers` are those that do not do it only
+ * through statement-level `import type` / `export type` (mixed, namespace and uncertain cases count as values).
+ */
+type SharedImpact =
+  | { fallback: string }
+  | { exports: string[]; consumers: Record<Consumer, string[]>; valueConsumers: Record<Consumer, string[]> };
 const sorted = (values: Iterable<string>) => [...new Set(values)].sort();
 const SOURCE = /\.[cm]?[jt]sx?$/;
 const NAME = '[$A-Z_a-z][$\\w]*';
@@ -176,12 +182,14 @@ export function sharedImpact(input: {
       if (old !== next || before.dependsOn(name, input.changed) || after.dependsOn(name, input.changed))
         affected.add(name);
     }
-    const consumers: Record<Consumer, string[]> = {
+    const empty = (): Record<Consumer, string[]> => ({
       'apps/server': [],
       'apps/web': [],
       'apps/feedback-widget': [],
       'packages/templates': [],
-    };
+    });
+    const consumers = empty();
+    const valueConsumers = empty();
     for (const file of [...input.before, ...input.after]) {
       const root = CONSUMER_ROOTS.find((path) => file.path.startsWith(`${path}/`));
       // Script behavior is covered by server tests. Their imports outside the server tree
@@ -193,7 +201,10 @@ export function sharedImpact(input: {
         throw new Error(`shared subpath import: ${file.path}`);
       const count = imports.specifiers.filter((s) => s === '@projectman/shared').length;
       if (!count) {
-        if (imports.uncertain) consumers[workspace].push(file.path);
+        if (imports.uncertain) {
+          consumers[workspace].push(file.path);
+          valueConsumers[workspace].push(file.path);
+        }
         continue;
       }
       const { clean, code } = sourceSyntax(file.source);
@@ -203,17 +214,27 @@ export function sharedImpact(input: {
         ),
       ].filter((match) => /^(?:import|export)\b/.test(code.slice(match.index)));
       let hit = imports.uncertain || count !== named.length;
+      // Only a hit that a statement-level type import explains alone stays a type consumer.
+      let value = hit;
       for (const match of named) {
         try {
-          if (names(match[1]!).some(({ original }) => affected.has(original))) hit = true;
+          if (names(match[1]!).some(({ original }) => affected.has(original))) {
+            hit = true;
+            if (!/^(?:import|export)\s+type\b/.test(code.slice(match.index))) value = true;
+          }
         } catch {
           hit = true;
+          value = true;
         }
       }
       if (hit) consumers[workspace].push(file.path);
+      if (value) valueConsumers[workspace].push(file.path);
     }
-    for (const ws of CONSUMERS) consumers[ws] = sorted(consumers[ws]);
-    return { exports: sorted(affected), consumers };
+    for (const ws of CONSUMERS) {
+      consumers[ws] = sorted(consumers[ws]);
+      valueConsumers[ws] = sorted(valueConsumers[ws]);
+    }
+    return { exports: sorted(affected), consumers, valueConsumers };
   } catch (error) {
     return { fallback: error instanceof Error ? error.message : String(error) };
   }

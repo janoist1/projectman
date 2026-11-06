@@ -32,7 +32,28 @@ describe('shared export impact', () => {
         'apps/feedback-widget': ['apps/feedback-widget/src/a.ts'],
         'packages/templates': [],
       },
+      valueConsumers: {
+        'apps/server': ['apps/server/src/a.ts'],
+        'apps/web': [],
+        'apps/feedback-widget': ['apps/feedback-widget/src/a.ts'],
+        'packages/templates': [],
+      },
     });
+  });
+  it('leaves a statement-level type import out of the value consumers', () => {
+    const files = [
+      ...tree,
+      consumer('apps/web/src/types.ts', "import type { A } from '@projectman/shared';"),
+      consumer(
+        'apps/web/src/mixed.ts',
+        "import type { A } from '@projectman/shared';\nimport { B } from '@projectman/shared';",
+      ),
+    ];
+    const result = impact(files);
+    expect(result).toMatchObject({
+      consumers: { 'apps/web': ['apps/web/src/mixed.ts', 'apps/web/src/types.ts'] },
+    });
+    expect(result).toMatchObject({ valueConsumers: { 'apps/web': [] } });
   });
   it('assigns script consumers from both revisions to the server test workspace', () => {
     const before = [

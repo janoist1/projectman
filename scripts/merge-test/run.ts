@@ -1,14 +1,11 @@
-import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { isRepoFilePath, MERGE_TEST_WORKERS_PREFIX } from '@projectman/shared';
-import { MODULES } from '../../apps/server/test/architecture/module-map';
-import { serverTestImpact } from './impact';
-import type { MergeTestFile } from './impact';
+import { readGitTree, runGit } from './git-tree';
 import { runNpm } from './npm';
-import { mergeTestScope } from './scope';
+import { refineRoots, refineScope } from './refine';
+import { CLOUD_TEST_FILTERS, mergeTestScope } from './scope';
 import type { MergeTestScope } from './scope';
-import { sharedImpact } from './shared-impact';
 import {
   filesSteps,
   MERGE_TEST_SHARDS_MAX,
@@ -20,16 +17,6 @@ import {
   workspaceOf,
 } from './steps';
 import type { MergeTestShard, MergeTestStep, StepRun } from './steps';
-
-const CLOUD_TEST_FILTERS = [
-  'apps/server/test/cloud-',
-  'apps/server/test/deploy-',
-  'apps/server/test/release-',
-  'apps/server/test/architecture/',
-  'apps/server/test/merge-test-',
-  // The real Unix control socket boundary (PM-754): never skipped in a merge.
-  'apps/server/test/control-socket.integration.test.ts',
-];
 
 const USAGE =
   'usage: npm run merge-test -- [--no-cache] [--shard <k>/<n>] [--all | --dry-run [<commit>] | --files-from-env | --files <repository path of a test file>...]';
@@ -89,51 +76,6 @@ export function mergeTestSteps(scope: MergeTestScope): MergeTestStep[] {
       ...scope.workspaces.flatMap((ws) => [typecheckStep(ws), testStep(ws)]),
     ];
   return scope.workspaces.flatMap((ws) => [typecheckStep(ws), testStep(ws)]);
-}
-
-function sharedScope(
-  scope: Extract<MergeTestScope, { kind: 'workspaces' }>,
-  changed: readonly string[],
-  before: readonly MergeTestFile[],
-  after: readonly MergeTestFile[],
-): MergeTestScope {
-  // Non-source shared changes need no consumer analysis, but still check every workspace's types.
-  const shared = scope.sharedChanged?.length
-    ? sharedImpact({ changed: scope.sharedChanged, before, after })
-    : {
-        exports: [],
-        consumers: {
-          'apps/server': [],
-          'apps/web': [],
-          'apps/feedback-widget': [],
-          'packages/templates': [],
-        },
-      };
-  if ('fallback' in shared) return { kind: 'all', reason: shared.fallback };
-  if (shared.consumers['packages/templates'].length)
-    return { kind: 'all', reason: 'shared consumer in packages/templates' };
-  const workspaces = MERGE_TEST_WORKSPACES.filter(
-    (ws) => scope.workspaces.includes(ws) || (ws !== 'packages/shared' && shared.consumers[ws].length > 0),
-  );
-  const server = workspaces.includes('apps/server')
-    ? serverTestImpact({
-        changed,
-        seeds: shared.consumers['apps/server'],
-        before: before.filter(
-          (file) => file.path.startsWith('apps/server/') || file.path.startsWith('scripts/'),
-        ),
-        after: after.filter(
-          (file) => file.path.startsWith('apps/server/') || file.path.startsWith('scripts/'),
-        ),
-        modules: MODULES,
-      })
-    : undefined;
-  return {
-    kind: 'shared',
-    exports: shared.exports,
-    workspaces,
-    ...(server?.fallback ? { fallback: server.fallback } : server ? { tests: server.tests } : {}),
-  };
 }
 
 type Parsed = { all: boolean } | { dryRun: string } | { files: string[] } | { error: string };
@@ -222,12 +164,7 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
   let tree: string;
   const absent: string[] = [];
   try {
-    const git = (args: string[]): string => {
-      const result = spawnSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-      if (result.error) throw result.error;
-      if (result.status !== 0) throw new Error(result.stderr.trim() || 'git failed');
-      return result.stdout;
-    };
+    const git = runGit;
     tree = 'dryRun' in parsed ? '' : git(['rev-parse', 'HEAD^{tree}']).trim();
     const revision = 'dryRun' in parsed ? parsed.dryRun : 'HEAD';
     // Verify a single commit before passing an optional revision to any other git command.
@@ -255,61 +192,14 @@ export async function runMergeTest(argv: readonly string[], io: MergeTestIo = {}
       else {
         const files = firstParentDiff();
         scope = mergeTestScope(files);
-        if (
-          scope.kind === 'workspaces' &&
-          (scope.sharedChanged !== undefined || scope.workspaces.includes('apps/server'))
-        ) {
-          const roots =
-            scope.sharedChanged === undefined
-              ? ['apps/server', 'scripts']
-              : [...MERGE_TEST_WORKSPACES, 'scripts'];
-          const readTree = (revision: string): MergeTestFile[] => {
-            const entries = git(['ls-tree', '-r', '-z', revision, '--', ...roots])
-              .split('\0')
-              .filter(Boolean)
-              .map((entry) => {
-                const tab = entry.indexOf('\t');
-                return { oid: entry.slice(0, tab).split(' ')[2]!, path: entry.slice(tab + 1) };
-              });
-            const result = spawnSync('git', ['cat-file', '--batch'], {
-              input: entries.map((entry) => entry.oid).join('\n') + '\n',
-              maxBuffer: 64 * 1024 * 1024,
-            });
-            if (result.error) throw result.error;
-            if (result.status !== 0) throw new Error('git cat-file failed');
-            let offset = 0;
-            return entries.map(({ path }) => {
-              const end = result.stdout.indexOf(10, offset);
-              const header = result.stdout.subarray(offset, end).toString('utf8').split(' ');
-              const size = Number(header[2]);
-              if (
-                end < 0 ||
-                header[1] !== 'blob' ||
-                !Number.isSafeInteger(size) ||
-                size < 0 ||
-                end + size + 1 >= result.stdout.length
-              )
-                throw new Error('invalid git blob response');
-              const source = result.stdout.subarray(end + 1, end + 1 + size).toString('utf8');
-              offset = end + size + 2;
-              return { path, source };
-            });
-          };
-          const before = readTree(`${commit}^1`);
-          const after = readTree(commit);
-          if (scope.sharedChanged !== undefined) {
-            scope = sharedScope(scope, files, before, after);
-          } else {
-            const impact = serverTestImpact({ changed: files, before, after, modules: MODULES });
-            scope = impact.fallback
-              ? { ...scope, fallback: impact.fallback }
-              : {
-                  kind: 'modules',
-                  modules: impact.modules,
-                  tests: impact.tests,
-                  workspaces: scope.workspaces.filter((ws) => ws !== 'apps/server'),
-                };
-          }
+        const roots = refineRoots(scope);
+        if (roots) {
+          scope = refineScope(
+            scope,
+            files,
+            readGitTree(`${commit}^1`, roots, git),
+            readGitTree(commit, roots, git),
+          );
         }
       }
       // A merge never counts a run that leaves the PTY and socket integration tests out as a pass. The variable is

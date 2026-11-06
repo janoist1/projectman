@@ -40,8 +40,19 @@ export function sourceSyntax(source: string): { clean: string; code: string } {
   };
 }
 
-/** Parse dependencies without evaluating either revision's code. */
-export function sourceImports(source: string): { specifiers: string[]; uncertain: boolean } {
+/** A statement-level `import type … from` or `export type … from` (not a default import named `type`). */
+const TYPE_STATEMENT = /^(?:import|export)\s+type\s*(?:[{*]|(?!from\b)[$\w])/;
+
+/**
+ * Parse dependencies without evaluating either revision's code. `typeOnly` lists the specifiers that appear
+ * only in statement-level type imports/exports; `import { type A }` stays a value import (the import
+ * survives `verbatimModuleSyntax`), and every mixed or unsure case counts as a value.
+ */
+export function sourceImports(source: string): {
+  specifiers: string[];
+  typeOnly: string[];
+  uncertain: boolean;
+} {
   // Consume comments and ordinary strings so examples cannot become edges.
   // A dynamic literal prefix followed by an expression is still uncertain.
   const pattern = new RegExp(
@@ -51,16 +62,20 @@ export function sourceImports(source: string): { specifiers: string[]; uncertain
     'g',
   );
   const specifiers: string[] = [];
+  const typed = new Set<string>();
+  const valued = new Set<string>();
   let uncertain = false;
   for (const match of source.matchAll(pattern)) {
     const specifier = match[2] ?? match[4];
     if (match[5] || (specifier !== undefined && (specifier.includes('\\') || specifier.includes('${'))))
       uncertain = true;
-    else if (specifier !== undefined) specifiers.push(specifier);
-    else if (match[0].startsWith('`') && match[0].includes('${') && /\bimport\s*\(/.test(match[0]))
+    else if (specifier !== undefined) {
+      specifiers.push(specifier);
+      (match[4] !== undefined && TYPE_STATEMENT.test(match[0]) ? typed : valued).add(specifier);
+    } else if (match[0].startsWith('`') && match[0].includes('${') && /\bimport\s*\(/.test(match[0]))
       uncertain = true;
   }
-  return { specifiers, uncertain };
+  return { specifiers, typeOnly: [...typed].filter((specifier) => !valued.has(specifier)), uncertain };
 }
 
 function matches(path: string, pattern: string): boolean {

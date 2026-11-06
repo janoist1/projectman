@@ -1257,8 +1257,11 @@ export const BoardMoveResult = z.object({
 });
 export type BoardMoveResult = z.infer<typeof BoardMoveResult>;
 
+/** The longest task comment (and the AI members' task note) in characters; the one place it is defined (PM-1274). */
+export const TASK_COMMENT_MAX = 50_000;
+
 export const CreateTaskCommentRequest = z.object({
-  text: z.string().trim().min(1).max(10000),
+  text: z.string().trim().min(1).max(TASK_COMMENT_MAX),
   importedAuthor: z.string().trim().min(1).max(80).optional(),
   importedAt: z.iso.datetime({ offset: true }).optional(),
 });

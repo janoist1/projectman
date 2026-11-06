@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { readGitTree, runGit } from './git-tree';
-import { handoverSelection } from './handover';
-import type { HandoverSelection } from './handover';
+import { handoverSelection, PROXIMITIES } from './handover';
+import type { HandoverSelection, Proximity } from './handover';
 import { isCode } from './impact';
 import type { MergeTestFile } from './impact';
 import { runNpm } from './npm';
@@ -10,6 +10,12 @@ import { MERGE_TEST_WORKSPACES, runSteps, testStep, typecheckStep } from './step
 import type { MergeTestStep, StepRun } from './steps';
 
 const USAGE = 'usage: npm run handover-check -- [--base <revision>] [--dry-run]';
+const PROXIMITY_LABELS: Record<Proximity, string> = {
+  direct: 'direct (changed or importing)',
+  rule: 'selection-rule',
+  name: 'name-usage',
+  graph: 'farther import-graph',
+};
 /** The tree the selection reads at both ends: every workspace and the scripts the server tests cover. */
 const ROOTS = [...MERGE_TEST_WORKSPACES, 'scripts'];
 
@@ -60,6 +66,13 @@ function header(selection: HandoverSelection, count: number): string {
   return `handover-check: ${count} changed files; kind: ${selection.kind}; type check: ${selection.typecheck.join(', ') || 'none'}; tests: ${tests || 'none'}`;
 }
 
+const NAMED_MAX = 20;
+/** The first tests by name, the rest as a count. */
+const named = (paths: readonly string[]): string =>
+  paths.length > NAMED_MAX
+    ? `${paths.slice(0, NAMED_MAX).join(', ')} (+${paths.length - NAMED_MAX} more)`
+    : paths.join(', ');
+
 /** What the run left out, printed last so it is the end of the output. */
 function footer(selection: HandoverSelection): string[] {
   return [
@@ -68,11 +81,16 @@ function footer(selection: HandoverSelection): string[] {
           `handover-check: ran ${selection.cap} of ${selection.reached} (cap ${selection.cap}); the merge-test runs the other ${selection.omitted}`,
         ]
       : []),
-    ...(selection.omittedRuleTests.length
+    ...(selection.omitted
       ? [
-          `handover-check: the cap left out ${selection.omittedRuleTests.length} test(s) a selection rule chose: ${selection.omittedRuleTests.join(', ')}`,
+          `handover-check: left out by proximity: ${PROXIMITIES.map((p) => `${selection.omittedByProximity[p].length} ${PROXIMITY_LABELS[p]}`).join(', ')}`,
         ]
       : []),
+    // The nearer tests the cap cut are named: run them yourself (npx vitest run <files>).
+    ...PROXIMITIES.filter((p) => p !== 'graph' && selection.omittedByProximity[p].length).map(
+      (p) =>
+        `handover-check: the cap left out ${selection.omittedByProximity[p].length} ${PROXIMITY_LABELS[p]} test(s), run them yourself: ${named(selection.omittedByProximity[p])}`,
+    ),
     ...(selection.unmapped.length
       ? [
           `handover-check: not mapped to a test (the merge-test covers them): ${selection.unmapped.join(', ')}`,

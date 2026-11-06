@@ -112,11 +112,19 @@ export interface HandoverSelection {
   reached: number;
   cap: number;
   omitted: number;
-  /** The tests a selection rule chose that the cap left out. */
-  omittedRuleTests: string[];
+  /** The tests the cap left out, by how near they are to the change. */
+  omittedByProximity: Record<Proximity, string[]>;
   /** Changed files no check of this command maps to a test. */
   unmapped: string[];
 }
+
+/**
+ * How near a test is to the change, nearest first: `direct` (a changed test, or one that imports a
+ * changed file), `rule` (chosen by a `SELECTION_RULES` entry), `name` (uses a changed name without
+ * importing the file it is in), `graph` (reached through further imports).
+ */
+export const PROXIMITIES = ['direct', 'rule', 'name', 'graph'] as const;
+export type Proximity = (typeof PROXIMITIES)[number];
 
 const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({
   kind,
@@ -126,9 +134,55 @@ const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({
   reached: 0,
   cap: TARGETED_TEST_FILES_MAX,
   omitted: 0,
-  omittedRuleTests: [],
+  omittedByProximity: { direct: [], rule: [], name: [], graph: [] },
   unmapped: [],
 });
+
+const EXPORTED_NAME =
+  /^[\t ]*export\s+(?:declare\s+)?(?:default\s+)?(?:async\s+)?(?:abstract\s+)?(?:const|let|var|function\*?|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm;
+/** A compound identifier (`onLeave`, `TeamToolInput`): short or one-word names match too much. */
+const COMPOUND_NAME = /\b[A-Za-z_$][\w$]*[a-z][A-Z][\w$]*\b/g;
+
+/**
+ * The names a change touched: exported names declared on, and compound identifiers used on, the lines
+ * that differ between the base and the working tree of a changed non-test code file.
+ */
+function changedSymbols(
+  changed: readonly string[],
+  before: readonly MergeTestFile[],
+  after: readonly MergeTestFile[],
+): string[] {
+  const beforeSource = new Map(before.map((file) => [file.path, file.source]));
+  const afterSource = new Map(after.map((file) => [file.path, file.source]));
+  const symbols = new Set<string>();
+  for (const path of changed) {
+    if (!isCode(path) || isServerTest(path) || isTestSupport(path)) continue;
+    const was = (beforeSource.get(path) ?? '').split('\n');
+    const is = (afterSource.get(path) ?? '').split('\n');
+    const wasSet = new Set(was);
+    const isSet = new Set(is);
+    const differing = [...is.filter((line) => !wasSet.has(line)), ...was.filter((line) => !isSet.has(line))];
+    const text = differing.join('\n');
+    for (const match of text.matchAll(EXPORTED_NAME)) if (match[1]!.length >= 5) symbols.add(match[1]!);
+    for (const match of text.matchAll(COMPOUND_NAME)) symbols.add(match[0]);
+  }
+  return [...symbols];
+}
+
+/** A name used by more than this share of the candidate tests (`toEqual`, `readFileSync`) tells nothing. */
+const COMMON_NAME_SHARE = 0.05;
+const COMMON_NAME_MIN = 10;
+
+/** The candidate tests that use a changed name, ignoring the names nearly every test uses; sorted. */
+function nameUsers(symbols: readonly string[], candidates: readonly MergeTestFile[]): string[] {
+  const wanted = new Set(symbols);
+  const users = new Map<string, string[]>();
+  for (const { path, source } of candidates)
+    for (const name of new Set(source.match(/[\w$]+/g) ?? []))
+      if (wanted.has(name)) users.set(name, [...(users.get(name) ?? []), path]);
+  const limit = Math.max(COMMON_NAME_MIN, candidates.length * COMMON_NAME_SHARE);
+  return [...new Set([...users.values()].filter((paths) => paths.length <= limit).flat())].sort();
+}
 
 /** The workspace whose checks cover a path: the scripts belong to the server's. */
 const checkedBy = (path: string): MergeTestWorkspace | undefined =>
@@ -267,16 +321,31 @@ export function handoverSelection(
   ];
   const reachedTests = [...distance.keys()].filter(isTest).filter((path) => mergeRuns(merge, path));
   const byDistance = (a: string, b: string) => distance.get(a)! - distance.get(b)! || a.localeCompare(b);
-  // Nearest first: the change's own tests, the rule tests, the snapshot tests, then by distance.
-  const ordered = [
-    ...new Set([
+  const bySnapshotThenDistance = (a: string, b: string) =>
+    Number(hasSnapshot(b)) - Number(hasSnapshot(a)) || byDistance(a, b);
+  // The names a test may use without importing a changed file (a setting, a method of an injected object).
+  const nameTests = nameUsers(
+    changedSymbols(changed, input.before, input.after),
+    input.after.filter((file) => isTest(file.path) && mergeRuns(merge, file.path)),
+  );
+
+  // Nearest first. Alphabetical order only decides between tests of the same proximity.
+  const tiers: Record<Proximity, string[]> = {
+    // The change's own tests, then the tests that import a changed file themselves.
+    direct: [
       ...[...snapshotOwners, ...changed.filter(isTest)].sort(),
-      ...ruleTests,
-      ...reachedTests.filter(hasSnapshot).sort(byDistance),
-      ...reachedTests.sort(byDistance),
-    ]),
-  ];
+      ...reachedTests.filter((path) => distance.get(path)! <= 1).sort(bySnapshotThenDistance),
+    ],
+    rule: ruleTests,
+    name: nameTests,
+    graph: reachedTests.sort(bySnapshotThenDistance),
+  };
+  const proximityOf = new Map<string, Proximity>();
+  for (const proximity of PROXIMITIES)
+    for (const path of tiers[proximity]) if (!proximityOf.has(path)) proximityOf.set(path, proximity);
+  const ordered = [...proximityOf.keys()];
   const run = ordered.slice(0, TARGETED_TEST_FILES_MAX);
+  const left = ordered.slice(TARGETED_TEST_FILES_MAX);
   return {
     kind: 'targeted',
     typecheck: MERGE_TEST_WORKSPACES.filter((workspace) => typecheck.has(workspace)),
@@ -288,7 +357,9 @@ export function handoverSelection(
     reached: ordered.length,
     cap: TARGETED_TEST_FILES_MAX,
     omitted: Math.max(0, ordered.length - TARGETED_TEST_FILES_MAX),
-    omittedRuleTests: ruleTests.filter((path) => !run.includes(path)),
+    omittedByProximity: Object.fromEntries(
+      PROXIMITIES.map((proximity) => [proximity, left.filter((path) => proximityOf.get(path) === proximity)]),
+    ) as Record<Proximity, string[]>,
     unmapped,
   };
 }

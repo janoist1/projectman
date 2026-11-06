@@ -75,8 +75,8 @@ describe('handover selection', () => {
     const selection = select(tree, ['apps/web/src/features/x.ts']);
     expect(selection.tests.map(({ workspace }) => workspace)).toEqual(['apps/web']);
     expect(selection.tests[0]!.files).toEqual([
-      'apps/web/src/i18n/i18n.test.ts',
       'apps/web/src/features/x.test.ts',
+      'apps/web/src/i18n/i18n.test.ts',
     ]);
   });
 
@@ -109,6 +109,38 @@ describe('handover selection', () => {
       cap: TARGETED_TEST_FILES_MAX,
       omitted: 5,
     });
+  });
+
+  it('keeps the direct and the name-using test inside the cap when many farther tests are reached (PM-1306)', () => {
+    const far = Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
+      file(`apps/server/src/core/f${String(i).padStart(2, '0')}.test.ts`, "import { b } from './b';"),
+    );
+    const tree = [
+      file('apps/server/src/core/a.ts', 'export const a = { onLeave: false };'),
+      file('apps/server/src/core/b.ts', "import { a } from './a';\nexport const b = a;"),
+      ...far,
+      file('apps/server/src/core/zz-direct.test.ts', "import { a } from './a';"),
+      file('apps/server/src/core/zz-name.test.ts', 'setup({ onLeave: true });'),
+    ];
+    const after = tree.map((f) =>
+      f.path.endsWith('/a.ts') ? file(f.path, 'export const a = { onLeave: true };') : f,
+    );
+    const selection = handoverSelection({
+      changed: ['apps/server/src/core/a.ts'],
+      added: [],
+      deleted: [],
+      before: tree,
+      after,
+    });
+    const files = selection.tests[0]!.files;
+    expect(files.slice(0, 2)).toEqual([
+      'apps/server/src/core/zz-direct.test.ts',
+      'apps/server/src/core/zz-name.test.ts',
+    ]);
+    expect(files).toHaveLength(TARGETED_TEST_FILES_MAX);
+    expect(selection.omitted).toBe(7);
+    expect(selection.omittedByProximity).toMatchObject({ direct: [], rule: [], name: [] });
+    expect(selection.omittedByProximity.graph).toHaveLength(7);
   });
 
   it('selects nothing but the dead-code check for a documentation-only change', () => {
@@ -178,7 +210,7 @@ describe('selection rules', () => {
     );
     const selection = select([...operatorTree.slice(0, 1), ...operators], [operatorTree[0]!.path]);
     expect(selection.tests[0]!.files).toHaveLength(TARGETED_TEST_FILES_MAX);
-    expect(selection.omittedRuleTests).toEqual([
+    expect(selection.omittedByProximity.rule).toEqual([
       'apps/server/test/operator-t60.test.ts',
       'apps/server/test/operator-t61.test.ts',
     ]);
@@ -252,6 +284,7 @@ describe('handover-check command', () => {
     expect(printed().join('\n')).toContain(
       `ran ${TARGETED_TEST_FILES_MAX} of ${TARGETED_TEST_FILES_MAX + 5} (cap ${TARGETED_TEST_FILES_MAX}); the merge-test runs the other 5`,
     );
+    expect(printed().join('\n')).toMatch(/left out by proximity: 5 direct[^,]*, 0 selection-rule/);
     expect(npm).toHaveBeenCalled();
   });
 

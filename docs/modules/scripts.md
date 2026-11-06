@@ -149,10 +149,22 @@ workers follow the machine's size.
   paths: `*` stays in a folder, `**` crosses folders, a trailing `/` is the folder's subtree. A guard
   test fails when an `import.meta.glob` test is not covered by a rule or a rule names no existing
   test. The tool-definition snapshot and the `*-migration` tests need no rule: the shared export
-  analysis and the import graph reach them. The order is: changed tests, rule tests, tests with a
-  snapshot, then by import distance; at most `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`) files
-  run, and over it the last line says `ran 60 of M (cap 60); the merge-test runs the other M-60`
-  (exit 0), and it names the rule-chosen tests the cap left out; it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
+  analysis and the import graph reach them. **Order by proximity (PM-1306).** At most
+  `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`) files run, so the
+  nearest come first and the alphabet only decides between tests of the same proximity:
+  1. `direct`: the changed tests, the tests of a changed snapshot, and the tests that import a changed
+     file themselves (snapshot tests first);
+  2. `rule`: the tests a `SELECTION_RULES` entry chose;
+  3. `name`: tests (inside the merge check's scope) that use a changed name without importing the
+     file: an exported name declared, or a compound identifier (`onLeave`, `TeamToolInput`) used, on a
+     line that differs from the base in a changed non-test file;
+  4. `graph`: the tests reached through further imports (snapshot tests first, then by distance).
+
+  A test counts once, at its nearest proximity. Over the cap the last lines say
+  `ran 60 of M (cap 60); the merge-test runs the other M-60` (exit 0) and
+  `left out by proximity: <n> direct, <n> selection-rule, <n> name-usage, <n> farther import-graph`,
+  and name every omitted test of the nearer proximities (run them yourself with
+  `npx vitest run <files>`); it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
   git error. `--dry-run` prints the steps only. A merge-test change keeps the merge-test output
   unchanged; the shared import analysis is only extended (`valueConsumers`, `typeOnly`).
   **Merge check records.** Every merge check is recorded in `merge_check_runs` (time, queue wait, the `maxWorkers`

@@ -439,6 +439,8 @@ export interface TimelineEventData {
     lastHandoffId?: string;
   };
   team_message: {
+    conversation?: 'direct';
+    noteEventId?: string;
     messageId: string;
     from: string;
     to: string[];

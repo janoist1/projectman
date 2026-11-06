@@ -145,6 +145,34 @@ describe('the PM talks with a person who is not an owner in a conversation of th
 });
 
 describe('the PM only reads and answers in a guest’s conversation', () => {
+  it('hides private message events in guest get_task and event_id while retaining the AI view', async () => {
+    await setup();
+    await say('cleo');
+    const message = h.domain.messages.record({
+      projectKey: 'AR',
+      from: 'dev-1',
+      to: ['cr'],
+      taskKey: 'AR-1',
+      body: 'Private conversation',
+      actor: { kind: 'ai', handle: 'dev-1' },
+    });
+    const event = h.domain.timeline
+      .list('AR', { taskKey: 'AR-1' })
+      .find((e) => e.data?.messageId === message.id)!;
+    const ctx = toolOf(conversationWith('cleo'));
+    const hidden = await h.domain.teamTools.getTask(ctx, { taskKey: 'AR-1', eventId: event.id });
+    expect(hidden.timeline.some((e) => e.id === event.id)).toBe(false);
+    expect(hidden.event).toBeUndefined();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', {
+      type: 'task',
+      taskKey: 'AR-1',
+    });
+    const shown = await h.domain.teamTools.getTask(
+      { projectKey: 'AR', member: 'dev-1', sessionId: session.id, taskKey: 'AR-1' },
+      { taskKey: 'AR-1', eventId: event.id },
+    );
+    expect(shown.event?.id).toBe(event.id);
+  });
   it('refuses the tools that are not guest tools, however the PM may use them with an owner', async () => {
     await setup();
     await say('cleo', 'Please move the card');

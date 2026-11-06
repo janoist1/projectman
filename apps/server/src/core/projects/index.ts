@@ -7,6 +7,7 @@ export {
   canSeeInboxItem,
   visibleSession,
   visibleTimelineEvent,
+  canSeeTimelineEvent,
   teamMessageParticipant,
   visibleTaskDetail,
   visibleProjectEvent,

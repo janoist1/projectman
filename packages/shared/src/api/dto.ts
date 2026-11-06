@@ -1357,6 +1357,7 @@ export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
 export const SendTeamMessageRequest = z
   .object({
+    clientRequestId: z.string().uuid().optional(),
     despiteWorkers: z.boolean().optional(),
     operatorSignal: z.string().optional(),
     to: z.array(MemberHandle).min(1).max(100),

@@ -106,6 +106,7 @@ describe('project manager reply relay', () => {
       await finish(session, event);
       expect(relays()).toHaveLength(1);
       expect(relays()[0]).toMatchObject({
+        conversation: 'direct',
         from: 'pm',
         to: ['owner'],
         taskKey: task.key,

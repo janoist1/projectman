@@ -16,6 +16,7 @@ import { originMetaJson } from './actor-meta';
 import { parseJson, toJson } from './json';
 
 interface MessageRow {
+  conversation: 'direct' | null;
   seq: number;
   receipts: string | null;
   id: string;
@@ -86,6 +87,7 @@ const toMessage = (r: MessageRow): TeamMessage => {
   const places = r.places ? TeamMessageSchema.shape.places.safeParse(parseJson(r.places, null)) : null;
   return {
     id: r.id,
+    ...(r.conversation ? { conversation: r.conversation } : {}),
     projectKey: r.project_key,
     from: r.from_handle,
     to: parseJson<string[]>(r.to_handles, []),
@@ -115,6 +117,9 @@ const toMessage = (r: MessageRow): TeamMessage => {
 
 export function createMessageRepository(db: Db) {
   const statements = {
+    byClientRequest: db.prepare(
+      'SELECT * FROM team_messages WHERE project_key = ? AND from_handle = ? AND client_request_id = ?',
+    ),
     get: db.prepare('SELECT * FROM team_messages WHERE id = ?'),
     getMany: db.prepare('SELECT * FROM team_messages WHERE id IN (SELECT value FROM json_each(?))'),
     hasNewerAction: db.prepare(`SELECT 1 FROM team_messages
@@ -141,8 +146,8 @@ export function createMessageRepository(db: Db) {
        AND (? IS NULL OR json_extract(origin, '$.params.' || ?) = ?) ORDER BY seq DESC LIMIT 1`,
     ),
     insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments, actor_meta, email, location, places)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments, actor_meta, email, location, places, conversation, client_request_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     setAttachments: db.prepare('UPDATE team_messages SET attachments = ? WHERE id = ?'),
     countUnread: db.prepare(
@@ -208,6 +213,10 @@ export function createMessageRepository(db: Db) {
 
   return {
     get,
+    byClientRequest(projectKey: string, from: string, clientRequestId: string): TeamMessage | null {
+      const row = statements.byClientRequest.get(projectKey, from, clientRequestId) as MessageRow | undefined;
+      return row ? toMessage(row) : null;
+    },
     /** The messages with these ids in one read: id → message, for those that exist. */
     getMany(ids: readonly string[]): Map<string, TeamMessage> {
       if (ids.length === 0) return new Map();
@@ -279,7 +288,7 @@ export function createMessageRepository(db: Db) {
       const origin = parseJson<{ params?: Record<string, unknown> }>(row.origin, {});
       return { createdAt: row.created_at, params: origin.params ?? {} };
     },
-    insert(m: TeamMessage): void {
+    insert(m: TeamMessage, clientRequestId?: string): void {
       db.transaction(() => {
         statements.insert.run(
           m.id,
@@ -305,6 +314,8 @@ export function createMessageRepository(db: Db) {
           m.email ? toJson(m.email) : null,
           m.location ? toJson(m.location) : null,
           m.places?.length ? toJson(m.places) : null,
+          m.conversation ?? null,
+          clientRequestId ?? null,
         );
         refreshPending(m.id);
       })();
@@ -330,6 +341,7 @@ export function createMessageRepository(db: Db) {
     list(
       projectKey: string,
       filter: {
+        place?: 'card';
         taskKey?: string;
         member?: string;
         participant?: string;
@@ -343,6 +355,7 @@ export function createMessageRepository(db: Db) {
       if (filter.taskKey) {
         sql += ' AND task_key = ?';
         params.push(filter.taskKey);
+        if (filter.place === 'card') sql += ' AND conversation IS NULL';
       }
       for (const handle of [filter.member, filter.participant]) {
         if (!handle) continue;

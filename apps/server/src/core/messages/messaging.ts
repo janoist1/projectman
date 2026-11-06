@@ -114,6 +114,7 @@ interface SendOptions {
 }
 
 interface SendInput {
+  clientRequestId?: string;
   to: string[];
   text: string;
   taskKey?: string | null;
@@ -238,6 +239,12 @@ export class Messaging {
   ): Promise<T> {
     const config = await this.projects.config(projectKey);
     assertIntegratorAccess(config, 'write', opts.actor);
+    // Check immediately after loading configuration, before attachment checks or any send effects.
+    if (input.clientRequestId) {
+      const previous = this.ctx.repos.messages.byClientRequest(projectKey, from, input.clientRequestId);
+      if (previous)
+        return complete({ record: () => previous, deliver: () => ({ message: previous, recipients: [] }) });
+    }
     const text = input.text.trim();
     const attachmentIds = input.attachmentIds ?? [];
     // Empty text is a message of files alone (PM-516).
@@ -401,8 +408,17 @@ export class Messaging {
             reviewCommit: pinned ?? null,
           }
         : undefined;
+    let repeated = false;
     const record = () =>
       this.ctx.unitOfWork(() => {
+        // Concurrent preparations can reach this transaction after another request committed.
+        if (input.clientRequestId) {
+          const previous = this.ctx.repos.messages.byClientRequest(projectKey, from, input.clientRequestId);
+          if (previous) {
+            repeated = true;
+            return previous;
+          }
+        }
         this.assertRecipientsAllowed(
           this.projects.cachedConfig(projectKey) ?? config,
           from,
@@ -437,6 +453,7 @@ export class Messaging {
               : this.messageAttachments.bindForSend(projectKey, sender, attachmentIds, id)
             : undefined;
         const recorded = this.messages.record({
+          clientRequestId: input.clientRequestId,
           id,
           projectKey,
           from,
@@ -469,6 +486,7 @@ export class Messaging {
         return recorded;
       });
     const deliver = (message: TeamMessage) => {
+      if (repeated) return { message, recipients: [] };
       const decided = this.routing.deliver({
         config,
         projectKey,

@@ -9,6 +9,7 @@ import {
   isProjectManager,
   isUnreadBy,
   memberOf,
+  messageConversationOf,
   messageRoute,
   managerConversationOf,
   sameWorkItem,
@@ -35,6 +36,7 @@ import { forbidden, notFound } from '../../kernel';
 import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
 
 interface RecordMessageInput {
+  clientRequestId?: string;
   id?: string;
   kind?: TeamMessage['kind'];
   version?: TeamMessage['version'];
@@ -110,8 +112,16 @@ export class MessageService {
     if (hasBoundOrigin(input.actor) && input.actor.handle !== input.from)
       throw new Error('a super-mode message must be sent from its actor');
     const at = isoNow(this.ctx);
+    const config = this.projects.cachedConfig(input.projectKey);
+    const conversation = messageConversationOf({
+      ...input,
+      via: input.actor.via,
+      fromHuman: !!config && memberOf(config, input.from)?.kind === 'human',
+      toHuman: !!config && input.to.some((handle) => memberOf(config, handle)?.kind === 'human'),
+    });
     const message: TeamMessage = {
       id: input.id ?? newId('msg'),
+      ...(conversation ? { conversation } : {}),
       projectKey: input.projectKey,
       from: input.from,
       to: [...new Set(input.to)],
@@ -142,7 +152,7 @@ export class MessageService {
       ...(input.places?.length ? { places: input.places } : {}),
     };
     return this.ctx.unitOfWork(() => {
-      this.ctx.repos.messages.insert(message);
+      this.ctx.repos.messages.insert(message, input.clientRequestId);
       this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
       this.timeline.append({
         projectKey: message.projectKey,
@@ -155,7 +165,12 @@ export class MessageService {
           from: message.from,
           to: message.to,
           // A message of files alone is told by their names.
-          excerpt: excerpt(message.body || (message.attachments ?? []).map((a) => a.fileName).join(', ')),
+          excerpt:
+            message.origin?.kind === 'note'
+              ? ''
+              : excerpt(message.body || (message.attachments ?? []).map((a) => a.fileName).join(', ')),
+          ...(message.conversation ? { conversation: message.conversation } : {}),
+          ...(message.origin?.kind === 'note' ? { noteEventId: message.origin.eventId } : {}),
           kind: message.kind,
           version: message.version,
           ...(message.email ? { email: true } : {}),
@@ -436,6 +451,7 @@ export class MessageService {
   list(
     projectKey: string,
     filter: {
+      place?: 'card';
       taskKey?: string;
       member?: string;
       participant?: string;

@@ -1681,6 +1681,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Idle closure asks that engine through `EngineHost.heavyRunSessions` / `host.heavy_run_sessions`
   (PM-569). PID and heartbeat checks run on the engine; only its own running session ids cross
   to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
+  Since PM-1315, `runtime/sessions/sessions.ts` calls `EngineHost.endSessionRuns` when the CLI
+  has ended. `full-test/heavy-lock.ts` signals that session's queue and holder PIDs with SIGTERM,
+  then SIGKILL after 10 seconds if the same ticket and PID still have a heartbeat newer than
+  30 seconds. Stale entries and other sessions receive no signal. This assumes the engine's
+  local PID namespace and queue filesystem; the CLI child guard and vitest stop their children.
+  **Remote engine:** `host.end_session_runs` (an open engine-link method) carries only the
+  session id and returns the number of runs sent SIGTERM. Listing, heartbeat checks, the timer
+  and both signals run on the engine, never in the cloud's PID namespace.
   The queue does not apply in GitHub mode (`FullTestSpec.githubActions`, PM-900): the machine does not run the tests.
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `start.ts` (`loggerOptions`)

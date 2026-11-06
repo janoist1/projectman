@@ -33,6 +33,7 @@ describe('closing finished and idle sessions', () => {
       firstTurn?: boolean;
       adjust?: (config: ProjectConfig) => void;
       heavyRunSessions?: () => Promise<string[]>;
+      endSessionRuns?: (sessionId: string) => Promise<number>;
     } = {},
   ) {
     now = new Date('2026-10-04T08:00:00.000Z');
@@ -40,6 +41,7 @@ describe('closing finished and idle sessions', () => {
       now: () => now,
       adjust: opts.adjust,
       heavyRunSessions: opts.heavyRunSessions,
+      endSessionRuns: opts.endSessionRuns,
     });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
@@ -65,6 +67,18 @@ describe('closing finished and idle sessions', () => {
   };
 
   describe('when the step is done', () => {
+    it('ends heavy runs only after the session CLI has stopped', async () => {
+      const endSessionRuns = vi.fn(async (id: string) => {
+        expect(h.runner.isRunning(id)).toBe(false);
+        return 2;
+      });
+      const dev = await setup({ endSessionRuns });
+      expect(endSessionRuns).not.toHaveBeenCalled();
+      h.runner.setState(dev.id, 'idle');
+      await handOver();
+      await vi.waitFor(() => expect(endSessionRuns).toHaveBeenCalledExactlyOnceWith(dev.id));
+    });
+
     it('closes the idle session of the member the card left, with the reason, and keeps the conversation', async () => {
       const dev = await setup();
       h.runner.setState(dev.id, 'idle');

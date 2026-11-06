@@ -784,7 +784,7 @@ describe('engine handlers', () => {
     });
   });
 
-  it('reports only heavy runs belonging to this runner and validates the reply', async () => {
+  function heavyRunHandlers() {
     const handlers = new Map<string, (params: unknown, context: unknown) => Promise<unknown>>();
     const rpc = {
       handle: (name: string, handler: never) => {
@@ -795,10 +795,13 @@ describe('engine handlers', () => {
     createEngineHandlers({
       limit: { check: async (_method: string, params: unknown) => params } as never,
       audit: { record: () => undefined } as never,
-      runner: { list: () => [{ sessionId: 'own' }] } as never,
+      runner: { list: () => [{ sessionId: 'own' }], isRunning: (id: string) => id === 'own' } as never,
       transcripts: {} as never,
       planUsageFor: (() => ({})) as never,
-      engine: { heavyRunSessions: async () => ['own', 'other'] } as never,
+      engine: {
+        heavyRunSessions: async () => ['own', 'other'],
+        endSessionRuns: async (id: string) => (id === 'ended' ? 2 : 0),
+      } as never,
       github: {} as never,
       probe: {} as never,
       transfers: {} as never,
@@ -807,8 +810,21 @@ describe('engine handlers', () => {
       terminals: new Set(),
       exportDir: '/nonexistent',
     }).register(rpc);
+    return handlers;
+  }
+
+  it('reports only heavy runs belonging to this runner and validates the reply', async () => {
+    const handlers = heavyRunHandlers();
     const result = await handlers.get('host.heavy_run_sessions')!({}, { id: 'heavy' });
     expect(result).toEqual(['own']);
     expect(methods['host.heavy_run_sessions'].result.parse(result)).toEqual(['own']);
+  });
+
+  it.each([
+    ['ended', 2],
+    ['own', 0],
+  ])('ends runs only after the CLI exits: %s', async (sessionId, count) => {
+    const handlers = heavyRunHandlers();
+    expect(await handlers.get('host.end_session_runs')!({ sessionId }, { id: 'end' })).toBe(count);
   });
 });

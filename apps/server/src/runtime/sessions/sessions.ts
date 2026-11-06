@@ -1716,6 +1716,13 @@ export class SessionOrchestrator {
     this.turns.ended(sessionId);
     this.inputWaits.ended(sessionId);
     if (!session || !isLiveSessionState(session.state)) return null;
+    if (!this.deps.runner.isRunning(sessionId))
+      void this.deps.engines
+        .get(engineIdOf(session))
+        ?.endSessionRuns(sessionId)
+        .catch((err: unknown) =>
+          this.ctx.logger.warn({ err, sessionId }, 'could not stop the ended session heavy runs'),
+        );
     const at = isoNow(this.ctx);
     const state: SessionState = failed ? 'failed' : 'exited';
     const ended = this.ctx.repos.sessions.update(sessionId, {

@@ -390,6 +390,7 @@ export interface DomainOptions {
    */
   freeDiskBytes?: () => Promise<number | null>;
   heavyRunSessions?: () => Promise<string[]>;
+  endSessionRuns?: (sessionId: string) => Promise<number>;
   /** How often the free disk space is checked (default 1 min). */
   diskCheckMs?: number;
   /** How often the owners' waiting digest is considered (default 10 min; it is sent at most once a day, PM-1250). */
@@ -569,6 +570,7 @@ export function createDomain(opts: DomainOptions) {
           screenshotExecutor: opts.screenshotExecutor,
           freeDiskBytes: opts.freeDiskBytes,
           heavyRunSessions: opts.heavyRunSessions,
+          endSessionRuns: opts.endSessionRuns,
           processExists: opts.processExists,
           workspacePath: (projectKey) => projects.cachedConfig(projectKey)?.project.workspacePath ?? null,
           repoPath: localRepoPath,

@@ -314,7 +314,9 @@ describe('task comments API', () => {
     it('records a repeated clientRequestId of the same author once', async () => {
       const clientRequestId = '6f1c2d4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f';
       const raised: string[] = [];
-      h.app.projectman.domain.ctx.events.on('task_note_added', (note) => raised.push(note.event.id));
+      h.app.projectman.domain.ctx.events.on('task_note_added', (note) => {
+        raised.push(note.event.id);
+      });
       const first = await post({ text: 'Once', clientRequestId });
       const again = await comment({ text: 'Once', clientRequestId });
       expect(again.statusCode).toBe(201);

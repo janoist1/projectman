@@ -176,6 +176,7 @@ export function formatProjectState(
     ),
     'Undelivered team messages:',
     ...report.waitingMessages.map((m) => `- ${m.member}: ${m.count}, the oldest sent ${m.oldestAt}`),
+    ...workQueueLines(report.workQueues),
     'Open owner inbox items:',
     ...report.openOwnerItems.map(
       (i) => `- ${i.id} (${i.kind}), task ${i.taskKey ?? 'none'}: ${oneLine(i.title, 200)}`,
@@ -184,6 +185,21 @@ export function formatProjectState(
     ...report.signals.map(signalLine),
     ...releaseLines(report.release),
   ].join('\n');
+}
+
+/** The AI members' open queue items as numbers (PM-1294); the section is left out when nothing is open. */
+function workQueueLines(queues: ProjectStateReport['workQueues']): string[] {
+  if (queues.members.length === 0) return [];
+  return [
+    'Work queues:',
+    ...queues.members.map((m) => {
+      const reasons = Object.entries(m.reasons)
+        .map(([reason, count]) => `${reason} ${count}`)
+        .join(', ');
+      return `- ${m.member}: ${m.queued} queued, ${m.processing} processing, ${m.longWait} waiting long${m.oldestQueuedAt ? `; the oldest queued since ${m.oldestQueuedAt}${m.oldestTaskKey ? ` (${m.oldestTaskKey})` : ''}` : ''}${reasons ? `; reasons: ${reasons}` : ''}`;
+    }),
+    `- Connected Claude (integrator): ${queues.integratorConnected ? 'yes' : 'no'}`,
+  ];
 }
 
 /** One team message and, per recipient, the facts of what became of it (PM-543). */

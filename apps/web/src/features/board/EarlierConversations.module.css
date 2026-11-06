@@ -1,0 +1,155 @@
+/* The card's earlier conversations (PM-1290): a closed, read-only block at the bottom of the Process view. */
+.earlier {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--c-ink);
+  cursor: pointer;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.note,
+.none {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
+.none {
+  margin-top: 16px;
+}
+
+.list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.list[hidden] {
+  display: none;
+}
+
+/* The 8px side padding is the room of the highlight frame; the negative margin keeps the text where it was. */
+.message {
+  margin: 0 -8px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--c-line-soft);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.message:last-child {
+  border-bottom: 0;
+}
+
+.head {
+  margin: 0 0 2px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.author {
+  font-weight: 700;
+  color: var(--c-ink);
+}
+
+.to {
+  margin: 4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+}
+
+.unreadMark {
+  margin-left: 8px;
+  font-weight: 800;
+  color: var(--c-accent-text);
+}
+
+.qa {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-xl);
+  background: var(--c-kind-question-bg);
+  color: var(--c-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qaHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-kind-question-fg);
+}
+
+.qaHead time {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.qaAsked,
+.qaAnswer {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* The answer stands in full: its line breaks and lists stay. */
+.qaAnswer {
+  white-space: pre-wrap;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--c-kind-question-fg) 18%, transparent);
+}
+
+/* The message a link led to: framed for two seconds; the fade is left out when the reader asks for less motion. */
+.flash {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--c-accent) 8%, transparent),
+    color-mix(in srgb, var(--c-accent) 8%, transparent)
+  );
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 45%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .flash {
+    animation: flash 2s ease-out;
+  }
+}
+
+@keyframes flash {
+  from {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 60%, transparent);
+  }
+  80% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 45%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}

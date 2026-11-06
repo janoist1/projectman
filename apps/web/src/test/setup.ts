@@ -1,5 +1,6 @@
 import { cleanup, configure } from '@testing-library/react';
 import { afterEach, beforeEach } from 'vitest';
+import { resetCommentDrafts } from '../features/board/useCardCommentDraft';
 import { setCurrentLanguage } from '../i18n/language';
 import { server } from './msw/server';
 import { takeContractViolations } from './msw/contract';
@@ -18,6 +19,9 @@ configure({ asyncUtilTimeout: 5000 });
 // Vitest globals are off, so testing-library cannot register its own cleanup.
 afterEach(() => {
   cleanup();
+  // A comment draft lives in the session's storage and in memory: the next test starts without it.
+  window.sessionStorage.clear();
+  resetCommentDrafts();
   server.resetHandlers();
   const violations = takeContractViolations();
   if (violations.length) throw new Error(`Mock API contract violations:\n${violations.join('\n')}`);

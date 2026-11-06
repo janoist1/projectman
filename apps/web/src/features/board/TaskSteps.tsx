@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import type { UseQueryResult } from '@tanstack/react-query';
+import { isProcessTimelineEvent } from '@projectman/shared';
 import type { CardStep, Task, TaskDetail, TaskStartWaiting, TimelineEvent } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
@@ -220,8 +221,9 @@ function Now({
 }
 
 /**
- * The card's Process view (PM-1160): the "Most" box (the state, what it waits for, who comes next), the comment
- * box and the story in rounds. A hidden view keeps only the comment box, so a draft survives the tab changes.
+ * The card's Process view (PM-1160): the "Most" box (the state, what it waits for, who comes next), the story in
+ * rounds and, under it, the earlier conversations. The comments are in their own view (PM-1290): the story
+ * leaves them, and a person's direct messages, out, and points at the comment a message passed on.
  */
 export function TaskProcess({
   active,
@@ -231,7 +233,8 @@ export function TaskProcess({
   detail,
   ctx,
   fullMessageHref,
-  composer,
+  commentHref,
+  earlier,
 }: {
   active: boolean;
   task: Task;
@@ -241,23 +244,62 @@ export function TaskProcess({
   detail: Pick<UseQueryResult<TaskDetail>, 'data' | 'isPending' | 'isError' | 'error' | 'refetch'>;
   ctx: TimelineContext;
   fullMessageHref: (event: TimelineEvent) => string | null;
-  composer: ReactNode;
+  /** Where a comment is in the Comments view (null: the viewer has none). */
+  commentHref: ((eventId: string) => string) | null;
+  /** The closed block of the old conversations under the story. */
+  earlier: ReactNode;
 }) {
   const data = detail.data;
-  const { renderText, dialog } = useAttachmentRows(task, data?.timeline ?? []);
+  const timeline = useMemo(() => (data?.timeline ?? []).filter(isProcessTimelineEvent), [data]);
+  const earlierEvents = useMemo(() => (data?.earlierEvents ?? []).filter(isProcessTimelineEvent), [data]);
+  const attachmentRows = useAttachmentRows(task, timeline);
+  const { dialog } = attachmentRows;
+  // A message that passed a comment on names who got it and points at the comment; its text stays there.
+  const renderText = (event: TimelineEvent): ReactNode => {
+    const noteEventId = event.type === 'team_message' ? event.data.noteEventId : undefined;
+    if (typeof noteEventId !== 'string') return attachmentRows.renderText(event);
+    const to = Array.isArray(event.data.to)
+      ? event.data.to.filter((h): h is string => typeof h === 'string')
+      : [];
+    return (
+      <>
+        {t('timeline.forwarded', {
+          handles: to.map((handle) => `@${handle}`).join(t('common.listSeparator')),
+        })}
+        {commentHref ? (
+          <>
+            <span aria-hidden="true"> · </span>
+            <Link to={commentHref(noteEventId)}>{t('timeline.forwardedJump')}</Link>
+          </>
+        ) : null}
+      </>
+    );
+  };
   const { pipeline, labels, members, myHandle, openInboxIds } = ctx;
   const story = useMemo(
     () =>
       data
         ? buildCardStory({
             task,
-            events: data.timeline,
-            earlierEvents: data.earlierEvents,
+            events: timeline,
+            earlierEvents,
             theme,
             ctx: { pipeline, labels, members, myHandle, openInboxIds },
           })
         : null,
-    [data, task.stageId, task.status, theme, pipeline, labels, members, myHandle, openInboxIds],
+    [
+      data,
+      timeline,
+      earlierEvents,
+      task.stageId,
+      task.status,
+      theme,
+      pipeline,
+      labels,
+      members,
+      myHandle,
+      openInboxIds,
+    ],
   );
   const wait = detail.isPending ? (
     <LoadingState compact />
@@ -279,10 +321,10 @@ export function TaskProcess({
             <Now task={task} state={state} steps={data?.steps} round={story.rounds.at(-1)} ctx={ctx} />
           ) : null))
         : null}
-      {composer}
       {active && story ? (
         <CardStory story={story} ctx={ctx} fullMessageHref={fullMessageHref} renderText={renderText} />
       ) : null}
+      {active ? earlier : null}
       {dialog}
     </div>
   );

@@ -5,7 +5,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import {
   alertPayloadOf,
   canSeeTeamMessage,
-  cardWorkerSessions,
+  isCardComment,
   reachingDevelopers,
   fitsSpecialty,
   stageDevelopers,
@@ -67,11 +67,12 @@ import { useCanAttach, useUploadQueue } from './attachmentUploads';
 import { useFileDrop } from './useFileDrop';
 import { TaskAttachments } from './TaskAttachments';
 import { TaskProcess } from './TaskSteps';
-import { TaskCommentComposer } from './TaskCommentComposer';
+import { TaskComments } from './TaskComments';
+import { EarlierConversations } from './EarlierConversations';
+import { useTaskComments } from './useTaskComments';
 import { TaskDescription } from './TaskEdit';
 import { TaskAcceptance } from './TaskAcceptance';
 import { TaskProperties } from './TaskProperties';
-import { TaskThread } from './TaskThread';
 import { TaskRounds, TaskUsage } from './TaskUsage';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
@@ -279,22 +280,44 @@ export function TaskDrawer() {
   const boardTask = board.data?.tasks.find((task) => task.key === taskKey);
   const task = detail.data?.task ?? boardTask;
   const entry = model?.byKey.get(taskKey);
-  // The card's conversation (PM-273): a view of the same open card (`/thread`), not a page. A theme has none.
-  const hasThread = Boolean(task && !isTheme(task) && entry);
-  // The views of the open card (PM-487) are sub-paths of it; an unknown one, and a theme's `/thread`, is the card.
+  // The card's comments (PM-1290) are a view of the same open card (`/thread`, the id of the older conversation
+  // view, so its links keep working), a theme's too. The earlier team messages are read-only in the Process view,
+  // and a theme has none.
+  const hasComments = Boolean(task && (isTheme(task) || entry));
+  const hasEarlier = Boolean(task && !isTheme(task) && entry);
+  // A link to one event of the story (`#timeline-<id>`): a comment is in the Comments view, any other event in Process.
+  const linkedId = eventLink ? location.hash.slice('#timeline-'.length) : null;
+  const linkedComment = Boolean(
+    linkedId &&
+    [...(detail.data?.timeline ?? []), ...(detail.data?.earlierEvents ?? [])].some(
+      (event) => event.id === linkedId && isCardComment(event),
+    ),
+  );
+  // The views of the open card (PM-487) are sub-paths of it; an unknown one is the card.
   // The Process view (PM-1160) holds the card's story, a theme's too: the older `/timeline` sub-path and a link to
-  // one event (`/tasks/KEY#timeline-<id>`, shared before the story had a view) open it.
+  // one event (`/tasks/KEY#timeline-<id>`, shared before the story had a view) open it. The older `?message=` link
+  // of the conversation view leads to the earlier conversations, which are in the Process view now.
+  const legacyMessage = searchParams.get('message') !== null;
   const view: CardView =
     subPath === 'attachments'
       ? subPath
-      : subPath === 'thread' && hasThread
-        ? subPath
-        : subPath === 'steps' || subPath === 'timeline' || (!subPath && eventLink)
+      : (subPath === 'thread' && !legacyMessage && hasComments) || (!subPath && linkedComment && hasComments)
+        ? 'thread'
+        : subPath === 'steps' ||
+            subPath === 'timeline' ||
+            (subPath === 'thread' && legacyMessage) ||
+            (!subPath && eventLink)
           ? 'steps'
           : 'card';
   const thread = view === 'thread';
-  const taskMessages = useTaskMessages(key, taskKey, hasThread);
-  const messageCount = taskMessages.data?.messages.length ?? 0;
+  const taskMessages = useTaskMessages(key, taskKey, hasEarlier);
+  // The comment a link points at: the Comments view opens around it.
+  const commentTarget = thread && linkedComment ? linkedId : null;
+  const comments = useTaskComments(key, taskKey, commentTarget, hasComments);
+  // The page does not say how many comments there are: the tab counts them once every one is loaded.
+  const commentCount = comments.complete
+    ? comments.threads.reduce((sum, item) => sum + 1 + item.replies.length, 0)
+    : 0;
   // The same query (and so the same request) as the list of the Attachments view.
   const attachmentList = useAttachments(key, taskKey, Boolean(access && myHandle));
   const attachmentCount = attachmentList.data?.attachments.length ?? 0;
@@ -438,23 +461,22 @@ export function TaskDrawer() {
     // A person who may put the `refine` label on a card that is not being refined can start it with a button.
     const canRefine =
       !theme && can.createTasks && config && myHandle ? canStartRefinement(task, config, myHandle) : false;
-    const workers = cardWorkerSessions(
-      stage ? { kind: stage.kind, owners: stage.owners ?? [] } : undefined,
-      task,
-      sessions,
-    ).map((worker) => worker.member);
-    // Where a link into the card's conversation leads: the same size as the open card.
-    const threadHref = hasThread ? withCardSize(drawerBase.card(task.key, 'thread'), size) : null;
-    // A timeline row of a message links to it in the conversation, if the viewer may read that message.
+    // Where a link into the card's comments leads: the same size as the open card.
+    const threadHref = hasComments ? withCardSize(drawerBase.card(task.key, 'thread'), size) : null;
+    // A comment in the Comments view (the row of a message that passed it on points here).
+    const commentHref = hasComments ? (eventId: string) => `${threadHref}#timeline-${eventId}` : null;
+    // A timeline row of an older message links to it in the earlier conversations, if the viewer may read it.
     const fullMessageHref = (event: TimelineEvent): string | null => {
-      if (!hasThread || event.type !== 'team_message' || !access || !myHandle) return null;
+      if (!hasEarlier || event.type !== 'team_message' || !access || !myHandle) return null;
+      // A message that passed a comment on has no text of its own: the link goes to the comment.
+      if (typeof event.data.noteEventId === 'string') return null;
       const { messageId, to } = event.data;
       // A message of the system (a relation notice, PM-421) has no member as its actor: the event names the sender.
       const from = typeof event.data.from === 'string' ? event.data.from : event.actor.handle;
       if (!from || typeof messageId !== 'string' || !Array.isArray(to)) return null;
       const recipients = to.filter((handle): handle is string => typeof handle === 'string');
       if (!canSeeTeamMessage({ access, handle: myHandle }, { from, to: recipients })) return null;
-      return withCardSize(withQueryParam(drawerBase.card(task.key, 'thread'), 'message', messageId), size);
+      return withCardSize(withQueryParam(drawerBase.card(task.key, 'steps'), 'message', messageId), size);
     };
     // The Start is offered only when the shared rule lets a person start the card (PM-291); what it waits for
     // is on the status line. While the rule's data loads a bar holds its place; if it never comes, the
@@ -646,9 +668,16 @@ export function TaskDrawer() {
           detail={detail}
           ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds, config }}
           fullMessageHref={fullMessageHref}
-          composer={
-            can.comment && myHandle ? (
-              <TaskCommentComposer key={`comments:${task.key}`} taskKey={task.key} members={members} />
+          commentHref={commentHref}
+          earlier={
+            hasEarlier ? (
+              <EarlierConversations
+                key={task.key}
+                active={view === 'steps'}
+                query={taskMessages}
+                members={members}
+                messageParam={searchParams.get('message')}
+              />
             ) : null
           }
         />
@@ -733,12 +762,12 @@ export function TaskDrawer() {
             options={[
               { value: 'card', label: t('task.view.card') },
               // A theme has no conversation. A count is shown only when there is something to count.
-              ...(hasThread
+              ...(hasComments
                 ? [
                     {
                       value: 'thread' as const,
                       label: t('task.view.thread'),
-                      count: messageCount > 0 ? messageCount : undefined,
+                      count: commentCount > 0 ? commentCount : undefined,
                     },
                   ]
                 : []),
@@ -769,19 +798,17 @@ export function TaskDrawer() {
             ...(twoColumns
               ? [signals, content, attachments, steps, more, side]
               : [signals, side, content, attachments, steps, more]),
-            hasThread ? (
+            hasComments ? (
               <div key="thread" className={styles.thread} hidden={!thread}>
-                <TaskThread
+                <TaskComments
                   key={task.key}
-                  task={task}
-                  active={thread}
-                  query={taskMessages}
-                  workers={workers}
-                  stageOwners={stage?.owners ?? []}
+                  projectKey={key}
+                  taskKey={task.key}
                   members={members}
-                  labels={labels}
-                  messageParam={searchParams.get('message')}
-                  onShowCard={() => switchView('card')}
+                  state={comments}
+                  active={thread}
+                  target={commentTarget}
+                  canComment={can.comment}
                 />
               </div>
             ) : null,

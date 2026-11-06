@@ -52,7 +52,7 @@ import attachmentStyles from './MessageAttachments.module.css';
 /** An opened thread marks its incoming messages read after this long, so a glance in passing does not. */
 export const READ_AFTER_MS = 1000;
 /** The server's page of one thread (`limit` of the request); a full page means older messages are not shown. */
-export const PAGE_LIMIT = 500;
+const PAGE_LIMIT = 500;
 /** Within this distance of the bottom the thread follows new messages. */
 export const STICK_PX = 48;
 

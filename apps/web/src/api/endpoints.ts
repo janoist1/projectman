@@ -79,6 +79,7 @@ import {
   SchedulesView,
   SessionDetail,
   SetupStatus,
+  TaskCommentsPage,
   TaskDetail,
   TaskHandoffRecord,
   UpdateTaskResponse,
@@ -280,6 +281,21 @@ export const api = {
   board: (key: string) => apiRequest(routes.board(key), { schema: BoardView }),
   createTaskComment: (key: string, taskKey: string, body: CreateTaskCommentRequest) =>
     apiRequest(routes.taskComments(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
+  /** One page of a card's comment threads (PM-1290), the newest unless `before` or `around` says otherwise. */
+  taskComments: (
+    key: string,
+    taskKey: string,
+    query: { before?: string; around?: string; limit?: number },
+  ) => {
+    const params = new URLSearchParams();
+    if (query.before) params.set('before', query.before);
+    if (query.around) params.set('around', query.around);
+    if (query.limit) params.set('limit', String(query.limit));
+    const search = params.toString();
+    return apiRequest(`${routes.taskComments(key, taskKey)}${search ? `?${search}` : ''}`, {
+      schema: TaskCommentsPage,
+    });
+  },
   changeTaskLabels: (key: string, taskKey: string, body: ChangeTaskLabelsRequest) =>
     apiRequest(routes.taskLabels(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
   task: (key: string, taskKey: string) => apiRequest(routes.task(key, taskKey), { schema: TaskDetail }),
@@ -456,9 +472,10 @@ export const api = {
   /** One conversation with `peer` (the server's page limit) or the project's messages under the filters. */
   teamMessageList: (
     key: string,
-    params: { threadWith?: string; member?: string; taskKey?: string; unreadOnly?: boolean },
+    params: { threadWith?: string; member?: string; taskKey?: string; place?: 'card'; unreadOnly?: boolean },
   ) => {
     const query = new URLSearchParams({ limit: '500' });
+    if (params.place) query.set('place', params.place);
     if (params.threadWith) query.set('threadWith', params.threadWith);
     if (params.member) query.set('member', params.member);
     if (params.taskKey) query.set('taskKey', params.taskKey);

@@ -89,7 +89,7 @@ describe('the views of the open card (PM-487)', () => {
     fireEvent.click(viewButton(t('task.view.steps')));
     expect(where()).toBe('/p/AC/tasks/AC-21/steps');
     expect(await screen.findByRole('heading', { name: storyTitle })).toBeTruthy();
-    expect(screen.getByRole('textbox', { name: t('task.comments.label') })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: t('task.comments.label') })).toBeNull();
     expect(screen.queryByRole('region', { name: t('attachments.title') })).toBeNull();
 
     fireEvent.click(viewButton(t('task.view.card')));
@@ -122,24 +122,26 @@ describe('the views of the open card (PM-487)', () => {
 
   it('keeps a comment that was begun when another view is shown', async () => {
     const project = mockProject();
-    project.render(card, '/p/AC/tasks/AC-21/steps');
+    project.render(card, '/p/AC/tasks/AC-21/thread');
     const box = (await screen.findByRole('textbox', {
       name: t('task.comments.label'),
     })) as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: 'Half a comment' } });
     fireEvent.click(viewButton(t('task.view.card')));
-    fireEvent.click(viewButton(t('task.view.steps')));
+    fireEvent.click(viewButton(t('task.view.thread')));
     expect(
       (screen.getByRole('textbox', { name: t('task.comments.label') }) as HTMLTextAreaElement).value,
     ).toBe('Half a comment');
   });
 
-  it('shows the writing of a comment on the process view, not on the card view', async () => {
+  it('shows the writing of a comment on the Comments view only', async () => {
     const project = mockProject();
     project.render(card, '/p/AC/tasks/AC-21');
     await views();
     await screen.findByText(t('task.description'));
     expect(screen.queryByRole('textbox', { name: t('task.comments.label') })).toBeNull();
+    fireEvent.click(viewButton(t('task.view.thread')));
+    expect(await screen.findByRole('textbox', { name: t('task.comments.label') })).toBeTruthy();
   });
 
   it('opens the process view for the older /timeline sub-path, at the event a link points at', async () => {
@@ -172,7 +174,7 @@ describe('the views of the open card (PM-487)', () => {
     await waitFor(() => expect(reached).toContain(`timeline-${note.id}`));
   });
 
-  it('gives a theme the same views, without the conversation, and the card for its /thread', async () => {
+  it('gives a theme the same views, the Comments view too but no earlier conversations', async () => {
     const project = mockProject();
     const theme = Task.parse(
       project.backend.handle('POST', '/api/projects/AC/tasks', { title: 'Epic', kind: 'theme' }).body,
@@ -183,12 +185,14 @@ describe('the views of the open card (PM-487)', () => {
       within(group)
         .getAllByRole('button')
         .map((button) => button.querySelector('span')!.textContent),
-    ).toEqual([t('task.view.card'), t('task.view.attachments'), t('task.view.steps')]);
-    expect(pressed()).toEqual([t('task.view.card')]);
+    ).toEqual([t('task.view.card'), t('task.view.thread'), t('task.view.attachments'), t('task.view.steps')]);
+    expect(pressed()).toEqual([t('task.view.thread')]);
+    expect(await screen.findByText(t('task.comments.empty'))).toBeTruthy();
     fireEvent.click(viewButton(t('task.view.steps')));
     expect(where()).toBe(`/p/AC/tasks/${theme.key}/steps`);
     expect(await screen.findByRole('heading', { name: storyTitle })).toBeTruthy();
     // A theme has no "Most" box.
     expect(screen.queryByRole('region', { name: t('task.steps.now') })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Korábbi beszélgetések/ })).toBeNull();
   });
 });

@@ -235,6 +235,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<TaskDetail>(queryKeys.task(key, entry.taskKey), (detail) =>
         detail ? { ...detail, timeline: appendUnique(detail.timeline, [entry]) } : detail,
       );
+      // A comment of someone else reaches the card's comment list.
+      if (entry.type === 'task_note') invalidate(queryKeys.taskComments(key, entry.taskKey));
       // The card's rounds (PM-222) are counted by the server from the whole timeline.
       if (entry.type === 'task_stage_changed' || entry.type === 'task_labels_changed') {
         invalidate(queryKeys.task(key, entry.taskKey));

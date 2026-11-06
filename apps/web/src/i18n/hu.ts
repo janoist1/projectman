@@ -374,6 +374,8 @@ export const hu = {
     approvedBy: 'jóváhagyta: {name}',
     label: '{name} (Claude)',
     labelHolder: '{name} (Claude · {holder})',
+    /** The author line of a written entry (PM-1290): the name, then how the entry was made. */
+    via: '{name} · csatlakoztatott Claude-on át',
     title: 'Csatlakozott Claude',
     chipAria: 'Csatlakozott Claude, gazdája: {holder}. Részletek',
     avatar: '{name}, csatlakozott Claude-on át',
@@ -2866,48 +2868,16 @@ export const hu = {
     view: {
       label: 'A kártya nézetei',
       card: 'Kártya',
-      thread: 'Beszélgetés',
+      thread: 'Hozzászólások',
       attachments: 'Csatolmányok',
       steps: 'Folyamat',
     },
     /** The card's conversation: every team message written about the card (PM-273). */
     thread: {
-      label: 'A kártya beszélgetése',
-      limited: 'Csak a neked szóló és az általad küldött üzeneteket látod.',
-      emptyTitle: 'Még nincs üzenet ezen a kártyán.',
-      emptyBody:
-        'Írj lent: a kártyán dolgozó tagok a munkájuk közben kapják meg. Ha egymásnak írnak erről a kártyáról, az is itt látszik.',
-      emptyLimitedTitle: 'Neked még nem írtak erről a kártyáról.',
-      emptyLimitedBody: 'Ha valaki neked ír erről a kártyáról, vagy te írsz innen, itt látod.',
-      emptyViewerBody: 'Ha valaki neked ír erről a kártyáról, itt látod.',
       qa: 'Kérdés és válasz',
       asked: '{name} kérdezte:',
       answered: '{name} válaszolt: {answer}',
       youAnswered: 'Te válaszoltál: {answer}',
-      to: 'Címzett',
-      addTo: 'Címzett hozzáadása',
-      recipients: 'Címzettek',
-      remove: 'Kiveszem a címzettek közül: {name}',
-      working: 'A kártyán dolgoznak',
-      others: 'Többi tag',
-      default: {
-        workers: 'A kártyán épp dolgozók kapják meg.',
-        assignee: 'Most senki nem dolgozik rajta, ezért a felelőse kapja meg.',
-        stageOwners: 'Most senki nem dolgozik rajta, ezért a lépés gazdái kapják meg.',
-        projectManager:
-          'Most senki nem foglalkozik vele, ezért a projektmenedzser kapja meg, és ő továbbítja a megfelelő tagnak.',
-        none: 'Válaszd ki, kinek írsz.',
-        contact: 'A kártyán dolgozók közül senki sem kapcsolattartó, ezért egy kapcsolattartó kapja meg.',
-        managerOnly: 'A projektmenedzser kapja meg, és ő továbbítja a kártyán dolgozóknak.',
-      },
-      noContacts:
-        'A projektnek nincs kapcsolattartója, ezért innen nem tudsz üzenni. Hozzászólni a kártya nézetében tudsz:',
-      noContactsReadOnly: 'A projektnek nincs kapcsolattartója, ezért innen nem tudsz üzenni.',
-      noManager: 'A projektnek nincs projektmenedzsere, ezért innen nem tudsz üzenni.',
-      edited: 'Te választottad.',
-      reset: 'Vissza az alaphoz',
-      composerLabel: 'Üzenet a(z) {key} kártyáról',
-      placeholder: 'Üzenet a kártyáról…',
     },
     /** The drawer's "Jelölésekből" row (PM-511): the feedback marks that led to the card. */
     feedback: {
@@ -2943,12 +2913,40 @@ export const hu = {
     subtaskCount: '{done}/{total}',
     unassigned: 'Nincs felelős',
     comments: {
-      label: 'Hozzászólás',
+      label: 'Hozzászólás szövege',
       hint: 'Írj @ jelet egy csapattag megemlítéséhez.',
       contactsHint: 'Írj @ jelet egy kapcsolattartó megemlítéséhez. Másnak nem megy értesítés.',
       contactsHintNone: 'A projektnek nincs kapcsolattartója, ezért senkit nem tudsz megemlíteni.',
       members: 'Megemlíthető csapattagok',
       imported: 'Importált',
+      importedTitle: 'Importálva: {time}',
+      /** The line above the list: who reads a comment, and (when the project has one) whom to mention for an answer. */
+      visibility: 'A hozzászólást a kártyát olvasók látják.',
+      visibilityAsk:
+        'A hozzászólást a kártyát olvasók látják. Ha választ kérsz valakitől, említsd meg: @{handle}.',
+      empty: 'Még nincs hozzászólás.',
+      loadFailed: 'Nem sikerült betölteni a hozzászólásokat.',
+      refreshFailed: 'A frissítés nem sikerült. A korábban betöltött hozzászólásokat látod.',
+      retry: 'Újrapróbálom',
+      older: 'Korábbi hozzászólások',
+      newer: 'Újabb hozzászólások',
+      unavailable: 'Ez a bejegyzés nem érhető el.',
+      reply: 'Válasz',
+      replyAria: 'Válasz {name} hozzászólására',
+      replyAriaOwn: 'Válasz a saját hozzászólásodra',
+      replyingTo: 'Válasz neki: {name}',
+      replyingToOwn: 'Válasz a saját hozzászólásodra',
+      sending: 'Küldés…',
+      posted: 'Közzétéve',
+      sendFailed: 'Nem sikerült közzétenni. A szöveged megmaradt.',
+      readOnly: 'Betekintőként csak olvashatod a hozzászólásokat.',
+    },
+    /** The Process view's closed block of the card's old conversations (PM-1290): read-only, no new message. */
+    earlier: {
+      title: 'Korábbi beszélgetések ({count})',
+      readOnly: 'Csak olvasható.',
+      to: 'Címzett: {names}',
+      none: 'Nincs számodra látható gépi üzenet.',
     },
     labels: {
       title: 'Címkék',
@@ -5736,6 +5734,10 @@ export const hu = {
     details: 'Részletek',
     /** The link of a message row to the whole text in the card's conversation (PM-273). */
     fullMessage: 'Teljes üzenet',
+    /** A comment was passed on to a member: the step names them, the text stays in the Comments view (PM-1290). */
+    forwarded: 'Hozzászólás továbbítva {handles} részére',
+    forwardedJump: 'Ugrás a hozzászóláshoz',
+    machineRequest: 'Gépi kérés a projektmenedzsernek',
     labelsAdded: 'Rátette: {labels}',
     labelsRemoved: 'Levette: {labels}',
     /** Where the route rule put an item and why (PM-1246), in the middle of the `item_routed` row. */

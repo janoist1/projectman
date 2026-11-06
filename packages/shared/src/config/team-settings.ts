@@ -36,6 +36,12 @@ export const TEAM_SETTING_POLICY = {
   projectManagerLifecycle: { ownerOnly: null, default: ['assign', 'cancel'], stored: true },
   // PM-204, PM-1099: only people override an open prerequisite.
   prerequisiteOverride: { ownerOnly: null, default: 'people', stored: true },
+  // PM-1284: the PM acts on its own only outside the owner-only circle.
+  projectManagerAuthority: {
+    ownerOnly: 'project_manager_authority',
+    default: 'outside_owner_only',
+    stored: true,
+  },
   // PM-433, PM-1096: the project managers; people and the connected owner always may.
   prioritySetters: { ownerOnly: null, default: ['project_manager'], stored: true },
   // PM-1097: requirements analysis and task breakdown.

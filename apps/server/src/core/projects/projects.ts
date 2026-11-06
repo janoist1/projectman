@@ -47,7 +47,12 @@ import { conflict, DomainError, forbidden, invalid, notFound } from '../../kerne
 import { createSuperAuditService } from '../timeline';
 import type { SuperAuditService, TimelineService } from '../timeline';
 import { humanActor, KeyedMutex } from '../../kernel';
-import { assertIntegratorAccess, authorizeSuperMutation, integratorExecution } from '../../kernel';
+import {
+  assertIntegratorAccess,
+  authorizeSuperMutation,
+  delegatesOwnerAuthority,
+  integratorExecution,
+} from '../../kernel';
 
 export interface LoadedProject {
   config: ProjectConfig;
@@ -130,6 +135,7 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   operator_watch: 'only an owner may change how much the Operator does on its own on a signal',
   task_create_access: 'only an owner may change who may open new cards',
   owner_decision_topics: 'only an owner may change the topics AI members may ask the owner to decide',
+  project_manager_authority: 'only an owner may change what the project manager may do on its own authority',
 };
 
 /** The card mover a create request names; absent means the worker. */
@@ -631,6 +637,12 @@ export class ProjectService {
       )
         throw forbidden('insufficient_access', 'the super-mode step is not backed by a current owner');
       ProjectService.assertChangeAllowed(previous, next, owner.access, meta.invitationBinding);
+      // A step on a member's request lends nothing of the owner's (PM-1010): the owner-only changes wait
+      // for the owner's yes (PM-1284); the approved continuation runs with the owner's own authority.
+      if (!delegatesOwnerAuthority()) {
+        const [change] = ownerOnlyChanges(previous, next, { invitationBinding: meta.invitationBinding });
+        if (change) throw forbidden('operator_owner_only', OWNER_ONLY_MESSAGES[change]);
+      }
     } else if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
         throw forbidden('insufficient_access', 'only human members may change the configuration');

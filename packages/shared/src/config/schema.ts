@@ -56,6 +56,13 @@ type ProjectManagerLifecycle = z.infer<typeof ProjectManagerLifecycle>;
 export const PrerequisiteOverride = z.enum(['people', 'people_and_project_manager']);
 export type PrerequisiteOverride = z.infer<typeof PrerequisiteOverride>;
 
+/**
+ * What the project manager may do on its own authority (PM-1284): `outside_owner_only` everything outside the
+ * owner-only circle, `owner_request` only what an open owner request asks for.
+ */
+export const ProjectManagerAuthority = z.enum(['outside_owner_only', 'owner_request']);
+export type ProjectManagerAuthority = z.infer<typeof ProjectManagerAuthority>;
+
 /** Who besides people may set or clear a card's priority (PM-1096). Absent: the project managers (PM-433). */
 export const PrioritySetter = z.enum(['project_manager', 'prioritization_duty']);
 export type PrioritySetter = z.infer<typeof PrioritySetter>;
@@ -460,6 +467,8 @@ export const ProjectConfig = z.object({
     projectManagerLifecycle: ProjectManagerLifecycle.optional(),
     /** PM-1099; absent: its `TEAM_SETTING_POLICY` default. */
     prerequisiteOverride: PrerequisiteOverride.optional(),
+    /** PM-1284; absent: its `TEAM_SETTING_POLICY` default. Owner-only (`project_manager_authority`). */
+    projectManagerAuthority: ProjectManagerAuthority.optional(),
     /** Who besides people may set a card's priority (PM-1096); absent: its `TEAM_SETTING_POLICY` default. */
     prioritySetters: PrioritySetters.optional(),
     /** Duties whose holders may set complexity points; absent: its `TEAM_SETTING_POLICY` default. */

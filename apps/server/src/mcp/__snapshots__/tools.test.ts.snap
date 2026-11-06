@@ -2815,6 +2815,13 @@ exports[`team tool definitions > preserves the public tool definitions across mo
                         },
                         "type": "object",
                       },
+                      "projectManagerAuthority": {
+                        "enum": [
+                          "outside_owner_only",
+                          "owner_request",
+                        ],
+                        "type": "string",
+                      },
                       "projectManagerLifecycle": {
                         "items": {
                           "enum": [

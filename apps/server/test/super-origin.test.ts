@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { connectedActorOf, routes, SuperAuditPage } from '@projectman/shared';
-import type { ConnectedActor, SuperActor } from '@projectman/shared';
+import { connectedActorOf, memberOf, routes, SuperAuditPage } from '@projectman/shared';
+import type { ConnectedActor, HumanMemberConfig, SuperActor } from '@projectman/shared';
 import type { FastifyRequest } from 'fastify';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -14,7 +14,7 @@ import { runGit } from '../src/config/git';
 import { bindSuperPrincipal } from '../src/core/members';
 import type { ProjectAccess } from '../src/core/members';
 import type { IntegratorPrincipal } from '../src/contracts';
-import { DomainError } from '../src/kernel';
+import { DomainError, integratorExecution, runIntegratorExecution } from '../src/kernel';
 
 const CREDENTIAL = { id: 'ikey_test_1', prefix: 'pmi_aaaaaaaa' };
 const OTHER_CREDENTIAL = { id: 'ikey_test_2', prefix: 'pmi_bbbbbbbb' };
@@ -313,6 +313,48 @@ describe('super-mode origin and audit (PM-757)', () => {
       ['succeeded', null],
     ]);
     expect((await h.configStore.history('AR', 1))[0]?.actor).toEqual(SUPER);
+  });
+
+  describe('an owner-only change in a step on a member`s request (PM-1284)', () => {
+    // The principal an app session gets from its open request: the origin sits on a scope nested in the stored key's.
+    const asOrigin = (requestOrigin: 'owner' | 'member', run: () => Promise<unknown>) =>
+      authenticated(() => {
+        const context = integratorExecution()!;
+        return runIntegratorExecution(
+          {
+            active: true,
+            context: { ...context, principal: { ...context.principal, source: 'app', requestOrigin } },
+            actorFor: () => context.actor,
+            assertAccess: (config) => memberOf(config, 'owner') as HumanMemberConfig,
+            assertMutation: () => {},
+            authorizeMutation: async () => {},
+          },
+          run,
+        );
+      }, 'req-origin');
+    const change = async () => ({
+      baseVersion: (await h.domain.projects.load('AR')).version,
+      projectManagerAuthority: 'owner_request' as const,
+    });
+
+    it('is refused at the commit', async () => {
+      h = await createDomainHarness();
+      const body = await change();
+      await expect(
+        asOrigin('member', () =>
+          h.domain.projects.patch('AR', body, { actor: SUPER, author: superAuthor('req-origin') }),
+        ),
+      ).rejects.toMatchObject({ code: 'operator_owner_only' });
+    });
+
+    it('goes through on the continuation under the owner`s yes', async () => {
+      h = await createDomainHarness();
+      const body = await change();
+      await asOrigin('owner', () =>
+        h.domain.projects.patch('AR', body, { actor: SUPER, author: superAuthor('req-origin') }),
+      );
+      expect((await h.domain.projects.load('AR')).config.team.projectManagerAuthority).toBe('owner_request');
+    });
   });
 
   it('audits an unbounded revert of a version made in the super mode', async () => {

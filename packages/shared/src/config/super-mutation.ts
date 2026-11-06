@@ -91,6 +91,14 @@ export function approvalStructureChanged(previous: ProjectConfig, next: ProjectC
 }
 
 /**
+ * Whether a member's request (a queue item, another member's message) needs the owner's yes for the change
+ * (PM-1010, PM-1284): it reshapes who approves, or it is an owner-only change.
+ */
+export function ownerYesForMemberOrigin(previous: ProjectConfig, next: ProjectConfig): boolean {
+  return approvalStructureChanged(previous, next) || ownerOnlyChanges(previous, next).length > 0;
+}
+
+/**
  * What stays the owner's in super mode (owner decision of 2026-10-20, PM-862 K3): deleting a member, key,
  * project or repository; their own login and the security settings; the paid cost. Everything else the
  * Operator may do with the super key, in its own name.

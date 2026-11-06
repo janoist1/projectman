@@ -95,7 +95,10 @@ describe('super-mode operations (PM-762, PM-764)', () => {
         return runIntegratorExecution(
           {
             active: true,
-            context: { ...context, principal: { ...context.principal, requestOrigin } },
+            context: {
+              ...context,
+              principal: { ...context.principal, source: 'app' as const, requestOrigin },
+            },
             actorFor: () => context.actor,
             assertAccess: () => undefined,
             assertMutation: () => {},
@@ -262,6 +265,68 @@ describe('super-mode operations (PM-762, PM-764)', () => {
         const operation = await operate(GIVE_DEVELOPERS_REVIEW, randomUUID(), { requestOrigin: 'owner' });
         expect(operation).toMatchObject({ state: 'succeeded' });
         expect(calls).toHaveLength(1);
+      });
+    });
+
+    describe('an owner-only change on a member`s request (PM-1284)', () => {
+      const patch = (team: Record<string, unknown>): NewSuperCommand => ({
+        kind: 'operate',
+        operation: { op: 'config_patch', patch: team },
+      });
+      const update = (changes: Record<string, unknown>): NewSuperCommand => ({
+        kind: 'operate',
+        operation: { op: 'member_update', handle: 'dev-1', changes },
+      });
+
+      it('waits for the owner on an owner-only team setting and names it in the question', async () => {
+        await boot();
+        withExecutors();
+        const operation = await operate(patch({ projectManagerAuthority: 'owner_request' }), randomUUID(), {
+          requestOrigin: 'member',
+        });
+        expect(operation).toMatchObject({ state: 'waiting_owner' });
+        expect(calls).toHaveLength(0);
+        const question = h.domain.inbox.get('AR', operation.ownerQuestionId!);
+        expect((question.payload as { details: string }).details).toContain('project_manager_authority');
+      });
+
+      it('runs a team setting that is not owner-only', async () => {
+        await boot();
+        withExecutors();
+        const operation = await operate(patch({ prioritySetters: [] }), randomUUID(), {
+          requestOrigin: 'member',
+        });
+        expect(operation).toMatchObject({ state: 'succeeded' });
+        expect(calls).toHaveLength(1);
+      });
+
+      it('waits for the owner on an owner-only member field', async () => {
+        await boot();
+        withExecutors();
+        const operation = await operate(update({ machineAccess: true }), randomUUID(), {
+          requestOrigin: 'member',
+        });
+        expect(operation).toMatchObject({ state: 'waiting_owner' });
+        expect(calls).toHaveLength(0);
+      });
+
+      it('runs a member field that is not owner-only, such as leave', async () => {
+        await boot();
+        withExecutors();
+        const operation = await operate(update({ onLeave: true }), randomUUID(), {
+          requestOrigin: 'member',
+        });
+        expect(operation).toMatchObject({ state: 'succeeded' });
+        expect(calls).toHaveLength(1);
+      });
+
+      it('runs the owner-only change on the owner`s own request', async () => {
+        await boot();
+        withExecutors();
+        const operation = await operate(patch({ projectManagerAuthority: 'owner_request' }), randomUUID(), {
+          requestOrigin: 'owner',
+        });
+        expect(operation).toMatchObject({ state: 'succeeded' });
       });
     });
 

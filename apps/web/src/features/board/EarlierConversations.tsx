@@ -18,8 +18,40 @@ import styles from './EarlierConversations.module.css';
 
 /** How long a message reached by a link stays highlighted. */
 const FLASH_MS = 2000;
+/** How long a linked message is kept in the middle while the content above it settles. */
+const KEEP_CENTERED_MS = 4000;
 
 /** Who wrote a message: a connected Claude's step names how it was made; the old integrator rows stay as they were. */
+/**
+ * The content above a linked message may still grow (the story loads) after the page scrolled to it: while that goes on,
+ * the message is brought back to the middle. The reader's own wheel or touch ends it. Returns the cleanup.
+ */
+function keepCentered(target: HTMLElement, ms: number): () => void {
+  if (typeof ResizeObserver === 'undefined') return () => undefined;
+  let scroller = target.parentElement;
+  while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY))
+    scroller = scroller.parentElement;
+  // No scrolling area of its own: the page scrolls.
+  const area = scroller ?? document.body;
+  let first = true;
+  const observer = new ResizeObserver(() => {
+    // The first call only reports the sizes the observer started with.
+    if (first) first = false;
+    else target.scrollIntoView({ block: 'center', behavior: 'instant' });
+  });
+  for (const child of area.children) observer.observe(child);
+  const stop = () => {
+    observer.disconnect();
+    clearTimeout(timer);
+    area.removeEventListener('wheel', stop);
+    area.removeEventListener('touchstart', stop);
+  };
+  const timer = setTimeout(stop, ms);
+  area.addEventListener('wheel', stop, { passive: true });
+  area.addEventListener('touchstart', stop, { passive: true });
+  return stop;
+}
+
 function senderOf(message: TeamMessage, members: MemberIndex, myHandle: string | null): string {
   if (hasConnectedOrigin(message.actor)) return actorByline(message.actor, members, myHandle);
   return message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
@@ -163,7 +195,11 @@ export function EarlierConversations({
     target.focus({ preventScroll: true });
     setFlash(messageParam);
     const timer = setTimeout(() => setFlash(null), FLASH_MS);
-    return () => clearTimeout(timer);
+    const stopKeeping = keepCentered(target, KEEP_CENTERED_MS);
+    return () => {
+      clearTimeout(timer);
+      stopKeeping();
+    };
   }, [active, messageParam, messages.length, open]);
 
   // Reading: the incoming unread messages of the open block, one request.

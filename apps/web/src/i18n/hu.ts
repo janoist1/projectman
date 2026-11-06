@@ -2931,6 +2931,7 @@ export const hu = {
       unavailable: 'Ez a bejegyzés nem érhető el.',
       reply: 'Válasz',
       replyAria: 'Válasz {name} hozzászólására',
+      replyAriaOwn: 'Válasz a saját hozzászólásodra',
       replyingTo: 'Válasz neki: {name}',
       replyingToOwn: 'Válasz a saját hozzászólásodra',
       sending: 'Küldés…',

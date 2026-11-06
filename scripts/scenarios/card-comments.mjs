@@ -50,6 +50,61 @@ export default async ({ instance, open, shoot, step }) => {
     await shoot(page, 'comments-linked', { widths: [1512] });
   });
 
+  await step('the reply box under an imported comment', async () => {
+    const page = await open({ path: '/p/AC/tasks/AC-1/thread' });
+    await page.getByRole('textbox', { name: /Hozzászólás szövege|Comment text/ }).waitFor();
+    await page
+      .getByRole('button', { name: /^(Válasz|Reply)/ })
+      .last()
+      .click();
+    await page.waitForTimeout(300);
+    await shoot(page, 'comments-imported-reply', { widths: [1512] });
+  });
+
+  // The old `?message=` link at a narrow width: the story above the block grows after the page opens.
+  await step('the old message link at 390px', async () => {
+    const members = await instance.api('/api/projects/AC/members');
+    const ai = members.find((member) => member.kind === 'ai' && member.role !== 'project_manager');
+    const owner = (await instance.api('/api/me')).handles.AC;
+    const at = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
+    const earlier = [
+      {
+        id: 'msg_demo_1',
+        projectKey: 'AC',
+        from: owner,
+        to: [ai.handle],
+        taskKey: 'AC-1',
+        body: 'Please check the catalogue images before the release.',
+        createdAt: at(300),
+        deliveredAt: at(300),
+      },
+      {
+        id: 'msg_demo_2',
+        projectKey: 'AC',
+        from: ai.handle,
+        to: [owner],
+        taskKey: 'AC-1',
+        body: 'Checked: two images are missing, they are listed in the description.',
+        createdAt: at(290),
+        deliveredAt: at(290),
+      },
+    ];
+    const page = await open({ path: '/p/AC' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route(
+      (url) => url.searchParams.get('place') === 'card' && url.searchParams.get('taskKey') === 'AC-1',
+      (route) => route.fulfill({ json: { messages: earlier } }),
+    );
+    await page.goto(`${instance.webUrl}/p/AC/tasks/AC-1/thread?message=msg_demo_2`);
+    await page.locator('[data-flash]').waitFor();
+    await page.waitForTimeout(800);
+    const box = await page.locator('[data-flash]').boundingBox();
+    console.log(
+      `message link: top ${Math.round(box.y)}, bottom ${Math.round(box.y + box.height)}, window 844`,
+    );
+    await shoot(page, 'earlier-linked-390', { widths: [390] });
+  });
+
   await step('the Process tab', async () => {
     const page = await open({ path: '/p/AC/tasks/AC-1/steps' });
     await page.getByRole('heading', { level: 3 }).first().waitFor();

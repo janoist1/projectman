@@ -263,6 +263,27 @@ describe('the Comments view (PM-1304)', () => {
     ).toBeTruthy();
   });
 
+  it('does not call the reader the author of an imported comment', async () => {
+    const project = mockProject();
+    comment(project, 'owner', 'History', { importedAuthor: 'Morgan Example', importedAt: ago(3000) });
+    comment(project, 'owner', 'Mine', {}, 5);
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const list = await column();
+    const imported = within(list.getByText('History').closest('li')!);
+    // The importer is the viewer, the author is not: the button names the original author.
+    fireEvent.click(
+      imported.getByRole('button', { name: t('task.comments.replyAria', { name: 'Morgan Example' }) }),
+    );
+    expect(
+      await screen.findByRole('textbox', { name: t('task.comments.replyingTo', { name: 'Morgan Example' }) }),
+    ).toBeTruthy();
+    expect(
+      within(list.getByText('Mine').closest('li')!).getByRole('button', {
+        name: t('task.comments.replyAriaOwn'),
+      }),
+    ).toBeTruthy();
+  });
+
   it('scrolls a reply box the reader opened into view', async () => {
     const project = mockProject();
     comment(project, 'be-1', 'Theirs', {}, 10);

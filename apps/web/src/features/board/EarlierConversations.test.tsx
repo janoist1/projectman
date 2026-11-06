@@ -168,6 +168,33 @@ describe('the links into the earlier conversations (PM-1290)', () => {
     await waitFor(() => expect(row('msg_04')?.hasAttribute('data-flash')).toBe(true));
   });
 
+  it('brings the linked message back to the middle while the content above it still changes size', async () => {
+    const project = mockProject();
+    let resized: () => void = () => undefined;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resized = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const scrolls: unknown[] = [];
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation((arg) => {
+      scrolls.push(arg);
+    });
+    project.render(card, '/p/AC/tasks/AC-21/steps?message=msg_04');
+    await waitFor(() => expect(row('msg_04')?.hasAttribute('data-flash')).toBe(true));
+    const initial = scrolls.length;
+    resized(); // the observer's first report is the starting sizes
+    expect(scrolls).toHaveLength(initial);
+    resized();
+    expect(scrolls.at(-1)).toMatchObject({ block: 'center', behavior: 'instant' });
+    vi.unstubAllGlobals();
+  });
+
   it('leads the older conversation link, /thread?message=, to the Process view', async () => {
     const project = mockProject();
     project.render(card, '/p/AC/tasks/AC-21/thread?message=msg_04');

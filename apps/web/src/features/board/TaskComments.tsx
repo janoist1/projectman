@@ -22,6 +22,13 @@ const text = (value: unknown): string => (typeof value === 'string' ? value : ''
 /** The full time, with the year, for the `title` of a short time. */
 const fullStamp = (value: string) => `${formatDate(value, new Date(0))} ${formatTime(value)}`;
 
+/** Who wrote a comment: the original author of an imported one, otherwise the actor; `own` only for the latter. */
+function commentAuthor(event: TimelineEvent, members: MemberIndex, myHandle: string | null) {
+  const importedAuthor = text(event.data.importedAuthor);
+  if (importedAuthor !== '') return { name: importedAuthor, own: false };
+  return { name: actorByline(event.actor, members, myHandle), own: isOwnActor(event.actor, myHandle) };
+}
+
 function MentionedText({ value, members }: { value: string; members: MemberIndex }) {
   let end = 0;
   const parts = mentionTokens(value).flatMap((token) => {
@@ -74,8 +81,7 @@ function CommentEntry({
   const importedAt = text(event.data.importedAt);
   const imported = importedAuthor !== '' || importedAt !== '';
   const at = importedAt || event.createdAt;
-  const author = importedAuthor !== '' ? importedAuthor : actorByline(event.actor, members, myHandle);
-  const own = isOwnActor(event.actor, myHandle);
+  const { name: author, own } = commentAuthor(event, members, myHandle);
   return (
     <div className={clsx(styles.entry, own && styles.own)}>
       <p className={styles.head}>
@@ -106,7 +112,7 @@ function CommentEntry({
           type="button"
           ref={registerReply}
           className={styles.replyButton}
-          aria-label={t('task.comments.replyAria', { name: author })}
+          aria-label={own ? t('task.comments.replyAriaOwn') : t('task.comments.replyAria', { name: author })}
           onClick={() => onReply(author, own)}
         >
           {t('task.comments.reply')}
@@ -155,8 +161,7 @@ export function TaskComments({
       setReply({
         entryId: thread.comment.id,
         parentId: thread.comment.id,
-        name: actorByline(thread.comment.actor, members, myHandle),
-        own: isOwnActor(thread.comment.actor, myHandle),
+        ...commentAuthor(thread.comment, members, myHandle),
       });
   }, [threads, projectKey, taskKey, members, myHandle]);
 

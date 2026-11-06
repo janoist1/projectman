@@ -1723,6 +1723,7 @@ export const en = {
       unavailable: 'This entry is not available.',
       reply: 'Reply',
       replyAria: 'Reply to the comment of {name}',
+      replyAriaOwn: 'Reply to your own comment',
       replyingTo: 'Replying to {name}',
       replyingToOwn: 'Replying to your own comment',
       sending: 'Sending…',

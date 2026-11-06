@@ -5283,7 +5283,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "array",
         },
         "add_labels": {
-          "description": "Label ids to add. A label of a group replaces the other labels of that group.",
+          "description": "Label ids to add. A label of a group replaces the other labels of its group.",
           "items": {
             "maxLength": 40,
             "minLength": 1,
@@ -5349,11 +5349,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "despite_prerequisites": {
-          "description": "Move into the work stage despite an open prerequisite. Honored only for a person, or for the project manager when the project settings allow it (team.prerequisiteOverride); otherwise the card's work start waits for its prerequisites.",
+          "description": "Move into the work stage despite an open prerequisite. Honored only for a person, or the project manager when team.prerequisiteOverride allows it; otherwise the start waits.",
           "type": "boolean",
         },
         "note": {
-          "description": "Note for the timeline: findings, decisions, what changed; with labels, their comment.",
+          "description": "Timeline note: findings, decisions, what changed; with labels, their comment.",
           "maxLength": 50000,
           "minLength": 1,
           "type": "string",
@@ -5373,7 +5373,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
               "type": "null",
             },
           ],
-          "description": "The card priority; null clears it. People may set it; an AI member only when the project's priority setting allows it.",
+          "description": "The card priority; null clears it. An AI member sets it only when the project's priority setting allows it.",
         },
         "remove_labels": {
           "description": "Label ids to remove.",
@@ -5416,6 +5416,11 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           },
           "maxItems": 10,
           "type": "array",
+        },
+        "reply_to": {
+          "description": "Comment event id: reply to it.",
+          "maxLength": 100,
+          "type": "string",
         },
         "repo": {
           "anyOf": [

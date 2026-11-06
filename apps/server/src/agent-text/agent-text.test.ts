@@ -13,6 +13,8 @@ import {
   oneLine,
   recentTimeline,
   truncate,
+  commentFrameOf,
+  messageTextWithCommentFrame,
   type TextStyle,
 } from '.';
 
@@ -434,5 +436,37 @@ describe('attachments', () => {
     expect(describeAttachment({ ...attachment, uploadedBy: { kind: 'system', handle: null } })).toContain(
       'by the system,',
     );
+  });
+});
+
+describe('comment frame of a mention notice (PM-1290)', () => {
+  const person = { kind: 'human', handle: 'owner' } as const;
+  const noteEvent = (data: Record<string, unknown>) => ({ type: 'task_note', actor: person, data }) as const;
+  const message = {
+    body: '@dev please look',
+    from: 'owner',
+    taskKey: 'PM-5',
+    origin: { kind: 'note', eventId: 'evt_9' },
+  } as const;
+
+  it('names the event id and the reply tool for a mention in a comment', () => {
+    const frame = commentFrameOf(message, () => noteEvent({ comment: true }));
+    expect(frame).toContain('evt_9');
+    expect(frame).toContain('reply_to');
+    expect(messageTextWithCommentFrame(message, () => noteEvent({ comment: true }))).toMatch(
+      /^\[.*\]\n@dev please look$/,
+    );
+  });
+
+  it.each([
+    ['a process note', () => noteEvent({ comment: false })],
+    ['an event that is gone', () => null],
+  ])('adds no frame for %s', (_name, find) => {
+    expect(commentFrameOf(message, find)).toBeNull();
+    expect(messageTextWithCommentFrame(message, find)).toBe(message.body);
+  });
+
+  it('adds no frame to a message without a note origin', () => {
+    expect(commentFrameOf({ ...message, origin: undefined }, () => noteEvent({ comment: true }))).toBeNull();
   });
 });

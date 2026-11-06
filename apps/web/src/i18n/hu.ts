@@ -1855,6 +1855,8 @@ export const hu = {
       approver_unavailable: 'Ez a döntnök most nem választható.',
       task_not_cancelled: 'Csak megszakított kártya nyitható újra.',
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
+      reply_target_invalid:
+        'Erre nem lehet válaszolni: a válasz csak ugyanezen a kártyán lévő hozzászólásra szólhat.',
       priority_humans_only:
         'A prioritást csak ember és a projekt beállításában kijelölt AI-tagok állíthatják.',
       repo_required: 'Válassz repót a kártyához: nélküle az AI-fejlesztő nem indulhat el.',

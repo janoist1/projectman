@@ -473,6 +473,7 @@ export const en = {
       approver_unavailable: 'This approver can’t be chosen right now.',
       task_not_cancelled: 'Only a cancelled card can be reopened.',
       task_session_live: 'A session is still running. Stop it before changing this.',
+      reply_target_invalid: 'You can’t reply to this: a reply must answer a comment on the same card.',
       priority_humans_only:
         'Only people and the AI members named in the project settings can set the priority.',
       repo_required: 'Choose a repo for the card: the AI developer can’t start without it.',

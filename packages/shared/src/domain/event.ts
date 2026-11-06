@@ -380,7 +380,20 @@ export interface TimelineEventData {
     messageId?: string;
     inboxItemId?: string;
   };
-  task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
+  task_note: {
+    text: string;
+    mentions?: string[];
+    importedAuthor?: string;
+    importedAt?: string;
+    /** PM-1290: true – part of the card's comments; false – a Process note; missing – an old event (`isCardComment` decides). */
+    comment?: boolean;
+    /** PM-1290/PM-1275: the id of the top-level comment this one answers (one level). */
+    replyTo?: string;
+    /** PM-1290: the client's repeat id for a submission (a UUID); the same author + card + id is the same comment. */
+    clientRequestId?: string;
+    /** PM-1290: the pm's closing text relayed from this session (written by the reply relay). */
+    relayedFrom?: string;
+  };
   /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };
   /** The actor is who deleted it; the uploader is in the matching `attachment_added`. */

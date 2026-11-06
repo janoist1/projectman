@@ -218,7 +218,7 @@ export class MergeSteps {
       taskKey,
       actor,
       type: 'task_note',
-      data: { text: note, mentions: [] },
+      data: { text: note, mentions: [], comment: false },
     });
     this.hooks.pump();
     return tasks.get(projectKey, taskKey);
@@ -631,7 +631,7 @@ export class MergeSteps {
               taskKey: row.taskKey,
               actor: SYSTEM_ACTOR,
               type: 'task_note',
-              data: { text: flakyCheckNote(runId, flaky), mentions: [] },
+              data: { text: flakyCheckNote(runId, flaky), mentions: [], comment: false },
             });
             ctx.logger.info(
               { runId, taskKeys: [row.taskKey], flakyFiles: flaky },

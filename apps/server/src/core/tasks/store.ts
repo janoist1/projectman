@@ -9,6 +9,8 @@ import {
   isTheme,
   LIVE_SESSION_STATES,
   memberOf,
+  pageCommentThreads,
+  replyParentOf,
   repoOf,
   repoRequired,
   reviewTestRunnerBeforeReview,
@@ -17,7 +19,9 @@ import {
 } from '@projectman/shared';
 import type {
   Actor,
+  CommentThreadsPage,
   CreateTaskCommentRequest,
+  TaskCommentsQuery,
   ProjectConfig,
   Stage,
   Task,
@@ -384,7 +388,7 @@ export class TaskStore {
     text: string,
     actor: Actor,
     sessionId: string | null = null,
-    imported: Pick<CreateTaskCommentRequest, 'importedAuthor' | 'importedAt'> = {},
+    extra: NoteExtra = {},
   ): Promise<TimelineEvent> {
     const task = this.get(projectKey, taskKey);
     const config = await this.projects.config(projectKey);
@@ -393,17 +397,22 @@ export class TaskStore {
     const authorAccess = actor.kind === 'human' ? accessOfHandle(config, actor.handle) : undefined;
     if (authorAccess !== undefined && !canCommentOnTask(authorAccess))
       throw forbidden('insufficient_access', 'read-only members cannot comment');
-    if (imported.importedAuthor !== undefined || imported.importedAt !== undefined) {
+    if (extra.importedAuthor !== undefined || extra.importedAt !== undefined) {
       assertOwnApproval(actor);
       requireHuman(config, actor, 'owner', { message: 'imported comments require owner access' });
     }
     const effects: Effect[] = [];
-    const event = this.recordNote(config, task, text, actor, sessionId, effects, imported);
+    // A comment on the card, whoever writes it and however it got here (also through the integrator).
+    const event = this.recordNote(config, task, text, actor, sessionId, effects, 'comment', extra);
     await runEffects(effects);
     return event;
   }
 
-  /** Records a comment; notifying the members it mentions is added to `effects`. */
+  /**
+   * Records a note; notifying the members it mentions is added to `effects`. Every writer says where the
+   * note belongs (PM-1290): the card's `comment`s, or the machine `process` (a reply is always a comment).
+   * A repeated `clientRequestId` of the same author on the card returns the first note and records nothing.
+   */
   recordNote(
     config: ProjectConfig,
     task: Task,
@@ -411,10 +420,18 @@ export class TaskStore {
     actor: Actor,
     sessionId: string | null,
     effects: Effect[],
-    imported: Pick<CreateTaskCommentRequest, 'importedAuthor' | 'importedAt'> = {},
+    place: NotePlace,
+    extra: NoteExtra = {},
   ): TimelineEvent {
+    const { clientRequestId, replyTo, ...imported } = extra;
+    if (clientRequestId !== undefined) {
+      const first = this.timeline.noteByClientRequest(task.projectKey, task.key, actor, clientRequestId);
+      if (first) return first;
+    }
     const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
     if (isImported) assertOwnApproval(actor);
+    // One level of replies: an answer to a reply lands on the reply's parent.
+    const parent = replyTo === undefined ? undefined : this.replyParent(task, replyTo);
     const mentions = commentMentions(
       text,
       config.team.members.map((member) => member.handle),
@@ -426,12 +443,44 @@ export class TaskStore {
       sessionId,
       actor,
       type: 'task_note',
-      data: { text, mentions, ...imported },
+      data: {
+        text,
+        mentions,
+        ...imported,
+        comment: place === 'comment' || parent !== undefined,
+        ...(parent !== undefined ? { replyTo: parent } : {}),
+        ...(clientRequestId !== undefined ? { clientRequestId } : {}),
+      },
     });
     if (!isImported) effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions, task }));
     return event;
   }
+
+  /** The comment a reply to `target` lands on; 400 `reply_target_invalid` unless it is a comment of this card. */
+  private replyParent(task: Task, target: string): string {
+    const parent = replyParentOf(this.timeline.get(task.projectKey, target), task.key);
+    if (parent === null)
+      throw invalid('reply_target_invalid', `${target} is not a comment of ${task.key} to reply to`);
+    return parent;
+  }
+
+  /** One page of the card's comment threads (PM-1290); 404 when `before`/`around` names no comment of it. */
+  commentThreads(projectKey: string, taskKey: string, query: TaskCommentsQuery): CommentThreadsPage {
+    this.get(projectKey, taskKey);
+    const page = pageCommentThreads(this.timeline.notesOfCard(projectKey, taskKey), query);
+    if (!page) throw notFound('comment', query.around ?? query.before ?? '');
+    return page;
+  }
 }
+
+/** Where a note belongs (PM-1290): the card's comments, or the machine process. */
+export type NotePlace = 'comment' | 'process';
+
+/** What a note carries besides its text: an import's author and time, a reply target, a repeat id. */
+export type NoteExtra = Pick<
+  CreateTaskCommentRequest,
+  'importedAuthor' | 'importedAt' | 'replyTo' | 'clientRequestId'
+>;
 
 /** The stage with this id, or 400 unknown_stage. */
 export function requireStage(config: ProjectConfig, stageId: string): Stage {

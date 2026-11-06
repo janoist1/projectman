@@ -83,7 +83,7 @@ describe('task labels API', () => {
       expect.objectContaining({
         type: 'task_note',
         actor: { kind: 'human', handle: 'tester' },
-        data: { text: 'Acme checkout verified.', mentions: [] },
+        data: { text: 'Acme checkout verified.', mentions: [], comment: false },
       }),
     );
     expect((await move()).statusCode).toBe(200);

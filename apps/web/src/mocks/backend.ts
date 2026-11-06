@@ -11,6 +11,8 @@ import {
   ACCEPTANCE_UNCONFIRMED_LABEL,
   acceptanceLabels,
   acceptanceRefusal,
+  pageCommentThreads,
+  replyParentOf,
   chatWindow,
   checklistConditionHolds,
   checklistProgress,
@@ -275,6 +277,9 @@ import type {
   MemberQueueItem,
   Obligation,
   TaskDetail,
+  CreateTaskCommentRequest,
+  TaskCommentsPage,
+  TaskCommentsQuery,
   PartsClosed,
   MessageAttachment,
   MessageAttachmentRef,
@@ -4239,6 +4244,49 @@ export class MockBackend {
     );
   }
 
+  /**
+   * Adds a comment of the viewer on a card (PM-1290), by the server's rules: a reply to a reply lands on the
+   * parent, any other target is refused, and a repeated `clientRequestId` adds nothing. Null when it was added.
+   */
+  addTaskComment(taskKey: string, body: CreateTaskCommentRequest): MockResponse | null {
+    const { text, replyTo, clientRequestId, ...imported } = body;
+    const own = (event: TimelineEvent) =>
+      event.taskKey === taskKey && event.actor.handle === this.viewerHandle && event.type === 'task_note';
+    if (
+      clientRequestId &&
+      this.timeline.some((event) => own(event) && event.data.clientRequestId === clientRequestId)
+    )
+      return null;
+    let parent: string | undefined;
+    if (replyTo !== undefined) {
+      const target = this.timeline.find((event) => event.id === replyTo) ?? null;
+      const resolved = replyParentOf(target, taskKey);
+      if (!resolved) return error(400, 'reply_target_invalid', 'Not a comment of this card');
+      parent = resolved;
+    }
+    this.addTimeline(taskKey, this.viewerHandle, 'task_note', {
+      text,
+      mentions: commentMentions(
+        text,
+        this.config.team.members.map((member) => member.handle),
+        this.viewerHandle,
+      ),
+      comment: true,
+      ...(parent ? { replyTo: parent } : {}),
+      ...(clientRequestId ? { clientRequestId } : {}),
+      ...imported,
+    });
+    return null;
+  }
+
+  /** One page of the card's comment threads (PM-1290); null when `before` or `around` names no comment. */
+  taskComments(taskKey: string, query: TaskCommentsQuery): TaskCommentsPage | null {
+    return pageCommentThreads(
+      clone(this.timeline.filter((event) => event.taskKey === taskKey && event.type === 'task_note')),
+      query,
+    );
+  }
+
   taskDetail(task: Task): TaskDetail {
     const wait = this.taskWaitOf(task);
     return {
@@ -4402,7 +4450,7 @@ export class MockBackend {
       this.config.team.members.map((member) => member.handle),
       actor.handle,
     );
-    this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions });
+    this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions, comment: false });
     if (mentions.length && actor.handle) this.sendTeamMessage(actor.handle, mentions, task.key, text);
   }
 
@@ -4674,7 +4722,11 @@ export class MockBackend {
       const reason = this.mergeFixErrors.get(taskKey);
       if (reason) return error(409, 'merge_fix_invalid', 'Invalid committed fix', { reason });
       this.mergeFixNotes.set(taskKey, options.resolution!);
-      this.addTimeline(taskKey, this.viewerHandle, 'task_note', { text: options.resolution!, mentions: [] });
+      this.addTimeline(taskKey, this.viewerHandle, 'task_note', {
+        text: options.resolution!,
+        mentions: [],
+        comment: false,
+      });
     }
     // The fix of a conflict is the merger's tool, not the button (PM-471): the server refuses a start meanwhile.
     if (merge?.state === 'fixing' && options.resolution === undefined)

@@ -172,7 +172,8 @@ export class TaskLabels {
       },
     });
     const comment = opts.comment?.trim();
-    if (comment) this.store.recordNote(config, task, comment, actor, opts.sessionId ?? null, effects);
+    if (comment)
+      this.store.recordNote(config, task, comment, actor, opts.sessionId ?? null, effects, 'process');
     const previousLabels = [...task.labels.filter((id) => !plan.added.includes(id)), ...plan.removed];
     effects.push(() => this.store.ctx.events.emit('task_labels_changed', { task, actor, previousLabels }));
     if (plan.notify.length > 0 && task.assignee && actor.handle && task.assignee !== actor.handle)

@@ -1279,8 +1279,35 @@ export const CreateTaskCommentRequest = z.object({
   text: z.string().trim().min(1).max(TASK_COMMENT_MAX),
   importedAuthor: z.string().trim().min(1).max(80).optional(),
   importedAt: z.iso.datetime({ offset: true }).optional(),
+  /** PM-1290: the id of the comment this answers; an answer to a reply lands on its parent (one level). */
+  replyTo: z.string().trim().min(1).max(100).optional(),
+  /** PM-1290: a repeat of the same submission returns the first comment instead of adding a second. */
+  clientRequestId: z.uuid().optional(),
 });
 export type CreateTaskCommentRequest = z.infer<typeof CreateTaskCommentRequest>;
+
+/** The comment list of a card (PM-1290), paged by top-level comments, newest page first. */
+export const TaskCommentsQuery = z.object({
+  /** The id of a top-level comment: the page of the ones older than it. */
+  before: z.string().min(1).max(100).optional(),
+  /** The id of a comment or a reply: the page that holds its thread (`#timeline-{eventId}`). */
+  around: z.string().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type TaskCommentsQuery = z.infer<typeof TaskCommentsQuery>;
+const TaskCommentThread = z.object({
+  /** A top-level comment. */
+  comment: TimelineEvent,
+  /** All the replies of the thread, oldest first. */
+  replies: z.array(TimelineEvent),
+});
+export const TaskCommentsPage = z.object({
+  /** The threads of the page, oldest first. */
+  threads: z.array(TaskCommentThread),
+  /** The key of the older page (`before`), or null. */
+  nextBefore: z.string().nullable(),
+});
+export type TaskCommentsPage = z.infer<typeof TaskCommentsPage>;
 
 /**
  * Adds and/or removes labels under the project's label rules (who may set them, no self-review,

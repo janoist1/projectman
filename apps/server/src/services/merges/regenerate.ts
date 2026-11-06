@@ -106,7 +106,7 @@ export async function regenerateConflict(input: RegenerateInput): Promise<Regene
       taskKey: input.taskKey,
       actor: SYSTEM_ACTOR,
       type: 'task_note',
-      data: { text: regeneratedNote(regenerate.command, input.conflict), mentions: [] },
+      data: { text: regeneratedNote(regenerate.command, input.conflict), mentions: [], comment: false },
     });
     return { ok: true, built: committed };
   } catch (err) {

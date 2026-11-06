@@ -129,6 +129,17 @@ export function createTimelineRepository(db: Db) {
          AND json_extract(data, '$.importedAuthor') IS NULL AND json_extract(data, '$.importedAt') IS NULL
        ORDER BY seq DESC LIMIT ?`,
     ),
+    // Every note of a card in order (PM-1290): the comment list sorts them into threads, so a reply is never
+    // orphaned by a window of the card's latest events.
+    notesOfCard: db.prepare(
+      "SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = 'task_note' ORDER BY seq",
+    ),
+    // The note a client already submitted with this repeat id (PM-1290): the same author, card and id.
+    noteByClientRequest: db.prepare(
+      `SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = 'task_note'
+         AND actor_kind = ? AND actor_handle IS ? AND COALESCE(actor_via, '') = ?
+         AND json_extract(data, '$.clientRequestId') = ? ORDER BY seq LIMIT 1`,
+    ),
     humanNoteAuthors: db.prepare(
       `SELECT DISTINCT actor_handle FROM timeline_events WHERE project_key = ? AND task_key = ?
          AND type = 'task_note' AND actor_kind = 'human' AND actor_handle IS NOT NULL
@@ -242,6 +253,27 @@ export function createTimelineRepository(db: Db) {
     talkSince(projectKey: string, taskKey: string, since: string, limit = 1000): TimelineEvent[] {
       const rows = statements.talkSince.all(projectKey, taskKey, since, limit) as TimelineRow[];
       return rows.reverse().map(toEvent);
+    },
+    /** All the notes of a card, oldest first. */
+    notesOfCard(projectKey: string, taskKey: string): TimelineEvent[] {
+      return (statements.notesOfCard.all(projectKey, taskKey) as TimelineRow[]).map(toEvent);
+    },
+    /** The note this author already submitted on the card with this client request id, or null. */
+    noteByClientRequest(
+      projectKey: string,
+      taskKey: string,
+      actor: TimelineEvent['actor'],
+      clientRequestId: string,
+    ): TimelineEvent | null {
+      const row = statements.noteByClientRequest.get(
+        projectKey,
+        taskKey,
+        actor.kind,
+        actor.handle,
+        actor.via ?? '',
+        clientRequestId,
+      ) as TimelineRow | undefined;
+      return row ? toEvent(row) : null;
     },
     /** The handles of the people who wrote a (not imported) note on a card. */
     humanNoteAuthors(projectKey: string, taskKey: string): string[] {

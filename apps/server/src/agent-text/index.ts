@@ -33,4 +33,6 @@ export {
   ANSWER_NOTICE_LIMIT,
   QUESTION_CLOSE_REASONS,
   messageDroppedNotice,
+  commentFrameOf,
+  messageTextWithCommentFrame,
 } from './message-notices';

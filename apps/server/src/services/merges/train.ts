@@ -401,7 +401,7 @@ export class MergeTrains {
               taskKey: row.taskKey,
               actor: SYSTEM_ACTOR,
               type: 'task_note',
-              data: { text: options.note(row.taskKey), mentions: [] },
+              data: { text: options.note(row.taskKey), mentions: [], comment: false },
             });
         }
       });
@@ -926,6 +926,7 @@ export class MergeTrains {
                 data: {
                   text: `Merge train ${train.id} (${train.members.map((m) => m.taskKey).join(', ')}) failed its group check (${runId}). The individual cause has not yet been identified. Smaller attempts will check the current default branch.\n${detail}`,
                   mentions: [],
+                  comment: false,
                 },
               });
           }
@@ -959,7 +960,7 @@ export class MergeTrains {
                 taskKey: row.taskKey,
                 actor: SYSTEM_ACTOR,
                 type: 'task_note',
-                data: { text: flakyCheckNote(runId, flaky), mentions: [] },
+                data: { text: flakyCheckNote(runId, flaky), mentions: [], comment: false },
               });
           });
           ctx.logger.info(

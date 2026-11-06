@@ -160,6 +160,7 @@ interface UpdateTaskArgs {
   add_labels?: string[] | undefined;
   remove_labels?: string[] | undefined;
   note?: string | undefined;
+  reply_to?: string | undefined;
   title?: string | undefined;
   description?: string | undefined;
   repo?: string | null | undefined;
@@ -191,6 +192,7 @@ async function runUpdateTask<C>({
     add_labels: addLabels,
     remove_labels: removeLabels,
     note,
+    reply_to: replyTo,
     title,
     description,
     repo,
@@ -234,6 +236,7 @@ async function runUpdateTask<C>({
     ...(addLabels?.length ? { addLabels } : {}),
     ...(removeLabels?.length ? { removeLabels } : {}),
     ...(note ? { note } : {}),
+    ...(replyTo ? { replyTo } : {}),
     ...(title ? { title } : {}),
     ...(description ? { description } : {}),
     ...(repo !== undefined ? { repo } : {}),
@@ -370,7 +373,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .array(z.string().trim().min(1).max(MAX_LABEL_CHARS))
           .max(10)
           .optional()
-          .describe('Label ids to add. A label of a group replaces the other labels of that group.'),
+          .describe('Label ids to add. A label of a group replaces the other labels of its group.'),
         remove_labels: z
           .array(z.string().trim().min(1).max(MAX_LABEL_CHARS))
           .max(10)
@@ -382,7 +385,8 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .min(1)
           .max(TASK_COMMENT_MAX)
           .optional()
-          .describe('Note for the timeline: findings, decisions, what changed; with labels, their comment.'),
+          .describe('Timeline note: findings, decisions, what changed; with labels, their comment.'),
+        reply_to: z.string().max(100).optional().describe('Comment event id: reply to it.'),
         title: z
           .string()
           .trim()
@@ -436,15 +440,14 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
         priority: TaskPriority.nullable()
           .optional()
           .describe(
-            "The card priority; null clears it. People may set it; an AI member only when the project's priority setting allows it.",
+            "The card priority; null clears it. An AI member sets it only when the project's priority setting allows it.",
           ),
         despite_prerequisites: z
           .boolean()
           .optional()
           .describe(
-            'Move into the work stage despite an open prerequisite. Honored only for a person, or for the ' +
-              'project manager when the project settings allow it (team.prerequisiteOverride); otherwise the ' +
-              "card's work start waits for its prerequisites.",
+            'Move into the work stage despite an open prerequisite. Honored only for a person, or the ' +
+              'project manager when team.prerequisiteOverride allows it; otherwise the start waits.',
           ),
         acceptance: z.array(acceptanceChangeInput).max(20).optional().describe(ACCEPTANCE_HELP),
       },

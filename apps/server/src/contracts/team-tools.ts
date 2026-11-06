@@ -472,6 +472,8 @@ export interface TaskToolsHandler {
       addLabels?: string[];
       removeLabels?: string[];
       note?: string;
+      /** PM-1290: the note answers this comment of the card. */
+      replyTo?: string;
       title?: string;
       description?: string;
       /** A repository of the project; null clears it. */

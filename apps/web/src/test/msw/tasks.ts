@@ -2,6 +2,8 @@ import {
   ApiError,
   ChangeTaskLabelsRequest,
   CreateTaskCommentRequest,
+  TaskCommentsPage,
+  TaskCommentsQuery,
   TaskDetail,
   UpdateTaskRequest,
   UpdateTaskResponse,
@@ -82,8 +84,8 @@ export function defaultTaskHandlers(backend: MockBackend): HttpHandler[] {
     const task = backend.findTask(taskKey);
     return task ? backend.taskDetail(task) : apiFailure(404, 'not_found');
   };
-  const note = (taskKey: string, body: CreateTaskCommentRequest) => {
-    const { text, ...imported } = body;
+  /** The comment a label change carries: a Process note, not a comment of the card (PM-1290). */
+  const labelNote = (taskKey: string, text: string) => {
     backend.addTimeline(taskKey, backend.viewerHandle, 'task_note', {
       text,
       mentions: commentMentions(
@@ -91,7 +93,7 @@ export function defaultTaskHandlers(backend: MockBackend): HttpHandler[] {
         backend.config.team.members.map((member) => member.handle),
         backend.viewerHandle,
       ),
-      ...imported,
+      comment: false,
     });
   };
   return [
@@ -129,7 +131,8 @@ export function defaultTaskHandlers(backend: MockBackend): HttpHandler[] {
         if (!canCommentOnTask(access)) return apiFailure(403, 'insufficient_access');
         if ((body.importedAuthor !== undefined || body.importedAt !== undefined) && access !== 'owner')
           return apiFailure(403, 'insufficient_access');
-        note(taskKey, body);
+        const refused = backend.addTaskComment(taskKey, body);
+        if (refused) return refused as ApiFailure;
         return detail(taskKey);
       },
       201,
@@ -142,8 +145,21 @@ export function defaultTaskHandlers(backend: MockBackend): HttpHandler[] {
           ...new Set([...task.labels.filter((label) => !body.remove?.includes(label)), ...(body.add ?? [])]),
         ],
       });
-      if (body.comment) note(taskKey, { text: body.comment });
+      if (body.comment) labelNote(taskKey, body.comment);
       return detail(taskKey);
+    }),
+    http.get(`${path}:taskKey/comments`, ({ request, params }) => {
+      const where = `${request.method} ${new URL(request.url).pathname}`;
+      const taskKey = String(params.taskKey);
+      if (!backend.findTask(taskKey)) return response(ApiError, apiFailure(404, 'not_found').body, 404);
+      const query = TaskCommentsQuery.safeParse(Object.fromEntries(new URL(request.url).searchParams));
+      if (!query.success) {
+        recordViolation(`${where}: ${query.error.message}`);
+        return response(ApiError, apiFailure(400, 'invalid_request').body, 400);
+      }
+      const page = backend.taskComments(taskKey, query.data);
+      if (!page) return response(ApiError, apiFailure(404, 'not_found').body, 404);
+      return response(TaskCommentsPage, page, 200);
     }),
   ];
 }

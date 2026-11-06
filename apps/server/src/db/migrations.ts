@@ -2938,4 +2938,12 @@ migrations.push({
   // stored before and on every card that is not an archived theme; nothing is rewritten.
   sql: `ALTER TABLE tasks ADD COLUMN archived_at TEXT;`,
 });
+migrations.push({
+  version: 146,
+  name: 'message conversations and client request deduplication',
+  sql: `ALTER TABLE team_messages ADD COLUMN conversation TEXT CHECK (conversation IN ('direct'));
+    ALTER TABLE team_messages ADD COLUMN client_request_id TEXT;
+    CREATE UNIQUE INDEX team_messages_client_request ON team_messages(project_key, from_handle, client_request_id)
+      WHERE client_request_id IS NOT NULL;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -205,6 +205,7 @@ export function registerWebsocket(
                   event,
                   (id) => domain.sessions.isRestrictedSession(id),
                   (handle) => manager?.handle === handle,
+                  (id) => domain.messages.get(id),
                 )
               )
                 send(

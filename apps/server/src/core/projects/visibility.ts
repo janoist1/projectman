@@ -4,6 +4,7 @@ import {
   canSeeInboxItem,
   canSeeOperatorSessions,
   canSeeTeamMessage,
+  canSeeTimelineEvent,
   canSeeWorkQueue,
   isCoordinatorOnlySignal,
   visibleQuestionItem,
@@ -23,7 +24,7 @@ import type { ProjectAccess } from '../members';
 export type Viewer = Pick<ProjectAccess, 'access' | 'handle' | 'via'>;
 
 /** The timeline rule lives in `packages/shared` (the history search uses it too, PM-786). */
-export { visibleTimelineEvent };
+export { canSeeTimelineEvent, visibleTimelineEvent };
 
 export function visibleSession(
   viewer: Viewer,
@@ -69,12 +70,16 @@ export function visibleTaskDetail(
   detail: TaskDetail,
   messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): TaskDetail {
-  const timeline = detail.timeline.map((event) => visibleTimelineEvent(viewer, event, messageParticipants));
-  const earlier = detail.earlierEvents?.map((event) =>
-    visibleTimelineEvent(viewer, event, messageParticipants),
-  );
+  const timeline = detail.timeline
+    .filter((event) => canSeeTimelineEvent(viewer, event, messageParticipants))
+    .map((event) => visibleTimelineEvent(viewer, event, messageParticipants));
+  const earlier = detail.earlierEvents
+    ?.filter((event) => canSeeTimelineEvent(viewer, event, messageParticipants))
+    .map((event) => visibleTimelineEvent(viewer, event, messageParticipants));
   const sessions = detail.sessions.map((session) => visibleSession(viewer, session, messageParticipants));
   if (
+    timeline.length !== detail.timeline.length ||
+    earlier?.length !== detail.earlierEvents?.length ||
     timeline.some((event, index) => event !== detail.timeline[index]) ||
     earlier?.some((event, index) => event !== detail.earlierEvents?.[index]) ||
     sessions.some((session, index) => session !== detail.sessions[index])
@@ -104,7 +109,10 @@ export function canSeeProjectEvent(
   event: ProjectEvent,
   isRestrictedSession?: (sessionId: string) => boolean,
   isProjectManager?: (handle: string) => boolean,
+  messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): boolean {
+  if (event.type === 'timeline_appended')
+    return canSeeTimelineEvent(viewer, event.event, messageParticipants);
   // A queue change reaches those who may read that queue (PM-1294); without the manager check only the readers
   // of every queue get it.
   if (event.type === 'member_queue_changed')

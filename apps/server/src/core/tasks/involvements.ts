@@ -1,7 +1,7 @@
 import type { InvolvementQuery, InvolvementsResponse } from '@projectman/shared';
 import type { DomainContext } from '../base';
 import { invalid } from '../../kernel';
-import { visibleTimelineEvent } from '../projects';
+import { canSeeTimelineEvent, visibleTimelineEvent } from '../projects';
 import type { Viewer } from '../projects';
 
 export class InvolvementService {
@@ -22,10 +22,12 @@ export class InvolvementService {
     const result = this.ctx.repos.timeline.involvements(projectKey, query, cursor);
     const last = result.events.at(-1);
     return {
-      items: result.events.map((event) => ({
-        event: visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id)),
-        taskTitle: event.taskKey ? (this.ctx.repos.tasks.get(event.taskKey)?.title ?? null) : null,
-      })),
+      items: result.events
+        .filter((event) => canSeeTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id)))
+        .map((event) => ({
+          event: visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id)),
+          taskTitle: event.taskKey ? (this.ctx.repos.tasks.get(event.taskKey)?.title ?? null) : null,
+        })),
       counts: result.counts,
       nextBefore:
         result.more && last ? Buffer.from(`${last.createdAt}|${last.id}`).toString('base64url') : null,

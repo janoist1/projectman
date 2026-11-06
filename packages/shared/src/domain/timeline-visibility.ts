@@ -8,6 +8,18 @@ import type { TaskViewer } from './task';
  */
 type TimelineViewer = TaskViewer & { via?: 'integrator' };
 
+/** Only clients lose private message events; other roles keep the existing machine history. */
+export function canSeeTimelineEvent(
+  viewer: TimelineViewer,
+  event: TimelineEvent,
+  participants: (id: string) => { from: string; to: string[] } | null,
+): boolean {
+  if (viewer.access !== 'client' || !['team_message', 'message_dropped'].includes(event.type)) return true;
+  const id = event.data?.messageId;
+  const message = typeof id === 'string' ? participants(id) : null;
+  return !!message && canSeeTeamMessage(viewer, message);
+}
+
 export function visibleTimelineEvent(
   viewer: TimelineViewer,
   event: TimelineEvent,

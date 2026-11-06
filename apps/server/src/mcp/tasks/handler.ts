@@ -23,7 +23,7 @@ import type { DomainContext } from '../../core/base';
 import { QUESTION_LIMIT } from '../../core/inbox';
 import type { CardQuestions } from '../../core/inbox';
 import { DomainError } from '../../kernel';
-import { visibleTaskDetail, visibleTimelineEvent } from '../../core/projects';
+import { canSeeTimelineEvent, visibleTaskDetail, visibleTimelineEvent } from '../../core/projects';
 import type { Viewer } from '../../core/projects';
 import type { SessionCloser } from '../../runtime/sessions';
 import type { SessionOrchestrator } from '../../runtime/sessions';
@@ -222,7 +222,9 @@ export class TaskTools implements TaskToolsHandler {
     const participants = (id: string) => this.ctx.repos.messages.get(id);
     const { event, undeliveredMessageIds: _undelivered, pendingSentMessages: _pending, ...rest } = whole;
     const shown = { ...rest, ...visibleTaskDetail(viewer, rest, participants) };
-    return event ? { ...shown, event: visibleTimelineEvent(viewer, event, participants) } : shown;
+    return event && canSeeTimelineEvent(viewer, event, participants)
+      ? { ...shown, event: visibleTimelineEvent(viewer, event, participants) }
+      : shown;
   }
 
   private async taskToolDetail(

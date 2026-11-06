@@ -71,7 +71,7 @@ import { isOpenTask, isTheme } from '@projectman/shared';
 import type { TaskService } from '../tasks';
 import type { TimelineService } from '../timeline';
 import { unique } from '../../kernel';
-import { visibleSession, visibleTimelineEvent } from '../projects';
+import { canSeeTimelineEvent, visibleSession, visibleTimelineEvent } from '../projects';
 import type { Viewer } from '../projects';
 
 /** Throws unless a member of this kind may hold the role (a built-in or one of the team's custom roles). */
@@ -937,6 +937,7 @@ export class MemberProfiles {
       inbox: openInbox,
       timeline: this.ctx.repos.timeline
         .forMember(projectKey, handle)
+        .filter((event) => canSeeTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id)))
         .map((event) => visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id))),
       // The Operator's sessions and the PM's conversations with others are the owner's and the admin's to see
       // (PM-475, PM-1080).

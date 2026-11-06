@@ -6,6 +6,8 @@ import {
   canSeeTeamMessage,
   cardThreadRecipients,
   isUnreadBy,
+  isCardMessage,
+  messageConversationOf,
   sameWorkItem,
   threadPeersOf,
 } from './message';
@@ -21,6 +23,25 @@ const message = (from: string, to: string[], readBy: string[] = []) =>
       readAt: readBy.includes(handle) ? '2026-10-02T10:00:00.000Z' : null,
     })),
   }) as Pick<TeamMessage, 'from' | 'to' | 'receipts'>;
+
+describe('stored message placement', () => {
+  it.each([
+    [{ fromHuman: true, toHuman: false }, 'direct'],
+    [{ fromHuman: false, toHuman: true }, 'direct'],
+    [{ fromHuman: false, toHuman: false }, undefined],
+    ...['via', 'origin', 'answer', 'operatorRequest', 'operatorSignal'].map(
+      (key) => [{ fromHuman: true, toHuman: false, [key]: 'present' }, undefined] as const,
+    ),
+  ] as const)('classifies %j at write time', (input, expected) => {
+    expect(messageConversationOf(input as Parameters<typeof messageConversationOf>[0])).toBe(expected);
+  });
+
+  it('keeps legacy task messages on the card and excludes direct or general messages', () => {
+    expect(isCardMessage({ taskKey: 'AR-1' })).toBe(true);
+    expect(isCardMessage({ taskKey: 'AR-1', conversation: 'direct' })).toBe(false);
+    expect(isCardMessage({ taskKey: null })).toBe(false);
+  });
+});
 
 describe('team message visibility', () => {
   it('lets only an owner and an admin see every message', () => {

@@ -123,6 +123,9 @@ import {
   isPendingQuestion,
   questionGroupLiveItemIds,
   canSeeTeamMessage,
+  canSeeTimelineEvent,
+  messageConversationOf,
+  isCardMessage,
   isUnreadBy,
   threadPeersOf,
   canUploadAttachment,
@@ -611,6 +614,7 @@ export class MockBackend {
   });
   inbox: InboxItem[] = clone(fixtures.inbox);
   messages: TeamMessage[] = clone(fixtures.teamMessages);
+  private readonly clientMessageRequests = new Map<string, TeamMessage>();
   /** The feedback marks (PM-511); a project starts without surfaces and marks, a test or scenario fills it. */
   readonly feedback: MockFeedback = new MockFeedback({
     config: () => this.config,
@@ -765,6 +769,15 @@ export class MockBackend {
 
   /** Publishes a project event to every subscribed connection. */
   emit(event: ServerEvent): void {
+    if (
+      event.type === 'timeline_appended' &&
+      !canSeeTimelineEvent(
+        this.taskViewer(),
+        event.event,
+        (id) => this.messages.find((m) => m.id === id) ?? null,
+      )
+    )
+      return;
     if (event.type === 'inbox_upserted' && !canSeeInboxItem(this.taskViewer(), event.item)) return;
     if (
       (event.type === 'team_message' || event.type === 'team_message_updated') &&
@@ -1740,7 +1753,7 @@ export class MockBackend {
     relayed?: TeamMessage['relayed'],
     attachments?: MessageAttachmentRef[],
     /** Where the sender was (a person's message) and the places offered (the project manager's), PM-1071. */
-    where?: Pick<TeamMessage, 'location' | 'places'>,
+    where?: Pick<TeamMessage, 'location' | 'places' | 'origin' | 'operatorSignal'>,
   ): TeamMessage {
     const refusal = this.teamMessageRefusal(from, recipients, text, Boolean(attachments?.length));
     if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
@@ -1766,7 +1779,15 @@ export class MockBackend {
       ...(attachments?.length ? { attachments: clone(attachments) } : {}),
       ...(where?.location ? { location: clone(where.location) } : {}),
       ...(where?.places?.length ? { places: clone(where.places) } : {}),
+      ...(where?.origin ? { origin: where.origin } : {}),
+      ...(where?.operatorSignal ? { operatorSignal: where.operatorSignal } : {}),
     };
+    const conversation = messageConversationOf({
+      ...message,
+      fromHuman: memberOf(this.config, from)?.kind === 'human',
+      toHuman: to.some((handle) => memberOf(this.config, handle)?.kind === 'human'),
+    });
+    if (conversation) message.conversation = conversation;
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
     if (taskKey) {
@@ -1778,7 +1799,9 @@ export class MockBackend {
           messageId: message.id,
           from,
           to,
-          excerpt: body.length > 80 ? `${body.slice(0, 77)}…` : body,
+          excerpt: message.origin?.kind === 'note' ? '' : body.length > 80 ? `${body.slice(0, 77)}…` : body,
+          ...(conversation ? { conversation } : {}),
+          ...(message.origin?.kind === 'note' ? { noteEventId: message.origin.eventId } : {}),
         },
         sessionId ?? null,
       );
@@ -3103,6 +3126,7 @@ export class MockBackend {
         .filter((message) => !peer || threadPeersOf(message, this.viewerHandle).includes(peer))
         .filter((message) => !member || involves(message, member))
         .filter((message) => !taskKey || message.taskKey === taskKey)
+        .filter((message) => !taskKey || query.get('place') !== 'card' || isCardMessage(message))
         .filter((message) => query.get('unreadOnly') !== 'true' || isUnreadBy(message, this.viewerHandle));
       return ok({
         messages: clone(listed.slice(-limit)),
@@ -3253,6 +3277,13 @@ export class MockBackend {
           inbox: clone(this.inbox.filter((i) => i.state === 'open' && i.assignees.includes(handle))),
           timeline: clone(
             this.timeline
+              .filter((event) =>
+                canSeeTimelineEvent(
+                  this.taskViewer(),
+                  event,
+                  (id) => this.messages.find((m) => m.id === id) ?? null,
+                ),
+              )
               .filter(
                 (e) =>
                   e.actor.handle === handle ||
@@ -4248,7 +4279,17 @@ export class MockBackend {
       parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
       subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
       pullRequests: this.taskPullRequests(task),
-      timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
+      timeline: clone(
+        this.timeline.filter(
+          (event) =>
+            event.taskKey === task.key &&
+            canSeeTimelineEvent(
+              this.taskViewer(),
+              event,
+              (id) => this.messages.find((m) => m.id === id) ?? null,
+            ),
+        ),
+      ),
       sessions: clone(this.taskSessions(task.key)),
       rounds: this.cardRounds(task.key),
       fixRounds: { rounds: this.fixRoundsOf(task.key).rounds, limit: this.fixLimitOf(task.key) },
@@ -4402,8 +4443,19 @@ export class MockBackend {
       this.config.team.members.map((member) => member.handle),
       actor.handle,
     );
-    this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions });
-    if (mentions.length && actor.handle) this.sendTeamMessage(actor.handle, mentions, task.key, text);
+    const event = this.addTimeline(task.key, actor.handle, 'task_note', { text, mentions });
+    if (mentions.length && actor.handle)
+      this.sendTeamMessage(
+        actor.handle,
+        mentions,
+        task.key,
+        text,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { origin: { kind: 'note', eventId: event.id } },
+      );
   }
 
   /** Records a label change already written to the task: the event, the comment, the assignee's notice. */
@@ -4425,6 +4477,11 @@ export class MockBackend {
         [task.assignee],
         task.key,
         [names.join(', '), comment].filter(Boolean).join('\n\n'),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { origin: { kind: 'label', labels: plan.notify } },
       );
     }
   }
@@ -6324,6 +6381,9 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
+    const requestKey = input.clientRequestId ? `${this.viewerHandle}:${input.clientRequestId}` : null;
+    const previous = requestKey ? this.clientMessageRequests.get(requestKey) : undefined;
+    if (previous) return { status: 202, body: clone(previous) };
     // The same rule as the server's (PM-985, PM-1102). A fixture can also mark a viewer by the member's role.
     const recipientRefusal = recipientRefusalForAccess(
       this.config,
@@ -6376,8 +6436,9 @@ export class MockBackend {
       undefined,
       undefined,
       attached as MessageAttachmentRef[],
-      input.location ? { location: input.location } : undefined,
+      { location: input.location, operatorSignal: input.operatorSignal },
     );
+    if (requestKey) this.clientMessageRequests.set(requestKey, message);
     for (const file of attached) file!.messageId = message.id;
     if (signal) {
       signal.state = 'accepted';

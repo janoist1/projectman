@@ -30,6 +30,7 @@ const ChatWindowQuery = z.object({
 });
 
 const MessagesQuery = z.object({
+  place: z.literal('card').optional(),
   taskKey: TaskKey.optional(),
   member: MemberHandle.optional(),
   threadWith: MemberHandle.optional(),
@@ -154,6 +155,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
     return {
       messages: domain.messages.list(key, {
         taskKey: query.taskKey,
+        place: query.place,
         member: query.member,
         participant: teamMessageParticipant(access),
         between: query.threadWith ? [access.handle, query.threadWith] : undefined,

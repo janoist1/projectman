@@ -5,44 +5,68 @@
 The repository's command-line tools (`scripts/`, `apps/server/scripts/`). This file describes the heavy-run queue
 (`scripts/heavy`, with its lock in `apps/server/src/full-test`) and the merge-test runner it schedules.
 
-## Heavy-run queue (PM-332)
+## Machine places (PM-332, PM-1278)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
-starts a worker per core, about 150 MB each. So **one heavy run goes at a time on the machine**, and a run's
-workers follow the machine's size.
+starts a worker per core, about 150 MB each. So **the machine has one pool of places** (the make-jobserver
+pattern; PM-1278, replacing the one-at-a-time lock of PM-332), and every heavy run takes its places from it.
+A place is one process's share of the machine: a run of `n` places has one main process and `n − 1` workers.
 
-- **The lock** (`apps/server/src/full-test/heavy-lock.ts`, with an Effect core in
+- **Capacity.** `machinePlaces({ cpus, memoryBytes })` (`packages/shared/src/config/test-workers.ts`):
+  `clamp(min(cpus, floor((GiB − 4) / 2)), 2, 16)`. Two GiB per place, four GiB for the machine itself.
+- **Requests.** A run asks for `{ min, max }` places or `'all'`. The root `npm test`, `npm run typecheck`, `npm run shots`,
+  the server's full test and the merge-test ask for `all`; a workspace vitest asks for 2 to 4
+  and gives back what it cannot use once it knows its files (`1 + min(workers, files)`); `npm run
+handover-check` asks for 2 to 4 once, through the heavy CLI, and its steps run under that ticket. Only the
+  head of the queue allocates, and the order is strict FIFO: a small request never overtakes a request for
+  more places ahead of it. A grant can be reduced (`lock.reduce`), never grown.
+- **The pool** (`apps/server/src/full-test/heavy-lock.ts`, with an Effect core in
   `full-test/heavy-lock-core.ts`). The CLI imports the facade directly; `full-test/index.ts` also
-  loads the sandbox runtime. macOS has no `flock` or `lockf`, so the lock is a
+  loads the sandbox runtime. macOS has no `flock` or `lockf`, so the pool is a
   directory in `/tmp/projectman-<uid>/heavy` (`defaultHeavyLockDir()`, `PROJECTMAN_HEAVY_LOCK_DIR`): its parent
-  must be 0700 and ours, or the queue is `heavy_lock_unavailable`. `holder/` is the lock itself (`mkdir` is
-  atomic; `owner.json` inside names the process, its label, checkout and session); `queue/<ticket>.json` is one
-  file per waiter, the ticket sorting by queue time. A waiter and the holder write a heartbeat (`utimes`, every
-  5 s) on their file. The head of the queue removes the tickets and the holder that are stale (heartbeat older
-  than 30 s, or the pid gone) and takes the lock; breaking a holder is a `rename` away, atomic, so one waiter
-  wins. A live holder is never broken, however long it runs. After a sleep a live lock can be broken for a
-  moment (two runs overlap); the holder notices at its next heartbeat and logs it once. `readHeavyQueue` shows
-  who holds it and who waits, for the PM-300 display.
+  must be 0700 and ours, or the queue is `heavy_lock_unavailable`. `holders/<ticket>.json` is one file per
+  grant (the process, its label, checkout, session, command key and `granted` places); `queue/<ticket>.json`
+  is one file per waiter, the ticket sorting by queue time, with its `places` request. `holder/owner.json`
+  (the old lock, `mkdir` is atomic) holds **all** the places: a grant of every place takes it too, and a live
+  one written by an older build blocks every grant, as does an entry without `places` (it counts as `'all'`).
+  Waiters and holders write a heartbeat (`utimes`, every 5 s) on their file. The head of the queue removes the
+  tickets and holders that are stale (heartbeat older than 30 s, or the pid gone) and takes its places;
+  breaking a holder is a `rename` away, atomic, so one waiter wins. A live holder is never broken, however
+  long it runs. After a sleep a live holder can be broken for a moment (two runs overlap); the holder notices
+  at its next heartbeat and logs it once. `readHeavyQueue` shows who holds places and who waits, with the free
+  places, for the PM-300 display; the wait line names the first holder and the number ahead.
+- **One command at a time per session.** The same `sessionId` and command (`heavyCommandKey`: the checkout and
+  the argument list) with a live entry of another pid is refused: exit status 79 and a message that names the
+  running one. Do not start it again, wait for the running one (a backgrounded run is not restarted). A run
+  with no session id has no such rule.
 - **The run's directory (PM-847).** Whoever holds the lock prepares its run directory
   (`full-test/sandbox.ts`, `runDirOf` on `canonicalRoot` roots): a byte-measured `pmft-*` directory with room
   for the sandbox's sockets (see "Server full test before review"), made only once the lock is held; when no
   root has room, the run ends as `sandbox_unavailable` and releases the lock.
-- **Idle close (PM-569).** An idle session with a live heavy-run holder or waiter stays open,
+- **Idle close (PM-569).** An idle session with a live heavy-run holder (any grant) or waiter stays open,
   and gets its full idle interval after the last sweep that saw the run. Heartbeats must be at most
   30 seconds old and the PID must live. After 120 minutes since `lastActivityAt`, idle closure applies
   even with a run present. Other closure reasons and meeting sessions are unchanged. Only queued
   commands are covered; grace is in memory and does not survive a server restart.
-- **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
-  (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
-  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75.
+- **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] [--places all|<n>|<min>-<max>] <command>`
+  (`scripts/heavy/cli.ts`) runs the command at its turn (`--places` defaults to `all`); the root `npm test`,
+  `npm run typecheck`, `npm run shots` and `npm run handover-check` (`--places 2-4`) go through it. It says on
+  stderr who it waits for; `--max-wait` ends with exit status 75, a second run of the same command in the same
+  session with 79.
   The command runs under `scripts/lib/child-guard.mjs` (PM-863) as the leader of its own process group
   (its stdin is `/dev/null`): SIGINT, SIGTERM and SIGHUP to the CLI, and the CLI's death even by SIGKILL
   (the guard's stdin is a pipe from the CLI), stop the whole group (SIGTERM, SIGKILL after 5 s), and any
   member left when the leader exits is killed. The lock is released only after the guard has gone, so
   no vitest worker outlives an interrupted run or overlaps the next one. An unusable queue folder (`heavy_lock_unavailable`) stops the
   command with exit status 78 and a four-line message; it does not run without the queue (decision 33,
-  PM-346). `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
-  without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
+  PM-346). `PROJECTMAN_HEAVY_LOCK_HELD` (set for everything the CLI runs) carries the holder's ticket: a nested
+  call whose ticket is a live holder in the pool runs without asking again. A bare `1` counts only while a live
+  legacy `holder/owner.json` exists, so a hand-set `1` does not bypass the pool.
+  **Workspace runs (PM-1278).** A workspace vitest (`npm test -w …`, `npx vitest related …`) queues too: every
+  `vitest.config.ts` lists the `machinePlaces()` plugin (`scripts/heavy/vitest-places.mjs`), which takes 2 to 4
+  places at the start of the run (or none under a held ticket), sets the worker count from them, and gives back
+  what the files do not use when the run starts (reporter `onTestRunStart`). It releases on close, and on
+  process exit. The wait line is the CLI's.
   **Direct runs (PM-869).** A member's own `npx vitest run` / `related` is not under the guard, and an
   interrupted one used to leave its forked workers (about 4 GB each in `apps/server`). Every vitest config
   lists `scripts/lib/vitest-parent-guard.setup.mjs` in `setupFiles` (`PARENT_GUARD_SETUP`): a forked worker
@@ -53,7 +77,7 @@ workers follow the machine's size.
   kill is the only thing that reaches it.
 - **The server's full test** (`createFullTestExecutor({ heavyLockDir })`) takes the lock before it prepares the
   run directory; the wait is not part of `durationMs` and `timeoutMs`, and an abort while waiting ends as
-  `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again. With an
+  `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD` to the run's ticket (and `PROJECTMAN_HEAVY_LOCK_DIR`, which the sandbox's env allow list would drop), so the scripts inside do not queue again. The server's full test asks for `all` places. With an
   unusable folder it runs without the queue and logs a warning: the review must not stall on it. The merge
   check is the exception (PM-658): `FullTestSpec.requireHeavyLock` (optional; the merge always sends `true`)
   makes a missing or unusable queue end the run as `error` / `heavy_lock_unavailable` (`durationMs` 0, no
@@ -71,9 +95,11 @@ workers follow the machine's size.
   (only in `workspace-write`) and sets each variable with
   `shell_environment_policy.set.<NAME>`, so every command sees them, also one run outside the sandbox after a
   question. The server makes the missing parent (0700) before the process starts.
-- **Workers.** `defaultTestWorkers` (`packages/shared/src/config/test-workers.ts`): half the cores, at most 4,
-  one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
-  `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
+- **Workers.** `placeWorkers(granted)` (`packages/shared/src/config/test-workers.ts`) is the only place that
+  decides a worker count: `granted − 1` (one place is the main process), at most `defaultTestWorkers` (half the
+  cores, at most 4, one per 4 GiB of memory), at least 1. No `vitest.config.ts` counts its own; the plugin
+  and the heavy CLI (for the command it runs, when the caller set none) apply it. `VITEST_MAX_FORKS` and
+  `VITEST_MAX_THREADS` set by the caller (the server's full test sets them from `reviewTest.maxWorkers`)
   still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
 - **Two server test projects (PM-865).** `apps/server/vitest.config.ts` has two `test.projects`, both
   `extends: true`. `isolated` is plain vitest, a fresh module graph per file in a `forks` process. `pooled` runs

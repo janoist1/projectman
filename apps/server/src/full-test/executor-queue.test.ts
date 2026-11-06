@@ -160,7 +160,7 @@ describe('the full test executor in the heavy-run queue', () => {
     );
     expect(result).toMatchObject({ outcome: 'error', reason: 'github_unavailable', durationMs: 0 });
     expect(onStarted).not.toHaveBeenCalled();
-    expect(await readHeavyQueue(dir)).toEqual({ holder: null, waiting: [] });
+    expect(await readHeavyQueue(dir)).toEqual({ holder: null, holders: [], waiting: [] });
     expect(warn).not.toHaveBeenCalled();
   });
 

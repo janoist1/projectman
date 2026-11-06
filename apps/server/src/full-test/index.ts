@@ -113,10 +113,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     signal: AbortSignal,
     settings = paths.settings,
     passedKeysFile?: string,
+    held?: { ticket: string; dir: string },
   ): Promise<SandboxedEnd> =>
     runSandboxed({
       cwd: spec.cwd,
-      env: fullTestEnv(paths, spec.maxWorkers, baseEnv, passedKeysFile),
+      env: fullTestEnv(paths, spec.maxWorkers, baseEnv, passedKeysFile, held),
       settings,
       command,
       timeoutMs,
@@ -225,7 +226,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       try {
         // The run's turn has come (or it needs none): a run stopped while it waited never starts.
         if (!signal.aborted) onStarted?.();
-        return await runLocked(spec, signal);
+        return await runLocked(
+          spec,
+          signal,
+          lock && options.heavyLockDir ? { ticket: lock.ticket, dir: options.heavyLockDir } : undefined,
+        );
       } finally {
         await lock?.release();
       }
@@ -233,7 +238,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
   };
 
   /** One run, with the machine's lock held (or without the queue). */
-  async function runLocked(spec: FullTestSpec, signal: AbortSignal): Promise<FullTestResult> {
+  async function runLocked(
+    spec: FullTestSpec,
+    signal: AbortSignal,
+    held?: { ticket: string; dir: string },
+  ): Promise<FullTestResult> {
     const started = Date.now();
     let paths: RunPaths;
     try {
@@ -336,6 +345,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         signal,
         paths.settings,
         cache?.passedKeysFile,
+        held,
       );
       const commandMs = Date.now() - commandStarted;
       await cache?.record(ended.output);

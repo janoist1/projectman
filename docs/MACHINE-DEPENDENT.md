@@ -34,7 +34,7 @@ Entries in the order they appear below (search for the bold name).
   deployment and backup · Connected Claude credentials
 - **Providers and sessions:** Codex project layer check · NanoGPT Codex home and key delivery · Gemini (agy) CLI,
   conversation directories and keychain login · NanoGPT secret store · Session process liveness · Fake CLI pause
-  test gates · Dependency clones and refreshes · Heavy-run queue and worker limits · Server and engine log files ·
+  test gates · Dependency clones and refreshes · Machine places · Server and engine log files ·
   Session output folders · Card attachments · Message attachments · Message file in the session folder · Browser
   installation and screenshots · Machine display and orphan processes · Instance identity for process attribution ·
   Session process termination · Conversation transcripts and resume · Hooks and team MCP over loopback · Private
@@ -1637,9 +1637,17 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
   **Module:** `worktree`
-- **Heavy-run queue and worker limits** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
-  `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
-  `vitest.config.ts` files (PM-332, PM-336). Prompt descriptions of commands, unavailable exit status
+- **Machine places** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
+  `scripts/heavy/{cli,run,messages,vitest-places}`, `packages/shared/src/config/test-workers.ts` and the workspace
+  `vitest.config.ts` files (PM-332, PM-336, PM-1278 A / PM-1313). The machine has one pool of places
+  (`machinePlaces`: from the executing host's cores and memory, 2 to 16); a heavy run takes `all`, or 2 to 4
+  for a workspace vitest and `handover-check`, and its worker count comes from the places it was granted
+  (`placeWorkers`), not from a config. The pool is files in the per-user lock directory below; an older
+  build's entry without `places` counts as all of them. **Remote engine:** the pool, its capacity and the
+  workers belong to the machine that runs the command, so each engine has its own in its own
+  `/tmp/projectman-<uid>/heavy`; part A adds nothing that crosses the server/engine boundary (the ticket and
+  the directory reach a full test's sandbox through its environment, on the engine). The server's view of
+  who holds places (PM-569) already comes from the engine. Prompt descriptions of commands, unavailable exit status
   and PTY skips are opt-in repository `heavyChecks` settings (`context/system-prompt.ts`,
   `runtime/permissions/unattended-commands.ts`, PM-1112); engine environment variables and queue
   execution are unchanged. These descriptions are rendered on the server for local and remote engines.

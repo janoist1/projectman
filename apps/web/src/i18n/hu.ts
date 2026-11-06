@@ -2932,6 +2932,7 @@ export const hu = {
       reply: 'Válasz',
       replyAria: 'Válasz {name} hozzászólására',
       replyingTo: 'Válasz neki: {name}',
+      replyingToOwn: 'Válasz a saját hozzászólásodra',
       sending: 'Küldés…',
       posted: 'Közzétéve',
       sendFailed: 'Nem sikerült közzétenni. A szöveged megmaradt.',

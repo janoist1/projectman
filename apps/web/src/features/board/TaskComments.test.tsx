@@ -223,6 +223,60 @@ describe('the Comments view (PM-1304)', () => {
     expect(document.activeElement?.id).toBe(`timeline-${target.id}`);
   });
 
+  it('offers no newer comments after a jump when the newest one is loaded, and keeps the count on the tab', async () => {
+    const project = mockProject();
+    const target = comment(project, 'be-1', 'The one in the link', {}, 50);
+    comment(project, 'fe-1', 'Later words', {}, 10);
+    project.render(drawer, `/p/AC/tasks/AC-20/thread#timeline-${target.id}`);
+    await screen.findByText('Later words');
+    const tab = within(screen.getByRole('group', { name: t('task.view.label') })).getByRole('button', {
+      name: new RegExp(`^${t('task.view.thread')}`),
+    });
+    await waitFor(() => expect(within(tab).getByText('2')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: t('task.comments.newer') })).toBeNull();
+  });
+
+  it('offers the newer comments after a jump while the newest page does not meet the loaded ones', async () => {
+    const project = mockProject();
+    const target = comment(project, 'be-1', 'The one in the link', {}, 500);
+    // The page around the first comment ends well before the newest page begins.
+    for (let i = 0; i < 60; i += 1) comment(project, 'fe-1', `Later words ${i}`, {}, 400 - i);
+    project.render(drawer, `/p/AC/tasks/AC-20/thread#timeline-${target.id}`);
+    await screen.findByText('The one in the link');
+    expect(await screen.findByRole('button', { name: t('task.comments.newer') })).toBeTruthy();
+    expect(screen.queryByText('Later words 59')).toBeNull();
+  });
+
+  it('names the reply box of the viewer’s own comment without "Te"', async () => {
+    const project = mockProject();
+    comment(project, 'owner', 'Mine', {}, 20);
+    comment(project, 'be-1', 'Theirs', {}, 10);
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const list = await column();
+    fireEvent.click(within(list.getByText('Mine').closest('li')!).getByRole('button', { name: /^Válasz/ }));
+    expect(await screen.findByRole('textbox', { name: t('task.comments.replyingToOwn') })).toBeTruthy();
+    fireEvent.click(within(list.getByText('Theirs').closest('li')!).getByRole('button', { name: /^Válasz/ }));
+    expect(
+      await screen.findByRole('textbox', {
+        name: t('task.comments.replyingTo', { name: 'Backend fejlesztő' }),
+      }),
+    ).toBeTruthy();
+  });
+
+  it('scrolls a reply box the reader opened into view', async () => {
+    const project = mockProject();
+    comment(project, 'be-1', 'Theirs', {}, 10);
+    const reached: Element[] = [];
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      reached.push(this);
+    });
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const list = await column();
+    fireEvent.click(within(list.getByText('Theirs').closest('li')!).getByRole('button', { name: /^Válasz/ }));
+    const reply = await screen.findByRole('textbox', { name: /^Válasz/ });
+    await waitFor(() => expect(reached.some((element) => element.contains(reply))).toBe(true));
+  });
+
   it('lets a viewer read the comments without a form', async () => {
     const project = mockProject();
     comment(project, 'be-1', 'Read only');

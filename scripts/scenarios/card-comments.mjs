@@ -24,8 +24,30 @@ export default async ({ instance, open, shoot, step }) => {
     const page = await open({ path: '/p/AC/tasks/AC-1/thread' });
     await page.getByRole('textbox', { name: /Hozzászólás szövege|Comment text/ }).waitFor();
     await shoot(page, 'comments-tab', { widths: WIDTHS });
-    await page.getByRole('button', { name: /^(Válasz|Reply)/ }).first().click();
-    await shoot(page, 'comments-reply-box', { widths: WIDTHS });
+  });
+
+  // `shoot` resizes the window: the box is opened at the width it is shot at, so the scroll to it is seen.
+  for (const [width, height] of [
+    [1512, 982],
+    [390, 844],
+  ]) {
+    await step(`the reply box at ${width}px`, async () => {
+      const page = await open({ path: '/p/AC/tasks/AC-1/thread' });
+      await page.setViewportSize({ width, height });
+      await page.getByRole('textbox', { name: /Hozzászólás szövege|Comment text/ }).waitFor();
+      await page
+        .getByRole('button', { name: /^(Válasz|Reply)/ })
+        .first()
+        .click();
+      await page.waitForTimeout(300);
+      await shoot(page, `comments-reply-box-${width}`, { widths: [width] });
+    });
+  }
+
+  await step('the frame of a comment a link led to', async () => {
+    const page = await open({ path: `/p/AC/tasks/AC-1/thread#timeline-${first}` });
+    await page.locator('[class*="flash"]').first().waitFor();
+    await shoot(page, 'comments-linked', { widths: [1512] });
   });
 
   await step('the Process tab', async () => {

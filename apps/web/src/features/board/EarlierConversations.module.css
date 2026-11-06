@@ -46,8 +46,10 @@
   display: none;
 }
 
+/* The 8px side padding is the room of the highlight frame; the negative margin keeps the text where it was. */
 .message {
-  padding: 10px 0;
+  margin: 0 -8px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--c-line-soft);
   min-width: 0;
   overflow-wrap: anywhere;
@@ -126,8 +128,12 @@
 
 /* The message a link led to: framed for two seconds; the fade is left out when the reader asks for less motion. */
 .flash {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--c-accent) 8%, transparent),
+    color-mix(in srgb, var(--c-accent) 8%, transparent)
+  );
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 45%, transparent);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
 }
 
 @media (prefers-reduced-motion: no-preference) {

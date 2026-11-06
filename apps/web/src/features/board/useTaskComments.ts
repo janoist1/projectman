@@ -43,12 +43,11 @@ export function useTaskComments(key: string, taskKey: string, around: string | n
     },
     enabled,
   });
-  // After a jump the newest page is read as well, once the reader asks for the newer comments.
-  const [live, setLive] = useState(false);
+  // After a jump the newest page is read as well: it tells whether there is anything newer than the loaded ones.
   const tail = useQuery({
     queryKey: [...base, 'tail'],
     queryFn: () => api.taskComments(key, taskKey, {}),
-    enabled: enabled && around !== null && live,
+    enabled: enabled && around !== null,
   });
   const [pool, setPool] = useState<CommentThread[]>([]);
   const [cursor, setCursor] = useState<string | null | undefined>(undefined);
@@ -62,10 +61,13 @@ export function useTaskComments(key: string, taskKey: string, around: string | n
     setPool((current) => mergeThreads(current, headData.threads));
     setCursor((current) => (current === undefined ? headData.nextBefore : current));
   }, [headData]);
+  // The newest page joins the loaded ones only where it meets them: otherwise the newer comments are to be asked for.
   const tailData = tail.data;
+  const loaded = new Set([...pool, ...(headData?.threads ?? [])].map((thread) => thread.comment.id));
+  const tailMeets = tailData ? tailData.threads.some((thread) => loaded.has(thread.comment.id)) : false;
   useEffect(() => {
-    if (tailData) setPool((current) => mergeThreads(current, tailData.threads));
-  }, [tailData]);
+    if (tailData && tailMeets) setPool((current) => mergeThreads(current, tailData.threads));
+  }, [tailData, tailMeets]);
 
   const loadOlder = useCallback(async () => {
     if (!cursor) return;
@@ -91,7 +93,6 @@ export function useTaskComments(key: string, taskKey: string, around: string | n
     setMoreError(false);
     setLoadingMore('newer');
     try {
-      setLive(true);
       let page = await client.fetchQuery({
         queryKey: [...base, 'tail'],
         queryFn: () => api.taskComments(key, taskKey, {}),
@@ -120,8 +121,11 @@ export function useTaskComments(key: string, taskKey: string, around: string | n
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `base` is rebuilt every render from key and taskKey
   }, [client, key, taskKey, pool]);
 
-  // The newer comments are still to load while the newest page has not been read after a jump.
-  const hasNewer = around !== null && !missing && !(live && tail.data);
+  // After a jump the newer comments are to load while the newest page does not meet the loaded ones (or could not be read).
+  const jumped = around !== null && !missing;
+  const newerKnown = !jumped || tail.isSuccess || tail.isError;
+  const hasNewer =
+    jumped && (tail.isError || (tailData !== undefined && tailData.threads.length > 0 && !tailMeets));
   return {
     threads: pool,
     /** The comment the link named is not available to the reader; the newest page is shown instead. */
@@ -139,7 +143,7 @@ export function useTaskComments(key: string, taskKey: string, around: string | n
     loadOlder,
     loadNewer,
     /** Whether every comment of the card is loaded (the count on the tab is then exact). */
-    complete: !cursor && !hasNewer && head.isSuccess,
+    complete: !cursor && !hasNewer && newerKnown && head.isSuccess,
   };
 }
 

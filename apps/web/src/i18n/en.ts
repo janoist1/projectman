@@ -1724,6 +1724,7 @@ export const en = {
       reply: 'Reply',
       replyAria: 'Reply to the comment of {name}',
       replyingTo: 'Replying to {name}',
+      replyingToOwn: 'Replying to your own comment',
       sending: 'Sending…',
       posted: 'Posted',
       sendFailed: 'Could not post. Your text was kept.',

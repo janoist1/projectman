@@ -50,6 +50,8 @@ interface ReplyBox {
   /** The top-level comment the answer goes under: a reply to a reply goes under the same parent. */
   parentId: string;
   name: string;
+  /** The comment answered is the viewer's own: the box does not name them. */
+  own: boolean;
 }
 
 function CommentEntry({
@@ -65,7 +67,7 @@ function CommentEntry({
   myHandle: string | null;
   /** The comment was sent from this view since it opened. */
   posted: boolean;
-  onReply?: (name: string) => void;
+  onReply?: (name: string, own: boolean) => void;
   registerReply: (button: HTMLButtonElement | null) => void;
 }) {
   const importedAuthor = text(event.data.importedAuthor);
@@ -105,7 +107,7 @@ function CommentEntry({
           ref={registerReply}
           className={styles.replyButton}
           aria-label={t('task.comments.replyAria', { name: author })}
-          onClick={() => onReply(author)}
+          onClick={() => onReply(author, own)}
         >
           {t('task.comments.reply')}
         </button>
@@ -154,6 +156,7 @@ export function TaskComments({
         entryId: thread.comment.id,
         parentId: thread.comment.id,
         name: actorByline(thread.comment.actor, members, myHandle),
+        own: isOwnActor(thread.comment.actor, myHandle),
       });
   }, [threads, projectKey, taskKey, members, myHandle]);
 
@@ -207,6 +210,15 @@ export function TaskComments({
     };
   }, [active, target, found, threads]);
 
+  // A box the reader opened comes whole into view (the list ends above the pinned box): the buttons included.
+  const replyBox = useRef<HTMLLIElement>(null);
+  const revealReply = useRef(false);
+  useEffect(() => {
+    if (!reply || !revealReply.current) return;
+    revealReply.current = false;
+    replyBox.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [reply]);
+
   const closeReply = () => {
     const entryId = reply?.entryId;
     setReply(null);
@@ -230,7 +242,10 @@ export function TaskComments({
     },
     ...(canComment
       ? {
-          onReply: (name: string) => setReply({ entryId: event.id, parentId, name }),
+          onReply: (name: string, own: boolean) => {
+            revealReply.current = true;
+            setReply({ entryId: event.id, parentId, name, own });
+          },
         }
       : {}),
   });
@@ -275,14 +290,18 @@ export function TaskComments({
                     </li>
                   ))}
                   {reply?.parentId === comment.id ? (
-                    <li className={styles.replyBox}>
+                    <li ref={replyBox} className={styles.replyBox}>
                       <TaskCommentComposer
                         key={comment.id}
                         taskKey={taskKey}
                         members={members}
                         slot={comment.id}
                         replyTo={comment.id}
-                        label={t('task.comments.replyingTo', { name: reply.name })}
+                        label={
+                          reply.own
+                            ? t('task.comments.replyingToOwn')
+                            : t('task.comments.replyingTo', { name: reply.name })
+                        }
                         autoFocus
                         onCancel={closeReply}
                         onPosted={(id) => setPosted((current) => new Set(current).add(id))}

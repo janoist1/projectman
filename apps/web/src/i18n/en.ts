@@ -416,39 +416,39 @@ export const en = {
       role_in_use: 'The role is still in use.',
       project_manager_required:
         'Can’t be retired: this is the project’s only AI project manager. Hire another one first.',
-      operator_owner_only: 'Only the owner of the project can ask the Operator for this.',
+      operator_owner_only: 'Only the owner of the project can ask the connected Claude for this.',
       queue_item_not_yours:
         'This queue item isn’t open for the key’s owner: it isn’t theirs, it is already closed, or it belongs to another project.',
       issuer_without_machine_access:
         'Whoever issued the queue item has no machine access, so the connected Claude can’t do a machine step in their place.',
       operator_no_request:
-        'The Operator can only write on an open request from the owner; there is none now (its round is over, or it has expired).',
+        'The connected Claude can only write on an open request from the owner; there is none now (its round is over, or it has expired).',
       operator_never:
-        'The Operator can’t use this tool: other members’ decisions and handoffs aren’t theirs.',
-      operator_only: 'Only the Operator can use this action.',
+        'The connected Claude can’t use this tool: other members’ decisions and handoffs aren’t theirs.',
+      operator_only: 'Only the connected Claude can use this action.',
       command_not_for_project_manager:
-        'The project manager can’t do this action. With machine access you can give an integrator to-do; otherwise ask the owner for help.',
+        'The project manager can’t do this action. With machine access you can give a machine to-do; otherwise ask the owner for help.',
       project_manager_only:
         'Only the current project manager can use this action, in their own internal conversation.',
       place_not_target: 'The project manager doesn’t take you there: it isn’t part of the project.',
       place_not_visible: 'The recipient can’t see this place.',
       operator_preference_no_person: 'It isn’t clear whose conversation style should be loaded.',
-      operator_knowledge_invalid: 'The Operator’s data store is invalid. The existing data was kept.',
-      operator_knowledge_unavailable: 'The Operator’s data store isn’t available right now.',
-      operator_knowledge_stale: 'The Operator’s data changed in the meantime. Load it again.',
-      operator_knowledge_limit: 'The Operator’s approval data store is full.',
+      operator_knowledge_invalid: 'The connected Claude’s data store is invalid. The existing data was kept.',
+      operator_knowledge_unavailable: 'The connected Claude’s data store isn’t available right now.',
+      operator_knowledge_stale: 'The connected Claude’s data changed in the meantime. Load it again.',
+      operator_knowledge_limit: 'The connected Claude’s approval data store is full.',
       operator_signal_closed: 'This signal is no longer open.',
       operator_approval_used: 'This step has already run; it won’t start a second time.',
       operator_plan_required: 'This step needs a plan: why, what it affects, whether it can be undone.',
       operator_message_recipient: 'Messages can only be sent this way to a person who isn’t an owner.',
       operator_owner_approval:
-        'The Operator can only write to a person who isn’t an owner with the owner’s approval.',
-      operator_signal_not_dismissible: 'The Operator can’t close this signal.',
+        'The connected Claude can only write to a person who isn’t an owner with the owner’s approval.',
+      operator_signal_not_dismissible: 'The connected Claude can’t close this signal.',
       operator_signal_budget:
-        'The Operator’s step budget for this signal has run out, or not enough time has passed since the previous step.',
+        'The connected Claude’s step budget for this signal has run out, or not enough time has passed since the previous step.',
       not_card_role: 'The recipient has no role on this card, so it can’t be started through them.',
       operator_approval_stale:
-        'The approval is out of date, because the state it concerns has changed. Close it and ask the Operator for a new proposal.',
+        'The approval is out of date, because the state it concerns has changed. Close it and ask the connected Claude for a new proposal.',
       operator_agreement_pending: 'The agreement is still waiting for approval. Decide on it first.',
       docs_not_configured:
         'The decision log or the roadmap isn’t set up: give the file’s location in the repository settings.',
@@ -564,8 +564,8 @@ export const en = {
       unknown_template: 'Unknown template.',
       answer_required: 'Write an answer before you send it.',
       todo_reason_required: 'Write why the to-do can’t be done.',
-      question_not_screening: 'The Operator no longer screens this question.',
-      question_not_answerable: 'The Operator can’t answer this question.',
+      question_not_screening: 'The connected Claude no longer screens this question.',
+      question_not_answerable: 'The connected Claude can’t answer this question.',
       question_group_incompatible: 'These questions can’t be combined into one decision.',
       invalid_outcome_fields: 'A field of the outcome is missing or superfluous.',
       reask_not_allowed: 'This question can’t be asked again without screening.',
@@ -579,7 +579,7 @@ export const en = {
       operator_grant_owner_only:
         'Only the owner can grant and revoke the super permission, with their own login.',
       operator_grant_inactive:
-        'The Operator has no valid super permission, so this machine action doesn’t run. The owner can grant it in Settings.',
+        'The connected Claude has no valid super permission, so this machine action doesn’t run. The owner can grant it in Settings.',
       merge_queue_conflict: 'The merge queue changed. Refresh it, then try again.',
       super_request_conflict: 'Another request with the same id has already arrived.',
       super_operation_stale:
@@ -589,7 +589,8 @@ export const en = {
       super_owner_decision_pending: 'We’re still waiting for the owner’s decision.',
       super_operation_expired: 'The owner didn’t answer in time, the action has expired.',
       super_executor_unavailable: 'This installation can’t carry out this action yet.',
-      super_operation_unsupported: 'The Operator can’t carry out this action even with the super permission.',
+      super_operation_unsupported:
+        'The connected Claude can’t carry out this action even with the super permission.',
       super_relay_refused: 'This answer can’t be relayed in the owner’s name.',
       history_unavailable: 'The history search isn’t available right now.',
       history_source_changed: 'The document changed in the meantime: search again.',
@@ -599,7 +600,7 @@ export const en = {
       system_feedback_limit:
         'This project has already recorded the allowed number of new feedback items today.',
       system_feedback_issue_url: 'This isn’t an issue of projectman’s public repository.',
-      system_feedback_operator_only: 'Only the Operator can record feedback.',
+      system_feedback_operator_only: 'Only the connected Claude can record feedback.',
       integrator_https_required: 'The Claude Code key can only be used over HTTPS or on this machine.',
       integrator_host_required: 'The Claude Code key has to be used at the separate machine address.',
       invalid_event_cursor: 'The change-tracking cursor is invalid, or belongs to another project.',
@@ -974,7 +975,7 @@ export const en = {
   templates: {
     starter: {
       name: 'Starter team',
-      description: 'One developer, a project manager and an Operator, with a simple board.',
+      description: 'One developer and a project manager, with a simple board.',
     },
     'web-client-project': {
       name: 'Client development',
@@ -998,7 +999,7 @@ export const en = {
     emptyBody: 'A project: a workspace, a team and a board.',
     create: {
       title: 'New project',
-      intro: 'Three details to get started. Then build your team and board with the Operator.',
+      intro: 'Three details to get started. Then build your team and board with the connected Claude.',
       projectTitle: 'Project',
       codeTitle: 'Code location',
       language: 'Team language',
@@ -1025,13 +1026,13 @@ export const en = {
       updateProvider: 'Update {cli} on the server: current version {cliVersion}, minimum {minCliVersion}.',
       noneReady: 'No provider is ready.',
       noneReadyHelp:
-        'You can create the project, but until {provider} is ready, the Operator can’t chat with you and members’ work waits.',
+        'You can create the project, but until {provider} is ready, the connected Claude can’t chat with you and members’ work waits.',
       selectedNotReady: '{provider} isn’t ready yet.',
       selectedNotReadyHelp:
-        'You can create the project, but until the provider is ready, the Operator can’t chat with you and members’ work waits. Choose a ready provider or complete the setup.',
+        'You can create the project, but until the provider is ready, the connected Claude can’t chat with you and members’ work waits. Choose a ready provider or complete the setup.',
       starterPrefix: 'Starter team:',
-      starterTeam: 'Project manager, Operator and one developer ({provider})',
-      starterSuffix: ', with a simple board. Build the rest with the Operator afterwards.',
+      starterTeam: 'Project manager and one developer ({provider})',
+      starterSuffix: ', with a simple board. Build the rest with the connected Claude afterwards.',
       reposToggle: 'Repos (optional)',
       rejected: 'The server didn’t create the project: {reason}',
       name: 'Name',
@@ -2752,9 +2753,9 @@ export const en = {
     recent: 'Recent involvements',
     all: 'All involvements',
     memberAll: 'All their involvements',
-    integrator: 'Operator (Claude Code)',
+    integrator: 'Connected Claude (Claude Code)',
     behalf: 'on behalf of the owner',
-    integratorFull: 'Operator · from Claude Code, on behalf of the owner',
+    integratorFull: 'Connected Claude · from Claude Code, on behalf of the owner',
     verbs: {
       started: 'Brought in',
       resumed: 'Resumes',
@@ -2779,7 +2780,7 @@ export const en = {
       conversation: 'conversation',
       fix_limit: 'fix round limit',
       loop: 'Going in circles mark',
-      operator_signal: 'system signal to the Operator',
+      operator_signal: 'system signal to the connected Claude',
       permission_change: 'permission change',
       description_changed: 'the description changed',
       provider_resume: 'the provider plan is available again',
@@ -3231,7 +3232,7 @@ export const en = {
   /** A card held at its fix round limit (PM-262): the lead developer, then the people decide. */
   fixLimit: {
     box: {
-      integrator: 'it is up to the Operator',
+      integrator: 'it is up to the connected Claude',
       extras: 'Extra rounds: {used} of 3 used.',
       extrasOver: 'Extra rounds: {used} used, more than the limit of 3.',
       title: 'Stopped at the fix round limit',
@@ -3311,12 +3312,12 @@ export const en = {
       /** The recipient the asker named (`requested` on the route record). */
       requested: {
         owner: 'the owner',
-        integrator: 'the integrator',
+        integrator: 'the connected Claude',
       },
       to: {
         owner_inbox: 'the owners’ inbox',
         owner_side: 'the owner’s side',
-        integrator_queue: 'the integrator’s queue',
+        integrator_queue: 'the connected Claude’s queue',
         decider: 'the technical decider',
         pm: 'the project manager',
         wait_pm: 'waiting for the project manager',
@@ -3329,10 +3330,10 @@ export const en = {
         approval: 'an approval',
         protected: 'a protected question',
         machine_work: 'machine work',
-        requested_integrator: 'the asker named the integrator',
+        requested_integrator: 'the asker named the connected Claude',
         system_obligation: 'a system obligation',
         issuer_without_machine_access: 'the issuer has no machine access',
-        no_integrator: 'there is no integrator',
+        no_integrator: 'there is no connected Claude',
         pm_pending: 'the project manager has not seen it yet',
         owner_side: 'the owner’s own matter',
         owner_topic_missing: 'no topic',
@@ -3594,14 +3595,14 @@ export const en = {
       question_asked: 'Question: {question}',
       question_asked_topic: 'Question ({topic}): {question}',
       question_asked_unscreened_topic:
-        'Question again, without the Operator’s screening ({topic}): {question} · reason: {reason}',
+        'Question again, without the connected Claude’s screening ({topic}): {question} · reason: {reason}',
       question_screened_decision_topic: 'Passed on to you as a decision ({topic}): {note}',
       question_screened_todo_topic: 'Passed on to you as a to-do ({topic}): {note}',
       question_screened_todo_recorded_topic:
         'Passed on to you as a to-do ({topic}): {note} Recorded as a gap.',
-      question_asked_screening: 'Question: {question} · with the Operator',
+      question_asked_screening: 'Question: {question} · with the connected Claude',
       question_asked_unscreened:
-        'Question again, without the Operator’s screening: {question} · reason: {reason}',
+        'Question again, without the connected Claude’s screening: {question} · reason: {reason}',
       question_answered: 'Answer: {answer}',
       question_answered_grouped: 'Answer to the shared question: {answer}',
       question_grouped: 'Merged into a shared question: {count|# question|# questions}, one answer',
@@ -3611,22 +3612,22 @@ export const en = {
       question_screened_moot: 'Closed {asker}’s question as moot: {note}',
       question_screened_decision: 'Passed on to you as a decision: {note}',
       question_screened_todo: 'Passed on to you as a to-do: {note}',
-      question_screened_integrator: 'Put it in the Operator’s queue as a to-do: {note}',
+      question_screened_integrator: 'Put it in the connected Claude’s queue as a machine to-do: {note}',
       question_screened_todo_decider:
-        'Automatic to-do, but there is no integrator: {to} decides on it. {note}',
+        'Machine to-do, but there is no connected Claude: {to} decides on it. {note}',
       question_recipient_escalated:
-        'The to-do for the Operator went to the owner: it was not closed within 24 hours.',
-      question_recipient_escalated_passed_on: 'The Operator passed the to-do on to the owner.{note}',
+        'The machine to-do for the connected Claude went to the owner: it was not closed within 24 hours.',
+      question_recipient_escalated_passed_on: 'The connected Claude passed the to-do on to the owner.{note}',
       question_recipient_escalated_unavailable:
-        'The to-do for the Operator went to the owner: the Operator isn’t processing its queue now.',
+        'The machine to-do for the connected Claude went to the owner: the connected Claude isn’t processing its queue now.',
       item_routed: 'The item went to {to} ({reason}).',
       item_routed_requested: 'The item went to {to} ({reason}); the asker named {requested}.',
       fix_limit_recipient_escalated_unavailable:
-        'The decision on the fix round limit went to the owner: the Operator isn’t processing its queue now.',
+        'The decision on the fix round limit went to the owner: the connected Claude isn’t processing its queue now.',
       fix_limit_recipient_escalated_timeout:
-        'The decision on the fix round limit went from the Operator to the owner: it did not decide within 24 hours.',
+        'The decision on the fix round limit went from the connected Claude to the owner: it did not decide within 24 hours.',
       fix_limit_recipient_escalated_passed_on:
-        'The Operator passed the decision on the fix round limit to the owner.{note}',
+        'The connected Claude passed the decision on the fix round limit to the owner.{note}',
       obligation_woken:
         'Reminder sent to {responsible}: the {step} wasn’t done within {minutes|# minute|# minutes}.',
       obligation_kicked:
@@ -3643,14 +3644,14 @@ export const en = {
       obligation_handed_over:
         'The {step} ({responsible}) made no progress even after the reminder, so it became a to-do ({minutes|# minute|# minutes}).',
       obligation_handed_over_refused:
-        'The {step} ({responsible}) made no progress even after the reminder, so the owner got a to-do ({minutes|# minute|# minutes}). It couldn’t be handed to the Operator: {reason}.',
+        'The {step} ({responsible}) made no progress even after the reminder, so the owner got a to-do ({minutes|# minute|# minutes}). It couldn’t be handed to the connected Claude: {reason}.',
       integrator_todo_done: 'Closed the to-do: done.',
       integrator_todo_cannot: 'Closed the to-do: did not do it. Reason: “{note}”',
       question_screened_todo_recorded: 'Passed on to you as a to-do: {note} Recorded as a gap.',
       question_screening_skipped_timeout:
-        '{asker}’s question came to you after 10 minutes without the Operator’s screening: the Operator did not answer in time',
+        '{asker}’s question came to you after 10 minutes without the connected Claude’s screening: the connected Claude did not answer in time',
       question_screening_skipped_unavailable:
-        '{asker}’s question came to you after 10 minutes without the Operator’s screening: it was not available',
+        '{asker}’s question came to you after 10 minutes without the connected Claude’s screening: it was not available',
       question_closed: '{asker}’s question closed: {reason}',
       question_closed_withdrawn: '{asker} withdrew their question: {note}',
       question_answer_waiting: 'Your answer waits for {asker} to start',
@@ -3665,16 +3666,17 @@ export const en = {
       focus_moved: 'Moved in the focus: {title}, position {previous} → {position}',
       contactAdded: 'Became a contact: {name}',
       contactRemoved: 'No longer a contact: {name}',
-      operator_approval_waived: 'The Operator changed the settings under a waiver from agreement v{version}.',
+      operator_approval_waived:
+        'The connected Claude changed the settings under a waiver from agreement v{version}.',
       operator_knowledge_changed:
-        'The Operator’s agreement or learned principles changed. Revision: {revision}.',
+        'The connected Claude’s agreement or learned principles changed. Revision: {revision}.',
       team_paused: 'Paused the team',
       team_paused_instance: 'The whole instance was paused',
       team_paused_instance_reason: 'The whole instance was paused: {reason}',
       team_resumed: 'Resumed the team’s work',
       team_resumed_instance: 'The whole instance resumed work',
-      super_handoff_changed: 'State of the machine work handed to the Operator: {state}',
-      super_operation_changed: 'State of the Operator’s super operation: {state}',
+      super_handoff_changed: 'State of the machine work handed to the connected Claude: {state}',
+      super_operation_changed: 'State of the connected Claude’s super operation: {state}',
       workspace_released: 'Released the workspace without confirming the process cleanup: {reason}',
       gate_requested: 'Asked for approval: {from} → {to}',
       gate_rejected: 'The approval was rejected: {to}',
@@ -3714,7 +3716,7 @@ export const en = {
     distributor: 'distributor',
     distributorTitle: 'They hand out the day-to-day work themselves.',
     emptyThread:
-      'The Project manager hands out the work. The Operator, top right, takes care of your day-to-day requests.',
+      'The Project manager hands out the work. The connected Claude takes care of your day-to-day requests.',
     required: {
       chip: 'required',
       title: 'The project always needs an AI Project manager.',
@@ -4252,7 +4254,7 @@ export const en = {
         'The new relations of {taskKey} ({relations}) may change its work, and no analyst or project manager can check them.',
       work_outage: 'An outage ({outage}) blocks the work; affected cards: {tasks}.',
       waiting_digest:
-        '{todos} integrator todos and {questions} questions in screening have waited more than a day; the oldest for {oldestHours} hours.',
+        '{todos} machine to-dos and {questions} questions in screening have waited more than a day; the oldest for {oldestHours} hours.',
     },
     email: {
       received: 'Came by email',
@@ -4491,18 +4493,18 @@ export const en = {
   inbox: {
     handedOff: {
       cannot: 'I won’t do it…',
-      resultNote: 'The Operator’s result: {note}',
+      resultNote: 'The connected Claude’s result: {note}',
       reasonNote: 'Reason: {note}',
-      chip: 'The Operator handed it to you',
+      chip: 'The connected Claude handed it to you',
       why: 'Why you?',
       detail: 'What has it done so far?',
       openCard: 'Open the card',
-      legacy: 'It was meant for the Operator and came to you.',
+      legacy: 'It was meant for the connected Claude and came to you.',
       reasons: {
         owner_reserved: 'This stays with you: deletion, security, a paid cost or a permission decision.',
-        no_typed_operation: 'There is no typed operation for this, so the Operator can’t do it.',
-        no_grant: 'The Operator has no super grant, so it can’t run anything on the machine.',
-        processing_failed: 'The Operator started but couldn’t finish. Have a look at how far it got.',
+        no_typed_operation: 'There is no typed operation for this, so the connected Claude can’t do it.',
+        no_grant: 'The connected Claude has no super grant, so it can’t run anything on the machine.',
+        processing_failed: 'The connected Claude started but couldn’t finish. Have a look at how far it got.',
       },
     },
     group: {
@@ -4933,7 +4935,7 @@ export const en = {
       group_withdrawn: 'Every asker withdrew it',
       obligation_closed: 'Moot: the step was finished or dropped in the meantime',
       signal_resolved: 'Moot: the alert closed by itself',
-      operator_moot: 'Moot: according to the Operator',
+      operator_moot: 'Moot: according to the connected Claude',
       todo_done: 'You did it',
       todo_cannot: 'You won’t do it',
     },
@@ -4948,9 +4950,9 @@ export const en = {
       approval_given: 'Automatic',
       email_not_allowed: 'Automatic',
       feedback_handled: 'Automatic',
-      operator_answered: 'The Operator answered',
-      operator_forwarded: 'The Operator passed it on',
-      operator_moot: 'The Operator closed it as moot',
+      operator_answered: 'The connected Claude answered',
+      operator_forwarded: 'The connected Claude passed it on',
+      operator_moot: 'The connected Claude closed it as moot',
       task_done: 'The card became Done',
       task_cancelled: 'The card was cancelled',
       handed_off: 'The card was handed off',
@@ -4975,7 +4977,7 @@ export const en = {
       heading: '{key} is stuck: {step}',
       meta: 'Responsible: {member} · opened {when}',
       metaNobody: 'Nobody responsible · opened {when}',
-      integratorNote: 'Written for the integrator, in English.',
+      integratorNote: 'Written for the connected Claude, in English.',
     },
     /** A todo the Operator made out of a question (PM-556): the step box and the result field. */
     todo: {
@@ -4990,12 +4992,12 @@ export const en = {
       emptyFilter: 'You have no to-dos in this.',
     },
     /** What the Operator said about a question that came to the viewer (PM-556). */
-    operatorNote: 'Operator:',
+    operatorNote: 'Connected Claude:',
     operatorFallback: {
-      timeout: 'The Operator didn’t look at it: no reply within 10 minutes.',
-      unavailable: 'The Operator didn’t look at it: it wasn’t available.',
+      timeout: 'The connected Claude didn’t look at it: no reply within 10 minutes.',
+      unavailable: 'The connected Claude didn’t look at it: it wasn’t available.',
     },
-    rerouted: 'Asking again, without the Operator’s screening. Reason: “{reason}”',
+    rerouted: 'Asking again, without the connected Claude’s screening. Reason: “{reason}”',
     /** Why a question closed while the viewer had it open, in the middle of a sentence (PM-556). */
     closedReasons: {
       task_done: 'the card is Done',
@@ -5006,7 +5008,7 @@ export const en = {
       group_withdrawn: 'every asker withdrew it',
       obligation_closed: 'the step was finished or dropped in the meantime',
       signal_resolved: 'the alert closed by itself',
-      operator_moot: 'the Operator says it’s moot',
+      operator_moot: 'the connected Claude says it’s moot',
     },
     /** The card of a question that closed while the viewer was answering it (PM-556). */
     closedWhileOpen: {
@@ -5037,9 +5039,9 @@ export const en = {
     // What waits for someone other than the owner: a folded band above the list (PM-1252).
     waiting: {
       title: 'Waiting for others',
-      both: '{screening|# question is|# questions are} waiting for the project manager to screen, {integrator|# machine todo|# machine todos} for the connected Claude',
+      both: '{screening|# question is|# questions are} waiting for the project manager to screen, {integrator|# machine to-do|# machine to-dos} for the connected Claude',
       onlyScreening: '{count|# question is|# questions are} waiting for the project manager to screen',
-      onlyIntegrator: '{count|# machine todo is|# machine todos are} waiting for the connected Claude',
+      onlyIntegrator: '{count|# machine to-do is|# machine to-dos are} waiting for the connected Claude',
       oldest: 'oldest: {age}',
       show: 'Show',
       hide: 'Hide',
@@ -5066,8 +5068,8 @@ export const en = {
     },
     /** The folded row of the questions the Operator settled with no person involved (PM-556). */
     operatorTrail: {
-      title: 'Handled by the Operator · {count} today',
-      titleUnknown: 'Handled by the Operator',
+      title: 'Handled by the connected Claude · {count} today',
+      titleUnknown: 'Handled by the connected Claude',
       lead: 'These didn’t reach you. If one of them should have been yours, the asker can ask again.',
       loading: 'Loading…',
       error: 'Couldn’t load it.',
@@ -5078,9 +5080,9 @@ export const en = {
       moot: 'Moot',
       forwardedTo: '{name} got it: {note}',
       forwardedToPlain: '{name} got it.',
-      at: 'With the Operator',
+      at: 'With the connected Claude',
       until: 'It comes to you by {time} at the latest.',
-      queued: 'Waiting for the Operator’s machine; until it’s reachable, it doesn’t come to you.',
+      queued: 'Waiting for the connected Claude’s machine; until it’s reachable, it doesn’t come to you.',
     },
     resolvedBy: '{who} · {time}',
     allDone: 'Everything in this filter is dealt with.',
@@ -5373,17 +5375,17 @@ export const en = {
     },
     weekly: {
       entry: 'Weekly questions',
-      entryHint: '{weeks|# week|# weeks} · questions and integrator answers',
+      entryHint: '{weeks|# week|# weeks} · questions and connected Claude answers',
       back: 'Back to the conversation',
       title: 'Weekly questions',
-      intro: 'Questions that came to you and the answers that came through the integrator.',
+      intro: 'Questions that came to you and the answers that came through the connected Claude.',
       range: 'Last {weeks|# week|# weeks} · {range}',
       timezone: 'Weeks start on Monday · {timezone}',
       week: 'Week',
       weekNumber: 'Week {week}',
       current: 'In progress',
       total: 'Came to you',
-      viaIntegrator: 'Through the integrator',
+      viaIntegrator: 'Through the connected Claude',
       updated: 'Updated: {date}',
       refresh: 'Refresh',
       refreshing: 'Refreshing…',
@@ -5394,24 +5396,24 @@ export const en = {
       stale: 'The refresh didn’t work. You’re seeing the data loaded earlier.',
       denied: 'Only the project’s owner can see the weekly figures, signed in with their own login.',
       empty:
-        'In the last {weeks|# week|# weeks}, no questions came to you and no integrator to-dos were started.',
+        'In the last {weeks|# week|# weeks}, no questions came to you and no machine to-dos were started.',
       firstUse:
         'The figures are made automatically from the questions. Earlier questions count too; where no topic was recorded, “Unknown topic” is shown.',
       emptyWeek: 'No questions came to you this week.',
       answeredByOwner: 'Answered by an owner',
       open: 'Still open',
       answerHint:
-        'The answers that came through the integrator are taken from the questions that came to you.',
+        'The answers that came through the connected Claude are taken from the questions that came to you.',
       byRoute: 'How did it reach you?',
       byTopic: 'On what topic?',
-      integratorTodos: 'Integrator to-dos',
+      integratorTodos: 'Machine to-dos',
       integratorTodosHint:
-        'A separate figure: the number of to-dos sent to the integrator, not of its answers. It isn’t added to the questions that came to you.',
+        'A separate figure: the number of machine to-dos sent to the connected Claude, not of its answers. It isn’t added to the questions that came to you.',
       method: 'How do we count?',
       methodWeeks:
         'The week in progress and the previous {previous|# week|# weeks} are shown, in the project’s time zone. A question belongs to the week of its screening date; if it wasn’t screened, to the week it was created.',
       methodAnswers:
-        'The answers and the open questions show the current state of the weekly questions, so the figures of earlier weeks can change too. An answer that came through the integrator doesn’t mean the integrator made the owner’s decision.',
+        'The answers and the open questions show the current state of the weekly questions, so the figures of earlier weeks can change too. An answer that came through the connected Claude doesn’t mean the connected Claude made the owner’s decision.',
       methodTopics:
         'The route and the topic are two separate breakdowns of the same weekly question count. Old questions without a topic count too.',
       unknownTopic: 'Unknown topic',
@@ -5439,8 +5441,8 @@ export const en = {
       routes: {
         decision: 'Screened decision',
         owner_todo: 'Owner to-do',
-        integrator_fallback: 'The integrator couldn’t take it over',
-        integrator_escalated: 'The integrator passed it on',
+        integrator_fallback: 'The connected Claude couldn’t take it over',
+        integrator_escalated: 'The connected Claude passed it on',
         screening_fallback: 'Screening wasn’t available or timed out',
         project_manager: 'The project manager’s own question',
         reask: 'Asked again',
@@ -5555,8 +5557,8 @@ export const en = {
       recipients: 'To',
       guest: '· guest',
       message: 'The message',
-      messageExact: 'Exactly this goes out, in the Operator’s name.',
-      messageExactTask: 'Exactly this goes out, in the Operator’s name, about card {key}.',
+      messageExact: 'Exactly this goes out, in the connected Claude’s name.',
+      messageExactTask: 'Exactly this goes out, in the connected Claude’s name, about card {key}.',
       expires: 'Expires: {time}. If you don’t decide by then, nothing happens.',
       expiresSoon: 'Expires in {minutes} min. If you don’t decide by then, nothing happens.',
       send: 'Send',
@@ -5574,15 +5576,15 @@ export const en = {
       stale: 'Out of date',
       staleReasons: {
         expired:
-          'It expired because you didn’t decide within 24 hours, so nothing happened. If you still need it, ask the Operator again.',
+          'It expired because you didn’t decide within 24 hours, so nothing happened. If you still need it, ask the connected Claude again.',
         interrupted:
-          'The execution was interrupted and, for safety, isn’t restarted. Check whether it happened; if you still need it, ask the Operator again.',
+          'The execution was interrupted and, for safety, isn’t restarted. Check whether it happened; if you still need it, ask the connected Claude again.',
         config_changed:
-          'The setting changed in the meantime, so this request can’t be run any more. I told the Operator; if you still need it, ask them again.',
+          'The setting changed in the meantime, so this request can’t be run any more. I told the connected Claude; if you still need it, ask them again.',
         session_changed:
-          'The session has stopped in the meantime, or is somewhere else now, so this request can’t be run any more. If you still need it, ask the Operator again.',
+          'The session has stopped in the meantime, or is somewhere else now, so this request can’t be run any more. If you still need it, ask the connected Claude again.',
         pause_changed:
-          'The project’s pause changed in the meantime, so this request can’t be run any more. If you still need it, ask the Operator again.',
+          'The project’s pause changed in the meantime, so this request can’t be run any more. If you still need it, ask the connected Claude again.',
       },
       approved: 'Approved: {title}',
       rejected: 'Rejected, nothing changed.',
@@ -5590,7 +5592,7 @@ export const en = {
         message_send:
           'After approval the message goes out once. If you reject it, nothing goes out and the recipient isn’t notified.',
         operator_watch:
-          'Signals already raised don’t change; from its next wake-up the Operator acts on signals this way.',
+          'Signals already raised don’t change; from its next wake-up the connected Claude acts on signals this way.',
         network:
           'Running sessions don’t change; the network rule applies to sessions that start from now on.',
         permission_mode:
@@ -5620,7 +5622,7 @@ export const en = {
       hide: 'Hide',
       dismissAll: 'Set all aside ({count})',
       dismissAllConfirm:
-        'You are setting {count|# signal|# signals} aside. The Operator won’t mention them again.',
+        'You are setting {count|# signal|# signals} aside. The connected Claude won’t mention them again.',
       dismissAllYes: 'Yes, set them all aside',
       dismissAllCancel: 'Cancel',
       dismissAllProgress: 'Setting aside… {done}/{total}',
@@ -5683,7 +5685,7 @@ export const en = {
         start_blocked:
           'The card’s start is waiting for a repository choice or a stuck workspace. The PM sorts out what a member can; when the cause is gone, the signal closes by itself.',
         obligation_overdue:
-          'The assignee still hasn’t done the step after the reminder. The PM looks into it; if the step happened or moved on, the signal closes by itself, otherwise the step goes to the integrator.',
+          'The assignee still hasn’t done the step after the reminder. The PM looks into it; if the step happened or moved on, the signal closes by itself, otherwise the step goes to the connected Claude.',
         relation_check:
           'The relations of the card changed. The PM checks that they still hold; when they are gone, the signal closes by itself.',
         senior_wait:
@@ -5797,7 +5799,7 @@ export const en = {
     footer:
       'It runs only this one command, as your user. If it needs to run again, it asks again. The question expires at {time}.',
     outputPrivacy:
-      'The output isn’t fully filtered. The Operator and its model provider receive the output too.',
+      'The output isn’t fully filtered. The connected Claude and its model provider receive the output too.',
     yes: 'Yes, run it',
     no: 'No',
     approved: 'You approved it; the command is running.',
@@ -5813,9 +5815,9 @@ export const en = {
     audit: 'Activity log',
     auditEmpty: 'No entries yet.',
     auditActions: { created: 'Created', revoked: 'Revoked' },
-    modes: { super: 'Operator permissions', read: 'Read-only', legacy: 'Legacy key' },
+    modes: { super: 'Full permissions', read: 'Read-only', legacy: 'Legacy key' },
     purpose: 'What is it for?',
-    superHint: 'For Claude Code: the same as what the Operator can do.',
+    superHint: 'For the connected Claude (Claude Code): it works in your name and with your rights.',
     readHint: 'For scripts: reading and following events; it cannot change anything.',
     days1: '1 day',
     days7: '7 days',
@@ -5823,7 +5825,7 @@ export const en = {
     noExpiryHint: 'A leaked key stays valid until it is revoked. You can revoke it at any time.',
     readSecretTitle: 'New read key',
     superSecretTitle: 'New Claude Code key',
-    emptyHint: 'Without a key, Claude Code can’t connect. The Operator works without it too.',
+    emptyHint: 'Without a key, Claude Code can’t connect. The team works without it too.',
     past: 'Earlier keys ({n})',
     ownerOnly: 'Only the owner can manage the keys, with their own login.',
     today:
@@ -5862,7 +5864,7 @@ export const en = {
     revokeReadBody:
       'Every call from the scripts is refused immediately. What they did so far stays in the log.',
     intro:
-      'If you use Claude Code, this key makes it a client of the same Operator: the same actions, logged the same way. The queue keeps moving without it.',
+      'If you use Claude Code, this key makes it your connected Claude: it reaches the actions in your name and with your rights, logged. The queue keeps moving without it.',
     none: 'No key yet.',
     noValid: 'No valid key.',
     create: 'Create key',
@@ -5890,11 +5892,11 @@ export const en = {
       'The current read key ({prefix}…) stops working immediately; the scripts carry on with the new one.',
     revokeTitle: 'Revoke the {prefix}… key?',
     revokeBody:
-      'Every call from Claude Code is refused immediately: over MCP, on the command line and on the event stream. What it did so far stays, under the Operator’s name.',
+      'Every call from Claude Code is refused immediately: over MCP, on the command line and on the event stream. What it did so far stays, under the connected Claude’s name.',
     states: { active: 'Active', expired: 'Expired', revoked: 'Revoked' },
     error: 'Couldn’t load the keys.',
     activity: 'What did it do with this key?',
-    forwarded: 'The owner’s answer, recorded by the Operator',
+    forwarded: 'The owner’s answer, recorded by the connected Claude',
   },
   /** A step made through a connected Claude (decision 66, PM-1075). */
   connected: {
@@ -5914,7 +5916,7 @@ export const en = {
   superMode: {
     detailError: 'Couldn’t load the details of the action.',
     commands: {
-      operate: 'Operator action',
+      operate: 'Connected Claude action',
       task_create: 'Create card',
       task_update: 'Change card',
       task_labels: 'Change labels',
@@ -5929,14 +5931,14 @@ export const en = {
       merge_order: 'Reorder merge queue',
       administration: 'System action',
     },
-    name: 'Operator',
+    name: 'Connected Claude',
     badge: 'super',
-    actor: 'Operator · super',
-    avatar: 'Operator, with super permissions',
+    actor: 'Connected Claude · super',
+    avatar: 'Connected Claude, with super permissions',
     credentialLead: 'From Claude Code · key',
-    activity: 'What did the Operator do with super permissions?',
+    activity: 'What did the connected Claude do with super permissions?',
     operationsTitle: 'Actions',
-    emptyAll: 'The Operator hasn’t done anything with super permissions yet.',
+    emptyAll: 'The connected Claude hasn’t done anything with super permissions yet.',
     operations: {
       member: { update: 'Change member' },
       'operate:project_pause': 'Pause team',
@@ -5956,7 +5958,7 @@ export const en = {
     operation: 'Super mode action: {operation}',
     unknownHint: 'Check the log before you try again.',
     states: {
-      pending: 'In the Operator’s queue',
+      pending: 'In the connected Claude’s queue',
       waiting_owner: 'Waiting for you',
       running: 'In progress',
       succeeded: 'Done',
@@ -6397,8 +6399,8 @@ export const en = {
       hint: 'As soon as the machine runs the project, the project manager greets you in the project and walks you through the rest (GitHub, team).',
       optionalSummary: 'Optional: connect your assistant to projectman too',
       optionalBody:
-        'This way your Claude or Codex desktop app can work in your projects too (questions, machine to-dos). Create a key under Settings → Integrator: there you get a ready, pasteable connection instruction for the assistant.',
-      optionalLink: 'Settings → Integrator',
+        'This way your Claude or Codex desktop app can work in your projects too (questions, machine to-dos). Create a key under Settings → Connected Claude: there you get a ready, pasteable connection instruction for the assistant.',
+      optionalLink: 'Settings → Connected Claude',
       continue: 'Continue to the project',
     },
   },
@@ -6785,7 +6787,7 @@ export const en = {
     nav: {
       owners: 'Owners',
       label: 'Settings sections',
-      integrator: 'Operator permissions',
+      integrator: 'Connected Claude',
       pipeline: 'Board',
       labels: 'Labels',
       duties: 'Roles and duties',
@@ -7293,7 +7295,7 @@ export const en = {
     team: {
       ownerTopics: {
         title: 'Owner decisions',
-        help: 'The team can ask you for a decision only on these topics. The Operator handles everything else. They can always ask for approval.',
+        help: 'The team can ask you for a decision only on these topics. The connected Claude handles everything else. They can always ask for approval.',
         enabled: 'On: {topics}',
         empty: 'No topic is on.',
         warning: 'No topic is on. The team will only ask you for approval, not for any other decision.',
@@ -7310,7 +7312,8 @@ export const en = {
         labelPlaceholder: 'e.g. Legal question',
         hint: 'When should it come to you?',
         hintPlaceholder: 'e.g. Contracts, data protection, terms of use.',
-        hintHelp: 'This is how the Operator understands what belongs here. One or two sentences are enough.',
+        hintHelp:
+          'This is how the connected Claude understands what belongs here. One or two sentences are enough.',
         labelRequired: 'Give the topic a name.',
         hintRequired: 'Describe when it should come to you.',
         limit: 'At most 12 topics can be on. Turn one off or delete one before adding a new one.',

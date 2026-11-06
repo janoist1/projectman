@@ -77,9 +77,16 @@
   width: 100%;
 }
 
+/* A pressed button sinks (a bevel only in the Win 3.11 style; the others keep the colour change). */
+.secondary:active:not(:disabled),
+.muted:active:not(:disabled) {
+  box-shadow: var(--bevel-sunken);
+}
+
 .primary {
   background: var(--c-primary);
   color: var(--c-on-primary);
+  box-shadow: var(--bevel-raised);
 }
 .primary:hover:not(:disabled) {
   background: var(--c-primary-hover);
@@ -96,18 +103,20 @@
 }
 
 .secondary {
-  background: var(--c-surface);
+  background: var(--c-button);
   border-color: var(--c-line-strong);
   color: var(--c-ink);
+  box-shadow: var(--bevel-raised);
 }
 .secondary:hover:not(:disabled) {
-  background: var(--c-subtle);
+  background: var(--c-button-hover);
   color: var(--c-ink);
 }
 
 .muted {
   background: var(--c-muted);
   color: var(--c-ink);
+  box-shadow: var(--bevel-raised);
 }
 .muted:hover:not(:disabled) {
   background: var(--c-muted-hover);

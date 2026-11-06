@@ -314,7 +314,7 @@
 
 .decisionNo .decisionIcon {
   background: var(--c-needs-bg);
-  color: var(--c-needs);
+  color: var(--c-needs-mark);
 }
 
 /* permission prompt */
@@ -341,7 +341,7 @@
   height: 28px;
   border-radius: var(--radius-sm);
   background: var(--c-needs-icon-bg);
-  color: var(--c-needs);
+  color: var(--c-needs-mark);
   display: inline-flex;
   align-items: center;
   justify-content: center;

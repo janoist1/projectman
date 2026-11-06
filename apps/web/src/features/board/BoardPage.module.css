@@ -32,18 +32,22 @@
   padding: 12px 10px;
   border-radius: var(--radius-2xl);
   background: var(--column-bg);
+  box-shadow: var(--bevel-raised);
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-height: 0;
 }
 
+/* A column is a window; its head is the title bar (neutral in the classic style). */
 .columnHead {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 0 4px 2px;
+  padding: var(--titlebar-pad-y) var(--titlebar-pad-x) 2px;
+  background: var(--c-titlebar-bg);
+  color: var(--c-titlebar-fg);
 }
 
 .columnTitle {
@@ -69,7 +73,7 @@
 .columnCount {
   font-size: 12.5px;
   font-weight: 700;
-  color: var(--c-ink-4);
+  color: var(--c-titlebar-fg-soft);
 }
 
 /* "▶ 3 indítható" (PM-1079): the queue of work that can be started; grey when nothing can. */
@@ -92,7 +96,7 @@
 
 .columnHint {
   font-size: var(--text-xs);
-  color: var(--c-ink-4);
+  color: var(--c-titlebar-fg-soft);
 }
 
 .cards {

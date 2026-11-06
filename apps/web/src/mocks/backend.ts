@@ -4,6 +4,7 @@ import type {
   MemberContextPreview,
   ProviderLoginStatus,
   ServerVersionView,
+  UiStyle,
 } from '@projectman/shared';
 import {
   ACCEPTANCE_OPEN_LABEL,
@@ -93,6 +94,7 @@ import {
   SendMessageRequest,
   ReadTeamMessagesRequest,
   SendTeamMessageRequest,
+  SetUiStyleRequest,
   SetupRequest,
   StartTaskRequest,
   StartMergeRequest,
@@ -504,6 +506,9 @@ export class MockBackend {
   liveSuperKey = true;
   private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
   user = { ...fixtures.mockUser };
+  /** The interface style the fake user chose (PM-363); `failUiStyleSave` makes saving it fail, as when offline. */
+  uiStyle: UiStyle | undefined = undefined;
+  failUiStyleSave = false;
   config: ProjectConfig = fixtures.buildConfig();
   structure = clone(fixtures.structureFixture);
   configVersion = fixtures.projectSummary.configVersion;
@@ -2160,6 +2165,13 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/me/ui-style' && method === 'PUT') {
+      const input = parseBody(SetUiStyleRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid style');
+      if (this.failUiStyleSave) return error(500, 'internal_error', 'Cannot save the style');
+      this.uiStyle = input.style;
+      return ok(this.me());
+    }
     if (method === 'GET' && path === '/api/version') return ok(this.serverVersion);
     if (path === '/api/me/push' || path.startsWith('/api/me/push/'))
       return (
@@ -2399,6 +2411,7 @@ export class MockBackend {
     const member = memberOf(this.config, this.viewerHandle);
     return {
       ...this.user,
+      ...(this.uiStyle ? { uiStyle: this.uiStyle } : {}),
       hostOwner: this.isHostOwner(),
       ...(this.ownerAccountIds.has(this.user.userId) ? { ownerAccount: true } : {}),
       instanceOwner: this.isHostOwner(),

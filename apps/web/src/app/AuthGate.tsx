@@ -4,6 +4,7 @@ import { isApiError, onUnauthorized } from '../api/client';
 import { useMe, useSetupStatus } from '../api/queries';
 import { SocketProvider } from '../api/SocketProvider';
 import { ErrorState, LoadingState } from '../components/States';
+import { applyUiStyle } from '../lib/uiStyle';
 import { MeContext } from './contexts';
 import { loginPath } from './paths';
 import styles from './AuthGate.module.css';
@@ -20,6 +21,12 @@ export function AuthGate() {
   const [expired, setExpired] = useState(false);
 
   useEffect(() => onUnauthorized(() => setExpired(true)), []);
+
+  // The style saved on the account follows the user to every device (PM-363).
+  const savedStyle = me.data?.uiStyle;
+  useEffect(() => {
+    if (savedStyle) applyUiStyle(savedStyle);
+  }, [savedStyle]);
 
   const next = `${location.pathname}${location.search}`;
   if (setup.isPending) return <LoadingState className={styles.full} />;

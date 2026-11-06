@@ -123,6 +123,7 @@ import type {
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
+  SetUiStyleRequest,
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
@@ -236,6 +237,8 @@ export const api = {
     apiRequest(routes.emailLoginVerify(), { method: 'POST', body, schema: Me }),
   logout: () => apiRequest<unknown>(routes.logout(), { method: 'POST' }),
   me: () => apiRequest(routes.me(), { schema: Me }),
+  setUiStyle: (body: SetUiStyleRequest) =>
+    apiRequest(routes.meUiStyle(), { method: 'PUT', body, schema: Me }),
 
   invitations: (key: string) => apiRequest(routes.invitations(key), { schema: InvitationsView }),
   createInvite: (key: string, body: CreateInviteRequest) =>

@@ -38,6 +38,7 @@
   font-size: var(--text-md);
   color: var(--c-ink);
   background: var(--c-surface);
+  box-shadow: var(--bevel-sunken);
   transition: border-color 120ms ease;
 }
 

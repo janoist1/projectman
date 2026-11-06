@@ -4,6 +4,7 @@ import {
   IntegratorKeyAuditQuery,
   LoginRequest,
   routes,
+  SetUiStyleRequest,
   SetupRequest,
 } from '@projectman/shared';
 import type { IntegratorChannel, Me, SetupStatus } from '@projectman/shared';
@@ -104,6 +105,7 @@ function needsLogin(request: FastifyRequest): boolean {
 
 /** The user and their memberships, as every login answers and GET /api/auth/me returns. */
 export async function meOf(domain: AuthDomain, user: AuthUser, auth?: AuthService): Promise<Me> {
+  const uiStyle = auth?.uiStyle(user.id);
   return {
     userId: user.id,
     name: user.name,
@@ -112,6 +114,7 @@ export async function meOf(domain: AuthDomain, user: AuthUser, auth?: AuthServic
     projects: await domain.projectsFor(user.email),
     instanceOwner: await domain.instanceOwner(user.email),
     ...(auth ? { hostOwner: auth.isHostOwner(user.id), ownerAccount: auth.isOwnerAccount(user.id) } : {}),
+    ...(uiStyle ? { uiStyle } : {}),
   };
 }
 
@@ -310,6 +313,15 @@ export function registerAuth(
     ...(await meOf(domain, request.user!, auth)),
     ...(request.via ? { via: request.via } : {}),
   }));
+
+  // The style is the user's own choice for their own interface (PM-363): an integrator key does not set it.
+  app.put(routes.meUiStyle(), async (request) => {
+    if (request.via)
+      throw forbidden('integrator_not_allowed', 'Only the user may choose their interface style');
+    const { style } = parseBody(SetUiStyleRequest, request.body);
+    auth.setUiStyle(request.user!.id, style);
+    return meOf(domain, request.user!, auth);
+  });
 
   const keyOwner = (request: FastifyRequest): string => {
     if (request.via)

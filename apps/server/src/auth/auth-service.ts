@@ -1,10 +1,16 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
-import { canHoldIntegratorKey, integratorKeyCoversProject, isOwnerAccount } from '@projectman/shared';
+import {
+  canHoldIntegratorKey,
+  integratorKeyCoversProject,
+  isOwnerAccount,
+  UiStyle as UiStyleSchema,
+} from '@projectman/shared';
 import type {
   CreateIntegratorAccessKeyRequest,
   IntegratorChannel,
   IntegratorKeyAuditQuery,
+  UiStyle,
 } from '@projectman/shared';
 import type { IntegratorPrincipal } from '../contracts';
 import type { Repositories, UserRecord } from '../db';
@@ -306,6 +312,16 @@ export class AuthService {
   user(id: string): AuthUser | null {
     const user = this.repos.users.get(id);
     return user ? { id: user.id, name: user.name, email: user.email } : null;
+  }
+
+  /** The interface style the account chose (PM-363), or undefined while none is chosen. */
+  uiStyle(userId: string): UiStyle | undefined {
+    const parsed = UiStyleSchema.safeParse(this.repos.users.getUiStyle(userId));
+    return parsed.success ? parsed.data : undefined;
+  }
+
+  setUiStyle(userId: string, style: UiStyle): void {
+    this.repos.users.setUiStyle(userId, style);
   }
 
   /** Whether the account can log in with a password (a passwordless account cannot). */

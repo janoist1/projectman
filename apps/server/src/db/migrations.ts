@@ -2778,4 +2778,11 @@ migrations.push({
     CREATE INDEX session_pauses_pause ON session_pauses(pause_id, resumed_at);
     ${V136_REBUILT_TRIGGER_TABLES.map(changeTriggerSql).join('\n')}`,
 });
+migrations.push({
+  version: 137,
+  name: 'user interface style',
+  // PM-363: the style a user chose for their own interface ('classic' or 'win311'). NULL: none chosen yet,
+  // the interface shows the classic style.
+  sql: `ALTER TABLE users ADD COLUMN ui_style TEXT CHECK (ui_style IN ('classic', 'win311'));`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

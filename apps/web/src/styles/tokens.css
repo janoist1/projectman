@@ -30,6 +30,8 @@
 
   --rail-width: 80px;
   --topbar-height: 64px;
+  --topbar-pad-x: 24px;
+  --topbar-gap: 12px;
   --tabbar-height: 64px;
 
   /* Board column palette: foreground accents and softly tinted surfaces. */
@@ -107,6 +109,10 @@
   --c-needs-code-border: #f2d8c6;
   --c-needs-icon-bg: #fce3d2;
   --c-on-needs: #ffffff;
+  /* An icon or a word in the "needs you" colour, on any surface (the Win 3.11 style's signal colour is yellow, which cannot be one). */
+  --c-needs-mark: var(--c-needs);
+  /* The background of a card that waits for a person: the classic style marks it with a stripe only. */
+  --c-card-needs: var(--c-surface);
 
   /* ok */
   --c-ok: #0f766e;
@@ -194,6 +200,25 @@
   --shadow-drawer: -24px 0 48px rgba(25, 25, 22, 0.1);
   --shadow-pop: 0 12px 32px rgba(25, 25, 22, 0.14), 0 2px 6px rgba(25, 25, 22, 0.08);
   --ring-selected: 0 0 0 3px rgba(48, 68, 201, 0.18);
+
+  /*
+   * Tokens the Win 3.11 style (PM-363, styles/win311.css) fills in; the classic style keeps them neutral, so
+   * a component that uses them looks the same there. A bevel is a box-shadow list (raised: buttons and windows;
+   * sunken: fields and lists). A title bar is an inactive window's head; the active one is the window in focus.
+   */
+  --c-button: var(--c-surface);
+  --c-button-hover: var(--c-subtle);
+  --bevel-raised: 0 0 0 0 transparent;
+  --bevel-sunken: 0 0 0 0 transparent;
+  --titlebar-pad-y: 0;
+  --titlebar-pad-x: 4px;
+  --c-titlebar-bg: transparent;
+  --c-titlebar-fg: var(--c-ink);
+  --c-titlebar-fg-soft: var(--c-ink-4);
+  --c-titlebar-active-bg: transparent;
+  --c-titlebar-active-fg: var(--c-ink);
+  /* Secondary text in an active title bar. */
+  --c-titlebar-active-fg-soft: var(--c-ink-3);
 }
 
 @media (prefers-color-scheme: dark) {

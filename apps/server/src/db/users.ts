@@ -76,6 +76,15 @@ export function createUserRepository(db: Db) {
     list(): UserRecord[] {
       return (db.prepare('SELECT * FROM users ORDER BY created_at').all() as UserRow[]).map(toUser);
     },
+    /** The interface style the user chose (PM-363); `null` until they chose one. */
+    getUiStyle(id: string): string | null {
+      const row = db.prepare('SELECT ui_style FROM users WHERE id = ?').get(id) as
+        { ui_style: string | null } | undefined;
+      return row?.ui_style ?? null;
+    },
+    setUiStyle(id: string, style: string): void {
+      db.prepare('UPDATE users SET ui_style = ? WHERE id = ?').run(style, id);
+    },
   };
 }
 

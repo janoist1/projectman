@@ -89,6 +89,8 @@ export const routes = {
   emailLoginVerify: () => '/api/auth/email/verify',
   logout: () => '/api/auth/logout',
   me: () => '/api/me',
+  /** PUT: saves the signed-in user's interface style (`SetUiStyleRequest`, PM-363); 200 `Me`. */
+  meUiStyle: () => '/api/me/ui-style',
 
   projects: () => '/api/projects',
   board: (key: string) => `/api/projects/${key}/board`,

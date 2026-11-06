@@ -16,7 +16,22 @@
           background: #141412;
         }
       }
+      html[data-style='win311'] {
+        background: #008080;
+      }
+      @media (prefers-color-scheme: dark) {
+        html[data-style='win311'] {
+          background: #003c3c;
+        }
+      }
     </style>
+    <script>
+      /* The interface style this browser remembers (PM-363), set before the first paint so the other style never flashes. */
+      try {
+        if (localStorage.getItem('pm:ui-style') === 'win311')
+          document.documentElement.dataset.style = 'win311';
+      } catch (e) {}
+    </script>
     <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />

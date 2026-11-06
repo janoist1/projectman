@@ -1,0 +1,156 @@
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.title {
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: var(--c-ink-2);
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 767px) {
+  .choices {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.choice {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 44px;
+  padding: 10px;
+  cursor: pointer;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-lg);
+}
+
+.choice[data-checked='true'] {
+  border-width: 3px;
+  padding: 8px;
+  border-color: var(--c-ink);
+}
+
+/* The radio itself is hidden; the card shows its state. Its focus shows on the card. */
+.input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.choice:has(.input:focus-visible) {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+  font-size: var(--text-md);
+}
+
+.tick {
+  color: var(--c-ok-text);
+}
+
+.summary {
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+/* Small drawings of the two styles. They show each style whichever one is active, so their colours are fixed. */
+.preview {
+  display: flex;
+  flex-direction: column;
+  height: 84px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.previewBar {
+  height: 16px;
+}
+
+.previewBody {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+.previewCard {
+  flex: 1;
+}
+
+.preview[data-preview='classic'] {
+  background: #f5f4ef;
+  border: 1px solid #e4e1d8;
+}
+
+.preview[data-preview='classic'] .previewBar {
+  background: #eceae3;
+}
+
+.preview[data-preview='classic'] .previewCard {
+  background: #e8eefb;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(25, 25, 22, 0.12);
+}
+
+.preview[data-preview='win311'] {
+  background: #008080;
+}
+
+.preview[data-preview='win311'] .previewBar {
+  background: #000080;
+}
+
+.preview[data-preview='win311'] .previewBody {
+  background: #c0c0c0;
+  margin: 0 8px 8px;
+  padding: 6px;
+  border: 2px solid;
+  border-color: #ffffff #404040 #404040 #ffffff;
+}
+
+.preview[data-preview='win311'] .previewCard {
+  background: #ffffff;
+  border: 2px solid;
+  border-color: #404040 #ffffff #ffffff #404040;
+}
+
+.unsaved {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-blocked-text);
+}
+
+.retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-weight: 700;
+  text-decoration: underline;
+  color: var(--c-accent-text);
+}
+
+@media (max-width: 767px) {
+  .retry {
+    min-height: 44px;
+    padding: 0 8px;
+  }
+}

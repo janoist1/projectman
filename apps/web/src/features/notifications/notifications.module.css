@@ -96,7 +96,7 @@
 
 .heroNeeds .heroIcon {
   background: var(--c-needs-bg);
-  color: var(--c-needs);
+  color: var(--c-needs-mark);
 }
 
 .heroBody {

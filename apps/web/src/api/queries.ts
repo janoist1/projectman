@@ -52,6 +52,7 @@ import type {
   RenameMemberRequest,
   RetireMemberRequest,
   SessionDetail,
+  SetUiStyleRequest,
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
@@ -170,6 +171,17 @@ export function useMe(enabled = true) {
     enabled,
     staleTime: 5 * 60_000,
     retry: (count, error) => !(isApiError(error) && error.status < 500) && count < 2,
+  });
+}
+
+/** Saves the user's interface style on the account (PM-363); the picker has already switched this device. */
+export function useSetUiStyle() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: SetUiStyleRequest) => api.setUiStyle(body),
+    onSuccess: (me) => {
+      client.setQueryData(queryKeys.me, me);
+    },
   });
 }
 

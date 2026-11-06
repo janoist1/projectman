@@ -28,6 +28,7 @@
  */
 .card[data-phase='needs_you']:not(.selected, .fileTarget),
 .card[data-phase='stuck']:not(.selected, .fileTarget) {
+  background: var(--c-card-needs);
   box-shadow:
     var(--shadow-xs),
     inset 3px 0 0 var(--c-needs);

@@ -963,7 +963,8 @@ export const hu = {
   // server (packages/templates `webPush`); these are the page's own texts.
   notifications: {
     title: 'Értesítések',
-    subtitle: 'Szólunk, ha valami rád vár, akkor is, ha nincs nyitva a tábla.',
+    subtitle:
+      'Szólunk, ha valami rád vár vagy hozzászólnak egy kártyához, akkor is, ha nincs nyitva a tábla.',
     thisDevice: 'Ez az eszköz',
     unavailable: {
       title: 'A szerveren ki van kapcsolva az értesítés',
@@ -971,7 +972,7 @@ export const hu = {
     },
     off: {
       title: 'Ezen az eszközön nincs értesítés',
-      text: 'Szólunk, ha kérdés, döntés vagy jóváhagyás vár rád, akkor is, ha nincs nyitva a tábla.',
+      text: 'Szólunk, ha kérdés, döntés, jóváhagyás vagy hozzászólás vár rád, akkor is, ha nincs nyitva a tábla.',
       action: 'Bekapcsolás',
       hint: 'A böngésző engedélyt kér: válaszd az Engedélyezést.',
     },
@@ -1081,7 +1082,7 @@ export const hu = {
       loadFailed: 'Nem sikerült betölteni az ntfy-beállítást.',
       unavailable: 'Ezen a példányon az értesítés nincs bekapcsolva, ezért az ntfy sem működik.',
       intro:
-        'Ha a böngészős értesítés nem érkezik meg a telefonodra, az ntfy alkalmazás is jelezhet. Csak ennyi megy ki: „Új elem a Rád vár-ban”, és egy hivatkozás ide. Cím, projekt és tartalom nem.',
+        'Ha a böngészős értesítés nem érkezik meg a telefonodra, az ntfy alkalmazás is jelezhet. Csak ennyi megy ki: „Új elem a Rád vár-ban” vagy „Új hozzászólás vagy említés vár”, és egy hivatkozás ide. Cím, projekt, kártyakulcs és tartalom nem.',
       setUp: 'Beállítom',
       setUpFailed: 'Nem sikerült beállítani. Próbáld újra.',
       created: 'Kész. Add hozzá az alábbi témát az ntfy alkalmazásban.',
@@ -1141,7 +1142,7 @@ export const hu = {
     },
     kinds: {
       title: 'Miről szóljunk?',
-      hint: 'Minden eszközödre érvényes',
+      hint: 'Minden eszközödre és az ntfy-ra érvényes',
       question: 'Kérdés',
       questionHint: 'Egy tag kérdez tőled valamit.',
       decision: 'Döntés',
@@ -1152,9 +1153,13 @@ export const hu = {
       permissionHint: 'Egy tag engedélyt kér egy művelethez.',
       release: 'Kiadás',
       releaseHint: 'Új kiadás vár a jóváhagyásodra.',
+      comment: 'Hozzászólás',
+      commentHint: 'Új hozzászólás olyan kártyán, amelyben részt veszel.',
+      mention: 'Említés',
+      mentionHint: 'Valaki @említ egy kártya hozzászólásában.',
       hostRequest: 'Kérés a gazdához',
       hostRequestHint: 'Egy másik tulajdonos pm-je kérést küldött neked.',
-      foot: 'Tájékoztató üzenetről és jelzésről nem küldünk értesítést. Amíg nyitva van előtted a tábla, sem.',
+      foot: 'Tájékoztató üzenetről és jelzésről nem küldünk értesítést. Amíg nyitva van előtted a tábla, sem. A saját hozzászólásodról sem. A kategóriák a böngészős és az ntfy-értesítésekre is érvényesek.',
       saved: 'Mentve.',
       saveFailed: 'Nem sikerült menteni. Próbáld újra.',
     },
@@ -1162,7 +1167,8 @@ export const hu = {
       title: 'Mikor ne zavarjunk?',
       hint: 'Minden eszközödre érvényes',
       switchLabel: 'Csendes órák',
-      switchHint: 'Ilyenkor nem küldünk értesítést. A végén egy összesítő jön a még nyitott tételekről.',
+      switchHint:
+        'Ilyenkor nem küldünk értesítést. A végén egy összesítő jön a még nyitott tételekről; a hozzászólásokról és említésekről nem.',
       start: 'Kezdet',
       end: 'Vége',
       endNextDay: 'Vége (másnap)',
@@ -7668,6 +7674,15 @@ export const hu = {
       name: 'Név',
       email: 'E-mail',
       handle: 'Azonosítód itt',
+      appearance: {
+        title: 'Megjelenés',
+        classic: 'Klasszikus',
+        classicSummary: 'A projectman mai kinézete.',
+        win311: 'Win 3.11',
+        win311Summary: 'Retró ablakok és domború gombok, mai kezeléssel.',
+        saveFailed: 'Nem sikerült menteni, ezért csak ezen az eszközön érvényes.',
+        retry: 'Újra',
+      },
     },
     edit: {
       description: 'Leírás',

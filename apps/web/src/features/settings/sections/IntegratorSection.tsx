@@ -94,7 +94,7 @@ export function IntegratorSection() {
     return (
       <li key={info.id} className={styles.keyRow} data-past={info.state !== 'active'}>
         <div className={styles.status}>
-          <Chip tone={info.state === 'active' ? 'ok' : info.state === 'expired' ? 'needs' : 'neutral'}>
+          <Chip tone={info.state === 'active' ? 'ok' : info.state === 'expired' ? 'warn' : 'neutral'}>
             {t(`integratorKey.states.${info.state}`)}
           </Chip>
           <Chip tone="outline">{t(`integratorKey.modes.${info.mode}`)}</Chip>

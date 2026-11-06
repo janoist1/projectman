@@ -68,10 +68,10 @@
 }
 .state[data-tone='needs'],
 .needs {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .state[data-tone='needs'] .dot {
-  background: var(--c-needs-text);
+  background: var(--c-warn-text);
 }
 .dot {
   width: 6px;

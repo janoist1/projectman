@@ -667,6 +667,7 @@ export class Messaging {
   /** The members a task comment mentions get it as a message from its author. */
   async mentionNotice(note: DomainEventMap['task_note_added']): Promise<void> {
     const { event } = note;
+    if (note.mentions.length === 0) return;
     const author = actorHandle(event.actor);
     // The comment keeps every mention; the notice goes only to those the author may write to now (PM-985).
     const config = await this.projects.config(event.projectKey);

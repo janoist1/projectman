@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { gateRequestOf, humanInboxAssignment } from './inbox';
+import type { Actor } from './event';
 import type { InboxItem } from './inbox';
 
 export const PushCategory = z.enum([
@@ -9,6 +10,8 @@ export const PushCategory = z.enum([
   'permission',
   'release',
   'host_request',
+  'comment',
+  'mention',
 ]);
 export type PushCategory = z.infer<typeof PushCategory>;
 export const PushResult = z.enum(['ok', 'failed', 'expired']);
@@ -48,6 +51,9 @@ export const PushCategories = z.object({
   release: z.boolean(),
   /** A request to the instance's host (PM-1064); rows stored before it read as on. */
   host_request: z.boolean().default(true),
+  /** A comment on a card the person takes part in, and an @mention in one (PM-1271); older rows read as on. */
+  comment: z.boolean().default(true),
+  mention: z.boolean().default(true),
 });
 export type PushCategories = z.infer<typeof PushCategories>;
 export const PushSettings = z.object({ categories: PushCategories, quietHours: QuietHours });
@@ -60,6 +66,8 @@ export const DEFAULT_PUSH_SETTINGS: PushSettings = {
     permission: true,
     release: true,
     host_request: true,
+    comment: true,
+    mention: true,
   },
   quietHours: { enabled: false, start: '22:00', end: '07:00', timeZone: 'UTC' },
 };
@@ -125,6 +133,47 @@ export function pushCategoryOf(item: InboxItem): PushCategory | null {
 }
 export function isPushableItem(item: InboxItem, handle: string): boolean {
   return item.state === 'open' && pushCategoryOf(item) !== null && humanInboxAssignment(item, handle);
+}
+export interface NotePushInput {
+  author: Pick<Actor, 'kind' | 'handle'>;
+  /** The members the note mentions (`commentMentions`). */
+  mentions: readonly string[];
+  /** The card's opener (`task.createdBy`). */
+  creator: string;
+  assignee: string | null;
+  /** The authors of the card's earlier, not imported human notes. */
+  earlierAuthors: readonly string[];
+  /** The handles of the project's human members. */
+  humans: readonly string[];
+}
+export interface NotePushTarget {
+  handle: string;
+  /** In order of precedence; the first one the person has switched on decides, and at least one is listed. */
+  categories: Array<'mention' | 'comment'>;
+}
+/**
+ * Who a card note is pushed to (PM-1271). A human note reaches the mentioned people and the card's human
+ * followers (opener, assignee, earlier commenters); an AI member's note only the people it mentions; a system
+ * note nobody. The author never gets their own note, and a person appears once: a mention outranks a comment.
+ */
+export function notePushTargets(input: NotePushInput): NotePushTarget[] {
+  if (input.author.kind === 'system') return [];
+  const humans = new Set(input.humans.map((handle) => handle.toLowerCase()));
+  const author = input.author.handle?.toLowerCase() ?? null;
+  const targets = new Map<string, NotePushTarget>();
+  const add = (handle: string, category: 'mention' | 'comment') => {
+    const id = handle.toLowerCase();
+    if (id === author || !humans.has(id)) return;
+    const target = targets.get(id);
+    if (target) target.categories.push(category);
+    else targets.set(id, { handle, categories: [category] });
+  };
+  for (const handle of input.mentions) add(handle, 'mention');
+  if (input.author.kind === 'human')
+    for (const handle of [input.creator, input.assignee, ...input.earlierAuthors])
+      if (handle && !targets.get(handle.toLowerCase())?.categories.includes('comment'))
+        add(handle, 'comment');
+  return [...targets.values()];
 }
 const minuteOf = (clock: string): number => Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3));
 /** Minute arithmetic deliberately tolerates a one-hour DST offset during a transition night. */

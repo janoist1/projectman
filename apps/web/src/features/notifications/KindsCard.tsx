@@ -22,6 +22,8 @@ const KINDS: ReadonlyArray<{
   { id: 'approval', title: 'notifications.kinds.approval', hint: 'notifications.kinds.approvalHint' },
   { id: 'permission', title: 'notifications.kinds.permission', hint: 'notifications.kinds.permissionHint' },
   { id: 'release', title: 'notifications.kinds.release', hint: 'notifications.kinds.releaseHint' },
+  { id: 'comment', title: 'notifications.kinds.comment', hint: 'notifications.kinds.commentHint' },
+  { id: 'mention', title: 'notifications.kinds.mention', hint: 'notifications.kinds.mentionHint' },
 ];
 
 /** Notification categories available to the person; saved at once. */
@@ -31,6 +33,8 @@ export function KindsCard({ settings }: { settings: PushSettings }) {
   const save = useSavePushSettings();
 
   function change(id: keyof PushCategories, enabled: boolean) {
+    // While a save runs the switches only look inactive (aria-disabled): a disabled input would lose the focus.
+    if (save.isPending) return;
     save.mutate(
       { ...settings, categories: { ...settings.categories, [id]: enabled } },
       {
@@ -47,13 +51,17 @@ export function KindsCard({ settings }: { settings: PushSettings }) {
           <li key={kind.id} className={styles.row}>
             <label className={styles.rowLabel} htmlFor={`push-kind-${kind.id}`}>
               <span className={styles.rowTitle}>{t(kind.title)}</span>
-              <span className={styles.rowHint}>{t(kind.hint)}</span>
+              <span className={styles.rowHint} id={`push-kind-${kind.id}-hint`}>
+                {t(kind.hint)}
+              </span>
             </label>
             <input
               id={`push-kind-${kind.id}`}
               type="checkbox"
               role="switch"
               className={styles.switch}
+              aria-describedby={`push-kind-${kind.id}-hint`}
+              aria-disabled={save.isPending}
               checked={settings.categories[kind.id]}
               onChange={(event) => change(kind.id, event.target.checked)}
             />

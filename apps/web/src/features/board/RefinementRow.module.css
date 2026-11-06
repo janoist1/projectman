@@ -42,7 +42,7 @@
 
 .segment[data-state='held'] {
   opacity: 1;
-  background: var(--c-needs);
+  background: var(--c-warn);
 }
 
 .toggle {
@@ -125,7 +125,7 @@
 }
 
 .step[data-state='held'] .mark {
-  color: var(--c-needs);
+  color: var(--c-warn-mark);
 }
 
 .next {

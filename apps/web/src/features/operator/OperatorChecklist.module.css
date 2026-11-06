@@ -168,8 +168,8 @@
   align-self: flex-start;
   border-radius: 4px;
   padding: 2px 5px;
-  background: var(--c-needs-bg);
-  color: var(--c-needs-text);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
 }
 .detail {
   padding: 0 16px 12px 43px;

@@ -23,11 +23,11 @@
 }
 
 .statusWait {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .statusWait > button:hover {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .receipts {

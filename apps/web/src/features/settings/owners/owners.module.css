@@ -48,7 +48,7 @@
   font-size: 13px;
 }
 .needs {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .avatar {
   display: grid;

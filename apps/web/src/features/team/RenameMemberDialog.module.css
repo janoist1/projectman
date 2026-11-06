@@ -47,8 +47,8 @@
   margin: 0;
   padding: 8px 12px;
   border-radius: var(--radius-lg);
-  background: var(--c-needs-bg);
-  color: var(--c-needs-text);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
   font-size: var(--text-sm);
 }
 

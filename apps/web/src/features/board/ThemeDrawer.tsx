@@ -76,7 +76,10 @@ export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task
   const change = open ? close : reopen;
   const archive = useUpdateTask(key);
   const archived = isArchivedTheme(task);
-  const setArchived = (value: boolean) =>
+  // One error line serves the three actions: a new action drops the error the others left behind.
+  const setArchived = (value: boolean) => {
+    close.reset();
+    reopen.reset();
     archive.mutate(
       { taskKey: task.key, body: { archived: value } },
       {
@@ -88,6 +91,7 @@ export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task
             : toast.show(t('theme.unarchived')),
       },
     );
+  };
   return (
     <section className={styles.summary} aria-label={t('theme.progressLabel')}>
       {archived ? (
@@ -134,11 +138,11 @@ export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task
           <Button
             variant={open ? 'secondary' : 'primary'}
             loading={change.isPending}
-            onClick={() =>
-              open
-                ? close.mutate(task.key, { onSuccess: () => toast.show(t('theme.closed')) })
-                : reopen.mutate(task.key, { onSuccess: () => toast.show(t('theme.reopened')) })
-            }
+            onClick={() => {
+              archive.reset();
+              if (open) close.mutate(task.key, { onSuccess: () => toast.show(t('theme.closed')) });
+              else reopen.mutate(task.key, { onSuccess: () => toast.show(t('theme.reopened')) });
+            }}
           >
             {open ? t('theme.close') : t('theme.reopen')}
           </Button>

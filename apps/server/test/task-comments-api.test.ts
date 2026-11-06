@@ -203,4 +203,14 @@ describe('task comments API', () => {
     );
     expect((await comment({ text: 'History', importedAuthor: 'Morgan' }, developer)).statusCode).toBe(403);
   });
+
+  it('raises the note event for a comment without mentions but not for an imported one (PM-1271)', async () => {
+    const raised: Array<{ mentions: string[]; taskKey: string }> = [];
+    h.app.projectman.domain.ctx.events.on('task_note_added', (note) => {
+      raised.push({ mentions: note.mentions, taskKey: note.task.key });
+    });
+    expect((await comment({ text: 'No one mentioned' })).statusCode).toBe(201);
+    expect((await comment({ text: 'History', importedAuthor: 'Morgan' })).statusCode).toBe(201);
+    expect(raised).toEqual([{ mentions: [], taskKey: 'AR-1' }]);
+  });
 });

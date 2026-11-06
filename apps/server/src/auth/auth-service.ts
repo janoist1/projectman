@@ -5,12 +5,14 @@ import {
   DEFAULT_UI_LANGUAGE,
   integratorKeyCoversProject,
   isOwnerAccount,
+  UiStyle as UiStyleSchema,
 } from '@projectman/shared';
 import type {
   CreateIntegratorAccessKeyRequest,
   IntegratorChannel,
   IntegratorKeyAuditQuery,
   UiLanguage,
+  UiStyle,
 } from '@projectman/shared';
 import type { IntegratorPrincipal } from '../contracts';
 import type { Repositories, UserRecord } from '../db';
@@ -353,6 +355,16 @@ export class AuthService {
     const user = this.user(userId);
     if (!user) throw notFound('user', userId);
     return user;
+  }
+
+  /** The interface style the account chose (PM-363), or undefined while none is chosen. */
+  uiStyle(userId: string): UiStyle | undefined {
+    const parsed = UiStyleSchema.safeParse(this.repos.users.getUiStyle(userId));
+    return parsed.success ? parsed.data : undefined;
+  }
+
+  setUiStyle(userId: string, style: UiStyle): void {
+    this.repos.users.setUiStyle(userId, style);
   }
 
   /** Whether the account can log in with a password (a passwordless account cannot). */

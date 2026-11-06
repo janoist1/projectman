@@ -36,9 +36,9 @@
 }
 .indicator[data-state='offline'],
 .indicator[data-state='none'] {
-  background: var(--c-needs-soft);
-  border-color: var(--c-needs-border);
-  color: var(--c-needs-text);
+  background: var(--c-warn-soft);
+  border-color: var(--c-warn-border);
+  color: var(--c-warn-text);
 }
 .indicator[aria-expanded='true'] {
   border-color: var(--c-accent);
@@ -53,7 +53,7 @@
 }
 .indicator[data-state='offline'] .text strong,
 .indicator[data-state='none'] .text strong {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .chevron {
   display: flex;
@@ -87,8 +87,8 @@
 }
 .pill[data-state='offline'],
 .pill[data-state='none'] {
-  background: var(--c-needs-soft);
-  color: var(--c-needs-text);
+  background: var(--c-warn-soft);
+  color: var(--c-warn-text);
 }
 .badge[aria-expanded='true'] .pill {
   box-shadow: 0 0 0 2px var(--c-accent);
@@ -111,7 +111,7 @@
 }
 .dot[data-state='offline'],
 .dot[data-state='none'] {
-  background: var(--c-needs);
+  background: var(--c-warn);
 }
 .dot[data-state='never'] {
   background: transparent;
@@ -183,7 +183,7 @@
   font-size: 13px;
 }
 .status[data-needs='true'] {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .counts {
   grid-column: 2;

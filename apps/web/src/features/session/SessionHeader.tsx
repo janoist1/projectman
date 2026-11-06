@@ -137,7 +137,7 @@ export function SessionHeader({
   ) : null;
   const alertChip = session.usageAlert ? (
     <Chip
-      tone="needs"
+      tone="warn"
       size="md"
       icon="exclamation"
       title={t('tokenUsage.alert', {

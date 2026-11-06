@@ -164,7 +164,7 @@ export function HandoffRecordBody({
             <code className={styles.hash}>{shortCommit(record.lastCommit)}</code>
           </Chip>
         ) : null}
-        {record.uncommitted ? <Chip tone="needs">{t('handoff.note.uncommitted')}</Chip> : null}
+        {record.uncommitted ? <Chip tone="warn">{t('handoff.note.uncommitted')}</Chip> : null}
       </div>
       {record.note?.trim() ? (
         <Markdown text={record.note} />

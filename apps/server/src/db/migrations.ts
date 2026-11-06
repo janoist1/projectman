@@ -2926,6 +2926,13 @@ migrations.push({
 });
 migrations.push({
   version: 144,
+  name: 'user interface style',
+  // PM-363: the style a user chose for their own interface ('classic' or 'win311'). NULL: none chosen yet,
+  // the interface shows the classic style.
+  sql: `ALTER TABLE users ADD COLUMN ui_style TEXT CHECK (ui_style IN ('classic', 'win311'));`,
+});
+migrations.push({
+  version: 145,
   name: 'archived themes',
   // PM-1283: a theme can be archived (it leaves the top theme filter and takes no new card). NULL on every row
   // stored before and on every card that is not an archived theme; nothing is rewritten.

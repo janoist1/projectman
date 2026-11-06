@@ -232,8 +232,10 @@ describe('the story of the Process view (PM-1160)', () => {
       seed(project, 'task_note', { text: 'A plain note', comment: false });
       seed(project, 'task_note', { text: 'A comment', comment: true });
       seed(project, 'team_message', { text: 'A private word', conversation: 'direct', to: ['kata'] });
+      seed(project, 'team_message', { excerpt: 'A machine word', to: ['pm'] });
       await openProcess(project);
       expect(await within(story()).findByText('A plain note')).toBeTruthy();
+      expect(within(story()).getByText(/A machine word/)).toBeTruthy();
       expect(within(story()).queryByText('A comment')).toBeNull();
       expect(within(story()).queryByText('A private word')).toBeNull();
     });
@@ -261,7 +263,9 @@ describe('the story of the Process view (PM-1160)', () => {
       };
       seed(project, 'team_message', { text: 'Please look at this', to: ['pm'] }, actor);
       await openProcess(project);
-      expect(await within(story()).findByText(t('timeline.machineRequest'))).toBeTruthy();
+      const line = (await within(story()).findByText(t('timeline.machineRequest'))).closest('li')!;
+      const via = t('connected.via', { name: '' }).trim();
+      expect(within(line).getByText((content) => content.includes(via))).toBeTruthy();
     });
   });
 

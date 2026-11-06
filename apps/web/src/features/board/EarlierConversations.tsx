@@ -177,8 +177,8 @@ export function EarlierConversations({
     () => [...(query.data?.messages ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [query.data],
   );
-  const [opened, setOpened] = useState(false);
-  const open = opened || messageParam !== null;
+  // The old link opens the block; the reader may close it again.
+  const [open, setOpen] = useState(messageParam !== null);
   const panel = useId();
   const box = useRef<HTMLUListElement>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -187,6 +187,7 @@ export function EarlierConversations({
   const reached = useRef<string | null>(null);
   useEffect(() => {
     if (!active || !messageParam || reached.current === messageParam) return;
+    setOpen(true);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stop = leadTo(
       () =>
@@ -229,7 +230,7 @@ export function EarlierConversations({
         className={styles.toggle}
         aria-expanded={open}
         aria-controls={panel}
-        onClick={() => setOpened(!open)}
+        onClick={() => setOpen(!open)}
       >
         <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} strokeWidth={2.4} />
         <span>{t('task.earlier.title', { count: messages.length })}</span>

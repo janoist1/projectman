@@ -235,6 +235,28 @@ describe('handover selection', () => {
     expect(selection.omittedByProximity.name).toEqual([]);
   });
 
+  it('ranks a test that sets a name to a literal before one that stubs a rarer name (PM-1308)', () => {
+    const tree = [
+      file('apps/server/src/core/a.ts', 'export const a = { onLeave: false, findRunning: 1 };'),
+      file('apps/server/test/m-stub.test.ts', 'make({ findRunning: () => [] });'),
+      file('apps/server/test/z-set.test.ts', 'update({ onLeave: true });'),
+    ];
+    const after = tree.map((f) =>
+      f.path.endsWith('/a.ts') ? file(f.path, 'export const a = { onLeave: true, findRunning: 2 };') : f,
+    );
+    const selection = handoverSelection({
+      changed: ['apps/server/src/core/a.ts'],
+      added: [],
+      deleted: [],
+      before: tree,
+      after,
+    });
+    expect(selection.tests.find((entry) => entry.workspace === 'apps/server')!.files).toEqual([
+      'apps/server/test/z-set.test.ts',
+      'apps/server/test/m-stub.test.ts',
+    ]);
+  });
+
   it('selects nothing but the dead-code check for a documentation-only change', () => {
     expect(select(teamToolTree, ['docs/ARCHITECTURE.md'])).toMatchObject({
       kind: 'none',

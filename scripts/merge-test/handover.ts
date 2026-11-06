@@ -225,17 +225,19 @@ const isIntegration = (path: string): boolean => path.includes('.integration.tes
 /** A name used by more than this share of the candidate tests (`toEqual`, `readFileSync`) tells nothing. */
 const COMMON_NAME_SHARE = 0.25;
 const COMMON_NAME_MIN = 10;
+/** What a test gives a name to set it (`onLeave: true`): a literal, not a stubbed function or a lookup. */
+const LITERAL = '(?:true\\b|false\\b|null\\b|-?\\d|[\'"`])';
 
 /**
- * The candidate tests that use a changed name, nearest first: those in a workspace the change touched,
- * then those that set a changed name (`name: value`, `name = value`) rather than only read it, then
+ * The candidate tests that use a changed name, nearest first: those in the workspace the change touched
+ * most (by changed files), then those that set a changed name (`name: value`, `name = value`) rather than only read it, then
  * those that use more, and rarer, changed names (a name only a few tests use says the most), then the
  * tests that need no pseudo-terminal, then by path. A name nearly every test uses is ignored.
  */
 function nameUsers(
   symbols: readonly string[],
   candidates: readonly MergeTestFile[],
-  changedWorkspaces: ReadonlySet<MergeTestWorkspace>,
+  changedWorkspaces: ReadonlyMap<MergeTestWorkspace, number>,
 ): string[] {
   const wanted = new Set(symbols);
   const users = new Map<string, MergeTestFile[]>();
@@ -246,13 +248,15 @@ function nameUsers(
   const setters = new Set<string>();
   for (const [name, files] of users)
     if (files.length <= Math.max(COMMON_NAME_MIN, candidates.length * COMMON_NAME_SHARE)) {
-      const setting = new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}\\s*\\??(?::|=(?!=))`);
+      const setting = new RegExp(
+        `(?<![\\w$.])${name.replace(/\$/g, '\\$')}\\s*\\??(?::|=(?!=))\\s*${LITERAL}`,
+      );
       for (const { path, source } of files) {
         score.set(path, (score.get(path) ?? 0) + 1 / files.length);
         if (setting.test(source)) setters.add(path);
       }
     }
-  const here = (path: string) => Number(changedWorkspaces.has(workspaceOf(path)!));
+  const here = (path: string) => changedWorkspaces.get(workspaceOf(path)!) ?? 0;
   return [...score.keys()].sort(
     (a, b) =>
       here(b) - here(a) ||
@@ -407,10 +411,15 @@ export function handoverSelection(
     Number(isIntegration(a)) - Number(isIntegration(b)) ||
     byDistance(a, b);
   // The names a test may use without importing a changed file (a setting, a method of an injected object).
+  const changedPerWorkspace = new Map<MergeTestWorkspace, number>();
+  for (const file of changed) {
+    const workspace = checkedBy(file);
+    if (workspace) changedPerWorkspace.set(workspace, (changedPerWorkspace.get(workspace) ?? 0) + 1);
+  }
   const nameTests = nameUsers(
     changedSymbols(changed, input.before, input.after),
     input.after.filter((file) => isTest(file.path) && mergeRuns(merge, file.path)),
-    new Set(changed.map(checkedBy).filter((workspace) => workspace !== undefined)),
+    changedPerWorkspace,
   );
   // The tests that import a changed file themselves; a consumer of a changed package export is not one.
   const importers = new Set(

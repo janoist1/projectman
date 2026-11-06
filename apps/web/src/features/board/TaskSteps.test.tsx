@@ -207,7 +207,7 @@ describe('the story of the Process view (PM-1160)', () => {
         'AC-21',
         'owner',
         'task_note',
-        { text: `Note ${index}` },
+        { text: `Note ${index}`, comment: false },
         null,
         ago(100 - index),
       );

@@ -4,12 +4,12 @@ import { useContext, useEffect, useRef } from 'react';
 import { ProjectContext } from '../app/contexts';
 import { useConfig } from '../api/queries';
 import { Link, useLocation } from 'react-router';
-import { hasBoundOrigin, mentionTokens } from '@projectman/shared';
+import { hasBoundOrigin, hasConnectedOrigin, mentionTokens } from '@projectman/shared';
 import { Chip } from './Chip';
 import type { TimelineEvent } from '@projectman/shared';
 import { formatStamp } from '../i18n/format';
 import { t } from '../i18n/t';
-import { actorLabel, isOwnActor } from '../lib/members';
+import { actorByline, actorLabel, isOwnActor } from '../lib/members';
 import { describeStart, describeStop } from '../lib/involvement';
 import { isListedEvent } from '../lib/cardStory';
 import { describeEvent } from '../lib/timeline';
@@ -168,6 +168,11 @@ export function TimelineRow({
     imported && typeof event.data.importedAuthor === 'string'
       ? event.data.importedAuthor
       : actorLabel(event.actor, ctx.members, ctx.myHandle);
+  // A request of an integrator's connected Claude to the project manager (PM-1290): named by how it was made.
+  const machineRequest =
+    event.type === 'team_message' &&
+    hasConnectedOrigin(event.actor) &&
+    typeof event.data.noteEventId !== 'string';
   const handle = event.actor.handle;
   const member = handle ? ctx.members.get(handle) : undefined;
   const isMe = isOwnActor(event.actor, ctx.myHandle);
@@ -221,6 +226,14 @@ export function TimelineRow({
           <span className={styles.actor}>
             {imported ? (
               author
+            ) : machineRequest ? (
+              <>
+                {actorByline(event.actor, ctx.members, ctx.myHandle)}
+                <span className={styles.timestamp}>
+                  <span aria-hidden="true"> · </span>
+                  <time dateTime={at}>{formatStamp(at)}</time>
+                </span>
+              </>
             ) : (
               <ActorName
                 actor={event.actor}
@@ -314,6 +327,7 @@ export function TimelineRow({
           ) : null}
           {badge}
         </span>
+        {machineRequest ? <p className={styles.note}>{t('timeline.machineRequest')}</p> : null}
         {note ? <p className={styles.note}>{note}</p> : null}
         {fullMessage ? (
           <Link to={fullMessage} className={styles.fullMessage}>

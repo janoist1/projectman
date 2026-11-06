@@ -1,0 +1,221 @@
+import clsx from 'clsx';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { hasConnectedOrigin, isUnreadBy, SYSTEM_SENDER } from '@projectman/shared';
+import type { TeamMessage } from '@projectman/shared';
+import { useReadTeamMessages, useTaskMessages } from '../../api/queries';
+import { useProject } from '../../app/contexts';
+import { Icon } from '../../components/Icon';
+import { Markdown } from '../../components/Markdown';
+import { formatStamp, formatTime } from '../../i18n/format';
+import { joinNames, t } from '../../i18n/t';
+import { splitQuestion } from '../../lib/inbox';
+import { actorByline, nameOf, namesOf } from '../../lib/members';
+import type { MemberIndex } from '../../lib/members';
+import { QuestionBody } from '../inbox/Question';
+import { READ_AFTER_MS, useDocumentVisible } from '../messages/ConversationThread';
+import { MessageAttachments } from '../messages/MessageAttachments';
+import styles from './EarlierConversations.module.css';
+
+/** How long a message reached by a link stays highlighted. */
+const FLASH_MS = 2000;
+
+/** Who wrote a message: a connected Claude's step names how it was made; the old integrator rows stay as they were. */
+function senderOf(message: TeamMessage, members: MemberIndex, myHandle: string | null): string {
+  if (hasConnectedOrigin(message.actor)) return actorByline(message.actor, members, myHandle);
+  return message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
+}
+
+function Message({
+  message,
+  members,
+  myHandle,
+  flash,
+}: {
+  message: TeamMessage;
+  members: MemberIndex;
+  myHandle: string | null;
+  flash: boolean;
+}) {
+  const unread = isUnreadBy(message, myHandle);
+  return (
+    <li
+      id={`message-${message.id}`}
+      className={clsx(styles.message, flash && styles.flash)}
+      tabIndex={-1}
+      data-message-id={message.id}
+      data-flash={flash ? '' : undefined}
+    >
+      <p className={styles.head}>
+        <span className={styles.author}>{senderOf(message, members, myHandle)}</span>
+        <span aria-hidden="true"> · </span>
+        <time dateTime={message.createdAt}>{formatStamp(message.createdAt)}</time>
+        {unread ? <span className={styles.unreadMark}>{t('messages.thread.unread')}</span> : null}
+      </p>
+      {message.body.trim() ? <Markdown text={message.body} /> : null}
+      <MessageAttachments files={message.attachments ?? []} from={message.from} />
+      {message.to.length > 0 && message.from !== SYSTEM_SENDER ? (
+        <p className={styles.to}>
+          {t('task.earlier.to', { names: joinNames(namesOf(message.to, members, myHandle)) })}
+        </p>
+      ) : null}
+    </li>
+  );
+}
+
+/** The question an AI member asked and the answer given to it, as one row. */
+function QuestionAndAnswer({
+  message,
+  answer,
+  members,
+  myHandle,
+  flash,
+}: {
+  message: TeamMessage;
+  answer: NonNullable<TeamMessage['answer']>;
+  members: MemberIndex;
+  myHandle: string | null;
+  flash: boolean;
+}) {
+  const asker = nameOf(message.to[0], members, myHandle);
+  const { title, body } = splitQuestion(answer.question);
+  return (
+    <li
+      id={`message-${message.id}`}
+      className={clsx(styles.qa, flash && styles.flash)}
+      tabIndex={-1}
+      data-message-id={message.id}
+      data-flash={flash ? '' : undefined}
+    >
+      <div className={styles.qaHead}>
+        <span>{t('task.thread.qa')}</span>
+        <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
+      </div>
+      <p className={styles.qaAsked}>
+        {t('task.thread.asked', { name: asker })}
+        {title ? (
+          <>
+            {' '}
+            <strong>{title}</strong>
+          </>
+        ) : null}
+      </p>
+      {body ? <QuestionBody text={body} closed={Boolean(title)} /> : null}
+      <p className={styles.qaAnswer}>
+        {message.via
+          ? `${t('integratorKey.forwarded')}: ${answer.answer}`
+          : message.from === myHandle
+            ? t('task.thread.youAnswered', { answer: answer.answer })
+            : t('task.thread.answered', {
+                name: senderOf(message, members, myHandle),
+                answer: answer.answer,
+              })}
+      </p>
+    </li>
+  );
+}
+
+/**
+ * The card's earlier conversations (PM-1290), at the bottom of the Process view: the team messages written about
+ * the card that the viewer may see, read-only. A new message is written on the card as a comment, so there is no
+ * box and no Reply here. The block is closed until the old `?message=` link opens it at that message; with no
+ * message to show it is gone (a client is told so).
+ */
+export function EarlierConversations({
+  active,
+  query,
+  members,
+  messageParam,
+}: {
+  /** The Process view is the one showing. */
+  active: boolean;
+  query: ReturnType<typeof useTaskMessages>;
+  members: MemberIndex;
+  /** `?message=`: the message a link leads to. */
+  messageParam: string | null;
+}) {
+  const { key, myHandle, me } = useProject();
+  const access = me.projects.find((project) => project.key === key)?.access;
+  const readMessages = useReadTeamMessages(key);
+  const visible = useDocumentVisible();
+  const messages = useMemo(
+    () => [...(query.data?.messages ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    [query.data],
+  );
+  const [opened, setOpened] = useState(false);
+  const open = opened || messageParam !== null;
+  const panel = useId();
+  const box = useRef<HTMLUListElement>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+
+  // The old link: the block opens, the message is scrolled to the middle and framed for a moment.
+  const reached = useRef<string | null>(null);
+  useEffect(() => {
+    if (!active || !messageParam || reached.current === messageParam || messages.length === 0) return;
+    const target = [...(box.current?.querySelectorAll<HTMLElement>('[data-message-id]') ?? [])].find(
+      (element) => element.dataset.messageId === messageParam,
+    );
+    if (!target) return;
+    reached.current = messageParam;
+    target.scrollIntoView?.({
+      behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+      block: 'center',
+    });
+    target.focus({ preventScroll: true });
+    setFlash(messageParam);
+    const timer = setTimeout(() => setFlash(null), FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [active, messageParam, messages.length, open]);
+
+  // Reading: the incoming unread messages of the open block, one request.
+  const unreadKey = messages
+    .filter((message) => isUnreadBy(message, myHandle))
+    .map((message) => message.id)
+    .join(',');
+  const { mutate: markRead } = readMessages;
+  useEffect(() => {
+    if (!unreadKey || !visible || !active || !open) return;
+    const timer = setTimeout(() => markRead(unreadKey.split(',')), READ_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [unreadKey, visible, active, open, markRead]);
+
+  if (!query.data) return null;
+  if (messages.length === 0)
+    return access === 'client' ? <p className={styles.none}>{t('task.earlier.none')}</p> : null;
+  return (
+    <section className={styles.earlier} aria-label={t('task.earlier.title', { count: messages.length })}>
+      <button
+        type="button"
+        className={styles.toggle}
+        aria-expanded={open}
+        aria-controls={panel}
+        onClick={() => setOpened(!open)}
+      >
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} strokeWidth={2.4} />
+        <span>{t('task.earlier.title', { count: messages.length })}</span>
+      </button>
+      <p className={styles.note}>{t('task.earlier.readOnly')}</p>
+      <ul id={panel} ref={box} className={styles.list} hidden={!open}>
+        {messages.map((message) =>
+          message.answer ? (
+            <QuestionAndAnswer
+              key={message.id}
+              message={message}
+              answer={message.answer}
+              members={members}
+              myHandle={myHandle}
+              flash={flash === message.id}
+            />
+          ) : (
+            <Message
+              key={message.id}
+              message={message}
+              members={members}
+              myHandle={myHandle}
+              flash={flash === message.id}
+            />
+          ),
+        )}
+      </ul>
+    </section>
+  );
+}

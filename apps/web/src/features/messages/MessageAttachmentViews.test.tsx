@@ -141,38 +141,6 @@ describe('message attachment destinations', () => {
     expect(uploads(p)).toHaveLength(1);
   });
 
-  it.each(['paste', 'drop'])('keeps a card thread %s out of card attachments', async (method) => {
-    const p = mockProject();
-    p.render(
-      <Routes>
-        <Route path="/p/AC/tasks/:taskKey/*" element={<TaskDrawer />} />
-      </Routes>,
-      '/p/AC/tasks/AC-21/thread',
-    );
-    const input = await screen.findByRole('textbox', {
-      name: t('task.thread.composerLabel', { key: 'AC-21' }),
-    });
-    input.focus();
-    if (method === 'paste') paste(input);
-    else
-      fireEvent.drop(screen.getByRole('region', { name: t('task.thread.label') }), {
-        dataTransfer: transfer([image()]),
-      });
-    await sendReady();
-    await waitFor(() =>
-      expect(sentRequest(p)?.body).toMatchObject({
-        taskKey: 'AC-21',
-        text: '',
-        attachmentIds: [expect.any(String)],
-      }),
-    );
-    expect(uploads(p)).toHaveLength(1);
-    expect(
-      p.requests.some((r) => r.method === 'POST' && r.path === routes.taskAttachments('AC', 'AC-21')),
-    ).toBe(false);
-    expect(screen.queryByRole('status', { name: t('attachments.dropActive') })).toBeNull();
-  });
-
   it('keeps an outside paste on the card and leaves text paste alone', async () => {
     const p = mockProject();
     p.render(
@@ -181,9 +149,7 @@ describe('message attachment destinations', () => {
       </Routes>,
       '/p/AC/tasks/AC-21/thread',
     );
-    const input = await screen.findByRole('textbox', {
-      name: t('task.thread.composerLabel', { key: 'AC-21' }),
-    });
+    const input = await screen.findByRole('textbox', { name: t('task.comments.label') });
     fireEvent.paste(input, { clipboardData: { ...transfer([image()]), getData: () => 'text' } });
     expect(uploads(p)).toHaveLength(0);
     input.blur();

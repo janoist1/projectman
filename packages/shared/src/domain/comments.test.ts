@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCardComment, pageCommentThreads, replyParentOf } from './comments';
+import { isCardComment, isProcessTimelineEvent, pageCommentThreads, replyParentOf } from './comments';
 import type { TimelineEvent } from './event';
 
 const human = { kind: 'human', handle: 'owner' } as const;
@@ -42,6 +42,24 @@ describe('isCardComment', () => {
 
   it('is false for any other event type', () => {
     expect(isCardComment({ ...note('a', { comment: true }), type: 'task_updated' })).toBe(false);
+  });
+});
+
+describe('isProcessTimelineEvent', () => {
+  const message = (data: Record<string, unknown>): TimelineEvent => ({
+    ...note('m'),
+    type: 'team_message',
+    data,
+  });
+
+  it('keeps a comment out of the Process', () => {
+    expect(isProcessTimelineEvent(note('a', { comment: true }))).toBe(false);
+    expect(isProcessTimelineEvent(note('b', { comment: false }))).toBe(true);
+  });
+
+  it('keeps a direct message out of the Process and a machine message in it', () => {
+    expect(isProcessTimelineEvent(message({ conversation: 'direct' }))).toBe(false);
+    expect(isProcessTimelineEvent(message({}))).toBe(true);
   });
 });
 

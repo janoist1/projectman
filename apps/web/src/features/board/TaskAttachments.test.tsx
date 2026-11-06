@@ -490,7 +490,7 @@ describe('attachments: paste', () => {
 
   it('switches to the attachments view when an image is pasted on another view', async () => {
     const project = mockProject();
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20/timeline');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/thread');
     await screen.findByRole('textbox', { name: t('task.comments.label') });
     // The attachments are in the tree but hidden: the role query finds them only once their view is shown.
     expect(screen.queryByRole('region', { name: t('attachments.title') })).toBeNull();
@@ -514,8 +514,8 @@ describe('attachments: paste', () => {
 
   it('does not take a paste that carries text into a field being edited', async () => {
     const project = mockProject();
-    // The comment field is on the timeline: the paste there must still land in the list of attachments.
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20/timeline');
+    // The comment field is on the Comments view: the paste there must still land in the list of attachments.
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/thread');
     const field = (await screen.findAllByRole('textbox')).find((node) => node.tagName === 'TEXTAREA')!;
     const image = makeFile('image.png', 'image/png');
     // A page copied with its pictures: the text is for the field.

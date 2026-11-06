@@ -165,7 +165,7 @@ describe('the card in the quick view and in the large window (PM-283)', () => {
   });
 
   it('keeps the draft of a comment through the switch', async () => {
-    renderBoard(`/p/AC/tasks/${ownerTask}/timeline`);
+    renderBoard(`/p/AC/tasks/${ownerTask}/thread`);
     await quickView();
     const box = (await screen.findByRole('textbox', {
       name: t('task.comments.label'),

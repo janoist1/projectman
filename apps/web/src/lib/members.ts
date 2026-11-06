@@ -118,6 +118,15 @@ export function actorLabel(actor: Actor, index: MemberIndex, myHandle: string | 
   return actor.via === 'integrator' ? t('involvement.integrator') : nameOf(actor.handle, index, myHandle);
 }
 
+/**
+ * Who wrote an entry of the card (PM-1290): the name, and for a connected Claude "{name} · via connected Claude"
+ * after the actor's authentic origin, so the own entry never reads "You (Claude)".
+ */
+export function actorByline(actor: Actor, index: MemberIndex, myHandle: string | null): string {
+  const { name, connected } = actorParts(actor, index, myHandle);
+  return connected ? t('connected.via', { name }) : actorLabel(actor, index, myHandle);
+}
+
 /** Historical records without an actor retain their original sender and integrator attribution. */
 export function recordActor(record: { actor?: Actor; via?: 'integrator'; from: string }): Actor {
   return record.actor ?? { kind: 'human', handle: record.from, ...(record.via ? { via: record.via } : {}) };

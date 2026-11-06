@@ -9,6 +9,44 @@
 .closed textarea {
   min-height: 44px;
 }
+/* A reply box sits inside the thread: no top margin of its own. */
+.reply {
+  margin-top: 8px;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* The send error: warm, not the "needs you" colour; the text stays in the field above. */
+.failure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--c-warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
+}
+.failure p {
+  margin: 0;
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* The live region stays in the layout (so it is announced) but takes no room while empty. */
+.live {
+  margin: 0;
+  min-height: 0;
+  font-size: var(--text-sm, 13px);
+  color: var(--c-ink-3);
+}
+/* Empty, it must stay rendered for the announcement, so it only cancels the gaps around it. */
+.live:empty {
+  margin: -5px 0;
+}
 .options {
   list-style: none;
   padding: 4px;

@@ -14,6 +14,16 @@ export function isCardComment(event: Pick<TimelineEvent, 'type' | 'data' | 'acto
   return event.actor.kind === 'human' && !event.actor.via;
 }
 
+/**
+ * Whether a timeline event belongs in the card's Process story (PM-1290): not a comment (the Comments
+ * column has it) and not a person's direct message (their conversation, not the card's). The server,
+ * the web and the web's test fake all use this one rule.
+ */
+export function isProcessTimelineEvent(event: Pick<TimelineEvent, 'type' | 'data' | 'actor'>): boolean {
+  if (isCardComment(event)) return false;
+  return !(event.type === 'team_message' && event.data.conversation === 'direct');
+}
+
 /** The id of the top-level comment a reply answers, or undefined for a top-level comment. */
 function commentReplyTo(event: Pick<TimelineEvent, 'data'>): string | undefined {
   const replyTo = event.data.replyTo;

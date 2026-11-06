@@ -359,8 +359,8 @@ describe('task drawer labels', () => {
         .getAllByRole('button', { name: t('task.labels.apply') })
         .at(-1)!,
     );
-    // The reason shows as a comment in the story.
-    await openStory();
+    // The reason shows as a comment, in the Comments view.
+    await openTab('thread');
     await screen.findByText('Which Acme market?');
     expect(labelChanges(project)).toEqual([
       { add: ['waiting-answer'] },
@@ -413,7 +413,7 @@ describe('task drawer labels', () => {
 describe('task drawer comments', () => {
   it('filters autocomplete by handle and name, selects with arrows and Enter, and sends', async () => {
     const project = mockProject();
-    project.render(drawer, '/p/AC/tasks/AC-20/timeline');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
     const input = await screen.findByLabelText(t('task.comments.label'));
     fireEvent.change(input, { target: { value: 'Hello @', selectionStart: 7 } });
     const list = screen.getByRole('listbox', { name: t('task.comments.members') });
@@ -437,7 +437,7 @@ describe('task drawer comments', () => {
       expect(project.requests).toContainEqual({
         method: 'POST',
         path: '/api/projects/AC/tasks/AC-20/comments',
-        body: { text: 'Hello @fe-1' },
+        body: { text: 'Hello @fe-1', clientRequestId: expect.any(String) },
       }),
     );
     await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(''));
@@ -457,13 +457,12 @@ describe('task drawer comments', () => {
       importedAt: at,
     });
     const count = project.backend.messages.length;
-    project.render(drawer, '/p/AC/tasks/AC-20/steps');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
     const author = await screen.findByText('Morgan Example');
     const row = author.closest('li')!;
     expect(within(row).getByText(t('task.comments.imported'), { exact: false })).toBeTruthy();
     expect(row.querySelector('time')?.getAttribute('dateTime')).toBe(at);
-    const member = project.backend.config.team.members.find((member) => member.handle === 'fe-1')!;
-    expect(within(row).getByText(member.displayName)).toBeTruthy();
+    expect(within(row).getByText('@FE-1')).toBeTruthy();
     expect(row.textContent).toContain('History\n');
     expect(row.textContent).toContain('mail@fe-1.test');
     expect(project.backend.messages).toHaveLength(count);
@@ -485,7 +484,7 @@ describe('task drawer comments', () => {
 
   it('lets a client comment and mention only the contacts', async () => {
     const project = mockProject();
-    project.render(drawer, '/p/AC/tasks/AC-20/timeline', asClient(project, ['fe-1']));
+    project.render(drawer, '/p/AC/tasks/AC-20/thread', asClient(project, ['fe-1']));
     const input = await screen.findByLabelText(t('task.comments.label'));
     fireEvent.change(input, { target: { value: 'Hello @', selectionStart: 7 } });
     const options = within(screen.getByRole('listbox', { name: t('task.comments.members') })).getAllByRole(
@@ -497,14 +496,14 @@ describe('task drawer comments', () => {
       expect(project.requests).toContainEqual({
         method: 'POST',
         path: '/api/projects/AC/tasks/AC-20/comments',
-        body: { text: 'Hello @' },
+        body: { text: 'Hello @', clientRequestId: expect.any(String) },
       }),
     );
   });
 
   it('offers a client no one to mention when the project has no contacts', async () => {
     const project = mockProject();
-    project.render(drawer, '/p/AC/tasks/AC-20/timeline', asClient(project, []));
+    project.render(drawer, '/p/AC/tasks/AC-20/thread', asClient(project, []));
     const input = await screen.findByLabelText(t('task.comments.label'));
     fireEvent.change(input, { target: { value: '@', selectionStart: 1 } });
     expect(screen.queryByRole('option')).toBeNull();
@@ -546,16 +545,6 @@ describe('task drawer comments', () => {
     expect((screen.getByLabelText(t('task.comments.label')) as HTMLTextAreaElement).value).toBe(
       'Fictional draft',
     );
-  });
-
-  it('keeps the card open and the draft when Escape is pressed in the thread composer (PM-1109)', async () => {
-    const project = mockProject();
-    project.render(drawer, '/p/AC/tasks/AC-20/thread');
-    const label = t('task.thread.composerLabel', { key: 'AC-20' });
-    const input = (await screen.findByLabelText(label)) as HTMLTextAreaElement;
-    fireEvent.change(input, { target: { value: 'Fictional thread draft' } });
-    fireEvent.keyDown(input, { key: 'Escape' });
-    expect((screen.getByLabelText(label) as HTMLTextAreaElement).value).toBe('Fictional thread draft');
   });
 });
 

@@ -4336,7 +4336,18 @@ export class MockBackend {
   /** One page of the card's comment threads (PM-1290); null when `before` or `around` names no comment. */
   taskComments(taskKey: string, query: TaskCommentsQuery): TaskCommentsPage | null {
     return pageCommentThreads(
-      clone(this.timeline.filter((event) => event.taskKey === taskKey && event.type === 'task_note')),
+      clone(
+        this.timeline.filter(
+          (event) =>
+            event.taskKey === taskKey &&
+            event.type === 'task_note' &&
+            canSeeTimelineEvent(
+              this.taskViewer(),
+              event,
+              (id) => this.messages.find((m) => m.id === id) ?? null,
+            ),
+        ),
+      ),
       query,
     );
   }

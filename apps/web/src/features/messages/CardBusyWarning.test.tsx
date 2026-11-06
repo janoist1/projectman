@@ -1,11 +1,9 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { createMockFetch, mockProject } from '../../test/mockProject';
-import { TaskDrawer } from '../board/TaskDrawer';
 import { ConversationThread } from './ConversationThread';
 import { MessageComposer } from './MessageComposer';
 
@@ -185,43 +183,5 @@ describe('the busy-card warning in the conversation (PM-663)', () => {
     expect(posts(p)).toHaveLength(1);
     expect(screen.queryByText(t('errors.codes.card_busy'), { exact: false })).toBeNull();
     await waitFor(() => expect(document.activeElement).toBe(box));
-  });
-});
-
-describe('the busy-card warning on the card thread (PM-663)', () => {
-  const card = (
-    <Routes>
-      <Route path="/p/:key/tasks/:taskKey/*" element={<TaskDrawer />} />
-    </Routes>
-  );
-
-  it('asks, then sends the card message again with despiteWorkers on confirmation', async () => {
-    const p = mockProject();
-    p.render(card, '/p/AC/tasks/AC-22/thread');
-    await screen.findByRole('region', { name: t('task.thread.label') });
-    fireEvent.click(
-      screen.getByRole('button', { name: t('task.thread.remove', { name: 'Általános fejlesztő' }) }),
-    );
-    fireEvent.click(screen.getByRole('button', { name: t('task.thread.addTo') }));
-    fireEvent.click(
-      within(screen.getByRole('group', { name: t('task.thread.addTo') })).getByRole('checkbox', {
-        name: /Backend/,
-      }),
-    );
-    const box = screen.getByLabelText(
-      t('task.thread.composerLabel', { key: 'AC-22' }),
-    ) as HTMLTextAreaElement;
-    fireEvent.change(box, { target: { value: 'Vedd át' } });
-    fireEvent.click(screen.getByRole('button', { name: t('common.send') }));
-    const dialog = await warning();
-    expect(posts(p)).toHaveLength(1);
-    fireEvent.click(within(dialog).getByRole('button', { name: t('cardBusyWarning.confirm') }));
-    await waitFor(() => expect(box.value).toBe(''));
-    expect(posts(p)[1]!.body).toMatchObject({
-      to: ['be-1'],
-      taskKey: 'AC-22',
-      text: 'Vedd át',
-      despiteWorkers: true,
-    });
   });
 });

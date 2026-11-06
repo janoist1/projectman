@@ -40,6 +40,20 @@ describe('human team messages and member profiles', () => {
     return h.app.inject({ url: routes.memberProfile(key, handle), headers: { cookie } });
   }
 
+  it('does not take the origin of a stored message from the request body', async () => {
+    const forged = {
+      kind: 'human',
+      handle: 'owner',
+      via: 'integrator',
+      through: { holder: 'owner', credential: { id: 'cred_forged', prefix: 'pmi_forged' } },
+    };
+    const response = await send(['pm'], owner, { actor: forged, via: 'integrator' });
+    expect(response.statusCode).toBe(202);
+    const stored = h.app.projectman.domain.messages.get(TeamMessage.parse(response.json()).id)!;
+    expect(stored.actor).toBeUndefined();
+    expect(stored.via).toBeUndefined();
+  });
+
   it('starts an offline task recipient and delivers the queued message once', async () => {
     const domain = h.app.projectman.domain;
     await domain.tasks.create(key, { title: 'Acme checkout' }, actor);

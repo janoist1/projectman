@@ -588,3 +588,17 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
 74. **A client logs in with a code sent by email.** Recorded by the owner on 2026-11-05
     (PM-1244, „Igen, mehet”; PM-946); supersedes the „without an emailed code” part of
     decision 56. The board stays public behind projectman's own login.
+75. **Internal processes get system-level, general solutions, not patches.** Decided by the
+    owner on 2026-11-06 (PM-1284; PM-1278, PM-1239). For a problem we look for the general
+    mechanism that is missing, not a patch on a patch. Where we have no preference of our
+    own, we use an industry standard and name it. The owner's words: „világos, logikus,
+    egyszerű, standard és általános megoldásokat kell találnunk a belső folyamatokra. nem
+    toldozgatás foltozgatást” (2026-10-28), „rendszer szinten, holisztikusan nézzük át”,
+    „Fontos h iparági standardet is használjunk ha nekünk nincs egyéb preferenciánk” and
+    „Igen, mindkettőt”.
+76. **The project manager is a professional project manager.** Decided by the owner on
+    2026-11-06 (PM-1284); its rights follow decision 65. The project manager works by
+    industry practice: it sets priorities, schedules, handles risk and capacity, clears
+    blockers and communicates. A blocking card it opens is prioritised, scoped and handed
+    on in the same step. The owner's words: „Alapvetően a PM egy profi pm” and „Igen,
+    mindkettőt”.

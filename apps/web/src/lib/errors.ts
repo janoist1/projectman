@@ -42,9 +42,8 @@ export function errorMessage(error: unknown): string {
         if (why) return why;
       }
       if (error.code === 'stage_in_use' && error.details && typeof error.details === 'object') {
-        const details = error.details as { stageId?: unknown; tasks?: unknown };
-        if (typeof details.stageId === 'string' && typeof details.tasks === 'number')
-          return t('settings.pipeline.stageInUse', { stage: details.stageId, count: details.tasks });
+        const { tasks } = error.details as { tasks?: unknown };
+        if (typeof tasks === 'number') return t('settings.pipeline.delete.cards', { count: tasks });
       }
       if (error.code === 'owner_login_required' && error.details && typeof error.details === 'object') {
         const { category } = error.details as { category?: unknown };

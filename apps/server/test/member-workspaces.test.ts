@@ -477,6 +477,21 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     },
   );
 
+  it('hands the dependency shortfall the engine reported to the session context (PM-1203)', async () => {
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        prepareDependencies: async () => ({
+          status: 'skipped',
+          reason: 'not_configured',
+          dependencies: 'missing',
+        }),
+      }),
+    });
+    await startTask('AR-1', 'dev-1');
+    expect(h.contextBuilder.inputs.at(-1)).toMatchObject({ workspaceDependencies: 'missing' });
+  });
+
   it('prepares review dependencies after checking out the snapshot commit and before launching', async () => {
     let ready!: () => void;
     // Create the gate before checkout so finally can release even a late preparation.
@@ -553,6 +568,33 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
       designer: { duties: ['ux_design', 'implementation'], instructions: '' },
     };
     expect(workspaces.kindFor(config, designer, task)).toBe('work');
+  });
+
+  it('gives a Claude session in a review copy a screenshot scope with its session folder (PM-1202)', async () => {
+    await setup({
+      sessionFolders: true,
+      browsersDir: '/engine/browsers',
+      adjust: (config) => {
+        twoTasks(config);
+        config.team.members.push({
+          ...(config.team.members.find((m) => m.handle === 'dev-1') as AiMemberConfig),
+          kind: 'ai',
+          handle: 'designer',
+          displayName: 'Designer',
+          role: 'designer',
+          sponsor: 'owner',
+        });
+      },
+    });
+    await startTask('AR-1', 'dev-1');
+    const { session } = await ensure('designer', 'AR-1');
+    const spec = h.runner.lastStarted();
+    expect(spec.policy?.placement.kind).toBe('review_copy');
+    const folder = spec.policy!.filesystem.sessionFolder!;
+    expect(h.domain.sessions.screenshotScope(session.id)).toMatchObject({
+      cwd: spec.cwd,
+      sessionDir: folder,
+    });
   });
 
   it.each(['stopped', 'idle', 'working'] as const)(
@@ -1038,10 +1080,10 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     await h.domain.sessions.reconcileAfterRestart();
     expect(closeScopes).toHaveBeenCalledWith([{ sessionId, scopeId, sinceAgeMs: expect.any(Number) }]);
     expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
+    // The failure was recovered within the grace period: no signal was ever raised (PM-1204).
     expect(
-      h.repos.operatorSignals.list('AR').find((signal) => signal.kind === 'process_cleanup_failed')
-        ?.resolvedAt,
-    ).not.toBeNull();
+      h.repos.operatorSignals.list('AR').some((signal) => signal.kind === 'process_cleanup_failed'),
+    ).toBe(false);
   });
 
   it('does not keep the workspace for a session ended by a restart that an engine report would revive (PM-792)', async () => {

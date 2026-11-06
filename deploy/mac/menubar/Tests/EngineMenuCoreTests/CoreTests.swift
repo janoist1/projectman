@@ -132,7 +132,10 @@ final class CoreTests: XCTestCase {
             XCTAssertEqual(Format.relative(iso.string(from: now.addingTimeInterval(-seconds)), now: now).key, key)
         }
     }
-    func testHungarianDecimal() { XCTAssertEqual(Format.number(9.1), "9,1") }
+    func testNumberFollowsLocale() {
+        XCTAssertEqual(Format.number(9.1, locale: Locale(identifier: "hu")), "9,1")
+        XCTAssertEqual(Format.number(9.1, locale: Locale(identifier: "en")), "9.1")
+    }
     func testKeepAwakeModes() throws {
         for (mode, key) in [("off", L10n.awakeOff), ("while_working", .whileWorking)] {
             let m = model(try snapshot { $0["keepAwake"] = ["supported": true, "holding": false, "mode": mode, "since": NSNull()] })
@@ -148,10 +151,22 @@ final class CoreTests: XCTestCase {
         let logs = try JSONDecoder().decode(Logs.self, from: data)
         XCTAssertEqual(logs.out.count, 1); XCTAssertTrue(logs.err.isEmpty)
     }
-    func testAllLocalizationKeysExist() throws {
+    private func localizedStrings(_ language: String) throws -> [String: String] {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let data = try Data(contentsOf: root.appendingPathComponent("Resources/hu.lproj/Localizable.strings"))
-        let strings = try PropertyListSerialization.propertyList(from: data, format: nil) as! [String: String]
-        XCTAssertEqual(Set(L10n.allCases.map(\.rawValue)), Set(strings.keys))
+        let data = try Data(contentsOf: root.appendingPathComponent("Resources/\(language).lproj/Localizable.strings"))
+        return try PropertyListSerialization.propertyList(from: data, format: nil) as! [String: String]
+    }
+    func testAllLocalizationKeysExist() throws {
+        for language in ["hu", "en"] {
+            XCTAssertEqual(Set(L10n.allCases.map(\.rawValue)), Set(try localizedStrings(language).keys), language)
+        }
+    }
+    func testLocalizationsShareFormatSpecifiers() throws {
+        let marker = try NSRegularExpression(pattern: "%(?:\\d+\\$)?l*[@dsfDi]")
+        func markers(_ text: String) -> [String] {
+            marker.matches(in: text, range: NSRange(text.startIndex..., in: text)).map { String(text[Range($0.range, in: text)!]) }
+        }
+        let hungarian = try localizedStrings("hu"), english = try localizedStrings("en")
+        for (key, text) in hungarian { XCTAssertEqual(markers(english[key] ?? ""), markers(text), key) }
     }
 }

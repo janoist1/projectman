@@ -3,7 +3,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { forbiddenEntries } from '../migrate/hybrid-entries';
 import { expandHome } from './config';
-import type { CloudContext } from './context';
+import type { CloudContext, DeployContext } from './context';
 import { CloudError, refused } from './errors';
 import type { HostSession, HostStatus } from './host';
 import { readHostStatus, readUnitFile, withHost } from './host';
@@ -40,7 +40,7 @@ const seedCheckSchema = z.looseObject({
 
 // ---- what to deploy ----
 
-interface Target {
+export interface Target {
   sha: string;
   /** The tag, or the commit id when a commit id was asked for. */
   ref: string;
@@ -177,7 +177,7 @@ function describeStatus(context: CloudContext, status: HostStatus): void {
     );
 }
 
-async function showLogs(context: CloudContext, host: HostSession, lines: number): Promise<void> {
+async function showLogs(context: DeployContext, host: HostSession, lines: number): Promise<void> {
   const text = await host.call('logs', [String(lines)], { timeoutMs: 120_000 });
   for (const line of text.replace(/\n$/, '').split('\n')) context.report.line(`  | ${line}`);
 }
@@ -189,7 +189,7 @@ interface HealthResult {
 
 /** Polls the machine's status up to HEALTH_SECONDS for the container of `sha` to report `healthy`. */
 async function waitHealthy(
-  context: CloudContext,
+  context: DeployContext,
   host: HostSession,
   sha: string,
   imageId?: string,
@@ -218,7 +218,7 @@ async function waitHealthy(
 }
 
 /** The warning that goes with every return to an older image (the migration problem). */
-function migrationWarning(context: CloudContext, ref: string, stoppedAt: string | null | undefined): void {
+function migrationWarning(context: DeployContext, ref: string, stoppedAt: string | null | undefined): void {
   context.report.line(
     `note: an older build refuses a database that a newer build has migrated. If ${ref} does not become healthy, ` +
       `restore the database to ${stoppedAt ?? 'the time the board stopped before the update'} from the Litestream replica ` +
@@ -226,7 +226,7 @@ function migrationWarning(context: CloudContext, ref: string, stoppedAt: string 
   );
 }
 
-function reportedFailure(message: string): CloudError {
+export function reportedFailure(message: string): CloudError {
   const error = new CloudError(message, 1);
   error.reported = true;
   return error;
@@ -235,7 +235,7 @@ function reportedFailure(message: string): CloudError {
 // ---- deploy and rollback ----
 
 /** Where the image comes from: a bundle on this computer, or the artifact of a GitHub run (PM-1154). */
-type ImageSource = { kind: 'bundle'; image: SelectedImage } | { kind: 'github'; github: GithubImage };
+export type ImageSource = { kind: 'bundle'; image: SelectedImage } | { kind: 'github'; github: GithubImage };
 
 function receivedDetail(sha: string, image: ReceivedImage): string {
   return `source=${sha} platform=${image.platform} archiveSha256=${image.archiveSha256} imageId=${image.imageId}`;
@@ -243,7 +243,7 @@ function receivedDetail(sha: string, image: ReceivedImage): string {
 
 /** Brings the image onto the machine, whichever way, and returns what was verified and imported. */
 async function receiveFromSource(
-  context: CloudContext,
+  context: DeployContext,
   host: HostSession,
   target: Target,
   source: ImageSource,
@@ -269,25 +269,78 @@ async function receiveFromSource(
   return staged!.image;
 }
 
-/** bootstrap, receive-image, receive-env, start; then waits for health and goes back to the earlier image if it never comes. */
-async function deployOnHost(
-  context: CloudContext,
+/**
+ * Where cloud.env comes from: this computer sends it (`receive-env`), or the machine's own copy is only checked
+ * (`env-check`; the deploy from a GitHub runner, which holds no secrets, PM-1197).
+ */
+type EnvSource = { kind: 'send'; text: string } | { kind: 'machine' };
+
+/** What a deploy left behind. `healthy` false with `rolledBack` true: the earlier image runs again (or not). */
+export interface DeployOutcome {
+  target: Target;
+  image: ReceivedImage;
+  /** The imageId running before this deploy, or null on a first deploy. */
+  previousImageId: string | null;
+  healthy: boolean;
+  rolledBack: boolean;
+  /** The tags removed by `prune-images` after a healthy deploy. */
+  pruned: string[];
+}
+
+const prunedSchema = z.looseObject({ removed: z.array(z.string()) });
+
+/** Removes the images and bundles that a rollback no longer needs; a failure here is a note, never a failed deploy. */
+async function pruneImages(context: DeployContext, host: HostSession): Promise<string[]> {
+  const { report } = context;
+  try {
+    const answer = prunedSchema.parse(
+      JSON.parse(await host.call('prune-images', [], { timeoutMs: 300_000 })),
+    );
+    report.step(
+      answer.removed.length > 0 ? 'updated' : 'unchanged',
+      'prune-images',
+      answer.removed.length > 0
+        ? `removed ${answer.removed.map((tag) => tag.slice(0, 12)).join(', ')}`
+        : 'only the current and the previous image remain',
+    );
+    return answer.removed;
+  } catch (error) {
+    report.line(
+      `note: the old images were not removed (${error instanceof Error ? error.message : String(error)}); the next deploy tries again`,
+    );
+    return [];
+  }
+}
+
+/**
+ * (check env,) bootstrap, receive-image, receive-env, start; then waits for health and goes back to the earlier image
+ * if it never comes. After a healthy start only the current and the previous image stay on the machine.
+ */
+export async function deployOnHost(
+  context: DeployContext,
   host: HostSession,
   target: Target,
-  envText: string,
+  env: EnvSource,
   source: ImageSource,
-): Promise<void> {
+): Promise<DeployOutcome> {
   const { report, deps } = context;
+  if (env.kind === 'machine')
+    await report.run('env-check', async (): Promise<StepResult> => {
+      const names = (await host.call('env-check')).trim().split('\n').filter(Boolean);
+      return { status: 'ok', detail: `/etc/projectman/cloud.env has ${names.join(', ')}` };
+    });
   await report.run('bootstrap', async (): Promise<StepResult> => {
     await host.call('bootstrap', [], { input: readUnitFile(deps.repoRoot), timeoutMs: BOOTSTRAP_TIMEOUT_MS });
     return { status: 'ok', detail: 'Docker, git, swap, directories, systemd unit' };
   });
   const image = await receiveFromSource(context, host, target, source);
-  await report.run('receive-env', async (): Promise<StepResult> => {
-    await host.call('receive-env', [], { input: envText });
-    return { status: 'updated', detail: '/etc/projectman/cloud.env' };
-  });
+  if (env.kind === 'send')
+    await report.run('receive-env', async (): Promise<StepResult> => {
+      await host.call('receive-env', [], { input: env.text });
+      return { status: 'updated', detail: '/etc/projectman/cloud.env' };
+    });
   const before = (await readHostStatus(host)).deploy?.current ?? null;
+  const outcome = { target, image, previousImageId: before?.imageId ?? null };
   await report.run('start', async (): Promise<StepResult> => {
     await host.call('start', [target.sha, target.ref, image.imageId]);
     return { status: 'updated', detail: `${target.ref} (${target.sha.slice(0, 12)})` };
@@ -295,7 +348,7 @@ async function deployOnHost(
   const result = await waitHealthy(context, host, target.sha, image.imageId, image.platform);
   if (result.healthy) {
     report.step('ok', 'health', `${target.ref} is healthy`);
-    return;
+    return { ...outcome, healthy: true, rolledBack: false, pruned: await pruneImages(context, host) };
   }
   const stoppedAt = result.status.deploy?.lastStoppedAt;
   report.line(
@@ -304,12 +357,14 @@ async function deployOnHost(
   await showLogs(context, host, 200).catch((error: unknown) =>
     report.line(`  (the log could not be read: ${error instanceof Error ? error.message : String(error)})`),
   );
+  let rolledBack = false;
   if (before && (before.sha !== target.sha || before.imageId !== image.imageId)) {
     report.line(`going back to ${before.ref} (${before.sha.slice(0, 12)})`);
     await report.run('rollback', async (): Promise<StepResult> => {
       await host.call('start', recordedStart(context, before));
       return { status: 'updated', detail: `${before.ref} (${before.sha.slice(0, 12)})` };
     });
+    rolledBack = true;
     const restored = await waitHealthy(context, host, before.sha, before.imageId, before.platform);
     if (restored.healthy) report.step('ok', 'health', `${before.ref} is healthy again`);
     else report.line(`FAIL health: ${before.ref} is not healthy either`);
@@ -319,7 +374,7 @@ async function deployOnHost(
       'there is no earlier image to go back to; the unit keeps restarting the new one (look: npm run cloud -- logs)',
     );
   }
-  throw reportedFailure(`${target.ref} did not become healthy`);
+  return { ...outcome, healthy: false, rolledBack, pruned: [] };
 }
 
 interface DeployOptions {
@@ -330,7 +385,7 @@ interface DeployOptions {
 }
 
 function recordedStart(
-  context: CloudContext,
+  context: DeployContext,
   entry: NonNullable<NonNullable<HostStatus['deploy']>['current']>,
 ): string[] {
   if (!entry.imageId || entry.platform !== 'linux/arm64')
@@ -379,7 +434,10 @@ export async function runDeploy(context: CloudContext, options: DeployOptions): 
     );
     return;
   }
-  await withHost(context, (host) => deployOnHost(context, host, target, envText, source));
+  const outcome = await withHost(context, (host) =>
+    deployOnHost(context, host, target, { kind: 'send', text: envText }, source),
+  );
+  if (!outcome.healthy) throw reportedFailure(`${target.ref} did not become healthy`);
 }
 
 export async function runRollback(context: CloudContext, options: { dryRun: boolean }): Promise<void> {

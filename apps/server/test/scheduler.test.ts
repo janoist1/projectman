@@ -24,7 +24,10 @@ function withoutGates(config: ProjectConfig): void {
 
 describe('scheduler', () => {
   let h: DomainHarness;
-  afterEach(() => h.cleanup());
+  afterEach(() => {
+    vi.useRealTimers();
+    return h.cleanup();
+  });
 
   it('assigns a free developer, moves the task into the work stage and starts its session with the brief', async () => {
     h = await createDomainHarness();
@@ -230,20 +233,25 @@ describe('scheduler', () => {
   });
 
   it('stops a mover that does not finish its turn at the limit, and a mover already idle at once', async () => {
-    h = await createDomainHarness({ adjust: withoutGates, doneTurnLimitMs: 50 });
+    const LIMIT = 60_000;
+    h = await createDomainHarness({ adjust: withoutGates, doneTurnLimitMs: LIMIT });
     const { review } = await inReview(h);
     h.runner.setState(review.id, 'working');
+    // The limit is armed on the move: the fake clock decides when it passes, not the load of the machine.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'done', aiActor('cr'));
-    await settle();
+    await vi.advanceTimersByTimeAsync(LIMIT - 1);
     expect(h.runner.isRunning(review.id)).toBe(true);
-    await waitFor(() => !h.runner.isRunning(review.id), { what: 'the mover stopped at the limit' });
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(h.runner.isRunning(review.id)).toBe(false));
+    vi.useRealTimers();
 
     await h.domain.tasks.create('AR', { title: 'Signup page', repo: 'web' }, OWNER_ACTOR);
     const second = (await start(h, 'AR-2')).session!;
     h.runner.setState(second.id, 'idle');
     await h.domain.tasks.moveToStage('AR', 'AR-2', 'done', aiActor('dev-1'));
-    await settle();
-    expect(h.runner.isRunning(second.id)).toBe(false);
+    // Well inside the limit: an idle mover is stopped at once, not at the limit.
+    await waitFor(() => !h.runner.isRunning(second.id), { what: 'the idle mover stopped at once' });
   });
 
   it('a human assignee gets the task without an AI session', async () => {

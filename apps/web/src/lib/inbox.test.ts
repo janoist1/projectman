@@ -14,6 +14,7 @@ import {
   gateThenMergeText,
   inboxHeading,
   isRecentDecision,
+  obligationTodoMeta,
   operatorTrailMark,
   operatorTrailNote,
   questionExtras,
@@ -96,6 +97,25 @@ describe('the screened question helpers (PM-561)', () => {
     expect(displayKindOf({ ...todoItem, state: 'cancelled' })).toBe('todo');
     expect(displayKindOf(asked({}))).toBe('question');
     expect(todoRows(todoItem).map((row) => row.value)).toEqual(['Run it', 'No errors']);
+  });
+
+  it('titles an obligation todo in the UI language from its payload, not from the server text (PM-1235)', () => {
+    const obligation = (kind: string, responsible: string | null) =>
+      asked(
+        {
+          question: 'Nobody carried out the next step of AR-1 for 1161 minutes.',
+          obligation: { id: 'obl_1', kind, responsible, openedAt: item.createdAt },
+        },
+        { title: 'Nobody carried out the next step of AR-1 for 1161 minutes.' },
+      );
+    expect(inboxHeading(obligation('next_step', null))).toBe(
+      t('inbox.obligationTodo.heading', { key: 'AR-1', step: t('task.steps.kinds.obligation.next_step') }),
+    );
+    const members = new Map();
+    expect(obligationTodoMeta(obligation('merge', null), members, 'owner')).toContain(
+      t('inbox.obligationTodo.metaNobody', { when: '' }).split('·')[0]!.trim(),
+    );
+    expect(obligationTodoMeta(asked({}), members, 'owner')).toBeNull();
   });
 
   it('marks a closed question by what happened to it', () => {

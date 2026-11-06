@@ -20,6 +20,7 @@ interface InboxRow {
   resolution: string | null;
   created_at: string;
   updated_at: string;
+  route: string | null;
 }
 
 interface InboxFilter {
@@ -62,6 +63,7 @@ const toItem = (r: InboxRow): InboxItem => ({
   state: r.state as InboxState,
   resolution: parseJson<InboxItem['resolution']>(r.resolution, null),
   createdAt: r.created_at,
+  ...(r.route ? { route: parseJson<InboxItem['route']>(r.route, null) } : {}),
 });
 
 export function createInboxRepository(db: Db) {
@@ -69,8 +71,8 @@ export function createInboxRepository(db: Db) {
     get: db.prepare('SELECT * FROM inbox_items WHERE id = ?'),
     insert: db.prepare(
       `INSERT INTO inbox_items (id, project_key, kind, assignees, source, session_id, task_key, title, body, payload,
-         options, state, resolution, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         options, state, resolution, created_at, updated_at, route)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     updateAssignees: db.prepare(
       "UPDATE inbox_items SET assignees = ?, updated_at = ? WHERE id = ? AND state IN ('open', 'screening')",
@@ -100,6 +102,11 @@ export function createInboxRepository(db: Db) {
          AND EXISTS (SELECT 1 FROM json_each(payload, '$.attachments') WHERE json_extract(value, '$.id') = ?)
        ORDER BY seq`,
     ),
+    questionAskedAgainFrom: db.prepare(
+      `SELECT * FROM inbox_items WHERE project_key = ? AND kind = 'question'
+         AND json_extract(payload, '$.unscreened.previousItemId') = ?
+       ORDER BY seq LIMIT 1`,
+    ),
     updatePayload: db.prepare('UPDATE inbox_items SET payload = ?, updated_at = ? WHERE id = ?'),
     countOpenFor: db.prepare(
       `SELECT COUNT(*) AS n FROM inbox_items
@@ -116,6 +123,13 @@ export function createInboxRepository(db: Db) {
     ),
     screenedQuestionsSince: db.prepare(
       `SELECT COUNT(*) AS n FROM inbox_items WHERE ${SCREENED_QUESTION} AND created_at >= ?`,
+    ),
+    questionsSince: db.prepare(
+      `SELECT * FROM inbox_items WHERE project_key = ? AND (kind = 'question' OR route IS NOT NULL)
+         AND COALESCE(json_extract(payload, '$.screening.at'), created_at) >= ?
+         AND NOT EXISTS (SELECT 1 FROM question_group_items g
+           WHERE g.item_id = inbox_items.id AND g.primary_item_id <> inbox_items.id)
+       ORDER BY seq`,
     ),
     groupRows: db.prepare(
       `SELECT i.item_id, g.* FROM question_group_items i JOIN question_groups g
@@ -209,6 +223,14 @@ export function createInboxRepository(db: Db) {
         items: (statements.screenedQuestions.all(projectKey, limit) as InboxRow[]).map(toItem),
         today: (statements.screenedQuestionsSince.get(projectKey, since) as { n: number }).n,
       };
+    },
+    /**
+     * The project's questions, and any item with a recorded route (PM-1252), screened (else created) at or after
+     * `since`, oldest first, not counting a question combined into another: what the weekly owner question
+     * measure counts (PM-1192).
+     */
+    questionsSince(projectKey: string, since: string): InboxItem[] {
+      return (statements.questionsSince.all(projectKey, since) as InboxRow[]).map(toItem);
     },
     createGroup(input: {
       primaryItemId: string;
@@ -306,8 +328,13 @@ export function createInboxRepository(db: Db) {
           item.resolution ? toJson(item.resolution) : null,
           item.createdAt,
           item.createdAt,
+          item.route ? toJson(item.route) : null,
         ),
       );
+    },
+    /** Records the route of an item that exists (an integrator todo handed on; the route rule decided). */
+    setRoute(id: string, route: NonNullable<InboxItem['route']>): void {
+      changing(id, () => db.prepare('UPDATE inbox_items SET route = ? WHERE id = ?').run(toJson(route), id));
     },
     updateAssignees(id: string, assignees: string[], at: string): InboxItem | null {
       changing(id, () => statements.updateAssignees.run(toJson(assignees), at, id));
@@ -420,6 +447,11 @@ export function createInboxRepository(db: Db) {
     /** The questions, whatever their state, that name this file (PM-498), oldest first. */
     listQuestionsWithAttachment(projectKey: string, attachmentId: string): InboxItem[] {
       return (statements.questionsWithAttachment.all(projectKey, attachmentId) as InboxRow[]).map(toItem);
+    },
+    /** The question that asked this one again (PM-558), if any: one targeted query, not every question of the project. */
+    findQuestionAskedAgainFrom(projectKey: string, previousItemId: string): InboxItem | null {
+      const row = statements.questionAskedAgainFrom.get(projectKey, previousItemId) as InboxRow | undefined;
+      return row ? toItem(row) : null;
     },
     /** Replaces the payload of an item in any state (PM-498: a file of a question was deleted). */
     updatePayload(id: string, payload: Record<string, unknown>, at: string): InboxItem | null {

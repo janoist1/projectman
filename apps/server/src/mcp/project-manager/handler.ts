@@ -9,6 +9,7 @@ import {
   roleBundle,
   ScreeningTodo as ScreeningTodoSchema,
   questionPayloadOf,
+  coordinationActorRefusal,
 } from '@projectman/shared';
 import type { QuestionRecipient, QuestionRecipientRefusal } from '@projectman/shared';
 import type {
@@ -41,7 +42,7 @@ import type { Messaging } from '../../core/messages';
 import { recipientHasCardRole } from '../../core/messages';
 import type { ChecklistService, ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
-import type { TaskStarts } from '../../runtime/admission';
+import type { SeniorDecisions, TaskStarts } from '../../runtime/admission';
 import { aiActor } from '../../kernel';
 import type {
   ProjectState,
@@ -79,6 +80,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
   private readonly projectState: ProjectState;
   private readonly taskStarts: TaskStarts;
+  private readonly seniorDecisions: Pick<SeniorDecisions, 'decide'>;
   private readonly operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
   private readonly operatorPreferences: OperatorPreferences;
   private readonly operatorKnowledge: OperatorKnowledge;
@@ -98,6 +100,7 @@ export class OperatorTools implements OperatorToolsHandler {
     messaging: Pick<Messaging, 'answer' | 'forwardQuestion' | 'sendReporting'>;
     projectState: ProjectState;
     taskStarts: TaskStarts;
+    seniorDecisions: Pick<SeniorDecisions, 'decide'>;
     operatorSignals: Pick<OperatorSignals, 'dismissByOperator'>;
     operatorPreferences: OperatorPreferences;
     operatorKnowledge: OperatorKnowledge;
@@ -117,6 +120,7 @@ export class OperatorTools implements OperatorToolsHandler {
     this.messaging = deps.messaging;
     this.projectState = deps.projectState;
     this.taskStarts = deps.taskStarts;
+    this.seniorDecisions = deps.seniorDecisions;
     this.operatorSignals = deps.operatorSignals;
     this.operatorPreferences = deps.operatorPreferences;
     this.operatorKnowledge = deps.operatorKnowledge;
@@ -331,6 +335,34 @@ export class OperatorTools implements OperatorToolsHandler {
         if (err instanceof DomainError) throw toToolError(err);
         throw err;
       }
+    });
+  }
+
+  async decideSeniorWait(
+    ctx: ToolContext,
+    args: { taskKey: string; decision: 'wait' | 'any'; reason: string },
+  ) {
+    return this.calls.guard(async () => {
+      const config = await this.calls.caller(ctx, 'decide_senior_wait');
+      if (coordinationActorRefusal(config, { kind: 'ai', handle: ctx.member }) !== null)
+        throw new TeamToolError(
+          'forbidden',
+          'project_manager_only: a card that waits for a Senior is decided by the project manager.',
+        );
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
+      try {
+        await this.seniorDecisions.decide({
+          projectKey: ctx.projectKey,
+          taskKey,
+          decision: args.decision,
+          by: ctx.member,
+          reason: args.reason,
+        });
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+      return { taskKey, decision: args.decision };
     });
   }
 
@@ -612,6 +644,7 @@ export class OperatorTools implements OperatorToolsHandler {
       forwardTo?: string;
       todo?: ScreeningTodo;
       feedbackId?: string;
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -688,6 +721,7 @@ export class OperatorTools implements OperatorToolsHandler {
                 note,
                 ...(args.todo ? { todo: args.todo } : {}),
                 ...(args.feedbackId !== undefined ? { feedbackId: args.feedbackId } : {}),
+                ...(args.ownerTopic !== undefined ? { ownerTopic: args.ownerTopic } : {}),
               },
               // A todo no integrator can take goes to the technical decider, not to the owners (PM-1139).
               outcome === 'todo'

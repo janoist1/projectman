@@ -87,11 +87,20 @@ export class SessionContextInput {
       opts,
     );
     const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
+    // The project manager's guest conversation has no document tools (PM-1080), so no list either.
+    const documents =
+      guestOf !== undefined
+        ? []
+        : ((await this.deps.documents?.list(projectKey).catch((err: unknown) => {
+            this.ctx.logger.warn({ err, member: member.handle }, 'could not list the project documents');
+            return undefined;
+          })) ?? []);
     return {
       stage,
       memory,
       attachments,
       parentAttachments,
+      documents,
       attachmentRules,
       attachmentDirs,
       relatedSessions,
@@ -142,7 +151,7 @@ export class SessionContextInput {
     handoff: HandoffTakeover | null,
   ): Promise<ContextPackInput> {
     const projectKey = config.project.key;
-    const { stage, memory, attachments, parentAttachments, relatedSessions } = prepared;
+    const { stage, memory, attachments, parentAttachments, documents, relatedSessions } = prepared;
     const { cardWorkers, cardQuestions, relations, themeCard, acceptance } = standing;
     const operatorKnowledge = await this.deps.operatorKnowledge
       .forConversation(projectKey, member.handle, workItem, cause)
@@ -190,6 +199,7 @@ export class SessionContextInput {
       ...(operatorKnowledge ? { operatorKnowledge } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(parentAttachments ? { parentAttachments } : {}),
+      ...(documents.length > 0 ? { documents } : {}),
       ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
       ...(cardWorkers.length > 0 ? { cardWorkers } : {}),
       ...(cardQuestions.length > 0 ? { cardQuestions } : {}),

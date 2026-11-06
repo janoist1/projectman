@@ -280,6 +280,84 @@ describe('working a mark', () => {
   });
 });
 
+describe('deleting a mark (PM-1189)', () => {
+  const DELETES = (p: Project) => p.requests.filter((r) => r.method === 'DELETE');
+
+  function render(p: Project, path: string, overrides?: Parameters<Project['render']>[2]) {
+    p.render(
+      <ToastProvider>
+        <Pages />
+      </ToastProvider>,
+      path,
+      overrides,
+    );
+  }
+
+  async function openDelete(text: string | RegExp) {
+    await screen.findByRole('list', { name: t('feedback.list.label') });
+    fireEvent.click(rowOf(text));
+    const detail = await screen.findByRole('region', { name: t('feedback.detail.label') });
+    fireEvent.click(within(detail).getByRole('button', { name: t('common.moreActions') }));
+    fireEvent.click(await screen.findByRole('button', { name: t('feedback.delete.menu') }));
+    return screen.findByRole('dialog');
+  }
+
+  it("lets the owner delete someone else's mark, keeps the search and names the card that stays", async () => {
+    const p = seeded();
+    render(p, '/p/AC/feedback?f=all');
+    const dialog = await openDelete(/A főoldali banner képe/);
+    expect(within(dialog).getByText(t('feedback.delete.headingOf', { name: 'Kata' }))).toBeTruthy();
+    expect(within(dialog).getByText(t('feedback.delete.keepsCard', { key: 'AC-24' }))).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: t('feedback.delete.submit') }));
+    expect(await screen.findByText(t('feedback.delete.done'))).toBeTruthy();
+    expect(DELETES(p)).toHaveLength(1);
+    await waitFor(() => expect(where()).toBe('/p/AC/feedback?f=all'));
+    expect(screen.queryByText(/A főoldali banner képe/)).toBeNull();
+  });
+
+  it('puts a line about the deletion on the card the mark stood on', async () => {
+    const p = seeded();
+    render(p, '/p/AC/feedback?f=all');
+    const dialog = await openDelete(/A főoldali banner képe/);
+    fireEvent.click(within(dialog).getByRole('button', { name: t('feedback.delete.submit') }));
+    await screen.findByText(t('feedback.delete.done'));
+    const line = p.backend.timeline.find((event) => event.type === 'feedback_deleted');
+    expect(line).toMatchObject({ taskKey: 'AC-24', actor: { handle: 'owner' }, data: { created: true } });
+  });
+
+  it('words the question for the author of the mark in the first person', async () => {
+    const p = seeded();
+    const overrides = asClient(p);
+    render(p, '/p/AC/feedback?f=all', overrides);
+    const dialog = await openDelete(/A főoldali banner képe/);
+    expect(within(dialog).getByText(t('feedback.delete.headingOwn'))).toBeTruthy();
+  });
+
+  it('says the mark was already deleted when the server no longer knows it', async () => {
+    const p = seeded();
+    render(p, '/p/AC/feedback?f=all');
+    const dialog = await openDelete(/A főoldali banner képe/);
+    p.backend.feedback.marks = p.backend.feedback.marks.filter((mark) => !mark.body.includes('főoldali'));
+    fireEvent.click(within(dialog).getByRole('button', { name: t('feedback.delete.submit') }));
+    expect(await screen.findByText(t('feedback.delete.gone'))).toBeTruthy();
+    await waitFor(() => expect(where()).toBe('/p/AC/feedback?f=all'));
+  });
+
+  it('keeps the dialog open with the error when the server refuses', async () => {
+    const p = seeded();
+    const mock = createMockFetch(p.backend, p.requests);
+    setFetchImplementation((input, init) =>
+      init?.method === 'DELETE' ? Promise.resolve(new Response('{}', { status: 500 })) : mock(input, init),
+    );
+    render(p, '/p/AC/feedback?f=all');
+    const dialog = await openDelete(/A főoldali banner képe/);
+    fireEvent.click(within(dialog).getByRole('button', { name: t('feedback.delete.submit') }));
+    expect(await within(dialog).findByRole('alert')).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(where()).toContain('/feedback/fbm_');
+  });
+});
+
 describe('opening the page of the product', () => {
   it('opens a tab at once and points it at the address the server gave', async () => {
     const p = seeded();

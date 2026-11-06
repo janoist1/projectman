@@ -31,7 +31,12 @@ test('defers the SDK until the first valid send and shares one client across con
     from: 'login@example.test',
     credentials: { accessKeyId: 'fake-access-key', secretAccessKey: 'fake-secret' },
   });
-  const input = { to: 'client@example.test', code: '482913', expiresAt: '2026-10-14T17:42:00.000Z' };
+  const input = {
+    to: 'client@example.test',
+    code: '482913',
+    expiresAt: '2026-10-14T17:42:00.000Z',
+    language: 'hu' as const,
+  };
   expect(sdk.loaded).not.toHaveBeenCalled();
   expect(sdk.client).not.toHaveBeenCalled();
   await expect(mailer.send({ ...input, to: 'invalid' })).rejects.toThrow('not a plain address');

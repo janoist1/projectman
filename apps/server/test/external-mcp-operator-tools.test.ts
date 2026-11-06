@@ -421,6 +421,74 @@ describe('the bearer MCP endpoint: the Operator tools (PM-784)', () => {
     });
   });
 
+  describe('the project documents (PM-1232)', () => {
+    const text = (result: ToolResult) => result.content[0]?.text ?? '';
+    const versionOf = (result: ToolResult) => /version=([0-9a-f]{40})/.exec(text(result))?.[1] ?? '';
+
+    it('creates and edits a document with the super key, with the stale base refused and the holder’s name in the history', async () => {
+      const { secret } = key('super');
+      const created = await call(secret, 'write_document', {
+        project_key: 'AR',
+        title: 'Memory log',
+        content: '# Log\n',
+        message: 'Start the log',
+      });
+      expect(created.isError, text(created)).not.toBe(true);
+      expect(text(created)).toContain('doc:memory-log');
+
+      const read = await call(secret, 'read_document', { project_key: 'AR', ref: 'memory-log' });
+      const base = versionOf(read);
+      const edited = await call(secret, 'write_document', {
+        project_key: 'AR',
+        slug: 'memory-log',
+        content: '# Log\n\nEntry\n',
+        base_version: base,
+        message: 'Add an entry',
+      });
+      expect(edited.isError, text(edited)).not.toBe(true);
+
+      const stale = await call(secret, 'write_document', {
+        project_key: 'AR',
+        slug: 'memory-log',
+        content: 'late',
+        base_version: base,
+        message: 'Late',
+      });
+      expect(stale.isError).toBe(true);
+      expect(text(stale)).toMatch(/document_conflict.*The current version is [0-9a-f]{40}/s);
+
+      const history = await call(secret, 'document_history', { project_key: 'AR', slug: 'memory-log' });
+      expect(text(history)).toContain('Add an entry');
+      expect(text(history)).toContain('via integrator');
+      const [latest] = await h.app.projectman.domain.documents.history('AR', 'memory-log', {
+        access: 'owner',
+        handle: 'owner',
+      });
+      expect(latest?.by).toMatchObject({ via: 'integrator', actor: { through: { holder: 'owner' } } });
+      expect(latest?.by.name).toBe(h.app.projectman.repos.users.list()[0]!.name);
+    });
+
+    it('lets a read key read and list but not write, and gives no delete or restore', async () => {
+      const superKey = key('super').secret;
+      await call(superKey, 'write_document', {
+        project_key: 'AR',
+        title: 'Notes',
+        content: 'x',
+        message: 'Create',
+      });
+      const read = key('read').secret;
+      expect(text(await call(read, 'list_documents', { project_key: 'AR' }))).toContain('notes');
+      expect(versionOf(await call(read, 'read_document', { project_key: 'AR', ref: 'notes' }))).not.toBe('');
+      expect(
+        code(
+          await call(read, 'write_document', { project_key: 'AR', title: 'No', content: 'x', message: 'No' }),
+        ),
+      ).toBe('integrator_read_only');
+      for (const name of ['delete_document', 'restore_document'])
+        expect(code(await call(superKey, name, { project_key: 'AR' })), name).toBe('not_found');
+    });
+  });
+
   describe('read_attachment', () => {
     it('validates its arguments', async () => {
       const { secret } = key('super');

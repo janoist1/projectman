@@ -24,7 +24,7 @@ export interface WebManifest {
   name: string;
   short_name: string;
   description: string;
-  lang: 'hu';
+  lang: 'en';
   dir: 'ltr';
   start_url: string;
   scope: string;
@@ -42,14 +42,14 @@ const ICONS: ManifestIcon[] = [
   { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
 ];
 
-/** The web app manifest. The names come from the locale file (`app.name`, `pwa.description`). */
+/** The web app manifest. The names come from the English locale file (`app.name`, `pwa.description`); a manifest has one language. */
 export function buildManifest(text: PwaText): WebManifest {
   return {
     id: '/',
     name: text.name,
     short_name: text.name,
     description: text.description,
-    lang: 'hu',
+    lang: 'en',
     dir: 'ltr',
     start_url: '/',
     scope: '/',

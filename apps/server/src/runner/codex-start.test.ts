@@ -19,7 +19,7 @@ async function fixture(version = '0.159.1') {
     codexBin: FAKE_CODEX,
     codexHome: home,
     env: { PATH: process.env.PATH, HOME: home, CODEX_HOME: home, FAKE_CODEX_VERSION: version },
-    ambientConfig: { codexUser: user, codexManaged: [] },
+    ambientConfig: { codexUser: user, codexManaged: [], codexPresenceRefused: [] },
     publicBaseUrl: 'http://127.0.0.1:1',
     sessionConfigRoot: path.join(await dirs.make(), 'run'),
     permissionTimeoutMs: 1_000,
@@ -121,6 +121,25 @@ describe('fail-closed Codex start', () => {
         issues: [{ file, keys: ['sandbox_mode'] }],
       },
     });
+    expect(runner.list()).toEqual([]);
+    await runner.shutdown();
+  });
+
+  it('refuses a user hooks file before spawning, naming only the file', async () => {
+    const { options, spec, home } = await fixture();
+    const file = path.join(home, 'hooks.json');
+    await writeFile(file, '{"fictional-private-value": true}');
+    const runner = createRunnerModule(options).runner;
+    const error = await runner.start(spec).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      code: 'codex_setup_incomplete',
+      details: {
+        provider: 'codex',
+        problem: 'sandbox_config',
+        ambientConfig: [{ file, keys: ['(hooks file)'] }],
+      },
+    });
+    expect(JSON.stringify(error)).not.toContain('fictional-private-value');
     expect(runner.list()).toEqual([]);
     await runner.shutdown();
   });

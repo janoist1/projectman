@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedbackMarkDetail } from '@projectman/shared';
 import { createController } from './controller';
 import type { Controller, Deps, Target } from './controller';
+import { t } from './i18n';
 import { ShareRefused } from './display-capture';
 import type { DisplayShare } from './display-capture';
 import { sessionKey } from './storage';
@@ -626,6 +627,80 @@ describe('threads', () => {
     expect(controller.escape()).toBe(true);
     expect(controller.getState().panel).toBeNull();
     expect(controller.escape()).toBe(false);
+  });
+});
+
+describe('deleting a mark (PM-1189)', () => {
+  const ID = 'fbm_aaaaaaaaaa';
+
+  async function openOwn(deleteRoute: Handler, extra: Record<string, Handler> = {}) {
+    window.localStorage.setItem(KEY, JSON.stringify(session()));
+    const built = build(
+      okRoutes({
+        'GET /marks': () => listOf(mark({ canDelete: true })),
+        [`GET /marks/${ID}`]: () => reply(200, detail({ canDelete: true })),
+        [`DELETE /marks/${ID}`]: deleteRoute,
+        ...extra,
+      }),
+    );
+    await built.controller.start();
+    await flush();
+    built.controller.openMark(ID, { scroll: false });
+    await flush();
+    return built;
+  }
+
+  it('removes the mark, closes the card and says so when the delete succeeds', async () => {
+    const { controller, server } = await openOwn(() => reply(204));
+    await controller.deleteMark(ID);
+    const state = controller.getState();
+    expect(server.calls.some((c) => c.method === 'DELETE' && c.path === `/marks/${ID}`)).toBe(true);
+    expect(state.marks[ID]).toBeUndefined();
+    expect(state.threads[ID]).toBeUndefined();
+    expect(state.card).toBeNull();
+    expect(state.flash).toBe(t('notice.deleted'));
+  });
+
+  it('keeps the card open and the confirmation asking when the delete fails, and retries', async () => {
+    let attempt = 0;
+    const { controller } = await openOwn(() => (++attempt === 1 ? failure(500, 'boom') : reply(204)));
+    controller.askDelete(ID, true);
+    await controller.deleteMark(ID);
+    expect(controller.getState().card).toEqual({ type: 'thread', markId: ID });
+    expect(controller.getState().threads[ID]).toMatchObject({
+      deleteAsk: true,
+      deleting: false,
+      deleteError: true,
+    });
+    await controller.deleteMark(ID);
+    expect(controller.getState().marks[ID]).toBeUndefined();
+  });
+
+  it('treats a 404 on delete as gone, with its own notice', async () => {
+    const { controller } = await openOwn(() => failure(404, 'not_found'));
+    await controller.deleteMark(ID);
+    expect(controller.getState().marks[ID]).toBeUndefined();
+    expect(controller.getState().flash).toBe(t('notice.deletedElsewhere'));
+  });
+
+  it('drops a mark someone else deleted when its detail answers 404', async () => {
+    const { controller } = await openOwn(() => reply(204), {
+      [`GET /marks/${ID}`]: () => failure(404, 'not_found'),
+    });
+    const state = controller.getState();
+    expect(state.marks[ID]).toBeUndefined();
+    expect(state.card).toBeNull();
+    expect(state.flash).toBe(t('notice.deletedElsewhere'));
+  });
+
+  it('cancels the confirmation with escape before the card closes', async () => {
+    const { controller } = await openOwn(() => reply(204));
+    controller.askDelete(ID, true);
+    expect(controller.escape()).toBe(true);
+    expect(controller.getState().threads[ID]?.deleteAsk).toBe(false);
+    expect(controller.getState().card).toEqual({ type: 'thread', markId: ID });
+    expect(controller.escape()).toBe(true);
+    expect(controller.getState().card).toBeNull();
   });
 });
 

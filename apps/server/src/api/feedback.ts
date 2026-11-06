@@ -98,6 +98,13 @@ export function registerFeedbackRoutes(app: FastifyInstance, domain: ApiDomain):
     },
   );
 
+  app.delete<MarkParams>(routes.feedbackMark(':key', ':markId'), async (request, reply) => {
+    const { key, markId } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'viewer' });
+    await domain.feedback.deleteMark(key, markIdOf(markId), actorOf(access));
+    return reply.code(204).send();
+  });
+
   app.get<MarkParams>(routes.feedbackScreenshot(':key', ':markId'), async (request, reply) => {
     const { key, markId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'viewer' });

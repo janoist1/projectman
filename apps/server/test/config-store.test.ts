@@ -47,22 +47,6 @@ describe('ConfigStore (customization repository)', () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  it.each([false, true])('round-trips the waiver %s in YAML, history and revert', async (enabled) => {
-    const config = testConfig();
-    config.team.operatorApprovalWaiver = enabled;
-    const original = await store.save('AR', config, { author, message: 'Set waiver' });
-    expect(readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8')).toContain(
-      `operatorApprovalWaiver: ${enabled}`,
-    );
-    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
-    expect((await store.loadVersion('AR', original.version)).team.operatorApprovalWaiver).toBe(enabled);
-    delete config.team.operatorApprovalWaiver;
-    await store.save('AR', config, { author, message: 'Clear waiver' });
-    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBeUndefined();
-    await store.revertTo('AR', original.version, { author });
-    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
-  });
-
   it('keeps the prerequisite override through a save and a load (PM-1099)', async () => {
     const config = testConfig();
     config.team.prerequisiteOverride = 'people_and_project_manager';
@@ -468,6 +452,26 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     expect((await store.revertTo('AR', v1.version, { author })).version).toBe(reverted.version);
     await expectConfigError(store.revertTo('AR', 'deadbeef', { author }), 'unknown_version');
     await expectConfigError(store.revertTo('AR', '--help', { author }), 'unknown_version');
+  });
+
+  it('counts the versions and reads many in one batch, in the order asked, null for one it cannot read', async () => {
+    const first = await store.save('AR', testConfig(), { author, message: 'Create project AR' });
+    const accented: ProjectConfig = testConfig();
+    accented.project.name = 'Ékezetes webáruház – 日本語';
+    const second = await store.save('AR', accented, { author, message: 'Rename' });
+    expect(await store.countVersions('AR')).toBe(2);
+
+    const [newest, missing, oldest, malformed] = await store.loadVersions('AR', [
+      second.version,
+      'deadbeefdeadbeef',
+      first.version,
+      '--help',
+    ]);
+    expect(newest?.project.name).toBe(accented.project.name);
+    expect(missing).toBeNull();
+    expect(oldest?.project.name).toBe(testConfig().project.name);
+    expect(malformed).toBeNull();
+    expect(await store.loadVersions('AR', [])).toEqual([]);
   });
 
   it('rejects configurations that violate the invariants and keeps the repository unchanged', async () => {

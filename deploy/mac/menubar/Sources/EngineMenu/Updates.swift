@@ -18,6 +18,7 @@ enum Updates {
         download: download,
         run: SystemProcess.runner,
         verifySignature: verifySignature,
+        verifyAttestation: verifyAttestation,
         bundleVersion: { Bundle(url: $0)?.infoDictionary?["CFBundleVersion"] as? String },
         replace: { bundle, replacement in _ = try FileManager.default.replaceItemAt(bundle, withItemAt: replacement) })
 
@@ -87,6 +88,14 @@ enum Updates {
             let reason = failure.map { CFErrorCopyDescription($0.takeRetainedValue()) as String } ?? "status \(status)"
             throw UpdateFailure("signature_invalid", reason)
         }
+    }
+
+    /// `gh attestation verify` with the user's own `gh` login, found on the engine's PATH.
+    static func verifyAttestation(_ zip: URL, _ repo: String, _ signerWorkflow: String, _ sourceRef: String) throws {
+        let home = Machine.home
+        let path = (try? EngineLocator.locate(userHome: home).path) ?? PathResolver.fallback(home: home.path)
+        try AttestationVerifier.verify(zip: zip, repo: repo, signerWorkflow: signerWorkflow, sourceRef: sourceRef, path: path, home: home.path,
+                                       isExecutable: { FileManager.default.isExecutableFile(atPath: $0) }, run: SystemProcess.runner)
     }
 
     /// The new copy starts after this one has quit; the engine keeps running throughout.

@@ -584,6 +584,25 @@ describe('cloud mode remote parts', () => {
       expect(remote.directory.get('eng_a' as never)?.processExists(101)).toBe(false);
     });
 
+    it.each([
+      ['an engine that advertises it', { deliveryIds: true as const }, true],
+      ['an engine that does not', {}, false],
+    ])('sends the delivery id of a message to %s (PM-1205)', async (_name, hello, sent) => {
+      const deliveryId = 'dlv_0123456789abcdef0123456789abcdef';
+      const engine = await online('eng_a', hello);
+      engine.answer('session.start', (params) => running(params.sessionId));
+      engine.answer('session.send', () => null);
+      await remote.runner.start(spec());
+      await remote.runner.sendUserMessage('s1', 'hello', { deliveryId });
+      const calls = engine.requests.filter((item) => item.method === 'session.send');
+      expect(calls).toEqual([
+        {
+          method: 'session.send',
+          params: { sessionId: 's1', message: 'hello', ...(sent ? { deliveryId } : {}) },
+        },
+      ]);
+    });
+
     it('refuses a start while no engine is connected', async () => {
       await expect(remote.runner.start(spec())).rejects.toMatchObject({ code: 'engine_offline' });
       cloud.registry.add('eng_a' as never);

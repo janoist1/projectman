@@ -23,8 +23,9 @@ import {
   SuperAuditPage,
   SuperOperationDetail,
   OperatorKnowledgeDocument,
+  OWNER_QUESTION_WEEKS_DEFAULT,
+  OwnerQuestionsReport,
   OperatorPreferenceDocument,
-  OperatorApprovalWaiverResponse,
   MemberQueueView,
   EmailLoginCodeRequested,
   CreateEngineResponse,
@@ -37,6 +38,10 @@ import {
   MachineView,
   StopOrphansResult,
   AttachmentListResponse,
+  DeleteDocumentResponse,
+  DocumentDetail,
+  DocumentHistoryResponse,
+  DocumentListResponse,
   BoardMoveResult,
   ChangeTaskLabelsRequest,
   DeleteAttachmentResponse,
@@ -59,6 +64,8 @@ import {
   RolesView,
   BoardView,
   CheckOutageResponse,
+  PullWaitingResponse,
+  ConfigHistoryView,
   ConfigView,
   InboxView,
   InstancePauseView,
@@ -80,11 +87,14 @@ import {
   InvolvementsResponse,
 } from '@projectman/shared';
 import type {
+  CreateDocumentRequest,
+  DeleteDocumentQuery,
+  RestoreDocumentRequest,
+  UpdateDocumentRequest,
   CreateOwnerInviteRequest,
   AnswerHostRequestRequest,
   SetChecklistItemStateRequest,
   CreateIntegratorAccessKeyRequest,
-  OperatorApprovalWaiverRequest,
   CloseFeedbackRequest,
   CreateTaskFromFeedbackRequest,
   CreateTaskFromFeedbackResponse,
@@ -107,6 +117,8 @@ import type {
   AcceptInviteRequest,
   EmailLoginCodeRequest,
   EmailLoginVerifyRequest,
+  PasswordCodeRequest,
+  PasswordResetRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
@@ -123,6 +135,7 @@ import type {
   RetireMemberRequest,
   RevertConfigRequest,
   SendMessageRequest,
+  SetLanguageRequest,
   SetUiStyleRequest,
   SetupRequest,
   StartTaskRequest,
@@ -235,8 +248,14 @@ export const api = {
     apiRequest(routes.emailLoginRequest(), { method: 'POST', body, schema: EmailLoginCodeRequested }),
   verifyEmailLogin: (body: EmailLoginVerifyRequest) =>
     apiRequest(routes.emailLoginVerify(), { method: 'POST', body, schema: Me }),
+  requestPasswordCode: (body: PasswordCodeRequest) =>
+    apiRequest(routes.passwordCodeRequest(), { method: 'POST', body, schema: EmailLoginCodeRequested }),
+  resetPassword: (body: PasswordResetRequest) =>
+    apiRequest(routes.passwordReset(), { method: 'POST', body, schema: Me }),
   logout: () => apiRequest<unknown>(routes.logout(), { method: 'POST' }),
   me: () => apiRequest(routes.me(), { schema: Me }),
+  setLanguage: (body: SetLanguageRequest) =>
+    apiRequest(routes.myLanguage(), { method: 'PUT', body, schema: Me }),
   setUiStyle: (body: SetUiStyleRequest) =>
     apiRequest(routes.meUiStyle(), { method: 'PUT', body, schema: Me }),
 
@@ -296,6 +315,26 @@ export const api = {
       method: 'DELETE',
       schema: DeleteAttachmentResponse,
     }),
+
+  documents: (key: string) => apiRequest(routes.documents(key), { schema: DocumentListResponse }),
+  /** `version`: an older commit of the document (its history). */
+  document: (key: string, slug: string, version?: string) =>
+    apiRequest(`${routes.document(key, slug)}${version ? `?version=${encodeURIComponent(version)}` : ''}`, {
+      schema: DocumentDetail,
+    }),
+  createDocument: (key: string, body: CreateDocumentRequest) =>
+    apiRequest(routes.documents(key), { method: 'POST', body, schema: DocumentDetail }),
+  updateDocument: (key: string, slug: string, body: UpdateDocumentRequest) =>
+    apiRequest(routes.document(key, slug), { method: 'PATCH', body, schema: DocumentDetail }),
+  deleteDocument: (key: string, slug: string, { baseVersion, message }: DeleteDocumentQuery) =>
+    apiRequest(`${routes.document(key, slug)}?${new URLSearchParams({ baseVersion, message })}`, {
+      method: 'DELETE',
+      schema: DeleteDocumentResponse,
+    }),
+  documentHistory: (key: string, slug: string) =>
+    apiRequest(routes.documentHistory(key, slug), { schema: DocumentHistoryResponse }),
+  restoreDocument: (key: string, slug: string, body: RestoreDocumentRequest) =>
+    apiRequest(routes.documentRestore(key, slug), { method: 'POST', body, schema: DocumentDetail }),
 
   roles: (key: string) => apiRequest(routes.roles(key), { schema: RolesView }),
   createRole: (key: string, body: CustomRoleRequest) =>
@@ -393,18 +432,17 @@ export const api = {
   /** The owner's grant of machine operations to the Operator, as the viewer may see it (PM-881). */
   operatorKnowledge: (key: string) =>
     apiRequest(routes.operatorKnowledge(key), { schema: OperatorKnowledgeDocument }),
+  /** The weekly owner question measure of the last eight weeks (PM-1192); the owner's own login only. */
+  ownerQuestions: (key: string) =>
+    apiRequest(`${routes.operatorOwnerQuestions(key)}?weeks=${OWNER_QUESTION_WEEKS_DEFAULT}`, {
+      schema: OwnerQuestionsReport,
+    }),
   operatorPreferenceMe: (key: string) =>
     apiRequest(routes.operatorPreferenceMe(key), { schema: OperatorPreferenceDocument }),
   operatorPreferences: (key: string) =>
     apiRequest<{ items: { handle: string; preference: OperatorPreferenceDocument }[] }>(
       routes.operatorPreferences(key),
     ),
-  operatorApprovalWaiver: (key: string, body: OperatorApprovalWaiverRequest) =>
-    apiRequest(routes.operatorApprovalWaiver(key), {
-      method: 'PUT',
-      body,
-      schema: OperatorApprovalWaiverResponse,
-    }),
   /** "Most ne": the owner sets a signal aside (PM-476); the answer is the signal as it is now. */
   dismissOperatorSignal: (key: string, signalId: string) =>
     apiRequest(routes.dismissOperatorSignal(key, signalId), { method: 'POST', schema: OperatorSignal }),
@@ -439,6 +477,9 @@ export const api = {
   resolveInbox: (key: string, itemId: string, body: ResolveInboxRequest) =>
     apiRequest<unknown>(routes.resolveInbox(key, itemId), { method: 'POST', body }),
   /** "Check now" on an outage alert (PM-466): the server looks again at once; no body. */
+  /** An owner takes a question that waits for the project manager (PM-1252); the answer is the question as it is now. */
+  pullWaitingQuestion: (key: string, itemId: string) =>
+    apiRequest(routes.pullWaitingQuestion(key, itemId), { method: 'POST', schema: PullWaitingResponse }),
   checkOutage: (key: string, itemId: string) =>
     apiRequest(routes.checkOutage(key, itemId), { method: 'POST', schema: CheckOutageResponse }),
 
@@ -484,6 +525,8 @@ export const api = {
     apiRequest<FeedbackMarkDetail>(routes.feedbackClose(key, markId), { method: 'POST', body }),
   feedbackReopen: (key: string, markId: string) =>
     apiRequest<FeedbackMarkDetail>(routes.feedbackReopen(key, markId), { method: 'POST', body: {} }),
+  feedbackDelete: (key: string, markId: string) =>
+    apiRequest<null>(routes.feedbackMark(key, markId), { method: 'DELETE' }),
 
   /** The e-mail channel (PM-942): owner and admin only; `before` is the cursor of the log's older page. */
   emailChannel: (key: string) => apiRequest(routes.emailChannel(key), { schema: EmailChannelView }),
@@ -508,6 +551,11 @@ export const api = {
   answerHostRequest: (id: string, body: AnswerHostRequestRequest) =>
     apiRequest(routes.answerHostRequest(id), { method: 'POST', body, schema: HostRequestView }),
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
+  configHistory: (key: string, page: { limit: number; offset: number }) =>
+    apiRequest(
+      `${routes.configHistory(key)}?${new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) })}`,
+      { schema: ConfigHistoryView },
+    ),
   patchConfig: (key: string, body: PatchConfigRequest) =>
     apiRequest(routes.patchConfig(key), { method: 'PATCH', body, schema: ConfigView }),
   revertConfig: (key: string, body: RevertConfigRequest) =>

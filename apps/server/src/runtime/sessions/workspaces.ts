@@ -20,6 +20,7 @@ import type {
   SessionPolicy,
   SourceHead,
   WorkspaceCheckout,
+  WorkspaceDependencyShortfall,
   WorkspaceSource,
 } from '../../contracts';
 import { isEngineLinkLost } from '../../contracts';
@@ -51,6 +52,8 @@ export interface WorkspacePlacement {
    * made again or moved): the session must not resume it.
    */
   newGeneration: boolean;
+  /** The engine installed nothing and the clone lacks usable `node_modules` (PM-1203). */
+  dependencies?: WorkspaceDependencyShortfall;
 }
 
 interface MemberWorkspacesDeps {
@@ -200,7 +203,7 @@ export class MemberWorkspaces {
           kind === 'work'
             ? await this.prepareWork(config, member, key, task, record, previous, base)
             : await this.prepareReview(config, member, key, task, record, previous, base);
-        await this.manager.prepareDependencies(key);
+        const installed = await this.manager.prepareDependencies(key);
         const now = isoNow(this.ctx);
         const binding: TaskWorkspaceBinding = {
           ...prepared.binding,
@@ -220,6 +223,9 @@ export class MemberWorkspaces {
           checkout: prepared.checkout,
           placement: prepared.placement(info, binding),
           newGeneration: previous !== null && previous.generation !== record.generation,
+          ...(installed.status === 'skipped' && installed.dependencies
+            ? { dependencies: installed.dependencies }
+            : {}),
         };
       } catch (err) {
         this.ended(sessionId);

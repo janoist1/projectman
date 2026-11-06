@@ -299,6 +299,16 @@ describe('engine commands', () => {
       expect(out.join('\n')).toContain('s1 working');
     });
 
+    it('shows the providers the engine starts sessions for (PM-1187)', async () => {
+      writeStatus();
+      await run('status');
+      expect(out.join('\n')).toContain('providers: claude, codex, nanogpt');
+      out.length = 0;
+      await run('providers', 'all');
+      await run('status');
+      expect(out.join('\n')).toContain('providers: all');
+    });
+
     it('does not claim a hold or a need when the engine process is gone', async () => {
       writeStatus({ keepAwake: { mode: 'while_working', holding: true, since: '2026-10-09T09:55:00Z' } });
       await run('status');
@@ -533,6 +543,41 @@ describe('engine commands', () => {
       'refuses %j',
       async (argv) => {
         expect(await run(...argv)).toBe(2);
+      },
+    );
+  });
+
+  describe('providers (PM-1187)', () => {
+    it('writes a list without Gemini on a new engine, and init --force keeps whatever was there', async () => {
+      await init();
+      expect(loadEngineConfig(home).allowedProviders).toEqual(['claude', 'codex', 'nanogpt']);
+      await run('providers', 'all');
+      expect(await init('--force')).toBe(0);
+      expect(loadEngineConfig(home).allowedProviders).toBeUndefined();
+      await run('providers', 'gemini');
+      expect(await init('--force')).toBe(0);
+      expect(loadEngineConfig(home).allowedProviders).toEqual(['gemini']);
+    });
+
+    it('sets the list, all of them, or none, and says it takes effect after a restart', async () => {
+      await init();
+      out.length = 0;
+      expect(await run('providers', 'codex,claude')).toBe(0);
+      expect(loadEngineConfig(home).allowedProviders).toEqual(['codex', 'claude']);
+      expect(out.join('\n')).toContain('allowed providers: codex, claude');
+      expect(out.join('\n')).toContain('restart');
+      expect(await run('providers', 'none')).toBe(0);
+      expect(loadEngineConfig(home).allowedProviders).toEqual([]);
+      expect(await run('providers', 'all')).toBe(0);
+      expect(loadEngineConfig(home).allowedProviders).toBeUndefined();
+    });
+
+    it.each([[['providers']], [['providers', 'claude,grok']], [['providers', 'claude', 'extra']]])(
+      'refuses %j and keeps the list',
+      async (argv) => {
+        await init();
+        expect(await run(...argv)).toBe(2);
+        expect(loadEngineConfig(home).allowedProviders).toEqual(['claude', 'codex', 'nanogpt']);
       },
     );
   });

@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import type { ProjectConfig } from '@projectman/shared';
 import { vi } from 'vitest';
 import { AuthService } from '../../src/auth';
-import { createConfigStore, createOperatorKnowledgeStore } from '../../src/config';
+import {
+  createConfigStore,
+  createCustomizationRepo,
+  createDocumentStore,
+  createOperatorKnowledgeStore,
+} from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
 import type {
   AttachmentStorage,
@@ -195,9 +200,11 @@ export async function createDomainHarness(
       ? openDatabase(join(dir, 'db.sqlite'))
       : openMigratedMemoryDatabase(snapshot?.database),
   );
+  const customizationRepo = createCustomizationRepo({ rootDir: join(dir, 'customization') });
   const configStore = (opts.configStore ?? ((inner) => inner))(
-    createConfigStore({ rootDir: join(dir, 'customization') }),
+    createConfigStore({ rootDir: join(dir, 'customization'), repo: customizationRepo }),
   );
+  const documentStore = createDocumentStore({ repo: customizationRepo });
   const runnerModule = createFakeRunnerModule();
   if (opts.planUsagePercent !== undefined) runnerModule.planUsage.value = planUsage(opts.planUsagePercent);
   const github = new FakeGithub();
@@ -282,6 +289,7 @@ export async function createDomainHarness(
     heavyLockDir: opts.heavyLockDir,
     repos,
     configStore,
+    documentStore,
     logger: log.logger,
     publicBaseUrl: 'http://127.0.0.1:4700',
     createRunner: (broker) => runnerModule.createWithBroker(broker),

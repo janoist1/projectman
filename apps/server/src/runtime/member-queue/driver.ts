@@ -18,7 +18,7 @@ import type { Admission } from '../admission';
 import { isDeferrable, waitingOf } from '../admission';
 import { LIVE_SESSION_STATES } from '../sessions';
 import type { SessionOrchestrator } from '../sessions';
-import type { MemberQueueDriver, MemberQueueLane } from './lane';
+import type { MemberQueueDriver, MemberQueueDropReason, MemberQueueLane } from './lane';
 
 /** What the driver needs of the rest of the server. */
 interface MemberQueueDriverDeps {
@@ -33,6 +33,12 @@ interface MemberQueueDriverDeps {
   type(session: Session, item: StoredMemberQueueItem, text: string): Promise<boolean>;
   /** Publishes the member's quota wait and its recovery. */
   quotaWaitChanged?: (projectKey: string, member: string) => Promise<void>;
+}
+
+/** An item this run closed without delivering it, and why. */
+interface Dropped {
+  item: StoredMemberQueueItem;
+  reason: MemberQueueDropReason;
 }
 
 /** An open, queued item of the member the driver looks at, with what was decided of it in this run. */
@@ -327,6 +333,20 @@ export class MemberQueueWorker implements MemberQueueDriver {
     });
   }
 
+  /** Tells each lane about its items closed for good without delivery (PM-1248); a failing lane never stops the run. */
+  private async tellDropped(dropped: Dropped[], config: ProjectConfig): Promise<void> {
+    for (const { item, reason } of dropped) {
+      try {
+        await this.laneOf(item, config)?.dropped?.(item, reason);
+      } catch (err) {
+        this.deps.ctx.logger.warn(
+          { err, itemId: item.id, reason },
+          'a member queue lane could not report a dropped item',
+        );
+      }
+    }
+  }
+
   private async work(projectKey: string, member: string, run: Run): Promise<void> {
     const { ctx } = this.deps;
     const config = await this.deps.projects.config(projectKey);
@@ -337,18 +357,22 @@ export class MemberQueueWorker implements MemberQueueDriver {
 
     // A member who left the team (a rename moves the items to the new handle first) has no one to hand the items to.
     if (!memberConfig) {
+      const dropped: Dropped[] = [];
       for (const item of repo.listOpenByUrgency(projectKey, member))
         if (item.state === 'queued') {
           this.close(item, 'cancelled', 'member_removed', at);
+          dropped.push({ item, reason: 'member_removed' });
           changed = true;
         }
       if (changed) this.deps.queue.publish(projectKey, member);
+      await this.tellDropped(dropped, config);
       return;
     }
 
     let entries: Entry[] = [];
     const owed: { item: StoredMemberQueueItem; lane: MemberQueueLane; place: WorkItemRef; wakes: boolean }[] =
       [];
+    const dropped: Dropped[] = [];
     for (const item of repo.listOpenByUrgency(projectKey, member)) {
       const lane = this.laneOf(item, config);
       if (!lane || item.state !== 'queued' || this.awaitingFirstInput.has(item.id)) continue;
@@ -361,6 +385,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
       const relocated = lane.relocate?.(item) ?? null;
       if (relocated === 'closed') {
         this.close(item, 'cancelled', 'place_closed', at);
+        dropped.push({ item, reason: 'place_closed' });
         changed = true;
         continue;
       }
@@ -374,6 +399,7 @@ export class MemberQueueWorker implements MemberQueueDriver {
       if (wakes !== item.wake) repo.setWake(item.id, wakes);
       owed.push({ item, lane, place, wakes });
     }
+    await this.tellDropped(dropped, config);
     // The holds of one lane are decided together when the lane can (PM-1106): once per run, not once per item.
     const holds = await this.holdsOf(owed);
     for (const { item, lane, place, wakes } of owed)

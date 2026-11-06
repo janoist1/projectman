@@ -4,6 +4,7 @@ import type { FixLimitDecisionPayload, FixRoundHistoryEntry } from '@projectman/
 import { Fold } from '../../components/Fold';
 import { Chip } from '../../components/Chip';
 import { Button } from '../../components/Button';
+import { intlLocale } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { actorLabel, nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
@@ -111,7 +112,7 @@ export function FixLimitDetails({
                   {entry.kind === 'extra_round' ? `+${entry.extraRound ?? '—'}` : (entry.round ?? '–')}
                 </strong>
                 <time dateTime={entry.at}>
-                  {new Date(entry.at).toLocaleString('hu-HU', {
+                  {new Date(entry.at).toLocaleString(intlLocale(), {
                     month: 'short',
                     day: 'numeric',
                     hour: '2-digit',

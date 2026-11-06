@@ -12,6 +12,10 @@ import {
   tomlValue,
   NANOGPT_CODEX_PROVIDER,
 } from './args';
+import { mcpBridgeCommand } from '../../mcp-bridge';
+
+/** The team MCP token: never on a Codex command line (PM-1170). */
+const MCP_CANARY = 'mcp-canary-5c2e81d4';
 
 const spec: StartSessionSpec = {
   sessionId: 'ses_1',
@@ -23,7 +27,7 @@ const spec: StartSessionSpec = {
   permissionMode: 'default',
   appendSystemPrompt: '- You are fe-1.\n- Speak Hungarian.',
   initialMessage: 'Brief',
-  mcpUrl: 'http://127.0.0.1:4700/mcp/tok',
+  mcpUrl: `http://127.0.0.1:4700/mcp/${MCP_CANARY}`,
   allowedTools: ['mcp__team__*', 'Read', 'Bash(git diff:*)'],
   provider: 'codex',
 };
@@ -31,10 +35,14 @@ const spec: StartSessionSpec = {
 const input = {
   spec,
   hookConfigPath: '/run/ses_1.0123456789abcdef/hook.curl',
+  mcpConfigPath: '/run/ses_1.0123456789abcdef/codex-mcp.json',
   permissionTimeoutMs: 40_000,
   realCwd: '/Users/anna/.projectman/worktrees/AR/AR-1',
   nodePath: '/usr/local/bin/node',
 };
+
+/** The team server as a stdio bridge to the private file, without approvals. */
+const TEAM_BRIDGE = tomlValue(mcpBridgeCommand(input.mcpConfigPath, input.nodePath));
 
 describe('codexPermissionProfile', () => {
   it('closes both homes and reopens typed own paths without downgrading writes', () => {
@@ -224,7 +232,7 @@ describe('TOML values', () => {
     expect([...overrides(args)].filter(([key]) => key.startsWith('mcp_servers'))).toEqual([
       ['mcp_servers.node_repl.enabled', 'false'],
       ['mcp_servers.other-server.enabled', 'false'],
-      ['mcp_servers.team', '{url="http://127.0.0.1:4700/mcp/tok"}'],
+      ['mcp_servers.team', TEAM_BRIDGE],
     ]);
     for (const name of ['team', 'quoted.name', 'bad name'])
       expect(() => buildCodexArgs({ ...input, disabledMcpServers: [name] })).toThrow('Invalid user MCP');
@@ -303,7 +311,16 @@ describe('buildCodexArgs', () => {
     for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
       const c = overrides(buildCodexArgs({ ...input, provider, spec: { ...spec, resume } }).args);
       expect(c.has('mcp_optional_startup_grace_ms')).toBe(false);
-      expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+      expect(c.get('mcp_servers.team')).toBe(TEAM_BRIDGE);
+    }
+  });
+  it('starts the team server as a stdio bridge to the private file, its token on no argument (PM-1170)', () => {
+    for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
+      const { args } = buildCodexArgs({ ...input, provider });
+      for (const arg of args) expect(arg).not.toContain(MCP_CANARY);
+      const team = overrides(args).get('mcp_servers.team')!;
+      expect(team.startsWith('{command="/usr/local/bin/node",args=["-e",')).toBe(true);
+      expect(team.endsWith(',"/run/ses_1.0123456789abcdef/codex-mcp.json"]}')).toBe(true);
     }
   });
   it.each([false, true])(
@@ -376,6 +393,19 @@ describe('buildCodexArgs', () => {
     },
   );
 
+  // The Codex permission profile names no network and no Unix socket (PM-293): the control socket is not
+  // granted, and the outbound-network setting of the Claude sandbox does not reach Codex.
+  it.each(['default', 'plan', 'acceptEdits', 'auto', 'bypassPermissions'])(
+    'grants no network or Unix socket permission in the %s profile',
+    (permissionMode) => {
+      const c = overrides(buildCodexArgs({ ...input, spec: { ...spec, permissionMode } }).args);
+      const profile = c.get('permissions.projectman') ?? '';
+      expect(profile).not.toMatch(/network|socket/i);
+      expect(c.has('sandbox_workspace_write.network_access')).toBe(false);
+      expect([...c.keys()].filter((key) => /network|socket/i.test(key))).toEqual([]);
+    },
+  );
+
   it('runs the TUI inline, without the daemon, with our hooks trusted and the brief as the prompt', () => {
     const args = buildCodexArgs(input).args;
     expect(args.slice(0, 6)).toEqual([
@@ -415,7 +445,7 @@ describe('buildCodexArgs', () => {
     expect(c.get('projects')).toBe('{"/Users/anna/.projectman/worktrees/AR/AR-1"={trust_level="trusted"}}');
     expect(c.get('project_doc_fallback_filenames')).toBe('["CLAUDE.md"]');
     expect(c.get('developer_instructions')).toBe('"- You are fe-1.\\n- Speak Hungarian."');
-    expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+    expect(c.get('mcp_servers.team')).toBe(TEAM_BRIDGE);
     expect(c.has('notice.hide_full_access_warning')).toBe(false);
     for (const event of CODEX_HOOK_EVENTS) expect(c.has(`hooks.${event}`)).toBe(true);
   });
@@ -766,6 +796,74 @@ describe('buildCodexArgs', () => {
     });
   });
 
+  describe("the outbound network through Codex's proxy (PM-1172)", () => {
+    const withNetwork = (
+      sandboxMode: 'read-only' | 'workspace-write',
+      outbound?: 'open' | 'allowlist',
+    ): NonNullable<StartSessionSpec['policy']> => ({
+      version: 1,
+      enforcement: 'legacy',
+      access: 'task_worktree',
+      placement: { kind: 'task_worktree', path: '/work' },
+      tools: { team: { all: true, names: [] }, files: [], shell: [] },
+      filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
+      deniedOperations: [],
+      network: {
+        allowedDomains: [],
+        allowLocalBinding: false,
+        deniedHosts: ['localhost', '127.0.0.1'],
+        ...(outbound ? { outbound } : {}),
+      },
+      outsideSandbox: 'ask',
+      permissions: { claude: 'acceptEdits', sandbox: sandboxMode, approval: 'on-request' },
+    });
+    const build = (
+      policy: NonNullable<StartSessionSpec['policy']>,
+      platform: NodeJS.Platform,
+    ): { args: string[]; c: Map<string, string> } => {
+      const { args } = buildCodexArgs({ ...input, spec: { ...spec, policy }, platform });
+      return { args, c: overrides(args) };
+    };
+
+    it.each(['workspace-write', 'read-only'] as const)(
+      'adds the proxy and a network part to the %s profile on macOS, leaving the file rules alone',
+      (mode) => {
+        const open = build(withNetwork(mode, 'open'), 'darwin');
+        const off = build(withNetwork(mode, 'allowlist'), 'darwin');
+        const profile = open.c.get('permissions.projectman')!;
+        expect(open.c.get('features.network_proxy')).toBe('true');
+        expect(profile).toContain(
+          'network={enabled=true,domains={"*"="allow",localhost="deny","127.0.0.1"="deny"}}',
+        );
+        for (const forbidden of ['mode', 'unix_sockets', 'allow_local_binding', 'proxy_url'])
+          expect(profile).not.toContain(forbidden);
+        // Everything but the network part is the profile of a closed network.
+        expect(profile.replace(/,network=\{.*\}\}$/, '}')).toBe(off.c.get('permissions.projectman'));
+      },
+    );
+
+    it('never sets the proxy without the network part, nor the network part without the proxy', () => {
+      for (const [policy, platform] of [
+        [withNetwork('workspace-write', 'open'), 'darwin'],
+        [withNetwork('workspace-write', 'open'), 'linux'],
+        [withNetwork('workspace-write', 'allowlist'), 'darwin'],
+        [withNetwork('workspace-write'), 'darwin'],
+      ] as const) {
+        const { c } = build(policy, platform);
+        expect(c.has('features.network_proxy')).toBe(c.get('permissions.projectman')!.includes('network='));
+      }
+    });
+
+    it.each([
+      ['a closed network on macOS', withNetwork('workspace-write', 'allowlist'), 'darwin'],
+      ['an open network on Linux', withNetwork('workspace-write', 'open'), 'linux'],
+    ] as const)('leaves the command line as it was for %s', (_name, policy, platform) => {
+      // A policy without the `outbound` field is the command line from before the setting existed.
+      const { outbound: _outbound, ...network } = policy.network;
+      expect(build(policy, platform).args).toEqual(build({ ...policy, network }, platform).args);
+    });
+  });
+
   it('never turns off the sandbox or the questions, even for bypassPermissions, and passes a Codex model', () => {
     const args = buildCodexArgs({
       ...input,
@@ -774,7 +872,7 @@ describe('buildCodexArgs', () => {
     const c = overrides(args);
     expect(args).not.toContain('danger-full-access');
     expect(c.has('notice.hide_full_access_warning')).toBe(false);
-    expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
+    expect(c.get('mcp_servers.team')).toBe(TEAM_BRIDGE);
     expect(args).not.toContain('--sandbox');
     expect(c.get('default_permissions')).toBe('"projectman"');
     expect(c.get('permissions.projectman')).toContain('":workspace_roots"={"."="write"');

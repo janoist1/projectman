@@ -1,4 +1,4 @@
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { FeedbackCardRef, FeedbackMarkView, FeedbackThreadEntry } from '@projectman/shared';
 import { MAX_BODY } from '../controller';
 import type { Controller, State } from '../controller';
@@ -91,6 +91,60 @@ function Reply({
   );
 }
 
+/** Asks before deleting a mark; it takes the place of the reply field. Esc is handled by the controller. */
+function DeleteConfirm({
+  controller,
+  mark,
+  own,
+  deleting,
+  error,
+}: {
+  controller: Controller;
+  mark: FeedbackMarkView;
+  own: boolean;
+  deleting: boolean;
+  error: boolean;
+}) {
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancel.current?.focus(), []);
+  const labelId = `del-${mark.id}`;
+  return (
+    <div class="del-confirm" role="group" aria-labelledby={labelId}>
+      <p id={labelId} class="del-ask">
+        {own ? t('thread.deleteAsk') : t('thread.deleteAskOf', { name: personName(mark.author) })}
+      </p>
+      <p class="del-info">
+        {t('thread.deleteInfo')}
+        {mark.card ? ` ${t('thread.deleteKeepsCard', { key: mark.card.key })}` : ''}
+      </p>
+      {error && (
+        <p class="err" role="alert">
+          {t('thread.deleteError')}
+        </p>
+      )}
+      <div class="del-actions">
+        <button
+          ref={cancel}
+          type="button"
+          class="btn ghost"
+          disabled={deleting}
+          onClick={() => controller.askDelete(mark.id, false)}
+        >
+          {t('new.cancel')}
+        </button>
+        <button
+          type="button"
+          class="btn danger"
+          disabled={deleting}
+          onClick={() => void controller.deleteMark(mark.id)}
+        >
+          {t(deleting ? 'thread.deleting' : error ? 'thread.retry' : 'thread.deleteConfirm')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** A mark's conversation: its own text first, then the comments and events; used by the card and the panel. */
 export function ThreadBody({
   controller,
@@ -108,6 +162,15 @@ export function ThreadBody({
   const changed = resolution.place === 'located' && resolution.changed;
   const closed = mark.status === 'closed';
   const loading = !detail && open?.status !== 'error';
+  const asking = (mark.canDelete && open?.deleteAsk) ?? false;
+  const own = mark.author.handle === (state.me ?? state.session?.me)?.handle;
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const wasAsking = useRef(false);
+  useEffect(() => {
+    // Closing the confirmation (Cancel or Esc) hands the focus back to the button that opened it.
+    if (wasAsking.current && !asking) deleteButton.current?.focus();
+    wasAsking.current = asking;
+  }, [asking]);
 
   return (
     <div class="thread" style={{ '--pc': colorVar(mark.author) }}>
@@ -115,6 +178,17 @@ export function ThreadBody({
         <b>{personName(mark.author)}</b>
         <time dateTime={mark.createdAt}>{relativeTime(mark.createdAt, now)}</time>
         <StatusLabel mark={mark} />
+        {mark.canDelete && (
+          <button
+            ref={deleteButton}
+            type="button"
+            class="link danger"
+            disabled={open?.deleting ?? false}
+            onClick={() => controller.askDelete(mark.id, true)}
+          >
+            {t('thread.delete')}
+          </button>
+        )}
       </p>
       {changed && (
         <p class="note changed-note" role="note">
@@ -149,7 +223,15 @@ export function ThreadBody({
           {t('thread.working')}
         </p>
       )}
-      {closed ? (
+      {asking ? (
+        <DeleteConfirm
+          controller={controller}
+          mark={mark}
+          own={own}
+          deleting={open?.deleting ?? false}
+          error={open?.deleteError ?? false}
+        />
+      ) : closed ? (
         <p class="note closed-note">{t('thread.closed')}</p>
       ) : (
         detail?.canComment && (

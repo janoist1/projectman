@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { RepoConfig } from '@projectman/shared';
 import type { OperatorSignalKind, ProjectConfig, Task } from '@projectman/shared';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
 import type { MergeRecord } from '../src/db';
@@ -8,6 +9,7 @@ import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 import { openOverdueObligation } from './helpers/overdue-obligation';
+import { mergeCards, publishRelease, sha } from './helpers/unreleased-work';
 
 /** PM-547: the board kinds of the Operator's system signals, raised and closed by the sweep. */
 let h: DomainHarness;
@@ -16,7 +18,6 @@ afterEach(async () => {
   await h?.cleanup();
 });
 
-const sha = (n: number) => n.toString(16).padStart(40, '0');
 const later = (minutes: number) => {
   now = new Date(now.getTime() + minutes * 60_000);
 };
@@ -120,7 +121,7 @@ describe('merge_blocked signal', () => {
     await place({ stageId: 'development', status: 'active', assignee: 'dev-1' });
     later(24 * 60);
     await sweep();
-    for (const kind of ['idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled'] as const)
+    for (const kind of ['idle', 'merge_waiting', 'ready_waiting', 'refinement_stalled', 'nobody'] as const)
       expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind)).toEqual([]);
   });
 
@@ -149,10 +150,11 @@ describe('merge_blocked signal', () => {
     h.repos.operatorSignals.insert(row('ops_idle', 'idle', 'pending'));
     h.repos.operatorSignals.insert(row('ops_ready', 'ready_waiting', 'open'));
     h.repos.operatorSignals.insert(row('ops_stalled', 'refinement_stalled', 'open'));
+    h.repos.operatorSignals.insert(row('ops_nobody', 'nobody', 'open'));
     h.repos.operatorSignals.insert(row('ops_old', 'merge_waiting', 'resolved'));
     await sweep();
     const byId = (id: string) => h.repos.operatorSignals.get(id)!;
-    for (const id of ['ops_idle', 'ops_ready', 'ops_stalled']) {
+    for (const id of ['ops_idle', 'ops_ready', 'ops_stalled', 'ops_nobody']) {
       expect(byId(id).state).toBe('resolved');
       expect(byId(id).resolvedAt).not.toBeNull();
     }
@@ -215,6 +217,68 @@ describe('obligation_overdue signal: the dismissal', () => {
       );
     },
   );
+});
+
+describe('unreleased signal (PM-1201)', () => {
+  const hours = (n: number) => new Date(now.getTime() - n * 3_600_000).toISOString();
+  const withGithub = (config: ProjectConfig) => {
+    config.project.repos[0]!.github = 'acme/web';
+  };
+
+  it('rises once the oldest unreleased merge is a day old, and ends with the release that moves the base', async () => {
+    await setup({ adjust: withGithub });
+    await mergeCards(h, 'web', [
+      { commit: sha(1), at: hours(100) },
+      { commit: sha(2), at: hours(24) },
+      { commit: sha(3), at: hours(2) },
+    ]);
+    publishRelease(h, 'web', sha(1), hours(100));
+    await sweep();
+    expect(open('unreleased').map((s) => [s.caseKey, s.taskKey, s.subject])).toEqual([
+      [`unreleased:web:${sha(1)}`, null, '2'],
+    ]);
+    publishRelease(h, 'web', sha(3), hours(1));
+    await sweep();
+    expect(open('unreleased')).toEqual([]);
+  });
+
+  it('stays closed while the oldest unreleased merge is younger than a day', async () => {
+    await setup({ adjust: withGithub });
+    await mergeCards(h, 'web', [
+      { commit: sha(1), at: hours(100) },
+      { commit: sha(2), at: hours(23) },
+    ]);
+    publishRelease(h, 'web', sha(1), hours(100));
+    await sweep();
+    expect(open('unreleased')).toEqual([]);
+    later(60);
+    await sweep();
+    expect(open('unreleased')).toHaveLength(1);
+  });
+
+  it('keeps a separate case for each repository', async () => {
+    await setup({
+      adjust: (config) => {
+        withGithub(config);
+        config.project.repos.push(RepoConfig.parse({ name: 'notes', path: 'notes', github: 'acme/notes' }));
+      },
+    });
+    for (const repo of ['web', 'notes']) {
+      await mergeCards(h, repo, [
+        { commit: sha(1), at: hours(100) },
+        { commit: sha(2), at: hours(30) },
+      ]);
+      publishRelease(h, repo, sha(1), hours(100));
+    }
+    await sweep();
+    expect(open('unreleased').map((s) => s.caseKey)).toEqual(
+      expect.arrayContaining([`unreleased:web:${sha(1)}`, `unreleased:notes:${sha(1)}`]),
+    );
+    expect(open('unreleased')).toHaveLength(2);
+    publishRelease(h, 'web', sha(2), hours(1));
+    await sweep();
+    expect(open('unreleased').map((s) => s.caseKey)).toEqual([`unreleased:notes:${sha(1)}`]);
+  });
 });
 
 describe('the reads of a sweep (PM-1120)', () => {

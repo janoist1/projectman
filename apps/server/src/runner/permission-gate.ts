@@ -29,6 +29,11 @@ export interface PermissionGateOptions {
   answer(decision: PermissionDecision, payload: HookPayload): unknown;
   /** The hook answer that denies with `message`. */
   deny(message: string): unknown;
+  /**
+   * Looks at a decision before it is acted on: a message refuses the call with it (engine mode drops an
+   * approval that changes the tool input, PM-1176); null lets the decision stand.
+   */
+  vetDecision?(decision: PermissionDecision, payload: HookPayload): string | null;
   /** A request was denied (by a decision, the timeout or a failure): the call will not run. */
   onDenied?(payload: HookPayload): void;
   /** A request is waiting for a human now. */
@@ -117,6 +122,11 @@ export class PermissionGate {
       }
       if (this.closed) return null;
       const { decision } = outcome;
+      const refusal = opts.vetDecision?.(decision, payload);
+      if (refusal) {
+        opts.onDenied?.(payload);
+        return opts.deny(refusal);
+      }
       if (allowKey && decision.behavior === 'allow' && decision.rememberForSession) {
         this.sessionAllows.add(allowKey);
       }

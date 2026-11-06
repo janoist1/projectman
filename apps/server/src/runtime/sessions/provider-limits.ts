@@ -1,7 +1,5 @@
-import { ALERT_SEEN_OPTION } from '@projectman/shared';
 import type { AgentProvider, EngineId, PlanUsage, Session } from '@projectman/shared';
 import type { EngineDirectory, RunnerEvent, SessionRunner } from '../../contracts';
-import { ownerHandles } from '@projectman/shared';
 import { conflict } from '../../kernel';
 import type { DomainContext } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
@@ -20,7 +18,7 @@ interface ProviderLimitsDeps {
   /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
   usageAlerts?: Pick<UsageAlerts, 'check'>;
   /** Quota alerts are raised once per shared-provider hold (PM-377). */
-  inbox?: Pick<InboxService, 'create'>;
+  inbox?: Pick<InboxService, 'raiseAlert'>;
   onAuthError?: SessionOrchestratorDeps['onAuthError'];
   publish: (session: Session) => void;
   /** Runs a job that the manager's shutdown does not wait for (`SessionLifecycle.run`). */
@@ -48,8 +46,22 @@ export class ProviderLimits {
 
   constructor(deps: ProviderLimitsDeps) {
     this.deps = deps;
-    const reset = deps.ctx.repos.inbox.latestProviderQuota('gemini')?.payload.until;
-    if (typeof reset === 'string') this.providerHolds.until('gemini', new Date(reset), deps.ctx.now());
+    const reset = this.latestGeminiReset();
+    if (reset) this.providerHolds.until('gemini', new Date(reset), deps.ctx.now());
+  }
+
+  /**
+   * The reset time of the newest Gemini hold that was told to the owners: the durable copy of the hold. It is
+   * the `system_notice` message of the hold (PM-1250), or an alert item that older versions stored.
+   */
+  private latestGeminiReset(): string | null {
+    const { repos } = this.deps.ctx;
+    const legacy = repos.inbox.latestProviderQuota('gemini')?.payload.until;
+    const notice = repos.messages.latestSystemNotice('provider_rate_limited', {
+      match: { key: 'provider', value: 'gemini' },
+    })?.params.until;
+    const times = [legacy, notice].filter((value): value is string => typeof value === 'string');
+    return times.sort().at(-1) ?? null;
   }
 
   useQuotaRecovery(
@@ -142,7 +154,7 @@ export class ProviderLimits {
     // The warning limit (PM-187) only marks the session and tells the owners: it keeps running.
     let alerted = false;
     try {
-      alerted = usageAlerts?.check(session.id) != null;
+      alerted = usageAlerts?.check(session.id) ?? false;
     } catch (err) {
       ctx.logger.warn({ err, sessionId: session.id }, 'usage alert check failed');
     }
@@ -160,28 +172,12 @@ export class ProviderLimits {
           ? reported
           : new Date(now.getTime() + GEMINI_QUOTA_FALLBACK_MS);
       const started = this.providerHolds.until('gemini', until, now);
-      // Small reset differences between concurrent failures update the durable hold without
-      // creating another owner alert. A material extension starts a new alert.
-      const previous = ctx.repos.inbox.latestProviderQuota('gemini');
+      // Small reset differences between concurrent failures do not tell the owners again. A material
+      // extension starts a new notice.
       const heldUntil = this.providerHolds.check('gemini', now)!.until!.toISOString();
-      const previousReset =
-        typeof previous?.payload.until === 'string' ? Date.parse(previous.payload.until) : NaN;
-      if (
-        started ||
-        !previous ||
-        !Number.isFinite(previousReset) ||
-        Date.parse(heldUntil) - previousReset >= 60_000
-      )
+      const previousReset = Date.parse(this.latestGeminiReset() ?? '');
+      if (started || !Number.isFinite(previousReset) || Date.parse(heldUntil) - previousReset >= 60_000)
         this.quotaAlert(session, 'gemini', event.message, null);
-      else if (previous.payload.until !== heldUntil) {
-        const updated = ctx.repos.inbox.updatePayload(
-          previous.id,
-          { ...previous.payload, until: heldUntil },
-          now.toISOString(),
-        );
-        if (updated)
-          ctx.bus.publish({ type: 'inbox_upserted', projectKey: updated.projectKey, item: updated });
-      }
       const stageId =
         session.workItem.type === 'task' ? ctx.repos.tasks.get(session.workItem.taskKey)?.stageId : undefined;
       if (stageId)
@@ -263,27 +259,21 @@ export class ProviderLimits {
   ): void {
     const { ctx } = this.deps;
     const hold = this.providerHolds.check(provider, ctx.now(), scope);
-    const config = this.deps.projects.cachedConfig(session.projectKey);
-    const owners = config ? ownerHandles(config) : [];
-    if (owners.length > 0)
-      this.deps.inbox?.create({
-        projectKey: session.projectKey,
-        kind: 'alert',
-        assignees: owners,
-        source: session.member,
-        sessionId: session.id,
-        taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-        title: `${provider === 'gemini' ? 'Gemini' : 'NanoGPT'} request limit reached`,
-        payload: {
-          alert: 'provider_rate_limited',
-          provider,
-          until: hold?.until?.toISOString() ?? null,
-          weeklyPercent: usage?.weeklyPercent ?? null,
-          message,
-          workItem: session.workItem,
-        },
-        options: [ALERT_SEEN_OPTION],
-      });
+    this.deps.inbox?.raiseAlert({
+      projectKey: session.projectKey,
+      source: session.member,
+      sessionId: session.id,
+      taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+      title: `${provider === 'gemini' ? 'Gemini' : 'NanoGPT'} request limit reached`,
+      payload: {
+        alert: 'provider_rate_limited',
+        provider,
+        until: hold?.until?.toISOString() ?? null,
+        weeklyPercent: usage?.weeklyPercent ?? null,
+        message,
+        workItem: session.workItem,
+      },
+    });
   }
 
   /**

@@ -8,7 +8,7 @@ import type {
 import type { CommandOutput } from '../cli';
 import type { HookPayload } from '../hook-payload';
 import type { SessionPolicy } from '../../contracts';
-import type { ToolDecision } from '../tool-decision';
+import type { EngineWriteZone, ToolDecision } from '../tool-decision';
 
 /**
  * Provider adapters: what differs between the agent CLIs the runner drives (Claude Code,
@@ -44,6 +44,11 @@ export interface ProviderCapabilities {
    * `PROVIDER_MCP_IMAGE_RESULTS` (`contracts/runner.ts`), with the evidence for each provider.
    */
   mcpImageResults: boolean;
+  /**
+   * The provider's permission request asks to run outside its own OS sandbox (Codex and NanoGPT escalation:
+   * network, writes outside the workspace). An engine refuses every such request itself (PM-1187).
+   */
+  sandboxEscalation: boolean;
 }
 
 /** Timing of the interaction with a TUI (CLAUDE_TIMING and CODEX_TIMING in the adapters). */
@@ -63,6 +68,11 @@ export interface SessionTiming {
   maxEnterRetries: number;
   /** A typed message that never produced UserPromptSubmit stops blocking the queue after this. */
   submitTimeoutMs: number;
+  /**
+   * A typed message the CLI took no notice of (no turn hook, still idle) is still awaited this long after
+   * `submitTimeoutMs`: a busy CLI queues the text and submits it later. Past it the message counts as not taken.
+   */
+  lateSubmitMs: number;
   /** The same for a first prompt passed on the command line (the CLI may take a while to start). */
   argumentSubmitTimeoutMs: number;
   /** How often the screen is checked for blocking dialogs (while starting, or while one is up). */
@@ -162,7 +172,12 @@ export interface ProviderAdapter {
   launch(input: LaunchInput): Promise<Launch>;
   /** A hook body, validated; null when malformed. */
   parseHook(body: unknown, event?: string): HookPayload | null;
-  decideToolCall?(policy: SessionPolicy, payload: HookPayload, conversationRoot: string | null): ToolDecision;
+  decideToolCall?(
+    policy: SessionPolicy,
+    payload: HookPayload,
+    conversationRoot: string | null,
+    engineWriteZone?: EngineWriteZone,
+  ): ToolDecision;
   turnStartOutput?(spec: StartSessionSpec): unknown;
   /** Whether a hook came from a subagent and must not change the session's state. */
   isSubagentHook(payload: HookPayload): boolean;

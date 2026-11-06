@@ -9,6 +9,7 @@ import { resolveCommand, runQuietly } from '../../cli';
 import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
 import { parseCodexLoginStatus } from '../login';
 import { writeHookConfig } from '../../session-config';
+import { writeMcpBridgeConfig } from '../../mcp-bridge';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
 import { buildCodexArgs, codexCliReadRoot, codexCliDenials, validateCodexReadBoundary } from './args';
 import type { ReadBoundaryProblem } from './args';
@@ -53,6 +54,7 @@ export const CODEX_TIMING: SessionTiming = {
   /** A busy machine swallows Enter (PM-571): press it on every check within the submit timeout. */
   maxEnterRetries: 4,
   submitTimeoutMs: 8_000,
+  lateSubmitMs: 120_000,
   /** The first prompt waits for the MCP servers and the session to start. */
   argumentSubmitTimeoutMs: 60_000,
   /** Readiness comes from the screen: look often. */
@@ -185,6 +187,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
       sessionPermissionRules: false,
       readiness: 'screen',
       mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.codex,
+      sandboxEscalation: true,
     },
     timing: CODEX_TIMING,
     inputTools: CODEX_INPUT_TOOLS,
@@ -205,6 +208,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
       const { args, initialMessageSent } = buildCodexArgs({
         spec,
         hookConfigPath: await writeHookConfig(sessionConfigDir, hookUrl),
+        mcpConfigPath: await writeMcpBridgeConfig(sessionConfigDir, spec.mcpUrl),
         permissionTimeoutMs,
         realCwd,
         codexHome: opts.codexHome,

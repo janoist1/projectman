@@ -5,8 +5,6 @@ export function createProjectService(deps: ConstructorParameters<typeof ProjectS
 import { isAbsolute } from 'node:path';
 import {
   canCreateProject,
-  hasOperatorWaiverField,
-  operatorWaiverChanged,
   DEFAULT_PROJECT_LANGUAGE,
   ProjectConfig,
   applyConfigPatch,
@@ -18,6 +16,7 @@ import {
   operatorConfigVerdict,
   renameMemberInConfig,
   canonical,
+  configHistoryEntries,
   ownerOnlyChanges,
   unknownPatchRepo,
   superConfigMutations,
@@ -26,6 +25,7 @@ import {
 import type {
   Actor,
   CardMover,
+  ConfigHistoryView,
   ConfigVersionEntry,
   CreateProjectRequest,
   EngineId,
@@ -35,7 +35,7 @@ import type {
   ProjectSummary,
   BoundActor,
   OperatorOperation,
-  OperatorApprovalWaiverRequest,
+  UiLanguage,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../../config';
 import type { ConfigStore, WorkspaceState } from '../../contracts';
@@ -47,12 +47,7 @@ import { conflict, DomainError, forbidden, invalid, notFound } from '../../kerne
 import { createSuperAuditService } from '../timeline';
 import type { SuperAuditService, TimelineService } from '../timeline';
 import { humanActor, KeyedMutex } from '../../kernel';
-import {
-  assertIntegratorAccess,
-  assertOwnApproval,
-  authorizeSuperMutation,
-  integratorExecution,
-} from '../../kernel';
+import { assertIntegratorAccess, authorizeSuperMutation, integratorExecution } from '../../kernel';
 
 export interface LoadedProject {
   config: ProjectConfig;
@@ -124,7 +119,7 @@ const OWNER_HANDLE = 'owner';
 const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   email_send_policy: 'only an owner may change email approval policy',
   machine_access: 'only an owner may change whether an AI member may put machine work in the owners queue',
-  locations: 'only an owner may change filesystem locations',
+  locations: 'only an owner may change filesystem locations or project document paths',
   admin_or_account: 'only an owner may grant admin access or change account bindings',
   approval_policy: 'only an owner may change or remove human approval gates',
   release_approvers: 'only an owner may change the release approvers',
@@ -133,8 +128,8 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   review_test: 'only an owner may change the full test of a repository',
   compute_jobs: 'only an owner may change the compute jobs of a repository',
   operator_watch: 'only an owner may change how much the Operator does on its own on a signal',
-  operator_approval_waiver: 'only an owner may change the Operator approval waiver',
   task_create_access: 'only an owner may change who may open new cards',
+  owner_decision_topics: 'only an owner may change the topics AI members may ask the owner to decide',
 };
 
 /** The card mover a create request names; absent means the worker. */
@@ -182,6 +177,8 @@ export interface ProjectCreator {
   userId: string;
   isHostOwner: boolean;
   isOwnerAccount: boolean;
+  /** The creator's system language: the team language of a project created without one (PM-1177). */
+  language?: UiLanguage;
 }
 
 /** Internal callers (the host's own setup, tests) create as the host owner. */
@@ -208,6 +205,12 @@ export interface NewProjectEngines {
   bind(projectKey: string, engineId: EngineId, userId: string): void;
 }
 
+const VERSION_CACHE_SIZE = 200;
+
+function versionCacheKey(projectKey: string, version: string): string {
+  return `${projectKey}:${version}`;
+}
+
 function toSummary(p: ProjectRecord): ProjectSummary {
   return { key: p.key, name: p.name, templateId: p.templateId, configVersion: p.configVersion };
 }
@@ -224,45 +227,13 @@ export class ProjectService {
   private readonly superAudit: SuperAuditService;
   private readonly engines: NewProjectEngines;
   private readonly cache = new Map<string, LoadedProject>();
+  /** The configuration as of a saved version, null for one that cannot be read; see `historyPage`. */
+  private readonly versionCache = new Map<string, ProjectConfig | null>();
   private readonly locks = new KeyedMutex();
   private agreementVersion?: (key: string) => Promise<number | null>;
-  private readonly waiverEdits = new WeakSet<ConfigChangeMeta>();
 
   useAgreementVersion(agreementVersion: (key: string) => Promise<number | null>): void {
     this.agreementVersion = agreementVersion;
-  }
-
-  async setOperatorApprovalWaiver(key: string, input: OperatorApprovalWaiverRequest, meta: ConfigEditMeta) {
-    assertOwnApproval(meta.actor);
-    return this.locks.run(`config:${key}`, async () => {
-      const current = await this.load(key);
-      const person = memberOf(current.config, meta.actor.handle);
-      if (
-        meta.actor.kind !== 'human' ||
-        meta.actor.via ||
-        meta.author.via ||
-        person?.kind !== 'human' ||
-        person.access !== 'owner'
-      )
-        throw forbidden(
-          'owner_approval_required',
-          'only an owner using their own login may change the waiver',
-        );
-      if (current.version !== input.baseVersion) throw conflict('config_conflict', 'configuration changed');
-      const agreementVersion = await this.agreementVersion?.(key);
-      if (input.enabled && agreementVersion !== input.agreementVersion)
-        throw conflict('operator_knowledge_stale', 'the approved agreement changed or is missing');
-      const next = structuredClone(current.config);
-      next.team.operatorApprovalWaiver = input.enabled;
-      const commit = { actor: meta.actor, author: meta.author, message: 'Update Operator approval waiver' };
-      this.waiverEdits.add(commit);
-      const saved = await this.commitLocked(key, current, next, commit);
-      return {
-        version: saved.version,
-        enabled: input.enabled,
-        agreementVersion: agreementVersion ?? input.agreementVersion,
-      };
-    });
   }
 
   constructor(deps: {
@@ -328,6 +299,44 @@ export class ProjectService {
     return this.configStore.history(key, limit, offset).catch(fromConfigError);
   }
 
+  /**
+   * A page of the history with what each version changed. Reads `limit + 2` versions: the page and the two older
+   * ones that the last rows are compared with (and an undo recognised by).
+   */
+  async historyPage(key: string, page: { limit: number; offset: number }): Promise<ConfigHistoryView> {
+    if (!this.has(key)) throw notFound('project', key);
+    const [versions, total] = await Promise.all([
+      this.configStore.history(key, page.limit + 2, page.offset),
+      this.configStore.countVersions(key),
+    ]).catch(fromConfigError);
+    const unknown = versions.filter((entry) => !this.versionCache.has(versionCacheKey(key, entry.version)));
+    if (unknown.length > 0) {
+      const configs = await this.configStore
+        .loadVersions(
+          key,
+          unknown.map((entry) => entry.version),
+        )
+        .catch(fromConfigError);
+      unknown.forEach((entry, index) => this.rememberVersion(key, entry.version, configs[index] ?? null));
+    }
+    const rows = versions.map((entry) => ({
+      entry,
+      config: this.versionCache.get(versionCacheKey(key, entry.version)) ?? null,
+    }));
+    return { entries: configHistoryEntries(rows, page.limit), total };
+  }
+
+  /** Saved versions never change, so what was read of one stays (the oldest are dropped past the limit). */
+  private rememberVersion(key: string, version: string, config: ProjectConfig | null): void {
+    const cacheKey = versionCacheKey(key, version);
+    this.versionCache.delete(cacheKey);
+    this.versionCache.set(cacheKey, config);
+    for (const oldest of this.versionCache.keys()) {
+      if (this.versionCache.size <= VERSION_CACHE_SIZE) break;
+      this.versionCache.delete(oldest);
+    }
+  }
+
   async versionConfig(key: string, version: string): Promise<ProjectConfig> {
     return this.configStore.loadVersion(key, version).catch(fromConfigError);
   }
@@ -336,14 +345,14 @@ export class ProjectService {
    * The configuration a create would save: the template's, with the request's name, workspace,
    * repositories and card mover. Reads no disk and changes nothing.
    */
-  buildConfig(req: CreateProjectRequest, creator: Author): ProjectConfig {
+  buildConfig(req: CreateProjectRequest, creator: Author, creatorLanguage?: UiLanguage): ProjectConfig {
     const template = this.templates.get(req.templateId ?? 'starter');
     if (!template) throw invalid('unknown_template', `unknown template: ${req.templateId}`);
     const built = template.build({
       key: req.key,
       name: req.name,
       workspacePath: req.workspacePath,
-      language: req.language ?? DEFAULT_PROJECT_LANGUAGE,
+      language: req.language ?? creatorLanguage ?? DEFAULT_PROJECT_LANGUAGE,
       provider: req.provider,
       owner: { handle: OWNER_HANDLE, displayName: creator.name, email: creator.email },
       cardMover: cardMoverOfRequest(req.cardMover),
@@ -382,7 +391,7 @@ export class ProjectService {
       if (this.has(req.key) || (await this.configStore.list()).includes(req.key)) {
         throw conflict('project_exists', `project ${req.key} already exists`);
       }
-      const config = this.buildConfig(req, creator);
+      const config = this.buildConfig(req, creator, rights.language);
       const engineId = this.engines.chooseForNewProject({ ...rights, engineId: req.engineId });
       if (
         !isAbsolute(req.workspacePath) ||
@@ -454,8 +463,6 @@ export class ProjectService {
     patch: PatchConfigRequest,
     meta: Omit<ConfigEditMeta, 'message' | 'expectedVersion'>,
   ): Promise<LoadedProject> {
-    if (hasOperatorWaiverField(patch))
-      throw forbidden('owner_approval_required', 'use the dedicated owner waiver endpoint');
     return this.edit(
       key,
       { ...meta, message: patch.message, expectedVersion: patch.baseVersion },
@@ -527,6 +534,7 @@ export class ProjectService {
         .catch(asConfigEditError);
       const loaded = await this.configStore.load(key).catch(fromConfigError);
       this.cache.set(key, loaded);
+      this.rememberVersion(key, loaded.version, loaded.config);
       if (loaded.version !== current.version) {
         this.touchRecord(key, loaded);
         await this.announce(
@@ -604,11 +612,6 @@ export class ProjectService {
     meta: Pick<ConfigChangeMeta, 'actor' | 'author' | 'invitationBinding'>,
   ): Promise<void> {
     const executingOwner = assertIntegratorAccess(previous, 'write', meta.actor);
-    if (operatorWaiverChanged(previous, next) && !this.waiverEdits.has(meta as ConfigChangeMeta))
-      throw forbidden(
-        'owner_approval_required',
-        'the waiver can only change through its dedicated owner endpoint',
-      );
     const member = memberOf(previous, meta.actor.handle);
     if (hasBoundOrigin(meta.actor)) {
       // A step in the Operator's super mode (PM-757), or the connected Claude's direct instruction (decision 66):
@@ -719,6 +722,7 @@ export class ProjectService {
     if (stepId) this.finishOperatorExecution(key, stepId, version, meta.actor);
     const loaded: LoadedProject = { config: ProjectConfig.parse(next), version };
     this.cache.set(key, loaded);
+    this.rememberVersion(key, version, loaded.config);
     if (version !== current.version) {
       this.touchRecord(key, loaded);
       const renames = meta.renames;

@@ -2,8 +2,9 @@
 
 ## Prebuilt ARM images (PM-718)
 
-The PM-675 target is Frankfurt (`eu-central-1`), `t4g.micro`, Canonical Ubuntu 24.04 arm64,
-20 GiB gp3. Only arm64 is supported (PM-1116): `aws.ec2.architecture` is `"arm64"` (the default) and
+The target is Frankfurt (`eu-central-1`), Canonical Ubuntu 24.04 arm64, 20 GiB gp3. The instance type is the
+`aws.ec2.instanceType` field of the owner's `config.json` (`deploy/aws/config.example.json` names `t4g.micro`;
+[HYBRID.md](HYBRID.md#the-image) gives the memory sizing). Only arm64 is supported (PM-1116): `aws.ec2.architecture` is `"arm64"` (the default) and
 `deployment.imageBundle` is required for an `ec2` config (unless `deployment.imageSource` is `"github"`, see
 below). AMI name/architecture, instance type
 capabilities and the existing instance must agree; the ownership, IMDS, SSM and empty-inbound guards
@@ -51,7 +52,7 @@ An engine starts this job (PM-1147) only when the owner has registered it in the
 
 The hub knows the same job from the repository settings: the owner sets the values above with a `repoComputeJobs`
 patch (`computeJobs` of the repository, which needs a `github` owner/name). Start it for the accepted full SHA
-with the team tool, as a member with the `deployment` duty or through the owner's integrator:
+with the team tool, as a member with the `deployment` duty or through the owner's connected Claude:
 
 ```
 run_compute_job job=cloud-image commit=<SHA40> [task_key=<card>] [force=true]
@@ -180,7 +181,7 @@ litestream, restic and cloud server), plus 1 GiB RAM and import disk headroom ch
 release artifact evidence. This implementation does not provision resources or authorize cutover.
 
 For the data-preserving return from EC2 cloud + Mac engine to Mac single,
-use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
+see [HYBRID.md, The way back](HYBRID.md#the-way-back).
 
 ## EC2 central account and provisioning (PM-676, part of PM-664)
 
@@ -271,6 +272,10 @@ resource guide below. The `i` login needs only the registrar/Route 53 rights for
 DNS reads; it receives no EC2, S3 or host IAM call. SES provisioning uses `ses.profile` (PM-729), which
 may be `i`, and only its SES and narrow-user IAM calls.
 
+`github-deploy-setup` (PM-1197, "Deploy role for GitHub Actions" below) needs, on top of the above, in the
+central profile only: `sts:GetCallerIdentity`, IAM `GetOpenIDConnectProvider`, `CreateOpenIDConnectProvider`,
+`GetRole`, `CreateRole`, `UpdateAssumeRolePolicy`, `GetRolePolicy` and `PutRolePolicy`.
+
 ## EC2 host operation through SSM (PM-677)
 
 All host commands (`deploy`, `rollback`, `status`, `logs`, `stop`, `start`, `rehearse`,
@@ -279,7 +284,7 @@ JSON responses, full-SHA image tags and data paths. There is **no inbound SSH ru
 public-IP connection, long-lived key import or public-SSH fallback; the connection always uses an
 ephemeral key. The address exposed by the adapter is the EC2 instance id, never its public IPv4 address.
 
-On the owner/integrator's POSIX machine, install **AWS CLI v2**, **session-manager-plugin**,
+On the owner's POSIX machine, install **AWS CLI v2**, **session-manager-plugin**,
 **OpenSSH** (`ssh` and `ssh-keygen`), git and tar. Log in to the explicit central profile
 (`aroom` for PM-664). Along with the provisioning rights, the caller needs `ec2:DescribeInstances`,
 `ec2-instance-connect:SendSSHPublicKey` for the selected instance and OS user `ubuntu`, and SSM
@@ -321,7 +326,7 @@ The connection sequence is:
    a fresh complete snapshot must show no own active session. Delayed visibility and transient
    failures retry within that budget. Temporary files and signal handlers are removed in a separate
    finally even if AWS fails. A failed cleanup exits 1, retains the original operation error and
-   prints the public instance id/reasons for manual inspection. Other operators' sessions are untouched.
+   prints the public instance id/reasons for manual inspection. Other people's sessions are untouched.
    This observation window does not guarantee AWS consistency; failed verification needs the manual
    inspection below.
 
@@ -367,10 +372,10 @@ access, sshd/EIC timeout change, durable SSH key or host build.
   A failed cleanup keeps the main failure visible (`FAIL operation before SSM cleanup`), and only
   the sessions with this invocation's reasons are terminated.
 
-### Owner/integrator live rehearsal
+### Live rehearsal
 
-No live AWS operation runs as part of the card's fake tests. Run the following only in the
-approved live execution round (PM-675), with the explicit EC2/aroom configuration from PM-676.
+No live AWS operation runs as part of a card's fake tests. Run the following only in an
+approved live execution round, with the explicit EC2 configuration of the central profile.
 Use `--config <file>` on every command if it is outside the default store.
 
 1. Confirm the provisioned instance is running, bootstrap has finished, its SSM agent is `Online`,
@@ -380,8 +385,7 @@ Use `--config <file>` on every command if it is outside the default store.
    `npm run cloud -- status` then proves Online lookup, authenticated host key, EIC and SSH while
    reporting the existing unit/container state. Follow with `logs --lines 25` and `ssh`; exit the shell.
    Verify that no temporary key directory or correlated active SSM session remains.
-3. `deploy --ref <approved-sha>` updates the installed board with the bundle built at that SHA. The
-   first seeding of a host (`seed`) is retired (PM-1116; commit `358bb7c7` on `main`, tagged `retired-migrate-dns`, has it).
+3. `deploy --ref <approved-sha>` updates the installed board with the bundle built at that SHA.
 4. Verify `status`, `logs` and `rehearse` (requires `REHEARSAL PASSED`). In the approved downtime
    window, `stop`, `pull-data --to <new-directory>` and `start` verify one-writer behavior and the
    return stream. Keep the copy outside a git worktree; never copy a running database.
@@ -397,26 +401,83 @@ If cleanup fails, use `aws --profile aroom --region <region> ssm describe-sessio
 Do not broadly terminate sessions or use public SSH to recover an offline SSM agent. Repair its
 outbound connectivity/agent through the approved EC2 recovery procedure instead.
 
-This is the owner's central-server administration connection, independent of the Mac engine link.
+This is the owner's host-operation connection to the central server, independent of the Mac engine link.
 The engine receives no AWS login, new RPC, host private key or cloud-admin payload.
+
+## Deploy role for GitHub Actions (PM-1197, part of PM-1193)
+
+The cloud deploy also runs in a GitHub Actions job (`.github/workflows/projectman-deploy.yml`, started with
+`run_compute_job job=cloud-deploy commit=<SHA40>`, see docs/DEPLOY.md "Deploy from GitHub Actions"). The job has no
+AWS key, no AWS profile on any Mac and no `cloud.env`: GitHub's OIDC token is exchanged for a session of one IAM role.
+
+**The role** `projectman-cloud-deploy` (in the central account) is made by `npm run cloud -- github-deploy-setup`:
+
+- **Trust.** `sts:AssumeRoleWithWebIdentity` for the IAM OIDC provider `token.actions.githubusercontent.com`
+  (client id `sts.amazonaws.com`), under two exact conditions: `aud` = `sts.amazonaws.com` and `sub` =
+  `repo:<owner>/<name>:environment:cloud-production`. So only a job of this repository that runs in the
+  `cloud-production` environment can assume it, and that environment accepts the default branch only. A job on
+  another branch, in a fork or without the environment gets no session.
+- **Session.** At most one hour (`MaxSessionDuration` 3600; the workflow asks for 3600 s). Setup refuses an existing
+  role that allows longer.
+- **Policy** (inline, same name): exactly the caller rights of "EC2 host operation through SSM", and nothing else:
+  `ec2:DescribeInstances`, `ssm:DescribeInstanceInformation`, `ssm:GetCommandInvocation`, `ssm:DescribeSessions` (lookups
+  AWS cannot scope; resource `*`, read only); `ec2-instance-connect:SendSSHPublicKey` on the one instance with
+  `ec2:osuser=ubuntu`; `ssm:SendCommand` on the one instance and the `AWS-RunShellScript` document; `ssm:StartSession`
+  on the one instance and the `AWS-StartSSHSession` document; `ssmmessages:OpenDataChannel` on
+  `session/${aws:userid}-*`; `ssm:TerminateSession` on `*` only under the AWS tag conditions
+  `aws:ssmmessages:session-id` = `${aws:userid}*` (an assumed role's own sessions) and `aws:ssmmessages:target-id` = the
+  one instance. No IAM, no S3, no other machine, no secret.
+
+**The GitHub side** is made by the same command: the environment `cloud-production` limited to the default branch, and
+three environment **variables** (not secrets): `PROJECTMAN_DEPLOY_ROLE_ARN`, `PROJECTMAN_AWS_REGION`,
+`PROJECTMAN_INSTANCE_NAME`. The workflow reads them with `vars.*`; none of them is secret.
+
+**`github-deploy-setup [--dry-run]`** runs on the owner's computer with the central profile and the owner's `gh` login
+(`gh` needs admin rights on the repository to write environments). Every step first reads and writes only what is
+missing or different, so it is safe to repeat; a second run changes nothing. `--dry-run` reads only and prints what it
+would do. **It changes the live AWS account and the repository, so it is a production change: the owner (or the
+connected Claude, after the owner's yes) runs it once.**
+
+**`runner-deploy`** is the command the job runs (`npm run cloud -- runner-deploy --ref <SHA40> --repository <owner>/<name>
+--region <region> --instance <name> --out <report.json>`). It needs no `config.json`, no profile and no `cloud.env`:
+
+- AWS calls use the ambient credentials `configure-aws-credentials` put into the environment (the argument vector has no
+  `--profile`), and the connection is the same SSH through SSM with an ephemeral key.
+- The image always comes from the GitHub run of the commit (the machine downloads and verifies it, "The machine downloads
+  the artifact itself"); the commit must be on the default branch and the run must belong to `--repository`.
+- The machine keeps the `cloud.env` it has. The job never sends one: `env-check` runs first on the machine and
+  answers only the names, and a missing or incomplete file stops everything with `env_missing` before anything
+  starts (exit 2). The four required names are `LITESTREAM_BUCKET`, `LITESTREAM_ACCESS_KEY_ID`, `RESTIC_REPOSITORY`
+  and `RESTIC_PASSWORD`. The first deploy of a new machine therefore still needs `deploy` from the owner's computer.
+- Then the usual `bootstrap`, `receive-image`, `start`, health check and, after a healthy start, `prune-images`; on an
+  unhealthy start the existing rollback runs.
+- The report `deploy/report.json` is `{commit, image, previous, healthy, rolledBack, finishedAt, pruned}`; it is
+  written on every outcome after the image was found. The command fails (exit 1) when the board is not healthy, also
+  after a successful rollback (`rolledBack: true`), so the job is red and the devops sees what happened.
 
 ## Common backup/Cloudflare guide (PM-532)
 
 This guide sets up the board in the cloud so that it is reachable when your Mac is off: one AWS
 EC2 machine that runs the container of [HYBRID.md](HYBRID.md) (`deploy/cloud/Dockerfile`), two
-S3 buckets for the backups, and Cloudflare (tunnel and Access) in front. You run everything from
+S3 buckets for the backups, and the Cloudflare tunnel in front. You run everything from
 your own Mac with one command, `npm run cloud -- <command>`, with your own logins. No member of the
 team, human or AI, gets an AWS or Cloudflare secret: the commands are yours to run.
 
-The CLI and this guide cover the four parts of PM-532 (PM-534 to PM-537).
+The deploy steps are in [DEPLOY.md](DEPLOY.md), the hybrid layout and the way back in
+[HYBRID.md](HYBRID.md); this page owns the AWS resources and the `npm run cloud` commands that make them.
+**A new AWS resource, an SES change or a package change is cost and account, so it stays an owner decision**
+(Projektterv, chapter 4): updating the hub and the engine to a new commit is covered by that chapter's rule,
+creating a resource, changing the mail setup or installing a new package is not.
 
 ## Overview and cost
 
 ```
- browser / engine ──► Cloudflare (Access) ──► tunnel ──► EC2 machine ─ container ─ server
-                                                         (no open port)    ├ Litestream ─► S3 bucket (database)
-                                                                           └ restic     ─► S3 bucket (the rest)
+ browser              ──► Cloudflare edge                    ──► tunnel ──► EC2 machine ─ container ─ server
+ connected Claude     ──► Cloudflare edge (Service Auth)     ──► tunnel ──► (no open port)    ├ Litestream ─► S3 bucket (database)
+ engine (your Mac)    ──► Cloudflare edge (Access, /engine)  ──► tunnel ──►                   └ restic     ─► S3 bucket (the rest)
 ```
+
+The board is public (decision 56): its own login is the boundary, see "The public board" below.
 
 | Part                             | Cost (about, per month)                                                     |
 | -------------------------------- | --------------------------------------------------------------------------- |
@@ -442,19 +503,19 @@ Short and in order: account setup, local credentials, and commands that the owne
    Do this only after PM-533 is released: AI sessions must be denied access to `~/.aws`.
    Check `aws --version` and `aws sts get-caller-identity --profile <aws.profile>`.
 5. **Configuration:** fill `config.json` from `deploy/aws/config.example.json`, including unique bucket names.
-6. **DNS delegation:** done (PM-537); the commands that moved it are retired (see "DNS" below). The domain is managed
+6. **DNS delegation:** done (see "DNS" below). The domain is managed
    through **Route 53 Domains**, even though RDAP names Gandi as the underlying registrar.
-   Check automatic renewal: the owner's recorded expiration is **2026-11-19**; `dns status` reads the current value.
+   Check automatic renewal: the owner's recorded expiration is **2027-11-19** and automatic renewal is on (state of 2026-11-05: the domain was renewed); `dns status` reads the current value.
 7. **First setup:** use the one-time code in `logs`.
-8. **Public checks:** `brew install cloudflared`, `cloudflared access login https://<hostname>`,
-   then create the mode-600 `login.json` described in "Verification" for `check`.
+8. **Public checks:** create the mode-600 `login.json` described in "Verification" for `check`. Only with
+   `access.boardMode: private` also `brew install cloudflared` and `cloudflared access login https://<hostname>`.
 9. **Backup password:** copy `RESTIC_PASSWORD` from `cloud.env` into your password manager after `aws`.
 10. **Engine:** set `linkHeadersFile` to `~/.config/projectman/cloud/engine-access-token.json`
     as in [HYBRID.md](HYBRID.md).
 11. **Later:** manually delete the old Route 53 hosted zone when the owner decides; the delegation cannot be
     switched back by the tool any more.
 
-The AWS profile needs the EC2 and IAM rights of "EC2 central account and provisioning" above, the S3 actions `CreateBucket`, `ListBucket`, `GetBucketVersioning`,
+The AWS profile needs the EC2 and IAM rights of "EC2 central account and provisioning" above, the S3 actions `CreateBucket`, `ListBucket`, `GetBucketVersioning`, `PutBucketVersioning`,
 `Get`/`PutBucketPublicAccessBlock`, `Get`/`PutEncryptionConfiguration`, `Get`/`PutLifecycleConfiguration`,
 and IAM `CreateUser`, `TagUser`, `GetUser`, `PutUserPolicy`, `GetUserPolicy`, `ListUserPolicies`,
 `ListAttachedUserPolicies`, `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`.
@@ -470,14 +531,14 @@ Everything is in `~/.config/projectman/cloud/`. That directory is under `~/.conf
 which the AI sessions' sandboxes already deny. Nothing from it goes to the repository, a card or a
 message.
 
-| File                                                                               | Content                                                                    | Written by                                        |
-| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------- |
-| `config.json`                                                                      | the settings; no secret (`--config <file>` names another)                  | you (start from `deploy/aws/config.example.json`) |
-| `cloudflare-token`                                                                 | the Cloudflare API token (PM-536)                                          | you                                               |
-| `cloud.env`                                                                        | the container's environment, docker env-file format                        | `npm run cloud` (below)                           |
-| `engine-access-token.json`                                                         | the engine's Access service token (`linkHeadersFile` format)               | `npm run cloud -- edge`                           |
-| `integrator-access-token.json`                                                     | the integrator's service token (only with `access.integratorServiceToken`) | `npm run cloud -- edge`                           |
-| `owners/<id>/engine-access-token.json`, `owners/<id>/integrator-access-token.json` | a further owner's own two service tokens (`access.owners`, PM-1065)        | `npm run cloud -- edge`                           |
+| File                                                                               | Content                                                                          | Written by                                        |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `config.json`                                                                      | the settings; no secret (`--config <file>` names another)                        | you (start from `deploy/aws/config.example.json`) |
+| `cloudflare-token`                                                                 | the Cloudflare API token (PM-536)                                                | you                                               |
+| `cloud.env`                                                                        | the container's environment, docker env-file format                              | `npm run cloud` (below)                           |
+| `engine-access-token.json`                                                         | the engine's Access service token (`linkHeadersFile` format)                     | `npm run cloud -- edge`                           |
+| `integrator-access-token.json`                                                     | the connected Claude's service token (only with `access.integratorServiceToken`) | `npm run cloud -- edge`                           |
+| `owners/<id>/engine-access-token.json`, `owners/<id>/integrator-access-token.json` | a further owner's own two service tokens (`access.owners`, PM-1065)              | `npm run cloud -- edge`                           |
 
 `npm run` starts the command in the repository root, so give `--config` an absolute path (a relative one is resolved from the root).
 
@@ -508,7 +569,7 @@ and names the field's path. `deploy/aws/config.example.json` has every field you
 | `cloudflare.tokenFile`                   | `<secrets store>/cloudflare-token`           | an absolute path or `~/…`                                                                           |
 | `access.emails`                          | required                                     | the exact e-mail addresses that may log in; no wildcard, no domain                                  |
 | `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                   |
-| `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                         |
+| `access.integratorServiceToken`          | `false`                                      | make a second service token for the connected Claude's smoke test                                   |
 | `releaseTarget`                          | none                                         | Retired; accepted for compatibility and ignored with a warning                                      |
 | `hybrid`                                 | none                                         | Retired; accepted for compatibility and ignored with a warning                                      |
 | `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                    |
@@ -535,8 +596,10 @@ reading call per right the token needs. It changes nothing, in either cloud.
 2. **The buckets**: created in the region (checked with `--expected-bucket-owner`; a name that is
    someone else's exits 2), all four public-access blocks on, AES256 encryption with a bucket key,
    a rule that aborts unfinished multipart uploads after 7 days (other lifecycle rules are kept).
-   Versioning must not be on (Litestream and restic keep their own history): an enabled bucket
-   exits 2.
+   The restic backup bucket is versioned: noncurrent versions expire after 30 days, and expired
+   delete markers are removed. These lifecycle rules are installed before versioning is enabled
+   (or resumed). The Litestream database bucket must remain unversioned because Litestream keeps
+   its own history: enabled versioning on that bucket exits 2.
 3. **Two IAM users**, `<instanceName>-litestream` (the database bucket) and `<instanceName>-restic`
    (the backup bucket), each with one inline policy `bucket-access`:
 
@@ -618,12 +681,17 @@ the systemd unit `projectman-cloud.service`.
    daemon needs no restart. Repeated bootstrap is safe.
    It also installs git, turns on unattended upgrades, makes a 2 GB swap file, and installs the unit file.
 4. **`receive-image`** imports the bundle's archive of the commit (see "Prebuilt ARM images"); the
-   machine never builds an image. Old images beyond the current and the previous one are removed.
+   machine never builds an image.
 5. **`start`** writes `/etc/projectman/image.env` (`IMAGE=projectman-cloud:<sha>`) and
    `/var/lib/projectman/deploy.json` (`current`, `previous`, `lastStoppedAt`), then restarts the unit.
 6. **Health.** The command polls the container's health check every 5 s for 180 s. If it never
    becomes healthy, it prints the last 200 log lines and, when there is an earlier image, starts it
    again (and exits 1 either way).
+7. **`prune-images`** (PM-1197), only after a healthy deploy: the machine removes every
+   `projectman-cloud:<sha>` image except the two `deploy.json` names as `current` and `previous` (what a
+   rollback needs), and the downloaded bundles and half-written streams. Docker itself refuses to remove an
+   image a container uses. A failed cleanup is a printed note, never a failed deploy. After a rollback nothing is
+   removed.
 
 An older build refuses a database a newer build has migrated. Therefore every `deploy` that has to
 go back, and every `rollback`, prints when the board last stopped before the update
@@ -656,29 +724,16 @@ rule); it is described in the EC2 chapter above.
 
 ### `pull-data`
 
-The first move of the Mac's data to the machine (`seed`) is done and retired (PM-1116); the last commit
-that has it is `358bb7c7` on `main`, tagged `retired-migrate-dns`. The machine keeps its data between deploys.
-
-`pull-data --to <new folder>` is the way back (`npm run migrate -- hybrid back` takes the folder).
+The machine keeps its data between deploys. `pull-data --to <new folder>` is the way back
+(`npm run migrate -- hybrid back` takes the folder; see [HYBRID.md, The way back](HYBRID.md#the-way-back)).
 The folder must not exist (its parent must), must not be inside a git work tree, and is created with
 mode 700. The board must be stopped first (`npm run cloud -- stop`): a copy of a live database is no
 copy. A failed download removes the folder. The command prints what in the copy the way back would
 refuse.
 
-### Retired release configuration (PM-1113)
-
-The old `releaseTarget` and `hybrid` keys are accepted for existing configuration files,
-but ignored with a warning. Deployment strips stale `PROJECTMAN_RELEASE_*` lines from the
-environment sent to the host. There is no `release-control` or `release-probe` command.
-Use `npm run cloud -- deploy --ref <commit>` and the publication procedure in [DEPLOY.md](DEPLOY.md).
-
-### What was not tried
-
-The team could not run any of this against a real AWS account. `deploy/aws/host.sh` is checked for
-syntax and for what it must never do (no published port, no host network, no privileged container,
-no Docker socket), and the commands against a fake `aws`, `ssh` and machine. The first real run is
-yours: `status` first (it needs only the machine), then `deploy --dry-run`. The least certain part
-is the SSH connection through SSM: `status` shows whether it works.
+An old `releaseTarget` or `hybrid` key in a configuration file is ignored with a warning, and a deploy
+strips stale `PROJECTMAN_RELEASE_*` lines from the environment sent to the host. The deploy and the
+publication procedure are in [DEPLOY.md](DEPLOY.md).
 
 ## Cloudflare
 
@@ -691,16 +746,16 @@ setting someone changed in the dashboard is put back. `<N>` below is `cloudflare
 
 Create a custom API token (dashboard → My Profile → API Tokens), with these rights and no other:
 
-| Scope   | Group                                                                    | Level | Used for                             |
-| ------- | ------------------------------------------------------------------------ | ----- | ------------------------------------ |
-| Account | Cloudflare Tunnel                                                        | Edit  | the tunnel, its ingress and token    |
-| Account | Access: Apps and Policies                                                | Edit  | the Access applications and policies |
-| Account | Access: Service Tokens                                                   | Edit  | the engine's and integrator's tokens |
-| Account | Access: Organizations, Identity Providers, and Groups                    | Edit  | the One-time PIN identity provider   |
-| Zone    | Zone (all zones from the account; the zone does not exist before `edge`) | Edit  | creating the zone                    |
-| Zone    | DNS                                                                      | Edit  | the CNAME records of `publish`       |
-| Zone    | Zone Settings                                                            | Edit  | the edge settings                    |
-| Zone    | Transform Rules                                                          | Edit  | the no-framing header rule           |
+| Scope   | Group                                                                    | Level | Used for                                   |
+| ------- | ------------------------------------------------------------------------ | ----- | ------------------------------------------ |
+| Account | Cloudflare Tunnel                                                        | Edit  | the tunnel, its ingress and token          |
+| Account | Access: Apps and Policies                                                | Edit  | the Access applications and policies       |
+| Account | Access: Service Tokens                                                   | Edit  | the engine's and connected Claude's tokens |
+| Account | Access: Organizations, Identity Providers, and Groups                    | Edit  | the One-time PIN identity provider         |
+| Zone    | Zone (all zones from the account; the zone does not exist before `edge`) | Edit  | creating the zone                          |
+| Zone    | DNS                                                                      | Edit  | the CNAME records of `publish`             |
+| Zone    | Zone Settings                                                            | Edit  | the edge settings                          |
+| Zone    | Transform Rules                                                          | Edit  | the no-framing header rule                 |
 
 Page Rules, Cache Rules and Workers are not needed: nothing here uses them. Give the token an
 expiry you will remember. The token is yours: no AI member gets it.
@@ -731,13 +786,14 @@ at the first refused change, name the right they lack and change nothing further
    the file; whoever used the old secret needs the new file. `edge` prints the expiry and warns
    30 days before it.
 6. **The Access policies**, with the exact lists and nothing else (no domain or group, and `everyone` only in the public board's one bypass policy, below):
-   `<N>-allow-emails` (allow, one `email` rule per `access.emails` entry), `<N>-engine-service` and
-   `<N>-integrator-service` (service auth, that one token).
-7. **The Access applications**, both self-hosted with the One-time PIN as the only provider, hidden from
-   the launcher, with `access.sessionDuration`: `<N>` on `cloudflare.hostname` (the e-mail policy, and
-   the integrator policy if there is one) and `<N>-engine` on `cloudflare.hostname/engine` (the engine
-   policy only). Their policy lists must be exactly these: an extra policy is removed. With the
-   integrator token switched off, its policy, token and file are deleted.
+   `<N>-allow-emails` (allow, one `email` rule per `access.emails` entry; the board's lock in `private`
+   mode), `<N>-engine-service` and `<N>-integrator-service` (service auth, that one token).
+7. **The Access applications**, self-hosted with the One-time PIN as the only provider, hidden from
+   the launcher, with `access.sessionDuration`: `<N>` on `cloudflare.hostname` (in `private` mode: the e-mail
+   policy, and the integrator policy if there is one; in `public` mode only the bypass policy, below) and
+   `<N>-engine` on `cloudflare.hostname/engine` (the engine policy only). Their policy lists must be exactly
+   these: an extra policy is removed. With the integrator token switched off, its policy, token and file are
+   deleted.
 
    **Further owners (PM-1065).** Each entry of `access.owners` (`id`, `name`, and an `email` that private
    board mode requires) gets its own pair of service tokens, `<N>-owner-<id>-engine` and
@@ -755,10 +811,13 @@ at the first refused change, name the right they lack and change nothing further
 
 8. **The tunnel** `<N>` (managed from Cloudflare, `config_src: cloudflare`; a tunnel that is configured
    from a local file exits 2) and its **ingress**: `/hooks*` and `/mcp/*` answer 404 (the board's
-   webhook and member MCP doors stay closed to the world; the bare `/mcp` is the integrator's bearer endpoint, PM-760), the board's name goes to `127.0.0.1:4700` with the
-   `access.required` check against the audience tags of both applications (the origin checks the
-   Access JWT itself), with a feedback name the `/feedback/` path of it goes to the same port and the
-   rest is 404, everything else 404.
+   webhook and member MCP doors stay closed to the world). In `private` mode without an integrator hostname
+   the bare `/mcp` is the connected Claude's bearer endpoint on the board's name (PM-760); with an
+   integrator hostname (always in `public` mode) it is a 404 on the board's name and lives only on that
+   hostname. In `private` mode the board's name goes to `127.0.0.1:4700` with the `access.required` check
+   against the audience tags of both applications (the origin checks the Access JWT itself); in `public`
+   mode see "The public board". With a feedback name the `/feedback/` path of it goes to the same port and
+   the rest is 404, everything else 404.
 9. **`cloud.env`** gets `TUNNEL_TOKEN` and, with a feedback name, `PROJECTMAN_FEEDBACK_PUBLIC_URL`.
    Run `npm run cloud -- deploy` afterwards: the machine reads the file when the container starts.
 
@@ -802,13 +861,18 @@ same SSH connection as the other machine commands. A remote engine reads its ser
 
 ### The public board (PM-672, part of PM-664)
 
-`access.boardMode` is `private` (default: the steps above, Cloudflare Access in front of the board's
-pages) or `public`: the board's own e-mail login (PM-670) is the only boundary of its pages, so clients
-reach it without a Cloudflare account or a One-time PIN. `public` needs the `ses` block (the e-mail login
-is the way in; the registrar profile `i` is refused there too). The engine door stays closed to the world
-in both modes.
+The running board is public (decision 56): `access.boardMode: public`, the board's own login is the only
+boundary of its pages (the owner logs in with a password, a client with an e-mailed code, PM-946; the code is
+`apps/server/src/auth/public-board.ts` and `PROJECTMAN_EMAIL_LOGIN_ENABLED`), so clients reach it without a
+Cloudflare account or a One-time PIN. `public` needs the `ses` block (the e-mail login is the way in; the
+registrar profile `i` is refused there too). The engine door stays closed to the world in both modes.
+Cloudflare Access today protects `/engine` and the connected Claude's hostname. The other value,
+`access.boardMode: private`, puts Access in front of the board's pages too; the code's default for a config
+without the field is still `private`, so the owner's `config.json` sets `public` explicitly. `private` is kept
+for staging and for the edge lock of [HYBRID.md, The way back](HYBRID.md#the-way-back); the steps above (the
+`<N>-allow-emails` policy and the board application with it) describe that mode.
 
-What `edge` does differently with `boardMode: public` (the order of the steps is the same):
+What `edge` does with `boardMode: public` (the order of the steps is the same):
 
 - **Policies and applications.** The main application `<N>` has exactly one policy, `<N>-public-board`
   (Bypass, `include: everyone`, no exclude or require), and no automatic redirect to the identity
@@ -824,7 +888,7 @@ What `edge` does differently with `boardMode: public` (the order of the steps is
   port with no audience check (the board's login guards it); the last rule is 404.
 - **`cloud.env`** gets `PROJECTMAN_PUBLIC_BOARD=1`; in `private` mode `edge` removes the line.
 
-**Separate integrator host (PM-675).** `cloudflare.integratorHostname` has no default. Choose an
+**Separate host for the connected Claude (PM-675).** `cloudflare.integratorHostname` has no default. Choose an
 explicit lowercase `<label>.<zone>` distinct from the board and widget; it requires
 `access.integratorServiceToken=true`. Private configurations without it remain compatible.
 The same tunnel serves only literal `/api/...` and exact `/mcp` there, with only the integrator
@@ -836,7 +900,7 @@ non-machine routes (404). A valid `pmi_` key still needs its existing mode, scop
 The board's owner-only key management, audit and human decisions stay on the cookie API.
 
 Stage the new guard in private mode first: private `edge` → new-image `deploy` → `publish` → private
-`check`, then change the integrator client's `baseUrl` to the machine origin and prove its REST/MCP
+`check`, then change the connected Claude client's `baseUrl` to the machine origin and prove its REST/MCP
 calls. `publish` also publishes this configured hostname, without a new flag, only after verifying
 its exact Access application, ingress, environment and running backend. `host.sh public-check
 <boardHostname> [integratorHostname]` retains its five fields and adds `integratorHostIsolated` when
@@ -883,11 +947,10 @@ flag from `cloud.env`; run it again and nothing changes.
 **Does this work on a remote engine?** Yes. The public board concerns the browser side only: the engine
 still connects outward to `/engine`, which is behind its own Access application and its own machine key.
 
-## DNS (PM-537, one-off move retired in PM-1116)
+## DNS
 
-The zone moved to Cloudflare once, including mail (SES MX, DKIM and verification TXT) and site
-verification. The commands that did it (`dns plan`, `dns import`, `dns verify`, `dns switch [--back]`) are
-retired; the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`. What stays is the read-only
+The zone is in Cloudflare, with the mail records (SES MX, DKIM and verification TXT) and the site
+verification. The one command for it is the read-only
 `npm run cloud -- dns status`: it reads delegation and DS through Cloudflare and Google DoH, reports the
 registrar name servers, the DNSSEC key count, the registration expiry and auto-renew, and requests an
 activation check for a pending zone. Both public resolver answers are printed; allow cached delegation to
@@ -896,13 +959,13 @@ Renewal disabled or expiration within 30 days produces a warning. The registrar 
 irrespective of the machine's region, as required by the
 [AWS CLI reference](https://docs.aws.amazon.com/cli/latest/reference/route53domains/get-domain-detail.html).
 
-All imported records are DNS-only (`proxied: false`); `publish` adds the tunnel records separately.
+The mail and site records are DNS-only (`proxied: false`); `publish` adds the tunnel records separately.
 Cloudflare's automatic scan is disabled by `edge`. Test **SES receiving and DKIM** after any change.
 
 **There is no delegation rollback in the tools.** The old Route 53 hosted zone is kept until the owner
 deletes it manually (about USD 0.50/month); records changed in Cloudflare since the move are not in it.
 If delegation ever has to go back, it is a manual step in Route 53 Domains by the owner, and the same
-mail and delivery checks follow. [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (the return to the Mac) does
+mail and delivery checks follow. [The way back](HYBRID.md#the-way-back) (the return to the Mac) does
 not switch DNS back either.
 
 ### `up`
@@ -918,13 +981,14 @@ steps without writes and skips the live login check.
 
 `npm run cloud -- check --login-json <file>` verifies the Cloudflare security conditions in
 [SECURITY.md](SECURITY.md#public-entrance-through-cloudflare-pm-200-pm-210) and the deployment in
-[HYBRID.md](HYBRID.md#smoke-test) against `https://<cloudflare.hostname>`. Before the first run sign in to
-Access as yourself: `cloudflared access login https://<hostname>` (an e-mail PIN from the list in
-`access.emails`). `<file>` is a mode-600 JSON file with `{"email": "…", "password": "…"}` of a board
-account; the command reads it only to hand it to `deploy/cloudflare/check.sh`, in the environment
-and never in an argument. It runs three groups:
+[HYBRID.md](HYBRID.md#smoke-test) against `https://<cloudflare.hostname>`. `<file>` is a mode-600 JSON
+file with `{"email": "…", "password": "…"}` of a board account; the command reads it only to hand it to
+`deploy/cloudflare/check.sh`, in the environment and never in an argument. With `access.boardMode: public`
+nothing else is needed (the public matrix, see "The public board"). In `private` mode sign in to Access as
+yourself before the first run: `cloudflared access login https://<hostname>` (an e-mail PIN from the list in
+`access.emails`). It runs three groups:
 
-1. **`deploy/cloudflare/check.sh`**: Access in front of everything, `/hooks` and `/mcp` closed, the
+1. **`deploy/cloudflare/check.sh`**: (private mode) Access in front of everything, `/hooks` and `/mcp` closed, the
    origin and cookie rules of the server, the edge settings (no framing, HTTPS only), and since
    PM-536 also that the edge does not cache the main page or `/api/setup` (`cf-cache-status` is not
    `HIT`) and does not inject a script into the page (Rocket Loader, Cloudflare's own beacon). With
@@ -934,8 +998,8 @@ and never in an argument. It runs three groups:
    gets through Access and is refused by the board itself (a `GET` on these doors is never a
    success): a `2xx` means the door is open, a redirect to the Access login means the token is not
    accepted.
-3. **The integrator boundary** with a configured machine hostname: absent and engine tokens cannot
-   enter, the integrator Access token without an application bearer gets 401, and non-machine
+3. **The connected Claude's boundary** with a configured machine hostname: absent and engine tokens cannot
+   enter, the connected Claude's Access token without an application bearer gets 401, and non-machine
    paths get 404. `check.sh` also deliberately sends a valid human cookie to the machine host
    (401), and checks the board's bearer refusal and bare MCP closure. Secrets use protected files
    and child environments, never command arguments. Legacy private configurations without the
@@ -1092,7 +1156,7 @@ owner action, not part of configure).
 
 **Moving SES to another account (PM-729).** The old SES key in `cloud.env` belongs to the former account, so
 `ses configure` refuses it (exit 2, nothing changed) when it finds no matching key in the new account. The
-integrator therefore first makes a protected mode-600 copy of the config and `cloud.env`, removes only
+owner therefore first makes a protected mode-600 copy of the config and `cloud.env`, removes only
 `PROJECTMAN_SES_ACCESS_KEY_ID`, `PROJECTMAN_SES_SECRET_ACCESS_KEY` and `PROJECTMAN_SES_SESSION_TOKEN` from the
 local env and sets `PROJECTMAN_EMAIL_LOGIN_ENABLED=0` (do not deploy that intermediate env), then runs
 `ses plan`, `ses configure --dry-run`, `ses configure` and `ses check` with the new profile. Old-account
@@ -1142,7 +1206,7 @@ resources are removed only after the new path is green and the backend uses the 
 changes nothing. Partial identity/DNS/policy failure can be resumed after repair; if key creation loses
 its response, the next run refuses the unknown key and needs owner inspection. The one-time secret cannot
 be recovered from AWS. Scripts print no credentials and pass no secret in argv; never copy keys into a card,
-message or approval request. Read the protected store only on the owner's administration machine.
+message or approval request. Read the protected store only on the owner's own machine.
 
 **Does this work on a remote engine?** Yes. The sending and the keys exist only in the board
 (the cloud server); the engine, the engine link and the engine protocol do not change, and the board
@@ -1258,8 +1322,8 @@ provisioning CLI; the engine gets no key, no queue and no protocol change.
 
 ## What this does not cover
 
-- A live trial: nothing here was run against a real AWS account by the team. The first real run is
-  yours; start with `preflight` and `aws --dry-run`.
-- Update the cloud with the owner-requested `cloud deploy` and rebuild/reinstall the Mac engine at the same commit (PM-1113; [DEPLOY.md](DEPLOY.md)).
+- Updating the hub and the engine: that is [DEPLOY.md](DEPLOY.md) (`npm run cloud -- deploy --ref <commit>`, then
+  the engine at the same commit); a new AWS resource, an SES change or a package change is an owner decision
+  (see the top of "Common backup/Cloudflare guide").
 - Several machines: one machine means one database writer.
 - AWS Organizations, SSO session renewal, billing alarms: set them up in your AWS account.

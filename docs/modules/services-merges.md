@@ -8,8 +8,8 @@ fixes and the merger member's tools.
 ## Merge (PM-452)
 
 The system requests a merge; the member selected by `cardMerger` starts it with `merge_task`,
-`POST /tasks/:taskKey/merge`, or the human inbox request. An authenticated super Operator may also start
-a normal merge (PM-882); conflict fix checkouts and resolution submissions remain the merger's.
+`POST /tasks/:taskKey/merge`, or the human inbox request. An owner's connected Claude (`isConnectedOwnerActor`,
+`merges.ts`) may also start a normal merge; conflict fix checkouts and resolution submissions remain the merger's.
 `mergeReadiness` and `mergeRepoOf` in shared
 configuration rules determine readiness and the forward moves that need the approved commit on the
 default branch. The source is the persistent handover (`task_handovers`, migration 47), then the review
@@ -78,15 +78,14 @@ a second one in parallel would check against a stale main), but the order of the
 decision, not the server's: by default it is the order of the requests (`task_merges.created_at`, `rowid`; a
 retry keeps its place). The queue reads `ORDER BY prioritized_at IS NULL, prioritized_at DESC, created_at,
 rowid` (`QUEUE_ORDER` in `db/task-merges.ts`; `prioritized_at` is a nullable column, migration 58, and
-`created_at` is never rewritten). The card's merger or the Operator (in an owner's request, step `task_update`)
-calls the team tool `prioritize_merge { task_key, reason }`, an owner does the same with the "Előre" button of the
-queued merge box (`POST /api/projects/:key/tasks/:taskKey/merge/prioritize`, body `{ reason }`); both land in
-`Merges.prioritize`: it allows the card's merger, an owner and the Operator only, takes a `queued` merge only
+`created_at` is never rewritten). The card's merger calls the team tool `prioritize_merge { task_key, reason }`, an owner does the same with the
+"Előre" button of the queued merge box (`POST /api/projects/:key/tasks/:taskKey/merge/prioritize`, body
+`{ reason }`); both land in `Merges.prioritize`: it allows the card's merger, an owner and an owner's connected Claude
+(`isConnectedOwnerActor`) only, takes a `queued` merge only
 (`merge_not_prioritizable` otherwise), sets `prioritized_at`, writes `task_merge_prioritized` (`mergeId`, `repo`,
 `reason`, `ahead`: the keys of the queued cards it went ahead of) on the card with the caller as its actor, and
 pumps the queue. The mark is cleared when the merge starts running. A merge already first changes nothing (no
-event). The running merge is not interrupted. Remote engine: the queue is on the server and the engine is not
-involved; no new machine-dependent part.
+event). The running merge is not interrupted. The queue is on the server and the engine is not involved.
 
 **Durable train foundation (PM-659, part of PM-652).** `db/merge-trains.ts`, exposed as
 `Repositories.mergeTrains`, stores a Zod-validated manifest in `merge_trains` (migration 60).
@@ -177,12 +176,11 @@ releases its check worktree in finally; startup also releases the known queued a
 Release errors only log a warning. The `_merge` directory is separate from card worktrees and is never
 swept as a closed card; a failed release of a terminal row can leave a checkout for engine-side cleanup.
 
-**Does this work on a remote engine?** Yes: the server owns the durable queue, gates and inbox;
-all git operations, check checkouts, dependency copies and sandbox checks run on the card's engine
-through the existing `merge.*` and `full_test.*` contracts. PR metadata uses the existing application
-GitHub service (the default engine's `github.*` calls in cloud mode); it is independent of local git.
-Source-head reads are strict for merging: an unavailable engine or failed read cannot pass the gate
-as a code-free card. See the machine inventory entry below.
+The server owns the durable queue, gates and inbox; all git operations, check checkouts, dependency copies and
+sandbox checks run on the card's engine through the `merge.*` and `full_test.*` contracts (the inventory entries are
+in [MACHINE-DEPENDENT.md](../MACHINE-DEPENDENT.md)). PR metadata uses the application GitHub service; it is
+independent of local git. Source-head reads are strict for merging: an unavailable engine or failed read cannot pass
+the gate as a code-free card.
 
 Check dependencies match the merged `package-lock.json` (PM-580). The engine tries the preferred
 source, its repository checkout, then that repository's non-prunable worktrees under `worktreesRoot`
@@ -222,11 +220,11 @@ is the `MergeSlotPeer` port: `busy` and `pump`; the writes use `DocWriteSlotPeer
 `push`, `advance`), run in the order of the card's merge: a `non_fast_forward` push is built again once, on the
 new head. The built commit is saved (`commit_sha`) before the push; a `running` row from before a restart is
 `published` when the remote already has that commit (the local branch is advanced), otherwise `queued` again.
-A write made through the bearer MCP (PM-784, `requestExternal`) has no Operator request or step: its row carries
+A write made through the bearer MCP (`requestExternal`) has no owner request or step: its row carries
 the key's origin (`external_origin`), its commit has the key's trailers, and it answers after about five seconds
 (`EXTERNAL_DOC_WRITE_WAIT_MS`) with `published`, `queued` or `running`; `get_project_doc_write` reads it on. A row
 without a request and without an origin never runs (`authorization_revoked`), except one explicitly marked
 `autonomous_lessons` by `requestLessons` (PM-1004). That write has no owner request or step. The hub verifies
-the selected project manager or transitional Operator, repository/default branch and current lessons path at start, recovery and before publication;
+the selected project manager, repository/default branch and current lessons path at start, recovery and before publication;
 conflicting provenance or revoked configuration ends it as `authorization_revoked`. Its result still reaches
 the author through the existing system-message path.

@@ -22,18 +22,31 @@ describe('fix round limit', () => {
   afterEach(() => h?.cleanup());
 
   const setup =
-    (opts: { lead?: boolean; planner?: boolean; limit?: number; integrator?: boolean } = {}) =>
+    (
+      opts: {
+        lead?: boolean;
+        planner?: boolean;
+        /** The harness's own code reviewer `cr` is on leave: nobody else holds the code review duty. */
+        reviewerAway?: boolean;
+        limit?: number;
+        integrator?: boolean;
+      } = {},
+    ) =>
     (config: ProjectConfig) => {
       config.team.limits.maxConcurrentAi = 10;
       config.team.limits.maxFixRounds = opts.limit ?? 2;
+      // The lead goes before the harness's code reviewer `cr`: the first code review holder decides.
       if (opts.lead ?? true)
-        config.team.members.push({
+        config.team.members.unshift({
           kind: 'ai',
           handle: 'lead',
           displayName: 'Lead',
           role: 'lead_developer',
           sponsor: 'owner',
         } as ProjectConfig['team']['members'][number]);
+      if (opts.reviewerAway)
+        for (const member of config.team.members)
+          if (member.kind === 'ai' && member.handle === 'cr') member.onLeave = true;
       if (opts.planner ?? true)
         config.team.members.push({
           kind: 'ai',
@@ -685,7 +698,8 @@ describe('fix round limit', () => {
       for (const id of ['replan', 'reassign', 'another_round']) expect(item.body).toContain(id);
       expect(item.options.every((option) => option.consequence)).toBe(true);
       expect(item.options.find((option) => option.id === 'another_round')?.style).toBe('primary');
-      expect(item.payload).toMatchObject({ recipient: 'owner', recipientRefusal: 'integrator_unavailable' });
+      expect(item.payload).toMatchObject({ recipient: 'owner' });
+      expect(item.route).toMatchObject({ kind: 'fix_limit', to: 'owner_inbox', reason: 'no_integrator' });
     });
 
     it('refuses to_owner without a good assessment and changes nothing', async () => {
@@ -1063,9 +1077,26 @@ describe('fix round limit', () => {
     });
   });
 
+  describe('who decides first (decision 69)', () => {
+    it('is the code reviewer, who needs no technical direction duty', async () => {
+      await prepare({ lead: false });
+      await round('First fix');
+      await round('Second fix');
+      expect(record()).toMatchObject({ holdPhase: 'lead', decider: 'cr' });
+    });
+
+    it('is the technical direction holder when nobody holds the code review duty, and the plan does not go back to them', async () => {
+      await prepare({ lead: false, reviewerAway: true });
+      await round('First fix');
+      await round('Second fix');
+      expect(record()).toMatchObject({ holdPhase: 'lead', decider: 'arch' });
+      await expect(tool('arch', 'replan')).rejects.toMatchObject({ code: 'fix_limit_no_planner' });
+    });
+  });
+
   describe('nobody on the team can decide', () => {
     it('goes straight to the people, without the replan button when nobody could plan', async () => {
-      await prepare({ lead: false, planner: false });
+      await prepare({ lead: false, planner: false, reviewerAway: true });
       await round('First fix');
       await round('Second fix');
       expect(record()).toMatchObject({ holdPhase: 'owner', reason: 'no_ai_decider', decider: null });

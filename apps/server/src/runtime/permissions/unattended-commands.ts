@@ -55,6 +55,8 @@ interface UnattendedCommandsInput {
    * for a human.
    */
   codex?: boolean;
+  /** The Codex member's outbound network is on (PM-1172): the network is no escalation then. */
+  networkOpen?: boolean;
   /** Omit command examples from the restriction index, keeping all restrictions. */
   brief?: boolean;
 }
@@ -100,8 +102,14 @@ export function describeSessionFolder(sessionFolder: string, provider: AgentProv
  * The line about the session folder of a Codex or NanoGPT member whose sandbox does not write
  * (PM-522): only the server puts files there, for example what `read_message_attachment` cannot show.
  */
-export function describeReadOnlySessionFolder(sessionFolder: string): string {
-  return `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}): the server puts files there for you, for example what ${code('read_message_attachment')} cannot show in its result (a PDF, a binary file, a long text, an image your tool results do not carry); the tool answers with the file's path. Read it with shell commands, and open an image with ${code('view_image')} (the shell does not show images). Your sandbox does not write it, and you make no screenshots. The other members' session folders next to it (below ${code(path.dirname(sessionFolder))}) are readable too. A folder is deleted when its session's process stops (a stop, a restart), and a resumed session gets a new folder: a path from earlier in this conversation no longer exists, so call ${code('read_message_attachment')} again.`;
+export function describeReadOnlySessionFolder(
+  sessionFolder: string,
+  { screenshots = false }: { screenshots?: boolean } = {},
+): string {
+  const makes = screenshots
+    ? `Make screenshots with the ${code('take_screenshots')} tool, not by running the shots script in the shell: the browser does not start in your sandbox, so the server runs the scenario (written as in ${code('docs/SCREENSHOTS.md')}) in its own and the images land in ${code('shots/')} of this folder; if the tool answers ${code('running')}, wait for the end with ${code('get_screenshot_run')}. Your sandbox itself does not write the folder.`
+    : 'Your sandbox does not write it, and you make no screenshots.';
+  return `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}): the server puts files there for you, for example what ${code('read_message_attachment')} cannot show in its result (a PDF, a binary file, a long text, an image your tool results do not carry); the tool answers with the file's path. Read it with shell commands, and open an image with ${code('view_image')} (the shell does not show images). ${makes} The other members' session folders next to it (below ${code(path.dirname(sessionFolder))}) are readable too. A folder is deleted when its session's process stops (a stop, a restart), and a resumed session gets a new folder: a path from earlier in this conversation no longer exists, so call ${code('read_message_attachment')} again.`;
 }
 
 /** The line about a Codex member's own temporary directory (PM-339). */
@@ -141,8 +149,8 @@ export function describeSandbox(input: {
       `Read get_guide with topic \`sandbox\` for roots, network, gh exceptions, here-documents, browsers${sandbox.env?.[HEAVY_LOCK_DIR_VARIABLE] && input.heavyChecks ? ' and heavy queue' : ''}; ask_human for other required actions.`,
     ];
   }
-  // A reader's working directory is `denyWrite`; a developer's `denyWrite` holds only files of the
-  // shared git directory (PM-153).
+  // A reader's working directory is `denyWrite`; a developer protects git metadata in shared
+  // repositories and independent clones, along with any additional protected paths.
   const readOnly = (sandbox.denyWrite ?? []).includes(cwd);
   const extra = (sandbox.denyWrite ?? []).filter((dir) => dir !== cwd);
   const denyRead = sandbox.denyRead ?? [];
@@ -168,7 +176,7 @@ export function describeSandbox(input: {
       ? `- Writing: only the temp directory (${code('$TMPDIR')})${sessionFolder ? ` and your session folder` : ''}. Your working directory ${code(cwd)}${extra.length > 0 ? ` and ${extra.map(code).join(', ')}` : ''} are read-only, for the shell (the sandbox) and for the file tools (deny rules). Read, query git, run the tests and the type checks there, but change nothing. Send caches and output files to ${code('$TMPDIR')}; a Vite or Vitest configuration loads with ${code('--configLoader runner')} (the project's ${code('npm test')} may already pass it).`
       : `- Writing: your working directory ${code(cwd)} with its git metadata (not its hooks or configuration), the temp directory (${code('$TMPDIR')})${sandbox.allowWrite.length > 0 ? ` and ${sandbox.allowWrite.map(code).join(', ')}` : ''}.${
           extra.length > 0
-            ? ` Never these paths of the shared git directory (the default branch, the integrating checkout, replacements, server-managed snapshot refs and grafts): ${extra
+            ? ` Never write these protected paths (including the default branch, the integrating checkout, replacement refs, server-managed snapshot refs, grafts, git configuration, hooks, object alternates and worktree links): ${extra
                 .filter((file) => !file.endsWith('.lock'))
                 .map(code)
                 .join(', ')} (and their lock files); commit on your own branch.`
@@ -257,7 +265,7 @@ export function describeUnattendedCommands(input: UnattendedCommandsInput): stri
 
   const lines = [
     codex
-      ? 'Your sandbox runs commands on its own as far as it allows them. What it does not allow (the network or a write outside your working directory, including shared git metadata) is an escalation, and an escalation waits in a human inbox until someone approves it, unless it is one of the forms below; the owner is often away, so a blocked session can lose hours. So write those commands in the forms below. The server judges the command text only, not what it would do.'
+      ? `Your sandbox runs commands on its own as far as it allows them. What it does not allow (${input.networkOpen ? 'a write' : 'the network or a write'} outside your working directory, including shared git metadata) is an escalation, and an escalation waits in a human inbox until someone approves it, unless it is one of the forms below; the owner is often away, so a blocked session can lose hours. So write those commands in the forms below. The server judges the command text only, not what it would do.`
       : 'Every other shell command waits in a human inbox until someone approves it, and the owner is often away: a blocked session can lose hours. So write your commands in the forms below. The server judges the command text only, not what it would do.',
     `- Reading: read-only commands run without asking in ${where}. They are ${code('git')} with ${gitReaders.map(code).join(', ')} (and ${code('git branch')} only to list); ${READ_ONLY_PROGRAMS.map(code).join(', ')} (${code('find')} without ${code('-exec')} or ${code('-delete')}, ${code('sort')} without ${code('-o')}, ${code('tail')} without ${code('-f')}, ${code('xargs')} only after a lister such as ${code('git ls-files')}); no ${code('git -c')}, no ${code('--output')}.`,
     `- Project checks: ${PROJECT_CHECK_COMMANDS.map(code).join(', ')}, without ${NPX_REFUSED_OPTIONS.map(code).join(', ')}.${

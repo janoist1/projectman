@@ -205,6 +205,20 @@
   gap: 2px;
 }
 
+/* Room for the language row: its name and the two-way switch side by side. */
+.accountPanel {
+  min-width: 260px;
+}
+
+.languageRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  color: var(--c-ink-2);
+  font-weight: 700;
+}
+
 .accountName {
   font-weight: 800;
   font-size: var(--text-md);

@@ -461,6 +461,16 @@ const icons = {
       <circle cx="18.5" cy="12" r="1.3" />
     </>
   ),
+  grip: (
+    <>
+      <circle cx="9" cy="6" r="1.3" />
+      <circle cx="15" cy="6" r="1.3" />
+      <circle cx="9" cy="12" r="1.3" />
+      <circle cx="15" cy="12" r="1.3" />
+      <circle cx="9" cy="18" r="1.3" />
+      <circle cx="15" cy="18" r="1.3" />
+    </>
+  ),
   nodes: (
     <>
       <rect x="3" y="4" width="7" height="6" rx="1.5" />

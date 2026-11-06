@@ -340,7 +340,7 @@ export interface EmailContactChangeInput {
   ownersAndAdmins: readonly string[];
   source:
     | { kind: 'message'; from: string; to: readonly string[]; at: string }
-    | { kind: 'email'; from: string }
+    | { kind: 'email'; from: string; at: string }
     | null;
   now: string;
 }
@@ -350,9 +350,9 @@ export function emailContactChangeRefusal(input: EmailContactChangeInput): Email
   if (wants && requestedBy !== target && !ownersAndAdmins.includes(requestedBy))
     return 'requester_not_allowed';
   if (!source) return wants ? 'source_missing' : null;
-  if (source.kind === 'email')
-    return source.from === target && target === requestedBy ? null : 'source_mismatch';
-  if (source.from !== requestedBy || !source.to.includes(caller)) return 'source_mismatch';
+  if (source.kind === 'email') {
+    if (source.from !== target || target !== requestedBy) return 'source_mismatch';
+  } else if (source.from !== requestedBy || !source.to.includes(caller)) return 'source_mismatch';
   const age = Date.parse(now) - Date.parse(source.at);
   if (!Number.isFinite(age) || age < 0 || age > EMAIL_CONTACT_SOURCE_DAYS * 86400000) return 'source_too_old';
   return null;

@@ -2,7 +2,6 @@ import {
   COMPUTE_JOB_COMMAND_MAX,
   COMPUTE_JOB_NODE_VERSION,
   COMPUTE_JOB_TIMEOUT_MINUTES_MAX,
-  COMPUTE_JOB_WORKFLOW,
   GITHUB_REPO_PATTERN,
   ComputeJobCommit,
   ComputeJobId,
@@ -10,6 +9,7 @@ import {
   ComputeJobRunId,
   GithubJobRunner,
   computeJobRunTitle,
+  isComputeJobWorkflow,
 } from '@projectman/shared';
 import type {
   FullTestExecutor,
@@ -52,7 +52,7 @@ function problemOf(spec: FullTestSpec, job: GithubJobRun): string | null {
   if (!Number.isFinite(spec.timeoutMs) || spec.timeoutMs <= 0) return 'The time limit is not positive.';
   if (!GITHUB_REPO_PATTERN.test(job.repo)) return 'The GitHub repository is not owner/name.';
   if (!ComputeJobCommit.safeParse(job.commit).success) return 'The commit is not a 40 digit commit id.';
-  if (job.workflow !== COMPUTE_JOB_WORKFLOW) return `The workflow is not ${COMPUTE_JOB_WORKFLOW}.`;
+  if (!isComputeJobWorkflow(job.workflow)) return 'The workflow is not a compute job workflow.';
   if (!ComputeJobId.safeParse(job.job).success) return 'The job is not a compute job name.';
   if (job.command.trim() === '' || job.command.length > COMPUTE_JOB_COMMAND_MAX)
     return `The command is empty or longer than ${COMPUTE_JOB_COMMAND_MAX} characters.`;

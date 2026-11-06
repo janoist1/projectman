@@ -58,7 +58,7 @@ describe('engine-owned member dependency preparation', () => {
   const marker = () => path.join(root, 'home/workspace-deps', hash(['PM', 'dev', 'app']), 'ready.json');
   const prepare = (waitMs = 10_000) => installer.prepare(request, { waitMs });
   const installs = () => calls.filter((run) => run.command.startsWith('npm ci '));
-  const make = (execute = true, configured = true) =>
+  const make = (execute = true, configured: boolean | 'implicit' = true) =>
     createWorkspaceDependencyInstaller({
       home: path.join(root, 'home'),
       heavyLockDir: path.join(root, 'heavy'),
@@ -75,7 +75,8 @@ describe('engine-owned member dependency preparation', () => {
         path.join(root, 'session-tmp'),
         path.join(root, 'session-folders'),
       ],
-      setupOf: () => (configured ? { kind: 'npm_ci', timeoutMs: 10_000 } : null),
+      setupOf: () =>
+        configured ? { kind: 'npm_ci', timeoutMs: 10_000, implicit: configured === 'implicit' } : null,
       repoPathOf: () => request.repoPath,
       logger,
       ...(execute
@@ -366,19 +367,23 @@ describe('engine-owned member dependency preparation', () => {
     expect(await prepare()).toMatchObject({ status: 'ready', changed: false });
   });
 
-  it('revokes an older marker before a failed replacement, and keeps process output out of logs and errors', async () => {
+  it('revokes an older marker before a failed replacement, and logs only the end of the process output', async () => {
     const info = vi.spyOn(logger, 'info');
     await prepare();
     rmSync(path.join(request.repoPath, 'apps/server/node_modules'), { recursive: true });
+    const lines = Array.from({ length: 40 }, (_, index) => `fixture-line-${index}`);
     install = async (run) => {
       trees(run.cwd);
-      return end({ exitCode: 23, output: 'fixture-secret-output' });
+      return end({ exitCode: 23, output: lines.join('\n') });
     };
-    await expect(prepare()).rejects.toMatchObject({ details: { reason: 'install_failed', exitCode: 23 } });
+    await expect(prepare()).rejects.toMatchObject({
+      details: { reason: 'install_failed', exitCode: 23, outputTail: lines.slice(-10).join('\n') },
+    });
     expect(existsSync(marker())).toBe(false);
     await expect(prepare()).rejects.toMatchObject({ details: { reason: 'install_failed' } });
     expect(installs()).toHaveLength(2);
-    expect(JSON.stringify(info.mock.calls)).not.toContain('fixture-secret-output');
+    expect(JSON.stringify(info.mock.calls)).toContain('fixture-line-39');
+    expect(JSON.stringify(info.mock.calls)).not.toContain('fixture-line-29');
     expect(info.mock.calls.at(-1)?.[0]).toMatchObject({
       project: 'PM',
       member: 'dev',
@@ -448,8 +453,75 @@ describe('engine-owned member dependency preparation', () => {
   it('skips unconfigured repositories', async () => {
     await installer.close();
     installer = make(true, false);
-    expect(await prepare()).toEqual({ status: 'skipped', reason: 'not_configured' });
+    // The fixture has a lockfile and no node_modules: the member is told they are missing (PM-1203).
+    expect(await prepare()).toEqual({ status: 'skipped', reason: 'not_configured', dependencies: 'missing' });
     expect(calls).toHaveLength(0);
+  });
+
+  it('reports an installed clone of an unconfigured repository as nothing to do, a stale one as stale', async () => {
+    await installer.close();
+    installer = make(true, false);
+    trees(request.repoPath);
+    const lock = path.join(request.repoPath, 'package-lock.json');
+    utimesSync(lock, 1000, 1000);
+    expect(await prepare()).toEqual({ status: 'skipped', reason: 'not_configured' });
+    utimesSync(path.join(request.repoPath, 'node_modules/.package-lock.json'), 500, 500);
+    expect(await prepare()).toMatchObject({ dependencies: 'stale' });
+    rmSync(lock);
+    expect(await prepare()).toEqual({ status: 'skipped', reason: 'not_configured' });
+  });
+
+  describe('the default setting (PM-1203)', () => {
+    it('installs a clone with a lockfile like an explicit setting does', async () => {
+      await installer.close();
+      installer = make(true, 'implicit');
+      expect(await prepare()).toMatchObject({ status: 'ready', changed: true });
+      expect(installs()).toHaveLength(1);
+    });
+
+    it('skips a clone without a root lockfile', async () => {
+      await installer.close();
+      installer = make(true, 'implicit');
+      rmSync(path.join(request.repoPath, 'package-lock.json'));
+      expect(await prepare()).toEqual({ status: 'skipped', reason: 'not_configured' });
+      expect(calls).toHaveLength(0);
+    });
+
+    it('skips instead of failing when no sandbox is available', async () => {
+      await installer.close();
+      vi.spyOn(SandboxManager, 'isSupportedPlatform').mockReturnValue(false);
+      installer = make(false, 'implicit');
+      for (let attempt = 0; attempt < 2; attempt++)
+        expect(await prepare()).toEqual({
+          status: 'skipped',
+          reason: 'unavailable',
+          dependencies: 'missing',
+        });
+      expect(calls).toHaveLength(0);
+    });
+
+    it('skips instead of failing when the install fails, and keeps the shortfall', async () => {
+      await installer.close();
+      installer = make(true, 'implicit');
+      install = async () => end({ exitCode: 255, output: 'npm error errno -1' });
+      for (let attempt = 0; attempt < 2; attempt++)
+        expect(await prepare()).toEqual({
+          status: 'skipped',
+          reason: 'unavailable',
+          dependencies: 'missing',
+        });
+      expect(installs()).toHaveLength(1);
+    });
+  });
+
+  it('starts srt away from the clone, so its mandatory write denials do not cover node_modules (PM-1213)', async () => {
+    await prepare();
+    expect(calls.length).toBeGreaterThan(0);
+    for (const run of calls) {
+      expect(run.cwd).toBe(request.repoPath);
+      expect(run.anchorDir).toBeDefined();
+      expect(run.anchorDir!.startsWith(`${request.repoPath}${path.sep}`)).toBe(false);
+    }
   });
 
   describe('the engine checkout (PM-1083)', () => {
@@ -464,6 +536,15 @@ describe('engine-owned member dependency preparation', () => {
       refresh();
       await settle();
       expect(calls).toHaveLength(0);
+    });
+
+    it('leaves a stale checkout alone under the default setting (PM-1203)', async () => {
+      await installer.close();
+      installer = make(true, 'implicit');
+      refresh();
+      await settle();
+      expect(calls).toHaveLength(0);
+      expect(existsSync(checkoutMarker())).toBe(false);
     });
 
     it('installs a stale checkout under its own marker, leaving the clone marker alone', async () => {

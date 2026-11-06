@@ -12,7 +12,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import { ComputeJobDefinitions, SelectablePermissionMode } from '@projectman/shared';
+import { AgentProvider, ComputeJobDefinitions, SelectablePermissionMode } from '@projectman/shared';
 import { isLoopbackHostname, isWithin } from '../kernel/pure';
 import { readInstanceMarker } from '../instance';
 
@@ -78,6 +78,11 @@ export const EngineConfig = z.strictObject({
   allowRemoteTerminalInput: z.boolean().default(true),
   /** PM-1086: keep the machine awake while work runs (macOS); absent: `while_working`. */
   keepAwake: z.enum(['while_working', 'off']).optional(),
+  /**
+   * PM-1187: the providers this engine starts sessions for. Absent: every provider (today's engine); an empty
+   * list: the engine only merges and starts no session. A `session.start` for another provider is refused.
+   */
+  allowedProviders: z.array(AgentProvider).optional(),
 });
 export type EngineConfig = z.infer<typeof EngineConfig>;
 
@@ -256,7 +261,8 @@ export interface ResolvedEngineConfig extends Omit<EngineConfig, 'repos'> {
     fullTestCommand?: string;
     regenerateCommand?: string;
     computeJobs?: ComputeJobDefinitions;
-    workspaceSetup: { kind: 'npm_ci'; timeoutMs: number } | null;
+    /** `implicit`: the setting is absent, so it is a default (PM-1203), not the operator's choice. */
+    workspaceSetup: { kind: 'npm_ci'; timeoutMs: number; implicit: boolean } | null;
     mergeBranch?: string;
   }>;
 }
@@ -327,10 +333,15 @@ export function resolveEngineConfig(
     return {
       ...entry,
       path: real,
+      // PM-1203: a repository with no setting installs member clones' dependencies; `none` opts out.
       workspaceSetup:
-        entry.workspaceSetup?.kind === 'npm_ci'
-          ? { kind: 'npm_ci' as const, timeoutMs: entry.workspaceSetup.timeoutMs ?? 600_000 }
-          : null,
+        entry.workspaceSetup?.kind === 'none'
+          ? null
+          : {
+              kind: 'npm_ci' as const,
+              timeoutMs: entry.workspaceSetup?.timeoutMs ?? 600_000,
+              implicit: entry.workspaceSetup === undefined,
+            },
     };
   });
   const keyFile = realOrAbsolute(config.keyFile ?? engineFiles(home).key, 'The engine key file');

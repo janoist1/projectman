@@ -2,8 +2,12 @@
 
 What building projectman with its own AI team taught us: the challenge, what we learned, and
 where it went. Newest first. The owner's decisions stay in [DECISIONS.md](DECISIONS.md); this
-file keeps the experience behind them, so that members and the Operator do not learn it twice.
-Anyone may propose a lesson; the Operator adds it.
+file keeps the experience behind them, so that members and the project manager do not learn it
+twice. Anyone may propose a lesson; the project manager adds it.
+
+## 2026-11-05: work that stops in silence
+
+**The owner found a stopped board in the morning.** On 2026-11-04 at 20:16 merges were stopped while GitHub Actions had an incident, and nobody told the owner. In the morning they did not understand why the work stood. _Lesson:_ when part of the work stops on purpose or for an outside reason (a pause, an outside service failing, a card waiting long), the project manager sends the owner one short info message: what stands, why, what it needs to go on, and whether the owner has to do anything (if not, say so). One message per situation, to Messages, not to the owner's inbox.
 
 ## 2026-10-25 – 2026-10-26: checks that only the merge ran
 
@@ -60,12 +64,12 @@ the Enter did not register; the message was marked delivered and nobody saw it. 
 
 **Questions reached the owner that were not theirs.** Members asked the owner which test failed,
 or whether to retry. _Lesson:_ only a real decision reaches the owner. What a tool or the team can
-find out, the Operator finds out or starts a member on, and whoever takes a question over tells
+find out, the project manager finds out or starts a member on, and whoever takes a question over tells
 the asker at once. (PM-556, PM-558)
 
 **Ready cards waited for a click.** Nobody was assigned to start cards in Ready, so they waited
 for the owner. _Lesson:_ such working arrangements come from getting to know the owner and the
-team, not from settings they must learn. The Operator proposes them. (PM-563)
+team, not from settings they must learn. The project manager proposes them. (PM-563)
 
 **Disk cleanup freed little.** Deleting 66 worktrees showed 20 GB by `du` but freed about 2 GB:
 the `node_modules` folders are APFS clones. _Lesson:_ measure freed space with `df`, and look for
@@ -73,12 +77,12 @@ the real consumer before cleaning. (PM-566)
 
 **The watcher must never stop.** The integrator's board watcher was not re-armed once and the
 board stalled for eleven hours. _Lesson:_ routine watching belongs to the system, which wakes the
-Operator; it should not depend on someone remembering. (PM-545)
+project manager; it should not depend on someone remembering. (PM-545)
 
 **What made the difference: looking at the real cause.** Every stall today was found in the server
 log, the database or a session's transcript, not on the board. _Lesson:_ diagnose before acting,
 take the smallest step that works, check that it worked, and open a root-cause card when a
-problem comes back. The Operator needs the same reading tools. (PM-563)
+problem comes back. The project manager needs the same reading tools. (PM-563)
 
 **Architecture: core and services.** These problems sit on the boundaries between responsibilities:
 delivery and the runner, the reviewer and the merge, the queue and its order. _Lesson:_ think in

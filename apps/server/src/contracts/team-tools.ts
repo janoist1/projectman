@@ -62,6 +62,9 @@ import type {
   ExternalQuestionRead,
   StructuralReviewResult,
   ComputeJobRunView,
+  DocumentHeading,
+  DocumentSummary,
+  DocumentVersion,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -406,6 +409,31 @@ export interface PublishReleaseArgs {
   preview?: boolean;
 }
 
+/** The merges of a repository since its last release (PM-1201): what the `unreleased` signal reads. */
+export interface UnreleasedWork {
+  repo: string;
+  /** The commit the previous release ended at. */
+  base: string;
+  /** The cards merged since. */
+  count: number;
+  /** When the oldest of those merges finished. */
+  oldestAt: string;
+  taskKeys: string[];
+}
+
+/** What get_release_status answers (PM-1201): the version the hub runs and where each engine stands against it. */
+export interface ReleaseStatus {
+  hub: { version: string };
+  engines: {
+    id: string;
+    name: string;
+    connected: boolean;
+    version: string | null;
+    versionMismatch: boolean;
+    lastSeenAt: string | null;
+  }[];
+}
+
 /** What became of the Operator's start of a member on work without a card (PM-541). */
 export interface MemberStartResult {
   messageId: string;
@@ -620,6 +648,8 @@ export interface ReleaseToolsHandler {
    * approval; `preview` records nothing. Repeating a call finishes an interrupted publication.
    */
   publishRelease(ctx: ToolContext, args: PublishReleaseArgs): Promise<PublishedRelease>;
+  /** get_release_status (PM-1201): reads the hub's version and every engine's, for the deployment duty only. */
+  getReleaseStatus(ctx: ToolContext): Promise<ReleaseStatus>;
 }
 
 /** What run_compute_job takes (PM-1148). */
@@ -646,6 +676,46 @@ export interface ComputeJobToolsHandler {
   getComputeJob(ctx: ToolContext, args: { id: string }): Promise<ComputeJobRunView>;
   /** list_compute_jobs: the project's runs, newest first. */
   listComputeJobs(ctx: ToolContext, args: ListComputeJobsArgs): Promise<ComputeJobRunView[]>;
+}
+
+/** What read_document takes (PM-149): `ref` is `slug` or `slug#section`; a `section` argument wins over the ref's. */
+export interface ReadDocumentArgs {
+  ref: string;
+  section?: string;
+  version?: string;
+}
+
+/** A document or one of its sections; `version` of the document is the one read. */
+export interface ReadDocumentResult {
+  document: DocumentSummary;
+  /** The whole markdown, or only the section's when `section` is set. */
+  content: string;
+  section?: DocumentHeading;
+}
+
+/** What write_document takes (PM-149): no `slug` creates (a title and the text are needed), a `slug` edits (`baseVersion` too). */
+export interface WriteDocumentArgs {
+  slug?: string;
+  title?: string;
+  content?: string;
+  baseVersion?: string;
+  /** The reason of the change: required (PM-1215). */
+  message: string;
+}
+
+/** The tools of core/documents (PM-149). */
+export interface DocumentToolsHandler {
+  /** list_documents: the project's documents, no text. */
+  listDocuments(ctx: ToolContext): Promise<DocumentSummary[]>;
+  /** read_document: a whole document, a section of it, or an old version. */
+  readDocument(ctx: ToolContext, args: ReadDocumentArgs): Promise<ReadDocumentResult>;
+  /** write_document: creates, edits or renames; never deletes. */
+  writeDocument(
+    ctx: ToolContext,
+    args: WriteDocumentArgs,
+  ): Promise<{ document: DocumentSummary; created: boolean }>;
+  /** document_history: the versions of a document, newest first. */
+  documentHistory(ctx: ToolContext, args: { slug: string; limit?: number }): Promise<DocumentVersion[]>;
 }
 
 /** The tools of services/email-channel (PM-941). */
@@ -711,6 +781,7 @@ export interface TeamToolsHandler
     ScreenshotToolsHandler,
     ReleaseToolsHandler,
     ComputeJobToolsHandler,
+    DocumentToolsHandler,
     EmailToolsHandler,
     HostRequestToolsHandler,
     OperatorToolsHandler,
@@ -785,6 +856,8 @@ export interface InboxToolsHandler {
       /** `information`: a simple fact the super-mode integrator may relay (PM-762); missing means an owner decision. */
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;
+      /** The owner topic of the coordinator's own decision question or of a re-ask (PM-1190). */
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -1085,8 +1158,9 @@ export interface OperatorToolsHandler {
   /**
    * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
    * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
-   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
-   * guest conversation; needs no open request.
+   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. A decision and an owner's
+   * todo name the project's owner topic (`ownerTopic`, PM-1190). Only the Operator, not in a guest
+   * conversation; needs no open request.
    */
   screenQuestion(
     ctx: ToolContext,
@@ -1098,6 +1172,7 @@ export interface OperatorToolsHandler {
       forwardTo?: MemberHandle;
       todo?: ScreeningTodo;
       feedbackId?: string;
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -1114,6 +1189,16 @@ export interface OperatorToolsHandler {
     ctx: ToolContext,
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }>;
+  /**
+   * decide_senior_wait (PM-1251): the selected PM decides a card that waits for a developer whose limit
+   * reaches its points: `wait` keeps waiting for the Senior, `any` lets a free developer take it. The
+   * `reason` goes to the card's timeline. Refused for any other caller, and when the wait was not handed to
+   * the PM (`invalid_request`).
+   */
+  decideSeniorWait(
+    ctx: ToolContext,
+    args: { taskKey: string; decision: 'wait' | 'any'; reason: string },
+  ): Promise<{ taskKey: string; decision: 'wait' | 'any' }>;
   /**
    * The PM opens a todo in the integrator's queue (PM-808), the way the system does for an obligation: the
    * PM is the asker, so the answer comes back to it. The owners get it when the integrator cannot take it.
@@ -1187,6 +1272,17 @@ export interface ExternalToolsHandler {
     args: { to: string[]; text: string; taskKey?: string; kind: MessageKind; despiteWorkers?: boolean },
   ): Promise<ExternalSentMessage>;
   listMembers(ctx: ExternalToolContext): Promise<MemberView[]>;
+  /** The document tools (PM-1232): the arguments and answers of the member tools, as the key holder, never a delete. */
+  listDocuments(ctx: ExternalToolContext): Promise<DocumentSummary[]>;
+  readDocument(ctx: ExternalToolContext, args: ReadDocumentArgs): Promise<ReadDocumentResult>;
+  writeDocument(
+    ctx: ExternalToolContext,
+    args: WriteDocumentArgs,
+  ): Promise<{ document: DocumentSummary; created: boolean }>;
+  documentHistory(
+    ctx: ExternalToolContext,
+    args: { slug: string; limit?: number },
+  ): Promise<DocumentVersion[]>;
   getProjectState(
     ctx: ExternalToolContext,
     args: { taskKey?: string; messageId?: string },

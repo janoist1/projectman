@@ -15,6 +15,9 @@ afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, 
 function fixture() {
   const project = mockProject();
   project.backend.config.team.limits.maxFixRounds = 2;
+  // The code reviewer decides first (decision 69); on leave, the held card goes to the owner.
+  const reviewer = project.backend.config.team.members.find((member) => member.handle === 'code-review');
+  if (reviewer?.kind === 'ai') reviewer.onLeave = true;
   for (let i = 0; i < 2; i++)
     project.backend.addTimeline('AC-21', 'code-review', 'task_labels_changed', {
       added: ['code-review-changes'],
@@ -181,11 +184,9 @@ describe('fix limit decision details', () => {
 
   it('keeps Operator queue decisions outside the owner inbox', async () => {
     const f = fixture();
-    f.item.payload = {
-      ...f.item.payload,
-      recipient: 'integrator',
-      integratorOpenedAt: new Date().toISOString(),
-    };
+    // A fix limit without an integrator opens under an owner topic; the integrator's item has none.
+    const { ownerTopic: _topic, ...rest } = f.item.payload;
+    f.item.payload = { ...rest, recipient: 'integrator', integratorOpenedAt: new Date().toISOString() };
     const held = f.project.backend.findTask('AC-21')!.fixLimit!;
     held.recipient = 'integrator';
     expect(fixLimitStatus(held, f.members, 'owner')).toContain(t('involvement.integrator'));
@@ -196,11 +197,6 @@ describe('fix limit decision details', () => {
       openInboxCount: number;
     };
     expect(board.openInboxCount).toBe(0);
-    f.project.backend.config.team.limits.aiEnabled = false;
-    f.project.backend.sweepIntegratorTodos(new Date().toISOString());
-    expect(f.item.taskKey).toBe('AC-21');
-    expect(f.project.backend.inbox[0]!.payload.recipient).toBe('integrator');
-    expect(f.project.backend.findTask('AC-21')!.fixLimit?.recipient).toBe('integrator');
   });
 
   it('keeps an Operator resolution outside the owner decisions', async () => {

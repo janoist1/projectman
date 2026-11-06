@@ -1,8 +1,8 @@
 import Foundation
 
 public enum Format {
-    public static func number(_ value: Double) -> String {
-        let formatter = NumberFormatter(); formatter.locale = Locale(identifier: "hu_HU")
+    public static func number(_ value: Double, locale: Locale = L10n.locale) -> String {
+        let formatter = NumberFormatter(); formatter.locale = locale
         formatter.maximumFractionDigits = 1
         return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }

@@ -46,10 +46,10 @@ and other `sensitivePaths`; approved host commands remain outside that boundary.
 
 ### Investigating a missing team MCP or a 429 (PM-377)
 
-The launch arguments retain `mcp_servers.team`; the disabled `apps` feature concerns
+The launch arguments retain `mcp_servers.team` (a stdio bridge since PM-1170); the disabled `apps` feature concerns
 ChatGPT connectors. Fake CLI tests cover argument delivery and simulated team calls,
 not whether a real custom model receives and invokes the team tools. No configuration
-change is justified by the available evidence. After deployment, the integrator checks
+change is justified by the available evidence. After deployment, the connected Claude checks
 the first NanoGPT member session's tool list and a read-only `get_task` call. Record the
 CLI version, MCP startup status, model-visible tool names and the call outcome, without
 URLs containing session tokens, keys or raw request bodies. A text-only `TEAM_OK` response
@@ -130,7 +130,7 @@ findings; not file contents or command output). The rule and its timing are in
 - **Last measured context** (the threshold of a compaction at resume): the latest main-conversation
   step's `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`
   (`ClaudeUsageCounter.takeContext`). A subagent's steps do not count.
-- **Not verified here (needs the real CLI, the integrating session's manual trial).** Whether the
+- **Not verified here (needs the real CLI, a manual trial by the connected Claude).** Whether the
   compaction's own summarising call is written to the transcript as an assistant entry with
   `usage`. The usage counter counts every assistant entry with a model and `usage`, so if it is
   there it is in the session's consumption (PM-178); if Claude Code does not write it, that
@@ -205,7 +205,7 @@ deadline, the timeline) is PM-219; this is what the runner does and relies on in
   `null`; if a halting answer or Esc already went out (the turn is ending) the nudge is typed after the
   turn, otherwise it is dropped (the session never stopped, so nothing needs a nudge). `release` returns
   false when there is no pause.
-- **Not verified here (needs the real CLIs, the integrating session's manual trial).** That Claude Code
+- **Not verified here (needs the real CLIs, a manual trial by the connected Claude).** That Claude Code
   2.1.284 honours `continue:false` from a PreToolUse and a PostToolUse hook exactly as documented while a
   `sleep 60` runs, and that Codex's Esc during a tool leaves the composer ready. The runner's PTY tests
   (`runner.integration.test.ts`, `codex.integration.test.ts`, "pausing") use the fake CLIs
@@ -296,30 +296,32 @@ what is allowed without asking; `--tools` only decides what exists. A test keeps
 prompts from naming a tool that is left out.
 
 A session in a task's own worktree (a developer's) runs its shell commands in Claude Code's
-sandbox, the first step of PM-87: the session spec carries `sandbox` (`sessionSandbox` in
-`runtime/sessions` (`session-policy`), computed per session) and the runner turns it into the `sandbox`
-settings probed in PM-126 (see Sandboxes below). Commands then run without asking as long as they
+sandbox: the session spec carries `sandbox` (`sessionSandbox` in `runtime/sessions`
+(`session-policy`), computed per session) and the runner turns it into Claude Code's `sandbox`
+settings (see "The sandboxes the server hands out" below). Commands then run without asking as long as they
 read only their own work below the home (PM-153), write only the worktree (with the shared git
-directory, minus hooks, config, the default branch and the integrating checkout's `HEAD` and
+directory, minus hooks, config, the default branch and the default-branch checkout's `HEAD` and
 `index`), the temp directory and the member's own npm cache and development data (PM-193; not
 the user's `~/.npm` and `~/.projectman-dev`), and reach only the npm registry; a command that fails there is not retried outside the sandbox. The tests may listen on
 local ports (decision 24). The sandbox
 cannot open pseudo-terminals, so the server's PTY tests (`*.integration.test.ts`,
-`golden-path-*`) are left out there; the integrating session runs the full suite. The leaving out
+`golden-path-*`) are left out there; the merge check runs them. The leaving out
 needs an explicit signal (PM-194): `apps/server/vitest.config.ts` skips those files only when it
 cannot open a PTY **and** `PROJECTMAN_SKIP_PTY_TESTS=1` is set, with a notice that the run is not
 complete. The server sets it in the `env` of every Claude session's sandbox (`SANDBOX_PTY_ENV`: a
 developer's and a reader's) and the system prompt says so; Codex sessions do not get it (Codex's
 sandbox is its own). Without the variable a PTY that cannot be opened (a native module broken by a
-Node update, say) stops the run at the start with a message, so the full run before a merge cannot
-pass with the 11 files silently missing. With the variable set but a PTY that opens, the tests run:
+Node update, say) stops the run at the start with a message, so the full check cannot
+pass with those files silently missing. With the variable set but a PTY that opens, the tests run:
 it permits the skipping, it does not demand it. Claude Code 2.1.284's sandbox settings have no
 `allowPty` key (the setting exists in its sandbox runtime, but the CLI does not pass it on), so the
-PTY tests cannot run in the sandbox yet; that needs a newer CLI. The server therefore runs them
-itself (PM-217): when a card enters review, `src/full-test` runs the repository's `reviewTest`
-command in its own sandbox, the Anthropic Sandbox Runtime (`@anthropic-ai/sandbox-runtime`, `srt`,
-macOS Seatbelt) with `allowPty`, outside every member's session (see "Full test before review" in
-ARCHITECTURE.md). Its settings come from `fullTestSandbox` in `runtime/sessions` (`session-policy`): reads only
+PTY tests cannot run in the member sandbox. The server therefore runs the full check itself, outside
+every member's session, in its own sandbox, the Anthropic Sandbox Runtime
+(`@anthropic-ai/sandbox-runtime`, `srt`, macOS Seatbelt) with `allowPty`: once at the merge
+(`npm run merge-test`, for a repository with `fullTestAtMerge`; see
+[modules/services-merges.md](modules/services-merges.md)), otherwise when the card enters review
+(the repository's `reviewTest`, PM-217; "Full test before review" in ARCHITECTURE.md). Its settings
+come from `fullTestSandbox` in `runtime/sessions` (`session-policy`): reads only
 the checkout and its git directory below the home, writes only its own run directory in the temp
 directory, no network (but listening on local ports), and a small allow list of environment variables.
 
@@ -352,7 +354,8 @@ the test opt-in. It runs in the member's own mode (Auto stays Auto, `plan` stays
 sandbox from `sessionSandbox` (see Sandboxes below) that writes only the temp directory: the
 working directory, every `--add-dir` directory and the installation's other checkouts (the
 project's workspace, the app home with every member's worktree and workspace, the server's own
-checkout, `~/projectman-live` on the owner's machine; PM-188) are `denyWrite`, and the Claude
+checkout, i.e. the directory the server runs from (`installDir`; the engine's package under
+`engine/versions/<version>`); PM-188) are `denyWrite`, and the Claude
 adapter denies `Edit(//<dir>/**)` there too (which also covers `Write` and `NotebookEdit`), since
 the sandbox does not bind the built-in file tools. Reads, git queries, `npm test` and `npm run typecheck` then
 run without asking, and a write fails at once. Vite writes a bundled copy of a TypeScript
@@ -481,10 +484,22 @@ project layer lets work start. Refusals report file/key names only. The owner's 
 configuration are separate policies. Claude is unaffected; NanoGPT keeps its stricter `any` rule.
 
 Codex is started as `codex [resume] --no-alt-screen --no-daemon
---dangerously-bypass-hook-trust --enable hooks -c … --sandbox <s> --ask-for-approval <a>
-[--model <m>] -- [<id>] [<brief>]`. Every setting is a per-process `-c` override (update
-check off, the directory trusted, hooks, the team MCP server with its tools pre-approved,
-developer instructions); nothing is written to `~/.codex`.
+--dangerously-bypass-hook-trust --enable hooks -c … --ask-for-approval <a> --model <m>
+[-- [<id>] [<brief>]]`. Every setting is a per-process `-c` override (update check off, the
+directory trusted, hooks, the team MCP server with its tools pre-approved, developer
+instructions, the `projectman` permission profile, the reasoning effort); nothing is written to
+`~/.codex`. There is no `--sandbox` argument (see below).
+
+The team MCP server is a stdio server (PM-1170): `mcp_servers.team = { command = <node>,
+args = ["-e", <bridge>, "<session folder>/codex-mcp.json"], … }` plus the unchanged
+`default_tools_approval_mode` / `tools` approvals. The bridge (`runner/mcp-bridge.ts`) reads the
+team URL from that 0600 file and POSTs every JSON-RPC line from stdin to the stateless JSON
+route; a request the route does not answer (network error, non-2xx, unreadable answer) gets the
+JSON-RPC error `team server unreachable (<status>)`, a notification nothing. It has no retries and
+no timeout beyond Codex's `tool_timeout_sec`. The URL, which holds the session's token, is
+therefore on no command line, NanoGPT members included. Codex starts MCP servers as its own
+children, outside its command sandbox (which closes the session folder); this is confirmed only by
+a real `codex` run: after deployment the owner checks the first `get_task` of a Codex session.
 
 The team server must stay optional (PM-1070). PM-1055 made it `required = true` (with a
 20-second startup timeout and `mcp_optional_startup_grace_ms = 0`), and every Codex
@@ -492,9 +507,16 @@ session then exited at start with "agent CLI exited before it was ready", becaus
 required server that fails to start ends the CLI. Do not set `required` again unless the
 cause of the team MCP start failure is fixed and proven with a real `codex` run.
 
+A CLI that fails before it is ready (PM-1207) says why on its screen only. When such a session exits
+with a failure, the runner keeps the last lines of the screen, with credentials hidden
+(`runner/exit-output.ts`), in the engine log (`output`) and in the failed session's activity,
+so the member and the project manager see the reason.
+
 The bypass flag lets our own hooks run without the one-time review in `/hooks`; it also runs
-any other enabled hooks of the user's Codex config and of the trusted project's `.codex/`
-folder, the same exposure as pre-trusting a Claude Code workspace (backlog PM-49).
+any other enabled hooks it loads. Therefore the start refuses (PM-1169) when the user's Codex
+config sets `hooks` or `project_root_markers`, when a `hooks.json` exists (user or `/etc/codex`), or
+when a macOS MDM `com.openai.codex.plist` exists; the project's `.codex/` folder is already limited to a
+few keys of `config.toml` (PM-357). The owner removes them or moves them to another Codex home.
 
 Claude model aliases (`opus`, …) are not passed to Codex; such members get projectman's
 default, `gpt-6.1-sol` at `medium` reasoning effort, rather than the owner's interactive
@@ -536,7 +558,7 @@ in the provider's setup error; details identify the real executable path. Use th
 standalone installer or install outside the denied directories. In a task worktree the
 writing profile also makes the shared `objects`, `refs` and `logs` and the worktree's own admin
 directory writable (PM-399), so `git add` and `git commit` work in the sandbox; the
-configuration, hooks, `objects/info`, the admin directory's links and the integrating checkout's
+configuration, hooks, `objects/info`, the admin directory's links and the default-branch checkout's
 files stay read-only (PM-131; see SECURITY.md). Routine git steps that escalate still use the
 command-approval path (PM-77).
 
@@ -550,7 +572,8 @@ Developers' Codex sessions get one extra writable root, the parent of the machin
 queue folder (`AgentSandbox.portable`, PM-346), and the queue variables
 (`PROJECTMAN_HEAVY_LOCK_DIR`, `npm_config_prefer_offline`) through
 `shell_environment_policy.set.<NAME>`, so their `npm test` waits in the queue like the Claude
-members'. The network stays off. The roots
+members'. With the member's outbound network on (macOS engine only, PM-1172, see "Outbound
+network") the commands reach the network through Codex's own proxy; otherwise it stays off. The roots
 are filesystem write entries in the permission profile. A command run outside the sandbox
 after a question still queues, and the CLI stops one that cannot use the queue (exit 78).
 
@@ -560,6 +583,16 @@ Codex and NanoGPT sessions in a developer's own placement also receive the membe
 These are the same private cache and development-data paths Claude uses (PM-193);
 denied paths remain excluded. Only a writing sandbox grants write access to these roots;
 plan mode keeps the variables without granting writes. Reading placements receive neither these member-directory variables nor these local write roots.
+
+**Codex on an engine (PM-1187).** An engine runs nothing outside the Codex sandbox. The runner refuses every
+Codex or NanoGPT `PermissionRequest` itself, without asking the cloud, except an `mcp__` tool and
+`request_user_input` (`escalation_refused`, `ProviderCapabilities.sandboxEscalation`). Edits and commands
+inside the worktree (`.git` is writable in the sandbox) go on; a network command (`npm install`,
+`git fetch`) and a write outside the worktree are refused, and the hub's routine command permissions do not
+apply (the engine's `workspaceSetup` installs the worktree). A writer in the `default` mode (sandbox
+`read-only`, approval on request) cannot edit under this rule, so the engine does not start it
+(`permission_mode_too_low`): such a member needs `acceptEdits` or `auto`. Reading placements and `plan` mode
+are not affected. See [SECURITY.md](SECURITY.md).
 
 A Codex session whose sandbox writes (`workspace-write`, a developer's own placement; PM-339) also gets its own **session folder** and its own **temporary directory**, both made
 by the server before the process starts and removed with the session:
@@ -604,13 +637,12 @@ The shared git directory is not made writable as a whole (PM-131): that let an a
 repository's hooks and configuration, which run when the host uses git there. Since PM-399 the
 profile grants only what `git commit` writes (the shared `objects`, `refs`, `logs` and the
 worktree's own admin directory) and keeps the configuration, hooks, `objects/info`, the admin
-directory's `commondir`, `gitdir`, `config.worktree` and the integrating checkout's files
-read-only. Without it the v2026.10.7 profile made `git add` and `git commit` fail with EPERM,
-also when approved. The profile semantics (a nested `read` under a `write` root) are to be
+directory's `commondir`, `gitdir`, `config.worktree` and the default-branch checkout's files
+read-only. The profile semantics (a nested `read` under a `write` root) are to be
 checked in a live Codex session. Other routine git steps that escalate are allowed by the
 server itself (see Session policy, PM-77).
 
-## Gemini (agy) (PM-323 probe)
+## Gemini (agy)
 
 Antigravity CLI (`agy`) is the Gemini branch of PM-319. The adapter (PM-326) lives in
 `runner/providers/gemini`: interactive PTY, per-conversation configuration, PreInvocation
@@ -656,343 +688,49 @@ remains the main path for long checks; scheduled wakeups are bounded below idle 
 The UI explains the `auto` and `plan` limitations beside the selected mode, including read-only
 profile settings and the hiring preview. `default` and `acceptEdits` need no provider note.
 
-### Probe findings
+### What the adapter relies on
 
-This chapter records what a real run showed, so the adapter does not guess. The probe ran on
-2026-10-05 on the owner's Mac, in the owner's presence, as 38 small runs in 19 conversations on
-`gemini-3.8-flash-low` with a logged-in Google account. The binary was **agy 1.2.17**: the
-card said 1.2.7, but the background updater had replaced it. Afterwards 98% of the five-hour
-and 99.7% of the weekly Gemini window remained.
+The adapter is built on observed behavior of the real CLI. Secret-free samples of it (hook
+payloads and answers, PTY screens, transcripts, print-mode output, login and quota output) are in
+`apps/server/test/fixtures/gemini/`; the fake CLI and the adapter tests use them. Files named
+`*.RECONSTRUCTED.json` were rebuilt from printed summaries, `screens/` is emulated and
+`screens-raw/` holds exact bytes.
 
-Samples are in `apps/server/test/fixtures/gemini/` (secret-free: account names are
-`<account>`, work folders are `/tmp/pm-agy-probe/...`, OAuth `state`/`code_challenge` are
-redacted). Paths below are relative to it. Files named `*.RECONSTRUCTED.json` were rebuilt
-from printed summaries plus the real common fields; all others are raw captures. `screens/` is
-emulated with minor artifacts, `screens-raw/` holds the exact bytes of three of them (ready, logged out, trust).
+- **Per-process configuration:** `--gemini_dir <absolute dir>` replaces `~/.gemini` for the process.
+  Hooks (`config/hooks.json`), MCP servers (`config/mcp_config.json`), conversations, caches and
+  the updater state live there; the Google login (in the keyring) is kept, `~/.gemini` is not
+  touched. `--log-file` moves the CLI log. `--app_data_dir` is not usable (it takes no absolute
+  path and a relative one writes into the real `~/.gemini`).
+- **The hook is the gate:** with `toolPermission: always-proceed` the blocking `PreToolUse` hook
+  alone decides (`{"decision":"allow|deny"}`). `deny` always wins; a handler that overruns its
+  `timeout` is killed and the tool does not run. `ask` is ignored under `always-proceed`, so an
+  inbox question is answered inside the blocking hook (T3). `PreToolUse` also fires for MCP calls
+  (`call_mcp_tool`). There is no `UserPromptSubmit` or `PermissionRequest` hook.
+- **No `--sandbox`:** agy's sandbox allows no network, no `ps` and no shell writes to the workspace,
+  so commands run without it and the hook is the gate (T4). agy adds its own `ANTIGRAVITY_*`
+  variables (`ANTIGRAVITY_CSRF_TOKEN` among them) to its commands' environment, which the runner
+  cannot remove; treat them as visible to every command.
+- **Instructions:** `AGENTS.md` and `GEMINI.md` are read, `CLAUDE.md` is not, and there is no
+  system-prompt flag. The adapter injects its instructions from a `PreInvocation` hook
+  (`{"injectSteps":[{"ephemeralMessage":"..."}]}`); the transcript stores it as an
+  `EPHEMERAL_MESSAGE`.
+- **Login:** `agy models` exits 0 when logged in and 1 when not; there is no machine-readable
+  login-mode command. Signing in is done in the CLI on the machine that runs it.
+- **Version and onboarding:** each start would run a background updater that can replace the
+  binary; `--release_base_url http://127.0.0.1:9` makes the update fail harmlessly and pins the
+  version (T2). A fresh `--gemini_dir` repeats onboarding with the data-use consent screen, so the
+  adapter seeds `antigravity-cli/cache/onboarding.json` (T1).
+- **Conversation and transcript:** the conversation id comes from the first `PreInvocation`
+  payload; `--conversation <id>` resumes it. The transcript is
+  `antigravity-cli/brain/<id>/.system_generated/logs/transcript_full.jsonl` (the hooks'
+  `transcriptPath`), with native JSON tool arguments and the token counts on `PLANNER_RESPONSE`
+  lines.
+- **Models and quota:** `agy models` prints `slug<TAB>display name`; the effort is the slug suffix
+  (`--model <family> --effort X` resolves to `<family>-X`). `/usage` and `/quota` cost no model
+  turn.
 
-**Does this work on a remote engine?** The adapter's machine-dependent parts (the `agy` binary
-and its updater, the keyring login, the `--gemini_dir`, the transcript files, the PTY) would
-run on the engine, like Claude Code and Codex today. Nothing crosses the server/engine
-boundary that does not already. No inventory entry in `docs/ARCHITECTURE.md` changes with
-this card (it ships no code); PM-326 adds the entries.
-
-### Summary for the adapter design
-
-1. **Per-process configuration exists: `--gemini_dir <absolute dir>`** (Q1). Hooks and MCP are
-   read from there, the Google login survives, `~/.gemini` stays untouched.
-2. **Hooks are a reliable gate** (Q4). `deny` always wins; a handler that overruns its timeout
-   is killed and the tool does not run. Proposed design: `toolPermission: always-proceed` plus a
-   blocking `PreToolUse` hook that prints `allow` or `deny` from the runner's tool decision
-   (PM-325). The hook is the single gate.
-3. **`--sandbox` is too strict for development** (Q8): no network, no `ps`, no shell writes to
-   the workspace. Gemini members would run unsandboxed with the hook as the gate (the same
-   broad host-read exposure that legacy Codex settings had before PM-356). Commands get the full parent
-   environment plus agy's own `ANTIGRAVITY_CSRF_TOKEN` and friends.
-4. **Instructions** (Q11): `AGENTS.md` and `GEMINI.md` are read, `CLAUDE.md` is not; there is no
-   system-prompt flag; a `PreInvocation` hook can inject an ephemeral message.
-5. **Hazards:** a background updater can replace `~/.local/bin/agy` on any start; a fresh
-   `--gemini_dir` repeats onboarding including the data-use consent screen.
-
-Open, owner decision pending (asked on PM-323, none is decided yet):
-
-- who completes the consent screen, or may projectman seed `cache/onboarding.json`;
-- pin the version with `--release_base_url`;
-- is a hook that holds a session for minutes acceptable while an inbox approval is pending
-  (the alternative is `request-review` plus a hook `ask`, with the adapter pressing `1` or
-  `4` in the dialog);
-- run without `--sandbox`.
-
-### Q1. Per-process configuration
-
-```
-agy --app_data_dir /abs --log-file L models        -> "Failed to start: must not be absolute", exit 1
-agy --app_data_dir ../../../private/tmp/.../app1   -> models listed, but rewrote config/projects/default-cli-project.json in the real ~/.gemini
-agy --gemini_dir /abs/gd1 --log-file L models      -> models listed, exit 0, ~/.gemini unchanged
-HOME=/abs/home1 agy models                         -> exit 1 "Please sign in"
-XDG_CONFIG_HOME=/abs/xdg agy --gemini_dir gd4 models -> nothing created in the XDG dir
-agy --foo_bar models                               -> "flags provided but not defined" (so --gemini_dir is a real flag)
-```
-
-- `--gemini_dir <absolute dir>` is a hidden flag that replaces `~/.gemini` for that process.
-  Hooks come from `<dir>/config/hooks.json`, MCP servers from `<dir>/config/mcp_config.json`;
-  settings, transcripts, conversations and caches go to `<dir>/antigravity-cli/` (Q9).
-- The login survives: the token is in the macOS keyring, and the log shows `keyringAuth: loaded
-token ... authenticated via keyring ... Auth succeeded` even for an empty `--gemini_dir`.
-  Overriding `HOME` loses it; `XDG_CONFIG_HOME` is ignored.
-- Do **not** use `--app_data_dir`: it only takes a path relative to `~/.gemini` and still writes
-  the global `config/projects/default-cli-project.json`.
-- Whether the keyring login works on a Linux server (no macOS keyring) was not probed; see Q2.
-
-**Where hooks are read from** (evidence: the startup log line `hooks_manager: loaded N named
-hooks from M hooks.json file(s)`, and `agy -p "/hooks"`, which lists each hook's source file):
-
-| Location                           | Result                                                                       |
-| ---------------------------------- | ---------------------------------------------------------------------------- |
-| `<dir>/config/hooks.json`          | loaded                                                                       |
-| `<dir>/antigravity-cli/hooks.json` | also loaded                                                                  |
-| `<workspace>/.agents/hooks.json`   | loaded when a conversation starts, and in print mode even if not yet trusted |
-
-A member's agent can write its own workspace `hooks.json`; a global `deny` beat a workspace
-`allow`, and on a name clash `/hooks` listed the global one. So the gate lives in the
-`--gemini_dir`, which the member's session does not write.
-
-**`hooks.json` format.** The top-level key is the hook _name_. `PreToolUse` and `PostToolUse`
-need a `matcher` wrapper (`"matcher": ""` matches all); `PreInvocation`, `PostInvocation` and
-`Stop` are flat lists. Handlers run through `sh -c` with the cwd set to the folder that holds
-`hooks.json`. Sample: `config/hooks.capture.json`.
-
-**MCP.** `config/mcp_config.http.json`:
-`{"mcpServers":{"probe":{"url":"http://127.0.0.1:47123/mcp","headers":{"Authorization":"Bearer <token>"}}}}`.
-The static headers go on every request. agy connects at **every** start, even for `agy models`:
-`POST server/discover`, `POST initialize` (clientInfo `antigravity-client`), `GET` for SSE,
-`notifications/initialized`, two `/.well-known/oauth-protected-resource` probes, `tools/list`
-(`mcp/client-handshake.sample.jsonl`). The model calls every MCP tool through one built-in tool,
-`call_mcp_tool{ServerName,ToolName,Arguments}`.
-
-**Trust.** In the TUI an untrusted workspace asks "Do you trust the contents of this project?"
-(`screens/trust-folder.txt`); Yes adds the exact path to `trustedWorkspaces` in
-`<dir>/antigravity-cli/settings.json` (`config/settings.json`). Print mode never asks. Pre-seed
-`trustedWorkspaces` to skip the dialog. _Not verified:_ whether a trusted parent covers its
-children.
-
-### Q2. Login detection
-
-| Check                                | Logged in             | Logged out                                                                                                                                 |
-| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `agy models`                         | exit 0, TSV on stdout | exit 1, empty stdout, stderr `Error: Please sign in to view available models. Launch the CLI without arguments to sign in.`                |
-| `agy -p "<anything>"`                | normal                | does not exit; stderr `Authentication required. Please visit the URL to log in: https://accounts.google.com/...` and it tries `open <url>` |
-| `-p ... --output-format stream-json` | normal events         | after the timeout `{"event":"result","result":{"status":"ERROR","error":"authentication failed or timed out"}}`                            |
-
-- **Machine check: the exit code of `agy models`.** Always wrap `-p` in a timeout.
-- The login _mode_ shows only in the CLI log (`authMethod=consumer`) and in the TUI header
-  (`screens/ready.txt`: account line, plan `Google AI Pro`). There is no machine-readable status
-  command like `claude auth status`.
-- Login screen: `Select login method:` with `1. Google OAuth` and `2. Use a Google Cloud
-project` (`screens/login-method.txt`). It prints an OAuth URL; the redirect is
-  `https://antigravity.google/oauth-callback`.
-- The legacy gemini-cli files in `~/.gemini` (`oauth_creds.json`, ...) are not used by agy.
-- _Not tested:_ a real sign-in, and handing the code back on a headless server. The expected
-  step on the UI is: start `agy` on the server in a PTY and choose the Google account (as for
-  the Claude and Codex logins, see Login and plan usage).
-
-Samples: `quota-login/loggedout-*.{err,exit,out}`.
-
-### Q3. Models
-
-`agy models` prints `slug<TAB>display name` (`quota-login/agy-models.tsv`; the first line may
-repeat the default):
-
-- `gemini-3.8-flash-{high,medium,low}`, `gemini-3.7-flash-*`, `gemini-3.6-flash-*`,
-  `gemini-3.1-pro-{high,low}`;
-- `claude-opus-5-5-{low,medium,high}`, `claude-sonnet-5-5-{low,medium,high}`,
-  `gpt-oss-120b-medium`.
-
-Only the Gemini slugs start with `gemini`; the Claude and GPT-OSS models are in a separate quota
-group. The output has no default flag and no `--effort` column: the **effort is the slug
-suffix**, and `--model <family> --effort X` resolves to `<family>-X`. Without `--model` the run
-used `gemini-3.8-flash-high`. `-p "/model" --output-format stream-json` returns
-`{"id","label","effort","is_default"}` (`print-mode/slash-model.tsv`). Errors
-(`print-mode/effort-resolution.txt`): a full slug plus a different `--effort` gives
-`conflicts with --effort=high`; an effort the family lacks gives `gemini-3.1-pro has no
-"medium" effort (available: low, high)`; `xhigh` and `max` are not accepted for flash; an
-unknown model gives `model bogus-model is not recognized`.
-
-### Q4. Hooks
-
-Real stdin payloads are in `hooks/stdin/`, stdout answers in `hooks/stdout/`.
-
-**Fields.** Common: `conversationId`, `workspacePaths`, `transcriptPath` (it points at
-`transcript_full.jsonl`), `artifactDirectoryPath`, `modelName`. `PreInvocation` and
-`PostInvocation` add `invocationNum`, `initialNumSteps`. `PreToolUse` adds `stepIdx` (equal to
-the transcript `step_index` of the tool result step) and `toolCall{name,args}`; `PostToolUse`
-the same plus `error` (`""` on success; the tool output is **not** included). `Stop` adds
-`executionNum`, `terminationReason` (observed `NO_TOOL_CALL`), `error`, `fullyIdle`.
-
-**Tools observed** (the args also carry the UI strings `toolAction` and `toolSummary`):
-`view_file{AbsolutePath}`, `write_to_file{TargetFile,CodeContent,Overwrite,Description}`,
-`run_command{CommandLine,Cwd,WaitMsBeforeAsync}`, `call_mcp_tool{ServerName,ToolName,Arguments}`,
-`read_url_content{Url}`. Edit-in-place and browser tools (`browser_*`) were not exercised (no
-browser session).
-
-**Answers.** `PreToolUse` prints `{"decision":"allow|deny|ask|force_ask","reason":"..."}`
-(`hooks/stdout/observed-PreToolUse.*.json`); the other events print `{}` or, for
-`PreInvocation`, `{"injectSteps":[{"ephemeralMessage":"..."}]}`.
-
-| Test                                                | Result                                                                                            |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `deny` (even with `--dangerously-skip-permissions`) | `tool call denied by pre-tool hook: <reason>`; no PostToolUse; the model repeats the reason       |
-| `ask`, headless                                     | auto-denied: `permission check failed ... user denied permission`; `denied_actions` in the result |
-| `ask`, TUI                                          | dialog with a `Reason:` line; key `4` declines, key `1` runs                                      |
-| `allow`, TUI, `request-review`                      | the built-in dialog still appears                                                                 |
-| `always-proceed` + `allow`                          | runs, no prompt                                                                                   |
-| `always-proceed` + `ask` / `force_ask`              | ignored; the command ran                                                                          |
-| `always-proceed` + `deny`                           | denied                                                                                            |
-| timeout 2 s, handler sleeps 5 s                     | `JSON hook "..." failed: command failed: signal: killed`; the tool did **not** run (fail-closed)  |
-| timeout 3600, handler sleeps 100 s                  | worked; the step took 100.73 s                                                                    |
-| global `deny` + workspace `allow`                   | denied                                                                                            |
-| workspace-only `deny`                               | denied                                                                                            |
-
-- `PreToolUse` also fires for MCP calls (as `call_mcp_tool`), in the TUI and in print mode.
-- The timeout is a field of the handler (`timeout`, default 30 s); 3600 was accepted. Waits
-  beyond about 100 s were not tried.
-- **Consequence:** with `toolPermission: always-proceed` the hook alone decides; `ask` cannot be
-  used for an inbox question there. The inbox question is answered inside the blocking hook.
-- _Not tested_ (documented examples only, `hooks/stdout/documented-*`): `overwrite` (argument
-  rewrite), `PostInvocation.terminationBehavior`, `Stop` with `decision: "continue"`, the
-  `userMessage` and `toolCall` inject steps.
-- There is no `UserPromptSubmit` or `PermissionRequest` hook.
-
-### Q5. Screens in the PTY
-
-Captured with a Python pty driver and a VT emulator at 120x40, `TERM=xterm-256color`, an `open`
-stub first in `PATH`. The TUI uses the alternate screen, bracketed paste and the kitty keyboard
-protocol; it queries OSC 11 and needs no reply.
-
-| State             | What is on screen (sample)                                                                                                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Ready             | prompt box `>` between `────` rules; footer `? for shortcuts` left, `Gemini 3.8 Flash · low` right (`screens/ready.txt`)                                                                                                       |
-| Working           | braille spinner and `Generating...`; footer `esc to cancel` (`screens/working-generating.txt`)                                                                                                                                 |
-| Permission dialog | `Run this command?` with `1. Yes, run command`, `2. Yes, and always allow in this conversation ...`, `3. ... (Persist to settings.json)`, `4. No, cancel`; a `Reason:` line when a hook asked (`screens/permission-ask-*.txt`) |
-| Tool declined     | `screens/tool-declined.txt`                                                                                                                                                                                                    |
-| Trust             | `Do you trust the contents of this project?` / `Yes, I trust this folder` / `No, exit`                                                                                                                                         |
-| Login             | `Select login method:`                                                                                                                                                                                                         |
-| First run         | `Choose your color scheme:`, then `Terms of Service & Data Use` with a checked consent box and `[Previous]  [Done]` (`screens/onboarding-*.txt`)                                                                               |
-
-**Pitfalls.** A transient "Welcome ... You are currently not signed in." and "Signing in..."
-appears in the first frame even when logged in; do not read it as logged out (the later frames
-show the account). An announcement card ("... esc to dismiss",
-`screens/ready-with-announcement-banner.txt`) can sit above the prompt; `Esc` on an empty
-prompt dismisses it.
-
-**Input.** `write("text\r")` submits. A bracketed paste of two lines does **not** submit
-(`screens/prompt-multiline-paste.txt`), so a pasted brief needs a separate Enter. Ctrl-J,
-Alt-Enter and Shift-Enter (`ESC[13;2u`) insert a newline. In the permission dialog a digit acts
-at once, without Enter.
-
-_Not seen:_ an update screen (updates run in the background), an out-of-quota screen,
-cancelling a turn.
-
-### Q6. Resume
-
-`--conversation <id>` works in print mode and in the TUI: the id is echoed, step indices
-continue, the TUI replays the history (`print-mode/resume-conversation.ndjson`,
-`screens/resumed-conversation.txt`). The `conversationId` first appears
-
-- in print mode: in the first stream event `{"event":"init","conversation_id":...}`;
-- in the TUI: in the first `PreInvocation` hook payload, which also creates
-  `antigravity-cli/brain/<id>/`.
-
-`cache/last_conversations.json` maps a workspace to its last id. So, like Codex, the id is
-learned from the first hook rather than set by us. _PM-156:_ the provider folder outlives the
-session, so `config/hooks.json` holds no hook token either: each event's command names
-`hook-<event>.curl` in the session's private launch folder. A resume rewrites `hooks.json` with the
-new folder's files; `config/mcp_config.json` still holds the team MCP URL (see `docs/SECURITY.md`). _Not tested:_ `--continue`, and
-`--input-format stream-json` (multi-turn over stdin, a possible alternative to scraping the PTY).
-
-### Q7. Transcript
-
-`<gemini_dir>/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`, one JSON
-object per line (`transcript/`):
-
-- **Fields:** `step_index`, `source` (`USER_EXPLICIT`, `MODEL`, `SYSTEM_SDK`), `type`
-  (`USER_INPUT`, `PLANNER_RESPONSE`, `GENERIC` for tool results, `EPHEMERAL_MESSAGE`), `status`,
-  `created_at`, `content`; model lines add `tool_calls[{name,args}]`.
-- **Tokens: yes.** `PLANNER_RESPONSE` lines carry `input_tokens`, `cache_read_tokens` and
-  `output_tokens` (including thinking). A trivial prompt costs about 12k input tokens.
-- **Two variants:** `transcript.jsonl` holds the tool args as JSON-encoded strings;
-  `transcript_full.jsonl` (the hooks' `transcriptPath`) holds native JSON and adds `thinking`.
-- `-p ... --output-format stream-json` reports `usage{input_tokens,output_tokens,thinking_tokens,
-cache_read_tokens,total_tokens}` per step and in the result (`print-mode/ok.ndjson`).
-- Tool names are the lower-case step types: `run_command`, `view_file`, `write_to_file`,
-  `call_mcp_tool`, `read_url_content`, `browser_*`.
-- `conversations/<id>.db` (SQLite) sits beside; the transcript is the simpler source.
-
-### Q8. `--sandbox` and `--mode`
-
-`--sandbox` alone does not auto-approve commands; that needs `toolPermission:
-"proceed-in-sandbox"`. Presets: `request-review` (default), `proceed-in-sandbox`,
-`always-proceed`, `strict`. Probe results (`sandbox/result-under-agy-sandbox.txt`,
-`sandbox/sandbox-test.sh`):
-
-| Probe                                | Without sandbox | With `--sandbox`                                                                                                                     |
-| ------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| read outside the workspace/add-dir   | OK              | FAIL (`Operation not permitted`)                                                                                                     |
-| read inside an `--add-dir`           | OK              | OK                                                                                                                                   |
-| write to the workspace               | OK              | FAIL (the workspace was under `/private/tmp`; may be location-related, not retested)                                                 |
-| write to an `--add-dir`              | OK              | FAIL                                                                                                                                 |
-| write to `/tmp`                      | OK              | OK                                                                                                                                   |
-| read `~/.gemini`                     | OK              | FAIL                                                                                                                                 |
-| network (`curl https://example.com`) | OK              | FAIL                                                                                                                                 |
-| `ps -A`                              | 532 processes   | 0 visible                                                                                                                            |
-| environment                          | 59 variables    | the full parent env plus 10 `ANTIGRAVITY_*` (`ANTIGRAVITY_CSRF_TOKEN`, `ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CONVERSATION_ID`, ...) |
-
-Under `--sandbox` commands still get the **full** parent environment plus ten `ANTIGRAVITY_*`
-variables that agy adds itself, among them `ANTIGRAVITY_CSRF_TOKEN`. The runner strips billing
-variables before the start (`BILLING_ENV_VARS`) but cannot remove what agy adds; whether the
-unsandboxed run sees the same variables was not compared, and the adapter should treat the
-CSRF token as visible to every command. `--mode` accepts `accept-edits` and `plan`; other values warn and the run
-continues (the log shows `applying agent mode plan`). Its effect on prompts was not exercised.
-
-### Q9. Writes under the gemini dir
-
-Everything follows `--gemini_dir` (`config/gemini_dir.tree.txt`): conversations
-(`antigravity-cli/brain/<id>/`, `conversations/<id>.db`), indexes and state
-(`conversation_summaries.db`, `jetbox_summaries_proto.pb`, `jetski_state.pbtxt`,
-`history.jsonl`), `cache/{onboarding.json,last_conversations.json,...}`, `installation_id`,
-`updater/`, `builtin/skills/`, `presence/`, `implicit/`, `annotations/`, `crashes/`, `mcp/`, and
-`config/{hooks.json,mcp_config.json,projects/default-cli-project.json}`. `--log-file <path>`
-redirects the CLI log.
-
-**Auto-update.** Each start spawns a background updater, at most once per 15 minutes per gemini
-dir, which can replace `~/.local/bin/agy`. The env vars `DISABLE_AUTO_UPDATE`,
-`AGY_DISABLE_AUTO_UPDATE` and `ANTIGRAVITY_DISABLE_AUTO_UPDATE` had no effect. The hidden
-`--release_base_url http://127.0.0.1:9` makes the update fail harmlessly ("Update failed, please
-install from website"), which would pin the version.
-
-**The owner's real `~/.gemini` changed in two places during the probe;** no credential file was
-read or touched: `config/projects/default-cli-project.json` was rewritten (130 to 87 bytes) by
-the one `--app_data_dir` test, and `antigravity-cli/cache/CHANGELOG.md` (133 KB release notes)
-was created by `agy changelog` and is safe to delete.
-
-### Q10. Out of quota
-
-`-p "/usage"` and `-p "/quota"` cost no model turn. Output is tab-separated: group, window
-`... Remaining`, percent, reset time (`print-mode/slash-usage.tsv`, `quota-login/usage.tsv`):
-
-```
-Gemini Models	Five Hour Limit Remaining	98%	2026-10-05T12:40:52Z
-Claude and GPT models	Weekly Limit Remaining	100%	2026-10-12T07:57:13Z
-```
-
-Groups: "Gemini Models" and "Claude and GPT models", each with a weekly and a five-hour window.
-`json` or `stream-json` output gives `groups[].buckets[]{id,name,window,remaining_fraction,
-reset_time,description}` (`print-mode/slash-usage.json-and-stream-json.txt`). Other model-free
-commands: `/model`, `/hooks`, `/permissions`, `/help`, `/config`, `/changelog`.
-
-**Out-of-quota text was not reproduced** (it would burn quota). From release notes and binary
-strings only: the CLI says "Your AI credits balance is too low to continue."; headless runs that
-end on a model or agent error exit with code 3 and print `AGY_ERROR: {...}` JSON on stderr.
-
-### Q11. Context and instructions
-
-Setup: `AGENTS.md` (marker word PINEAPPLE), `GEMINI.md` (MANGO) and `CLAUDE.md` (KIWI) in the
-workspace, plus a `PreInvocation` ephemeral message (ZEBRA). The answers ended with "PINEAPPLE
-MANGO" and ZEBRA appeared in the thinking; KIWI never appeared. So **`AGENTS.md` and `GEMINI.md`
-are read, `CLAUDE.md` is not**. Rule files are capped at 24 KB each, with a 20,000-token rules
-budget. There is no system or developer prompt flag (`--agent <name>` exists, untested). A
-`PreInvocation` hook can add `{"injectSteps":[{"ephemeralMessage":"..."}]}` and the model
-followed it; the transcript stores it as `{"type":"EPHEMERAL_MESSAGE","source":"SYSTEM_SDK"}`
-(`transcript/transcript_full.ephemeral-and-thinking.sample.jsonl`,
-`print-mode/rules-and-ephemeral-injection.ndjson`). Role instructions can therefore go in the
-workspace `AGENTS.md` or in a `PreInvocation` hook of the `--gemini_dir`; a global rules file
-under `<gemini_dir>/config/` (a tamper-proof place) was not tested.
-
-### Not tested
-
-Temp `HOME` with the real keychain (blocked by the permission classifier); browser-tool hooks;
-`--continue`; `--input-format stream-json`; `--mode` effect on prompts; global `config/AGENTS.md`;
-stdio MCP; hook waits beyond about 100 s; the out-of-quota and update screens; a real sign-in
-(credentials were off limits).
+Not verified with the real CLI: hook waits beyond about 100 seconds, the out-of-quota and update
+screens, a real sign-in, browser-tool hooks.
 
 ## Session policy
 
@@ -1008,12 +746,28 @@ sandbox's network rules.
   unreadable credential paths are unchanged.
 - **Claude Code, OFF:** `allowedDomains` is the npm registry only. Any other host is refused by
   the sandbox without asking anyone (decision 41).
-- **Codex:** the setting is carried in the policy but not mapped yet: Codex stays without
-  network whatever the setting is (PM-358).
-- **Gemini (agy) and NanoGPT:** the setting does not take effect for them either, as for Codex:
-  their adapters do not follow `network.outbound`, so the setting is only shown. The hint under
-  the checkbox tells the user that other addresses are refused; a Gemini mapping needs its own
-  card.
+- **Codex, ON, macOS engine (PM-1172):** `buildCodexArgs` adds `-c features.network_proxy=true`
+  and a `network` part to the `projectman` permission profile:
+  `network={enabled=true,domains={"*"="allow",localhost="deny","127.0.0.1"="deny"}}` (the
+  denied hosts come from `network.deniedHosts`). There is no `mode` (`limited` would allow only
+  GET, HEAD and OPTIONS), no `allow_local_binding`, no `unix_sockets` and no `proxy_url`. Codex
+  starts its proxy on its own loopback port per session and sets `HTTP_PROXY`, `HTTPS_PROXY`
+  and `ALL_PROXY`; the sandbox lets commands reach only that proxy, which refuses the loopback,
+  private and link-local addresses (also by the resolved IP) and the Unix sockets stay closed.
+  A tool that ignores the proxy variables gets no connection. The proxy and the `network` part
+  come from one branch of the code and never appear apart: a proxy-less open network would
+  reach every address directly. The file rules are unchanged (a secret stays unreadable).
+  The feature is beta: **repeat the PM-1172 probe in `docs/SANDBOX-PROBE.md` when the minimum
+  Codex version changes**; a Codex that does not accept this profile stops every Codex member
+  with the network on from starting.
+- **Codex, OFF, or a Linux engine:** the command line is the one from before PM-1172, without
+  network. The profile runs under bubblewrap and seccomp on Linux, which no probe has verified.
+- **NanoGPT:** `buildSessionPolicy` forces `allowlist` whatever the setting is (PM-1172): a
+  sandboxed command may see the Codex process's environment, the key included (PM-329). A
+  canary probe must show the isolation first.
+- **Gemini (agy):** the setting does not take effect: its adapter does not follow
+  `network.outbound`, so the setting is only shown. The hint under the checkbox tells the user
+  that other addresses are refused; a Gemini mapping needs its own card.
 
 The session policy in `runtime/sessions` (`session-policy`) is the union of the member's
 duties: editing duties work in the task worktree, read-only duties pre-approve reading tools,
@@ -1076,19 +830,6 @@ The agents' readers tell an image or a PDF by the path's extension (Claude Code'
 first request and removed with it (recovery removes one left behind). Opening an attachment of
 another task may ask a human first. Automated tests run the fake CLIs only
 (`test/attachment-permissions.integration.test.ts`).
-
-Checked by hand on 2026-10-01 (macOS, a development instance with its own home, a developer member
-on each provider in `acceptEdits` mode, a task with an owner's PNG attached):
-
-| Step                                      | Claude Code                          | Codex                                    |
-| ----------------------------------------- | ------------------------------------ | ---------------------------------------- |
-| Open the attached image                   | `Read` on `<id>.png`, without asking | `view_image` on the path, without asking |
-| Describe it (text, colours, shape)        | exact                                | exact                                    |
-| Attach a picture of its working directory | yes, in its own name                 | yes, in its own name                     |
-| Delete its own attachment / the owner's   | yes / refused                        | yes / refused                            |
-| Attach `/etc/hosts`, `../logo.png`        | refused (`forbidden`)                | refused (`forbidden`)                    |
-
-No permission request reached the inbox in either session.
 
 `git -C <dir>` counts as plain `git` when `<dir>` is the directory the command runs in (the
 session's working directory, or where a `cd` of the chain has led), however it is spelled. A
@@ -1166,78 +907,45 @@ in total and per model, the rounds, and how many sessions were not measured (fro
 The model comes from the sessions' usage rows, not from the member's setting today. The Team page
 shows it, sortable by weighted tokens and review rounds.
 
-The runner strips `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
-`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CODEX_API_KEY`, `OPENAI_API_KEY` and
-common OpenAI/Azure endpoint overrides from every session's environment. For the Gemini
-(Antigravity CLI) and NanoGPT providers (PM-319, PM-324) it also strips `GEMINI_API_KEY`,
-`GOOGLE_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_GENAI_USE_VERTEXAI`,
-`GOOGLE_GENAI_USE_ENTERPRISE`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`,
-`GOOGLE_CLOUD_LOCATION`, `AGY_ADC_AUTH`, `AGY_BUSINESS_PAYGO_TIER` and `NANOGPT_API_KEY`, and the
-markers of a parent Gemini session (`GEMINI_CLI`, `ANTIGRAVITY_*`). The list is the same for every
-provider. The NanoGPT key reaches only the sessions of NanoGPT members, handed back by the NanoGPT
-adapter as a trusted `extra` of the child environment.
+The runner strips the API-billing and endpoint-override variables listed in `BILLING_ENV_VARS`
+(`packages/shared/src/config/billing-env.ts`) from every session's environment, the same list for
+every provider; the markers of a parent agent session (Claude Code's, Codex's, `GEMINI_CLI` and
+`ANTIGRAVITY_*`) go too (`apps/server/src/runner/env.ts`). The NanoGPT key reaches only the
+sessions of NanoGPT members, handed back by the NanoGPT adapter as a trusted `extra` of the child environment.
 
 The file tools and the shell's sandbox also refuse `~/.gemini` and, in the app home, `secrets`
 (the secret store) and `providers` (the providers' own CLI homes, such as the NanoGPT Codex home),
 next to the other credentials (`sensitivePaths`).
 
-## Sandboxes: what the CLIs enforce (PM-126 probe)
+## Sandboxes
 
-**Strict feasibility remains unverified.** The 00af6f0 probe reported results on
-2026-10-01 / macOS 14.6 arm64 / Claude Code 2.1.284 / Codex 0.159.1. It placed the fake app
-home beside worktrees, whereas `buildApp` puts worktrees beneath the app home. It exercised
-shell commands, not built-in file tools, and classified every command failure as denial.
-Those observations do not certify the PM-87 boundary or establish supported minimum versions.
+Every domain start, resumed, scheduled and non-task starts included, supplies a `SessionPolicy`
+with semantic grants for every provider (PM-127); the Codex adapter does not parse Claude tool
+patterns. A historical `permissionMode` configuration still loads and maps centrally. A read-only
+placement does not become writable through `acceptEdits`, `auto` or `bypassPermissions`; explicit
+`default`/`plan` remain stricter.
 
-The PM-127 policy migration uses semantic grants for both providers. All domain starts,
-including resumed, scheduled and non-task starts, supply `SessionPolicy`; the Codex adapter
-no longer parses Claude tool patterns. Historical `permissionMode` configuration still loads
-and maps centrally. A read-only placement does not become writable through `acceptEdits`,
-`auto` or `bypassPermissions`; explicit `default`/`plan` remain stricter.
+Active policies use the legacy enforcement described below. A strict policy is refused by each
+adapter before it spawns its CLI (`enforcement === 'strict'`), rather than silently falling back to
+the legacy settings: no CLI version or operating system is certified for the full PM-87 isolation.
+The PM-126 review and PM-49 hook isolation remain its activation prerequisites. Decision 24
+accepts local port binding for tests and the local-port reachability that comes with it.
 
-This is preparatory: active policies use legacy enforcement. Strict policies currently fail
-before spawning either CLI, rather than silently using legacy settings. The probe versions
-below are evidence for that probe, not certified minimum versions for full PM-87 isolation.
-PM-126 review and PM-49 hook isolation remain activation prerequisites. Decision 24 accepts
-local port binding for tests; it also accepts the resulting local-port reachability described
-below. No live instance settings are changed by this migration.
+How the native boundaries are verified, by hand and with fictional data, is in the
+[manual procedure](SANDBOX-PROBE.md) and `scripts/sandbox-probe.sh` (the script never starts an
+agent CLI; automated tests use temporary repositories and no real agent CLI). Verified natively so
+far is only Codex 0.159.1 on macOS 14.6 arm64 with the restricted-read permission profile: denied
+secrets, credentials, database glob matches and symlinks (`view_image` included), own `TMPDIR`
+writes with shared temp denied, worktree edits with the shared index lock and protected
+directories denied (PM-356), and with `features.network_proxy` only the proxy reachable (PM-1172).
+Every other combination, Claude Code on either system and anything on Linux, is unverified.
 
-The revised [manual procedure](SANDBOX-PROBE.md) and `scripts/sandbox-probe.sh` use nested
-worktrees, fictional data and positive host controls. The script never starts an agent CLI;
-real verification is interactive and subscription-only. Automated tests use temporary repos
-and no real agent CLI. The PM-356 native run was recorded on 2026-10-06 by the integrator
-with owner approval: Codex 0.159.1 on macOS 14.6 arm64. It verified denied shell reads,
-database glob matches (including later siblings), symlink traversal, read-only/writing modes,
-own TMPDIR writes and shared temp denials. `view_image` respected a denied image symlink.
-No `:workspace` fallback or `features.shell_snapshot=false` was needed. The CLI's standalone
-installation required a read exception beneath its otherwise denied Codex home; inline
-`projects={...}` trust and `check_for_update_on_startup=false` prevented startup dialogs.
-Five plugin flags and named user MCP disabling were exercised; the three additional
-computer/browser flags still require the agreed supplementary startup acceptance.
-
-| CLI / OS / policy                                                           | Shell file boundary                                         | Built-in file tools  | Own git / protected shared git                                                     | Network / test servers                                            | Strict minimum                         |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------- |
-| Claude 2.1.223 / macOS                                                      | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
-| Claude 2.1.284 / macOS 14.6 arm64 / old probe settings                      | Reported sibling-folder denial; nested exception unverified | Unverified           | Reported commit allowed, hooks/config blocked; other protected metadata unverified | Reported npm allowed; local binding also opened other local ports | Not established; local-port conflict   |
-| Codex 0.159.1 / macOS 14.6 arm64 / legacy settings plus writable shared git | Reported broad reads, limited writes                        | Unverified           | Reported index lock blocked but hooks/config writable                              | Reported network/binding blocked; npm used warm cache             | Fails the strict policy as configured  |
-| Codex 0.159.1 / macOS 14.6 arm64 / restricted-read permission profile       | Denied secrets, credentials, database glob and symlinks     | Denied image symlink | Worktree edits allowed; shared index lock and protected directories denied         | Not verified by the PM-356 run                                    | Not established; PM-356 deny list only |
-| Claude 2.1.223 and 2.1.284 / Linux                                          | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
-| Codex 0.159.1 / Linux                                                       | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
-| Any later proposed release / macOS or Linux                                 | Repeat full procedure                                       | Repeat               | Repeat                                                                             | Repeat                                                            | No inferred support                    |
-
-The old settings used Claude `denyRead` for sibling live/secret folders, `allowWrite` for
-`~/.npm`, strict npm-only networking and `allowLocalBinding: true`. The old report says boolean
-`allowUnsandboxedCommands: false` worked where the string `"deny"` caused prompts; acceptance
-and enforcement of either type remain version-specific observations to reproduce.
-
-Current source differs from that probe: the developer sandbox allows npm/development-data writes
-and local binding, and closes the home but its own work (PM-153). Codex's normal session spec
-no longer grants the shared git root (PM-131). Its local permission profile now implements the
-PM-356 sensitive-path deny list; a reading session (PM-425) also gets the typed read boundary of
-PM-360 (home and app home closed, only its own project and card reopened), the developer's wider
-home reads stay as they were.
-Command-rule approval of Codex escalations is host execution,
-not strict isolation. PM-134's transitional Claude setup is not the final PM-128/129 proof.
+The developer sandbox allows npm and development-data writes and local binding, and closes the
+home except its own work (PM-153). Codex's session spec does not grant the shared git root
+(PM-131); its local permission profile implements the PM-356 sensitive-path deny list, and a
+reading session (PM-425) also gets the typed read boundary of PM-360 (home and app home closed,
+only its own project and card reopened). Command-rule approval of Codex escalations is host
+execution, not strict isolation.
 
 ### The sandboxes the server hands out (PM-167)
 
@@ -1254,18 +962,25 @@ exact `--settings` the fake CLI receives:
 All paths are absolute, from the actual user home and app home. A developer in a task worktree
 gets `denyWrite` in the shared git directory (`sharedGitDenials`): `refs/heads/<default branch>`,
 `HEAD`, `index`, `packed-refs` and each one's `.lock`, so git fails at the lock and leaves no
-stale lock for the integrating session; and `refs/replace` (the directory) and `info/grafts`, with
+stale lock in the default-branch checkout; and `refs/replace` (the directory) and `info/grafts`, with
 which every local git command would see other content or history for the default branch without
-the ref moving (`git replace <a blob of main> <another blob>` reaches the integrating checkout's
-diff, merge and checkout). A member workspace (PM-138) is an independent clone with
-its own `.git` in the working directory: no `gitDir`, no git `denyWrite`. An `allowRead` path
+the ref moving (`git replace <a blob of main> <another blob>` reaches the default-branch checkout's
+diff, merge and checkout). PM-1171 also denies writes to shared `config`, `config.lock`, `hooks`
+and `objects/info`, the own admin directory's `commondir`, `gitdir`, `config.worktree` and `hooks`,
+and the worktree's `.git` file. A member workspace (PM-138) is an independent clone with
+its own `.git` in the working directory: its `config`, `config.lock`, `config.worktree`, `commondir`,
+`gitdir`, `hooks`, `modules` and `objects/info` are denied for writing too. These metadata lists
+come from `contracts/session-policy.ts`, shared with the Codex adapter. Other worktrees' admin
+directories are not enumerated: new ones can appear, and Claude denies override allows, so denying
+the whole `worktrees` tree would also close the session's own index. Host link validation provides
+the second layer. Native denial of creation of a nonexistent metadata path still needs a real
+provider probe; the generated rules alone do not prove that behavior. An `allowRead` path
 inside a `sensitivePaths` entry is left out; Claude Code 2.1.284's Seatbelt profile puts `allowRead`
 after `denyRead` and denies the narrower `denyRead` paths again, so the credentials stay closed.
 
-A developer writes nothing the host later runs or loads outside a sandbox (PM-193). Before
-PM-193 its sandbox wrote the user's `~/.npm` (the host's `npx <package>` runs code from
-`~/.npm/_npx`, unchecked) and `~/.projectman-dev` (the host's `npm run dev` loads its
-configuration and database). Now the server makes `<app home>/member-caches/<KEY>/<handle>/`
+A developer writes nothing the host later runs or loads outside a sandbox (PM-193): not the
+user's `~/.npm` (the host's `npx <package>` runs code from `~/.npm/_npx`, unchecked) and not
+`~/.projectman-dev` (the host's `npm run dev` loads its configuration and database). The server makes `<app home>/member-caches/<KEY>/<handle>/`
 with `npm-cache` and `projectman-dev`, the sandbox writes only those, and the session's `env`
 (Claude Code's `env` setting, for the session and its commands) points `npm_config_cache` (npm and
 `npx`) and `PROJECTMAN_HOME` (`npm run dev`, `npm start`) there. A member's cache is used only by
@@ -1315,38 +1030,15 @@ so `gh pr view 1 && touch x`, `gh pr view 1 | cat` and `gh pr view 1 > x` run in
 a local-only one there is no pull request, and the reviewer reads the branch with git in the
 developer's worktree (`--add-dir`).
 
-**Manual run** (the PM-167 part of `SANDBOX-PROBE.md`), 2026-10-01 on the owner's Mac, live
-instance at 06c519c: the reader ran in Auto inside the CLI's sandbox; writes and the reading of
-credential files were refused, and no question reached the owner. `gh pr view 1`: **fail**, it ran
-inside the sandbox and stopped on `open ~/.config/gh/config.yml: operation not permitted` (the
-exact-command entry above; PM's repository is local-only besides, so it has no pull request to
-read). `npx prettier --write`: **unverified** there, the file was already formatted; repeated in
-PM-188 (Claude Code 2.1.284, macOS 14.6) on an unformatted file in a directory the sandbox denies
-writing inside an allowed root: `EPERM: operation not permitted`, the file unchanged (same
-checksum), as for `touch`. Still to run on a repository on GitHub: `gh pr view <n>` alone (outside
-the sandbox, no question), `gh pr view <n> && touch probe.txt` and `gh pr view <n> > probe.txt`
-(inside the sandbox: no file appears).
-
-**Manual run of PM-153 and PM-193** (the PM-153 part of `SANDBOX-PROBE.md`): pending; the owner
-runs it after the change is live. Record its result here.
-
 ### Commands Claude Code asks about in the sandbox (PM-153)
 
-`autoAllowBashIfSandboxed` does not cover every command. The PM-142 developer asked at 12:44 on
-2026-10-01 (inbox `inb_mupj09dy200e8fe2a4`) for
-`cd <working-directory> && cat > /dev/null <<'EOF'` + an empty body + `EOF` + `grep -n …`
-(the historical directory is shown as a placeholder); it was
-the only one of its 84 shell commands that asked (transcript: one `PermissionRequest` hook
-decision). In Claude Code 2.1.284 (read from its bundled source): the bash parser gives up on a
-here-document whose body it did not see (an empty one: "Heredoc body was not scanned by the
-parser"), as on an unquoted delimiter; for such a "too complex" command the only sandbox
-auto-allow path returns nothing when the command contains `<<` (not `<<<`), so the command goes
-the usual way and asks. A command the parser handles takes the other auto-allow path, which has no
-such exception, and the same session's `cd <worktree> && pwd` ran without asking. So `cd` is not
-the cause; a here-document the parser cannot follow is. The members now run in Auto, where such a
-question goes to Auto's classifier instead of a human, so the 12:44 case does not reach the inbox
-the same way any more; the context pack's "Your sandbox" section still tells a member to write
-files with the editing tools and pass text as quoted arguments, which needs neither.
+`autoAllowBashIfSandboxed` does not cover every command. In Claude Code 2.1.284 (read from its
+bundled source) the bash parser gives up on a here-document whose body it did not see (an empty
+one) and on an unquoted delimiter; for such a "too complex" command the only sandbox auto-allow
+path returns nothing when the command contains `<<` (not `<<<`), so the command asks (in Auto,
+Auto's classifier decides). A command the parser handles is auto-allowed, `cd <worktree> && …`
+included. The context pack's "Your sandbox" section therefore tells a member to write files with
+the editing tools and pass text as quoted arguments, which needs neither.
 
 Current [Claude documentation](https://code.claude.com/docs/en/sandboxing) describes Seatbelt
 on macOS and bubblewrap/socat on Linux, with an additional seccomp filter for Unix sockets.

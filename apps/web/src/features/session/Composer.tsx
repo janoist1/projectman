@@ -25,6 +25,9 @@ interface ComposerProps {
   closedNote?: string;
   /** Text to put into the box and focus it (an example to edit and send); a new `id` puts it again. */
   prefill?: { text: string; id: number } | null;
+  /** The text the box starts with, and each change of it: a draft kept while the box is away (PM-1192). */
+  initialText?: string;
+  onTextChange?: (text: string) => void;
   /** Only message composers opt in; session input keeps its text-only behavior. */
   attachments?: ReturnType<typeof useMessageAttachmentUploads>;
   attachmentHint?: string;
@@ -51,8 +54,10 @@ export function Composer({
   prefill,
   attachments,
   attachmentHint,
+  initialText = '',
+  onTextChange,
 }: ComposerProps) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText);
   const ref = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const id = useId();
@@ -63,6 +68,10 @@ export function Composer({
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
+
+  useEffect(() => {
+    onTextChange?.(text);
+  }, [text, onTextChange]);
 
   const prefillId = prefill?.id;
   const prefillText = prefill?.text;

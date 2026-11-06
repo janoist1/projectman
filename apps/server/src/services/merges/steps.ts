@@ -1,6 +1,5 @@
 import path from 'node:path';
 import {
-  ALERT_SEEN_OPTION,
   alertPayloadOf,
   mergeRequestOf,
   mergeReadiness,
@@ -739,15 +738,12 @@ export class MergeSteps {
           return alert?.alert === 'merge_blocked' && alert.mergeId === row.id && item.state === 'open';
         })
       ) {
-        inbox.create({
+        inbox.raiseAlert({
           projectKey: row.projectKey,
           taskKey: row.taskKey,
-          kind: 'alert',
           assignees: [row.merger],
-          source: 'system',
           title: message,
           payload: { alert: 'merge_blocked', taskKey: row.taskKey, mergeId: row.id, reason, message },
-          options: [ALERT_SEEN_OPTION],
         });
       }
     });

@@ -6,27 +6,16 @@ import {
   DEFAULT_PERMISSION_MODE,
   MemberHandle,
 } from '../domain/member';
-import type { DutyId } from '../domain/duty';
-import { BUILT_IN_ROLE_IDS } from '../domain/role';
-import { memberDuties, roleBundle } from './duties';
-import { isOwnerApprovalLabel, labelHolders } from './labels';
 import { canonical } from './canonical';
 import { integratorConfigRefusal } from './integrator';
 import { memberOf } from './lookup';
-import { cardMerger, mergeTargetOf, mergerOf } from './merger';
 import { ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
 import { ownerReservedEffect } from './super-mutation';
 import { machineAccessOf } from './machine-access';
 import { approverOf, outboundNetworkOf } from './permission-level';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
-import {
-  effectiveTeamSettings,
-  TEAM_SETTING_KEYS,
-  TEAM_SETTING_POLICY,
-  teamSettingValue,
-} from './team-settings';
-import type { WaiverFields } from './team-settings';
+import { effectiveTeamSettings } from './team-settings';
 
 export {
   RETIRED_OPERATOR_HANDLE,
@@ -80,30 +69,9 @@ export type ConfigChangeRow = z.infer<typeof ConfigChangeRow>;
 export interface OperatorConfigVerdict {
   level: OperatorLevel;
   changes: ConfigChangeRow[];
-  /** Only the approval click may be waived; this never grants execution or changes the level. */
-  waiverEligible: boolean;
 }
 
 const LEVEL_RANK: Record<OperatorLevel, number> = { now: 0, approval: 1, never: 2 };
-
-/** Detect attempts before strict patch parsing, so mixed edits cannot hide the protected switch. */
-export function hasOperatorWaiverField(input: unknown): boolean {
-  const pending = [input];
-  while (pending.length) {
-    const value = pending.pop();
-    if (!value || typeof value !== 'object') continue;
-    if ('operatorApprovalWaiver' in value) return true;
-    for (const key of ['team', 'patch', 'request'] as const)
-      if (key in value) pending.push((value as Record<string, unknown>)[key]);
-  }
-  return false;
-}
-
-export function operatorWaiverChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
-  return (
-    teamSettingValue(previous, 'operatorApprovalWaiver') !== teamSettingValue(next, 'operatorApprovalWaiver')
-  );
-}
 
 /** An AI member's fields the Operator changes without approval, on any member but itself. */
 const NOW_MEMBER_FIELDS: readonly string[] = ['model', 'effort', 'capacity', 'onLeave', 'schedule'];
@@ -116,8 +84,7 @@ type InvitationBinding = NonNullable<
 /**
  * What the Operator may do with the change from `previous` to `next`, by its end result (so a revert is
  * judged by what it would change). `level` is the highest of the rows (never > approval > now); no
- * change is `{ level: 'now', changes: [], waiverEligible: false }`. Waiver eligibility is independent
- * of the stored switch and of the owner's request; execution must check both separately.
+ * change is `{ level: 'now', changes: [] }`.
  *
  * - never: any change to a person (a human member's field, adding or removing one), and what makes an
  *   owner or changes an admin or an account binding;
@@ -171,12 +138,7 @@ export function operatorConfigVerdict(
     if (refusal !== null) changes.push(unnamed('member', refusal, 'approval'));
   }
 
-  const level = highestLevel(changes);
-  return {
-    level,
-    changes,
-    waiverEligible: level === 'approval' && approvalWaivable(previous, next, opts.operator, owner),
-  };
+  return { level: highestLevel(changes), changes };
 }
 
 /**
@@ -219,6 +181,7 @@ const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
   email_send_policy: 'member',
   machine_access: 'member',
   task_create_access: 'member',
+  owner_decision_topics: 'project',
   locations: 'project',
   admin_or_account: 'member',
   approval_policy: 'gate',
@@ -228,7 +191,6 @@ const OWNER_ONLY_AREA: Record<OwnerOnlyChange, ConfigChangeArea> = {
   review_test: 'repos',
   compute_jobs: 'repos',
   operator_watch: 'project',
-  operator_approval_waiver: 'project',
 };
 
 /** A row for a rule that names a change the field-by-field comparison did not show; a safety net, not a path. */
@@ -509,271 +471,6 @@ function newMemberPermissionRows(member: AiMemberConfig): ConfigChangeRow[] {
     },
     () => 'approval',
   );
-}
-
-const WAIVER_PROTECTED_DUTIES: readonly DutyId[] = [
-  'boundary_authorization',
-  'release_approval',
-  'final_decision',
-  'code_review',
-  'security_review',
-  'testing_acceptance',
-  'ux_design',
-];
-
-/** Explicit allow lists: adding a schema field does not silently widen the waiver. */
-const WAIVER_PROJECT: WaiverFields = { name: true, language: true, timezone: true, templateId: true };
-/** The team settings as `TEAM_SETTING_POLICY` classifies them; the `entries` ones are checked below. */
-const WAIVER_TEAM: WaiverFields = Object.fromEntries(
-  TEAM_SETTING_KEYS.flatMap((key) => {
-    const waiver = TEAM_SETTING_POLICY[key].waiver;
-    return waiver === false ? [] : [[key, waiver === 'entries' ? true : waiver]];
-  }),
-);
-const WAIVER_MEMBER: WaiverFields = {
-  kind: true,
-  handle: true,
-  displayName: true,
-  role: true,
-  specialty: true,
-  provider: true,
-  model: true,
-  effort: true,
-  autoCompactWindowTokens: true,
-  cheapSubagent: true,
-  capacity: true,
-  sponsor: true,
-  onLeave: true,
-  schedule: { cron: true, prompt: true },
-};
-const WAIVER_ROLE: WaiverFields = {
-  id: true,
-  name: true,
-  summary: true,
-  notTheirJob: true,
-  whenToAsk: true,
-  holders: true,
-  duties: true,
-  instructions: true,
-};
-const WAIVER_LIMITS: WaiverFields = {
-  aiEnabled: true,
-  maxConcurrentAi: true,
-  pauseAbovePlanUsagePercent: true,
-  warnAboveSessionTokens: true,
-  minFreeDiskGb: true,
-  autoCompactWindowTokens: true,
-  loopWatch: { enabled: true, count: true, minutes: true },
-  maxFixRounds: true,
-  seniorWaitMinutes: true,
-  obligationMinutes: true,
-  tempWorkers: { enabled: true, max: true, role: true, maxPoints: true },
-};
-const WAIVER_STAGE: WaiverFields = {
-  id: true,
-  name: true,
-  description: true,
-  kind: true,
-  owners: true,
-  duty: true,
-  columnId: true,
-};
-const WAIVER_COLUMN: WaiverFields = { id: true, name: true, hint: true, color: true };
-const WAIVER_LABEL: WaiverFields = {
-  id: true,
-  name: true,
-  color: true,
-  meaning: true,
-  group: true,
-  notByAuthor: true,
-  requiresComment: true,
-  notifyAssignee: true,
-  clearedWhen: true,
-  blocks: true,
-};
-
-/** Unchanged fields need no permission; every changed key, including nested keys, must be known. */
-function fieldsWaivable(
-  before: object | undefined,
-  after: object | undefined,
-  allowed: WaiverFields,
-): boolean {
-  const a = (before ?? {}) as Entity;
-  const b = (after ?? {}) as Entity;
-  return [...new Set([...Object.keys(a), ...Object.keys(b)])].every((field) => {
-    if (canonical(a[field]) === canonical(b[field])) return true;
-    const rule = Object.hasOwn(allowed, field) ? allowed[field] : undefined;
-    if (rule === true) return true;
-    if (!rule) return false;
-    const isObject = (value: unknown): value is object =>
-      value !== null && typeof value === 'object' && !Array.isArray(value);
-    if ((a[field] !== undefined && !isObject(a[field])) || (b[field] !== undefined && !isObject(b[field])))
-      return false;
-    return fieldsWaivable(a[field] as object | undefined, b[field] as object | undefined, rule);
-  });
-}
-
-/** Compare full entities by identity; `*` rows deliberately contain too little for this decision. */
-function listWaivable<T extends object>(
-  before: readonly T[],
-  after: readonly T[],
-  id: (item: T) => string,
-  allowed: (before: T | undefined, after: T | undefined) => boolean,
-): boolean {
-  const a = new Map(before.map((item) => [id(item), item]));
-  const b = new Map(after.map((item) => [id(item), item]));
-  return [...new Set([...a.keys(), ...b.keys()])].every(
-    (key) => canonical(a.get(key)) === canonical(b.get(key)) || allowed(a.get(key), b.get(key)),
-  );
-}
-
-function approvalWaivable(
-  previous: ProjectConfig,
-  next: ProjectConfig,
-  operator: string,
-  ownerChanges: readonly OwnerOnlyChange[],
-): boolean {
-  if (ownerChanges.length) return false;
-  // Moving an existing stage can put work after its gate without changing the gate's fields.
-  const beforeStages = new Set(previous.pipeline.stages.map((stage) => stage.id));
-  const afterStages = new Set(next.pipeline.stages.map((stage) => stage.id));
-  const commonStages = (config: ProjectConfig, other: ReadonlySet<string>) =>
-    config.pipeline.stages.filter((stage) => other.has(stage.id)).map((stage) => stage.id);
-  if (canonical(commonStages(previous, afterStages)) !== canonical(commonStages(next, beforeStages)))
-    return false;
-  if (mergerPolicyChanged(previous, next)) return false;
-  // Resolve rights, including AI review duties: a missing gate never opens a duty assignment.
-  const decisionSignature = (config: ProjectConfig) =>
-    canonical({
-      members: config.team.members
-        .map((member) => ({
-          id: member.handle,
-          duties: memberDuties(config, member)
-            .filter((duty) => WAIVER_PROTECTED_DUTIES.includes(duty))
-            .sort(),
-        }))
-        .filter((member) => member.duties.length)
-        .sort((a, b) => a.id.localeCompare(b.id)),
-      roles: [...BUILT_IN_ROLE_IDS, ...config.team.roles.map((r) => r.id)]
-        .map((id) => ({
-          id,
-          duties: roleBundle(config, id)
-            .duties.filter((duty) => WAIVER_PROTECTED_DUTIES.includes(duty))
-            .sort(),
-        }))
-        .filter((role) => role.duties.length)
-        .sort((a, b) => a.id.localeCompare(b.id)),
-      labels: config.pipeline.labels
-        .filter((label) => isOwnerApprovalLabel(config, label))
-        .map((label) => ({ id: label.id, holders: labelHolders(config, label).sort() }))
-        .sort((a, b) => a.id.localeCompare(b.id)),
-    });
-  if (decisionSignature(previous) !== decisionSignature(next)) return false;
-  const safeTempRole = (config: ProjectConfig) =>
-    roleBundle(config, config.team.limits.tempWorkers.role).duties.every(
-      (duty) => !WAIVER_PROTECTED_DUTIES.includes(duty) && duty !== 'project_operation',
-    );
-  if (
-    canonical(previous.team.limits.tempWorkers) !== canonical(next.team.limits.tempWorkers) &&
-    (!safeTempRole(previous) || !safeTempRole(next))
-  )
-    return false;
-  const waivableMember = (before: MemberConfig | undefined, after: MemberConfig | undefined) => {
-    if (
-      before?.kind === 'human' ||
-      after?.kind === 'human' ||
-      before?.handle === operator ||
-      after?.handle === operator
-    )
-      return false;
-    if (before?.kind === 'ai' && after?.kind === 'ai')
-      return fieldsWaivable(normalizedMember(before), normalizedMember(after), WAIVER_MEMBER);
-    const member = after ?? before;
-    if (member?.kind !== 'ai') return false;
-    // Presence defaults are not grants. Any non-whitelisted field that differs from them needs a click.
-    return fieldsWaivable(
-      {
-        permissionMode: DEFAULT_PERMISSION_MODE,
-        approver: DEFAULT_NEW_MEMBER_APPROVER,
-        outboundNetwork: DEFAULT_OUTBOUND_NETWORK,
-        machineAccess: false,
-        instructions: '',
-        temp: false,
-      },
-      normalizedMember(member),
-      WAIVER_MEMBER,
-    );
-  };
-  const overrides = (config: ProjectConfig) =>
-    Object.entries(config.team.roleOverrides ?? {}).map(([id, bundle]) => ({ id, ...bundle }));
-  return (
-    fieldsWaivable(previous, next, { project: true, team: true, pipeline: true }) &&
-    fieldsWaivable(previous.project, next.project, WAIVER_PROJECT) &&
-    fieldsWaivable(effectiveTeamSettings(previous), effectiveTeamSettings(next), WAIVER_TEAM) &&
-    fieldsWaivable(previous.team.limits, next.team.limits, WAIVER_LIMITS) &&
-    listWaivable(previous.team.members, next.team.members, (m) => m.handle, waivableMember) &&
-    listWaivable(
-      previous.team.roles,
-      next.team.roles,
-      (r) => r.id,
-      (a, b) => fieldsWaivable(a, b, WAIVER_ROLE),
-    ) &&
-    listWaivable(
-      overrides(previous),
-      overrides(next),
-      (r) => r.id,
-      (a, b) => fieldsWaivable(a, b, WAIVER_ROLE),
-    ) &&
-    fieldsWaivable(previous.pipeline, next.pipeline, { stages: true, columns: true, labels: true }) &&
-    listWaivable(
-      previous.pipeline.stages,
-      next.pipeline.stages,
-      (s) => s.id,
-      (a, b) => {
-        if (
-          a?.duty !== b?.duty &&
-          ((a?.duty && WAIVER_PROTECTED_DUTIES.includes(a.duty)) ||
-            (b?.duty && WAIVER_PROTECTED_DUTIES.includes(b.duty)))
-        )
-          return false;
-        return fieldsWaivable(a, b, WAIVER_STAGE);
-      },
-    ) &&
-    listWaivable(
-      previous.pipeline.columns,
-      next.pipeline.columns,
-      (c) => c.id,
-      (a, b) => fieldsWaivable(a, b, WAIVER_COLUMN),
-    ) &&
-    listWaivable(
-      previous.pipeline.labels,
-      next.pipeline.labels,
-      (l) => l.id,
-      (a, b) =>
-        !(a && isOwnerApprovalLabel(previous, a)) &&
-        !(b && isOwnerApprovalLabel(next, b)) &&
-        fieldsWaivable(a ?? { setBy: 'anyone' }, b ?? { setBy: 'anyone' }, WAIVER_LABEL),
-    )
-  );
-}
-
-/** Pipeline and membership changes must not change an effective merger behind a fixed team.merger. */
-function mergerPolicyChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
-  // A code reviewer can override the fallback only if the shared merger rule selects them.
-  // Use the same candidate list on both sides, including additions/removals and the fallback.
-  const reviewers = [
-    null,
-    ...new Set([...previous.team.members, ...next.team.members].map((member) => member.handle)),
-  ];
-  const signature = (config: ProjectConfig) => {
-    const target = mergeTargetOf(config);
-    return canonical({
-      merger: mergerOf(config),
-      target: target ? { id: target.id, kind: target.kind } : null,
-      choices: reviewers.map((reviewer) => cardMerger(config, { assignee: null }, reviewer)),
-    });
-  };
-  return signature(previous) !== signature(next);
 }
 
 /** Stages (only the name goes through), gates, board columns and labels. */

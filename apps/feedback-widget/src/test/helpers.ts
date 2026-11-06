@@ -61,6 +61,7 @@ export function mark(overrides: Partial<FeedbackMarkView> = {}): FeedbackMarkVie
     commentCount: 0,
     unread: false,
     hasScreenshot: false,
+    canDelete: false,
     createdAt: '2026-10-12T08:00:00.000Z',
     updatedAt: '2026-10-12T08:00:00.000Z',
     lastActivityAt: '2026-10-12T08:00:00.000Z',

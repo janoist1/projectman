@@ -5,7 +5,7 @@ import { useProject } from '../../../app/contexts';
 import { SelectField } from '../../../components/Field';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
-import { useInstantLimits } from '../SettingsEditor';
+import { useInstantLimits } from '../edit/useInstantLimits';
 import shared from '../settings.module.css';
 import { SettingsSection } from './SettingsSection';
 

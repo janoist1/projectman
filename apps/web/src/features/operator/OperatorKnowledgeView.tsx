@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react';
 import type { OperatorPreferenceData } from '@projectman/shared';
 import { operatorKnowledgeApprovalOf } from '@projectman/shared';
 import { Link } from 'react-router';
-import { useConfig, useInbox } from '../../api/queries';
+import { useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
@@ -11,7 +11,6 @@ import { ErrorState } from '../../components/States';
 import { formatStamp } from '../../i18n/format';
 import { t, tDynamic } from '../../i18n/t';
 import { inboxItemDomId } from '../../lib/inbox';
-import { OperatorWaiver } from './OperatorWaiver';
 import { useOperatorKnowledge } from './useOperatorKnowledge';
 import styles from './OperatorKnowledge.module.css';
 
@@ -52,7 +51,6 @@ export function OperatorKnowledgeView({
   const { key, myHandle, isOwner } = useProject();
   const { members } = useProjectIndexes(key);
   const { knowledge, preference, preferences, readable } = useOperatorKnowledge();
-  const config = useConfig(key, readable);
   const inbox = useInbox(key);
   const proposals =
     inbox.data?.items.filter(
@@ -143,13 +141,6 @@ export function OperatorKnowledgeView({
                 </>
               )}
             </section>
-            {config.isPending ? (
-              <KnowledgeSkeleton />
-            ) : config.isError ? (
-              <ErrorState compact error={config.error} onRetry={() => void config.refetch()} />
-            ) : config.data ? (
-              <OperatorWaiver config={config.data} agreementVersion={agreement?.version ?? null} />
-            ) : null}
             <section className={styles.section}>
               <h4>{t('knowledge.principles', { count: knowledge.data.principles.length })}</h4>
               {knowledge.data.principles.length === 0 ? (

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { EngineStatusView } from '../domain/engine';
 import { MemberView, PlanUsage, OperatorSignal } from '../api/dto';
 import { ChatItem } from '../chat/chat';
+import { DocumentSlug } from '../domain/document';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
 import { AgentProvider, MemberHandle, MemberStatus } from '../domain/member';
@@ -72,6 +73,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('config_changed'), projectKey: z.string(), version: z.string() }),
   /** A task's attachments changed (after the commit); clients read the list again. No more than the key. */
   z.object({ type: z.literal('task_attachments_changed'), projectKey: z.string(), taskKey: TaskKey }),
+  /** A document of the project changed (created, edited, restored or deleted); not for a client. No text goes with it. */
+  z.object({ type: z.literal('documents_changed'), projectKey: z.string(), slug: DocumentSlug }),
   /** A feedback mark changed (PM-506): every human member, a client included, refetches. It names no card. */
   z.object({ type: z.literal('feedback_changed'), projectKey: z.string(), markId: z.string() }),
   /** System feedback changed (PM-472); `projectKey` null: the forwarding setting changed. Names no text. */

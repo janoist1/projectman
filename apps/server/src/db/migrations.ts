@@ -2780,6 +2780,152 @@ migrations.push({
 });
 migrations.push({
   version: 137,
+  name: 'account system language',
+  // PM-1177: the account stores its system language. Every account that exists now is Hungarian (the owner's
+  // decision); an account created from now on gets the column default, English. No CHECK: a new language would
+  // need a table rebuild, and `toUser` reads an unknown value as the default.
+  sql: `ALTER TABLE users ADD COLUMN language TEXT NOT NULL DEFAULT 'en';
+    UPDATE users SET language = 'hu';`,
+});
+migrations.push({
+  version: 138,
+  name: 'feedback deletions',
+  // PM-1189: a deleted mark leaves who made it, who deleted it and when, never its text or image.
+  sql: `CREATE TABLE feedback_deletions (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      mark_id TEXT NOT NULL,
+      author TEXT NOT NULL,
+      deleted_by TEXT NOT NULL,
+      task_key TEXT,
+      deleted_at TEXT NOT NULL
+    );
+    CREATE INDEX feedback_deletions_project ON feedback_deletions (project_key, deleted_at);`,
+});
+migrations.push({
+  version: 139,
+  name: 'the next step of every open card is an obligation',
+  // PM-1225: the obligation ladder gets the `next_step` kind. The obligations table is rebuilt as in version 131:
+  // the kind CHECK grows by 'next_step'; every row, `pm_told_at` (added in version 132, the last column) and both
+  // indexes carry over unchanged.
+  sql: `DROP INDEX obligations_unique;
+    DROP INDEX obligations_state;
+    ALTER TABLE obligations RENAME TO obligations_old;
+    CREATE TABLE obligations (
+      id              TEXT PRIMARY KEY,
+      project_key     TEXT NOT NULL,
+      task_key        TEXT NOT NULL,
+      kind            TEXT NOT NULL CHECK (kind IN ('merge','fix_limit','refinement_turn','review_step','work','start','senior_wait','next_step')),
+      responsible     TEXT,
+      subject         TEXT NOT NULL,
+      opened_at       TEXT NOT NULL,
+      due_at          TEXT NOT NULL,
+      paused_since    TEXT,
+      pause_reason    TEXT CHECK (pause_reason IN ('held','inbox','permission','start_refused')),
+      woken_at        TEXT,
+      handed_over_at  TEXT,
+      inbox_item_id   TEXT,
+      state           TEXT NOT NULL CHECK (state IN ('open','handed_over','fulfilled','cancelled')),
+      closed_at       TEXT,
+      updated_at      TEXT NOT NULL,
+      pm_told_at      TEXT
+    );
+    INSERT INTO obligations SELECT id, project_key, task_key, kind, responsible, subject, opened_at, due_at, paused_since, pause_reason, woken_at, handed_over_at, inbox_item_id, state, closed_at, updated_at, pm_told_at FROM obligations_old ORDER BY rowid;
+    DROP TABLE obligations_old;
+    CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, COALESCE(responsible, ''), subject);
+    CREATE INDEX obligations_state ON obligations(state);`,
+});
+migrations.push({
+  version: 140,
+  name: 'an obligation pauses while a related card waits for an owner',
+  // PM-1247: the pause reason CHECK grows by 'related_inbox'. The obligations table is rebuilt as in version 139:
+  // every row, column and both indexes carry over unchanged.
+  sql: `DROP INDEX obligations_unique;
+    DROP INDEX obligations_state;
+    ALTER TABLE obligations RENAME TO obligations_old;
+    CREATE TABLE obligations (
+      id              TEXT PRIMARY KEY,
+      project_key     TEXT NOT NULL,
+      task_key        TEXT NOT NULL,
+      kind            TEXT NOT NULL CHECK (kind IN ('merge','fix_limit','refinement_turn','review_step','work','start','senior_wait','next_step')),
+      responsible     TEXT,
+      subject         TEXT NOT NULL,
+      opened_at       TEXT NOT NULL,
+      due_at          TEXT NOT NULL,
+      paused_since    TEXT,
+      pause_reason    TEXT CHECK (pause_reason IN ('held','inbox','permission','start_refused','related_inbox')),
+      woken_at        TEXT,
+      handed_over_at  TEXT,
+      inbox_item_id   TEXT,
+      state           TEXT NOT NULL CHECK (state IN ('open','handed_over','fulfilled','cancelled')),
+      closed_at       TEXT,
+      updated_at      TEXT NOT NULL,
+      pm_told_at      TEXT
+    );
+    INSERT INTO obligations SELECT id, project_key, task_key, kind, responsible, subject, opened_at, due_at, paused_since, pause_reason, woken_at, handed_over_at, inbox_item_id, state, closed_at, updated_at, pm_told_at FROM obligations_old ORDER BY rowid;
+    DROP TABLE obligations_old;
+    CREATE UNIQUE INDEX obligations_unique ON obligations(project_key, task_key, kind, COALESCE(responsible, ''), subject);
+    CREATE INDEX obligations_state ON obligations(state);`,
+});
+migrations.push({
+  version: 141,
+  name: 'inbox item route',
+  // PM-1246: the route rule's record of an item (`ItemRouteRecord` as JSON: kind, requested, target, reason).
+  // Null on every item stored before the rule existed; nothing is rewritten.
+  sql: `ALTER TABLE inbox_items ADD COLUMN route TEXT;`,
+});
+migrations.push({
+  version: 142,
+  name: 'the senior wait is the project manager’s decision',
+  // PM-1251: the decision about a card's Senior wait is stored on its `senior_wait` obligation (`decision`
+  // 'wait' | 'any', `decided_by`), no longer as the answer to an owner inbox item; both are NULL on every row
+  // stored before (the reader still looks at the old item answer). The project manager is told by a new
+  // `senior_wait` operator signal, so operator_signals is rebuilt as in version 132 (the kind CHECK grows by
+  // 'senior_wait'; every row is carried over unchanged).
+  sql: `ALTER TABLE obligations ADD COLUMN decision TEXT CHECK (decision IN ('wait','any'));
+    ALTER TABLE obligations ADD COLUMN decided_by TEXT;
+    DROP INDEX operator_signals_open;
+    DROP INDEX operator_signals_delivery;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting','answer_stalled','process_cleanup_failed','refinement_stalled','loop_suspected','structural_pattern','milestone_closed','start_blocked','obligation_overdue','senior_wait')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,
+      follow_up_at TEXT, decision_note TEXT, delivered_to TEXT
+    );
+    INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to)
+      SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to FROM operator_signals_old ORDER BY rowid;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;
+    CREATE INDEX operator_signals_delivery ON operator_signals(project_key, kind, delivered_at);`,
+});
+migrations.push({
+  version: 143,
+  name: 'the relation_check operator signal',
+  // PM-1250: new relations that no analyst can check go to the project manager as a `relation_check` signal
+  // instead of an owner alert. operator_signals is rebuilt as in version 142 (the kind CHECK grows by
+  // 'relation_check'; every row and both indexes carry over unchanged).
+  sql: `DROP INDEX operator_signals_open;
+    DROP INDEX operator_signals_delivery;
+    ALTER TABLE operator_signals RENAME TO operator_signals_old;
+    CREATE TABLE operator_signals (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent','idle','merge_waiting','merge_blocked','unreleased','ready_waiting','answer_stalled','process_cleanup_failed','refinement_stalled','loop_suspected','structural_pattern','milestone_closed','start_blocked','obligation_overdue','senior_wait','relation_check')), case_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+      actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+      raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT,
+      follow_up_at TEXT, decision_note TEXT, delivered_to TEXT
+    );
+    INSERT INTO operator_signals (id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to)
+      SELECT id, project_key, kind, case_key, state, actionable, task_key, subject, inbox_item_id, message_id, raised_at, decided_by, decided_at, resolved_at, delivered_at, follow_up_at, decision_note, delivered_to FROM operator_signals_old ORDER BY rowid;
+    DROP TABLE operator_signals_old;
+    CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;
+    CREATE INDEX operator_signals_delivery ON operator_signals(project_key, kind, delivered_at);`,
+});
+migrations.push({
+  version: 144,
   name: 'user interface style',
   // PM-363: the style a user chose for their own interface ('classic' or 'win311'). NULL: none chosen yet,
   // the interface shows the classic style.

@@ -11,16 +11,23 @@ import { EngineStartSpec } from '../src/engine-link/session-schemas';
 import { attachmentToolRules, sensitivePaths, sessionSandbox } from '../src/runtime/sessions';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, NANOGPT_CODEX_PROVIDER, tomlValue } from '../src/runner/providers/codex/args';
+import { mcpBridgeCommand } from '../src/runner/mcp-bridge';
 import { decideToolCall } from '../src/runner/tool-decision';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 
 const HOOK_CONFIG = '/run/ses_1.0123456789abcdef/hook.curl';
+const MCP_CONFIG = '/run/ses_1.0123456789abcdef/codex-mcp.json';
 const source = '/fictional/source';
 const copy = '/fictional/reviews/round-1';
 const sharedGit = '/fictional/repo/.git';
 
-function policy(role: string, placement: SessionPolicy['placement'], permissionMode = 'acceptEdits') {
+function policy(
+  role: string,
+  placement: SessionPolicy['placement'],
+  permissionMode = 'acceptEdits',
+  outboundNetwork?: boolean,
+) {
   return buildSessionPolicy({
     config: testConfig(),
     role,
@@ -28,9 +35,16 @@ function policy(role: string, placement: SessionPolicy['placement'], permissionM
     placement,
     permissionMode,
     protectedPaths: ['/fictional/live', '/fictional/other-task', sharedGit],
+    ...(outboundNetwork === undefined ? {} : { outboundNetwork }),
   });
 }
-const development = () => policy('developer', { kind: 'task_worktree', path: source, gitDir: sharedGit });
+const development = (outboundNetwork?: boolean) =>
+  policy(
+    'developer',
+    { kind: 'task_worktree', path: source, gitDir: sharedGit },
+    'acceptEdits',
+    outboundNetwork,
+  );
 const review = () =>
   policy('code_review', {
     kind: 'review_copy',
@@ -68,6 +82,45 @@ function codexOverrides(args: string[]) {
 }
 
 describe('provider-neutral session policy', () => {
+  it('protects shared git configuration and the task worktree links in the Claude sandbox', () => {
+    const admin = `${sharedGit}/worktrees/task`;
+    const p = policy('developer', {
+      kind: 'task_worktree',
+      path: source,
+      gitDir: sharedGit,
+      worktreeGitDir: admin,
+    });
+    expect(sessionSandbox(p, { userHome: '/fictional/user' })!.denyWrite).toEqual(
+      expect.arrayContaining([
+        ...['config', 'config.lock', 'hooks', 'objects/info'].map((name) => `${sharedGit}/${name}`),
+        ...['commondir', 'gitdir', 'config.worktree', 'hooks'].map((name) => `${admin}/${name}`),
+        `${source}/.git`,
+      ]),
+    );
+  });
+
+  it('protects independent clone configuration and git links in the Claude sandbox', () => {
+    const p = policy('developer', {
+      kind: 'task_worktree',
+      path: source,
+      workspace: { branch: 'AR-1-task', baseCommit: null },
+    });
+    expect(sessionSandbox(p, { userHome: '/fictional/user' })!.denyWrite).toEqual(
+      expect.arrayContaining(
+        [
+          'config',
+          'config.lock',
+          'config.worktree',
+          'commondir',
+          'gitdir',
+          'hooks',
+          'modules',
+          'objects/info',
+        ].map((name) => `${source}/.git/${name}`),
+      ),
+    );
+  });
+
   it('preserves an explicitly supplied read boundary on the wire and in a plan profile', () => {
     const p = policy('developer', { kind: 'task_worktree', path: source }, 'plan');
     const readBoundary = {
@@ -87,8 +140,13 @@ describe('provider-neutral session policy', () => {
       EngineStartSpec.parse({ ...wire, mcpToken: 'fictional-token' }).sandbox?.portable?.readBoundary,
     ).toEqual(readBoundary);
     const profile = codexOverrides(
-      buildCodexArgs({ spec: s, realCwd: source, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 })
-        .args,
+      buildCodexArgs({
+        spec: s,
+        realCwd: source,
+        hookConfigPath: HOOK_CONFIG,
+        mcpConfigPath: MCP_CONFIG,
+        permissionTimeoutMs: 1000,
+      }).args,
     ).get('permissions.projectman');
     expect(profile).toContain('"/fictional/user"="deny"');
     expect(profile).toContain('"/fictional/user/.gitconfig"="read"');
@@ -145,7 +203,8 @@ describe('provider-neutral session policy', () => {
   it.each(['codex', 'nanogpt'] as const)(
     'renders the member cache and development data for %s sandboxed commands',
     (provider) => {
-      const p = development();
+      // A file-rule test: the closed network keeps the profile independent of the machine's platform.
+      const p = development(false);
       const memberDir = '/fictional/app/member-caches/PM/dev';
       const sandbox = sessionSandbox(p, { userHome: '/fictional/user', memberDir })!;
       expect(sandbox.portable?.readBoundary).toBeUndefined();
@@ -157,6 +216,7 @@ describe('provider-neutral session policy', () => {
           provider: provider === 'nanogpt' ? NANOGPT_CODEX_PROVIDER : undefined,
           realCwd: s.cwd,
           hookConfigPath: HOOK_CONFIG,
+          mcpConfigPath: MCP_CONFIG,
           permissionTimeoutMs: 1000,
         }).args,
       );
@@ -200,6 +260,7 @@ describe('provider-neutral session policy', () => {
       spec: s,
       realCwd: s.cwd,
       hookConfigPath: HOOK_CONFIG,
+      mcpConfigPath: MCP_CONFIG,
       permissionTimeoutMs: 1000,
     }).args;
     const profile = codexOverrides(args).get('permissions.projectman');
@@ -305,8 +366,13 @@ describe('provider-neutral session policy', () => {
       const sandbox = sandboxOf(p);
       const s = { ...spec(p, false), sandbox };
       const profile = codexOverrides(
-        buildCodexArgs({ spec: s, realCwd: s.cwd, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 })
-          .args,
+        buildCodexArgs({
+          spec: s,
+          realCwd: s.cwd,
+          hookConfigPath: HOOK_CONFIG,
+          mcpConfigPath: MCP_CONFIG,
+          permissionTimeoutMs: 1000,
+        }).args,
       ).get('permissions.projectman');
       expect(profile).toContain(`"${userHome}"="deny"`);
       expect(profile).toContain(`"${userHome}/.gitconfig"="read"`);
@@ -332,7 +398,13 @@ describe('provider-neutral session policy', () => {
     ).toThrow(/refusing to start/);
     const s = spec(p, false);
     expect(() =>
-      buildCodexArgs({ spec: s, realCwd: s.cwd, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 }),
+      buildCodexArgs({
+        spec: s,
+        realCwd: s.cwd,
+        hookConfigPath: HOOK_CONFIG,
+        mcpConfigPath: MCP_CONFIG,
+        permissionTimeoutMs: 1000,
+      }),
     ).toThrow(/refusing to start/);
   });
   it('isolates placement intent and records independent review metadata', () => {
@@ -404,11 +476,11 @@ describe('provider-neutral session policy', () => {
       'Edit(//fictional/live)',
       'Edit(//fictional/live/**)',
     ]);
-    // A developer's sandbox is unchanged: its own worktree stays writable.
+    // Reader-only installation denials do not close a developer's worktree.
     expect(
       sessionSandbox(development(), { userHome: '/fictional/user', readerDenyWrite: ['/fictional/home'] })!
         .denyWrite,
-    ).toBeUndefined();
+    ).not.toContain('/fictional/home');
   });
 
   it('names an accented attachment directory in its rules, and none with rule syntax (PM-188)', () => {
@@ -716,6 +788,7 @@ describe('provider-neutral session policy', () => {
             spec: s,
             realCwd: s.cwd,
             hookConfigPath: HOOK_CONFIG,
+            mcpConfigPath: MCP_CONFIG,
             permissionTimeoutMs: 1000,
           }),
         ).toThrow(/refusing to start/);
@@ -949,6 +1022,7 @@ describe('provider-neutral session policy', () => {
         spec: spec(p, false),
         realCwd: source,
         hookConfigPath: HOOK_CONFIG,
+        mcpConfigPath: MCP_CONFIG,
         permissionTimeoutMs: 1000,
       }).args,
     ).get('permissions.projectman');
@@ -981,6 +1055,7 @@ describe('provider-neutral session policy', () => {
       spec: s,
       realCwd: s.cwd,
       hookConfigPath: HOOK_CONFIG,
+      mcpConfigPath: MCP_CONFIG,
       permissionTimeoutMs: 1000,
     }).args;
     expect(codex).not.toContain('--sandbox');
@@ -988,14 +1063,19 @@ describe('provider-neutral session policy', () => {
       ['--ask-for-approval', 'on-request'],
     );
     const c = codexOverrides(
-      buildCodexArgs({ spec: s, realCwd: s.cwd, hookConfigPath: HOOK_CONFIG, permissionTimeoutMs: 1000 })
-        .args,
+      buildCodexArgs({
+        spec: s,
+        realCwd: s.cwd,
+        hookConfigPath: HOOK_CONFIG,
+        mcpConfigPath: MCP_CONFIG,
+        permissionTimeoutMs: 1000,
+      }).args,
     );
     expect(c.get('default_permissions')).toBe('"projectman"');
     expect(c.get('permissions.projectman')).toContain('extends=":read-only"');
     expect(c.get('mcp_servers.team')).toBe(
       tomlValue({
-        url: s.mcpUrl,
+        ...mcpBridgeCommand(MCP_CONFIG),
         tools: {
           get_task: { approval_mode: 'approve' },
           send_message: { approval_mode: 'approve' },

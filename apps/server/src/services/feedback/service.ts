@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import {
   ALERT_SEEN_OPTION,
+  canDeleteFeedback,
   canMarkFeedback,
   canProcessFeedback,
   feedbackCardRef,
@@ -9,7 +10,6 @@ import {
   feedbackMarkRefusal,
   memberOf,
   normalizeFeedbackOrigin,
-  ownerHandles,
   planFeedbackAction,
 } from '@projectman/shared';
 import type {
@@ -115,7 +115,7 @@ export class FeedbackService {
   private readonly tasks: TaskService;
   private readonly attachments: AttachmentService;
   private readonly timeline: TimelineService;
-  private readonly inbox: Pick<InboxService, 'create' | 'resolveByRule'>;
+  private readonly inbox: Pick<InboxService, 'raiseAlert' | 'resolveByRule'>;
   private readonly screenshots: FeedbackScreenshotStore;
   private readonly publicBaseUrl: string | null;
   private readonly marks = new KeyedMutex();
@@ -126,7 +126,7 @@ export class FeedbackService {
     tasks: TaskService;
     attachments: AttachmentService;
     timeline: TimelineService;
-    inbox: Pick<InboxService, 'create' | 'resolveByRule'>;
+    inbox: Pick<InboxService, 'raiseAlert' | 'resolveByRule'>;
     screenshots: FeedbackScreenshotStore;
     /** The public address of the feedback entrance, when the installation has one. */
     publicBaseUrl?: string | null;
@@ -396,6 +396,52 @@ export class FeedbackService {
     return detail.detail;
   }
 
+  /**
+   * The mark's author, an owner or an admin deletes it (PM-1189): the mark, its thread and its
+   * screenshot go; a card tied to it stays and shows in its timeline that the mark was deleted. A
+   * content-free row keeps who deleted whose mark and when.
+   */
+  async deleteMark(projectKey: string, markId: string, actor: Actor): Promise<void> {
+    const viewer = await this.viewerOf(projectKey, actor);
+    await this.marks.run(markId, async () => {
+      const mark = this.requireMark(projectKey, markId);
+      if (!canDeleteFeedback(viewer.member, mark))
+        throw forbidden('insufficient_access', 'only the author, an owner or an admin may delete this mark');
+      const at = isoNow(this.ctx);
+      const task = mark.taskKey ? this.tasks.find(projectKey, mark.taskKey) : null;
+      this.ctx.unitOfWork(() => {
+        const { feedback } = this.ctx.repos;
+        feedback.insertDeletion({
+          id: newId('fbd'),
+          projectKey,
+          markId,
+          author: mark.author,
+          deletedBy: viewer.handle,
+          taskKey: mark.taskKey,
+          deletedAt: at,
+        });
+        if (task)
+          this.timeline.append({
+            projectKey,
+            taskKey: task.key,
+            actor,
+            type: 'feedback_deleted',
+            data: { markId, author: mark.author, created: mark.outcome === 'card_created' },
+          });
+        // The alert asked the owner to decide on a mark that is gone now.
+        if (mark.status === 'waiting_owner' && mark.inboxItemId)
+          this.inbox.resolveByRule(mark.inboxItemId, ALERT_SEEN_OPTION.id, 'feedback_handled');
+        feedback.deleteMark(markId);
+        this.changed(projectKey, markId);
+      });
+      // After the commit: a file that stays behind is only reported, the mark is gone either way.
+      if (mark.screenshot)
+        await this.screenshots.remove(projectKey, mark.screenshot).catch((err: unknown) => {
+          this.ctx.logger.warn({ err, mark: markId }, 'the screenshot of a deleted feedback mark stays');
+        });
+    });
+  }
+
   // ---- deciding ----
 
   /** A new card from the mark, in the processor's name. */
@@ -472,7 +518,7 @@ export class FeedbackService {
 
   /**
    * An AI processor passes the mark on to the owners with a `reason`: the mark waits for the owner,
-   * who is told with an alert. The AI does not act on the mark again; a person's answer settles it.
+   * who is told with a message (PM-1250). The AI does not act on the mark again; a person's answer settles it.
    */
   async forward(
     projectKey: string,
@@ -484,7 +530,6 @@ export class FeedbackService {
     return this.marks.run(markId, async () => {
       const mark = this.requireMark(projectKey, markId);
       const plan = this.plan(mark, 'forward', viewer);
-      const owners = ownerHandles(viewer.config);
       this.ctx.unitOfWork(() => {
         const excerpt = mark.body.replace(/\s+/g, ' ').trim().slice(0, FORWARD_EXCERPT_LENGTH);
         const payload: FeedbackForwardedAlert = {
@@ -494,25 +539,17 @@ export class FeedbackService {
           excerpt,
           reason: request.reason,
         };
-        // An installation always has an owner; without one the mark still waits, and the app shows it.
-        const alert =
-          owners.length > 0
-            ? this.inbox.create({
-                projectKey,
-                kind: 'alert',
-                assignees: owners,
-                source: 'system',
-                title: `Feedback needs the owner: ${excerpt || mark.pagePath}`,
-                payload,
-                options: [ALERT_SEEN_OPTION],
-              })
-            : null;
+        // The owners get a message (PM-1250); the mark itself waits for them, and the app shows it.
+        this.inbox.raiseAlert({
+          projectKey,
+          title: `Feedback needs the owner: ${excerpt || mark.pagePath}`,
+          payload,
+        });
         this.apply(mark, plan, viewer, {
           type: 'forwarded',
           body: request.reason,
           data: {},
           reply: request.reply,
-          ...(alert ? { inboxItemId: alert.id } : {}),
         });
       });
       return this.detailOf(this.requireMark(projectKey, markId), viewer);
@@ -710,8 +747,6 @@ export class FeedbackService {
       data: Record<string, unknown>;
       taskKey?: string;
       reply?: string;
-      /** The owners' alert this step opened (a forward). */
-      inboxItemId?: string;
     },
   ): void {
     const { feedback } = this.ctx.repos;
@@ -732,7 +767,7 @@ export class FeedbackService {
       });
     insertEvent(step.type, step.body ?? null, step.data);
     if (step.reply) insertEvent('comment', step.reply, {});
-    // The alert asked the owner to decide; whoever settles the mark answers it.
+    // An alert item of an older version asked the owner to decide; whoever settles the mark answers it.
     const leavesWaiting = mark.status === 'waiting_owner' && plan.status !== 'waiting_owner';
     if (leavesWaiting && mark.inboxItemId)
       this.inbox.resolveByRule(mark.inboxItemId, ALERT_SEEN_OPTION.id, 'feedback_handled');
@@ -744,7 +779,6 @@ export class FeedbackService {
       ...(step.taskKey !== undefined ? { taskKey: step.taskKey } : {}),
       ...(plan.clearHanded ? { handedTo: null, handedAt: null, handedMessageId: null } : {}),
       ...(leavesWaiting ? { inboxItemId: null } : {}),
-      ...(step.inboxItemId !== undefined ? { inboxItemId: step.inboxItemId } : {}),
     });
     this.ensureColor(mark.projectKey, viewer.member);
     this.changed(mark.projectKey, mark.id);
@@ -845,6 +879,7 @@ export class FeedbackService {
       commentCount: stats?.commentCount ?? 0,
       unread: stats?.unread ?? false,
       hasScreenshot: record.screenshot !== null,
+      canDelete: canDeleteFeedback(view.viewer.member, record),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       lastActivityAt: stats?.lastEventAt ?? record.createdAt,

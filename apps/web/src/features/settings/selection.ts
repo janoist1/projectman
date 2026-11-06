@@ -1,11 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { LeaveGuardContext } from './edit/LeaveGuard';
 
 export type SettingsShow =
   | { type: 'stage' | 'column' | 'label'; id: string }
+  /** `after`: the stage the new one follows; an empty string puts it in front of the first stage. */
   | { type: 'new-stage'; after?: string }
   | { type: 'new-column' }
-  | { type: 'new-label' };
+  | { type: 'new-label'; tag?: string };
+
+/** The address parameters that belong to the selection. */
+const SHOW_PARAMS = ['show', 'after', 'tag', 'from'];
 
 export function parseShow(params: URLSearchParams): SettingsShow | null {
   const value = params.get('show');
@@ -14,9 +19,13 @@ export function parseShow(params: URLSearchParams): SettingsShow | null {
   if (match) return { type: match[1] as 'stage' | 'column' | 'label', id: match[2]! };
   if (value === 'new-stage') {
     const after = params.get('after');
-    return after ? { type: value, after } : { type: value };
+    return after === null ? { type: value } : { type: value, after };
   }
-  if (value === 'new-column' || value === 'new-label') return { type: value };
+  if (value === 'new-label') {
+    const tag = params.get('tag');
+    return tag ? { type: value, tag } : { type: value };
+  }
+  if (value === 'new-column') return { type: value };
   return null;
 }
 
@@ -24,17 +33,23 @@ export function showParams(show: SettingsShow | null, from?: 'how-we-work'): URL
   const params = new URLSearchParams();
   if (show) {
     params.set('show', 'id' in show ? `${show.type}:${show.id}` : show.type);
-    if (show.type === 'new-stage' && show.after) params.set('after', show.after);
+    if (show.type === 'new-stage' && show.after !== undefined) params.set('after', show.after);
+    if (show.type === 'new-label' && show.tag) params.set('tag', show.tag);
     if (from) params.set('from', from);
   }
   return params;
 }
 
-/** Opening pushes a history entry; closing consumes it, or replaces a direct link. */
+/**
+ * Opening pushes a history entry; closing consumes it, or replaces a direct link. With an editor holding an
+ * unsaved change open, both first ask whether to drop it (`LeaveGuardProvider`); a Back step waiting for the
+ * answer still shows the element it came from.
+ */
 export function useSettingsSelection() {
   const location = useLocation();
   const navigate = useNavigate();
-  const params = new URLSearchParams(location.search);
+  const guard = useContext(LeaveGuardContext);
+  const params = new URLSearchParams(guard?.heldSearch ?? location.search);
   const show = parseShow(params);
   const from = params.get('from') === 'how-we-work' ? ('how-we-work' as const) : null;
   const closing = useRef<{ key: string; search: string } | null>(null);
@@ -54,33 +69,47 @@ export function useSettingsSelection() {
     show,
     from,
     open(next: SettingsShow) {
-      navigate(
-        { pathname: location.pathname, search: `?${showParams(next, from ?? undefined)}` },
-        {
-          state: {
-            ...location.state,
-            settingsSelection: history
-              ? { ...history, depth: history.depth + 1 }
-              : { depth: 1, key: location.key, search: clearedSearch(location.search) },
+      const go = () =>
+        navigate(
+          { pathname: location.pathname, search: `?${showParams(next, from ?? undefined)}` },
+          {
+            state: {
+              ...location.state,
+              settingsSelection: history
+                ? { ...history, depth: history.depth + 1 }
+                : { depth: 1, key: location.key, search: clearedSearch(location.search) },
+            },
           },
-        },
-      );
+        );
+      if (guard) guard.request(go);
+      else go();
     },
     close() {
-      if (history) {
-        closing.current = { key: history.key, search: history.search };
-        navigate(-history.depth);
-      } else {
-        const next = new URLSearchParams(location.search);
-        for (const key of ['show', 'after', 'from']) next.delete(key);
-        navigate({ pathname: location.pathname, search: next.toString() }, { replace: true });
-      }
+      const go = () => {
+        if (history) {
+          closing.current = { key: history.key, search: history.search };
+          navigate(-history.depth);
+        } else {
+          const next = new URLSearchParams(location.search);
+          for (const key of SHOW_PARAMS) next.delete(key);
+          navigate({ pathname: location.pathname, search: next.toString() }, { replace: true });
+        }
+      };
+      if (guard) guard.request(go);
+      else go();
+    },
+    /** The selection becomes another element in place (a created element opens as itself): no new history entry. */
+    replace(next: SettingsShow) {
+      navigate(
+        { pathname: location.pathname, search: `?${showParams(next, from ?? undefined)}` },
+        { replace: true, state: location.state },
+      );
     },
   };
 }
 
 function clearedSearch(search: string): string {
   const params = new URLSearchParams(search);
-  for (const key of ['show', 'after', 'from']) params.delete(key);
+  for (const key of SHOW_PARAMS) params.delete(key);
   return params.size ? `?${params}` : '';
 }

@@ -12,7 +12,10 @@ import {
   TaskStatus,
 } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
+import { en } from './en';
+import { formatTokens } from './format';
 import { hu } from './hu';
+import { setCurrentLanguage } from './language';
 import { hasMessage, joinNames, t, tDynamic } from './t';
 
 /** Every source file of the app except tests, as raw text. */
@@ -37,7 +40,7 @@ function unusedKeys(keys: string[], appSources: Record<string, string>): string[
   const literals = new Set<string>();
   const templates: RegExp[] = [];
   for (const [file, raw] of Object.entries(appSources)) {
-    if (file === './hu.ts' || file.includes('/mocks/')) continue;
+    if (file === './hu.ts' || file === './en.ts' || file.includes('/mocks/')) continue;
     const source = stripComments(raw);
     // Includes lookup tables, conditional arguments and rich(), as well as t().
     for (const match of source.matchAll(/(['"])([A-Za-z0-9_./:-]+)\1|`([A-Za-z0-9_./:-]+)`/g)) {
@@ -140,6 +143,73 @@ describe('hu locale', () => {
           .filter(({ text }) => accented.test(text)),
       );
     expect(offenders).toEqual([]);
+  });
+});
+
+/** The placeholder names of a message; a plural form `{count|# card|# cards}` names `count`. */
+function placeholders(message: string): string[] {
+  return [...message.matchAll(/\{(\w+)(?:\|[^{}]*)?\}/g)].map((match) => match[1]!).sort();
+}
+
+describe('en locale', () => {
+  it('contains only non-empty strings', () => {
+    const bad = leaves(en).filter(([, value]) => typeof value !== 'string' || value.trim() === '');
+    expect(bad).toEqual([]);
+  });
+
+  it('has the same placeholders as hu in every message it holds', () => {
+    const huLeaves = new Map(leaves(hu));
+    const differing = leaves(en)
+      .filter(([key, value]) => {
+        const source = huLeaves.get(key);
+        return (
+          typeof source !== 'string' || placeholders(source).join() !== placeholders(String(value)).join()
+        );
+      })
+      .map(([key]) => key);
+    expect(differing).toEqual([]);
+  });
+
+  it('keeps Hungarian wording out of the English text', () => {
+    const accented = /[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/;
+    expect(leaves(en).filter(([, value]) => accented.test(String(value)))).toEqual([]);
+  });
+
+  it('has exactly the keys of hu, in both directions', () => {
+    const huKeys = new Set(leaves(hu).map(([key]) => key));
+    const enKeys = new Set(leaves(en).map(([key]) => key));
+    expect({
+      missingInEn: [...huKeys].filter((key) => !enKeys.has(key)),
+      missingInHu: [...enKeys].filter((key) => !huKeys.has(key)),
+    }).toEqual({ missingInEn: [], missingInHu: [] });
+  });
+
+  it('reads each language from its own catalog, with no fallback to the other', () => {
+    setCurrentLanguage('en');
+    expect(t('app.retry')).toBe('Try again');
+    setCurrentLanguage('hu');
+    expect(t('app.retry')).toBe('Újra');
+    expect(tDynamic('no.such.key', 'fallback')).toBe('fallback');
+  });
+
+  it('chooses the singular and the plural form of a count', () => {
+    setCurrentLanguage('en');
+    expect(t('time.daysAgo', { count: 1 })).toBe('1 day ago');
+    expect(t('time.daysAgo', { count: 3 })).toBe('3 days ago');
+    expect(t('time.daysAgo', { count: 0 })).toBe('0 days ago');
+  });
+
+  it('shows a formatted token count in the limits summary, not NaN', () => {
+    setCurrentLanguage('en');
+    // The caller passes the grouped string ("200,000"): a plural form would turn it into NaN.
+    const count = formatTokens(200_000);
+    expect(t('settings.limits.warnAboveSessionTokensValue', { count })).toBe(`${count} tokens`);
+    expect(t('settings.limits.autoCompactWindowValue', { count })).toBe(`${count} tokens`);
+  });
+
+  it('joins names the English way', () => {
+    setCurrentLanguage('en');
+    expect(joinNames(['You', 'Kata', 'Ben'])).toBe('You, Kata and Ben');
   });
 });
 

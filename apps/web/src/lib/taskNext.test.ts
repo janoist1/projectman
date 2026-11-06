@@ -408,7 +408,7 @@ describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
       'part_left',
       { next: [ai('be-1')], toStageId: 'code_review' },
       {},
-      { waiting: 'a rész itt maradt: Fejlesztés', you: false, toStageId: null },
+      { waiting: 'az alkártya itt maradt: Fejlesztés', you: false, toStageId: null },
     ],
     [
       'part_left',

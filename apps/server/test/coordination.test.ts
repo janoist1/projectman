@@ -238,6 +238,7 @@ describe('PM authorization', () => {
       email: OWNER.email,
       passwordHash: 'unused-test-hash',
       createdAt: now.toISOString(),
+      language: 'hu',
     });
     await expect(
       h.domain.teamTools.operate(pm, {
@@ -344,7 +345,7 @@ describe('PM authorization', () => {
       note: 'Configuration.',
     });
     expect(h.domain.inbox.get('AR', question.inboxItemId).resolution?.by).toBe('pm');
-    const own = await h.domain.teamTools.askHuman(pm, { question: 'A human decision?' });
+    const own = await h.domain.teamTools.askHuman(pm, { question: 'A human decision?', ownerTopic: 'cost' });
     expect(h.domain.inbox.get('AR', own.inboxItemId).state).toBe('open');
     await expect(
       h.domain.teamTools.screenQuestion(pm, { itemId: own.inboxItemId, outcome: 'moot', note: 'No.' }),

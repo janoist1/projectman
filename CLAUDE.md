@@ -13,12 +13,15 @@ should confirm still goes to them as a question.
 
 - **All source code is English**: identifiers, comments, file and folder names, commit
   messages, test names, log messages, error codes.
-- The UI language is Hungarian, but Hungarian text lives **only** in locale files:
-  `apps/web/src/i18n/hu.ts` (UI), `apps/feedback-widget/src/i18n/hu.ts` (the embeddable
-  feedback widget's own text), `packages/templates/src/locales/hu.ts` (default display
-  names in templates), and `deploy/mac/menubar/Resources/hu.lproj/Localizable.strings`
-  (native engine menu bar app). Components use `t('some.key')`; the native app uses `L10n`.
-  Never hardcode UI text.
+- The UI has two languages, Hungarian and English, but UI text lives **only** in locale
+  files, one `hu` and one `en` per place: `apps/web/src/i18n/{hu,en}.ts` (UI),
+  `apps/feedback-widget/src/i18n/{hu,en}.ts` (the embeddable feedback widget's own text),
+  `packages/templates/src/locales/{hu,en}.ts` (default display names in templates), and
+  `deploy/mac/menubar/Resources/{hu,en}.lproj/Localizable.strings` (native engine menu bar
+  app). Components use `t('some.key')`; the native app uses `L10n`. Never hardcode UI text.
+  A new key goes into both files of its place, `errors.codes` entries included. `hu` is the
+  source of the key set; the web `en.ts` must hold every key of it (the type and the i18n test
+  check this; `t()` has no Hungarian fallback), and its wording follows `docs/design/glossary.md`.
   Exception: the names, summaries and link labels in `projectman.structure.yaml` are UI text
   in the project's language (Hungarian here); its ids stay English.
 - Prompt text for AI members (role instructions, context pack) is English; it tells the
@@ -28,7 +31,8 @@ should confirm still goes to them as a question.
 
 - Never use or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, `GEMINI_API_KEY`,
   `GOOGLE_API_KEY` or other API-billing variables. The runner strips them
-  from the environment of every session (`BILLING_ENV_VARS` in `apps/server/src/runner/env.ts`).
+  from the environment of every session (`BILLING_ENV_VARS` in
+  `packages/shared/src/config/billing-env.ts`; the runner applies it in `apps/server/src/runner/env.ts`).
   The sole exception is the projectman-managed `NANOGPT_API_KEY` from
   `secrets/nanogpt.json`, passed only to NanoGPT member sessions (decision 34, PM-319).
   It never permits ChatGPT login fallback or OpenAI API billing.
@@ -49,7 +53,7 @@ should confirm still goes to them as a question.
   web's test fake (`apps/web/src/mocks`); never re-implement one there or in a route handler.
 - Route handlers parse the request, check access and call a domain service; business logic
   lives behind the `apps/server/src/kernel`, `core`, `runtime` and `services` module facades.
-  `apps/server/src/assembly.ts` composes them. Only `apps/server/src/index.ts` reads the environment.
+  `apps/server/src/assembly.ts` composes them. Only `apps/server/src/start.ts` (started by `index.ts`) reads the environment.
 - Older configuration shapes, database rows and timeline events exist in real installations.
   Configuration migrations live in `apps/server/src/config/migrations.ts`, database
   migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
@@ -73,15 +77,15 @@ These rules apply to every member, including Codex:
 
 ## Module ownership (parallel workstreams)
 
-| Workstream | Owns                                                                                                                                                                                         |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                                                                         |
-| mcp        | `apps/server/src/mcp/**`                                                                                                                                                                     |
-| core       | `apps/server/src/{db,kernel,core,runtime,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index,assembly}.ts`, `apps/server/test/**`, `scripts/**`, `projectman.structure.yaml` |
-| web        | `apps/web/**`                                                                                                                                                                                |
-| github     | `apps/server/src/services/github/**`                                                                                                                                                         |
-| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                                                                  |
-| widget     | `apps/feedback-widget/**`                                                                                                                                                                    |
+| Workstream | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                                                                                                                                                                                                                                                                                                                 |
+| mcp        | `apps/server/src/mcp/**`                                                                                                                                                                                                                                                                                                                                                                                                             |
+| core       | `apps/server/src/{contracts,db,kernel,core,runtime,services,api,auth,config,ws,http,control,full-test,exec,logging,instance,machine,engine-host,engine-link,history-semantic}/**` (`services/github/**` is the github workstream's), `apps/server/src/{app,index,start,engine-app,shutdown,assembly,history-semantic-profile,history-semantic-profile-control}.ts`, `apps/server/test/**`, `scripts/**`, `projectman.structure.yaml` |
+| web        | `apps/web/**`                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| github     | `apps/server/src/services/github/**`                                                                                                                                                                                                                                                                                                                                                                                                 |
+| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                                                                                                                                                                                                                                                                                                          |
+| widget     | `apps/feedback-widget/**`                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 `packages/shared` is everyone's contract: change it additively, and name the change in your
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its
@@ -172,8 +176,9 @@ than extending the baseline.
 After changing `apps/web/src/mocks`, run `npx vitest run src/mocks` in `apps/web`. After adding, moving or renaming files, also run
 `npx vitest run test/architecture` in `apps/server`, including before hand-over; it is fast
 and does not queue. They never run the full suite. The merger (`team.merger`,
-`claude` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
-before `main` moves: `npm run merge-test` in the full test sandbox, in the machine's queue.
+`lead` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
+before `main` moves: `npm run merge-test`, in the sandbox of the card's engine or on GitHub
+Actions, as the repository is set up (`docs/modules/services-merges.md`).
 Any card adding a merge check that can run quickly in the developer's worktree must update
 the developer hand-over checklist in the same change.
 When a merge fails a check the developer could have run locally, the merger names that
@@ -186,10 +191,11 @@ run: note on your card what did not run and why, and hand over; the merge test r
 Never run it another way, and do not ask anyone to run it outside your sandbox (PM-346, PM-656).
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
-owner's live instance uses a cloud hub and a Mac engine, updated only on the owner's request:
-`npm run cloud -- deploy --ref <commit>`, then rebuild and reinstall the engine at the same commit
-(`docs/DEPLOY.md`). `publish_release` publishes on request after a preview; there is no release watcher.
-`npm run live -- install|status|uninstall` is retained only for single-mode disaster recovery.
+owner's live instance uses a cloud hub and a Mac engine: `npm run cloud -- deploy --ref <commit>`,
+then rebuild and reinstall the engine at the same commit (`docs/DEPLOY.md`). Who may update it
+is decided in the project plan, chapter 4 (Dokumentumok, "Projektterv"): until the system is in
+production use, the owner's connected Claude does; the team's AI members do not.
+`publish_release` publishes a release. `npm run live -- install|status|uninstall` is retained only for single-mode disaster recovery.
 Never run a development build against `~/.projectman`: a database migrated by a newer build is
 refused by older ones. Open development instances at `http://127.0.0.1:5173`.
 

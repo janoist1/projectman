@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { publishEngineApp } from '../../../scripts/engine-app/publish';
 import type { PublishDeps } from '../../../scripts/engine-app/publish';
 import { runEngineAppCli } from '../../../scripts/engine-app/commands';
+import { uploadEngineApp } from '../../../scripts/engine-app/upload';
 
 const tag = 'v2026.10.29.2';
 const commit = 'a'.repeat(40);
@@ -169,6 +170,89 @@ it('refuses a corrupt completed publication', async () => {
 it('keeps network errors operational', async () => {
   deps.run = async () => ({ code: 1, stdout: '', stderr: 'network unavailable' });
   await expect(publish()).rejects.toMatchObject({ exitCode: 1 });
+});
+/** A build output directory as `build --ad-hoc` writes it; `edit` changes the manifest. */
+const builtDir = (edit: (manifest: Record<string, unknown>) => void = () => {}) => {
+  const dir = path.join(root, 'built');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [name, content] of artifacts()) {
+    if (name.endsWith('.json')) {
+      const manifest = JSON.parse(content) as Record<string, unknown>;
+      manifest.teamId = '';
+      edit(manifest);
+      fs.writeFileSync(path.join(dir, name), JSON.stringify(manifest));
+    } else fs.writeFileSync(path.join(dir, name), content);
+  }
+  return dir;
+};
+const upload = (dir: string, uploadTag = tag) =>
+  uploadEngineApp(
+    { run: deps.run },
+    { tag: uploadTag, dir, repositoryUrl: 'https://github.com/example/projectman' },
+  );
+
+it('uploads an ad-hoc build with the manifest last and builds nothing', async () => {
+  await upload(builtDir());
+  expect(uploads).toEqual([...artifacts().keys()]);
+  expect(deps.build).not.toHaveBeenCalled();
+});
+it('skips identical assets of an interrupted upload', async () => {
+  const dir = builtDir();
+  remote.set('projectman-motor.zip', 'zip');
+  remote.set('projectman-motor.dmg', 'dmg');
+  await upload(dir);
+  expect(uploads).toEqual(['projectman-motor.json']);
+});
+it('refuses a different existing asset before any upload', async () => {
+  remote.set('projectman-motor.json', 'signed by someone else');
+  await expect(upload(builtDir())).rejects.toMatchObject({
+    exitCode: 2,
+    message: expect.stringContaining('[app_asset_conflict]'),
+  });
+  expect(uploads).toEqual([]);
+});
+it('refuses a tag without a release', async () => {
+  missing = true;
+  await expect(upload(builtDir())).rejects.toMatchObject({
+    exitCode: 2,
+    message: expect.stringContaining('[app_release_missing]'),
+  });
+});
+it.each([
+  ['another tag', (manifest: Record<string, unknown>) => (manifest.tag = 'v2026.10.29.3')],
+  ['another commit', (manifest: Record<string, unknown>) => (manifest.version = 'c'.repeat(40))],
+])('refuses a manifest of %s', async (_name, edit) => {
+  await expect(upload(builtDir(edit))).rejects.toMatchObject({
+    exitCode: 2,
+    message: expect.stringContaining('[app_manifest_mismatch]'),
+  });
+  expect(uploads).toEqual([]);
+});
+it('refuses an archive that is not the one of the manifest', async () => {
+  const dir = builtDir();
+  fs.writeFileSync(path.join(dir, 'projectman-motor.dmg'), 'tampered');
+  await expect(upload(dir)).rejects.toMatchObject({ exitCode: 2 });
+  expect(uploads).toEqual([]);
+});
+it('rejects malformed upload command lines', async () => {
+  const cli = {
+    sourceRepo: root,
+    cwd: root,
+    originUrl: async () => 'https://github.com/example/projectman',
+    build: async () => ({ root }),
+    upload: vi.fn(),
+    out: vi.fn(),
+    err: vi.fn(),
+  };
+  expect(await runEngineAppCli(['upload', '--tag', tag, '--dir', 'x', '--clobber'], cli)).toBe(64);
+  expect(await runEngineAppCli(['upload', '--tag', 'main', '--dir', 'x'], cli)).toBe(64);
+  expect(cli.upload).not.toHaveBeenCalled();
+  expect(await runEngineAppCli(['upload', '--tag', tag, '--dir', 'x'], cli)).toBe(0);
+  expect(cli.upload).toHaveBeenCalledWith({
+    tag,
+    dir: path.join(root, 'x'),
+    repositoryUrl: 'https://github.com/example/projectman',
+  });
 });
 it('rejects malformed publish command lines', async () => {
   const cli = {

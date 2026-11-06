@@ -501,9 +501,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           .describe(
             'answered: a fact you found (needs answer; the member may ask a person again). forwarded: another ' +
               'AI member’s work, a technical choice to the notice’s technicalDecider (needs forward_to). moot: ' +
-              'obsolete, also after it went to the people. decision: only an owner decision, as asked. todo: an ' +
-              'owner or integrator step (needs todo). Fields another outcome needs are refused ' +
-              '(invalid_outcome_fields).',
+              'obsolete, also after it went to the people. decision: only an owner decision under an owner ' +
+              "topic, as asked (needs owner_topic). todo: a machine or manual step, the integrator's when there is one (needs todo). Fields " +
+              'another outcome needs are refused (invalid_outcome_fields).',
           ),
         note: z
           .string()
@@ -529,11 +529,22 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
             recipient: z
               .enum(['owner', 'integrator'])
               .describe(
-                'Who performs the step. Integrator only for external technical work; decisions and approvals belong to the owner. Independently reconsider the proposed recipient; explain changes in note.',
-              ),
+                'Optional and not decisive: a todo goes to the integrator whenever there is one (machine or manual step alike). Only when none can take it does it fall back to the technical decider or the owner.',
+              )
+              .optional(),
           })
           .optional()
           .describe('The exact step for a person; only with todo.'),
+        owner_topic: z
+          .string()
+          .trim()
+          .min(1)
+          .max(40)
+          .optional()
+          .describe(
+            "The id of the project's owner topic (role guide) the decision falls under; " +
+              'an approval question needs none. Only with decision; with todo it is accepted but not recorded.',
+          ),
       },
       check(args, issue) {
         if ((args.outcome === 'answered') !== (args.answer !== undefined))
@@ -544,6 +555,12 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           issue('todo', 'todo goes with the outcome todo, and only with it.');
         if (args.feedback_id !== undefined && args.outcome !== 'todo')
           issue('feedback_id', 'invalid_outcome_fields: feedback_id goes only with todo.');
+        // A todo accepts owner_topic and ignores it (PM-1243), so an older call does not fail.
+        if (args.owner_topic !== undefined && args.outcome !== 'decision' && args.outcome !== 'todo')
+          issue(
+            'owner_topic',
+            'invalid_outcome_fields: owner_topic goes only with decision (todo ignores it).',
+          );
       },
       async run({ ctx, args, handler }) {
         const result = await handler.screenQuestion(ctx, {
@@ -552,14 +569,15 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           note: args.note,
           ...(args.answer !== undefined ? { answer: args.answer } : {}),
           ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
-          ...(args.todo ? { todo: args.todo } : {}),
+          ...(args.todo ? { todo: { ...args.todo, recipient: args.todo.recipient ?? 'integrator' } } : {}),
           ...(args.feedback_id !== undefined ? { feedbackId: args.feedback_id } : {}),
+          ...(args.owner_topic !== undefined ? { ownerTopic: args.owner_topic } : {}),
         });
         return JSON.stringify(
           result.forwardedTo
             ? {
                 ...result,
-                message: `No integrator can take it (${result.recipientRefusal}): it went to \`${result.forwardedTo}\`, who decides whether it is needed and asks the owners if they must act.`,
+                message: `The asker has no machine access to put a todo in the integrator's queue: it went to \`${result.forwardedTo}\`, who decides whether it is needed and asks the owners if they must act.`,
               }
             : result,
         );
@@ -572,7 +590,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        'Close an obligation_overdue, structural_pattern or milestone_closed signal of your ' +
+        'Close an obligation_overdue, structural_pattern, milestone_closed or relation_check signal of your ' +
         'wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: ' +
         "role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },
@@ -583,14 +601,38 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
     }),
 
     defineTool({
+      name: 'decide_senior_wait',
+      audience: { roles: ['project_manager'] },
+      title: 'Decide how a card that waits for a Senior goes on',
+      readOnly: false,
+      description:
+        'Decide a card a senior_wait signal names: wait keeps waiting for the Senior, any lets a free ' +
+        'developer take it. The reason goes to the card. Only the project manager may call it; if the ' +
+        'choice costs money, ask the owners first (topic cost).',
+      input: {
+        task_key: TaskKey,
+        decision: z.enum(['wait', 'any']),
+        reason: z.string().trim().min(1).max(2000),
+      },
+      async run({ ctx, args, handler }) {
+        const result = await handler.decideSeniorWait(ctx, {
+          taskKey: args.task_key,
+          decision: args.decision,
+          reason: args.reason,
+        });
+        return JSON.stringify({ task_key: result.taskKey, decision: result.decision });
+      },
+    }),
+
+    defineTool({
       name: 'open_integrator_todo',
       audience: { capabilities: ['machine_access'] },
       title: 'Open a todo for the integrator',
       readOnly: false,
       description:
-        "Put machine work (an installation, a setting) in the owners' queue, without an owner request; use " +
-        "this, not a message, for a step that needs the owner's connected integrator. Its answer comes back " +
-        'to you; without an integrator the owners get it. An owner decision is not a todo: use ask_human.',
+        "Put machine work (an installation, a setting) in the integrator's queue, not a message; the owners " +
+        'do not get it, it waits for a connected integrator. Its answer comes back to you. An owner ' +
+        'decision is not a todo: use ask_human.',
       input: {
         task_key: TaskKey.optional().describe(
           'A card projectman already follows (an open or handed-over obligation) is refused with ' +
@@ -609,12 +651,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
           where: args.where,
           expected: args.expected,
         });
-        return (
-          `Integrator todo ${result.itemId} opened for ${result.recipient}.` +
-          (result.recipientRefusal
-            ? ` The integrator is not available (${result.recipientRefusal}): the owners got it.`
-            : '')
-        );
+        return `Integrator todo ${result.itemId} opened in the integrator's queue.`;
       },
     }),
 

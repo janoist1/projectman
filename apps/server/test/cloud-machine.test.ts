@@ -224,10 +224,20 @@ describe('deploy', () => {
     expect(world.output).toContain('skipped deploy: dry-run: would connect by SSH through SSM');
   });
 
+  it('removes the older images after a healthy deploy, keeping the current and the previous one', async () => {
+    world.machine.preload(SHA_NEW, 'v2026.10.11.5', { sha: SHA_OLD, ref: 'v2026.10.11.4' });
+    for (const sha of [SHA_OLD, SHA_NEW])
+      world.machine.imported.set(sha, { imageId: IMAGE_ID, platform: 'linux/arm64' });
+    expect(await run('deploy')).toBe(0);
+    expect(subcommands().at(-1)).toBe('prune-images');
+    expect([...world.machine.imported.keys()].sort()).toEqual([SHA_NEW, SHA_NEWEST]);
+  });
+
   it('goes back to the previous image when the new one never becomes healthy, and warns about the migration', async () => {
     world.machine.preload(SHA_OLD, 'v2026.10.11.4');
     world.machine.unhealthyShas.add(SHA_NEWEST);
     expect(await run('deploy')).toBe(1);
+    expect(subcommands()).not.toContain('prune-images');
     expect(starts()).toEqual([started(SHA_NEWEST, 'v2026.10.12'), started(SHA_OLD, 'v2026.10.11.4')]);
     expect(world.machine.current()?.sha).toBe(SHA_OLD);
     expect(world.output).toContain('did not become healthy in 180 s');

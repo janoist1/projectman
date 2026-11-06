@@ -10,7 +10,7 @@ import {
   isLessonsOnly,
   MAX_ATTACHMENT_BYTES,
   memberOf,
-  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
+  operatorSignalStepGapMs,
   operatorSignalStepRefusal,
   operatorWatchOf,
   TaskKey,
@@ -592,8 +592,7 @@ export class ToolCaller {
       throw new TeamToolError('forbidden', `${code}: ${text}`);
     };
     const noRequest = `${step.tool} writes, and the Operator writes only for an open request of an owner`;
-    if (level === 'report')
-      refuse('operator_no_request', `${noRequest}; this project lets it only report signals.`);
+    // At `report` the shared rule refuses every kind but the one the owner granted (`unreleased`).
     const { signal, allowed } = await this.operatorSignals
       .stepTargets(ctx.projectKey, step.signalId)
       .catch((err: unknown) => {
@@ -626,7 +625,7 @@ export class ToolCaller {
         'operator_signal_budget',
         refusal.reason === 'used'
           ? 'this signal has no step left; tell the owner what you did and what became of it.'
-          : `the last step on this signal was less than ${OPERATOR_SIGNAL_STEP_GAP_MINUTES} minutes ago; retry after ${refusal.retryAt}.`,
+          : `the last step on this signal was less than ${operatorSignalStepGapMs(signal.kind) / 60_000} minutes ago; retry after ${refusal.retryAt}.`,
       );
     // The budget counts logged steps, and a step is logged only after it ran: a call that arrives while
     // another step on this signal is running would pass the count too. No await between the count and here.
@@ -736,9 +735,11 @@ export class ToolCaller {
     const handle = workItem?.type === 'general' ? workItem.with : undefined;
     if (handle === undefined) return null;
     const person = memberOf(config, handle);
-    // Someone no longer in the team sees nothing: the narrowest access there is.
-    const access = person?.kind === 'human' ? person.access : 'client';
-    return { handle, viewer: { access, handle } };
+    // Someone no longer in the team sees nothing: a client reads the whole project since PM-79, so no
+    // access level is narrow enough to stand for them.
+    if (person?.kind !== 'human')
+      throw new TeamToolError('forbidden', `${OWNER_ONLY}: ${handle} is not a member of the team.`);
+    return { handle, viewer: { access: person.access, handle } };
   }
 }
 

@@ -41,13 +41,17 @@ export function ConfigProblems({ config, section }: { config: ProjectConfig; sec
             <li key={i}>
               {name ? `${name}: ` : null}
               {issueMessage(issue)}{' '}
-              {target && target.section !== section ? (
+              {target && (target.section !== section || target.field?.startsWith('ownerDecisionTopics')) ? (
                 <Link
                   state={{ settingsIssueTarget: true }}
                   aria-label={t('settings.problems.openLabel', { name: name! })}
                   to={{
                     pathname: `/p/${key}/settings/${target.section}`,
-                    search: show ? `?${showParams(show)}` : '',
+                    search: target.field?.startsWith('ownerDecisionTopics')
+                      ? `?${new URLSearchParams({ field: target.field })}`
+                      : show
+                        ? `?${showParams(show)}`
+                        : '',
                   }}
                 >
                   {t('settings.problems.open')}

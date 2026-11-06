@@ -30,7 +30,12 @@ describe('the waiting label of an open AI question', () => {
 
   const labels = (key = 'AR-1') => h.domain.tasks.get('AR', key).labels;
   const ask = (question: string, taskKey?: string) =>
-    h.domain.teamTools.askHuman(dev, { question, options: ['Yes', 'No'], ...(taskKey ? { taskKey } : {}) });
+    h.domain.teamTools.askHuman(dev, {
+      question,
+      options: ['Yes', 'No'],
+      ownerTopic: 'cost',
+      ...(taskKey ? { taskKey } : {}),
+    });
   async function answer(inboxItemId: string): Promise<void> {
     await h.domain.inbox.resolve('AR', inboxItemId, { optionId: 'option_1' }, owner);
     await flush();
@@ -130,7 +135,10 @@ describe('the waiting label of an open AI question', () => {
   it('is not put on a card by a question about no card', async () => {
     await setup(withWaitingLabel);
     const general = { ...dev, taskKey: null };
-    const { inboxItemId } = await h.domain.teamTools.askHuman(general, { question: 'In general?' });
+    const { inboxItemId } = await h.domain.teamTools.askHuman(general, {
+      question: 'In general?',
+      ownerTopic: 'cost',
+    });
     expect(labels()).toEqual([]);
     expect(questionPayloadOf(h.domain.inbox.get('AR', inboxItemId))?.autoLabel).toBeUndefined();
   });

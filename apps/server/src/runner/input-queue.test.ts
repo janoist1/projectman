@@ -9,6 +9,7 @@ const timing = {
   enterRetryMs: 1_000,
   maxEnterRetries: 2,
   submitTimeoutMs: 5_000,
+  lateSubmitMs: 20_000,
 };
 
 function setup(overrides: Partial<InputQueueHost> = {}) {
@@ -189,10 +190,15 @@ describe('InputQueue', () => {
     const lost = expect(queue.enqueueSubmitted('lost')).rejects.toThrow('did not take the typed message');
     void queue.enqueue('next');
     await vi.advanceTimersByTimeAsync(TYPE_MS + timing.submitTimeoutMs);
-    await lost;
-    expect(warn).toHaveBeenCalledTimes(1);
+    // The queue moves on at the submit timeout; the caller is told only after the late wait.
     await vi.advanceTimersByTimeAsync(TYPE_MS);
     expect(typed().pastes).toEqual(['lost', 'next']);
+    await vi.advanceTimersByTimeAsync(timing.lateSubmitMs);
+    await lost;
+    expect(warn).toHaveBeenCalledWith(
+      { sessionId: 'ses_1', lateMs: timing.lateSubmitMs },
+      'typed message was not taken by the CLI',
+    );
   });
 
   it('enqueueSubmitted resolves a slash command once typed, and rejects when the process is gone', async () => {

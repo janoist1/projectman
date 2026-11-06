@@ -20,6 +20,8 @@ interface DetailPanelProps {
   children?: ReactNode;
   /** Stable selection identity: changing a draft title must not move the input focus. */
   itemKey?: string;
+  /** Changes when the title should take the focus again (after a save the form goes quiet). */
+  focusSignal?: number;
 }
 
 function sectionHeading(): HTMLElement | null {
@@ -62,6 +64,7 @@ export function DetailPanel({
   onClose,
   children,
   itemKey,
+  focusSignal = 0,
 }: DetailPanelProps) {
   const wide = useMediaQuery(SETTINGS_WIDE_QUERY);
   const titleId = useId();
@@ -85,7 +88,11 @@ export function DetailPanel({
     return () => restorePanelFocus(element, opener.current);
   }, [wide]);
   useEffect(() => {
-    if (open && wide) heading.current?.focus();
+    if (open && wide && focusSignal > 0) heading.current?.focus({ preventScroll: true });
+  }, [focusSignal]);
+  useEffect(() => {
+    // No scrolling: the sticky panel is clipped (overflow hidden), and a scroll to the heading would slide its own header out of view.
+    if (open && wide) heading.current?.focus({ preventScroll: true });
     if (open && wide && !window.matchMedia('(prefers-reduced-motion: reduce)').matches)
       content.current?.animate?.(
         [
@@ -99,7 +106,8 @@ export function DetailPanel({
     const element = panel.current;
     if (!wide || !element) return;
     const measure = () => {
-      const top = Math.max(12, element.getBoundingClientRect().top);
+      const stuck = parseFloat(getComputedStyle(element).top) || 12;
+      const top = Math.max(stuck, element.getBoundingClientRect().top);
       element.style.setProperty('--settings-panel-height', `${Math.max(0, window.innerHeight - top - 12)}px`);
     };
     measure();
@@ -125,7 +133,7 @@ export function DetailPanel({
         footer={footer}
         onClose={onClose}
         focusTitle
-        focusKey={itemKey}
+        focusKey={`${itemKey ?? ''}:${focusSignal}`}
         returnFocusRef={opener}
         returnFocusFallback={sectionHeading}
       >

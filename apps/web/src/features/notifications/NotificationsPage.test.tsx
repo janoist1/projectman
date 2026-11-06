@@ -23,8 +23,8 @@ afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, 
 const stateWord = (state: 'ok' | 'failed') =>
   t(`notifications.devices.state.${state}`, { when: '' }).split(' ·')[0]!;
 /** Any device's test and delete buttons, whatever the device is called. */
-const testLabel = new RegExp(`^${t('notifications.devices.testLabel', { name: '' })}`);
-const removeLabel = new RegExp(`^${t('notifications.devices.removeLabel', { name: '' })}`);
+const testLabel = () => new RegExp(`^${t('notifications.devices.testLabel', { name: '' })}`);
+const removeLabel = () => new RegExp(`^${t('notifications.devices.removeLabel', { name: '' })}`);
 
 function renderPage() {
   const project = mockProject();
@@ -241,8 +241,8 @@ describe('devices', () => {
     expect(dead.textContent).toContain(t('notifications.devices.expiredWhy'));
     // An expired device has neither a switch nor a test; it can still be deleted.
     expect(within(dead).queryByRole('switch')).toBeNull();
-    expect(within(dead).queryByRole('button', { name: testLabel })).toBeNull();
-    expect(within(dead).getByRole('button', { name: removeLabel })).toBeTruthy();
+    expect(within(dead).queryByRole('button', { name: testLabel() })).toBeNull();
+    expect(within(dead).getByRole('button', { name: removeLabel() })).toBeTruthy();
   });
 
   it('shows an empty state, and an error with a retry when the list cannot be loaded', async () => {
@@ -285,7 +285,7 @@ describe('devices', () => {
     const row = toggle.closest('li')!;
     expect(row.textContent).toContain(t('notifications.devices.state.paused'));
     // A paused device is not tested.
-    expect(within(row).queryByRole('button', { name: testLabel })).toBeNull();
+    expect(within(row).queryByRole('button', { name: testLabel() })).toBeNull();
     fireEvent.click(toggle);
     expect(await screen.findByText(t('notifications.devices.enabledToast'))).toBeTruthy();
     expect(project.backend.push.devices[0]!.enabled).toBe(true);

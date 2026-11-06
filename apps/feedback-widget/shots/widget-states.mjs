@@ -13,10 +13,18 @@ import { join } from 'node:path';
 
 const here = new URL('.', import.meta.url);
 const WIDGET_JS = readFileSync(new URL('../dist/widget.js', here), 'utf8');
-const PAGE_HTML = readFileSync(new URL('../dev/index.html', here), 'utf8').replace(
-  /<script type="module"[^>]*><\/script>/,
-  '<script src="/feedback/widget.js" data-project="PM" defer></script>',
-);
+const pageHtml = (lang) =>
+  readFileSync(new URL('../dev/index.html', here), 'utf8')
+    .replace(
+      /<script type="module"[^>]*><\/script>/,
+      '<script src="/feedback/widget.js" data-project="PM" defer></script>',
+    )
+    .replace('<html lang="hu">', `<html lang="${lang}">`);
+// The words the scenario presses, in the widget's language (PM-1184: `widget-states-en.mjs` runs it in English).
+const UI = {
+  hu: { start: 'Kezdjük', retry: 'Újra', send: 'Küldés', point: 'Pont', area: 'Terület' },
+  en: { start: 'Let’s start', retry: 'Try again', send: 'Send', point: 'Point', area: 'Area' },
+};
 const DEMO_PATH = '/widget-demo';
 const CODE = 'a'.repeat(43);
 const API = '/feedback/api/v1';
@@ -37,6 +45,7 @@ const base = {
   commentCount: 0,
   unread: false,
   hasScreenshot: false,
+  canDelete: false,
   closedAt: null,
 };
 const anchorOf = (fields) => ({
@@ -48,7 +57,9 @@ const anchorOf = (fields) => ({
   ...fields,
 });
 
-export default async ({ instance, open, shoot: takeShots, step, log }) => {
+export async function run({ instance, open, shoot: takeShots, step, log }, lang) {
+  const ui = UI[lang];
+  const PAGE_HTML = pageHtml(lang);
   const app = await open({ path: '/' });
   // `shoot` leaves the viewport at the last width; the steps go on at the desktop width.
   const shoot = async (page, name, options) => {
@@ -145,6 +156,20 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       body: 'Az oldal mobilon lassan tölt be.',
       anchor: anchorOf({ kind: 'page' }),
       working: true,
+      lastActivityAt: ago(1),
+    }),
+    // A closed mark, weeks old (PM-1184): the thread shows events, a closing line and an older date.
+    mark('fbm_closed00001', {
+      author: anna,
+      kind: 'point',
+      body: 'Az ár formátuma hibás.',
+      anchor: anchorOf({ kind: 'point', pagePoint: { x: 430, y: 380 } }),
+      status: 'closed',
+      outcome: 'answered',
+      createdAt: ago(60 * 24 * 20),
+      lastActivityAt: ago(60 * 24 * 18),
+      closedAt: ago(60 * 24 * 18),
+      commentCount: 1,
     }),
     mark('fbm_area0000001', {
       author: bela,
@@ -156,6 +181,18 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       card: { visible: false },
     }),
   ];
+
+  // The viewer's own mark with a card (PM-1189): shown only by the delete step, so the other shots stay as they are.
+  const deletable = mark('fbm_delete00001', {
+    author: anna,
+    kind: 'point',
+    body: 'A szállítási díj nem látszik a kosárban.',
+    anchor: anchorOf({ kind: 'point', pagePoint: { x: 480, y: 300 } }),
+    status: 'handled',
+    outcome: 'card_created',
+    card: { visible: true, key: 'PM-512', title: 'Szállítási díj a kosárban', stageName: 'Fejlesztés' },
+    canDelete: true,
+  });
 
   const comment = (id, actor, body, minutes) => ({
     id,
@@ -172,6 +209,11 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     ],
     fbm_point000001: [comment('fbe_3', pm, 'Ezt a tulajdonosnak kell eldöntenie, továbbítottam.', 90)],
     fbm_lost0000001: [comment('fbe_4', pm, 'A banner már nincs az oldalon, ezért lezártam.', 60)],
+    fbm_closed00001: [
+      comment('fbe_6', pm, 'Köszönöm, ez a javítás már bekerült.', 60 * 24 * 19),
+      { id: 'fbe_7', type: 'forwarded', actor: pm, body: null, card: null, createdAt: ago(60 * 24 * 19 - 5) },
+      { id: 'fbe_8', type: 'closed', actor: pm, body: null, card: null, createdAt: ago(60 * 24 * 18) },
+    ],
     fbm_area0000001: [
       {
         id: 'fbe_5',
@@ -202,7 +244,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
   };
 
   // What the pretend server answers; a step changes it before it triggers the widget.
-  const server = { exchange: 'ok', list: 'ok', create: 'ok', visibleMarks: marks };
+  const server = { exchange: 'ok', list: 'ok', create: 'ok', remove: 'ok', visibleMarks: marks };
   const reply = (route, status, body, headers = {}) =>
     route.fulfill({
       status,
@@ -274,8 +316,13 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       }
       const detail = /^\/marks\/(fbm_[a-z0-9]+)$/.exec(path);
       if (detail && method === 'GET') {
-        const view = marks.find((m) => m.id === detail[1]);
+        const view = server.visibleMarks.find((m) => m.id === detail[1]);
         return view ? reply(route, 200, detailOf(view)) : failure(route, 404, 'not_found');
+      }
+      if (detail && method === 'DELETE') {
+        if (server.remove === 'error') return failure(route, 500, 'internal');
+        server.visibleMarks = server.visibleMarks.filter((m) => m.id !== detail[1]);
+        return reply(route, 204);
       }
       if (/\/read$/.test(path)) return reply(route, 204);
       return failure(route, 404, 'not_found');
@@ -392,7 +439,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await app.waitForSelector('[role="dialog"]');
     await settle(app);
     await shoot(app, 'widget-welcome', { widths: [1512, 390] });
-    await press(app, 'Kezdjük');
+    await press(app, ui.start);
     await widgetReady(app);
     await settle(app);
   });
@@ -403,11 +450,11 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await app.mouse.move(520, 330);
     await settle(app);
     await shoot(app, 'widget-mode-element', { widths: [1512, 390] });
-    await app.locator('.mode', { hasText: 'Pont' }).click();
+    await app.locator('.mode', { hasText: ui.point }).click();
     await app.mouse.move(600, 420);
     await settle(app);
     await shoot(app, 'widget-mode-point', { widths: [1512, 390] });
-    await app.locator('.mode', { hasText: 'Terület' }).click();
+    await app.locator('.mode', { hasText: ui.area }).click();
     await app.mouse.move(100, 500);
     await app.mouse.down();
     await app.mouse.move(380, 640, { steps: 6 });
@@ -419,7 +466,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
   });
   await step('new mark card: picture, waiting, none, errors', async () => {
     // x stays inside 390 px: the same page point has to be on the screen at the phone width too.
-    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await startMark(app, ui.point, { x: 300, y: 420 });
     await app.locator('textarea').fill('Ez a rész lemarad a képernyő szélén.');
     await app
       .waitForSelector('[role="dialog"] img', { timeout: 15000 })
@@ -437,7 +484,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await app.evaluate(() => {
       window.__shotSlow = true;
     });
-    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await startMark(app, ui.point, { x: 300, y: 420 });
     await app.locator('textarea').fill('Ez a rész lemarad a képernyő szélén.');
     await settle(app);
     await shoot(app, 'widget-new-image-wait', { widths: [1512, 390] });
@@ -447,21 +494,31 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       window.__shotSlow = false;
       window.__shotFails = true;
     });
-    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await startMark(app, ui.point, { x: 300, y: 420 });
     await app.locator('textarea').fill('Ez a rész lemarad a képernyő szélén.');
     await settle(app, 1500);
     await shoot(app, 'widget-new-image-failed', { widths: [1512, 390] });
     server.create = 'error';
-    await press(app, 'Küldés');
+    await press(app, ui.send);
     await settle(app, 600);
     await shoot(app, 'widget-new-send-error', { widths: [1512, 390] });
     server.create = 'rate';
-    await press(app, 'Újra');
+    await press(app, ui.retry);
     await settle(app, 600);
     await shoot(app, 'widget-new-rate-limited', { widths: [1512, 390] });
     await app.locator('textarea').fill('x'.repeat(3850));
     await settle(app, 300);
     await shoot(app, 'widget-new-long-text', { widths: [1512, 390] });
+    // Over the limit by one character and by many (the singular and the plural of the counter).
+    await app.locator('textarea').fill('x'.repeat(3999));
+    await settle(app, 300);
+    await shoot(app, 'widget-new-left-1', { widths: [1512, 390] });
+    await app.locator('textarea').fill('x'.repeat(4001));
+    await settle(app, 300);
+    await shoot(app, 'widget-new-over-1', { widths: [1512, 390] });
+    await app.locator('textarea').fill('x'.repeat(4120));
+    await settle(app, 300);
+    await shoot(app, 'widget-new-over-many', { widths: [1512, 390] });
     await cancelCard(app);
     await app.evaluate(() => {
       window.__shotFails = false;
@@ -481,7 +538,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       window.__shotFails = true;
       window.__share = 'hold';
     });
-    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await startMark(app, ui.point, { x: 300, y: 420 });
     await text();
     await settle(app, 1500);
     await shoot(app, 'widget-browser-offer-failed', { widths: [1512, 390] });
@@ -503,7 +560,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await cancelCard(app);
 
     // The share stays open: the next mark takes its picture from it without asking.
-    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await startMark(app, ui.point, { x: 300, y: 420 });
     await text();
     await app.waitForSelector('.preview img', { timeout: 15000 }).catch(() => log('no shared picture'));
     await say('widget-browser-picture-next');
@@ -517,7 +574,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       window.__shotFails = false;
       window.__share = 'window';
     });
-    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await startMark(app, ui.point, { x: 300, y: 420 });
     await text();
     await app.waitForSelector('.preview img', { timeout: 15000 }).catch(() => log('no preview'));
     await app.locator('.shot-offer .link').click();
@@ -530,7 +587,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await app.evaluate(() => {
       window.__share = 'hold';
     });
-    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await startMark(app, ui.point, { x: 300, y: 420 });
     await text();
     await app.waitForSelector('.preview img', { timeout: 15000 }).catch(() => log('no preview'));
     await app.locator('.shot-offer .link').click();
@@ -548,13 +605,13 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await app.evaluate(() => window.localStorage.setItem('__noShare', '1'));
     await boot(app);
     await app
-      .locator('button:has-text("Kezdjük")')
+      .locator(`button:has-text("${ui.start}")`)
       .click({ timeout: 3000 })
       .catch(() => log('no welcome'));
     await app.evaluate(() => {
       window.__shotFails = true;
     });
-    await startMark(app, 'Pont', { x: 300, y: 420 });
+    await startMark(app, ui.point, { x: 300, y: 420 });
     await app.locator('textarea').fill('A kép nem mutatja, amit látok.');
     await settle(app, 1500);
     await shoot(app, 'widget-browser-unsupported', { widths: [1512, 390] });
@@ -599,6 +656,31 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await cancelCard(app);
   });
 
+  // Deleting one's own mark (PM-1189): the button, the confirmation, the error with a retry, the notice.
+  await step('deleting a mark', async () => {
+    server.visibleMarks = [...marks, deletable];
+    await refresh(app);
+    await app.locator('.pin[aria-label*="szállítási díj"]').click();
+    await app.waitForSelector('[role="dialog"]');
+    await settle(app);
+    await shoot(app, 'widget-delete-button', { widths: [1512, 390] });
+    await app.locator('[role="dialog"] .link.danger').click();
+    await settle(app, 500);
+    await shoot(app, 'widget-delete-confirm', { widths: [1512, 390] });
+    server.remove = 'error';
+    await app.locator('[role="group"] .btn.danger').click();
+    await app.waitForSelector('[role="group"] [role="alert"]');
+    await settle(app, 300);
+    await shoot(app, 'widget-delete-error', { widths: [1512, 390] });
+    server.remove = 'ok';
+    await app.locator('[role="group"] .btn.danger').click();
+    await app.waitForSelector('[role="dialog"]', { state: 'detached' });
+    await settle(app, 400);
+    await shoot(app, 'widget-delete-done', { widths: [1512, 390] });
+    server.visibleMarks = marks;
+    await refresh(app);
+  });
+
   await step('list panel', async () => {
     await app.locator('.l-list').click();
     await app.waitForSelector('[role="dialog"]');
@@ -609,6 +691,38 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await shoot(app, 'widget-panel-thread', { widths: [1512, 390] });
     await cancelCard(app);
     await cancelCard(app);
+
+    // A closed thread, with events and an older date (PM-1184).
+    await app.locator('.l-list').click();
+    await app.waitForSelector('[role="dialog"]');
+    await app.locator('[role="dialog"] >> text=Az ár formátuma hibás.').first().click();
+    await settle(app, 600);
+    await shoot(app, 'widget-thread-closed', { widths: [1512, 390] });
+    await cancelCard(app);
+    await cancelCard(app);
+
+    // The list with no marks, on both tabs.
+    // A refresh keeps the marks it already has, so the widget starts again from an empty browser.
+    server.visibleMarks = [];
+    await clearBrowser(app);
+    await boot(app, { ready: false });
+    await app.locator(`button:has-text("${ui.start}")`).click({ timeout: 5000 });
+    await widgetReady(app);
+    await settle(app);
+    await app.locator('.l-list').click();
+    await app.waitForSelector('[role="dialog"]');
+    await settle(app);
+    await shoot(app, 'widget-panel-empty', { widths: [1512, 390] });
+    await app.locator('[role="tab"]').nth(1).click();
+    await settle(app, 300);
+    await shoot(app, 'widget-panel-empty-all', { widths: [1512, 390] });
+    await cancelCard(app);
+    await cancelCard(app);
+    server.visibleMarks = marks;
+    await refresh(app);
+    log(
+      `root lang: ${await app.evaluate(() => document.querySelector('[data-pm-feedback-host]')?.shadowRoot?.querySelector('.w')?.getAttribute('lang'))}`,
+    );
   });
 
   await step('menu and states of the start', async () => {
@@ -654,7 +768,11 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await settle(app, 800);
     // The runner's shoot waits up to 10 s for the network to go idle, which is as long as the widget
     // waits for the exchange: it would show the timeout error. Take these two images directly.
-    const outDir = join(process.env.PROJECTMAN_SESSION_DIR ?? tmpdir(), 'shots', 'widget-states');
+    const outDir = join(
+      process.env.PROJECTMAN_SESSION_DIR ?? tmpdir(),
+      'shots',
+      lang === 'hu' ? 'widget-states' : `widget-states-${lang}`,
+    );
     await mkdir(outDir, { recursive: true });
     for (const [width, height] of [
       [1512, 982],
@@ -668,4 +786,6 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await release();
     normal();
   });
-};
+}
+
+export default (context) => run(context, 'hu');

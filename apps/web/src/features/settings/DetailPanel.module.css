@@ -9,7 +9,7 @@
 }
 .panel {
   position: sticky;
-  top: 12px;
+  top: calc(var(--topbar-height) + 12px);
   align-self: start;
   width: 380px;
   max-height: var(--settings-panel-height, calc(100dvh - var(--topbar-height) - 24px));

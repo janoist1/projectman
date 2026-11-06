@@ -136,6 +136,7 @@ describe('Claude Code login failures', () => {
       readiness: 'session_start',
       toolGate: 'permission_request',
       mcpImageResults: true,
+      sandboxEscalation: false,
     });
   });
 });

@@ -6,6 +6,7 @@ import { Button } from '../../components/Button';
 import { PasswordField, TextField } from '../../components/Field';
 import { LoadingState } from '../../components/States';
 import { ErrorBanner } from '../../components/ErrorBanner';
+import { currentLanguage } from '../../i18n/language';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
@@ -37,6 +38,7 @@ export function SetupPage() {
         name: values.name.trim(),
         email: values.email.trim(),
         password: values.password,
+        language: currentLanguage(),
         ...(needsSetupCode ? { setupCode: values.setupCode.trim() } : {}),
       },
       { onSuccess: () => navigate('/', { replace: true }) },

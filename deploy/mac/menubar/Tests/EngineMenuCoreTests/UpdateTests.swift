@@ -20,6 +20,9 @@ private final class UpdateFixture {
     var downloaded: [URL] = []
     var unpackArguments: [[String]] = []
     var verified: [String] = []
+    var attested: [[String]] = []
+    /// The commit in the unpacked app's engine-package.json; nil leaves the file out.
+    var bundledCommit: String? = String(repeating: "a", count: 40)
     var replaced: [(URL, URL)] = []
     var updating = 0
 
@@ -51,12 +54,20 @@ private final class UpdateFixture {
                 unpackArguments.append(spec.arguments)
                 if failing.contains("unpack") { return CommandResult(status: 1, error: "ditto: broken") }
                 let destination = URL(fileURLWithPath: spec.arguments[3])
-                for name in unpackedApps { try FileManager.default.createDirectory(at: destination.appendingPathComponent(name), withIntermediateDirectories: true) }
+                for name in unpackedApps {
+                    let engine = destination.appendingPathComponent(name).appendingPathComponent("Contents/Resources/engine")
+                    try FileManager.default.createDirectory(at: engine, withIntermediateDirectories: true)
+                    if let bundledCommit { try Data("{\"version\":\"\(bundledCommit)\"}".utf8).write(to: engine.appendingPathComponent("engine-package.json")) }
+                }
                 return CommandResult(status: 0)
             },
             verifySignature: { [self] app, requirement in
                 verified.append(requirement)
                 if failing.contains("signature") { throw Installer.MessageError("a sealed resource is missing") }
+            },
+            verifyAttestation: { [self] zip, repo, workflow, ref in
+                attested.append([zip.lastPathComponent, repo, workflow, ref])
+                if failing.contains("attestation") { throw UpdateFailure("attestation_invalid", "no matching attestation") }
             },
             bundleVersion: { [self] _ in unpackedVersion },
             replace: { [self] bundle, app in
@@ -192,6 +203,83 @@ final class UpdateTests: XCTestCase {
             XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cache.path), code)
         }
     }
+    // MARK: Attestation mode (PM-1199)
+
+    private func attestationFixture() throws -> UpdateFixture {
+        let fixture = try UpdateFixture()
+        fixture.identity = AppIdentity(bundleVersion: "20261028.0", releaseRepo: "owner/repo", teamId: "", updateTrust: "github-attestation", sourceRef: "refs/heads/main")
+        fixture.manifestChanges = { $0["teamId"] = "" }
+        return fixture
+    }
+    func testAttestationTrustLetsAnAdHocTaggedBuildUpdate() {
+        let identity = AppIdentity(bundleVersion: "20261028.0", releaseRepo: "owner/repo", teamId: "", updateTrust: "github-attestation", sourceRef: "refs/heads/main")
+        XCTAssertEqual(identity.updateTrust, .attestation); XCTAssertTrue(identity.canSelfUpdate)
+        XCTAssertEqual(identity.signerWorkflow, "owner/repo/.github/workflows/projectman-engine-release.yml")
+    }
+    func testBuildWithoutATagNeverUpdatesWhateverItsTrust() {
+        XCTAssertFalse(AppIdentity(bundleVersion: "0", releaseRepo: "owner/repo", teamId: "", updateTrust: "github-attestation", sourceRef: "refs/heads/main").canSelfUpdate)
+        XCTAssertFalse(AppIdentity(bundleVersion: "0", releaseRepo: "owner/repo", teamId: "ABCDE12345").canSelfUpdate)
+    }
+    func testAttestationTrustNeedsAValidSourceRefAndTheTrustKey() {
+        XCTAssertEqual(AppIdentity(bundleVersion: "20261028.0", releaseRepo: "owner/repo", teamId: "", updateTrust: "github-attestation", sourceRef: "refs/tags/v1").updateTrust, .none)
+        XCTAssertEqual(AppIdentity(bundleVersion: "20261028.0", releaseRepo: "owner/repo", teamId: "", updateTrust: nil, sourceRef: "refs/heads/main").updateTrust, .none)
+        XCTAssertEqual(AppIdentity(info: ["CFBundleVersion": "20261028.0", "ProjectmanReleaseRepo": "owner/repo", "ProjectmanTeamId": "",
+                                          "ProjectmanUpdateTrust": "github-attestation", "ProjectmanUpdateSourceRef": "refs/heads/main"]).updateTrust, .attestation)
+    }
+    func testTeamIdIsThePrimaryTrust() {
+        let identity = AppIdentity(bundleVersion: "20261028.0", releaseRepo: "owner/repo", teamId: "ABCDE12345", updateTrust: "github-attestation", sourceRef: "refs/heads/main")
+        XCTAssertEqual(identity.updateTrust, .team)
+    }
+    func testAttestedReleaseReplacesTheAppAfterEveryCheck() throws {
+        let fixture = try attestationFixture()
+        XCTAssertEqual(try fixture.run(), .replaced)
+        XCTAssertEqual(fixture.attested, [["projectman-motor.zip", "owner/repo", "owner/repo/.github/workflows/projectman-engine-release.yml", "refs/heads/main"]])
+        XCTAssertEqual(fixture.verified, [UpdateManifest.adHocRequirement])
+        XCTAssertEqual(fixture.replaced.count, 1)
+    }
+    func testTeamSignedReleaseIsRefusedInAttestationModeBeforeTheDownload() throws {
+        let fixture = try attestationFixture()
+        fixture.manifestChanges = { $0["teamId"] = "ABCDE12345" }
+        XCTAssertThrowsError(try fixture.run()) { XCTAssertEqual(($0 as? UpdateFailure)?.code, "team_mismatch") }
+        XCTAssertTrue(fixture.downloaded.isEmpty)
+    }
+    func testEveryFailedAttestationStepKeepsTheOldAppAndNamesTheStep() throws {
+        let cases: [(String, (UpdateFixture) -> Void)] = [
+            ("attestation_invalid", { $0.failing = ["attestation"] }),
+            ("version_mismatch", { $0.bundledCommit = String(repeating: "b", count: 40) }),
+            ("version_mismatch", { $0.bundledCommit = nil }),
+            ("signature_invalid", { $0.failing = ["signature"] }),
+        ]
+        for (code, arrange) in cases {
+            let fixture = try attestationFixture()
+            arrange(fixture)
+            XCTAssertThrowsError(try fixture.run(), code) { XCTAssertEqual(($0 as? UpdateFailure)?.code, code) }
+            XCTAssertTrue(fixture.replaced.isEmpty, code)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.cache.path), code)
+        }
+    }
+    func testFailedAttestationStopsBeforeUnpacking() throws {
+        let fixture = try attestationFixture()
+        fixture.failing = ["attestation"]
+        XCTAssertThrowsError(try fixture.run())
+        XCTAssertTrue(fixture.unpackArguments.isEmpty)
+    }
+    func testVerifierRunsGhWithTheSignerWorkflowTheSourceRefAndNoSelfHostedRunner() throws {
+        var spec: CommandSpec?
+        try AttestationVerifier.verify(zip: URL(fileURLWithPath: "/c/a.zip"), repo: "owner/repo", signerWorkflow: "owner/repo/.github/workflows/w.yml", sourceRef: "refs/heads/main",
+                                       path: "/x/bin:/opt/homebrew/bin", home: "/h", isExecutable: { $0 == "/opt/homebrew/bin/gh" }, run: { spec = $0; return CommandResult(status: 0) })
+        XCTAssertEqual(spec?.executable, "/opt/homebrew/bin/gh")
+        XCTAssertEqual(spec?.arguments, ["attestation", "verify", "/c/a.zip", "--repo", "owner/repo", "--signer-workflow", "owner/repo/.github/workflows/w.yml",
+                                         "--source-ref", "refs/heads/main", "--deny-self-hosted-runners"])
+        XCTAssertEqual(spec?.environment?["PATH"], "/x/bin:/opt/homebrew/bin")
+    }
+    func testVerifierNamesAMissingGhAndARefusedAttestation() {
+        XCTAssertEqual(failure { try AttestationVerifier.verify(zip: URL(fileURLWithPath: "/a.zip"), repo: "o/r", signerWorkflow: "w", sourceRef: "refs/heads/main", path: "/x",
+                                                                 home: "/h", isExecutable: { _ in false }, run: { _ in CommandResult(status: 0) }) }?.code, "gh_missing")
+        XCTAssertEqual(failure { try AttestationVerifier.verify(zip: URL(fileURLWithPath: "/a.zip"), repo: "o/r", signerWorkflow: "w", sourceRef: "refs/heads/main", path: "/x",
+                                                                home: "/h", isExecutable: { _ in true }, run: { _ in CommandResult(status: 1, error: "no attestations found") }) }?.code, "attestation_invalid")
+    }
+
     func testUnsupportedManifestFailsBeforeTheDownload() throws {
         let fixture = try UpdateFixture()
         fixture.manifestChanges = { $0["minimumMacOS"] = "15.0" }

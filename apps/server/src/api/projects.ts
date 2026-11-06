@@ -45,6 +45,7 @@ export function registerProjectRoutes(
       userId: user.id,
       isHostOwner: auth.isHostOwner(user.id),
       isOwnerAccount: auth.isOwnerAccount(user.id),
+      language: user.language,
     });
     return reply.code(201).send(summary);
   });

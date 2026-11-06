@@ -1,6 +1,5 @@
-import { ALERT_SEEN_OPTION, limitTokens, usageTotal } from '@projectman/shared';
-import type { InboxItem, SessionTokensAlert, SessionUsageAlert } from '@projectman/shared';
-import { ownerHandles } from '@projectman/shared';
+import { limitTokens, usageTotal } from '@projectman/shared';
+import type { SessionTokensAlert, SessionUsageAlert } from '@projectman/shared';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
@@ -8,8 +7,8 @@ import type { ProjectService } from '../../core/projects';
 
 /**
  * The warning limit of a session's tokens (PM-187): once a session's usage, as `limitTokens` counts
- * it, reaches the project's `warnAboveSessionTokens`, the owners get one `alert` in their inbox
- * pointing at the session, and the session is marked. Nothing else happens: the session keeps
+ * it, reaches the project's `warnAboveSessionTokens`, the owners get one `system_notice` message
+ * about the session (PM-1250), and the session is marked. Nothing else happens: the session keeps
  * running. It is checked when the session reports usage, so changing the limit raises nothing about
  * sessions that no longer run.
  */
@@ -24,16 +23,15 @@ export class UsageAlerts {
     this.inbox = deps.inbox;
   }
 
-  /** After the session's usage grew: the alert item when this raised one, else null. */
-  check(sessionId: string): InboxItem | null {
+  /** After the session's usage grew: whether this raised the warning (the session is marked, the owners are told). */
+  check(sessionId: string): boolean {
     const session = this.ctx.repos.sessions.get(sessionId);
-    if (!session?.usage || session.usageAlert) return null;
+    if (!session?.usage || session.usageAlert) return false;
     const config = this.projects.cachedConfig(session.projectKey);
     const limit = config?.team.limits.warnAboveSessionTokens;
-    if (!config || limit === undefined) return null;
+    if (!config || limit === undefined) return false;
     const counted = limitTokens(usageTotal(session.usage.rows));
-    if (counted < limit) return null;
-    const owners = ownerHandles(config);
+    if (counted < limit) return false;
     const alert: SessionUsageAlert = { at: isoNow(this.ctx), countedTokens: counted, limitTokens: limit };
     const payload: SessionTokensAlert = {
       alert: 'session_tokens',
@@ -44,18 +42,16 @@ export class UsageAlerts {
     };
     return this.ctx.unitOfWork(() => {
       // Two usage events close together: only the one that marks the session raises the warning.
-      if (!this.ctx.repos.sessions.markUsageAlert(session.id, alert) || owners.length === 0) return null;
-      return this.inbox.create({
+      if (!this.ctx.repos.sessions.markUsageAlert(session.id, alert)) return false;
+      this.inbox.raiseAlert({
         projectKey: session.projectKey,
-        kind: 'alert',
-        assignees: owners,
         source: session.member,
         sessionId: session.id,
         taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
         title: `Session used ${counted} tokens, above the warning limit of ${limit}`,
         payload,
-        options: [ALERT_SEEN_OPTION],
       });
+      return true;
     });
   }
 }

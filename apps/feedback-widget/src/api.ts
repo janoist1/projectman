@@ -35,6 +35,7 @@ export interface Api {
   createMark(request: CreateFeedbackMarkRequest): Promise<FeedbackMarkDetail>;
   comment(markId: string, body: string): Promise<FeedbackMarkDetail>;
   markRead(markId: string): Promise<void>;
+  deleteMark(markId: string): Promise<void>;
   logout(): Promise<void>;
 }
 
@@ -119,6 +120,9 @@ export function createApi(options: ApiOptions): Api {
       json(await send('POST', `/marks/${encodeURIComponent(markId)}/comments`, { body })),
     markRead: async (markId) => {
       await send('POST', `/marks/${encodeURIComponent(markId)}/read`, {});
+    },
+    deleteMark: async (markId) => {
+      await send('DELETE', `/marks/${encodeURIComponent(markId)}`, undefined);
     },
     logout: async () => {
       await send('DELETE', '/sessions/current', undefined);

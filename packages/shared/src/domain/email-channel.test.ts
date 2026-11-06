@@ -220,11 +220,12 @@ describe('email contact change', () => {
       { source: { kind: 'message', from: 'ann', to: ['dev'], at: '2026-10-23T00:00:00Z' } },
       'source_too_old',
     ],
-    ['own email', { source: { kind: 'email', from: 'ann' } }, null],
-    ['another email', { source: { kind: 'email', from: 'owner' } }, 'source_mismatch'],
+    ['own email', { source: { kind: 'email', from: 'ann', at: change.now } }, null],
+    ['another email', { source: { kind: 'email', from: 'owner', at: change.now } }, 'source_mismatch'],
+    ['stale email', { source: { kind: 'email', from: 'ann', at: '2026-10-14T00:00:00Z' } }, 'source_too_old'],
     [
       'owner email cannot opt in someone else',
-      { requestedBy: 'owner', source: { kind: 'email', from: 'owner' } },
+      { requestedBy: 'owner', source: { kind: 'email', from: 'owner', at: change.now } },
       'source_mismatch',
     ],
     [
@@ -237,7 +238,7 @@ describe('email contact change', () => {
     ['disable still requires request', { wants: false, requestedBy: null, source: null }, 'request_required'],
     [
       'disable checks provided source',
-      { wants: false, source: { kind: 'email', from: 'other' } },
+      { wants: false, source: { kind: 'email', from: 'other', at: change.now } },
       'source_mismatch',
     ],
   ])('%s', (_name, extra, expected) => {

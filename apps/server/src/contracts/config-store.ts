@@ -28,6 +28,13 @@ export interface ConfigStore {
     },
   ): Promise<{ version: string }>;
   history(projectKey: string, limit?: number, offset?: number): Promise<ConfigVersionEntry[]>;
+  /** How many versions the project has (`git rev-list --count HEAD -- projects/<key>`). */
+  countVersions(projectKey: string): Promise<number>;
+  /**
+   * The configuration as of each of these versions, migrated and validated with load tolerance, in the
+   * order asked; null for one that cannot be read or does not validate. One git process for all of them.
+   */
+  loadVersions(projectKey: string, versions: readonly string[]): Promise<(ProjectConfig | null)[]>;
   /**
    * Whether a commit of the project carries the super-mode audit entry `auditId` as its trailer (PM-757), found
    * in the whole history, not in its latest page.

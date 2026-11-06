@@ -20,7 +20,7 @@ describe('NanoGPT adapter', () => {
       codexHome,
       nanogptKey: async () => key,
       logger: silentLogger(),
-      ambientConfig: { codexManaged: [] },
+      ambientConfig: { codexManaged: [], codexPresenceRefused: [] },
       fetch: async () => new Response(null, { status: 503 }),
     });
     const input = {
@@ -45,7 +45,11 @@ describe('NanoGPT adapter', () => {
   }
   it('takes the capabilities of Codex, except that an image in a tool result is not promised (PM-518)', async () => {
     const { adapter } = await harness();
-    expect(adapter.capabilities).toMatchObject({ toolGate: 'permission_request', mcpImageResults: false });
+    expect(adapter.capabilities).toMatchObject({
+      toolGate: 'permission_request',
+      mcpImageResults: false,
+      sandboxEscalation: true,
+    });
   });
   it('refuses an explicitly invalid worktree boundary before using the key', async () => {
     const h = await harness();
@@ -120,6 +124,12 @@ describe('NanoGPT adapter', () => {
     expect(JSON.stringify(launch.cliArgs)).toContain(path.join(h.input.sessionConfigDir, 'hook.curl'));
     expect(await readFile(path.join(h.input.sessionConfigDir, 'hook.curl'), 'utf8')).toBe(
       'url = "http://localhost/hook"\n',
+    );
+    // The team MCP bridge reads its URL from the session's folder too (PM-1170).
+    expect(JSON.stringify(launch.cliArgs)).not.toContain('http://localhost/mcp');
+    expect(JSON.stringify(launch.cliArgs)).toContain(path.join(h.input.sessionConfigDir, 'codex-mcp.json'));
+    expect(await readFile(path.join(h.input.sessionConfigDir, 'codex-mcp.json'), 'utf8')).toBe(
+      '{"url":"http://localhost/mcp"}',
     );
     expect(launch.env).toEqual({ CODEX_HOME: h.codexHome, NANOGPT_API_KEY: 'private-test-sentinel' });
     expect((await stat(h.codexHome)).mode & 0o777).toBe(0o700);
@@ -215,7 +225,7 @@ describe('NanoGPT adapter', () => {
       nanogptKey: async () => null,
       keyInCloud: true,
       logger: silentLogger(),
-      ambientConfig: { codexManaged: [] },
+      ambientConfig: { codexManaged: [], codexPresenceRefused: [] },
     });
     await expect(adapter.launch(h.input)).rejects.toMatchObject({ code: 'nanogpt_key_missing' });
   });
@@ -320,7 +330,7 @@ describe('NanoGPT adapter', () => {
               codexHome: h.codexHome,
               nanogptKey: async () => 'test-key',
               logger: silentLogger(),
-              ambientConfig: { codexManaged: [file] },
+              ambientConfig: { codexManaged: [file], codexPresenceRefused: [] },
             })
           : h.adapter;
       let error: unknown;
@@ -342,6 +352,7 @@ describe('NanoGPT adapter', () => {
     ['config.toml', '["mcp\\u005fservers".x]\ncommand = "private-hook-sentinel"', 'project'],
     ['anything.txt', 'private-hook-sentinel', 'project'],
     ['hooks.json', 'private-hook-sentinel', 'user'],
+    ['config.toml', 'project_root_markers = ["private-hook-sentinel"]', 'user'],
   ])('refuses %s in the %s layer on launch and resume', async (name, content, layer) => {
     const h = await harness();
     const dir = layer === 'project' ? path.join(h.input.spec.cwd, '.codex') : h.codexHome;
@@ -357,5 +368,23 @@ describe('NanoGPT adapter', () => {
       expect(error).toMatchObject({ code: 'nanogpt_setup_incomplete' });
       expect(JSON.stringify(error)).not.toContain('private-hook-sentinel');
     }
+  });
+  it('refuses a present administrator or MDM preference file without reading it (PM-1169)', async () => {
+    const h = await harness();
+    const file = path.join(h.input.spec.cwd, 'com.openai.codex.plist');
+    await writeFile(file, 'private-hook-sentinel');
+    const adapter = createNanogptAdapter({
+      bin: FAKE_CODEX,
+      codexHome: h.codexHome,
+      nanogptKey: async () => 'test-key',
+      logger: silentLogger(),
+      ambientConfig: { codexManaged: [], codexPresenceRefused: [file] },
+    });
+    const error = await adapter.launch(h.input).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      code: 'nanogpt_setup_incomplete',
+      details: { ambientConfig: [{ file, keys: ['(managed preferences)'] }] },
+    });
+    expect(JSON.stringify(error)).not.toContain('private-hook-sentinel');
   });
 });

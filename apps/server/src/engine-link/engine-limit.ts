@@ -3,10 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   COMPUTE_JOB_WORKFLOW,
+  isComputeJobWorkflow,
   isRegeneratedPath,
   isRegeneratedPathPattern,
   isReleaseTagName,
+  placementReadsOnly,
   SessionReadBoundary,
+  usesCodexCli,
   type ProjectConfig,
 } from '@projectman/shared';
 import type { AgentSandbox, EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
@@ -308,6 +311,10 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     [M in EngineMethod]: (params: MethodParams<M>) => MethodParams<M> | Promise<MethodParams<M>>;
   }> = {
     'session.start': (spec) => {
+      // PM-1187: a missing provider means Claude, as in the sandbox branch below.
+      const provider = spec.provider ?? 'claude';
+      if (config.allowedProviders && !config.allowedProviders.includes(provider))
+        refuse('provider_not_allowed', `The ${provider} provider is not allowed on this engine`);
       const extra = sandboxRoots();
       const readable = readRoots();
       inside(spec.cwd, 'The working directory');
@@ -355,6 +362,24 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         }
       }
       let sandbox = spec.sandbox;
+      const readsOnly = placementReadsOnly(policy.access, {
+        mode: policy.reviewCopyMode,
+        enforcement: policy.enforcement,
+      });
+      if (readsOnly && sandbox?.portable?.readBoundary === undefined)
+        refuse('invalid_params', 'A reading session needs a read boundary on this engine');
+      // PM-1187: this engine refuses every Codex approval outside the sandbox, so a writer in a `default` mode
+      // (read-only sandbox, approval on request) could never edit: it does not start.
+      if (
+        usesCodexCli(provider) &&
+        !readsOnly &&
+        policy.permissions.sandbox === 'read-only' &&
+        policy.permissions.approval === 'on-request'
+      )
+        refuse(
+          'permission_mode_too_low',
+          'A Codex session that writes needs the acceptEdits or auto mode on this engine',
+        );
       // A reading session's boundary (PM-425) is checked for every provider: the sandbox's list is the
       // one the policy's copy is replaced with, and no transcript of any session is ever readable.
       let readerDenied: string[] = [];
@@ -459,24 +484,26 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         const shared = portable.tmpDir
           ? [...paths.claudeTmpRoots, ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : [])]
           : [];
+        const canonicalBoundary = {
+          deniedRoots: [
+            ...new Set(
+              [...boundary.data.deniedRoots, userHome, home, ...shared].flatMap((root) => [
+                root,
+                resolveReal(root),
+              ]),
+            ),
+          ],
+          allowedPaths,
+        };
         sandbox = {
           ...sandbox!,
-          allowRead: sandbox!.allowRead?.filter((target) => !hardDenied(target)),
+          denyRead: [...new Set([...canonicalBoundary.deniedRoots, ...(filesystem.deniedPaths ?? [])])],
+          allowRead: [...new Set(allowedPaths.flatMap((entry) => [entry.path, resolveReal(entry.path)]))],
           allowWrite: sandbox!.allowWrite.filter((target) => !hardDenied(target)),
           portable: {
             ...portable,
             allowWrite: portable.allowWrite.filter((target) => !hardDenied(target)),
-            readBoundary: {
-              deniedRoots: [
-                ...new Set(
-                  [...boundary.data.deniedRoots, userHome, home, ...shared].flatMap((root) => [
-                    root,
-                    resolveReal(root),
-                  ]),
-                ),
-              ],
-              allowedPaths,
-            },
+            readBoundary: canonicalBoundary,
           },
         };
       }
@@ -630,13 +657,14 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         const job = spec.githubJob;
         const entry = await mergeBase(job.ref, job.base);
         commitIds(job.commit);
-        if (job.workflow !== COMPUTE_JOB_WORKFLOW)
-          refuse('invalid_params', 'The workflow is not the general compute job workflow');
+        if (!isComputeJobWorkflow(job.workflow))
+          refuse('invalid_params', 'The workflow is not a compute job workflow');
         if (spec.command !== job.command)
           refuse('invalid_params', 'The command of a compute job is the command of its workflow');
         const registered = entry.computeJobs?.find((candidate) => candidate.id === job.job);
         if (
           !registered ||
+          (registered.workflow ?? COMPUTE_JOB_WORKFLOW) !== job.workflow ||
           registered.command !== job.command ||
           registered.runsOn !== job.runsOn ||
           registered.node !== job.node ||
@@ -886,10 +914,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       mergeRepo(params.ref);
       commitIds(params.onto);
       if (!isCommitFileSet(params.files))
-        refuse(
-          'invalid_params',
-          'Not a set of 1 to 2 different files inside the repository, each text under 1 MiB',
-        );
+        refuse('invalid_params', 'Not a set of 1 to 2 different project documents, each text under 1 MiB');
       if (!isMergeMessage(params.message) || params.message.trim().length === 0)
         refuse('invalid_params', 'Not a commit message');
       return params;

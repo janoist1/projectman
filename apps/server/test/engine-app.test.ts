@@ -232,7 +232,11 @@ describe('engine process', () => {
         const heavyLockDir = path.join(base, 'heavy', 'lock');
         const built = await build({ sessionFoldersDir, sessionTmpDir, claudeTmpBase, heavyLockDir });
         const options = factory.mock.calls[0]![0];
-        expect(options.setupOf('PM', 'projectman')).toEqual({ kind: 'npm_ci', timeoutMs: 600_000 });
+        expect(options.setupOf('PM', 'projectman')).toEqual({
+          kind: 'npm_ci',
+          timeoutMs: 600_000,
+          implicit: false,
+        });
         expect(options.setupOf('PM', 'other')).toBeNull();
         expect(options.heavyLockDir).toBe(heavyLockDir);
         expect(options.worktreesRoot).toBe(path.join(home, 'worktrees'));
@@ -896,6 +900,62 @@ describe('engine process', () => {
     });
   });
 
+  describe('engine guard (PM-1176)', () => {
+    it('audits an escalation refusal with its code only (PM-1187)', async () => {
+      await startEngine();
+      await cloud.connected();
+      fake.options()!.engineGuard!.refused({ sessionId: 's1', member: 'dev', code: 'escalation_refused' });
+      await engine!.close();
+      const records = readFileSync(path.join(home, 'logs', 'engine-audit.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((record) => record.method === 'tool.guard');
+      expect(records).toEqual([
+        expect.objectContaining({ sessionId: 's1', outcome: 'refused', code: 'escalation_refused' }),
+      ]);
+    });
+
+    it('audits a refusal with its code only, and tells the cloud it was the engine guard', async () => {
+      await startEngine();
+      await cloud.connected();
+      const secretPath = '/outside/SECRET-GUARD-PATH';
+      fake
+        .options()!
+        .engineGuard!.refused({ sessionId: 's1', member: 'dev', code: 'outside_writable_roots' });
+      fake.broker().refused!({
+        sessionId: 's1',
+        toolName: 'Write',
+        toolInput: { file_path: secretPath },
+        by: 'engine_guard',
+        reason: 'outside_writable_roots',
+      });
+      await waitFor(
+        () =>
+          cloud.received.some(
+            (entry) => entry.event.kind === 'refused' && entry.event.info.by === 'engine_guard',
+          ),
+        'the refusal event',
+      );
+      await engine!.close();
+      const text = readFileSync(path.join(home, 'logs', 'engine-audit.jsonl'), 'utf8');
+      const guard = text
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((record) => record.method === 'tool.guard');
+      expect(guard).toEqual([
+        expect.objectContaining({
+          sessionId: 's1',
+          member: 'dev',
+          outcome: 'refused',
+          code: 'outside_writable_roots',
+        }),
+      ]);
+      expect(text).not.toContain(secretPath);
+    });
+  });
+
   describe('log and audit', () => {
     it('keeps prompts, messages, tokens and request bodies out of every log', async () => {
       cloud.handle('mcp.relay', () => ({ status: 200, contentType: 'application/json', body: '{}' }));
@@ -950,6 +1010,26 @@ describe('engine process', () => {
         }),
       );
       for (const record of records) expect(typeof record.at).toBe('string');
+    });
+
+    it('refuses a provider outside the list, audits it without a path, and starts nothing (PM-1187)', async () => {
+      saveEngineConfig(home, { ...loadEngineConfig(home), allowedProviders: ['claude'] });
+      await startEngine();
+      const { call } = await cloud.connected();
+      await expect(
+        call('session.start', startSpec({ sessionId: 's-gemini', provider: 'gemini' })),
+      ).rejects.toMatchObject({ code: 'provider_not_allowed' });
+      expect(fake.runner.started).toHaveLength(0);
+      await engine!.close();
+      const records = readFileSync(path.join(home, 'logs', 'engine-audit.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((record) => record.method === 'session.start');
+      expect(records).toEqual([
+        expect.objectContaining({ sessionId: 's-gemini', outcome: 'refused', code: 'provider_not_allowed' }),
+      ]);
+      expect(Object.keys(records[0]!)).not.toEqual(expect.arrayContaining(['path', 'input']));
     });
 
     it('records a request refused before any handler (an unknown method or invalid parameters)', async () => {

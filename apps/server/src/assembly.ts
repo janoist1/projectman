@@ -8,6 +8,7 @@ import {
   MergeTools,
   ReleaseTools,
   ComputeJobTools,
+  DocumentTools,
   ToolCaller,
   GithubTools,
   ScreenshotTools,
@@ -42,7 +43,7 @@ import {
   createSuperOperator,
 } from './services/super-operator';
 import type { OperatorAppOperations, SuperOperations } from './services/super-operator';
-import { createMessaging } from './core/messages';
+import { createAlertNoticeSink, createMessaging } from './core/messages';
 import { createSuperAuditService, createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
 import { createTaskService } from './core/tasks';
@@ -71,6 +72,7 @@ import type { EngineCounters } from './runtime/sessions';
 import type {
   AttachmentStorage,
   ConfigStore,
+  DocumentStore,
   ContextPackBuilder,
   EngineAttachments,
   EngineDirectory,
@@ -115,6 +117,7 @@ import {
 } from './runtime/admission';
 import type { QueueWait } from './runtime/admission';
 import { AttachmentService } from './core/attachments';
+import { DocumentService } from './core/documents';
 import { MessageAttachmentService } from './core/attachments';
 import { BackgroundTasks } from './kernel';
 import { BoardService } from './core/tasks';
@@ -129,6 +132,7 @@ import {
   LoopTriages,
   OperatorSignals,
   StructuralReviews,
+  createAlertPmSignals,
   wireOperatorSignals,
 } from './services/coordination';
 import { QuestionScreening } from './core/inbox';
@@ -147,7 +151,7 @@ import { DecisionCandidates, DocWrites } from './services/project-docs';
 import { Merges } from './services/merges';
 import { MergeCardLock, startSweeps, type RunningSweeps } from './kernel';
 import { createPermissionBroker, engineIdOf, fullTestSandbox, StartHolds } from './runtime/sessions';
-import { ReleasePublishService } from './services/releases';
+import { ReleasePublishService, releaseStatusOf } from './services/releases';
 import { ComputeJobService } from './services/compute-jobs';
 import { LoopWatch } from './runtime/watchers';
 import { HumanQuestions, OpenQuestionLabel } from './core/inbox';
@@ -237,6 +241,8 @@ export interface DomainOptions {
   appTag?: () => Promise<string | null>;
   repos: Repositories;
   configStore: ConfigStore;
+  /** The project's living documents (PM-147): a git submodule of the customization repository. */
+  documentStore: DocumentStore;
   logger: FastifyBaseLogger;
   /** Base URL the claude CLI reaches this server at (MCP endpoint), e.g. http://127.0.0.1:4700. */
   publicBaseUrl: string;
@@ -385,6 +391,8 @@ export interface DomainOptions {
   heavyRunSessions?: () => Promise<string[]>;
   /** How often the free disk space is checked (default 1 min). */
   diskCheckMs?: number;
+  /** How often the owners' waiting digest is considered (default 10 min; it is sent at most once a day, PM-1250). */
+  waitingDigestMs?: number;
   /** How often the worktrees of closed cards are swept, starting at startup (default 6 hours). */
   worktreeSweepMs?: number;
   /** How long a closed card's worktree stays (default `CLOSED_WORKTREE_KEEP_MS`, 3 days). */
@@ -700,6 +708,7 @@ export function createDomain(opts: DomainOptions) {
     storage: opts.attachmentStorage,
     onDeleted: (a) => inbox.attachmentGone(a.projectKey, a.id, isoNow(ctx)),
   });
+  const documents = new DocumentService({ ctx, store: opts.documentStore });
   const feedback = new FeedbackService({
     ctx,
     projects,
@@ -771,10 +780,11 @@ export function createDomain(opts: DomainOptions) {
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
     doneTurnLimitMs: opts.doneTurnLimitMs,
     attachments,
+    documents: opts.documentStore,
     attachmentDirectory,
     standby: opts.standby,
     usageAlerts: new UsageAlerts({ ctx, projects, inbox }),
-    inputStall: new InputStallAlerts({ ctx, projects, inbox }),
+    inputStall: new InputStallAlerts({ ctx, inbox }),
     inputStallMs: opts.inputStallMs,
   });
   const usage = new PlanUsageMonitor({
@@ -884,6 +894,7 @@ export function createDomain(opts: DomainOptions) {
     routing: messageRouter,
     messageAttachments,
   });
+  inbox.registerAlertNotices(createAlertNoticeSink({ ctx, messaging }));
   const sessionMessages = new SessionMessages({ ctx, projects, tasks, messaging, sessions, delivery });
   const emailChannel = createEmailChannelService({
     ctx,
@@ -1031,7 +1042,9 @@ export function createDomain(opts: DomainOptions) {
       },
     }),
   );
-  memberQueueDriver.register(messageLane({ ctx, projects, tasks, messages, messageRouter, delivery }));
+  memberQueueDriver.register(
+    messageLane({ ctx, projects, tasks, messages, messageRouter, messaging, timeline, delivery }),
+  );
   memberQueueDriver.register(checklistLane({ ctx, projects, memberQueue }));
   memberQueueDriver.register(
     startLane({
@@ -1304,6 +1317,13 @@ export function createDomain(opts: DomainOptions) {
     refinement,
     fixLimit,
     startOffers: { stateOf: (projectKey, taskKey) => startRound.offerState(projectKey, taskKey) },
+    kicks: {
+      refinement: (projectKey, taskKey) => refinement.changed({ projectKey, key: taskKey }),
+      advance: async (projectKey, taskKey) => {
+        const task = tasks.find(projectKey, taskKey);
+        if (task) await autoAdvance.check(task);
+      },
+    },
     sessions: {
       atWork: (sessionId) => {
         const session = sessions.find(sessionId);
@@ -1361,16 +1381,22 @@ export function createDomain(opts: DomainOptions) {
     wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
     taskWaits,
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
+    outageFacts: (projectKey, outageId) => outages.factsOf(projectKey, outageId),
     inbox,
     startWaitingOf: (task) => tasks.startWaitingOf(task),
     startAttempting: (task) => tasks.startAttempting(task),
+    unreleased: (projectKey) => releasePublications.unreleased(projectKey),
   });
   // A step that stands overdue after its reminder goes to the PM as an `obligation_overdue` signal (PM-1152).
   obligations.usePmNotices({
     raise: (input) => operatorSignals.raiseObligationOverdue(input),
+    raiseSeniorWait: (input) => operatorSignals.raiseSeniorWait(input),
     deliver: (projectKey) => operatorSignals.deliver(projectKey),
+    dismissed: (projectKey, obligationId) => operatorSignals.obligationDismissed(projectKey, obligationId),
   });
   messaging.registerSignals(operatorSignals);
+  // The alerts the route rule sends to the project manager become signals (PM-1250).
+  inbox.registerAlertPmSignals(createAlertPmSignals({ operatorSignals, background, logger: ctx.logger }));
   const structuralReviews = new StructuralReviews({
     ctx,
     projects,
@@ -1398,6 +1424,14 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     queue: memberQueue,
     wake: (projectKey, member) => memberQueueDriver.ensure(projectKey, member),
+    notifyAsker: async (item, text) => {
+      await messaging.send(
+        item.projectKey,
+        SYSTEM_SENDER,
+        { to: [item.source], ...(item.taskKey ? { taskKey: item.taskKey } : {}), text },
+        { kind: 'info' },
+      );
+    },
     // The PM's machine from the engine directory; the last confirmed online moment is the registry's own
     // record (`last_seen_at`, written on connect and on every pong), which survives a restart of this server.
     engine: {
@@ -1573,6 +1607,7 @@ export function createDomain(opts: DomainOptions) {
         messaging,
         projectState,
         taskStarts,
+        seniorDecisions,
         operatorSignals,
         loopTriages,
         checklist,
@@ -1582,8 +1617,13 @@ export function createDomain(opts: DomainOptions) {
         },
       }),
       members: new MemberTools({ calls: toolCaller, members, memory: opts.memory }),
-      releases: new ReleaseTools({ calls: toolCaller, publications: releasePublications }),
+      releases: new ReleaseTools({
+        calls: toolCaller,
+        publications: releasePublications,
+        status: () => releaseStatusOf(opts.appVersion ?? 'dev', opts.engineRegistry?.list() ?? []),
+      }),
       computeJobs: new ComputeJobTools({ calls: toolCaller, jobs: computeJobs }),
+      documents: new DocumentTools({ calls: toolCaller, documents }),
       tasks: new TaskTools({
         calls: toolCaller,
         ctx,
@@ -1814,8 +1854,8 @@ export function createDomain(opts: DomainOptions) {
   );
   // The durable handoff of work to the super-mode integrator (PM-762): its grants are the only way a reserved
   // effect passes the mutation checks, and the owner's own answer is the only way the waiting operation goes on.
-  // The in-app Operator acts on the same path as a super-mode key (PM-888): its credential is the Operator's
-  // session while an owner request is open. Stored keys still go to the key authority.
+  // The project manager's operate tool acts on the same path as a super-mode key (PM-888): its credential is the
+  // project manager's session while an owner request is open. Stored keys still go to the key authority.
   const appCredentials = createOperatorAppCredentials({
     base: opts.integratorCredentials,
     sessions: createOperatorAppSessions({
@@ -2067,6 +2107,10 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_labels_changed', ({ task }) => {
     refine(() => refinement.changed(task));
   });
+  // A card created with the `refine` label starts its refinement too (PM-1161).
+  events.on('task_created', ({ task }) => {
+    refine(() => refinement.changed(task));
+  });
   events.on('task_stage_changed', (change) => {
     refine(() => refinement.moved(change));
   });
@@ -2224,6 +2268,7 @@ export function createDomain(opts: DomainOptions) {
     operatorSignals,
     tasks,
     attachments,
+    documents,
     feedback,
     feedbackWidget,
     systemFeedback,
@@ -2430,15 +2475,6 @@ export function createDomain(opts: DomainOptions) {
             run: () => operatorSignals.sweep(),
             onError: (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
           },
-          // Without an owner's live super key nobody connected works the integrator todos and held decisions:
-          // they go to the owners (PM-1045). No timeout otherwise.
-          {
-            name: 'integrator-todos',
-            everyMs: 30_000,
-            atStart: true,
-            run: () => inbox.sweepIntegratorTodos(),
-            onError: (err) => opts.logger.warn({ err }, 'integrator todo sweep failed'),
-          },
           // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
           // people (PM-558). A question that waited through a restart is looked at now.
           {
@@ -2447,6 +2483,13 @@ export function createDomain(opts: DomainOptions) {
             atStart: true,
             run: () => questionScreening.sweep(),
             onError: (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
+          },
+          // What waited more than a day (an integrator todo, a question in screening) is told to the owners once a day (PM-1250).
+          {
+            name: 'waiting-digest',
+            everyMs: opts.waitingDigestMs ?? 10 * 60_000,
+            run: () => inbox.sweepWaitingDigests(),
+            onError: (err) => opts.logger.warn({ err }, 'waiting digest sweep failed'),
           },
           // An open step of an AI member past its deadline: one reminder, then an integrator todo (PM-806).
           {
@@ -2551,6 +2594,7 @@ export function createDomain(opts: DomainOptions) {
         taskWaits,
         cardQuestions,
         attachments,
+        documents,
         messaging,
         members,
         projectState,

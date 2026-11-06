@@ -43,6 +43,7 @@ describe('a question that became moot', () => {
     const { inboxItemId } = await h.domain.teamTools.askHuman(as(member, taskKey), {
       question,
       options: ['Yes', 'No'],
+      ownerTopic: 'cost',
     });
     return inboxItemId;
   }

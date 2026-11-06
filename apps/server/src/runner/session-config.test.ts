@@ -10,6 +10,7 @@ import {
   writeSessionFile,
 } from './session-config';
 import type { OwnerRecord } from './session-config';
+import { writeMcpBridgeConfig } from './mcp-bridge';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { testConfig } from '../../test/helpers/test-template';
 import { buildSettings } from './providers/claude/args';
@@ -149,6 +150,8 @@ describe('the session configuration store', () => {
     const { store } = await fresh();
     const session = await store.allocate('ses_1');
     await writeSessionFile(session.path, 'claude-mcp.json', `{"url":"http://x/mcp/${TOKEN}"}`);
+    const bridgeConfig = await writeMcpBridgeConfig(session.path, `http://x/mcp/${TOKEN}`);
+    expect(path.dirname(bridgeConfig)).toBe(session.path);
     await session.remove();
     await expect(lstat(session.path)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(session.remove()).resolves.toBeUndefined();

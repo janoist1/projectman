@@ -6,7 +6,7 @@ import { SuperState } from '@projectman/shared';
 import { api } from '../api/endpoints';
 import { ProjectContext } from '../app/contexts';
 import { t } from '../i18n/t';
-import { LOCALE } from '../i18n/format';
+import { numberFormat } from '../i18n/format';
 import { Button } from './Button';
 import { SuperStateChip } from './SuperStateChip';
 import { Fold } from './Fold';
@@ -82,9 +82,7 @@ export function SuperTimelineDetail({
             {t('ownerCommand.exit', {
               n: result.exitCode ?? '—',
               time: t('ownerCommand.seconds', {
-                n: new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 }).format(
-                  result.durationMs / 1000,
-                ),
+                n: numberFormat({ maximumFractionDigits: 1 }).format(result.durationMs / 1000),
               }),
             })}
             {result.signal ? ` · ${result.signal}` : ''}

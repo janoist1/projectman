@@ -6,6 +6,13 @@ assumption, what a remote engine needs and the related task. A change that adds 
 entry here in the same change (`CLAUDE.md`, "Machine-dependent assumptions"); every technical plan answers "Does this
 work on a remote engine?" against these entries. The overview is [ARCHITECTURE.md](ARCHITECTURE.md).
 
+Paths without a repository-root prefix are relative to `apps/server/src/`.
+Brace notation denotes existing alternatives. Paths under `dist/` and bundled
+`scripts/engine/cli.js` are build outputs; their source/build entry is named beside them.
+In hybrid mode the hub listens on loopback port 4700 and the engine on 4801;
+4800 is the single-mode recovery service's port. These ports are configurable.
+Code identifiers retain their names; see [ARCHITECTURE.md](ARCHITECTURE.md), “Code names”.
+
 ## Index
 
 Entries in the order they appear below (search for the bold name).
@@ -14,17 +21,17 @@ Entries in the order they appear below (search for the bold name).
   release build · Interrupted card continuation · Keep awake while working · Link-headers file and the
   working-folder check · Member queue driver · Startup sweep of crash leftovers · One-shot external commands · Local
   history embeddings · Web push sender · ntfy phone channel
-- **Super mode and administration:** Durable super-mode handoff and owner-bound operations · Super-mode operations
-  and diagnostics · Project change journal · Private Operator knowledge
+- **Connected Claude and knowledge:** Connected Claude operations and owner approval ·
+  Project change journal · Project and instance knowledge
 - **Cloud and AWS:** Cloud provisioning from the owner's machine · EC2 provisioning and account boundary · EC2 host
-  administration through SSM · The cloud machine and its operation · The Cloudflare side of the cloud board · SES
+  maintenance through SSM · The cloud machine and its operation · The Cloudflare side of the cloud board · SES
   identity/DKIM and sender provisioning · The e-mail login code mailer on AWS SES · The e-mail login of invited
   clients · E-mail channel sender (SES) · E-mail channel inbound (SES receiving → SNS → SQS) · Feedback widget public
   entrance and screenshot store
-- **Releases and tests:** Single-mode recovery service · Feedback widget public entrance · Full
+- **Releases and tests:** Single-mode recovery service · Full
   test trial CLI · Provider and engine outage watch
 - **Engine link and cloud composition:** Engine link and machine keys · Engine process · Cloud composition · Cloud
-  deployment and backup · Integrator credential
+  deployment and backup · Connected Claude credentials
 - **Providers and sessions:** Codex project layer check · NanoGPT Codex home and key delivery · Gemini (agy) CLI,
   conversation directories and keychain login · NanoGPT secret store · Session process liveness · Fake CLI pause
   test gates · Dependency clones and refreshes · Heavy-run queue and worker limits · Server and engine log files ·
@@ -37,7 +44,8 @@ Entries in the order they appear below (search for the bold name).
 - **Merge and checks:** Server full test before review · Merge-test file watchdog · Child-guard cleanup permissions ·
   Merge-test step cache · Merge check measurements · GitHub Actions runs (merge check, compute jobs) · Merge conflict fix worktrees ·
   Member initiated merge (`merge.*`) · Disposable instances and migration tools · Engine service (launchd) ·
-  Non-interactive editors in member sessions
+  Compute jobs on GitHub Actions · The cloud machine downloads the image artifact ·
+  Non-interactive editors in member sessions · Batched read of the configuration history
 
 ## Inventory
 
@@ -57,7 +65,10 @@ Entries in the order they appear below (search for the bold name).
   (`com.projectman.engine-app`) installs itself on first launch: it moves itself to `/Applications`
   (fallback `~/Applications`), checks the prerequisites (Apple Silicon, macOS 13+, command line tools),
   copies the bundled engine package (`ditto` to `.partial`, then rename) into
-  `~/Library/Application Support/projectman/engine/{versions/<ver>,current,bin/projectman-engine}`,
+  `~/Library/Application Support/projectman/engine/{versions/<ver>,current,bin/projectman-engine}`
+  (PM-1200: `bin/node` moves to `engine/runtimes/<sha256>/node`, kept once per content, and
+  `versions/<ver>/bin/node` becomes the relative link `../../../runtimes/<sha256>/node`; `prune` keeps the
+  runtimes the kept versions link to, so the firewall sees the same path for the same Node),
   runs `service install --path <PATH>` (PATH from `$SHELL -l -i -c`, 10 s timeout, fallback list),
   registers the background item (`SMAppService`, approval in System Settings, Login Items) and starts
   the engine; a failed step is undone. The same launch removes the PM-1088 app (`launchctl bootout`
@@ -81,7 +92,7 @@ Entries in the order they appear below (search for the bold name).
   engine runs) takes about 0.17 s CPU per `status --json` instead of 0.29 s; a checkout engine
   running through tsx still pays its transform cost. `lazy-packages.test.ts` pins the eagerly
   loaded packages of the CLI bundle to `@projectman/shared`, `execa` and `zod`.
-  **PM-1126, self-update:** at launch, every 6 hours, when the engine's version differs from the
+  **PM-1126, self-update:** at launch, every 30 minutes (PM-1199), when the engine's version differs from the
   bundled one and when the status schema is too new, the app reads
   `https://github.com/<ProjectmanReleaseRepo>/releases/latest/download/projectman-motor.json`
   (`Info.plist` keys `ProjectmanReleaseRepo`, `ProjectmanTeamId`, `CFBundleVersion`). A newer
@@ -90,7 +101,15 @@ Entries in the order they appear below (search for the bold name).
   `ditto -x -k`, verified with `SecStaticCodeCheckValidity` (identifier `com.projectman.engine-app`
   and the Team ID leaf OU of the running app), replaced with `FileManager.replaceItemAt` and
   relaunched by a detached `/bin/sh -c 'sleep 1; open …'`; the engine keeps running. An ad-hoc
-  build (empty `ProjectmanTeamId`) never updates. A failure keeps the old app and shows menu state k.
+  build (empty `ProjectmanTeamId`) with `ProjectmanUpdateTrust = github-attestation` and
+  `ProjectmanUpdateSourceRef` (PM-1199) trusts the GitHub build attestation instead: after size and
+  sha256 it runs `gh attestation verify` (`--repo`, `--signer-workflow
+<repo>/.github/workflows/projectman-engine-release.yml`, `--source-ref`,
+  `--deny-self-hosted-runners`) with the machine's own `gh` login, found on the engine's PATH
+  (`gh` 2.49+; `gh_missing` / `attestation_invalid`), checks the ad-hoc signature (identifier only) and
+  that the bundled `engine-package.json` commit equals the manifest `version`. A build without a tag
+  (`CFBundleVersion` `0`) or without either trust never updates. A failure keeps the old app and
+  shows menu state k.
   **PM-1126, release switch:** an app-managed (`manager: "app"`) engine whose bundled package
   version differs from the running one is staged under `engine/versions/<ver>`, switched with the
   new package's `service switch --to <root>` (automatically when `work` is 0, after a confirmation
@@ -104,6 +123,11 @@ Entries in the order they appear below (search for the bold name).
   `service install|uninstall|switch`) and “Engine app package (PM-1104, PM-1121)” (the bundled
   engine). **Machine assumptions added:** outbound HTTPS to github.com, `ditto`, the Security
   framework, a writable `~/Library/Caches` and the app's own bundle location, `/bin/sh` and `open`.
+  **Language (PM-1185):** the app ships `hu.lproj` and `en.lproj` (development region `en`); macOS
+  picks one from the language list of the engine's own Mac (Hungarian on a Hungarian system,
+  English on any other), and numbers follow that locale (`L10n.locale`). The language is never
+  taken from the hub or from the account's system language. The app file name, bundle id and
+  `CFBundleName` are the same in every language.
   Core checks: `swift test --package-path deploy/mac/menubar`; fixture compatibility is checked
   by `apps/server/test/engine-menubar.test.ts`. **Module:** `deploy`, `scripts`.
 
@@ -119,7 +143,10 @@ Entries in the order they appear below (search for the bold name).
   `package.json`, `package-lock.json`, `node_modules/`, `packages/`, `apps/server/{package.json,dist/}`,
   `scripts/engine/cli.js`, `deploy/mac/com.projectman.engine*.plist`. A package has no git: `resolveAppVersion` and
   `resolveAppTag` read `engine-package.json` first, and `engine start` (`scripts/engine/start-command.ts`) runs
-  `bin/node apps/server/dist/index.js` when the file exists (checkout mode is unchanged). **Machine assumptions:**
+  `bin/node apps/server/dist/index.js` when the file exists (checkout mode is unchanged). The app's staging
+  (PM-1200) replaces `bin/node` with a link into `engine/runtimes/<sha256>/node`; the checks that follow it
+  (`service switch` takes `statSync`, `process.execPath` is the resolved runtime path) work unchanged, and the
+  unpacked package still holds a plain file. **Machine assumptions:**
   macOS arm64 only, the Sandbox Runtime, the machine's heavy-run queue, `tar`, network to nodejs.org and the npm
   registry, Xcode Command Line Tools when a native module has no prebuilt binary. **Remote engine:** the package
   runs on the engine's Mac; nothing crosses the server/engine boundary (`installDir` already travels in the
@@ -138,7 +165,7 @@ Entries in the order they appear below (search for the bold name).
   before the bundle, with hardened runtime and Node JIT entitlements, notarizes and staples
   the app, then produces `projectman-motor.zip`, a signed/notarized/stapled
   `projectman-motor.dmg` (app plus Applications link), and the hashed `projectman-motor.json`.
-  The manifest schema also validates the fixture consumed by future Swift updater tests.
+  The manifest schema also validates the Swift updater test fixture.
   `scripts/engine-app/{publish,release-config}.ts` adds `engine-app publish --tag --config`
   after `publish_release`: resolves the remote tag, checks the GitHub release, builds both
   artifacts under one heavy lock from that commit, and uploads zip, DMG, manifest in order.
@@ -164,7 +191,16 @@ fetch --commit <sha> --out <new dir> [--open]` (`scripts/engine-app/fetch.ts`) d
   (manifest and zip only; the disk image is not an output, PM-1157) with the Mac's own `gh` login (read access to the repository's Actions, gh 2.49 or newer for the attestation),
   verifies it and unpacks it with `ditto` and `codesign --verify`, and `--open` starts the app with `open`; the
   app then installs itself through its own release switch. This runs on the Mac the app goes to, a remote
-  engine's too; nothing crosses the server/engine boundary. **Module:** `scripts`, `deploy`.
+  engine's too; nothing crosses the server/engine boundary. **PM-1198:** the release assets are built on GitHub
+  as well. The dedicated workflow `.github/workflows/projectman-engine-release.yml` (the registered compute job
+  `engine-release`, started by `run_compute_job` after `publish_release`) checks out the commit of the release tag
+  with its full history, so `package` finds the tag and `bundleVersion` is the tag's `YYYYMMDD.N`; it runs
+  `build --ad-hoc`, attests the zip, the image and the manifest, and `engine-app upload --tag --dir`
+  (`scripts/engine-app/{upload,release-assets}.ts`, the uploading half shared with `publish`) puts them on the tag's
+  release with the run's `GITHUB_TOKEN`. It uses no Mac and no `gh` login of ours; same upload rules as `publish`
+  (identical asset skipped, different one `app_asset_conflict`, manifest last). **Remote engine:** the build and
+  the upload run on GitHub; the engine only dispatches the run, and every engine downloads the same release assets.
+  **Module:** `scripts`, `deploy`.
 
 - **Interrupted card continuation (PM-1092)** — `runtime/sessions/sessions.ts` closes lost live
   sessions with `server_restart` during startup or engine reconciliation; the internal `session_ended`
@@ -214,10 +250,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   needs another card. The hub decides from persisted session and queue state; the existing session
   RPC stops the process on its engine, whose workspace manager still refuses dirty checkouts.
   No new path, process or transport assumption is introduced.
-  **No Operator lane (PM-1045):** the Operator lane and its reminder are gone; the driver starts no session
-  for the Operator and the queue puts no item on it. Machine work waits as an open inbox item for the connected
-  client, with the PM-1003 sweep escalating it to the owner when no owner has a live super key
-  (`integratorSideAvailable`). Nothing new crosses the boundary.
+  **Machine work (PM-1045, PM-1246):** an open `integrator` inbox item waits in the integrator's
+  queue for the connected Claude, with or without a live `super` key. No sweep hands it to the
+  owners any more (the `integrator-todos` job is gone); `routeItem` (`packages/shared`) decides the
+  recipient once, when the item opens, and leaves `InboxItem.route` and an `item_routed` event.
+  No member session starts and nothing new crosses the boundary.
 
 - **Startup sweep of crash leftovers (PM-837)** — when the engine host is created (the server in local mode,
   the engine process in hybrid mode) two one-shot background sweeps remove what a crash left behind, each
@@ -240,10 +277,10 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   and test process guards, and does not add parent-exit cleanup. **Machine assumptions:** POSIX
   signals and executables available on the supplied `PATH`. **Remote engine:** supported; the
   helper runs wherever its caller lives: worktree and merge git on the engine, configuration git
-  and gh on the server. Later slices use it for engine probes, copies and trust, server version
-  checks and supervisor service control (PM-911). Host scripts now use the helper for migration
-  git/tar, the administration builder's commit check and work-root move commands
-  (`scripts/migrate/{git,apply,package}.ts`,
+  and configuration/git-host reads on the server. It also handles engine probes, copies,
+  trust, server version checks and service control (PM-911). Host scripts now use the helper for migration
+  git/tar, the maintenance builder's commit check and work-root move commands
+  (`scripts/migrate/{git,package}.ts`,
   `scripts/engine/move-work-root.ts`, PM-912). No new data crosses the
   server/engine boundary; the change on each host is SIGKILL escalation after the grace period.
 
@@ -296,36 +333,22 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   on the engine and no new data crosses the server/engine boundary. A self-hosted ntfy instance on the cloud
   machine would be an outbound call to that machine's public name.
 
-- **Durable super-mode handoff and owner-bound operations (PM-762, Super mode 6/10)** —
-  The app principal also belongs to the selected project manager (PM-1041): its server-issued `member`
-  binds the actor to that member's own general session and open owner request. Project commands use
-  the shared operation path under the owner's authority; machine and other unlisted command kinds
-  are refused with `command_not_for_project_manager` and handed off through `open_integrator_todo`.
-  Owner-reserved effects still wait for the owner's own login. App principals stay on the server;
-  this adds no machine dependency or remote-engine boundary. Since PM-1045 the app principal has only the
-  project manager branch: the app's Operator session is gone, so nothing issues an Operator principal;
-  the super-key path (`superActorOf`) is unchanged.
-  `services/super-operator/handoffs.ts` (`SuperHandoffService`), `db/super-handoffs.ts` (migration 83:
-  `super_handoffs`, `super_operations`), `packages/shared/src/{api/super-handoff,config/super-command}.ts`,
-  `core/inbox/inbox.ts` (the owner's-own-login rule, the relay) and the route `routes.relayOwnerAnswer`. The
-  owner's integrator (a super token, `super_operate`) or the in-app project manager (`execute_operation`) starts a
-  command with a request id; the stored handoffs of the retired base-Operator request are no longer created or
-  listed. A command with a deletion, security or cost effect waits for the owner's own login
-  to answer a bound question (24 hours; the question names the command hash, the config version and the token). The
-  service and its state are on the hub only. **Machine assumptions:** none of its own — it holds no path, process,
-  socket or account; the executors it calls (the Operator operations, member, invite and merge services, and the
-  application services) carry their own. **Remote engine:** the operations and owner answer stay on the hub. After a restart of the hub
-  an operation that was running is marked `unknown` and never started again by itself.
-  The `operate` executor (PM-831, `services/super-operator/operate.ts`, wired in `assembly.ts`) runs
-  `message_send`, `project_pause`, `project_resume` and `session_stop` as the key's super actor on the same
-  domain services the base Operator uses; the other operations fail with `super_operation_unsupported` (PM-832).
-  It runs on the hub only, so no machine-dependent part changes. A label change in super mode (PM-831) may also
-  use the key owner's holding: `planLabelsOrThrow` takes the owner from the authenticated scope and passes it to
-  `planLabelChange` as `authority`; owner-reserved labels stay refused.
-
-- **Super-mode operations and diagnostics (PM-1113)** — `services/super-operator/{facade,diagnostics}.ts`
-  exposes application operations and bounded project-record queries. The retired machine
-  supervisor adds no runtime or remote-engine requirement; the owner's integrator handles machine work.
+- **Connected Claude operations and owner approval (PM-762, PM-1074)** —
+  `services/super-operator/{handoffs,commands,operate,facade,diagnostics}.ts`,
+  `db/super-handoffs.ts`, `packages/shared/src/{api/super-handoff,config/super-command}.ts`.
+  The connected Claude uses an owner's `super` key and `super_operate` with a request id.
+  The project manager uses `execute_operation` with a server-issued principal bound to
+  its own general session and open owner request. Machine or unlisted commands fail with
+  `command_not_for_project_manager` and are handed off through `open_integrator_todo`.
+  Deletion, security and cost effects wait for the owner's own login to answer the bound
+  question (24 hours; command hash, configuration version and credential are bound).
+  Operations and audit live on the hub. After a hub restart, a running operation becomes
+  `unknown` and is never repeated automatically. The application executor uses existing
+  configuration, member, messaging, pause and session services; diagnostics read bounded
+  project records. **Machine assumptions:** none in this store; called services own their
+  machine boundaries. **Remote engine:** authority, approval and persistence run on the hub;
+  a session stop reaches its engine through the existing RPC. Machine work is done by the
+  connected Claude on its own host, outside member-session execution.
 
 - **Project change journal (PM-761)** — `apps/server/src/db/change-triggers.ts`,
   `apps/server/src/db/project-change-events.ts`, `apps/server/src/core/base/change-journal.ts`,
@@ -341,53 +364,44 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   journal lives on the hub with the database that backup and restore carry, so a restored database
   needs a new generation (see "Project change journal", `docs/AWS.md`, `docs/HYBRID.md`).
 
-- **Private Operator knowledge (PM-687)** — `apps/server/src/config/operator-knowledge-store.ts`,
-  injected by `app.ts` through `assembly.ts` as `OperatorKnowledgeStore`. Stores the approved
-  agreement (summary, involvement and extra-critical steps), up to 20 approved learned principles
-  (example, principle and effect), and each member's enumerated conversational preferences in
-  `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
-  These records are outside the public repository and the customization git history. PM-688 adds
-  a session-bound personal preference MCP writer and authenticated REST reads. PM-1021 also
-  allows the selected PM to read/write its current direct owner's five style fields in an
-  internal general conversation, sharing the Operator document and CAS. PM-689 adds
-  owner-approved agreement/principle CAS and marker recovery under the server's configuration
-  lock; the store remains private. PM-1043 (PM-1023 K4): the selected PM now leads the agreement,
-  the principles and the setup checklist: it reads the project knowledge and proposes changes
-  (`propose_operator_knowledge`, without recommended operations) in its internal general
-  conversation, and the checklist notices go to its queue; the store, its path and the owner's
-  approval are unchanged, and the PM reaches the store only through the server (a remote engine
-  needs nothing new). PM-1046 (PM-1023 K7) adds the global Operator's own instance target,
-  `<server home>/operator-data/_instance/knowledge.json` (`readInstanceKnowledge`,
-  `compareAndSwapInstanceKnowledge`): the same format, revision and error codes, one document for the
-  whole server; `_instance` is no valid project key, so it never collides with a project. It is reached
-  only through the external MCP's super tools (below); the Operator runs on the owner's machine and the
-  document stays in the server's home. Missing documents start at revision zero; invalid documents are refused
-  without overwriting. **Machine assumption:** one server process owns a private writable home,
-  with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
-  rename. Target-file CAS writes are serialized within that process, including multiple store
-  instances. A synced temporary file is renamed only after the full JSON is written.
-  The shared `contracts/sandbox.ts` `sensitivePaths` app-home list denies the entire `operator-data`
-  root to member file tools and the existing session-policy/provider consumers; no separate
-  provider rule or new permission is added.
-  **Remote engine:** storage stays on the server, with no file mount on an engine. Context/MCP
-  services send the current person's five preference enums to authorized Operator/PM contexts
-  and MCP calls (PM-688, PM-1021), or the filtered shared
-  revision/agreement/principles to internal Operator/PM contexts and authorized MCP reads
-  (PM-689), across the existing boundary. Markers never enter context. No new engine file or
-  machine assumption is introduced.
+- **Project and instance knowledge (PM-687, PM-1043, PM-1046)** —
+  `config/operator-knowledge-store.ts` implements `OperatorKnowledgeStore`, wired through
+  `app.ts` and `assembly.ts`; `services/coordination/{knowledge,preferences}.ts` controls
+  project access and approval; `services/super-operator/instance-knowledge.ts` handles
+  instance writes. The hub stores approved agreements, up to 20 learned principles and
+  personal preferences in `<server home>/operator-data/<projectKey>/knowledge.json`
+  and `preferences/<handle>.json`, outside the public repository and customization history.
+  The project manager proposes shared changes in its internal general conversation;
+  the owner decides them using their own login. That conversation can read/write the
+  current direct owner's five style fields.
+  Instance knowledge lives in `<server home>/operator-data/_instance/knowledge.json`;
+  `_instance` cannot collide with a valid project key. The host's connected Claude uses
+  `get_operator_instance_knowledge` and `update_operator_instance_knowledge` with
+  revision-based CAS and no separate app approval. Further owners' keys cannot call
+  these host-only tools.
+  **Machine assumptions:** one hub process owns a private writable home. Directory/file
+  modes are 0700/0600; reads reject symlinks and multiply linked files. Writes sync a
+  same-directory temporary file before atomic rename. Per-target locks serialize CAS
+  across store instances in that process. Missing documents start at revision zero;
+  invalid JSON or stale revisions fail without overwriting.
+  `contracts/sandbox.ts` includes the whole `operator-data` root in `sensitivePaths`.
+  **Remote engine:** storage stays on the hub without a filesystem mount. Authorized
+  context/MCP reads carry filtered knowledge or the current person's preference enums
+  over the existing session boundary. Proposal markers never enter context; no new
+  engine file, login or RPC is required.
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
-  PM-674's [rollback sheet](CLOUD-CUTOVER.md) preserves the final stopped-cloud data before
-  Mac single activation. Credentials stay on the administration machine, outside member sessions.
-  PM-1116 retired the one-off move commands (`seed` with its PM-717 integrity gate, `dns plan|import|verify|switch`);
-  the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`. A tool the owner runs on their Mac
-  that creates and maintains the cloud board on AWS EC2: `preflight` and `aws` (PM-534: the machine,
+  PM-1186 enables versioning on the restic backup bucket after installing 30-day noncurrent-version
+  expiration and expired-delete-marker cleanup; the Litestream database bucket stays unversioned.
+  The [hybrid recovery procedure](HYBRID.md) preserves final stopped-cloud data before
+  Mac single activation. Credentials stay on the owner's maintenance machine, outside
+  member sessions. The tool runs on the owner's Mac and creates and maintains the cloud board on AWS EC2: `preflight` and `aws` (PM-534: the machine,
   the security group, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and DNS (PM-537,
   `scripts/cloud/dns.ts`: `dns status` only, public delegation/DS through Cloudflare and Google DoH,
   Route 53 Domains registration status in `us-east-1`, and `up` orchestration; the delegation switch and
-  its rollback are retired, there is no tool-driven delegation rollback). It calls the `aws` CLI v2 with argv (profile and
+  its rollback are not exposed by the CLI). It calls the `aws` CLI v2 with argv (profile and
   region from the configuration, no SDK) through the injected `CloudDeps`, never a shell. Machine
   assumptions: the `aws` CLI v2 with explicit profiles on the owner's Mac (PM-664: central resources
   in `aroom`, registrar/retained Route 53 source reads in `i` through `route53.profile`; absent:
@@ -397,6 +411,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   sessions' sandboxes deny. No state file: resources are found by name/ownership tags. **Remote engine:** nothing runs on
   an engine; this is the owner's tool and the cloud machine it provisions is the server side. The
   `cloud.env` it writes is what the container of "Cloud deployment and backup" reads.
+  PM-1197 (part of PM-1193): `github-deploy-setup [--dry-run]` (`scripts/cloud/github-deploy-setup.ts`) creates, once, the
+  AWS side of the GitHub deploy (the OIDC provider `token.actions.githubusercontent.com` and the role
+  `projectman-cloud-deploy`: trust by `aud` and by the `cloud-production` environment's `sub`, SSM/EIC rights on the one
+  machine only) and, through `gh`, the repository's `cloud-production` environment with its three variables. It is
+  idempotent and `--dry-run` changes nothing. **Machine assumption:** the owner's connected Claude's `aws` profile with the IAM
+  setup rights (docs/AWS.md) and a `gh` login with admin rights on the repository; the command is a live change, run only
+  after the owner's yes. **Remote engine:** none; it runs on the maintenance machine.
   **Module:** `scripts`
 
 - **EC2 provisioning and account boundary (PM-676, part of PM-664)** — `scripts/cloud/{config,aws,aws-cli,ec2,commands}.ts`,
@@ -426,10 +447,10 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   external image bundle (`deployment.imageBundle` is required). The approved PM-675 target is
   Frankfurt/t4g.micro/Ubuntu 24.04 arm64/20 GiB gp3; creation still requires concrete owner approval.
 
-- **EC2 host administration through SSM (PM-677, part of PM-664)** —
+- **EC2 host maintenance through SSM (PM-677, part of PM-664)** —
   `scripts/cloud/{ec2-host,host,machine,commands,deps}.ts`, `apps/server/test/{cloud-ec2-host,cloud-deps}.test.ts`,
   `apps/server/test/helpers/fake-ec2-host.ts`, `apps/server/test/fixtures/fake-cloud-process.mjs`,
-  `docs/AWS.md`, `docs/HYBRID.md`. **What runs where:** on the owner/integrator's POSIX machine,
+  `docs/AWS.md`, `docs/HYBRID.md`. **What runs where:** on the owner or connected Claude's POSIX machine,
   AWS CLI v2 with the explicit central profile/region (`aroom`), session-manager-plugin, ssh,
   ssh-keygen and tar; on EC2 Ubuntu 24.04, sshd/EIC/SSM and the existing sudo `host.sh`, Docker and
   systemd. `withHost` dispatches by compute; the unchanged `HostSession` contract and stdin/stream
@@ -451,9 +472,16 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   failures. Failed verification reports the public target/reasons, preserves the operation error
   and exits 1; the observation window is not an AWS consistency guarantee.
   Existing host paths, container uid 10001, loopback networking and one-writer/restore guards stay
-  the same. **Remote engine:** this runs only on the owner's administration machine for the central
+  the same. **Remote engine:** this runs only on the owner's maintenance machine for the central
   server; no AWS credentials or new RPC/payload crosses the server/engine boundary. It works
   independently of the Mac engine link. Live execution/recovery remains an approved owner round.
+  PM-1197: the same host operation also runs on a GitHub-hosted `ubuntu-24.04` runner
+  (`scripts/cloud/runner-deploy.ts`, `npm run cloud -- runner-deploy`): the AWS CLI authenticates with the ambient
+  OIDC session of the workflow (no `--profile`; `AwsCli` has an `ambient` mode), session-manager-plugin is installed
+  by the workflow at a pinned version and checksum, and the host calls are the same `host.sh` subcommands, plus
+  `env-check` (names only) and `prune-images`. `cloud.env` is never sent from the runner; the host's own
+  `/etc/projectman/cloud.env` is checked. **Remote engine:** no AWS credentials cross the server/engine boundary; the
+  runner holds a one-hour role session of its own.
   PM-748 adds fault tolerance to the same transport (`scripts/cloud/{ec2-host,host,errors}.ts`): a second
   fixed read-only `AWS-RunShellScript` reads `Ec2HostDiagnostics` (CPU count, 1-minute load, available
   memory, free disk, cumulative OOM kills, EIC status-124 journal count of the last 10 minutes) on EC2;
@@ -469,10 +497,6 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 (publickey...)` line (plus `Warning:`/SSM session noise) means `commandStarted: 'no'`; any other output
   that mentions it stays `unknown`, not retryable. Reads keep the loose match. **Remote engine:** unchanged,
   admin machine only. Related task: PM-753.
-  PM-1029 removes the completed PM-675 trial commands and their embedded host program.
-  Host administration no longer needs Python3 or provides trial archival/deletion operations.
-  **Remote engine:** the remaining host operations still run on EC2 through SSH/SSM from the
-  administration machine; no engine RPC or new machine assumption is added.
   PM-718 adds `receive-image` on the same encrypted stdin stream: only the arm64
   Docker tar crosses to EC2. Root-only temporary storage, bounded size, SHA-256, free disk, sole tag,
   config digest/platform/revision/version checks precede import; image inspect verifies the result.
@@ -537,22 +561,22 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   and `deploy/cloud/smoke.sh`. **Machine assumptions:** the commands run on the owner's Mac; the token
   file `cloudflare-token` and the two service token files (`engine-access-token.json`,
   `integrator-access-token.json`) are in the secrets store `~/.config/projectman/cloud/` (mode 600, a path
-  the AI sessions' sandboxes deny); the owner has done `cloudflared access login` for `check`. Secrets
+  the AI sessions' sandboxes deny); private-board `check` requires `cloudflared access login`; public-board checks do not. Secrets
   never go into an argument: the service token secrets and the login file travel in the environment of
   the child process, and the output masks them. **Does this work on a remote engine?** Nothing here runs
   on an engine and no engine holds the API token. What crosses the boundary: `cloud.env` to the machine
   (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
-  **Further owners (PM-1065):** each `access.owners` entry gets its own engine and integrator service
+  **Further owners (PM-1065):** each `access.owners` entry gets its own engine and connected Claude service
   token and policies (`<tunnel>-owner-<id>-…`) and its own two files under `owners/<id>/` in the same
   secrets store (folder 700, files 600; the host's token, policy and file never change). `edge` adds the
-  policies to the engine and integrator applications and removes only a left owner's objects (policies,
+  policies to the engine and connected Claude applications and removes only a left owner's objects (policies,
   then tokens, then files). `check` tries each owner's pair from the host's copy of the files. Machine
   assumption: the same host Mac and store. Remote engine: still nothing runs on it; an owner's engine
   gets its file by hand from the host, outside projectman.
   **Separate machine entrance (PM-675):** optional explicit `cloudflare.integratorHostname`, required
-  with a public integrator service token, has its own Service Auth application and audience on the same
+  with a public connected Claude service token, has its own Service Auth application and audience on the same
   tunnel. Only literal `/api/...` and exact `/mcp` reach the hub on that host. `edge` writes
   `PROJECTMAN_INTEGRATOR_HOSTNAME`; `publish` verifies the running backend's `integratorHostIsolated`
   result before making its DNS record, including during private staging. `check` tests both machine
@@ -560,7 +584,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   on the admin machine and sends credentials only through protected files/environments. The Mac engine's
   `/engine`, key and outbound connection are unchanged; no new engine operation or inbound port exists.
   **Public board (PM-672):** with `access.boardMode: public` the same commands leave the main hostname
-  without Access (one Bypass policy), keep `/engine` behind its own Access application (the engine service
+  without Access login (one Bypass policy), use the owner's password and clients' e-mail
+  codes for the board's own login (`PROJECTMAN_EMAIL_LOGIN_ENABLED`), keep `/engine` behind its own Access application (the engine service
   token only; the tunnel's `originRequest.access` for `/engine` names only that application's audience),
   answer `/hooks` and `/mcp` with 404 at the tunnel, and write `PROJECTMAN_PUBLIC_BOARD=1` into `cloud.env`
   (the server then refuses to start without cloud mode, an owner and the e-mail login:
@@ -592,7 +617,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   also carries `ses:SendEmail` on the configuration set and the SQS read on one queue; `ses configure` and
   `ses check` keep that extended policy when it is already in place. Cloudflare list responses are shape-checked so malformed reads cannot
   be mistaken for missing records. **Machine assumptions:** AWS CLI v2/profiles on the owner's
-  POSIX administration machine; every AWS call explicitly targets `ses.profile` and the SES region,
+  POSIX maintenance machine; every AWS call explicitly targets `ses.profile` and the SES region,
   and the key is handed over only through the protected `cloud.env` (no profile env, the backend sends
   directly with the target account's narrow key; a key of a former account is refused, not replaced).
   Existing authoritative Cloudflare zone and protected
@@ -605,9 +630,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `~/.aws` and the cloud store remains in force.
 
 - **The e-mail login code mailer on AWS SES (PM-669)** —
-  `apps/server/src/services/email-login/{ses-mailer,config}.ts` (facade `index.ts`),
+  `apps/server/src/services/email-login/{ses-mailer,config}.ts` (facade `start.ts`),
   `apps/server/src/contracts/email-login.ts`, the six `PROJECTMAN_EMAIL_LOGIN_ENABLED` / `PROJECTMAN_SES_*`
-  variables (read in `apps/server/src/index.ts` only, then immediately removed from `process.env`
+  variables (read in `apps/server/src/start.ts` only, then immediately removed from `process.env`
   before the application version lookup can start a git child process),
   `deploy/cloud/entrypoint.sh`, `docs/AWS.md` ("The e-mail login code mailer"). **What it does:**
   `createSesEmailCodeMailer` sends one Hungarian message (the text is `emailLoginCode` in
@@ -638,7 +663,13 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `127.0.0.1` and shares the IP limits). For this service, `kernel/local-request.ts`'s `ipRateLimitKey`
   groups IPv6 addresses by canonical /64 and keeps IPv4 addresses whole, including mapped IPv4 (PM-703);
   other limiters retain their existing keys. The `secret` file in the home and the SQLite database
-  are also local assumptions. **Does this
+  are also local assumptions. **Password codes (PM-946):** `POST /api/auth/password/request` and
+  `/password/reset` (public, same file) use the same table, the same limits and the same constant 202
+  answer. A code is bound to its purpose by the HMAC label (`password-code` against `code`), so a
+  password code never logs in and a login code never sets a password; an address has one live code, and
+  a new one of either purpose replaces the other. Only an existing client account (never the host owner,
+  an owner account or a colleague) gets the letter; a good code replaces the password and deletes every
+  session of the account before the new session starts. No new machine assumption. **Does this
   work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
   and no engine protocol or payload changes.
 
@@ -649,7 +680,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   filtered, rate-limited e-mail to a consenting human, immediately or after owner approval; the hub stores
   only a hash of the reply token. From: the member's mailbox on the reply domain, falling back to
   `PROJECTMAN_SES_FROM` (a mailbox conflict, or the provider refusing the address). **Machine assumptions:** the hub reads `PROJECTMAN_EMAIL_CHANNEL_ENABLED`,
-  `PROJECTMAN_SES_*`, `PROJECTMAN_EMAIL_*` from `cloud.env` in `index.ts`, deletes them before starting a
+  `PROJECTMAN_SES_*`, `PROJECTMAN_EMAIL_*` from `cloud.env` in `start.ts`, deletes them before starting a
   child process, and makes the outgoing HTTPS call to the region's SES v2 endpoint with explicit keys.
   **Does this work on a remote engine?** Yes: sending, filtering, approval and token generation all run on
   the hub; an engine receives no AWS credentials, no SES request and no protocol change.
@@ -669,7 +700,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   PM-1016). **Machine assumptions:** the hub makes outgoing HTTPS calls
   to the region's SQS endpoint with the existing `PROJECTMAN_SES_*` key and reads
   `PROJECTMAN_EMAIL_QUEUE_URL`, `PROJECTMAN_EMAIL_REPLY_DOMAIN`, `PROJECTMAN_EMAIL_CONFIGURATION_SET` from
-  `cloud.env` (read in `index.ts` only); the CLI runs on the owner's POSIX administration machine with AWS CLI
+  `cloud.env` (read in `start.ts` only); the CLI runs on the owner's POSIX maintenance machine with AWS CLI
   v2 profiles and the Cloudflare DNS token, like the SES provisioning entry. **Does this work on a remote
   engine?** Yes: the reader runs on the hub only; an engine gets no queue, no key and no protocol change.
   **Member addresses (PM-989, PM-1039):** the same receipt rule also takes mail to `<handle>@<reply domain>`, the
@@ -690,9 +721,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
-  `PROJECTMAN_FEEDBACK_PUBLIC_URL` (read in `apps/server/src/index.ts` only), the table family
+  `PROJECTMAN_FEEDBACK_PUBLIC_URL` (read in `apps/server/src/start.ts` only), the table family
   `feedback_*` and `PROJECTMAN_HOME/feedback/`. The app side (this card) is cookie authenticated and
-  runs on the server; the public entrance for the tool on customer pages (a later card) will be an
+  runs on the server; the public entrance for the tool on customer pages is an
   internet-facing address of the server, whose origin and launch codes are bound to the surface. The
   screenshots (originals and WebP thumbnails, made with `sharp`) are files in the server's home next to
   the database and the attachments; the card's copy goes through the attachment service. The settings
@@ -721,35 +752,27 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   The widget sees only its surface's marks and never the environment, screenshot or forward reason.
   `/feedback` is a server prefix, so an unknown path there is a JSON 404, not the web app. The script is
   `apps/feedback-widget/dist/widget.js` under the install directory (`feedbackWidgetFile` in
-  `index.ts`; 404 until it is built, a later card). The caller is a browser on the customer's page and
+  `start.ts`; 404 if the build is absent). The caller is a browser on the customer's page and
   the public address of the server (`PROJECTMAN_FEEDBACK_PUBLIC_URL`) is the only machine assumption.
   **Remote engine:** nothing runs on an engine; the API, its sessions and limits live on the server, and
   the engine is not involved. Security notes: `docs/SECURITY.md` "The feedback tool's public API".
   **Module:** `services/feedback`
 
-- **Single-mode recovery service (PM-1113)** — `scripts/live/`, `npm run live -- install|status|uninstall`.
-  Keeps the `com.projectman.live` LaunchAgent for the [cutover rollback](CLOUD-CUTOVER.md).
-  It pauses, stops, installs and verifies the compiled single-mode server; no watcher, journal,
-  git remote or automatic publication remains. **Assumptions:** macOS launchd and a built checkout
-  on the recovery host. **Remote engine:** this runs on the recovery host only, outside engine RPC.
+  **Public hostname (PM-513):** the entry **Feedback widget public entrance and screenshot store**
+  owns the API and storage description. `http/feedback-host-guard.ts` permits only the
+  widget script and `/feedback/api/v1/<segments of [A-Za-z0-9_-]>` on the public Host;
+  other paths return JSON 404. `start.ts` validates `PROJECTMAN_FEEDBACK_PUBLIC_URL`.
+  `scripts/cloud/cloudflare.ts` routes the hybrid tunnel to hub loopback port 4700;
+  `deploy/cloudflare/config.example.yml` describes the single-mode port 4800 example.
+  The tunnel must preserve Host; the widget hostname uses no Access login.
+  **Machine assumptions:** server-local tunnel and public DNS configuration.
+  **Remote engine:** the hub receives widget traffic and owns its images; no widget
+  request reaches an engine. **Module:** `http`
 
-- **Feedback widget public entrance (PM-506)** — the hostname without Access for the marking widget on
-  customer pages (PM-513). Code: `PROJECTMAN_FEEDBACK_PUBLIC_URL` checked at start in
-  `apps/server/src/index.ts` (`parseFeedbackPublicUrl`; a wrong value stops the server), the host guard
-  `apps/server/src/http/feedback-host-guard.ts` (an `onRequest` hook registered first in `app.ts`; on the
-  public `Host` it answers the unknown-route 404 to every raw path except `/feedback/widget.js` and
-  `/feedback/api/v1/<segments of [A-Za-z0-9_-]>`), `PASSED_VARIABLES` in `scripts/live/plist.ts` (the
-  LaunchAgent gives the server only the variables named there),
-  `deploy/cloudflare/config.example.yml` (two rules for the hostname: `^/feedback/` to `127.0.0.1:4800`,
-  then a 404 rule) and `deploy/cloudflare/check.sh` (`FEEDBACK_ORIGIN`). Machine assumption: the tunnel
-  (`cloudflared`) runs on the server's machine and forwards to its loopback port with the original `Host`
-  (no `httpHostHeader`), which the guard reads; the Cloudflare account and the DNS record are outside the
-  repository. The hybrid cloud image uses a token-managed tunnel, with the variable given by whoever
-  installs it (`docs/HYBRID.md`); on EC2 `npm run cloud -- edge` sets the tunnel, the ingress and the
-  variable through the Cloudflare API (PM-536). **Remote engine:** the entrance belongs to the server
-  (in the hybrid mode, the cloud one); an engine receives no such traffic and needs nothing from it.
-  Security notes: `docs/SECURITY.md` "The widget's public hostname".
-  **Module:** `http`
+- **Single-mode recovery service (PM-1113)** — `scripts/live/`, `npm run live -- install|status|uninstall`.
+  Keeps the `com.projectman.live` LaunchAgent for [hybrid recovery](HYBRID.md).
+  It pauses, stops, installs and verifies the compiled single-mode server. **Assumptions:** macOS launchd and a built checkout
+  on the recovery host. **Remote engine:** this runs on the recovery host only, outside engine RPC.
 
 - **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
   checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports
@@ -809,7 +832,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Engines connect outward to `/engine/link` with a bearer machine key; the cloud stores only
   its SHA-256 hash and display prefix. Remote requests require HTTPS; forwarded protocol headers
   are trusted only from a loopback reverse proxy. Plain sockets are restricted to local requests.
-  Human cookies and integrator keys do not authenticate this
+  Human cookies and connected Claude keys do not authenticate this
   socket; machine keys grant no human API access. The method table is the sole RPC gateway,
   validated in both directions and tied to the engine contracts, including the PM-312 disk operations.
   PM-1059 adds no method, parameter or event and keeps protocol version 1: which engine a call goes to is
@@ -834,7 +857,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   a session. An owner account creates and revokes its own engines (`canCreateEngine`, `canManageEngine`), but
   the machine default stays the host owner's. The host owner revokes the account
   (`POST /api/owner-accounts/:userId/revoke`, own login only): the account is marked, its projects the host has
-  no seat in are paused, its engines and integrator keys are revoked; the login and the data stay. The folder
+  no seat in are paused, its engines and connected Claude keys are revoked; the login and the data stay. The folder
   check of a new project runs on the engine the creator chose (`NewProjectEngines.workspaceState(engineId, path)`,
   PM-1077: `directory`, `missing` or `not_held`), which then becomes the project's default binding. It needs
   nothing new on a remote engine: `host.is_directory` already exists, and a folder outside the engine's roots
@@ -893,7 +916,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   - Screenshots, scenario paths and image lists: `screenshots.*`, `files.resolve_scenario`, `files.list_images`.
   - Attachments: `files.export`, `files.materialize`; transcripts/resume: `transcript.*`.
   - Machine metrics and process attribution: `machine.*` and `hello.instanceTag/pid/uid`.
-  - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
+  - Hook decisions and team tools: `permission.*`, `mcp.relay` (connected Claude credentials stay in cloud).
   - Free-disk admission: `host.free_disk`; idle heavy-run protection: `host.heavy_run_sessions`;
     CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
@@ -908,14 +931,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     host asks for it after `run`/`attach`. The `report` is cut from the `run`/`attach` answers, so
     older hubs and engines keep their strict schemas; an older engine answers `unknown_method`, which
     leaves the report unknown (null), never an error.
-  - Member initiated merges: `merge.*` (PM-451, see [services/merges](modules/services-merges.md)), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents; PM-784: also the integrator's document write through the bearer MCP, same calls, started by the hub with no member session), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
+  - Member initiated merges: `merge.*` (PM-451, see [services/merges](modules/services-merges.md)), including `merge.read_file` and `merge.commit_files` (PM-494, the project manager's documents; PM-784: also the connected Claude's document write through the bearer MCP, same calls, started by the hub with no member session), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
     The cloud history copy also consumes `merge.read_file` and `merge.is_ancestor` (PM-744, PM-788):
     `services/history/document-sync.ts`, adapted to `EngineDirectory` in `assembly.ts`, reads the fixed
     `docs/DECISIONS.md` and `docs/LESSONS.md` paths at one commit and publishes them atomically to cloud SQLite.
     `task_merged` and published `write_project_docs` trigger commit reads without fetching; startup,
     configuration changes and a ten-minute poll read the head, retrying each minute while pending, stale or unavailable.
-    Git, repository paths and credentials stay on the Operator's selected engine (or the actually registered local
-    engine when there is no Operator); cloud has no hidden local repository fallback. Only project/repository,
+    Git, repository paths and credentials stay on the coordinator's engine (or the actually registered local
+    engine when there is no coordinator); cloud has no hidden local repository fallback. Only project/repository,
     fixed paths and base/commit leave cloud; a commit and two bounded UTF-8 texts return. `engine-host/merge-repo.ts`
     serializes upstream fetches per repository across document reads and merge preparation in one engine process.
     With the engine offline, the last received text remains searchable with a stale indication; it is not claimed
@@ -938,21 +961,24 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     process, shell, socket or credential operation, no new table. Remote engine: works unchanged,
     since only the link state crosses the boundary. Signals and team messages already queue on
     `engine_offline` (`releaseForEngine`, `retryDeferredStarts`). Real Mac, sleep and network
-    trials belong to PM-664.
-    Integrator todo handoff (PM-782, `core/inbox/inbox.ts`, assembly maintenance) has no clock since
-    PM-885 and PM-938: since PM-1003, machine work handed off by the Operator stays in the integrator inbox;
-    only owner-reserved work is passed to the owners (`integrator_passed_on`). The sweep gives integrator
-    work to the owners only when no Operator exists (`integrator_unavailable`); on leave or with AI off it
-    waits for the Operator or super side. The hub alone persists and publishes the handoff;
-    no engine operation or credential crosses the boundary. PM-801 puts the integrator's fix-limit
-    decisions on the same sweep (`planIntegratorInboxEscalation`): hub-side only.
+    trials belong to PM-664. Since PM-1249 every deferred or refused start of the PM waits in
+    `payload.screening.waiting` (`start_deferred`, `start_refused`), not only an offline engine: no
+    start failure releases a question to the owners (only an approval opens for them, a requested
+    integrator gets a todo), and the queue retries; the ten-minute timeout re-delivers it once
+    (`overdue`). It is all server state; nothing new crosses to the engine.
+    Machine todo handoff (PM-782, PM-1003, PM-1045, PM-1246, `core/inbox/inbox.ts`) has no timeout
+    and no owner fallback: `integrator` work stays in the integrator's queue whether or not a project
+    owner has a live `super` key. Owner-reserved work is passed to the owners (`integrator_passed_on`,
+    `planIntegratorPassOn`); a fix limit with no integrator at all opens at the owners under the
+    topic `product_direction`. The hub persists and checks this even while engines are offline; no
+    credential or new RPC crosses.
     Machine access (decision 66, PM-1073): `AiMemberConfig.machineAccess` (shown as "Külső teendő (MCP)") lets an
-    AI member put machine todos in the owners' integrator queue. The rule is `machineAccessOf` /
+    AI member put machine todos in the owners' `integrator` queue. The rule is `machineAccessOf` /
     `machineTodoIssuerAllowed` in `packages/shared/src/config/machine-access.ts`: an absent value follows the
-    role (the selected, non-temp project manager has it, nobody else; no migration), the system and the Operator
-    member issue as before. Only an owner changes it (`ownerOnlyChanges` `machine_access`); a role change pins
+    role (the selected, non-temp project manager has it, nobody else; no migration), the system also
+    issues machine todos. Only an owner changes it (`ownerOnlyChanges` `machine_access`); a role change pins
     the effective value. `open_integrator_todo` is listed only to such members (`ToolAudience.capabilities`) and
-    the handler decides (`machine_access_required`); screening refuses the integrator recipient with
+    the handler decides (`machine_access_required`); screening refuses the `integrator` recipient with
     `no_machine_access`. Hub-side only: no engine operation, credential or process is added.
     PM-712 applies the same server-owned queue and receipt pattern to suspected loops:
     `runtime/watchers/loop-watch.ts` stores generation, assessment and the remaining ten-minute
@@ -960,7 +986,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     report-only `loop_suspected` signal to the selected PM, even when it participates in the loop.
     The engine link state freezes the deadline while offline, and reconnect sweeps resume it.
     Queued delivery alone never creates an owner decision. No new engine operation or CLI mount.
-    Before reporting, assessing or falling back to the existing human loop decision, the watcher
+    Before reporting, assessing or falling back to the existing human loop decision, the monitor
     re-reads the task, timeline work and branch head through `SessionOrchestrator.sourceHead`.
     The existing engine git read runs beside the repository; only commit/time facts cross the
     boundary. A null/offline head never proves progress. Queue, deduplication and assessment stay
@@ -968,14 +994,26 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
-  `scripts/engine/{cli,commands,move-work-root}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
+  `scripts/engine/{cli,commands,move-work-root}.ts`, `start.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
   `engine.json` has an optional `workRoot` (PM-846, see "Work volume (PM-846)"); engine mode does not read
   `PROJECTMAN_WORK_ROOT`.
   Entry points import the named exports of `engine-link/index.ts` (PM-649); the
   implementations above and their machine assumptions remain unchanged.
   `PROJECTMAN_MODE=engine` (`npm run engine -- start`) runs the machine-dependent parts on the Mac
   beside the CLIs and connects outward to the cloud's `/engine/link` with its machine key. There is
-  no database, no `/api`, no web app and no control socket; only `index.ts` reads the environment.
+  no database, no `/api`, no web app and no control socket; only `start.ts` reads the environment.
+  The engine guards the sandbox boundary itself (PM-1176): `engine-app.ts` hands the runner an `engineGuard`
+  (absent in single mode), and `runner/session.ts` refuses, at PreToolUse, a Claude file-writing tool outside the
+  session's write zone and a read under `deniedPaths`, a Gemini edit outside it, and an allow carrying
+  `updatedInput`, whatever the cloud decided; the zone comes from the session's own policy on this machine
+  (`runner/tool-decision.ts`, `engineWriteZone`). Each refusal is a `tool.guard` line (`refused`, the code
+  `outside_writable_roots`, `denied_path` or `updated_input`) in `logs/engine-audit.jsonl` and a `refused` event
+  with `by: engine_guard` to the cloud. The hub's strict frame schema needs the hub deployed before the engine.
+  PM-1187: `engine.json` `allowedProviders` is the engine's own provider list (`engine-limit.ts` refuses a
+  `session.start` for another provider with `provider_not_allowed`; absent: all), and the same rule refuses a
+  Codex/NanoGPT writer in the `default` mode (`permission_mode_too_low`). The runner refuses every Codex/NanoGPT
+  `PermissionRequest` but an MCP tool in the engine process (`escalation_refused`, capability
+  `sandboxEscalation`), so the cloud cannot approve a run outside the Codex sandbox.
   Stopping (PM-1159): `pauseForShutdown` asks the cloud first (`engine.pause_for_shutdown`, engine → cloud), which
   records the pause and resumes it at the engine's next connection; the engine pauses its sessions itself only when the
   cloud cannot take the call (`link_down`, `unknown_method` from an older cloud, timeout), and then nothing is recorded.
@@ -1011,7 +1049,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   exception is a home whose `instance.json` says `engine` (PM-318, the Mac after the move to the hybrid
   mode, [HYBRID.md](HYBRID.md)): its stale single-machine database and secrets stay there for the way
   back, and the sandboxes' `sensitivePaths` already put `db.sqlite*`, `secret`, `secrets` and the other
-  server data of the home in `denyRead`; `instanceMayWork('engine')` is false, so no server ever runs on it. Every
+  server data of the home in `denyRead`; `instanceRole` reads the marker and
+  `assertHomeMayStart` (`instance/index.ts`) refuses server startup in the engine role. Every
   `session.start` needs a policy (the denied paths and roots come from it), and each path in it (the
   placement, readable, writable and read-only roots, the session folders, a review copy's directories)
   must lie under the engine's roots; a task worktree's `gitDir` must be a registered repo's `.git` and its
@@ -1039,7 +1078,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   liveness and termination; conversation transcripts and resume; hooks and team MCP over loopback;
   task worktrees and shared git storage; the free-disk probe; the native sandbox and canonical paths;
   CLI token and plan usage; Claude workspace trust; the Codex project layer check; and the full test
-  before review. The cloud keeps the registry, the secret store, the integrator credential, the
+  before review. The cloud keeps the registry, the secret store, the connected Claude credential, the
   permission decisions and the control socket. Transcripts, bundles and attachments cross as
   purpose-scoped uploads and downloads (`engine-transfer.ts`; the cloud's endpoints are PM-315).
   The link client uses the runtime's `WebSocket`, which cannot send the close codes 1001, 1002 and
@@ -1083,10 +1122,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   session only when the session is recorded on the asking engine and its project is bound to it. The NanoGPT key
   goes only to an engine whose owner is the host owner; a NanoGPT start on another owner's engine is refused with
   `nanogpt_key_not_for_engine` (a member's start then waits with that reason), and the provider status of such an
-  engine reads as a missing key. The host machine view (`machine.ts`, `host.ts`) and the diagnostics, test, build
-  and release preparation of the Operator use `hostEngine()` and nothing else.
-  **Assumptions:** the cloud has no CLI, git checkout, browser or session folder of its own; the one
-  engine of a project (the default engine) is the machine the owner sees. `PROJECTMAN_MACHINE_FIXTURE`
+  engine reads as a missing key, unless it supplies its own key (see **NanoGPT Codex home and key delivery**).
+  The host machine view and orphan signals (`machine.ts`, `host.ts`) use `hostEngine()`;
+  project/member operations target their selected engine.
+  **Assumptions:** the cloud has no agent CLI, project source checkout, browser or session folder
+  of its own. Project/member bindings select execution engines; the machine view uses `hostEngine()`. `PROJECTMAN_MACHINE_FIXTURE`
   is ignored and no full-test or screenshot executor is built locally. The
   local worktree manager is still created because `DomainOptions.worktrees` is required, and is unused.
   Since PM-774, the native PTY and terminal packages (`runner/{session,terminal}.ts`), sandbox runtime
@@ -1123,7 +1163,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `project_key`, `engine_id`, `is_default`, `added_by`, `added_at`; one default per project by a partial
   unique index) says which engines run a project; the engine's owner (`engines.created_by`) and the
   project's owner bind (`PUT /api/projects/:key/engines/:engine`, `DELETE`, `GET`; own login only, no
-  super command). `EngineRegistry.projectEngine` applies the pure rule `projectEngineOf` of
+  `super` command). `EngineRegistry.projectEngine` applies the pure rule `projectEngineOf` of
   `packages/shared`: the live default binding; none (`engine_offline`) when it is revoked, never a silent
   move to another machine; with no binding the global default engine, but only while its owner is among
   the project's owners and no other user created the project (`projects.created_by`, migration 119, PM-1062:
@@ -1144,7 +1184,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   here starts a process on the cloud's host. Without a connected engine a project cannot be created
   (`isDirectory` answers `engine_offline`, HTTP 409; PM-1062: the engine is the one the creator chose, an
   owner account must name one of its own, `engine_not_owned` / `engine_offline` / `engine_revoked`), a full test is refused with `engine_offline`, and
-  the machine view is `engine_offline`. Moving the cloud onto a host with no CLIs is the goal; the
+  the machine view is `engine_offline`. The cloud runs without agent CLIs; the
   `hello` paths are the engine's own and are never opened by the cloud.
   **Boundary proof (PM-667):** `test/cloud-engine.test.ts` (fixture `test/helpers/cloud-engine.ts`) joins
   the real cloud `buildApp({ engineMode: 'cloud' })` and the real `buildEngineApp` over the machine-key
@@ -1179,9 +1219,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   revision LABEL and PROJECTMAN_VERSION retain that full SHA. A strict, atomically published bundle
   manifest pins archive hashes/sizes and config digests after import/inspect verification. Output
   stays outside the checkout; no registry, upload service, build-host provisioning or engine RPC.
-  The builder must be separate from EC2; ARM never builds on EC2. Actual two-platform native binary
-  and disposable cloud smoke evidence, 1 GiB RAM/20 GiB disk capacity and digest-specific cutover
-  approval belong to PM-675. A manifest is integrity metadata, not a signature of origin.
+  The builder runs separately from EC2; the EC2 host only imports verified bundles.
+  The bundle manifest pins integrity metadata, not origin authentication.
   PM-1145: the bundle is normally built on GitHub and only fetched and verified on the admin machine (see
   "Compute jobs on GitHub Actions (PM-1144)"); the local `image-build` stays as the fallback.
   PM-723: `smoke.sh` probes the engine door with four anonymous requests (GET link, GET download,
@@ -1189,13 +1228,20 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   none may answer 2xx, and an unreachable probe fails. It needs bash and curl on the machine that
   runs it and calls the hub URL; the engine has nothing new to do. `http/errors.ts` answers unknown
   `/engine` paths with 404 instead of the web app's index.html (hub HTTP routing only).
-  PM-674's [rollback runbook](CLOUD-CUTOVER.md) closes the public edge and stops the cloud
-  before downloading final data for Mac single activation. Deployment and backup remain on EC2;
-  the single-mode recovery service does not update either the cloud or the separate engine checkout.
+  The [hybrid recovery procedure](HYBRID.md) closes the public edge and stops the cloud
+  before downloading final data for single-mode activation. Deployment and backup run
+  on EC2; the recovery service manages only the single-mode server.
+  PM-1197 (part of PM-1193): `deploy/aws/host.sh` gains `prune-images` (after a healthy deploy only the current and the
+  previous image stay on the host; the Mac `deploy` calls it too) and `env-check` (reports which required names are
+  missing from `/etc/projectman/cloud.env`, never a value; a missing name stops the deploy as `env_missing` before
+  anything starts). The deploy itself can run from GitHub Actions (`scripts/cloud/runner-deploy.ts`,
+  `.github/workflows/projectman-deploy.yml`, docs/DEPLOY.md "Deploy from GitHub Actions"). **Machine assumption:** the
+  host keeps `/etc/projectman/cloud.env` and the Docker images in its own storage; a failed health check still runs the
+  existing rollback, then the job fails. **Remote engine:** nothing runs on an engine.
   On AWS EC2 the same image runs under systemd on one Ubuntu machine, installed and operated by
   `npm run cloud` (the entry "The cloud machine and its operation (PM-535)").
   PM-775 (part of PM-772) adds to the same entry: `apps/server/src/logging/memory-log.ts`
-  (`PROJECTMAN_MEMORY_LOG_SECONDS`, read in `index.ts`: a `memory` log line every 60 to 86400 seconds, off
+  (`PROJECTMAN_MEMORY_LOG_SECONDS`, read in `start.ts`: a `memory` log line every 60 to 86400 seconds, off
   at 0), `PROJECTMAN_HEAP_LIMIT_MB` (read only by `entrypoint.sh`, which gives the server node's
   `--max-old-space-size`; 128 to 4096, empty keeps node's default) and a `curl` `HEALTHCHECK` instead of
   a node process every 30 seconds. **Machine assumption:** the heap ceiling is sized to the cloud
@@ -1232,9 +1278,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   comes from `cf-connecting-ip` (`PROJECTMAN_CLIENT_IP_HEADER`), trusted from the loopback peer
   only; the Litestream replica is the SQLite database itself (not encrypted by Litestream), so the
   bucket's own encryption and a bucket-scoped key protect it. The Cloudflare Access service tokens
-  of the engine (`linkHeadersFile`) and of the integrator are the only machine credentials that pass
+  of the engine (`linkHeadersFile`) and of the connected Claude are the only machine credentials that pass
   the edge.
-  **Integrator isolation (PM-675):** `start.ts` reads optional `PROJECTMAN_INTEGRATOR_HOSTNAME` into
+  **Connected Claude host isolation (PM-675):** `start.ts` reads optional `PROJECTMAN_INTEGRATOR_HOSTNAME` into
   `app.ts`; `http/integrator-host-guard.ts` runs on the hub before cookie/auth hooks, using the raw Host
   with case/port/root-dot normalization shared with the feedback guard. It blocks board bearer requests
   (403), board bare MCP (404), machine cookie-only requests (401) and machine non-API/MCP routes (404).
@@ -1255,7 +1301,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   interval, first delay 300s) are separate recovery points: files may lag by 6 hours or longer
   after backup failures. A smoke pass is not complete recovery; the HYBRID/AWS runbook requires
   file/hash/reference checks and an earlier DB point when necessary. The fake-tool SQLite fixture
-  proves coverage/error paths, while real S3/Docker acceptance belongs to PM-675. Storage secrets
+  proves coverage/error paths. Storage secrets
   and backup execution stay on the cloud, never in engine payloads.
   PM-773 adds the memory tools `deploy/cloud/{memory-probe,memory-profile,heap-summary}.mjs` (the
   Dockerfile does not copy them since PM-1116: they come from the repository as a read-only volume;
@@ -1269,164 +1315,78 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   summaries (types, constructor names, numbers) may leave it.
   **Module:** `deploy`
 
-- **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
-  `db/integrator-keys.ts`, `db/integrator-key-audit.ts`, `runtime/sessions` (`session policy`),
-  `runner/env.ts`, `services/super-operator`, `kernel/integrator-execution.ts` (PM-251, PM-758, PM-759).
-  The host owner creates a separately attributed bearer key; the server stores only its hash.
-  Authentication accepts it only on a local connection or HTTPS, using the existing loopback
-  proxy protocol rules in `kernel` (`clientAddress`, `requestProtocol`).
-  The host owner's own login manages explicit `super`/`read` keys with 1/7/30/365-day expiry
-  or no expiry (`expiresInDays: null`, PM-825; default 7 days). The hub already stores a null
-  `expires_at` and authenticates it until revocation; no migration or engine operation is needed.
-  PM-1045: `AuthService.hasActiveSuperKey(ownerEmail)` (repository `hasActiveSuper`) tells whether an owner has
-  a live (not revoked, not expired) super key; `integratorSideAvailable` reads it to decide where a machine todo
-  waits. It reads only the hub database; no machine assumption is added.
-  PM-1074 (decision 66): a step made with the key is the connected Claude's: it is recorded under the key holder's
-  name (or the queue item issuer's), with `through` naming the holder and the key; the project needs no Operator for
-  a key to bind. The key still carries no authority beyond the authenticated scope and the holder's rights.
-  PM-1063: a further owner (an active owner account, PM-1062) with a password holds `super`/`read` keys of
-  their own beside the host owner; the pure rule is `canHoldIntegratorKey` (`packages/shared/src/config/integrator.ts`),
-  applied by `AuthService.keyHolderAllowed` at issuing, authentication, `assertActive` and `hasActiveSuperKey`.
-  A key's scope is its holder's own projects (the existing owner-membership checks); revoking the owner account
-  makes the key `integrator_key_invalid` (401). The team of a project is editable by its owners, so the reach
-  also rests on a fact the team cannot write (`integratorKeyCoversProject`, `AuthService.keyCoversProject`):
-  in a project an owner account created (`projects.created_by`, PM-1062) only the creator's key counts, even if
-  the team lists the host owner; a project the host registered stays with its owner members' keys. The check
-  sits in the scope's access check, `executeOwned`/`executeInstance`, `hasActiveSuperKey(email, projectKey)` (the queue). Instance-level REST routes are not `host_only` (PM-1058).
-  Legacy keys are revoked with a lifecycle audit by migration 114 (PM-1037); the singular API is removed.
-  Authentication rejects legacy rows, which remain readable in key lists and audit history. Before release,
-  the owner must replace any active legacy credential on the integrator's machine with a super or read key.
-  Replacement revokes only
-  the same mode, with a database uniqueness constraint and transactional lifecycle audit.
-  An instance-level call (`executeInstance`, `instanceUser`) is the host owner's through the key: it runs once, the
-  key's policy and the super audit bind only the projects its holder owns, and the instance Operator actor comes
-  from the first such project, never from another owner's project (PM-1058). The hub decides; nothing crosses to an engine.
-  The shared credential resolver returns the stored mode and key id; `assertActive` rechecks
-  that row and its owner without updating usage. Authentication records `mcp`, `cli` or `rest`
-  alongside the last-use timestamp on first use, channel change or after five minutes.
-  The exact external `/mcp` path takes precedence over the self-reported CLI header, which
-  grants no authority. REST binds explicit modes through the Super Operator facade. The auth service
-  registers immutable resolved principals in a private WeakSet; a copied principal or actor JSON grants
-  no authority. The hub's request-local scope expires with its callback, and domain mutations recheck
-  the active key and current project-owner membership after waiting for locks. Read credentials cannot
-  write. Super credentials administer existing services but cannot decide human approvals, manage keys,
-  or bypass fixed Operator invariants. The shared structured mutation projection (`ownerReservedEffect`,
-  `packages/shared/src/config/super-mutation.ts`) reserves three effect classes for the owner (PM-870, the
-  owner's decision of 2026-10-20): `deletion` (a member, repository, project or key removed), `security` (an
-  access level or a new owner member, a human member's login e-mail or kind, an AI member's permission mode, approver and outbound network, the boundary delegation, the Operator approval waiver and the keys) and
-  `cost` (the consumption-billed NanoGPT runtime); until PM-762 supplies an exact owner grant, these fail
-  closed. Everything else (deploy and publishing, repository and workspace paths, the other
-  deletions, approval labels the key owner holds, decisions) the Operator does in its own name with the
-  super key: `labelRefusal` opens the approval and human-only labels to a super actor when the key owner
-  holds the label (self-review stays refused), and `superAccessVerdict` allows `approval` for the super mode. The repository merge queue's revision and complete permutation
-  use one hub SQLite transaction (`merge_queue_revisions` and `task_merges.queue_rank`, migration 82,
-  after PM-771's migration 80 and PM-761's migration 81); the running merge remains behind the existing
-  BranchMerger facade.
-  The external bearer MCP endpoint (PM-760, "The external MCP endpoint" in [services/super-operator](modules/services-super-operator.md)) uses this resolver on
-  every HTTP request.
-  Integrator todos (PM-782, `core/inbox`, `services/super-operator/todo.ts`) have a dedicated
-  super-only resolution path for the integrator's own work, with authenticated actor/answer markers
-  instead of an owner relay. `app.ts` supplies `IntegratorTodoAccess` through assembly: it checks
-  current project owners, their existing users and active explicit super keys against shared access
-  policy on every screening release. Only a boolean reaches the domain; no key id, prefix or secret
-  enters question payloads or screening notices. Resolution and the durable 24-hour maintenance
-  handoff run on the hub, even when the engine is offline. Remote engines need no new operation.
-  The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
-  Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips
-  `PROJECTMAN_INTEGRATOR_KEY` before launching members.
-  **Remote engine:** key authentication and audit stay on the server; the credential is never
-  sent to an engine or member session. Engines must deny the same directory in their worker
-  homes and strip the environment variable before spawning a CLI.
-  **External MCP endpoint (PM-760):** `mcp/super-operator/*`, `mcp/http.ts`, `services/super-operator/relay.ts`,
-  `scripts/cloud/cloudflare.ts` (`ingressRules`). `POST /mcp` takes the bearer key per request, with no session or
-  engine. Machine assumptions: a local or HTTPS connection (`requestProtocol` trusts `X-Forwarded-Proto` only from a
-  loopback peer, so the proxy or tunnel must run on the server's machine and keep Host and the protocol header) and a
-  tunnel/proxy that refuses `/mcp/` and `/hooks` but passes `/mcp`. Remote engine: not affected; nothing of the endpoint
-  runs on or crosses to an engine. Since PM-1045 this endpoint is the Operator's only door: the app starts no
-  session for it. **The connected Claude as an actor (PM-1074, decision 66):** a super-key step is recorded as the
-  key holder in person (`kind: human`, `via: integrator`, `through: {holder, credential}`), or, with
-  `queue_item_id` on `super_operate`, as the member who put that open integrator queue
-  item there (the screening member of a screened question, otherwise its source; `kind: ai`, the same `through`; `queue_item_not_yours` / `issuer_without_machine_access` refuse it). After the
-  owner's own yes on a K3 question the step also carries `approvedBy`, set by the server only. The old
-  `operatorMode: super` events stay readable; `coordinatorSuperActorOf` serves only the selected coordinator's
-  in-app session (PM-1076: `superActorOf` and the Operator member are gone). The actor is created and stored on the hub (`actor_meta`); no machine-dependent part is added.
-  **Two kinds of key holder (PM-1063):** a tool with `hostOnly: true` (`mcp/kit.ts`: the two instance-knowledge tools; the host-request tools of
-  PM-1064 take the same flag) is absent from `tools/list` of a further owner's key and answers `host_only` if called
-  (`ExternalMcpBackend.isHost`). The server's `instructions` come in two kinds: the host's (the global Operator,
-  unchanged) and a short one for a further owner (own projects, own machine with their approval, no secrets).
-  Remote engine: not affected; the filter reads the hub's user and owner-account rows.
-  **The global Operator on the endpoint (PM-1046, PM-1023 K7):** in the super mode `get_operator_instance_knowledge`
-  and `update_operator_instance_knowledge` (`expected_revision`, `agreement?`, `principles?`) read and write the
-  Operator's own knowledge with no `project_key` (`services/super-operator/instance-knowledge.ts`); the write is
-  direct, with no app approval, and the super audit records it in every project the key's holder owns
-  (`SuperOperator.executeOwned`). `list_integrator_inbox` takes an optional `project_key`: without it the items of every
-  project of the key come in one list, each with its `projectKey`, and the access is checked per project. The
-  server's `instructions` describe the Operator's role (decision 65). Remote engine: not affected; the Operator
-  reaches the hub over HTTPS with the key and the knowledge stays in the hub's home.
-  **Operator tools on the endpoint (PM-784):** `read_project_doc`, `write_project_docs`, `get_project_doc_write`,
-  `get_role_configuration`, `request_structural_review`, `ask_human`, `get_super_question`,
-  `withdraw_question` and `read_attachment` (`mcp/*/tools.ts` `external` bindings, `mcp/super-operator/handler.ts`,
-  `core/inbox/human-questions.ts`, `services/project-docs/doc-writes.ts`). They run on the hub with no session or
-  engine. The only engine traffic is the one a member's call already has: a document write's git work
-  (`merge.read_file`, `merge.commit_files`, `merge.push`, see [services/merges](modules/services-merges.md)) and a review request's usual member start. A
-  queued write goes on under a fresh scope of its key (`auth.reactivate`, assembly's `DocWriteExternalRunner`) and
-  checks the key, the owner and the Operator again before it starts and before the push; the origin (`ownerUserId`,
-  key id and prefix, request id) is stored in `doc_writes.external_origin`, never taken from input. An attachment
-  chunk is read from the hub's own attachment storage (at most 1 MiB per call, 25 MiB per file); on a remote engine
-  nothing changes, since the hub already holds the stored files.
-  **Cloud (PM-317):** in front of the cloud the integrator also passes Cloudflare Access with a
-  service token of its own, kept beside the key in `~/.config/projectman/` (DEPLOY.md,
-  "Integrator access"); the key still works only over HTTPS, which the container sees as
-  `x-forwarded-proto: https` from the tunnel's loopback connection. The service token is a second
-  secret with the same rules: never in a message, task, commit, prompt or engine payload.
-  **PM-675:** when the explicit machine hostname is configured, the existing integrator client's
-  origin changes to it; REST `/api` and MCP `/mcp`, key scopes and audit stay the same. Its Access
-  token opens only that application's audience. Human key management, super audit and approval remain
-  on the board's own cookie API. The app-principal's direct domain calls are not HTTP entrances.
-  **Integrator client (PM-765):** `scripts/projectman/**` (the `projectman` bin: REST, `events follow` and the
-  stdio `mcp-proxy`), `packages/shared/src/api/client-config.ts` (`ClientConfig`, exit codes, the channel
-  header). Project writes use the common super-operation endpoint (PM-889), with the same request id in
-  the body and header: task creation, fields, labels and starting; inbox decisions; configuration and
-  member edits; credential revocation; project pause/resume and merge ordering. K3 operations return
-  `waiting_owner` successfully. Legacy inbox answer and
-  fix-limit commands, instance pause/resume and merge prioritization retain their dedicated REST routes
-  (no corresponding super command). `queue` reads the Operator's `MemberQueueView`, including closed items.
-  `runner/env.ts` (`ACCESS_ENV_PREFIXES`) strips its credentials. It runs on the integrator's own machine, not on the
-  server's or an engine's, and reads `~/.config/projectman/client.json` (paths and an origin only) with the key
-  file and the optional Access service-token file it names. Machine assumptions: a home directory with
-  `~/.config/projectman` (mode 700, files of the user with mode 600, no links; checked before any request), Node
-  with the `tsx` loader, an HTTPS origin or a loopback one, a standard input/output pair for the proxy, and for
-  `events follow --cursor-file` a writable local file (the cursor is not a secret). The client has no `--token`
-  and no secret environment variable; it follows no redirect, redacts every error and debug line, and sends the
-  non-secret `X-Projectman-Client: cli` label on REST and event requests (the server decides the channel by the
-  path, so `/mcp` stays the `mcp` channel). Rights, expiry, audit and idempotency (the operations' request id)
-  stay on the server. The runner strips the environment names of the Access service token
-  (`CF_ACCESS_*`, `CLOUDFLARE_ACCESS_*`) next to `PROJECTMAN_INTEGRATOR_KEY`, and the live supervisor's
-  allowlist keeps them out of the server. **Remote engine:** not affected; nothing of the client runs on or
-  crosses to an engine, and neither the key nor the Access token is ever sent there.
-  **Module:** `auth`
+- **Connected Claude credentials (PM-758, PM-1074)** — `auth/auth-service.ts`,
+  `db/integrator-keys.ts`, `db/integrator-key-audit.ts`, `kernel/integrator-execution.ts`,
+  `services/super-operator/`, `mcp/super-operator/`, `scripts/projectman/`.
+  An owner with a password creates a `super` or `read` bearer key using their own login.
+  The hub stores its hash, expiry and lifecycle audit. Key use requires loopback or HTTPS;
+  request protocol trusts proxy headers only from loopback. Revoked/expired keys and
+  revoked owner accounts fail authentication. Legacy rows are revoked by migration 114
+  and remain readable only in key lists and audit history.
+  The key's scope is its holder's projects; a project created by a further owner is
+  covered only by its creator's key (`integratorKeyCoversProject`). Instance requests
+  require the host owner's key. The hub records each step as the holder, or the issuer
+  of an eligible open `queue_item_id`, with `through: {holder, credential}`.
+  Old `operatorMode: super` timeline events remain readable.
+  `coordinatorSuperActorOf` serves only the coordinator's in-app session.
+  Resolved principals are registered by identity in a private WeakSet; copied JSON
+  confers no rights. Mutations recheck the key and current ownership after lock waits.
+  Read keys cannot write. `ownerReservedEffect` classifies deletion, security and cost
+  effects; they wait for the bound owner's approval in **Connected Claude operations
+  and owner approval**. Human-only login/key management and fixed permission invariants
+  cannot be bypassed.
+
+  **External endpoint:** `POST /mcp` authenticates the bearer on every request without
+  a member session. `hostOnly` tools are omitted/refused for further owners' keys;
+  this includes instance knowledge (see **Project and instance knowledge**).
+  `list_integrator_inbox` optionally filters a project and checks access per project.
+  Document reads/writes, questions and attachment reads use the hub's services.
+  Document git calls run on the selected engine; queued writes reactivate and recheck
+  their key before execution and push. Attachment chunks come from hub storage.
+  `IntegratorTodoAccess` checks current owners and active `super` keys on the hub; it tells whether
+  a fix limit has an integrator, but no longer decides an owner fallback for machine items (PM-1246).
+  Machine items use their authenticated resolution path and go to the owners only when
+  owner-reserved (see **Engine link and machine keys**).
+
+  **Machine assumptions:** the connected Claude keeps its key in
+  `~/.config/projectman/integrator-key` on its own host. The CLI's
+  `~/.config/projectman/client.json` names an HTTPS/loopback origin and protected
+  credential files (directory 0700, files 0600, owned by the user, no symlinks).
+  `scripts/projectman/` supplies REST, event following and the stdio MCP proxy.
+  It needs Node with tsx, stdin/stdout for the proxy and a writable cursor file if
+  requested. It follows no redirects, redacts errors and passes no token in argv.
+  Member tools and sandboxes deny `.config/projectman`; `runner/env.ts` strips
+  `PROJECTMAN_INTEGRATOR_KEY`, `CF_ACCESS_*` and `CLOUDFLARE_ACCESS_*`.
+  In the cloud, the separate machine hostname (`PROJECTMAN_INTEGRATOR_HOSTNAME`,
+  guarded by `http/integrator-host-guard.ts`) permits literal `/api/...` and exact
+  `/mcp`, behind its own Cloudflare Access service token. The tunnel preserves Host
+  and supplies the HTTPS protocol header from loopback. Board cookie routes manage
+  human key creation, approval and audit.
+  **Remote engine:** authentication, scope, audit, knowledge and inbox persistence stay
+  on the hub. The client runs on the connected Claude's host. Neither its bearer nor
+  its edge service token is sent to an engine or member session; engines enforce the
+  same credential-path and environment denials. Only the existing document git and
+  session operations cross to the selected engine. **Module:** `auth`
 
 - **Codex project layer check** — `runner/ambient-config.ts` (`inspectProjectCodex`,
   `assertCodexMemberWorkspace`), `runner/runner.ts` (`assertWorkspaceConfig`),
   `runner/providers/codex/index.ts` (`launch`), `runtime/sessions` (`SessionLauncher` in `launch.ts`) (PM-357).
-  The server reads the CLI's canonical working directory and each `.codex` layer from the
+  The runner reads the CLI's canonical working directory and each `.codex` layer from the
   nearest ancestor with a `.git` entry. Member starts and resumes allow only `config.toml`
   with model and project-document roots; confined reads reject links and nonregular files.
   Preflight runs before session rows/folders, and the adapter checks again before launch.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.assert_workspace_config` (PM-313) and run both inspections beside the CLI on the engine. The domain preflight
-  becomes a server/engine call; return relative file names and key names only, never values.
-  Today the server and CLI share the filesystem. NanoGPT retains its separate `any` rule.
-  **Cloud mode (PM-315):** `RemoteRunner.assertWorkspaceConfig` calls `session.assert_workspace_config` on the
+  NanoGPT retains its separate `any` rule.
+  **Remote engine:** `RemoteRunner.assertWorkspaceConfig` calls `session.assert_workspace_config` on the
   session's engine; the engine refuses with its relative file names and key names only, never values.
   **Module:** `runner`
 
 - **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`,
-  `runner/env.ts`, `app.ts`, `index.ts`
+  `runner/env.ts`, `app.ts`, `start.ts`
   (PM-329). The engine runs Codex >= 0.159.1 with a dedicated 0700 home under
   `PROJECTMAN_HOME/providers/nanogpt/codex-home`; any `auth.json` refuses startup. Only this
   adapter supplies the secret as trusted child environment and excludes it from CLI shell
   commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
-  Codex home. **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`,
+  Codex home. **Remote engine:** starts use `session.start`,
   `provider.status` and `secret.nanogpt_key` (PM-313); PM-1061: only an engine the host owner owns gets the hub's key
   (`nanogpt_key_not_for_engine` for the others). **Own key on the engine (PM-1068):** any engine may hold its
   own key file (`nanogptKeyFile` in `engine.json`, set with `npm run engine -- nanogpt-key set|clear`, 0600, outside every
@@ -1437,8 +1397,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   engine and does not override its provider status with the hub's key fact. An engine without a key file keeps the old
   way (host's engine: hub key; another owner's engine: `nanogpt_key_missing`, the start waits). The CLI,
   home and transcripts belong on the engine; secret delivery requires an authenticated
-  launch/resume boundary, never configuration, public status or logs. The current server and
-  CLI share a machine and filesystem. A remote engine performs local version and auth-file
+  launch/resume boundary, never configuration, public status or logs. The CLI and its home share the engine's filesystem. A remote engine performs local version and auth-file
   checks and returns readiness status; it never asks for the key outside a start
   (`nanogptKeyInCloud`). The cloud adds whether it holds the key to the status it returns
   (`withNanogptKeyFact` in `engine-link/remote/runner.ts`, from its own key store, PM-736); only
@@ -1446,7 +1405,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   starting session. A remote engine never persists or returns the delivered key,
   including in its spool; a replaced key affects only subsequent launches and resumes.
   Codex rollout `task_complete` (including an empty failed response) and `turn_aborted`
-  events end the runner's turn even without a Stop hook; a later `task_started` supersedes
+  events end the runner's turn even without a Stop hook; a later `task_started` replaces
   that end (PM-377, `runner/providers/codex/transcript.ts`). The engine must parse these
   events beside the CLI and forward the resulting session state to the server.
   **Session folder and own TMPDIR (PM-522):** a NanoGPT session gets a session folder like a Codex
@@ -1519,11 +1478,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   On a remote engine terminal recognition and relative-to-absolute time conversion run on
   the engine; only the existing runner event and its additive `resetsAt` field cross to the
   server. Persistence, selection and expiry stay on the server; engine clocks must be synchronized.
-  This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** the binary, login/keychain, private directories, PTY, forwarder and
-  transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;
-  transcript access must stay confined to the provider's conversation root on the engine,
-  rather than opening engine paths on the server.
+  This does not contain code executed by allowed tests/builds.
+  **Remote engine:** the binary, login/keychain, private directories, PTY, forwarder and
+  transcript reader run on the engine. Hooks use its loopback listener and MCP reaches the
+  hub through the authenticated relay. Transcript reads stay confined to that engine's
+  provider root; the hub never opens those absolute paths.
   **Session folder (PM-522):** a Gemini session gets the per-process session folder (see **Session
   output folders**), named in `PROJECTMAN_SESSION_DIR` through the environment `launch` returns
   (`runner.ts` merges `launch.env`). Gemini has no OS sandbox, so the folder is written by its file
@@ -1543,22 +1502,11 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   host owner may change it (`canManageProviderKeys`, PM-1068; an owner of every project is not enough). It is the
   host engine's fallback only: an engine's own key file (see above) takes precedence, and each owner pays for their
   own engine. Save-time checking needs outbound HTTPS to NanoGPT.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** delivery uses `secret.nanogpt_key` (PM-313), with the starting-session guard in PM-315;
-  storage and validation remain on the server; this card does not send
-  the key to an engine. PM-329 must deliver it only to NanoGPT sessions over the authenticated
-  server/engine boundary, without configuration, database or logging persistence on either side.
+  **Remote engine:** `secret.nanogpt_key` delivers the hub's key only to a starting NanoGPT
+  session on an engine owned by the host owner; the engine keeps it out of configuration,
+  database, logs and member shell commands. Storage and HTTP validation stay on the hub.
+  An engine's own protected key file takes precedence (see the delivery entry).
   **Module:** `runtime/usage`
-
-This is a living inventory of assumptions that tie execution to a machine, account or OS.
-The current local mode usually places the server and agent CLIs on the same host. The remote
-actions below are requirements for planning, not implemented remote support or new contracts.
-Keep entries current under the rule in `CLAUDE.md`.
-
-Unless stated otherwise, server paths below are relative to `apps/server/src/`.
-
-Core attachment and permission entries name their final implementation locations behind the
-stable module facades (PM-645). This refactor changes no filesystem operation, machine
-assumption or remote-engine RPC.
 
 - **Session process liveness** — `runner/session.ts` (PM-376). Every 30 s the runner
   probes the attached CLI PID with signal 0, recovering a missing PTY exit event through
@@ -1566,7 +1514,7 @@ assumption or remote-engine RPC.
   leave the session running. An unreaped zombie also passes the probe.
   Since PM-621, `runner/session-clock.ts` schedules the probe with a ref'd Effect sleep: a running session keeps the process alive until shutdown stops it.
   The PID belongs to this host.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** run this probe beside the CLI on the engine and transport the exit event;
+  **Remote engine:** the runner probes beside the CLI on the engine and sends its exit event;
   a remote PID must never be checked against the server's process table.
   Since PM-311 the domain asks the workspace's engine (`EngineHost.processExists`, `contracts/engine.ts`).
   The local probe runs on the engine in `engine-host/local-engine.ts` (PM-611).
@@ -1577,7 +1525,7 @@ assumption or remote-engine RPC.
   phase until a release file exists in the disposable session workspace; PTY readiness
   markers confirm the phase before a pause is requested. The test and fake must share
   that temporary filesystem. Interrupting a turn abandons its gate without a release.
-  **Remote engine:** run this integration harness and its fake together on the engine;
+  **Remote engine:** run this boundary harness and its fake together on the engine;
   these test-only paths never cross the production server/engine boundary.
   **Module:** `runner`
 - **Dependency clones and refreshes** — `worktree/{dependencies,dependency-copy}.ts`, `cloneDependencies`,
@@ -1609,8 +1557,20 @@ assumption or remote-engine RPC.
   It shares the clone lock, preserves recent copies and never traverses linked workspace parents.
   This is engine-local filesystem housekeeping; no paths or files cross the remote-engine boundary.
   No npm install runs outside a sandbox.
-  Member clones may opt in through engine-local `repos[].workspaceSetup: {kind: 'npm_ci', timeoutMs?}`
-  (PM-741, owner option 1). `full-test/workspace-dependencies.ts` runs fixed `npm ci` outside the
+  Member clones install by default (PM-1203, owner decision): an engine-local `repos[].workspaceSetup`
+  that is absent resolves to `{kind: 'npm_ci', timeoutMs: 600000, implicit: true}` in
+  `engine-link/engine-config.ts`; `{kind: 'none'}` opts out, and an explicit `{kind: 'npm_ci', timeoutMs?}`
+  (PM-741) is `implicit: false`. The default installs only where the clone has a root `package-lock.json`
+  and never blocks a start: with no sandbox (not macOS, no srt, node/npm inside the user home) the result
+  is `skipped` / `unavailable` instead of `sandbox_unavailable`, while an explicit setting still fails
+  as before. Any other failed default installation (PM-1213) also ends as `skipped` / `unavailable` with
+  the dependency shortfall, so the member starts and is told; the end of the installer's output (last ten
+  lines, 1500 characters) is in the `workspace dependency preparation ended` log entry (`outputTail`)
+  and in the error details of an explicit setting. srt is started in the run's own sandbox directory
+  (`anchorDir`) and the command changes into the clone: srt anchors its mandatory write denials (`.idea`,
+  `.vscode`, `.claude/commands`, `.git/hooks`, `.git/config` at any depth) at its own working directory,
+  and a package's `.idea` folder under the clone's `node_modules` made `npm ci` exit 255 (EPERM).
+  `full-test/workspace-dependencies.ts` runs fixed `npm ci` outside the
   member session, in srt on macOS only: package trees and a private run home/tmp/cache are writable;
   only registry.npmjs.org and nodejs.org are reachable, with no local binding. The entire user home,
   app home, engine secrets and shared session temporary roots (Claude roots and the parents of
@@ -1629,8 +1589,8 @@ assumption or remote-engine RPC.
   (a changed key retries immediately); queue and abort errors are not memoized.
   `workspace.prepareDependencies` runs after checkout and before binding/launch for work and review,
   including resumes. Pending/failed preparations release the session reservation and defer its start;
-  checkout refuses while preparation is busy. Single mode and unconfigured/older engines skip it;
-  a configured non-macOS engine fails with `sandbox_unavailable`. All files, copies, subprocesses
+  checkout refuses while preparation is busy. Single mode, repositories with `{kind: 'none'}` and
+  older engines skip it; an explicitly configured non-macOS engine fails with `sandbox_unavailable`. All files, copies, subprocesses
   and queue operations stay on the execution engine; only the key-bound request and result cross RPC.
   A running session is gated too (PM-743): before a command tool (`needsDependencies` in `runner/tools.ts`;
   not file, search, web or team tools) the PreToolUse path of `runner/session.ts` calls
@@ -1643,8 +1603,8 @@ assumption or remote-engine RPC.
   refuse: the command waits at most 80 s and then runs (warn). Gemini's PreToolUse hook timeout grows by
   80 s. A command already running when an install starts is not stopped. A clone the registry does not
   know takes the worktree path above.
-  The same `workspaceSetup` switch also keeps the engine's own checkout of the repository (`repos[].path`)
-  installed (PM-1083, replacing the operator's polling `deps-watch.sh`): `refreshCheckout` in
+  An explicit `workspaceSetup` (not the default) also keeps the engine's own checkout of the repository
+  (`repos[].path`, possibly a person's own working directory) installed (PM-1083): `refreshCheckout` in
   `full-test/workspace-dependencies.ts` runs for each configured repository at engine start
   (`engine-app.ts`) and after a merge `advance` that fast-forwarded a checked-out default branch
   (`onCheckoutAdvanced` in `engine-host/branch-merger.ts`, passed through `local-engine.ts`); it
@@ -1657,15 +1617,19 @@ assumption or remote-engine RPC.
   merge: a failure is a log line and the next advance or start retries (10-minute memo). A newer advance
   during the install changes the key, so the run publishes nothing and starts over. Machine assumption:
   macOS/srt, npm and the repository checkout on the engine's own disk; a remote engine does the same
-  locally, behind the same `workspaceSetup` switch. Other worktrees are never touched.
+  locally, behind the same explicit `workspaceSetup`. Other worktrees are never touched.
   Target workspace ancestors must be real directories: component-wise `lstat` checks run
   during selection and immediately before every copy, rename and removal, including rollback
   and cleanup. Symlinked workspace paths skip the clone as unsupported. Node has no `openat`,
   so a small check-to-operation race remains; checks never deliberately traverse a replaced parent.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.refreshDependencies` (PM-313), find reference checkouts and probe the filesystem on the engine;
-  retain the existing skip/install fallback on other platforms. The member prompt asks for
-  `npm ci` locally when dependencies are missing or stale (PM-1112); member workspaces have
-  no automatic clone. The server's installation
+  **Remote engine:** `worktree.refreshDependencies` resolves reference checkouts and probes
+  the engine's filesystem; unsupported platforms retain the skip/install fallback. When the engine installs nothing for a
+  member workspace (`skipped`), `workspace.prepareDependencies` adds the optional
+  `dependencies: 'missing' | 'stale'` (PM-1203; set only when the clone has a root `package-lock.json`
+  and `dependencyState` is not fresh). The hub passes it to the context input, and the member prompt then
+  asks a writer (not Codex) to run `npm ci` and a reader or Codex to `ask_human` without trying (PM-1112
+  asked every writer unconditionally). The result is additive on the strict wire schema: install the
+  hub first, then the engine. Member workspaces have no automatic clone. The server's installation
   cannot be cloned across machines, and native dependencies must match the engine. Keep the
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
@@ -1708,8 +1672,8 @@ assumption or remote-engine RPC.
   to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
   The queue does not apply in GitHub mode (`FullTestSpec.githubActions`, PM-900): the machine does not run the tests.
   **Module:** `full-test`
-- **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `index.ts` (`loggerOptions`)
-  (PM-444), exposed through `logging/index.ts` to `index.ts` and
+- **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `start.ts` (`loggerOptions`)
+  (PM-444), exposed through `logging/index.ts` to `start.ts` and
   `engine-link/engine-audit.ts` (PM-649). Every process logs pino's JSON lines to the terminal and, since PM-444, to
   `<PROJECTMAN_HOME>/logs/server.log` (single mode and the cloud) or `logs/engine.log` (engine
   mode); the terminal's scrollback alone lost the older lines. The file is appended across starts,
@@ -1723,7 +1687,7 @@ assumption or remote-engine RPC.
   home, the engine's under the engine's home. Logs are not shipped across the link; to read the
   engine's log, read it on the engine's machine.
   **Module:** `logging`
-- **Session output folders** — `index.ts`, `engine-host/session-folders.ts` (`SessionFolders`),
+- **Session output folders** — `start.ts`, `engine-host/session-folders.ts` (`SessionFolders`),
   `engine-host/sandbox-dirs.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
   `engine-host/session-roots.ts` (`defaultSessionTmpRoot`, `sharedClaudeTmpRoots`, the roots'
   preparation), `engine-host/local-host.ts` (opening the folders, the overlap check with the queue's
@@ -1731,7 +1695,7 @@ assumption or remote-engine RPC.
   `runtime/sessions/permission-broker.ts` uses the existing readable-root calculation directly
   (PM-960); policy rendering and folder operations remain in runtime and on the engine. Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
-  writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. Since
+  writable folder below the engine's real `tmpdir`; the engine makes, sweeps and removes it. Since
   PM-522 Gemini, NanoGPT and read-only Codex sessions get one too (`sessionFolderAccess`):
 
   | Session                                                        | Folder                                                     | Own TMPDIR, browsers, screenshots |
@@ -1783,9 +1747,9 @@ assumption or remote-engine RPC.
   sandbox `allowRead`; it writes only its own folder. A resumed session gets a new folder, and its
   system prompt says that the old paths are gone and the card's attachments stay. Another
   instance's root (another home hash) gets no rule.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `folders.*`, `files.export` and `files.materialize` (PM-313), allocate and clean up on the executing host, generate its sandbox paths
-  there, and transfer output through an authenticated attachment path rather than reading a
-  remote absolute path on the server. The root is a property of the engine (the PM-312 host's
+  **Remote engine:** `folders.*` allocates and cleans up on the executing host.
+  `files.export` and `files.materialize` transfer output through authenticated attachments;
+  the hub never reads an engine's absolute file path. The root is a property of the engine (the PM-312 host's
   file system), not of the server; the policy carries the two paths to the host that runs the
   CLI. A member reads only the folders of sessions on its own engine; images move between
   machines through `attach_file` → `read_attachment`. The Claude Code roots (`/tmp/claude-<uid>`,
@@ -1848,7 +1812,7 @@ assumption or remote-engine RPC.
   whose CLI shows no image in an MCP tool result, the server has the caller's engine put a copy at
   `<session folder>/<id>-<name>` (0600, straight in the folder with no subdirectory since PM-523, see
   SECURITY.md; the same path for the same bytes) and the tool answers with that path. The caller is the session the MCP token names; the
-  target is its own folder only, and a guest conversation of the Operator or of the project manager (no folder, `teamToolsOnly`)
+  target is its own folder only, and a guest conversation of the project manager (no folder, `teamToolsOnly`)
   gets none. PM-1061: the copy goes only to the engine the session runs on, and the engine must be bound to the
   session's project (`files.materialize_into_session` is session-scoped, a project call is checked by the hub guard).
   A failure (engine offline or older, no folder, a disk error) is logged and the tool
@@ -1870,7 +1834,7 @@ assumption or remote-engine RPC.
   allows the call only for a session whose folder `folders.make` created on it, with a plain name and a
   valid token. An engine without the method answers `unknown_method`, which counts as a failure above.
   **Module:** `mcp`
-- **Browser installation and screenshots** — `index.ts`, `runtime/sessions` (`session policy`),
+- **Browser installation and screenshots** — `start.ts`, `runtime/sessions` (`session policy`),
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).
   Playwright loads local Chromium binaries from the configured browser directory (default
@@ -1883,18 +1847,23 @@ assumption or remote-engine RPC.
   the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
   member as the same `TeamToolError('invalid', …)` texts as before.
+  **Which sessions get a screenshot scope (PM-1202):** a Claude or Codex CLI (Codex, NanoGPT) session in a
+  checkout of the card (`screenshotPlacement`: `task_worktree` or `review_copy`) that has a session
+  folder; `read_only` placement and Gemini get none. Where the session's own sandbox writes the folder,
+  the run has its limits; for a reading Codex or NanoGPT sandbox the run writes only the session folder
+  (`denyWrite` includes the checkout), and the browser directory comes from `EnginePaths.browsersDir` with a read exception.
   Scenario resolution sends only `{ cwd, sessionDir }` as roots, without the browser directory
   or sandbox settings, matching the strict `files.resolve_scenario` contract in hybrid mode
   (PM-785). This adds no machine-dependent operation and leaves the engine boundary unchanged.
   **Cloud mode (PM-315):** `screenshots.run/cancel` run on the session's engine
   (`services/full-tests/screenshot-runs.ts` takes a remote executor, announced by the engine's `screenshot_started`
   event); a run with no connected engine is refused as `engine_offline`. The scenario and the image list come from the engine (`files.*`).
-  `index.ts` builds no local screenshot executor in cloud mode.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `screenshots.run/cancel`, `files.resolve_scenario` and `files.list_images` (PM-313), provision a compatible browser on the engine, preserve the disposable
-  instance's network fence and read-only browser access, and return images as artifacts. The
-  screenshot run belongs on the engine that owns the member's worktree and session folder (the
-  server cannot run it against a remote path); the server keeps only the tool and the run record.
-  Since PM-311 the browser directory is `EnginePaths.browsersDir` and the run is the
+  `start.ts` builds no local screenshot executor in cloud mode.
+  **Remote engine:** the session's engine runs the disposable instance and its compatible
+  browser with the network fence and read-only browser access. `screenshots.run/cancel`,
+  `files.resolve_scenario` and `files.list_images` carry requests and artifact metadata;
+  images cross through attachment transfers.
+  The browser directory is `EnginePaths.browsersDir` and the run is the
   `EngineHost.screenshotExecutor` of the requesting session's engine (`contracts/engine.ts`).
   **Module:** `engine-host`
 - **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
@@ -1904,9 +1873,9 @@ assumption or remote-engine RPC.
   behind the existing machine probe boundary.
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
   ownership checks and signals use its UID and PID namespace, with process start times
-  checked against PID reuse. **Remote engine (engine mode, PM-314: runs in the engine process):** use `machine.snapshot/processes/env_values/signal` (PM-313), measure and stop on the owning engine,
-  identify the engine with every process identity, and preserve fresh ownership/orphan
-  checks and owner access (the host owner's, not every project's owner, PM-1058). A remote PID must never be signalled on the server.
+  checked against PID reuse. **Remote engine:** `machine.snapshot/processes/env_values/signal` measures and signals
+  on the owning engine with fresh identity/orphan checks and host-owner access. The hub
+  never signals a remote PID on its own machine.
   **Cloud mode (PM-315):** `RemoteMachineProbe` (`engine-link/remote/machine.ts`) asks the default engine
   (`machine.snapshot/processes/env_values/signal`; `MachineProbe.signal` is asynchronous for it); with no
   engine the machine view answers `engine_offline` (409). Since PM-1059 "the default engine" is
@@ -1930,9 +1899,10 @@ assumption or remote-engine RPC.
   `PROJECTMAN_SCOPE_ID=scp_<16 random hex digits>` for each process start.
   A resumed conversation gets a new scope generation. Engine recovery requires the engine's own
   instance tag and uid; nested installations cannot adopt one another's marked scopes.
-  **Remote engine:** plan instance/engine attribution
-  explicitly, including reconnects and moves; equal paths on different hosts must not imply
-  equal ownership.
+  **Remote engine:** the engine computes its own home-derived tag and supplies
+  `hello.instanceTag/pid/uid`. Hub session records bind that identity to an engine;
+  scope recovery and signals run only on the owning engine. Equal paths on separate
+  hosts do not establish shared process ownership.
   **Module:** `entry`
 - **Session process termination** — `runner/session.ts` (`stop`, `kill`),
   `runner/runner.ts`, `runner/process-scope/{types,process-group,index}.ts` (PM-698).
@@ -1942,7 +1912,7 @@ assumption or remote-engine RPC.
   and generation; group signals require verified current members. Natural exit, stop, forced stop,
   startup failure and shutdown all close; idle turns do not. Startup recovery adopts this instance's
   marked scopes. `db/session-cleanups.ts` and `runtime/sessions/cleanup-failures.ts` retain every
-  unresolved scope in `session_cleanups` (including chat, Operator and legacy worktree sessions),
+  unresolved scope in `session_cleanups` (including chat and legacy worktree sessions),
   atomically with any member-workspace failure flag. The server retries at startup and every
   minute through `session.close_scopes` on the owning engine.
   The optional `sinceAgeMs` lower bound is an age derived from stored server-side start/failure
@@ -1958,29 +1928,25 @@ assumption or remote-engine RPC.
   (an older server), ancestry has no time bound. Explicit marker matches are checked regardless of
   age. Failed and unverified closes retain known identities and the leader group for later retries;
   only clean closes discard them. Entire process/environment probe failures remain unverified.
-  Dismissing an Operator notification cannot clear this fact. Session folders and task worktrees
+  Dismissing a cleanup notification cannot clear this fact. Session folders and task worktrees
   stay while cleanup is unresolved.
   Resume is refused while cleanup failed; only a matching clean generation releases the holder.
   The `process_group` driver is `best_effort`: a child that escapes the group and clears its marker
-  cannot be attributed. Without a process list cleanup is `unverified`, never `clean`; PM-701 adds
-  contained Linux cgroups. **Remote engine:** inspection, signals and recovery run on the engine.
+  cannot be attributed. Without a process list cleanup is `unverified`, never `clean`. **Remote engine:** inspection, signals and recovery run on the engine.
   Exit carries `SessionCleanup` only after closure; failed cleanup holds the workspace and raises an
-  owner-facing Operator signal, later `scope_recovered` releases it. Old engines without cleanup
+  `process_cleanup_failed` coordination signal, later `scope_recovered` releases it. Old engines without cleanup
   retain the process-probe fallback. A remote pid is never signalled on the server.
-  **Audited release (PM-935):** when a cleanup cannot be proven clean, the owner, or the
-  Operator on the owner's explicit request, runs the `workspace_release` super command
-  (`scopeId`, mandatory `reason` without hidden or control characters; a routine mutation with no
-  owner-reserved effect, reachable only through the integrator/owner super path, never by members).
-  The Operator's `execute_operation` enforces the owner's request on the server: it runs only when
-  the open request is the owner's own message or answer, never a queue item (`operator_owner_only`). `SessionOrchestrator.releaseCleanupScope`
-  calls `CleanupFailures.release`, which in one transaction frees the member workspaces held under
-  that scope and deletes the `session_cleanups` row, then appends the append-only
-  `workspace_released` timeline event (scope, session, workspaces, reason, actor) and emits
-  `session_cleanup_released`, which resolves the Operator signal. The minute retry skips a
-  `closeScopes` result for a scope whose row is gone, so a late failed result cannot re-insert it;
-  startup recovery is not guarded. **Remote engine:** only server-side SQLite state changes. No
-  engine call is made, and the retry stops because `closeScopes` is sent only server rows, so any
-  surviving process on the engine is left running and unmanaged.
+  **Audited release (PM-935):** the `workspace_release` command takes a scope id and
+  mandatory reason. It frees reservations without proving processes stopped.
+  The connected Claude can call it through the owner's authenticated `super` path;
+  the in-app project manager's `execute_operation` additionally requires the owner's
+  own open message or answer and refuses queue/member requests (`operator_owner_only`).
+  `SessionOrchestrator.releaseCleanupScope` calls `CleanupFailures.release` to free
+  matching workspaces and remove the cleanup row in one hub transaction, append
+  `workspace_released` and emit `session_cleanup_released`, resolving the signal.
+  The minute retry skips results for a released scope; startup recovery still probes.
+  **Remote engine:** release changes only hub state and sends no engine call. Any
+  surviving process remains running and unmanaged when retries cease.
   Lifecycle tests use `runner/test-helpers.ts` (`fixtureScopeProcesses`) and identity records from
   `test/fixtures/fake-tui.mjs`, with null-signal liveness checks limited to disposable fixture pids.
   This keeps pipe and PTY tests independent of host-wide `ps` permissions; production inspection
@@ -1994,21 +1960,21 @@ assumption or remote-engine RPC.
   The reader selects the shared Codex transcript format with `usesCodexCli` from
   `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
   Claude conversations live under `~/.claude/projects`; Codex rollouts under
-  `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
+  `CODEX_HOME/sessions`. The engine reads and tails hook-reported files, and resume eligibility
   checks transcript content. A task session's cwd is the member's workspace, whose path uses the
   member's storage handle (PM-1024), so a rename of the member leaves the cwd, and with it the
   conversation's place under `~/.claude/projects`, unchanged.
   PM-342 adds `TranscriptReader.summary` (`runner/transcript/summary.ts`): when a member's new
   conversation replaces one that could not go on (provider changed, lost, moved) or a card is
-  handed over without a note, the server reads the old transcript for the CLI's compaction
+  handed over without a note, the engine reads the old transcript for the CLI's compaction
   summary plus the last replies (at most `HANDOFF_SUMMARY_MAX` = 8000 characters) and puts it in
   the new conversation's first message.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `transcript.has_content/read/summary` and runner events (PM-313), keep CLI conversation state and resume checks on its engine/account,
-  stream conversation events to the server, and preserve confinement. A conversation ID
+  **Remote engine:** `transcript.has_content/read/summary` and runner events provide
+  confined transcript access and resume checks on the session's engine/account. A conversation ID
   without its engine's saved state is insufficient for resume. `summary()` runs on the engine,
   next to the conversation; only the `HandoffSummary` (at most 8000 characters) crosses the
   server/engine boundary.
-  PM-766 carries the public super-mode `Actor` (id/prefix, never the bearer secret) from
+  PM-766 carries the public `Actor` provenance for connected Claude steps (id/prefix, never the bearer secret) from
   `core/messages/messaging.ts` and `runtime/delivery/delivery.ts` in a separate injected metadata
   line. The shared chat formatter/parser and `runner/transcript/chat-items.ts` preserve it in
   `ChatItem.actor` for single, information and batched messages. On a remote engine the same
@@ -2020,18 +1986,16 @@ assumption or remote-engine RPC.
   **Cloud mode (PM-315):** `createRemoteTranscripts` (`engine-link/remote/transcripts.ts`) asks the session's
   engine (`transcript.has_content/read/summary`); the transcript text crosses as a single-use transfer.
   **Module:** `runner`
-- **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
+- **Hooks and team MCP over loopback** — `start.ts` (`loopbackBaseUrl`),
   `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `LiveSessions`), `runner/runner.ts`, `runner/hook-forwarder.ts`,
   `kernel` (`nonLocalReason`), `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
-  PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
-  instance; the port is configurable). The internal guard also checks the peer, Host and
+  PM-311). In hybrid mode CLI hooks and MCP target the engine's loopback listener
+  (`127.0.0.1:4801`); the hub listens on 4700. The single-mode recovery service uses
+  `127.0.0.1:4800`. Ports are configurable. The internal guard also checks peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
-  **Codex team server stays optional (PM-1070):** `runner/providers/codex/args.ts` passes
-  `mcp_servers.team` with only its `url` and tool approvals. PM-1055 had set
-  `required = true`, a 20-second startup timeout and `mcp_optional_startup_grace_ms = 0`;
-  from that deploy every Codex session exited at start ("agent CLI exited before it was
-  ready"), so it was reverted. A failing team MCP must cost the tools, not the session.
-  The root cause of the team MCP start failure is investigated separately.
+  **Codex team server (PM-1070, PM-1170):** `runner/providers/codex/args.ts` passes
+  `mcp_servers.team` with its stdio bridge (`command`/`args`) and tool approvals.
+  The server stays optional, so an unavailable team MCP does not terminate the CLI.
   **Remote engine:** unchanged; the token-bound loopback relay supplies the catalog. PM-1061: the relay (`mcp.relay`)
   serves a token only when its session runs on the requesting engine and the session's project is bound to that
   engine; another owner's engine cannot reach a project it is not bound to through a stolen or guessed token.
@@ -2039,17 +2003,25 @@ assumption or remote-engine RPC.
   (method, status, elapsed time) at info, and every refused (non-2xx), failed or badly
   answered relay at warn; the cloud logs why it refused a relayed token. Neither logs the
   token or the body. A Codex session without team tools therefore shows in the engine log
-  where its handshake stopped (no call, a slow one, a refusal); the cause of the intermittent
-  missing tools was not yet reproduced with a real Codex run.
+  where its handshake stopped (no call, a slow one, a refusal).
   Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
   CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
   the last hook name/time, blocking-screen detection and at most 500 characters from the last
   15 terminal rows. Message bodies are not logged separately. This assumes the runner owns
-  the terminal and receives the CLI hooks; it changes neither delivery nor retry semantics.
-  On a remote engine these diagnostics run and are logged on that engine; no new message or
-  diagnostic payload crosses the server/engine boundary.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
-  and MCP while preserving token isolation and the internal endpoint guard.
+  the terminal and receives the CLI hooks.
+  **Idempotent delivery (PM-1205):** the wait for the submit report builds on the timing of these
+  loopback hooks. A typed message the CLI did not report within `submitTimeoutMs` is taken as
+  unconfirmed when the main agent's turn hooks (or a busy CLI) show it worked, and is otherwise
+  awaited `lateSubmitMs` longer (`runner/input-queue.ts`, `runner/session.ts`, `runner/providers/*`).
+  The hub keys each delivery (`deliveryId`, `runtime/delivery/delivery.ts`), `session.send` carries it
+  across the server/engine boundary (`engine-link/{methods,protocol,engine-handlers}.ts`,
+  `engine-link/remote/{hub,runner}.ts`; the engine advertises `deliveryIds` in its hello, an older
+  engine gets none), and the engine's runner does not type a taken id again, per process.
+  On a remote engine these diagnostics run and are logged on that engine; the only new
+  thing that crosses the server/engine boundary is the `deliveryId` of a message.
+  **Remote engine:** the engine's loopback listener receives hooks and token-bound MCP;
+  `permission.decide/cancel/forward_question`, refusal events and `mcp.relay` use
+  the authenticated engine link while retaining session-token isolation and endpoint guards.
   `runtime/sessions/permission-broker.ts` owns the broker and uses the command policy
   directly (PM-960); no hook payload or transport changes.
   **Cloud mode (PM-315):** the cloud registers no hook routes (`registerHookRoutes` is empty) and listens
@@ -2063,12 +2035,15 @@ assumption or remote-engine RPC.
   not on a command line: the runner writes them to `<app home>/run/<session id>.<random>/` (the folder
   0700, files 0600, one folder per start, removed when the session's process has exited, orphans swept
   at start-up) and gives the CLI the file paths (`--settings`, `--mcp-config`) or the forwarder the
-  path of its target file. **Machine assumption:** POSIX file modes and ownership on the disk of the
+  path of its target file. Codex and NanoGPT get `codex-mcp.json` (PM-1170): the team MCP server is a
+  Node stdio bridge (`runner/mcp-bridge.ts`, the runner's own Node binary) that Codex starts as a child
+  and that reads the URL from that file. **Machine assumption:** POSIX file modes and ownership on the disk of the
   machine that runs the CLI, and the machine's process list (`ScopeProcessSource`) for the sweep; the
   sandbox rules keep the session's own commands and file tools out of the root.
   **Remote engine (engine mode):** the folder, the files and the sweep live on the engine that spawns
   the CLI: `engine-app.ts` passes `<engine home>/run` as `sessionConfigRoot`, and the sandbox rules name
   the engine's own paths, so nothing crosses the server/engine boundary and the cloud never sees a file.
+  The Codex bridge runs on the engine too and reaches the same engine-built `mcpUrl` Codex used to reach.
   The cloud's runner (`engine-link/remote`) creates no real runner and needs no root.
   **Cloud mode (PM-315):** unchanged; the token still arrives with the start command and is written on the
   engine. Related: "Session output folders", "Hooks and team MCP over loopback", "Native sandbox and
@@ -2076,7 +2051,7 @@ assumption or remote-engine RPC.
   **Module:** `runner`
 - **Work volume (PM-846)** — `engine-host/work-roots.ts` (`resolveWorkRoots`, `WORK_ROOT_MARKER`,
   `WorkRootError`), `engine-link/engine-config.ts` (`workRoot`), `engine-app.ts`, `app.ts`,
-  `index.ts` (`PROJECTMAN_WORK_ROOT`, single mode only), `scripts/engine/{commands,move-work-root}.ts`
+  `start.ts` (`PROJECTMAN_WORK_ROOT`, single mode only), `scripts/engine/{commands,move-work-root}.ts`
   (`npm run engine -- move-work-root`). An optional work root puts `worktrees/`, and `workspaces/` below one
   directory, so that a separate APFS volume with `.fseventsd/no_log` takes the file churn that made
   `fseventsd` grow to 17 GB. The full test's `pmft-*` run directories stay in `os.tmpdir()` (PM-848): the full
@@ -2098,7 +2073,7 @@ assumption or remote-engine RPC.
   platform independent and a separate disk works the same way.
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
   `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `runtime/watchers` (`WorktreeSweep`),
-  `index.ts` (PM-243; PM-311, PM-312; PM-770). With a work root (PM-846) the worktree and workspace
+  `start.ts` (PM-243; PM-311, PM-312; PM-770). With a work root (PM-846) the worktree and workspace
   roots are `<workRoot>/worktrees` and `<workRoot>/workspaces`. Since PM-1115 the sweep lists existing
   task worktrees once per repository on every connected engine holding the project (`listTaskWorktrees`),
   then checks only those cards in the server database. Status and removal run on the same engine that listed them.
@@ -2124,10 +2099,10 @@ assumption or remote-engine RPC.
   but disconnected engine and a recorded developer workspace retain strict read failures (a stage
   hand-over for review reads strictly since PM-1110: `engine_offline` refuses the move). Remote git
   still runs on the selected engine; no engine path is read by the hub and no RPC contract changes.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
-  to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
-  plan branch/commit transfer and remote status/cleanup rather than treating server paths
-  as shared storage.
+  **Remote engine:** `worktree.*` and `workspace.*` execute git, status and cleanup
+  beside the repositories and return attributed branch heads. Member clones exchange
+  commits through the publication and bundle transfer paths below; hub paths are never
+  treated as shared storage.
   **Handing a commit over (PM-739):** a member workspace is an independent clone without a remote, so
   the repository, the reviewers and the merger do not know a developer's commit.
   `MemberWorkspaceManager.publishTaskBranch(key, taskKey, branch, commit)` (RPC
@@ -2197,9 +2172,9 @@ assumption or remote-engine RPC.
   `runtime/admission` (`Admission`) (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
   value for `minFreeDiskGb`; a low value defers new sessions. With a work root (PM-846) the engine
   reports the smaller of the home's and the worktrees volume's free space. It does not measure other
-  hosts or even every local worktree volume. **Remote engine (engine mode, PM-314: runs in the engine process):** use `host.free_disk` (PM-313), report capacity for the
-  engine's execution/storage volumes and plan admission against those as well as server
-  storage; keep unavailable measurements distinct from low capacity.
+  hosts or even every local worktree volume. **Remote engine:** `host.free_disk` measures the selected engine's storage for
+  admission. Unavailable readings remain distinct from low capacity; this does not
+  measure cloud capacity.
   Since PM-311 `DiskGuard` asks the target engine's `EngineHost.freeDiskBytes` (`contracts/engine.ts`);
   since PM-312 the `statfs` itself is `freeBytesOf` in `engine-host/disk.ts`, not in `domain/`.
   **Cloud mode (PM-315):** the engine directory answers with `host.free_disk` of the target engine.
@@ -2207,7 +2182,7 @@ assumption or remote-engine RPC.
   no host fallback; no new machine operation.
   PM-1133 shares concurrent admission measurements per engine. After the one-minute freshness period,
   a measurement younger than five minutes answers while `host.free_disk` refreshes in the background;
-  older or missing measurements wait for the engine. The disk watcher still measures afresh.
+  older or missing measurements wait for the engine. The disk monitor still measures afresh.
   **Module:** `runtime/watchers`
 - **Control socket, pause and deployment** — `control/socket.ts`, `runtime/sessions` (`PauseService`),
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
@@ -2231,10 +2206,11 @@ assumption or remote-engine RPC.
   `release_publish_failed`. The engine of the call is `engines.engineFor(projectKey, member)`, local when there is none.
   PM-1059: the GitHub release goes through the project-aware `GithubService.publishRelease(projectKey, ...)`,
   which the cloud sends to `projectEngine(projectKey)`; the `github.*` RPC and its parameters are unchanged.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.pause/force_pause/release/stop` (PM-313), keep the administrative socket local, propagate pause/stop to engines
-  with acknowledgements and reconnect handling, and require the existing human deployment
-  decision before activation; local process exit is not proof that remote work stopped.
-  **Cloud container (PM-317):** the control socket stays local; there is no admin relay (PM-1113).
+  **Remote engine:** pauses and stops use `session.pause/force_pause/release/stop`
+  on the owning engines. The administrative socket stays local to the hub; a local
+  process exit does not prove remote work stopped. Engine shutdown and reconnect use
+  the persisted engine-scope pause described above.
+  **Cloud container:** the control socket stays local; there is no admin relay (PM-1113).
   the platform stops it with SIGTERM, which the entrypoint forwards to the server (its own
   shutdown pause and stop) before Litestream ships the last writes and the process ends. A
   deployment is replacing the container; the restored or rehearsed copy is a `standby` home
@@ -2245,7 +2221,7 @@ assumption or remote-engine RPC.
   `--discard-cloud-data` states the opposite on purpose.)
   **Module:** `control`
 - **Native sandbox and canonical paths** — `runtime/sessions` (`session policy`),
-  `engine-host/{disk,within,work-roots}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
+  `engine-host/{disk,within,work-roots}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `start.ts`
   (PM-846: a work root is used by its real path and lies inside the real home, so the `denyRead` of the
   home keeps the other members' worktrees unreadable; the engine limit's session roots name
   `<workRoot>/worktrees` and `<workRoot>/workspaces`)
@@ -2254,12 +2230,10 @@ assumption or remote-engine RPC.
   uses `EngineHost.realpath` to validate the tool's working directory and uses the runtime's
   policy functions directly; path validation still
   runs on the session's engine and requires no new RPC.
-  PM-691 fixes the Operator's effective approver to `human` on the server through
-  `packages/shared/src/config/permission-level.ts`, including historical session overrides.
-  `runtime/sessions/{sessions,launch}.ts` checks updates and carries the effective member into
-  the existing start/context path; `runtime/sessions/permission-broker.ts` uses it for human routing. Local and remote
-  engines consume the same start intent. This changes no OS assumption or RPC and never
-  turns a CLI escalation into boundary authorization.
+  `packages/shared/src/config/permission-level.ts` resolves the member's approver
+  and owner-set session overrides; an absent approver means `human`. The permission
+  broker applies that effective intent, and local/remote engines enforce the same
+  start policy. A CLI escalation is not boundary authorization.
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
   The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a
@@ -2268,21 +2242,32 @@ assumption or remote-engine RPC.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
   the adapter's Codex home denied (PM-356).
+  PM-1172: with the outbound network on, a macOS engine and not a NanoGPT member, the profile also
+  carries Codex's `network` part and `features.network_proxy=true`. Codex's network proxy runs on
+  the engine, on its own loopback port per session; the denied hosts are the engine's own loopback,
+  private and link-local addresses (the hook and MCP listeners among them) and the Unix sockets
+  (the `control.sock` among them) stay closed. Verified on macOS 14.6 arm64 with codex-cli 0.159.1
+  only; on a Linux engine (bubblewrap, seccomp) the runner leaves the network closed, because no
+  probe covers it. `SessionPolicy` crosses to the engine as data in `session.start`; the platform
+  guard decides on the engine.
   PM-360 adds the shared `SessionReadBoundary` schema and optional
   `AgentSandbox.portable.readBoundary` to the strict `session.start` contract. Under the owner's
   2026-10-26 scope decision, developer runtime paths do not automatically populate it:
-  absent means the existing broad non-sensitive home reads and session/tmp behavior.
-  Claude's existing `worktreeSandbox` read/write rules remain unchanged. Explicit boundaries
+  absent on a writing placement means the existing broad non-sensitive home reads and session/tmp
+  behavior; reading placements require a boundary (PM-1175). Explicit boundaries
   contain reopenable roots and typed file/directory exceptions, separate from unconditional
   policy/adapter denials. Local adapters resolve lexical/physical paths and reject invalid
   explicit inputs using the shared `runner/tool-decision.ts` matcher (exported through
   `runner/index.ts` for the engine): glob component boundaries, case handling and macOS
   `/System/Volumes/Data` firmlink aliases have one implementation. The engine
   (`engine-link/engine-limit.ts`) adds its own homes/temp roots and checks
-  exceptions and required private directories only when a boundary is supplied. Existing
+  exceptions and required private directories when a boundary is supplied. PM-1175 refuses reading
+  sessions without a portable read boundary and builds Claude's `denyRead`/`allowRead` from the
+  engine's canonical boundary, including realpath aliases for allowed paths. The checks run on
+  the remote engine with the existing boundary data; no new data crosses the link. Existing
   engine-root, permission-mode, environment and sensitive-path checks always apply.
   PM-425 populates it for every reading session (`placementReadsOnly`: a `read_only` placement,
-  a review copy without the test permission, a taskless chat, the non-super Operator) and for
+  a review copy without the test permission or a taskless chat) and for
   every provider: `sessionSandbox` (`runtime/sessions/session-policy.ts`, `readerReadBoundary`)
   builds one list; `launch.ts` copies it into `policy.filesystem.readBoundary` (new optional
   field, `SessionPolicy.version` stays 1) and `withReaderDenials` adds `~/.claude/projects` to the
@@ -2306,6 +2291,14 @@ assumption or remote-engine RPC.
   directory (PM-399), plus only `packed-refs.lock` (PM-411), so Codex
   can finish rebase pseudo-ref deletion and loose branch deletion. The common git directory as a whole, other
   worktrees' metadata, configuration, hooks, alternates and admin links remain read-only.
+  PM-1171 (`contracts/session-policy.ts`, `runtime/sessions/session-policy.ts`,
+  `worktree/worktree-manager.ts`, `worktree/member-workspace-manager.ts`) shares the git metadata
+  protection lists between Claude and Codex. Claude also denies the worktree `.git` file.
+  Host worktree reads validate the `.git`, `commondir` and `gitdir` links against the configured
+  repository before git, then use safe settings; independent clones reject a common directory.
+  All filesystem validation runs on the engine owning these paths; no new remote boundary is
+  needed. Native denial of creating nonexistent metadata paths requires an OS/provider probe,
+  on Linux as well as macOS. A session cannot rely on writing `objects/info` for gc or commit graphs.
   PM-731 (engine limit, `engine-link/engine-limit.ts`): the engine's read candidates are its
   write candidates plus the user's own files from `SANDBOX_HOME_READS` (`.gitconfig`,
   `.config/git`, `.claude/shell-snapshots`, `contracts/engine.ts`) and the existing regular
@@ -2337,10 +2330,16 @@ assumption or remote-engine RPC.
   `runner/cli.ts` resolves the real executable on the session PATH; the profile reopens
   only its `packages/standalone` installation ancestor read-only beneath a denied path,
   provided that ancestor contains no denied path. Unknown layouts stay closed.
-  macOS MDM-managed Codex preferences are not inspected yet (PM-375).
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`, `session.assert_workspace_config` and `host.*` (PM-313), build the policy from its filesystem and supported OS/provider
-  enforcement, preserve protected paths and fail closed where required; do not copy Mac
-  path grants or infer Codex permissions from Claude syntax. The outbound network intent
+  PM-1169 adds presence checks (lstat only, content never read; an unreadable file refuses too):
+  `$CODEX_HOME/hooks.json`, `/etc/codex/hooks.json` and, on darwin only, the two
+  `com.openai.codex.plist` files below `/Library/Managed Preferences` (`AmbientConfigLocations.codexPresenceRefused`);
+  `hooks` and `project_root_markers` in the user and project `config.toml` refuse as well. The check runs
+  in the runner, which is the engine process in engine mode, so it inspects the engine machine's hooks and
+  MDM; a Linux engine has no MDM path but `/etc/codex/hooks.json` counts there too.
+  **Remote engine:** `session.start`, `session.assert_workspace_config` and `host.*`
+  use the executing engine's filesystem and OS/provider enforcement. Protected paths
+  remain denied and unsupported enforcement fails closed. Mac grants and Claude
+  permission syntax are not portable Codex permissions. The outbound network intent
   (`SessionPolicy.network.outbound`) is abstract: the remote engine enforces it with its own
   tools (sandbox, firewall, proxy) and keeps the blocked hosts closed.
   For PM-399/PM-411, resolve the common git directory and the task's own admin directory
@@ -2364,8 +2363,9 @@ assumption or remote-engine RPC.
   Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
   the locally logged-in CLI without a conversation; Codex reads local rollout rate-limit
   events. These observe the local account, not an arbitrary remote sponsor.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `usage.plan` and `provider.status` (PM-313), obtain usage where that sponsor's CLI is logged in and send attributed,
-  timestamped measurements; leave credentials there and retain subscription-only execution.
+  **Remote engine:** `usage.plan` and `provider.status` probe the engine's logged-in
+  CLI and return attributed measurements. Credentials remain there; member execution
+  uses the subscription rather than API-billing credentials.
   **Cloud mode (PM-315):** `createRemotePlanUsage` (`engine-link/remote/transcripts.ts`) asks the engine
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
   PM-1059: `usage.plan` is asked of one named engine; the monitor and the cache key a value by
@@ -2389,8 +2389,8 @@ assumption or remote-engine RPC.
   **Module:** `runtime/usage`
 - **Claude workspace trust** — `runner/providers/claude/trust.ts` (PM-341).
   The runner updates workspace trust in `~/.claude.json` (or the configured Claude config directory).
-  **Remote engine (engine mode, PM-314: runs in the engine process):** trust is part of `session.start` (PM-313); prepare trust on the engine as the executing account, for the actual
-  canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
+  **Remote engine:** `session.start` prepares trust on the engine as the executing
+  account for the canonical checkout. Changing hub-account trust cannot unblock that CLI.
   **Module:** `runner`
 - **Server full test before review** — PM-909: with `reviewTest.beforeReview: github_actions` the run is not
   local: no sandbox, `srt` or local checkout; see "GitHub Actions runs (merge check, compute jobs)" for its machine assumptions and
@@ -2398,14 +2398,13 @@ assumption or remote-engine RPC.
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine), PM-846: with a work root the
   executor gets only `worktreesRoot`; the `pmft-*` run directories stay in `os.tmpdir()`, outside the home (PM-848),
   `full-test/{index,sandbox,run-sandboxed,run-sandboxed-core}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
-  screenshot runs). The executor runs the pinned checkout on the server host, using local
+  screenshot runs). The executor runs the pinned checkout on the executing engine, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
   it is unavailable without macOS/`srt`. PM-847: the run directory is a byte-measured, canonical path
   (`canonicalRoot`, `runDirOf`: at least 40 bytes below its `tmp` and `home` within 100; else
   `/private/tmp/pmft-*`; else `sandbox_unavailable`), and the sandbox may bind and connect Unix sockets
   below the run's own `sandbox/tmp` only (`allowUnixSockets`, `allowAllUnixSockets: false`); the installer
-  and screenshot profiles have none. The engine that creates the sandbox is the installed one, so this
-  takes effect there only after a separately approved engine update. Remote engine: all of it is the
+  and screenshot profiles have none. Remote engine: all of it is the
   engine's own private run root; the cloud receives only the existing full-test result.
   Timeout and cancellation retain the detached process group's cleanup scope through the TERM
   grace period, then send SIGKILL to the negative group id even if the launcher has already
@@ -2419,21 +2418,21 @@ assumption or remote-engine RPC.
   ignores SIGTERM itself so it can kill TERM-resistant workers even after the launcher exits.
   Normal command exit codes and signals are relayed to the engine. This assumes POSIX groups
   and pipe EOF on process death; all watchdog and sandbox processes stay on the executing engine.
-  PM-754: with that permission the control socket integration tests (`control-relay` and `control-socket`,
+  PM-754: with that permission the control socket boundary tests (`control-relay` and `control-socket`,
   `*.integration.test.ts`, test paths checked in bytes by `test/helpers/socket-path.ts`) run in the merge check and
   prove the real socket boundary; Linux has no equivalent guarantee and no fallback. `npm run merge-test` exits 2
   for any scope that runs the server's tests when `PROJECTMAN_SKIP_PTY_TESTS=1` is set (the members' sandbox signal,
-  which `fullTestEnv` never passes), and its cloud scope names the two integration files.
+  which `fullTestEnv` never passes), and its cloud scope names the two boundary-test files.
   Its sandbox (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `full_test.run/cancel` (PM-313), plan where the pinned commit and dependencies are tested, equivalent
-  isolation and resource queuing there, and transport of the attributed verdict/cancellation.
-  An unavailable executor must not become a passing verdict.
-  Since PM-311 the executor is the `EngineHost.fullTestExecutor` of the card's engine, with that
+  **Remote engine:** `full_test.run/cancel` executes on the card's engine with its
+  sandbox, dependencies and heavy-run queue; only the attributed result crosses back.
+  An unavailable executor refuses the run and never produces a passing verdict.
+  The executor is the `EngineHost.fullTestExecutor` of the card's engine, with that
   engine's `EnginePaths` (`userHome`, `home`, `claudeTmpRoots` and the `sessionTmpRoot` parent as `closedTmpRoots`).
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
-  (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
+  (`FullTestErrorReason`), never a passing verdict. `start.ts` builds no local executor in cloud mode.
   **Dependency preparation (PM-709, PM-710):** optional `FullTestSpec.npmCi` prepares dependencies under
   the required heavy lock before the test. `full-test/npm-ci.ts` and `assertNpmCiCheckout` bind it to a real,
   canonical `<worktreesRoot>/_merge/<mergeId>` checkout. The engine limit additionally checks the registered,
@@ -2460,12 +2459,12 @@ assumption or remote-engine RPC.
   The test retains its original settings and no outward network. Private registries, other lifecycle
   download hosts, source-writing scripts and missing toolchains fail preparation without expanding access.
   `full-test/npm-dependency-key.ts` hashes complete lock/root/workspace manifest bytes and engine OS/arch/Node/npm.
-  The supervisor stores the latest installation at
+  The full-test executor stores the latest installation at
   `<worktreesRoot>/_merge-deps/<sha256(JSON.stringify([projectKey,repo]))>/current/`, outside git worktrees.
   A strict version-1 `ready.json` contains the key and copied relative package paths; every listed directory
   and the root hidden npm lock must be real. Invalid or missing metadata is a miss; linked store roots
   are refused. The installer cannot write the store. After a successful install, unchanged inputs and a
-  complete staging copy, the supervisor writes a 0600 marker in a 0700 generation and publishes it by rename,
+  complete staging copy, the parent process writes a 0600 marker in a 0700 generation and publishes it by rename,
   removing the old generation under the same lock. A hit copies into the new checkout without `npm ci`.
   Filesystem, changed-input and npm errors return `error/dependency_install_failed`, no failed files and
   the npm exit code (null for filesystem errors); sandbox/spawn/timeout/killed/queue errors keep their reasons.
@@ -2480,12 +2479,12 @@ assumption or remote-engine RPC.
 - **Merge-test file watchdog (PM-1054)** — `scripts/merge-test/{npm,reporter}.ts`.
   Every test invocation, including reruns, uses the default and hanging-process reporters plus
   controller-side start/end events for each file (from collection through teardown). The npm
-  supervisor gives each active file 180 seconds, with 20-second test and hook defaults. On a
+  parent process gives each active file 180 seconds, with 20-second test and hook defaults. On a
   file deadline it prints all active file names as `FAIL` lines and stops the command through
   the existing `scripts/lib/child-guard.mjs`; exit 1 and an unhandled-error diagnostic prevent
   the flaky-file rerun rule from hiding the timeout. **Machine assumption:** POSIX process
   groups, already required by the child guard, stop even synchronously blocked workers and
-  clean up descendants when the supervisor dies. **Remote engine:** the supervisor and guard
+  clean up descendants when the parent process dies. **Remote engine:** the parent process and guard
   run where the tests execute (GitHub Actions or the engine); only existing output and verdict
   data cross the boundary. No new server/engine contract.
 - **Child-guard cleanup permissions (PM-1132)** — `scripts/lib/child-guard.mjs` ignores
@@ -2495,7 +2494,7 @@ assumption or remote-engine RPC.
   members beyond the guard's control. **Remote engine:** the guard runs beside its child on
   the executing engine or CI runner; no new data crosses the server/engine boundary.
 - **Merge-test step cache (PM-845, PM-841)** — `scripts/merge-test/{steps,run}.ts`,
-  `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `index.ts`.
+  `full-test/{index,sandbox,step-cache}.ts`, `app.ts`, `engine-app.ts` and `start.ts`.
   The executor stores passed command keys in the engine-local
   `<app home>/cache/merge-test-steps.json`, outside the sandbox, and exposes only a disposable key list
   in the run's sandbox directory. It assumes a writable app home on the executing machine;
@@ -2517,7 +2516,7 @@ assumption or remote-engine RPC.
   crosses, in the separate `full_test.report` call (the `run`/`attach` schemas are unchanged). An older
   engine answers `unknown_method`, so its checks show unknown steps. Related task: PM-876.
   **Module:** `full-test`, `engine-link`, `services/merges`
-- **GitHub Actions runs (merge check, compute jobs) (PM-900, PM-907, PM-1147)** — `full-test/{github-actions,github-verdict,github-job}.ts`
+- **GitHub Actions runs (merge check, compute jobs) (PM-900, PM-907, PM-1147, PM-1198)** — `full-test/{github-actions,github-verdict,github-job}.ts`
   (`withGithubActions`, `withGithubJob`, composed as `withGithubRuns` in `full-test/index.ts`), `engine-host/check-branch.ts` (`createCheckBranchGit`),
   `services/github/actions.ts` (`createGithubActionsClient`), wired in `assembly.ts` (single machine) and
   `engine-app.ts` (engine process), and the repository's `.github/workflows/merge-check.yml`. For a
@@ -2562,25 +2561,25 @@ assumption or remote-engine RPC.
   remote default branch, the `fullTestExecutor` runs `full_test.run` with `githubJob`) from the repository's
   `computeJobs` setting and records the run in `compute_job_runs`. The hub part is machine-independent: no
   path, process or `gh` call of its own; the engine alone holds the GitHub access.
+  PM-1198: the dedicated `projectman-engine-release.yml` is one such run (job `engine-release`) and is the only
+  workflow with `contents: write`: it builds the engine app at a release tag's commit and uploads it to that tag's
+  release itself, so the executing engine's `gh` only dispatches and follows the run (see "Engine app release
+  build"). Its machine assumptions are the runner's (`macos-15`, Node 22, the run's `GITHUB_TOKEN`).
+  PM-1197: the cloud deploy is a dedicated workflow, `.github/workflows/projectman-deploy.yml` (listed in
+  `DEDICATED_COMPUTE_JOB_WORKFLOWS`, PM-1196), registered as the compute job `cloud-deploy` (command `cloud-deploy`,
+  runner `ubuntu-24.04`, output `deploy/report.json`). It runs on a GitHub-hosted runner, in the `cloud-production`
+  environment (limited to the default branch), and exchanges the run's OIDC token for the AWS role
+  `projectman-cloud-deploy`; no AWS key and no GitHub secret exist. **Machine assumption:** none on the engine's
+  machine beyond the existing `gh` login that dispatches the run; the AWS access is the runner's. **Remote engine:**
+  the same as any compute job; the descriptor and the result cross the existing `full_test.run` request, nothing new.
   PM-909: the review test before review uses the same path (`all: true`, `engine-link/methods.ts` accepts the
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.
-  Real dependency-clone integration tests (`worktree/{worktree-manager,dependencies}.test.ts`)
-  use `test/helpers/apfs.ts` to check that the test temp volume is APFS, rather than assuming
-  every macOS temp volume supports cloning (PM-928). The injected dependency-clone unit tests
-  still run on other filesystems; clone failures on APFS remain failures. The process-group
-  timeout tests leave 5 s for the Node guard and shell to start on slower CI hosts; the
-  TERM-resistant case checks its readiness output and retains the grace-period KILL assertion
-  (PM-947). The background-grandchild cleanup test in `full-test/run-sandboxed-core.test.ts`
-  polls for POSIX `ESRCH` every 50 ms for up to 5 s, allowing asynchronous reaping on loaded
-  hosts (PM-948). After run completion the executor re-reads empty or nonterminal shard job states
-  for up to 120 s, bounded by the original check deadline, before reporting a missing verdict;
-  cancellation still stops the wait. This uses the existing engine-local GitHub client without
-  a new dispatch or server/engine contract. The `runner/cli.test.ts` output-preservation timeout test gives Node startup
-  and initial pipe writes 5 s; `test/permission-delegation.integration.test.ts` polls each fake-CLI
-  phase for up to 30 s within a 150 s test budget (PM-936). These are test-host assumptions only;
-  remote engines need no new capability or server/engine messages.
-  Related tasks: PM-900, PM-906, PM-907, PM-909, PM-923, PM-928, PM-936, PM-947, PM-948.
+  After run completion the executor re-reads empty or nonterminal shard job states for
+  up to 120 seconds, bounded by the original deadline; cancellation stops the wait.
+  Boundary tests use APFS detection for clone support and bounded waits for process
+  startup/reaping; no real agent or GitHub CLI runs in automated tests.
+  Related tasks: PM-900, PM-907, PM-909, PM-1147, PM-1198.
   **Module:** `full-test`, `engine-host`, `services/github`
 - **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
@@ -2622,6 +2621,8 @@ assumption or remote-engine RPC.
   `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
+  PM-1175: `merge.commit_files` accepts only Markdown project document paths, excluding hidden
+  segments and agent instruction files (`engine-host/merge-input.ts`), on local and remote engines.
   PM-797: a collecting card with no code of its own, whose subtasks are all closed, skips the gate on the hub's
   own data (`TaskRepository.sourceEvidence`, "Collecting card closes with its parts"), so its close makes no
   engine call and adds no machine assumption; a card with a trace of a source keeps the gate.
@@ -2743,7 +2744,7 @@ assumption or remote-engine RPC.
   of the changed files and short results cross the link, and a merge to a repo or branch not named by
   `mergeBranch` is refused there whatever the cloud asks. Machine assumptions: `git` on the `PATH`, the
   engine's user's git credentials for the push, and macOS APFS for the cheap dependency copy (a plain copy
-  elsewhere). Two more calls serve the Operator's project documents (PM-494, PM-388): `merge.read_file`
+  elsewhere). Two more calls serve the project manager's project documents (PM-494, PM-388): `merge.read_file`
   (`cat-file` of one file at a commit, or at the head of the base after the fetch of its upstream; a path
   that fails `isRepoFilePath`, a file over 1 MiB or one that is not UTF-8 text is refused) and
   `merge.commit_files` (a commit on `onto` with one or two files set, built in a temporary index file
@@ -2754,7 +2755,7 @@ assumption or remote-engine RPC.
   machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
   PM-1004 uses the same calls for autonomous lessons writes. The hub owns the lessons-only permission,
   session/queue binding, configuration and durable provenance; reads, commits, push and advance stay on the
-  Operator's selected engine, including remote engines. Only existing path/text/commit data crosses the link.
+  coordinator's engine, including remote engines. Only existing path/text/commit data crosses the link.
   The service rejects a third document path before queueing; no RPC or engine limit changes.
   Two read-only calls serve the structure map (PM-595, PM-682): `merge.list_paths` (`ls-tree -r` of the
   local base head: the tracked file names, sorted, at most 20 000) and `merge.changed_paths` (per item,
@@ -2765,53 +2766,37 @@ assumption or remote-engine RPC.
   the repository and the base like the other `merge.*` calls, each branch with `isBranchName`, and each
   commit or merge id as a commit id. No new machine-dependent part is added (`engine-host/path-reads.ts`).
   **Module:** `services/merges`
-- **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
-  `scripts/migrate/{inventory,database,git,instance,copy,package}.ts` (PM-270, PM-318, PM-923, PM-1033).
-  Disposable instances reserve loopback ports, spawn local server/web process groups and
-  use local temp homes; migration inventories local repositories, paths and database use,
-  packages only hybrid cloud entries; repositories and their paths stay on the engine host.
-  Home copies restore source directory modes after `cpSync`
-  (Node 22 can otherwise widen 0700 to 0755); the permission walk uses `lstat` and never follows
-  symlinks. This requires POSIX modes on both source and destination. Cross-machine activation already requires a person's
-  confirmation that the source is retired. **Remote engine:** execute local probes and
-  process management on the target host, inventory engine state separately, and preserve
-  explicit source retirement and rollback checks rather than inferring remote liveness.
-  **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
-  PM-674's [rollback sheet](CLOUD-CUTOVER.md) uses protected return
-  directories outside the source and repositories and brings final stopped-cloud data back
-  before activation. No second writer or
-  automatic clearing of used targets is allowed; data transport is the owner's administration path.
-  PM-1116 retired the one-off CLI commands `inventory`, `hybrid plan` and `hybrid package` (and the cloud
-  `seed`; the last commit that has them is `358bb7c7` on `main`, tagged `retired-migrate-dns`); `hybrid back`, `instance` and
-  `verify` stay. Their library functions (`buildHybridPlan`, `createHybridPackage`, `buildInventory`) remain only because the
-  test fixtures build a cloud's data with them. The cloud package was made on the Mac from a stopped source and held a closed list
-  (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the
-  database and `core/attachments` reference), `feedback`, `memory`, `HYBRID_CLOUD_ENTRIES`; a package made before
-  PM-666 has no `message-attachments`, which is accepted, and `REPLACED_ENTRIES` of the way back lists it too);
-  it never holds a CLI home, provider logins, worktrees, workspaces, repositories, `github-publish`,
-  `spool`, `logs`, the instance marker, `engine.json` or `engine.key`
-  (`HYBRID_NEVER_CARRIED`, checked again by `verify --hybrid-cloud` as `forbidden_entry`). The machine
-  key is made on the Mac (`newMachineKey`), written to `engine.key` (0600, `wx`) last, and only its
-  hash enters the package's database; `engine.json` is made with it. After a way back the revoked engine
-  row stays as an audit record (PM-728): only a non-revoked engine makes `hybrid package` refuse, and the
-  package makes its new engine the default explicitly (`setDefault`; `create` marks only the first engine
-  ever as the default). **Does this work on a remote
-  engine?** The tool is the one place that reads the Mac's home and repositories to build the
-  engine's configuration (`engineProjects`), so it runs on the engine's machine by definition; the
-  package is the only thing that crosses to the cloud, by a person's copy, and the key never does.
-  The way back verifies the cloud's data directory as downloaded: it tolerates, and does not carry,
-  what a running cloud writes itself (`logs/`, `engine-spool/`, Litestream's `.db.sqlite-litestream`,
-  a restored copy's `instance.json`), refuses while the engine runs or its LaunchAgent is installed,
-  and moves the Mac's former entries (old database, cookie key, secrets, machine key) to
-  `pre-hybrid/<date>/`. That folder and the staging folder `.hybrid-back/` are in `sensitivePaths`
-  (fixed names, so one path denies the tree); the package (`--out`) and the downloaded copy (`--from`)
-  are the person's folders outside the home, which the sandboxes' deny-only reads do not cover, so the
-  guide tells the person to delete them after use.
-  **Module:** `scripts`
+- **Disposable instances and migration tools (PM-270, PM-318, PM-1033)** —
+  `scripts/lib/{instance,ports,child-guard}.mjs`,
+  `scripts/migrate/{cli,inventory,database,git,instance,copy,package,hybrid,hybrid-entries,verify}.ts`.
+  Disposable instances reserve loopback ports, start server/web children under the
+  child guard and use isolated temp homes. The migration CLI exposes `verify`,
+  `instance status|standby|retire|engine|activate` and `hybrid back`.
+  Inventory/package library functions remain test-fixture helpers, not CLI commands.
+  **Machine assumptions:** local repositories and data directories, POSIX modes and
+  process groups. Home copies restore source directory modes after `cpSync`;
+  the permission walk uses `lstat` and never follows symlinks. The hybrid return
+  accepts final stopped-cloud data in a protected folder outside home/repositories,
+  verifies it, refuses a running engine or installed LaunchAgent, and archives former
+  entries under `pre-hybrid/<date>/` before replacing them. It tolerates cloud runtime
+  logs/spools/replica metadata without carrying them back. `instance activate` requires
+  explicit source retirement and a database with the cloud's engine row, unless the
+  person explicitly chooses `--discard-cloud-data`.
+  `HYBRID_CLOUD_ENTRIES` names the data carried back; CLI homes, provider logins,
+  repositories, worktrees and engine credentials stay on the engine host.
+  Older packages without `message-attachments` remain accepted.
+  `pre-hybrid` and `.hybrid-back` are sensitive paths; external downloaded copies
+  must be removed by their owner after use.
+  **Remote engine:** these tools run on the recovery host, not through engine RPC.
+  The owner transports the final cloud data by the [HYBRID.md](HYBRID.md) procedure.
+  A stopped local process is not proof that the remote source has retired; no second
+  writer or automatic clearing of a used target is allowed. **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,snapshot,logs,commands,cli}.ts`,
   `scripts/engine/{service-switch,switch-state}.ts` (PM-1124). A plist whose `WorkingDirectory`
   contains `engine-package.json` is app-managed; otherwise it is checkout-managed.
+  PM-1175: service installation and switching keep only absolute, nonempty PATH entries; switching
+  preserves deliberate absolute local entries. This filtering runs on the engine host.
   Package installation uses the embedded `bin/node` and package root in the same template.
   `AssociatedBundleIdentifiers` names `com.projectman.engine-app`; `service install --path`
   accepts the app's login shell PATH. `service switch [--to <package-root>]` is for app-managed
@@ -2835,16 +2820,17 @@ assumption or remote-engine RPC.
   PM-1113 runs the compiled `apps/server/dist/index.js` under Node, without a TypeScript loader;
   build the engine checkout before installing or updating the service. The build and launchd
   operations run on the engine machine; no compiled source crosses engine RPC.
-  PM-674's [rollback runbook](CLOUD-CUTOVER.md) uninstalls KeepAlive before hybrid back.
-  Updates are manual owner-approved steps in
-  the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
+  The [hybrid recovery procedure](HYBRID.md) removes the LaunchAgent before returning.
+  Checkout-managed engines are updated in their own checkout; app-managed engines use
+  the release switch in **Engine menu bar app**. Credentials and launchd operations stay
+  on the engine's Mac and do not cross engine RPC.
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
   renders the plist template with this machine's absolute paths (node, the checkout, the home, the
   `PATH` of the installing shell, without the `node_modules/.bin` folders `npm run` puts in front) and loads it as a LaunchAgent in the user's `gui/<uid>` domain, so the
   engine starts at login and is restarted after an exit (`KeepAlive`, 30 s throttle). It is an agent,
   not a daemon, because the CLIs of the sessions need the login keychain and the user's files. The job
   gets only the variables the plist names (`PATH`, `PROJECTMAN_MODE=engine`, `PROJECTMAN_HOME`): no
-  API key and no integrator key. `install` runs the same preflight as `start` and refuses another
+  API key and no connected Claude key. `install` runs the same preflight as `start` and refuses another
   home's installed agent; `uninstall` leaves the logs (`<home>/logs/engine-service.{out,err}.log`).
   PM-1087 adds `service start|stop|restart` and the machine-readable state, the one contract of the menu bar
   app and any other shell: `start` loads the file (`bootstrap`, with the busy retry) or `kickstart`s a loaded
@@ -2874,6 +2860,11 @@ assumption or remote-engine RPC.
   filtered PATH answer that).
   Heavy machine work (the first one is the cloud image build) runs on a GitHub-hosted runner through one general
   workflow, started by hand with `gh workflow run`, so the owner's Mac needs no Docker Desktop (its 8 GB VM).
+  **Dedicated workflows (PM-1196):** a registered job may carry `workflow`, one of
+  `DEDICATED_COMPUTE_JOB_WORKFLOWS` (`projectman-deploy.yml`, `projectman-engine-release.yml`), and then runs that
+  workflow (own environment and rights) instead of the general one; the engine's `full_test.run` guard requires the
+  registration's workflow to equal the request's. The dispatch still runs on the engine with its own `gh` login, so
+  nothing new is tied to a machine and it works on a remote engine.
   **What runs where:** the runner is one of `ubuntu-24.04`, `ubuntu-24.04-arm` or `macos-15` (the cloud image
   uses `ubuntu-24.04-arm`); it checks out one commit, runs the declared shell command, attests the declared
   output files (`actions/attest-build-provenance`) and uploads them as the artifact `projectman-job-<run_id>`
@@ -2883,9 +2874,11 @@ assumption or remote-engine RPC.
   default branch, verifies the attestation of both files against the workflow's exact identity and this run,
   and then checks the bundle with `tar` alone. Owner setup, once: Settings → Actions → General → Workflow
   permissions → "Read repository contents". The local `image-build` (Docker and Buildx) remains the fallback.
-  **Does this work on a remote engine?** Yes, and the engine is not affected: nothing of it runs on, or crosses
-  to, an engine, and there is no new RPC. The hub and the engine start no job in this step; PM-1147 adds the
-  engine's runner (see "GitHub Actions runs (merge check, compute jobs)") and PM-1148 the callers.
+  **Remote engine:** the workflow builds on GitHub-hosted runners; the admin fetch runs
+  on the owner's machine. A hub-requested job is dispatched and followed by the project's
+  engine through the existing compute-job path (see **GitHub Actions runs (merge check,
+  compute jobs)**). The descriptor and result cross the link; build artifacts are downloaded
+  by the admin/target host, not mounted into a member session.
   **Module:** `scripts`
 
 - **The cloud machine downloads the image artifact (PM-1154)** — `scripts/cloud/{image-github,image-fetch,images,machine,host,config}.ts`,
@@ -2912,3 +2905,15 @@ assumption or remote-engine RPC.
   set for every provider. **Remote engine:** the engine builds the session
   environment beside the CLI with the same function (or the same four variables).
   **Module:** `runner`
+
+- **Batched read of the configuration history (PM-308)** — `config/{git,customization-repo,config-store}.ts`
+  (`runGitBytes`, `CustomizationRepo.gitBytes`, `ConfigStore.loadVersions` / `countVersions`),
+  `core/projects/projects.ts` (`historyPage`), `api/config.ts` (`GET …/config/history`). The settings
+  history reads up to 52 saved versions of a project's three configuration files in one
+  `git cat-file --batch` process on the customization repository (its object sizes count bytes, so the
+  output is read as bytes), plus `git rev-list --count` for the total, without a shell, with the
+  customization repository's 120 s and 32 MiB git limits. **Machine assumptions:** a `git` executable
+  and the server's `customization/` repository on the server's disk, like every other configuration
+  git call. **Does this work on a remote engine?** Yes: the customization repository stays on the
+  server, the card's source repository and engine are not read, and there is no new engine RPC.
+  **Module:** `config`

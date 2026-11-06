@@ -6,16 +6,17 @@ import {
   TODO_DONE_OPTION,
   TODO_CANNOT_OPTION,
   canSeeInboxItem,
+  fallbackIntegratorTodo,
   humanInboxAssignment,
   inboxRecipientOf,
   isIntegratorFixLimitDecision,
   isIntegratorInboxItem,
   isIntegratorTodo,
-  planIntegratorInboxEscalation,
-  selectFixLimitRecipient,
+  isDelegableFixLimitDecision,
+  isUndelegableQuestion,
+  planIntegratorPassOn,
   wasIntegratorInboxItem,
   questionRecipientOf,
-  selectTodoRecipient,
   wasIntegratorTodo,
 } from './inbox';
 
@@ -65,45 +66,35 @@ describe('durable integrator todo rules', () => {
       expect(humanInboxAssignment(item, null)).toBe(false);
     }
   });
-  it('allows screening to override the proposal in either direction', () => {
-    const facts = { integratorAvailable: true, issuerAllowed: true, decider: null };
-    expect(selectTodoRecipient(todo(), 'owner', facts)).toEqual({ recipient: 'owner' });
-    expect(selectTodoRecipient(todo(), 'integrator', facts)).toEqual({ recipient: 'integrator' });
-    expect(selectTodoRecipient(todo(), 'integrator', { ...facts, integratorAvailable: false })).toEqual({
-      recipient: 'owner',
-      recipientRefusal: 'integrator_unavailable',
+  describe('fallbackIntegratorTodo (PM-1243)', () => {
+    const asked = (payload: Record<string, unknown>): InboxItem => ({
+      ...todo(),
+      state: 'screening',
+      options: [{ id: 'option_1', label: 'Deploy now', style: 'primary' }],
+      payload: {
+        question: 'Deploy the hub?',
+        requestedRecipient: 'integrator',
+        recommended: 'option_1',
+        ...payload,
+      },
     });
-  });
-  it('keeps an asker without machine access out of the integrator queue', () => {
-    const facts = { integratorAvailable: true, issuerAllowed: false, decider: null };
-    expect(selectTodoRecipient(todo(), 'integrator', facts)).toEqual({
-      recipient: 'owner',
-      recipientRefusal: 'no_machine_access',
+
+    it('makes a todo of a question that asked for the integrator, expecting the recommended option', () => {
+      expect(fallbackIntegratorTodo(asked({}))).toEqual({
+        what: 'Deploy the hub?',
+        where: 'AR-1',
+        expected: 'Deploy now',
+        recipient: 'integrator',
+      });
+      expect(fallbackIntegratorTodo(asked({ recommended: undefined }))?.expected).toBe('Deploy the hub?');
     });
-    expect(
-      selectTodoRecipient(todo(), 'integrator', { ...facts, integratorAvailable: false }).recipientRefusal,
-    ).toBe('no_machine_access');
-  });
-  it.each([
-    { integratorAvailable: true, issuerAllowed: false, refusal: 'no_machine_access' },
-    { integratorAvailable: false, issuerAllowed: true, refusal: 'integrator_unavailable' },
-    { integratorAvailable: false, issuerAllowed: false, refusal: 'no_machine_access' },
-  ])(
-    'routes an integrator todo no integrator can take to the decider ($refusal)',
-    ({ integratorAvailable, issuerAllowed, refusal }) => {
-      expect(
-        selectTodoRecipient(todo(), 'integrator', { integratorAvailable, issuerAllowed, decider: 'lead' }),
-      ).toEqual({ recipient: 'decider', decider: 'lead', recipientRefusal: refusal });
-    },
-  );
-  it('keeps the owner proposal and a protected question away from the decider', () => {
-    const facts = { integratorAvailable: false, issuerAllowed: false, decider: 'lead' };
-    expect(selectTodoRecipient(todo(), 'owner', facts)).toEqual({ recipient: 'owner' });
-    const group = todo();
-    group.payload.group = null;
-    expect(selectTodoRecipient(group, 'integrator', facts)).toEqual({
-      recipient: 'owner',
-      recipientRefusal: 'protected_question',
+    it.each([
+      { requestedRecipient: 'owner' },
+      { approvalLabel: null },
+      { group: null },
+      { ownerTopic: 'risk_acceptance' },
+    ])('makes none when the question has %j', (payload) => {
+      expect(fallbackIntegratorTodo(asked(payload))).toBeNull();
     });
   });
   it.each([
@@ -119,16 +110,7 @@ describe('durable integrator todo rules', () => {
   ])('fails closed on the raw protected %s field, even when null', (key) => {
     const item = todo();
     item.payload[key] = null;
-    expect(
-      selectTodoRecipient(item, 'integrator', {
-        integratorAvailable: true,
-        issuerAllowed: true,
-        decider: null,
-      }),
-    ).toEqual({
-      recipient: 'owner',
-      recipientRefusal: 'protected_question',
-    });
+    expect(isUndelegableQuestion(item)).toBe(true);
     expect(isIntegratorTodo(item)).toBe(false);
     expect(questionRecipientOf(item)).toBe('owner');
     expect(humanInboxAssignment(item, 'owner')).toBe(true);
@@ -149,24 +131,22 @@ describe('durable integrator todo rules', () => {
       for (const access of ['owner', 'admin', 'developer', 'client', 'viewer'] as const)
         expect(canSeeInboxItem({ access, handle: 'owner' }, { ...todo(), payload })).toBe(access === 'owner');
   });
-  it('gives the todo to the owners at once with the reason, and only once', () => {
+  it('gives the todo to the owners when the integrator passes it on, and only once', () => {
     const item = todo();
     const now = '2026-10-17T10:05:00.000Z';
-    const patch = planIntegratorInboxEscalation(item, now, ['new-owner'], 'integrator_unavailable')!;
+    const patch = planIntegratorPassOn(item, now, ['new-owner'])!;
     const moved = { ...item, ...patch };
     expect(moved.assignees).toEqual(['new-owner']);
     expect(moved.payload).toMatchObject({
       recipient: 'owner',
       integratorOpenedAt: opened,
       integratorEscalatedAt: now,
-      integratorEscalationReason: 'integrator_unavailable',
+      integratorEscalationReason: 'integrator_passed_on',
     });
     expect(wasIntegratorTodo(moved)).toBe(true);
     expect(humanInboxAssignment(moved, 'new-owner')).toBe(true);
-    expect(planIntegratorInboxEscalation(moved, now, ['owner'], 'integrator_unavailable')).toBeNull();
-    expect(
-      planIntegratorInboxEscalation({ ...item, state: 'resolved' }, now, ['owner'], 'integrator_unavailable'),
-    ).toBeNull();
+    expect(planIntegratorPassOn(moved, now, ['owner'])).toBeNull();
+    expect(planIntegratorPassOn({ ...item, state: 'resolved' }, now, ['owner'])).toBeNull();
   });
 });
 
@@ -197,14 +177,10 @@ describe('integrator fix limit decision rules (PM-714)', () => {
     };
   }
 
-  it('addresses only the narrow decision shape to the integrator, else to the owners with the reason', () => {
+  it('delegates only the narrow decision shape', () => {
     const { payload: _payload, ...shape } = decision();
     const item = { ...shape, payload: { fixLimit } };
-    expect(selectFixLimitRecipient(item, true)).toEqual({ recipient: 'integrator' });
-    expect(selectFixLimitRecipient(item, false)).toEqual({
-      recipient: 'owner',
-      recipientRefusal: 'integrator_unavailable',
-    });
+    expect(isDelegableFixLimitDecision(item)).toBe(true);
     for (const broken of [
       { ...item, source: 'dev-1' },
       { ...item, taskKey: 'AR-2' },
@@ -216,10 +192,7 @@ describe('integrator fix limit decision rules (PM-714)', () => {
       { ...item, options: [options[0]!, options[0]!] },
       { ...item, kind: 'question' as const },
     ])
-      expect(selectFixLimitRecipient(broken, true)).toEqual({
-        recipient: 'owner',
-        recipientRefusal: 'protected_question',
-      });
+      expect(isDelegableFixLimitDecision(broken)).toBe(false);
   });
 
   it('is the integrator’s while open and unescalated, and hidden from every non-owner', () => {
@@ -246,33 +219,11 @@ describe('integrator fix limit decision rules (PM-714)', () => {
 
   it('gives the item to the owners at once when the integrator passes it on, and only once', () => {
     const item = decision();
-    const early = planIntegratorInboxEscalation(
-      item,
-      '2026-10-17T11:00:00.000Z',
-      ['owner'],
-      'integrator_passed_on',
-    )!;
+    const early = planIntegratorPassOn(item, '2026-10-17T11:00:00.000Z', ['owner'])!;
     expect(early.payload).toMatchObject({ recipient: 'owner', integratorOpenedAt: opened });
+    expect(planIntegratorPassOn({ ...item, ...early }, '2026-10-19T00:00:00.000Z', ['owner'])).toBeNull();
     expect(
-      planIntegratorInboxEscalation(
-        { ...item, ...early },
-        '2026-10-19T00:00:00.000Z',
-        ['owner'],
-        'integrator_passed_on',
-      ),
+      planIntegratorPassOn({ ...item, state: 'resolved' }, '2026-10-19T00:00:00.000Z', ['owner']),
     ).toBeNull();
-    expect(
-      planIntegratorInboxEscalation(
-        { ...item, state: 'resolved' },
-        '2026-10-19T00:00:00.000Z',
-        ['owner'],
-        'integrator_passed_on',
-      ),
-    ).toBeNull();
-    // The Operator hands a todo on at once (PM-885).
-    expect(
-      planIntegratorInboxEscalation(todo(), '2026-10-17T11:00:00.000Z', ['owner'], 'integrator_passed_on')
-        ?.payload,
-    ).toMatchObject({ recipient: 'owner', integratorEscalationReason: 'integrator_passed_on' });
   });
 });

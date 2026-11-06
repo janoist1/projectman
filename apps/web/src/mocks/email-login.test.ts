@@ -151,6 +151,55 @@ describe('MockEmailLogin', () => {
     expect(backend.handle('GET', `/api/invites/${client}`, undefined).body).not.toHaveProperty('emailHint');
   });
 
+  describe('password codes', () => {
+    function clientAccount() {
+      const token = invite(backend).path.replace('/invite/', '');
+      request(backend, { inviteToken: token });
+      verify(backend, { inviteToken: token, code: backend.emailLogin.lastCodeTo(address)! });
+      backend.handle('POST', '/api/auth/logout', undefined);
+      vi.advanceTimersByTime(60_000);
+    }
+    const passwordRequest = (email: string) =>
+      backend.handle('POST', '/api/auth/password/request', { email });
+    const reset = (body: unknown) => backend.handle('POST', '/api/auth/password/reset', body);
+
+    it('mails a password code only to a client account, with the same answer for anyone', () => {
+      invite(backend, 'client', 'open@client.test');
+      clientAccount();
+      const known = passwordRequest(address);
+      // An open invitation without an account is not a client account yet.
+      expect(passwordRequest('open@client.test')).toEqual(known);
+      expect(passwordRequest('nobody@client.test')).toEqual(known);
+      expect(backend.emailLogin.outbox.filter((mail) => mail.purpose === 'password')).toHaveLength(1);
+    });
+
+    it('sets the password and logs in, and the code is spent', () => {
+      clientAccount();
+      passwordRequest(address);
+      const code = backend.emailLogin.lastCodeTo(address)!;
+      const done = reset({ email: address, code, password: 'a brand new password' });
+      expect(done.status).toBe(200);
+      expect(backend.auth).toBe('ready');
+      expect(errorCode(reset({ email: address, code, password: 'another new password' }))).toBe(
+        'email_code_invalid',
+      );
+      backend.handle('POST', '/api/auth/logout', undefined);
+      expect(
+        backend.handle('POST', '/api/auth/login', { email: address, password: 'a brand new password' })
+          .status,
+      ).toBe(200);
+    });
+
+    it('keeps the code for a short password, and keeps the two purposes apart', () => {
+      clientAccount();
+      passwordRequest(address);
+      const code = backend.emailLogin.lastCodeTo(address)!;
+      expect(errorCode(reset({ email: address, code, password: 'short' }))).toBe('invalid_request');
+      expect(errorCode(verify(backend, { email: address, code }))).toBe('email_code_invalid');
+      expect(reset({ email: address, code, password: 'a brand new password' }).status).toBe(200);
+    });
+  });
+
   it('does not let a passwordless account log in with a password', () => {
     const token = invite(backend).path.replace('/invite/', '');
     request(backend, { inviteToken: token });

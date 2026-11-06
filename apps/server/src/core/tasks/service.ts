@@ -475,6 +475,10 @@ export class TaskService implements TaskSchedulingReader {
       this.publish(stored);
       return stored;
     });
+    // A card created with the `refine` label begins its refinement like one that gets the label later;
+    // an imported card is history and starts nothing (PM-1161).
+    if (req.importedAt === undefined)
+      effects.push(() => this.ctx.events.emit('task_created', { task: created, actor }));
     await runEffects(effects);
     return created;
   }

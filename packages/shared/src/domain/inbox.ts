@@ -5,6 +5,7 @@ import { BoardPlacement } from './board-order';
 import { ComplexityPoints } from './complexity';
 import { Actor } from './event';
 import { ExternalToolOrigin } from './external-tool-origin';
+import { ItemRouteRecord } from './item-route';
 import { MAX_FIX_EXTRA_ROUNDS } from './fix-extra-rounds';
 import { FixLimitAssessment, FixLimitOptionId, FixRoundHistoryEntry } from './fix-limit';
 import { LabelId } from './label';
@@ -248,6 +249,8 @@ export const InboxItem = z.object({
     })
     .nullable(),
   createdAt: z.string(),
+  /** How the route rule placed the item (PM-1246); null on the items stored before it existed. */
+  route: ItemRouteRecord.nullable().optional(),
   /**
    * Computed in list responses only, never stored (PM-556): why the asking member's own session has not
    * started again to take the answer.
@@ -548,14 +551,16 @@ export const RelationCheckAlert = z.object({
 });
 export type RelationCheckAlert = z.infer<typeof RelationCheckAlert>;
 
-/** `parts_left` (PM-480): parts of card `taskKey` that `member` created are still left in the first stage after a reminder. */
-export const PartsLeftAlert = z.object({
+/**
+ * `parts_left` (PM-480): parts of card `taskKey` that `member` created are still left in the first stage after a
+ * reminder. Nothing opens one any more (PM-1226); the payload stays so the items already stored still parse and render.
+ */
+const PartsLeftAlert = z.object({
   alert: z.literal('parts_left'),
   taskKey: TaskKey,
   member: MemberHandle,
   parts: z.array(TaskKey).min(1),
 });
-export type PartsLeftAlert = z.infer<typeof PartsLeftAlert>;
 
 /** `feedback_forwarded` (PM-506): the processor passed feedback mark `markId` of `author` on to the owners with a `reason`. */
 export const FeedbackForwardedAlert = z.object({
@@ -727,6 +732,31 @@ const QuestionScreeningQueue = z.object({
 });
 type QuestionScreeningQueue = z.infer<typeof QuestionScreeningQueue>;
 
+/**
+ * Why a screened question waits for the project manager instead of going to the people (PM-1249): the project
+ * manager cannot take it (`no_pm`, `ai_disabled`, `on_leave`, `paused`), the start of its session was deferred or
+ * refused (`start_deferred`, `start_refused`), or it did not settle the question in time (`timeout`).
+ */
+export const ScreeningWaitReason = z.enum([
+  'no_pm',
+  'ai_disabled',
+  'on_leave',
+  'paused',
+  'start_deferred',
+  'start_refused',
+  'timeout',
+]);
+export type ScreeningWaitReason = z.infer<typeof ScreeningWaitReason>;
+
+/** The question waits for the project manager's screening; the people are not asked (`wait_pm` route). */
+const QuestionScreeningWaiting = z.object({
+  /** ISO: when the question started to wait. */
+  since: z.string().datetime(),
+  reason: ScreeningWaitReason,
+  /** The ten minutes passed once: the project manager was given the question again and still has it. */
+  overdue: z.boolean().optional(),
+});
+
 /** `payload.screening` of a question: the Operator looks at it first (PM-556). */
 export const QuestionScreening = z.object({
   /**
@@ -736,6 +766,10 @@ export const QuestionScreening = z.object({
   until: z.string(),
   /** Present while the question waits for an offline machine; the fallback clock does not run (PM-708). */
   queue: QuestionScreeningQueue.optional(),
+  /** Present while the question waits for the project manager (PM-1249); it stays in screening. */
+  waiting: QuestionScreeningWaiting.optional(),
+  /** ISO: when the asking member was told once that its question waits for the screening. */
+  askerInformedAt: z.string().optional(),
   /** The Operator got it. */
   deliveredAt: z.string().optional(),
   outcome: ScreeningOutcome.optional(),
@@ -1029,6 +1063,12 @@ export const QuestionPayload = z.object({
    * `owner_decision` only the owner's own login answers. A missing value counts as `owner_decision`.
    */
   responsePurpose: QuestionResponsePurpose.optional(),
+  /**
+   * The owner topic the owner is asked to decide under (PM-1190): one of the project's `ownerDecisionTopics`,
+   * or `approval` for an approval question. Absent on older questions and on what needs none (information,
+   * a system release).
+   */
+  ownerTopic: z.string().optional(),
   /** Binds the question to one durable super operation (PM-762); such a question is always an owner decision. */
   superOperation: SuperOperationQuestionPayload.optional(),
   /**
@@ -1105,38 +1145,39 @@ function hasIntegratorTodoOrigin(payload: InboxItem['payload']): boolean {
 }
 
 /**
- * Where a todo goes. The machine queue (`integrator`) takes it only from a member with machine access
- * (`issuerAllowed`, decision 66): the one who classified the step as an integrator todo (the screening member
- * for a screened question, the opener for its own todo). The refusals are checked in the order protected,
- * no access, unavailable. When no integrator can take it for one of the last two reasons and the project has
- * a technical decider (`decider`, PM-1139), the route is `decider`: the item is not opened for the owners,
- * the question goes to that member. `decider` is never a `QuestionRecipient` and never lands in a payload.
+ * Whether a question may not become a todo (PM-1243, PM-1246): it is protected (an approval), unreadable or
+ * belongs to a group. The route rule takes this as the `approval` topic; such a question stays the owners'.
  */
-export type TodoRoute =
-  | { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal }
-  | {
-      recipient: 'decider';
-      decider: string;
-      recipientRefusal: 'no_machine_access' | 'integrator_unavailable';
-    };
+export function isUndelegableQuestion(item: InboxItem): boolean {
+  return hasProtectedQuestionPayload(item) || !questionPayloadOf(item) || 'group' in item.payload;
+}
 
-export function selectTodoRecipient(
-  item: InboxItem,
-  requested: QuestionRecipient,
-  facts: { integratorAvailable: boolean; issuerAllowed: boolean; decider: string | null },
-): TodoRoute {
-  if (requested === 'owner') return { recipient: 'owner' };
-  if (hasProtectedQuestionPayload(item) || !questionPayloadOf(item) || 'group' in item.payload)
-    return { recipient: 'owner', recipientRefusal: 'protected_question' };
-  const refused = !facts.issuerAllowed
-    ? 'no_machine_access'
-    : !facts.integratorAvailable
-      ? 'integrator_unavailable'
-      : null;
-  if (!refused) return { recipient: 'integrator' };
-  return facts.decider
-    ? { recipient: 'decider', decider: facts.decider, recipientRefusal: refused }
-    : { recipient: 'owner', recipientRefusal: refused };
+/**
+ * The todo a question becomes when its screening is skipped (`timeout`, `unavailable`) and the asker named the
+ * integrator (PM-1243): without it the system's fallback would open the question for the owner whatever was
+ * asked. Null when the question is not the integrator's to take: it asked the owner, is protected, belongs to a
+ * group or carries an owner topic (a decision for the owner). The caller still routes it with `routeItem`.
+ */
+export function fallbackIntegratorTodo(item: InboxItem): ScreeningTodo | null {
+  const payload = questionPayloadOf(item);
+  if (
+    !payload ||
+    payload.requestedRecipient !== 'integrator' ||
+    hasProtectedQuestionPayload(item) ||
+    'group' in item.payload ||
+    payload.ownerTopic
+  )
+    return null;
+  const recommended = payload.recommended
+    ? item.options.find((option) => option.id === payload.recommended)?.label
+    : undefined;
+  const todo = ScreeningTodo.safeParse({
+    what: payload.question.slice(0, 2000),
+    where: item.taskKey ?? item.projectKey,
+    expected: (recommended || payload.question).slice(0, 1000),
+    recipient: 'integrator',
+  });
+  return todo.success ? todo.data : null;
 }
 
 /** State and authentication are checked by the operation, independently of durable addressing. */
@@ -1188,7 +1229,7 @@ const FIX_LIMIT_OPTION_IDS: readonly string[] = FixLimitOptionId.options;
  * and about the item's own card, whose payload has no key beyond the fix limit's and the addressing's, and
  * whose options are unique and all one of the three fix limit outcomes. Null, mixed or approval payloads fail.
  */
-function isDelegableFixLimitDecision(
+export function isDelegableFixLimitDecision(
   item: Pick<InboxItem, 'kind' | 'source' | 'taskKey' | 'payload' | 'options'>,
 ): boolean {
   if (item.kind !== 'decision' || item.source !== 'system') return false;
@@ -1239,33 +1280,20 @@ export function inboxRecipientOf(item: InboxItem): QuestionRecipient {
   return isIntegratorInboxItem(item) ? 'integrator' : 'owner';
 }
 
-/** The recipient a new fix limit decision goes to: the integrator when one is available and the shape is delegable. */
-export function selectFixLimitRecipient(
-  item: Pick<InboxItem, 'kind' | 'source' | 'taskKey' | 'payload' | 'options'>,
-  integratorAvailable: boolean,
-): { recipient: QuestionRecipient; recipientRefusal?: QuestionRecipientRefusal } {
-  if (!isDelegableFixLimitDecision(item))
-    return { recipient: 'owner', recipientRefusal: 'protected_question' };
-  if (!integratorAvailable) return { recipient: 'owner', recipientRefusal: 'integrator_unavailable' };
-  return { recipient: 'integrator' };
-}
-
 export function humanInboxAssignment(item: InboxItem, handle: string | null): boolean {
   return inboxRecipientOf(item) === 'owner' && (handle === null || item.assignees.includes(handle));
 }
 
 /**
- * The change that gives an open integrator item to the owners (PM-714), or null when it stays. An open
- * Operator todo or a fix limit decision held by the Operator goes at once, when the Operator passes it on
- * (`integrator_passed_on`) or does not work its queue (`integrator_unavailable`); there is no clock. The payload
- * and options are kept, only the addressing changes, so no second decision item is made. `assignees` are the
- * people who then decide.
+ * The change that gives an open integrator item to the owners when the integrator itself passes it on
+ * (PM-714, the `integrator_pass_on` route: the owner's side), or null when it stays. The payload and options are
+ * kept, only the addressing changes, so no second decision item is made. `assignees` are the people who then
+ * decide. Nothing else hands an integrator item over: without a live integrator it waits in the machine queue.
  */
-export function planIntegratorInboxEscalation(
+export function planIntegratorPassOn(
   item: InboxItem,
   now: string,
   owners: readonly string[],
-  reason: 'integrator_passed_on' | 'integrator_unavailable',
 ): Pick<InboxItem, 'payload' | 'assignees'> | null {
   if (item.state !== 'open' || !owners.length) return null;
   if (!isIntegratorTodo(item) && !isIntegratorFixLimitDecision(item)) return null;
@@ -1274,7 +1302,7 @@ export function planIntegratorInboxEscalation(
       ...item.payload,
       recipient: 'owner',
       integratorEscalatedAt: now,
-      integratorEscalationReason: reason,
+      integratorEscalationReason: 'integrator_passed_on',
     },
     assignees: [...owners],
   };

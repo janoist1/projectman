@@ -6,7 +6,7 @@ Human questions, approvals, permission inbox items, question screening/closing a
 
 ## Facade
 
-`core/inbox/index.ts` is the sealed entry point. It exports `InboxService` with `createInboxService`, the `DECISION_OPTIONS` and `ANSWER_OPTION` constants, `sponsorOrOwners`, `answerText`, the `Resolver` and `InboxDecider` types, `ApprovalQuestions`, `HumanQuestions`, `CardQuestions` with `QUESTION_LIMIT`, `AgentQuestions` with `agentQuestionsOf`, `QuestionClosing`, `QuestionScreening`, `OpenQuestionLabel` and `IntegratorTodoAccess`. The implementation moved here unchanged (PM-643); no question or approval contract changed.
+`core/inbox/index.ts` is the sealed entry point. It exports `InboxService` with `createInboxService`, the `DECISION_OPTIONS` and `ANSWER_OPTION` constants, `sponsorOrOwners`, `answerText`, the `Resolver` and `InboxDecider` types, `ApprovalQuestions`, `HumanQuestions`, `CardQuestions` with `QUESTION_LIMIT`, `AgentQuestions` with `agentQuestionsOf`, `QuestionClosing`, `QuestionScreening`, `OpenQuestionLabel` and `IntegratorTodoAccess`.
 
 `InboxService.waitForClose(id, signal)` registers the waiter synchronously and resolves with the closed
 item. An abort drops the waiter, expires the item and resolves null. CLI permission decisions live in
@@ -24,9 +24,8 @@ Question screening synchronizes questions through `MemberQueue.syncInbox` and wa
 
 The inbox receives the domain context, projects, timeline and optional `IntegratorTodoAccess`.
 Existing `InboxDecider`, `QuestionAnswerer` and `AskerStarts` hooks connect decisions and answering work.
-The runtime broker receives `EngineDirectory` and the optional attachment-directory callback directly;
-the former `InboxPermissionPolicy` port is removed (PM-960). The permission broker and engine contracts
-are unchanged. No runtime module is imported by this module; its two dependency exceptions are removed.
+The runtime broker receives `EngineDirectory` and the optional attachment-directory callback directly.
+No runtime module is imported by this module.
 
 ## Files
 
@@ -69,20 +68,62 @@ with durable human answer messages. Source-card deletion and delivery receipts n
 This is server-side state and uses the existing message and attachment transfer paths. No
 machine-dependent part or new engine-boundary method is added.
 
-## Integrator todos (PM-782)
+## Todos for the connected Claude (recipient `integrator`)
 
 Question addressing is durable payload data (`requestedRecipient`, `recipient`,
 `integratorOpenedAt`, `integratorEscalatedAt`). Missing addressing means owner; there is no migration.
-New `screen_question.todo` input requires a recipient; decisions, fallback and unscreened reasks
-always remain owner work. Shared rules select the recipient, protect approvals even with malformed
-raw payload fields, restrict human visibility to owners, exclude integrator work from human counts
-and plan the handoff to the owners (no clock: on an explicit owner pass-on or when no owner has a live super key).
-Assignees remain real human handles.
+Decisions and unscreened reasks always remain owner work. A skipped screening (`timeout`, `unavailable`)
+never opens a question for the owners unless it is an approval (PM-1249): any other waits for the project manager
+(`wait_pm`, `payload.screening.waiting`). It keeps the integrator the asker named (PM-1243): `fallbackIntegratorTodo` (`packages/shared`) makes a todo of
+a question with `requestedRecipient: integrator` that is not protected, grouped or under an owner topic, and
+`releaseScreened` opens it through the todo path with the system as issuer (the asker asked the integrator
+because it has no machine access itself) and records `question_screening_skipped`, not `question_screened`.
+It opens in the integrator's queue also when no integrator is live. A todo's recipient is not chosen by
+the asker or the screening member (PM-1243, PM-1246): `routeItem` (`packages/shared/src/domain/item-route.ts`) is the one
+rule, and `InboxService.applyRoute` (`apply-route.ts`) executes it. A machine todo goes to the integrator's queue
+whenever the question is not protected and the issuer has machine access, whether or not an integrator is connected;
+an issuer without machine access sends it to the technical decider (PM-1139), and with none the request is refused
+(`issuer_without_machine_access`). Nothing is ever opened for the owners as a fallback. The route is stored on the item
+(`InboxItem.route`, column `route`) and written to the timeline as `item_routed`. `screen_question.todo.recipient` is
+optional and does not decide; **alerts** go through one entry point, `InboxService.raiseAlert` (PM-1250), which
+applies `ALERT_ROUTE_CLASS` and never lets its creator choose the class of the recipient. `disk_low`, `worktree_kept` and
+`session_input` become an integrator todo (a `question` item with Done and Cannot, marked `payload.systemAlert =
+{alert, key}`; one open per kind and card, `settleAlert` cancels it when the cause is gone); `work_outage` and
+`relation_check` become a signal of the project manager through the `AlertPmSignals` port (registered by
+`services/coordination`), and become an owner notice when the project has no project manager; `session_tokens`,
+`provider_rate_limited`, `refinement` done, `feedback_forwarded`, `host_request_answered` and `email_parked` become a
+`system_notice` message through the `AlertNoticeSink` port (`core/messages/system-notices.ts`: no push, no inbox
+item); a notice goes to the owners, a parked e-mail also to the admins, and a `refinement` done to the people its
+creator names (who prioritises). The notice is sent asynchronously, so two events in quick succession may not see each
+other's message (the daily e-mail count, the Gemini hold's stored copy). A `session_input` todo is one per card: when
+two sessions wait on one card, settling one closes the other's todo too. Only a `refinement` `manual_step` (an owner approval) and a `merge_blocked` for a human merger stay alert items.
+`release_failed`, `message_burst`, `parts_left`, `work_stalled` and `refinement` `stalled` are retired: the route
+refuses them (`alert_retired`), the old rows still render, and an open old alert closes with "seen".
+`sendWaitingDigest` (a periodic sweep) tells the owners in one `waiting_digest` notice, at most once a day, when the
+oldest open integrator todo or the oldest question in screening has waited more than 24 hours; the newest such
+notice is its marker, so a restart does not repeat it. The pieces stay on the hub, so no machine-dependent entry
+changes. What only the owner may do is a `decision`, and the integrator passes a manual step the
+owner alone can take on with `integrator_passed_on` (PM-714; `planIntegratorPassOn`). Shared rules protect approvals
+even with malformed raw payload fields, restrict human visibility to owners and exclude the connected Claude's work
+from human counts. Assignees remain real human handles.
+
+Owner topics (PM-1190, PM-1243): `releaseScreened` checks, under the question lock after loading the
+configuration, that a release by the project manager as `decision` names
+one of the project's owner topics (`ownerTopicRefusal` in `packages/shared`); a protected question
+records `approval` instead, and the system releases (fallback, the connected Claude's refusal) and every todo need none
+(an `owner_topic` given with a todo is accepted and not recorded).
+Signals (PM-1243): `ownerQuestionSignalRefusal` (`packages/shared`, `operator-watch.ts`) makes the MCP
+`ask_human` refuse (`signal_not_for_owner`) a question tied by `signal_id` to an `unreleased`,
+`structural_pattern` or `milestone_closed` signal; no inbox item is made.
+`HumanQuestions.ask` applies the same rule to the coordinator's own question and to a re-ask,
+except for information and approval questions, and refuses `ownerTopic` on any other member's
+question (`owner_topic_not_allowed`). The topic lands in `payload.ownerTopic` and the
+`question_asked`/`question_screened` events; older items and events without it keep rendering.
 
 `IntegratorTodoAccess` is a boolean port, defaulting to unavailable. `app.ts` supplies the shared
-`integratorSideAvailable(config, hasActiveSuperKey)` rule (PM-1045): some owner of the project has a live
-super key (not revoked, not expired; `AuthService.hasActiveSuperKey`), whatever the Operator member's leave or AI
-switch, since the app has no Operator session; assembly passes it to inbox. Super credentials are checked when a client resolves the item.
+`integratorSideAvailable(config, hasActiveSuperKey)` rule: some owner of the project has a live
+super key (not revoked, not expired; `AuthService.hasActiveSuperKey`), whatever the project manager's leave or AI
+switch; assembly passes it to inbox. Super credentials are checked when a client resolves the item.
 `resolveIntegratorTodo` is reached through the super-only external MCP adapter (there is no REST route, PM-1030) in
 `services/super-operator/todo.ts`. It uses the same question lock and transactional answer delivery
 as owner resolution, rechecking authenticated execution before persistence. The result carries
@@ -91,29 +132,24 @@ The owner can still resolve with their own login through normal resolution.
 The guarded automatic removal of the last question's `waiting-answer` label runs as system
 cleanup outside the caller's execution scope; generic label edits keep all credential checks.
 
-The hub's `integrator-todos` maintenance job sweeps at startup and every 30 seconds, independently
-of AI availability or engine connectivity. Handoff and resolution serialize on the same lock.
-The sweep hands an item over only when no owner has a live super key (`integrator_unavailable`);
-there is no 24-hour clock. A resolution accepted under the lock finishes first. Handoff records
-`question_recipient_escalated` atomically with owner addressing and current owner assignees;
-it sends no answer and does not release the waiting label. Existing inbox change triggers journal
-opening, handoff and closure. No new machine operation or engine-boundary method is needed.
-
-`passOnToSuper` (PM-1003) holds the same question lock and, in a unit of work, adds `operatorHandoff`
-to an open integrator item. Recipient, assignees and options stay the same;
-there is no new timeline event. Since PM-1045 no Operator queue item exists (`operatorOwesInboxItem` is gone),
-so the marker only records the handoff. Machine work waits in the super inbox as long as an owner has a live
-super key. Message handoffs open an integrator todo with this same marker;
-only `owner_reserved` opens or reuses an owner item. Closed items are refused with `inbox_item_closed`,
-other or already handed-off items with `super_relay_refused`.
+There is no sweep and no time limit (the `integrator-todos` maintenance job is gone, PM-1246): work waits in the
+connected Claude's queue until it is resolved or the integrator passes it on. Handoff and resolution serialize on the
+same lock; a resolution accepted under the lock finishes first. `escalateIntegratorItem` (`core/inbox/inbox.ts`)
+hands an item to the owners under that lock only on the integrator's explicit pass-on, planned by
+`planIntegratorPassOn`; it records the route (`integrator_pass_on`) and `item_routed`, sends no answer and does not
+release the waiting label. Old `question_recipient_escalated` and `fix_limit_recipient_escalated` events keep
+rendering. No server code writes `payload.operatorHandoff` any more (it is read only, so old items keep rendering; see
+[services/super-operator](services-super-operator.md)). Closed items are refused with `inbox_item_closed`, other or
+already handed-off items with `super_relay_refused`. No new machine operation or engine-boundary method is needed.
 
 ### Fix limit decisions (PM-801)
 
 A fix-limit decision (`payload.fixLimit`, source `system`, only fix-limit options) can be addressed to the
-integrator by `selectFixLimitRecipient` when the three extra rounds are used up, the lead passed it on, or no AI
-member can decide; any other shape stays with the owners. `isIntegratorInboxItem` covers todos and these
-decisions, so the sweep escalates both when no owner has a live super key (`planIntegratorInboxEscalation`, event
-`fix_limit_recipient_escalated`). The integrator resolves only through `resolveIntegratorFixLimit` (same question
+connected Claude when the three extra rounds are used up, the lead passed it on, or no AI member can decide
+(`isDelegableFixLimitDecision`); any other shape stays with the owners. `routeItem` kind `fix_limit` sends a delegable
+decision to the integrator's queue while an integrator exists and otherwise opens it for the owners under the topic
+`product_direction` (reason `no_integrator`); the route is on the item. `isIntegratorInboxItem` covers todos and these
+decisions. The connected Claude resolves only through `resolveIntegratorFixLimit` (same question
 lock, `integratorExecution()` and owner access checked again): `replan`, `reassign`, `another_round`, or passing
 the same item to the owners with a reason. The text is built by `fix-limit-text.ts` in the project language.
 Hub-side only; no engine-boundary method.
@@ -121,9 +157,9 @@ Hub-side only; no engine-boundary method.
 ## Obligation todos (PM-806)
 
 `ObligationsService` (`services/obligations`) hands a step whose responsible did not act to the
-integrator through two inbox operations. `openIntegratorTodo` opens a question item that carries
-`payload.obligation` (`kind`, `responsible`, `subject`) and the same `integratorOpenedAt` clock as any
-integrator todo, so the owner handoff applies to it too; with no integrator available the owners
+connected Claude through two inbox operations. `openIntegratorTodo` opens a question item that carries
+`payload.obligation` (`kind`, `responsible`, `subject`) and the same `integratorOpenedAt` stamp as any
+todo for the connected Claude, so the owner handoff applies to it too; with no connected Claude available the owners
 get it directly, which the `IntegratorTodoAccess` port decides. The item has no asker to answer: the
 system is its source, so `resolveIntegratorTodo` and `resolve` record the result and send no message
 (`answeredNotice` skips obligation todos).
@@ -137,7 +173,4 @@ engine-boundary method is added.
 
 ## Remote engine (existing permission requests)
 
-Questions, approval records and rules remain on the server. Permission requests retain the session engine's paths, and the existing broker/engine contracts carry decisions to that engine. The runtime permission broker checks a tool's canonical working directory through that engine's `realpath` before consulting the command policy. Server paths must not replace engine paths; PM-960 changes no boundary method or payload.
-
-PM-631 prepares file ownership; PM-635 introduces these ports. Neither changes a
-shared contract, database schema, configuration or timeline event.
+Questions, approval records and rules remain on the server. Permission requests keep the session engine's paths, and the broker/engine contracts carry decisions to that engine. The runtime permission broker checks a tool's canonical working directory through that engine's `realpath` before consulting the command policy. Server paths must not replace engine paths. The machine-dependent inventory is [MACHINE-DEPENDENT.md](../MACHINE-DEPENDENT.md).

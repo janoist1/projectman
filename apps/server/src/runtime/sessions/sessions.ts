@@ -63,6 +63,7 @@ import type {
   ContextPackBuilder,
   ContextPack,
   ContextPackInput,
+  DocumentStore,
   MemberMemoryStore,
   MemberWorkspaceManager,
   EngineDirectory,
@@ -199,6 +200,8 @@ export interface SessionOrchestratorDeps {
   doneTurnLimitMs?: number;
   /** The task's attachments, listed in the kick-off brief (as the member may read them). */
   attachments?: Pick<AttachmentOperations, 'list'>;
+  /** The project's documents, listed (title, slug, last change) in the context pack (PM-149). */
+  documents?: Pick<DocumentStore, 'list'>;
   /** The attachment directory of a task (`AttachmentStorage.taskDirectory`): its session reads it without asking. */
   attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   /** A standby copy of the installation (`instance.json`): every session start is refused. */
@@ -206,9 +209,9 @@ export interface SessionOrchestratorDeps {
   /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
   usageAlerts?: Pick<UsageAlerts, 'check'>;
   /** Quota alerts are raised once per shared-provider hold (PM-377). */
-  inbox?: Pick<InboxService, 'create' | 'openPermissionOf'>;
+  inbox?: Pick<InboxService, 'create' | 'openPermissionOf' | 'raiseAlert'>;
   /** Tells the owners of a session that waits for input unseen (PM-199). */
-  inputStall?: Pick<InputStallAlerts, 'raise'>;
+  inputStall?: Pick<InputStallAlerts, 'raise' | 'settle'>;
   /** How long a session may wait for input before they are told (default `INPUT_STALL_MS`). */
   inputStallMs?: number;
 }
@@ -1140,12 +1143,13 @@ export class SessionOrchestrator {
   /**
    * Types text into a running session (queued by the runner until the session is idle). Resolves once
    * the session took it; rejects when it did not (PM-571), so the caller leaves the message waiting.
+   * A `deliveryId` keeps a repeated call from typing the same message twice (PM-1205).
    */
-  typeInto(session: Session, text: string): Promise<void> {
+  typeInto(session: Session, text: string, options?: { deliveryId?: string }): Promise<void> {
     this.assertProviderCooldown(session.provider ?? DEFAULT_AGENT_PROVIDER, engineIdOf(session));
     // The session is being closed (PM-288): the message stays waiting, and its wake-up resumes the session.
     if (this.closeStates.isClosing(session.id)) throw new Error(`session ${session.id} is closing`);
-    return this.deps.runner.sendUserMessage(session.id, text);
+    return this.deps.runner.sendUserMessage(session.id, text, options);
   }
 
   async memory(projectKey: string, handle: string): Promise<string> {

@@ -1,7 +1,6 @@
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
-import { alertPayloadOf } from '@projectman/shared';
 import { createLocalEngine, freeBytesOf } from '../src/engine-host';
 import { LocalEngineDirectory } from '../src/runtime/sessions';
 import { WorktreeSweep } from '../src/runtime/watchers';
@@ -14,6 +13,13 @@ import type { MemberWorkspaceManager } from '../src/contracts';
 
 const GB = 1024 ** 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The machine alerts are todos for the integrator: question items marked with the alert kind (PM-1250). */
+function alertTodos(h: DomainHarness, alert: string): InboxItem[] {
+  return h.domain.inbox
+    .list('AR', { kind: 'question' })
+    .filter((item) => (item.payload.systemAlert as { alert?: string } | undefined)?.alert === alert);
+}
 
 describe('worktrees of closed cards', () => {
   let h: DomainHarness;
@@ -82,7 +88,7 @@ describe('worktrees of closed cards', () => {
     return { key, path: info.path };
   }
 
-  const alerts = (): InboxItem[] => h.domain.inbox.list('AR', { kind: 'alert' });
+  const alerts = (): InboxItem[] => alertTodos(h, 'worktree_kept');
 
   it('removes the clean worktree of a card closed for three days, whether done or cancelled', async () => {
     await setup();
@@ -152,12 +158,15 @@ describe('worktrees of closed cards', () => {
     expect(h.worktrees.removed).toEqual([]);
     const told = alerts();
     expect(told).toHaveLength(1);
-    expect(told[0]).toMatchObject({ kind: 'alert', taskKey: card.key, state: 'open', assignees: ['owner'] });
-    expect(alertPayloadOf(told[0]!)).toMatchObject({
-      alert: 'worktree_kept',
+    expect(told[0]).toMatchObject({
+      kind: 'question',
       taskKey: card.key,
-      path: card.path,
+      state: 'open',
+      payload: { systemAlert: { alert: 'worktree_kept', key: card.key } },
     });
+    expect(JSON.stringify(told[0]!.payload)).toContain(card.path);
+    // The integrator is asked; the owners get no alert item.
+    expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
   });
 
   it('removes a kept worktree after it was cleaned up, without another alert', async () => {
@@ -327,7 +336,7 @@ describe('free disk space', () => {
   let free: number | null;
   afterEach(() => h.cleanup());
 
-  const alerts = (): InboxItem[] => h.domain.inbox.list('AR', { kind: 'alert' });
+  const alerts = (): InboxItem[] => alertTodos(h, 'disk_low');
   const setLimit = (gb: number) =>
     h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
       config.team.limits.minFreeDiskGb = gb;
@@ -363,12 +372,13 @@ describe('free disk space', () => {
 
     const [item, ...more] = alerts();
     expect(more).toEqual([]);
-    expect(item).toMatchObject({ kind: 'alert', state: 'open', assignees: ['owner'], source: 'system' });
-    expect(alertPayloadOf(item!)).toEqual({
-      alert: 'disk_low',
-      freeBytes: 4 * GB,
-      thresholdBytes: 10 * GB,
+    expect(item).toMatchObject({
+      kind: 'question',
+      state: 'open',
+      source: 'system',
+      payload: { systemAlert: { alert: 'disk_low', key: '' } },
     });
+    expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
     await expect(startCard()).rejects.toMatchObject({ code: 'disk_low', status: 409 });
     expect(h.runner.started).toEqual([]);
     expect(alerts()).toHaveLength(1);
@@ -380,13 +390,14 @@ describe('free disk space', () => {
     expect(alerts()).toHaveLength(1);
   });
 
-  it('does not warn again after the owner has seen it, until the space came back and fell again', async () => {
+  it('does not ask again after the todo was done, until the space came back and fell again', async () => {
     await setup(4 * GB);
     await h.domain.disk.check();
+    const todo = alerts()[0]!;
     await h.domain.inbox.resolve(
       'AR',
-      alerts()[0]!.id,
-      { optionId: 'seen' },
+      todo.id,
+      { optionId: todo.options[0]!.id },
       { handle: 'owner', access: 'owner' },
     );
 

@@ -901,7 +901,7 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
     };
     project.render(drawer, '/p/AC/tasks/AC-20');
 
-    // The header row: "Vár · AC-17 (Szakasz) +1".
+    // The header row: "Vár · AC-17 (Lépés) +1".
     await screen.findAllByText(t('taskStatus.next.heads.prerequisite'));
     expect(screen.getAllByText(/^AC-17 \(.+\) \+1$/).length).toBeGreaterThan(0);
     const box = screen.getByRole('region', { name: t('task.whyBox.title') });

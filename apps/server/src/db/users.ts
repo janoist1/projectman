@@ -1,3 +1,4 @@
+import { DEFAULT_UI_LANGUAGE, UiLanguage } from '@projectman/shared';
 import type { Db } from './database';
 
 export interface UserRecord {
@@ -7,6 +8,8 @@ export interface UserRecord {
   /** `null`: a passwordless account (PM-670); stored as the empty string, the column stays NOT NULL. */
   passwordHash: string | null;
   createdAt: string;
+  /** The account's system language (PM-1168). */
+  language: UiLanguage;
 }
 
 interface AuthSessionRecord {
@@ -24,6 +27,7 @@ interface UserRow {
   email: string;
   password_hash: string;
   created_at: string;
+  language: string;
 }
 
 interface AuthSessionRow {
@@ -40,6 +44,8 @@ const toUser = (r: UserRow): UserRecord => ({
   email: r.email,
   passwordHash: r.password_hash === '' ? null : r.password_hash,
   createdAt: r.created_at,
+  // No CHECK on the column (a new language would need a table rebuild): an unknown value reads as the default.
+  language: UiLanguage.safeParse(r.language).data ?? DEFAULT_UI_LANGUAGE,
 });
 
 const toAuthSession = (r: AuthSessionRow): AuthSessionRecord => ({
@@ -56,13 +62,12 @@ export function createUserRepository(db: Db) {
       return (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
     },
     insert(user: UserRecord): void {
-      db.prepare('INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)').run(
-        user.id,
-        user.name,
-        user.email,
-        user.passwordHash ?? '',
-        user.createdAt,
-      );
+      db.prepare(
+        'INSERT INTO users (id, name, email, password_hash, created_at, language) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(user.id, user.name, user.email, user.passwordHash ?? '', user.createdAt, user.language);
+    },
+    setLanguage(id: string, language: UiLanguage): void {
+      db.prepare('UPDATE users SET language = ? WHERE id = ?').run(language, id);
     },
     get(id: string): UserRecord | null {
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
@@ -72,6 +77,9 @@ export function createUserRepository(db: Db) {
     findByEmail(email: string): UserRecord | null {
       const row = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as UserRow | undefined;
       return row ? toUser(row) : null;
+    },
+    setPasswordHash(id: string, passwordHash: string): void {
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
     },
     list(): UserRecord[] {
       return (db.prepare('SELECT * FROM users ORDER BY created_at').all() as UserRow[]).map(toUser);
@@ -105,6 +113,10 @@ export function createAuthSessionRepository(db: Db) {
     },
     delete(id: string): void {
       db.prepare('DELETE FROM auth_sessions WHERE id = ?').run(id);
+    },
+    /** Every session of the user; returns how many were removed. */
+    deleteByUser(userId: string): number {
+      return db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(userId).changes;
     },
     deleteExpired(now: string): number {
       return db.prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').run(now).changes;

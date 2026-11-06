@@ -193,6 +193,12 @@ export const ERROR_CODES = [
   // A file of a team message (PM-515): not usable for this send (409, `{ id }`), or too many unsent (409, `{ max }`)
   'message_attachment_unavailable',
   'message_attachment_limit',
+  // The project's documents (PM-147): unknown (404), changed meanwhile (409, `{ currentVersion }`), too large (413, `{ limitBytes }`)
+  'document_not_found',
+  'document_conflict',
+  'document_too_large',
+  // Every document write needs its one-line reason (PM-1215): missing or blank (400)
+  'document_message_required',
   // A cover must be a ready image of the card (PM-224)
   'cover_not_an_image',
   // Inbox and messages
@@ -211,6 +217,9 @@ export const ERROR_CODES = [
   'question_group_incompatible',
   'invalid_outcome_fields',
   'reask_not_allowed',
+  // An AI member's owner decision names no owner topic, or one the project does not list (PM-1190).
+  'owner_topic_required',
+  'owner_topic_unknown',
   'ai_approval_forbidden',
   'not_a_recipient',
   // AI work: admission, task starts, schedules and sessions

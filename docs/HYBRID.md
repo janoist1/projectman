@@ -3,7 +3,7 @@
 For the ARM EC2 target, [AWS.md](AWS.md#prebuilt-arm-images-pm-718) describes the
 PM-718 image bundle (arm64 only since PM-1116). GitHub builds it (the general `projectman-job.yml` workflow on an
 arm64 runner, PM-1145) at the same accepted full SHA as the Mac engine, and `npm run cloud -- image-fetch` fetches
-and verifies it on the administration machine, which needs no Docker; the local `image-build` on a separate
+and verifies it on the owner's machine, which needs no Docker; the local `image-build` on a separate
 builder machine is the fallback. EC2 imports the arm64 archive over SSH/SSM
 and starts the verified immutable image ID; it never builds on the machine. AWS/registry credentials
 do not cross to the engine. A deploy requires the bundle (`deployment.imageBundle`) and refuses one built
@@ -21,14 +21,16 @@ lives, how the first setup works from a browser, how it is backed up and restore
 engine connects.
 
 ```
- browser / integrator ──► Cloudflare edge (Access) ──► tunnel ──► container ─ server (127.0.0.1:4700)
- engine (your Mac)    ──► Cloudflare edge (Access) ──► tunnel ──►           ├ Litestream ─► bucket (database)
-                                                                            └ restic     ─► bucket (the rest)
+ browser              ──► Cloudflare edge                    ──► tunnel ──► container ─ server (127.0.0.1:4700)
+ connected Claude     ──► Cloudflare edge (Service Auth)     ──► tunnel ──►           ├ Litestream ─► bucket (database)
+ engine (your Mac)    ──► Cloudflare edge (Access, /engine)  ──► tunnel ──►           └ restic     ─► bucket (the rest)
 ```
 
+The board is public (decision 56): the owner logs in with a password, a client with a code sent by e-mail;
+the board's own login is the boundary. Cloudflare Access protects the engine's `/engine` path and the
+connected Claude's own hostname; the whole board is behind Access only with `access.boardMode: private`.
 Nothing listens on a public address. The container opens one outbound connection (the tunnel) and
-two to the storage. The single-machine installation ([DEPLOY.md](DEPLOY.md)) is unchanged and is
-not touched by anything here.
+two to the storage. Operating the Mac engine and the release steps are in [DEPLOY.md](DEPLOY.md).
 
 ## What you need
 
@@ -41,7 +43,8 @@ outage; buffered exit results are delivered after reconnect. `process_group` mea
 not contained execution (PM-701).
 
 - A Cloudflare account with a zone, and Zero Trust (the free plan is enough): the tunnel, and
-  Access in front of it (see [AWS.md, Cloudflare](AWS.md#cloudflare) and
+  Access in front of the engine's path and the connected Claude's hostname (see
+  [AWS.md, Cloudflare](AWS.md#cloudflare) and
   [the tunnel and Access setup below](#the-cloudflare-tunnel-and-access)).
 - A container host with a **persistent volume** and no public port needed: the EC2 machine of
   [docs/AWS.md](AWS.md), or any host that runs a container with one writable volume.
@@ -49,11 +52,10 @@ not contained execution (PM-701).
   Prefer two buckets with two keys: the key that replicates the database should not be able to
   touch the backup repository, and the other way round.
 - **Protected accounts.** Whoever controls the hosting account, the storage account or the
-  Cloudflare account controls the installation (the Cloudflare account can change the Access
-  policy, the host account can read the volume and the secrets, the storage account holds the
+  Cloudflare account controls the installation (the Cloudflare account can change the tunnel and
+  the Access policies, the host account can read the volume and the secrets, the storage account holds the
   backups). Protect all three with a **passkey or a hardware security key** (not only a password
-  and an SMS code), keep the Cloudflare Access session short, and give only the owner access to
-  these accounts.
+  and an SMS code), and give only the owner access to these accounts.
 - **Cost.** About 5 to 10 USD a month on a small container host: one machine with 1 GB of memory, a
   1 GB volume, and the outbound traffic of a team-sized installation. The Cloudflare free plan
   (Zero Trust up to 50 users) and a bucket of a few megabytes (R2 has a free tier) add little or
@@ -168,8 +170,13 @@ losing the host needs it.
 - **Storage size.** The database replicates every second; the storage is the database (small) plus a daily
   snapshot kept for a week and the restic snapshots (daily for a week, weekly for a month, monthly
   for half a year). For a team-sized installation this is megabytes.
-- **Versioning.** Do not turn on bucket versioning for the Litestream prefix: Litestream manages
-  its own history and versioning only doubles the storage.
+- **Versioning.** The restic bucket is versioned, with noncurrent versions retained for 30 days
+  and expired delete markers removed. A compromised hub's restic key can delete objects, but
+  cannot delete their old versions, suspend versioning or shorten the lifecycle rules. Deleted
+  or overwritten data can therefore be recovered within that window. Pruned packs and old lock
+  objects continue to use storage during those 30 days. The Litestream bucket stays unversioned:
+  Litestream manages its own history. For another storage provider, enable equivalent protection
+  where available; without it, a compromised hub can still destroy the restic repository.
 - **Only one writer.** Exactly one container replicates into a replica. A second one (a duplicate
   machine, a rehearsal started carelessly) writes a diverging history. Run exactly one container, and use
   the rehearsal command below, which never replicates.
@@ -199,19 +206,24 @@ engine protocol change is needed. An AI sandbox never reads `~/.aws` or runs liv
 makes the tunnel, its ingress (with the `/hooks` and `/mcp` 404 rules and the audience check), the
 Access applications, policies and service tokens, and writes `TUNNEL_TOKEN` to `cloud.env`;
 `npm run cloud -- publish` makes the DNS record and `check` verifies the result. The list below is
-what those commands do, for another host and for reading. With `access.boardMode: public`
-(PM-672, [AWS.md](AWS.md) "The public board") the main name has no Access application login and the
-board's own e-mail login is the boundary, while `/engine` keeps its own application. With an integrator
-service token, public mode requires an explicit separate `cloudflare.integratorHostname` (PM-675).
-Its Service Auth application and tunnel ingress accept only `/api/...` and exact `/mcp`, with their own
-audience. The hub's `PROJECTMAN_INTEGRATOR_HOSTNAME` guard refuses board bearer authentication and
-machine cookie-only authentication even in private staging. Move the existing client's origin after
-that staged deploy and check; the Mac engine's address, token and machine key stay unchanged.
+what those commands do, for another host and for reading.
+
+The board is public (decision 56; `access.boardMode: public`, code in `apps/server/src/auth/public-board.ts`,
+[AWS.md](AWS.md) "The public board"): the main name has no Access application, and the board's own
+login is the boundary: the owner's password, and for a client an e-mailed code (`PROJECTMAN_EMAIL_LOGIN_ENABLED`).
+`/engine` keeps its own Access application with the engine's Service Auth. The connected Claude (the
+`integrator` host in the code) has its own hostname, `cloudflare.integratorHostname`, with a Service Auth application and a
+tunnel ingress that accept only `/api/...` and exact `/mcp`, with their own audience; the bare `/mcp` is
+therefore a 404 on the board's name. The hub's `PROJECTMAN_INTEGRATOR_HOSTNAME` guard refuses board bearer
+authentication and machine cookie-only authentication on it. Only with `access.boardMode: private` is the
+whole board name behind an Access application, as the private staging and the edge lock of
+[The way back](#the-way-back) use it.
+
 EC2 host operations use SSH
 through SSM with no inbound port; `cloud.env` and hybrid data travel only through encrypted SSH
 stdin/streams. The owner needs AWS CLI v2, session-manager-plugin and OpenSSH. The container,
 one-writer pull guard and restore procedure are unchanged; see the EC2 live rehearsal in
-[AWS.md](AWS.md#ownerintegrator-live-rehearsal). This administration link is independent of the
+[AWS.md](AWS.md#live-rehearsal). This host-operation link is independent of the
 Mac engine's outbound connection.
 
 The one-off `seed` (the first upload of the Mac's data) is retired (PM-1116): the cloud is already seeded.
@@ -225,10 +237,11 @@ The commit before the retirement is `358bb7c7` on `main`, tagged `retired-migrat
    additional settings stays empty): the server treats a loopback Host as a local request, and a
    remote request must never look local. No origin-server-name or No-TLS-verify options are needed
    for `http`.
-3. Add the Access applications (Zero Trust → Access → Applications → self-hosted), same hostname:
-   - **Browsers and the integrator:** the whole hostname; policy **Allow** for the owner's and the
-     members' exact email addresses (and, for the integrator, a **Service Auth** policy for its own
-     service token).
+3. Add the Access applications (Zero Trust → Access → Applications → self-hosted):
+   - **The connected Claude:** its own hostname (`cloudflare.integratorHostname`, with the ingress for
+     `/api/...` and exact `/mcp` only); a **Service Auth** policy for its own service token.
+   - **Browsers, only in private board mode:** the whole board hostname; policy **Allow** for the owner's
+     and the members' exact email addresses. In the public mode there is no such application.
    - **The engine:** a second application for the path `projectman.example.com/engine` (it covers
      every `/engine/*` path: `/engine/link` and the file transfers `/engine/files/uploads/…` and
      `/engine/files/downloads/…`, which the engine calls with the same headers), with **one
@@ -240,8 +253,9 @@ The commit before the retirement is `358bb7c7` on `main`, tagged `retired-migrat
    `PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip`, which the server trusts only from the tunnel's
    loopback connection (the login limits count by that address).
 
-Access is the first lock, projectman's login the second: the engine link also needs its own
-machine key, and the integrator its bearer key. A service token alone gets nowhere in projectman.
+Where Access applies, it is the first lock and projectman's login the second: the engine link also needs
+its own machine key, and the connected Claude its bearer key. A service token alone gets nowhere in
+projectman. On the public board the board's own login is the only lock of the board name.
 
 ### The marking widget's public hostname (PM-513)
 
@@ -270,8 +284,8 @@ a stranger, so the first setup needs a **one-time setup code**:
 
 1. Start the container and read the log (`npm run cloud -- logs` on EC2). It prints, once per start while there is no
    owner: `the first setup needs the setup code XXXX-XXXX-XXXX`.
-2. Open `https://projectman.example.com`, pass Access and fill in the setup form: name, email,
-   password and the code.
+2. Open `https://projectman.example.com` (in private board mode pass Access first) and fill in the setup
+   form: name, email, password and the code.
 3. The code works once. It is void after 10 wrong tries (all together) and after any restart, and
    a new code is printed at the next start while there is still no owner. Once the owner exists,
    the code is gone and the setup route refuses.
@@ -324,7 +338,8 @@ CF_ACCESS_CLIENT_ID=… CF_ACCESS_CLIENT_SECRET=… deploy/cloud/smoke.sh https:
 
 It checks that `/api/setup` answers projectman's JSON through the tunnel and that `/engine/link`
 and the engine file routes (`/engine/files/…`) refuse a caller without a machine key. Without the service token variables it shows what an
-anonymous caller meets (an Access login page is the right result then, and the first check fails).
+anonymous caller meets: on the public board the first check passes, and the engine paths are refused by Access; in private board mode an Access login page
+is the right result, and the first check fails.
 
 ## Backup and restore
 
@@ -371,6 +386,28 @@ Never run a restored copy beside the original: one container replicates into one
 ([ARCHITECTURE.md, Instance role and the move](ARCHITECTURE.md#instance-role-and-the-move-pm-143-part-of-pm-135)).
 Stop the old one first.
 
+### Restoring the restic repository from old versions (compromised hub)
+
+Detect the compromise and recover within the 30-day retention window; after it, old versions
+expire. Use the owner's trusted machine and tools:
+
+1. Stop the hub so it cannot write to the repository during recovery.
+2. Use the owner's **admin AWS profile**, not the restic key, to inventory versions and delete
+   markers under the repository prefix:
+   `aws --profile <adminProfile> s3api list-object-versions --bucket <backupBucket> --prefix projectman/`.
+   Identify the last trusted repository state before the incident.
+3. Remove incident delete markers with
+   `aws --profile <adminProfile> s3api delete-object --bucket <backupBucket> --key <key> --version-id <marker>`.
+   For overwritten objects, copy the trusted previous version to the same key:
+   `aws --profile <adminProfile> s3api copy-object --bucket <backupBucket> --key <key> --copy-source '<bucket>/<key>?versionId=<id>'`.
+   URL-encode the copy source as required. Select versions and markers by incident time; do not
+   remove legitimate pre-incident deletions or restore every historical object indiscriminately.
+4. With the recovered repository and its password configured on a trusted machine, run
+   `restic check --read-data`, then `restic snapshots`. Resolve any integrity failure before
+   restoring files or restarting the hub.
+5. Rotate the hub's storage keys with `npm run cloud -- aws --rotate-keys`, then redeploy a
+   trusted hub with the new credentials.
+
 ### The restore rehearsal
 
 A backup that has not been restored is a hope. Rehearse after the first deployment and then now and
@@ -413,10 +450,10 @@ was lost: `UPDATE instance_meta SET value = lower(hex(randomblob(16))) WHERE key
 
 Build the new image and deploy it (`npm run cloud -- deploy` on EC2). The platform sends SIGTERM; the entrypoint stops
 the tunnel, the server (its own shutdown pause) and then Litestream, so the last writes are
-shipped, and the new container comes up on the same volume. The engine reconnects by itself. Update its checkout to the same approved commit, run
-`npm ci`, `npm run build -w @projectman/server`, then `npm run engine -- service install`.
-Publish the GitHub release on request with `publish_release` after its preview; see
-[DEPLOY.md](DEPLOY.md#release-pm-1113).
+shipped, and the new container comes up on the same volume. The engine reconnects by itself. Update the
+engine to the same approved commit with the engine app (the packaged build and the app's own update, not a
+checkout build); see [DEPLOY.md](DEPLOY.md#engine-app-build-pm-1104-pm-1122). The steps of a release and
+the update order are in [DEPLOY.md](DEPLOY.md#release).
 A database migration of a newer build is refused by an older one: do not roll back across a
 migration, restore instead.
 
@@ -677,6 +714,7 @@ text, which only a copy of the cloud's history on the owner's machine could be.
 
 ## What is not covered, and what was not verified
 
+- Recovery of the restic repository from old object versions has not been tested against a live AWS account.
 - The cloud runs one machine. High availability, a read replica and several regions are not
   provided.
 - **No control socket client and no migration tools in the container.** The image holds the
@@ -710,10 +748,8 @@ The tool is `npm run migrate -- …`. The engine's own commands are `npm run eng
 `hybrid plan`, `hybrid package` and the cloud `seed` and `dns plan|import|verify|switch`. What stays is
 `verify`, `instance`, `hybrid back`, the cloud's `pull-data` and `dns status`. The last commit that still
 has the retired commands is `358bb7c7` on `main`, tagged `retired-migrate-dns`; check it out in a separate worktree if a
-move has to be done again. The sections below keep what the remaining commands rely on.
-
-For the data-preserving return from EC2 to Mac single,
-use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
+move has to be done again. The sections below keep what the remaining commands rely on. The return from EC2
+to the Mac single mode, with the data kept, is [The way back](#the-way-back).
 
 ## What goes where
 
@@ -735,7 +771,7 @@ package that holds anything more (`forbidden_entry`). No CLI login, no repositor
 The machine key is made on the Mac, written to `engine.key` (mode 0600) and shown nowhere; the cloud
 learns only its SHA-256 hash.
 
-## 1. Marking the Mac as the engine
+## Marking the Mac as the engine
 
 The plan sheet, the dry run on a copy and the package of the cutover are retired (see above). The step
 that remains is the role of the Mac's home:
@@ -755,10 +791,11 @@ The cloud's data never travels in a package that sits on the Mac: it holds the c
 and the whole database, and a session's sandbox only _denies_ named places (the home's own entries,
 `~/.ssh` …): any other folder under your user is readable by every AI session on the Mac.
 
-## 2. The engine as a service (launchd)
+## The engine as a service (launchd)
 
-Run from **the checkout that should run the engine** (the plist names it), on the Mac, as the user who
-owns the CLI logins:
+The engine app installs and updates the service itself ([DEPLOY.md](DEPLOY.md#engine-app-build-pm-1104-pm-1122)).
+The commands below are the manual path: run them from **the checkout that should run the engine** (the plist
+names it), on the Mac, as the user who owns the CLI logins:
 
 ```sh
 npm run engine -- service install     # writes ~/Library/LaunchAgents/com.projectman.engine.plist, loads it
@@ -768,30 +805,58 @@ npm run engine -- service uninstall   # unloads it and removes the file; the log
 
 - It is a LaunchAgent (user `gui` domain), not a daemon: the CLIs need the login keychain.
 - The job's environment is only `PATH`, `PROJECTMAN_MODE=engine` and `PROJECTMAN_HOME`. No API key
-  and no integrator key is written to the file or passed on.
+  and no connected Claude's key (`pmi_`) is written to the file or passed on.
 - `install` checks what `start` checks (configuration, key file, home role) and refuses another
   home's installed agent. The engine restarts after an exit, 30 s apart. Logs:
   `<home>/logs/engine-service.{out,err}.log`.
 - The service runs `apps/server/dist/index.js` under Node. Build the checkout with
-  `npm run build -w @projectman/server` before installing it. After updating the checkout,
+  `npm run build -w @projectman/server` before installing it. After changing the checkout by hand,
   rebuild it and run `npm run engine -- service install` again.
 - `PATH` in the file is the installing shell's, without the `node_modules/.bin` folders that `npm run`
   puts in front of it. If a CLI of the sessions lives elsewhere, start `install` from a shell that
   finds it. A `bootstrap` that fails with "5: Input/output error" while launchd is still tearing the
   old job down is retried a few times.
 
-## 3. The way back
+## The way back
 
-For when the owner wants the single-machine mode again.
+For when the owner wants the single-machine mode again. There is one writer at a time: the Mac's stale
+database must never start in place of the cloud's later writes. The owner's earlier yes to this way
+back does not replace a new `ask_human` for the concrete move.
 
-1. Pause the team in the cloud and stop the cloud build, so its data is final.
-2. Stop the engine and **uninstall its service first**: `npm run engine -- service uninstall` (and stop
-   a foreground one). A LaunchAgent that is still installed restarts the engine 30 s after every exit,
-   so both `hybrid back` and `instance activate` refuse while its file is in `~/Library/LaunchAgents`.
-3. Copy the cloud's data directory to the Mac (a new place, not inside the home), then:
+1. **Lock the edge at once.** Switch the cloud to the private configuration, so the board is behind
+   Cloudflare Access (an anonymous browser meets the Access login or a 403; check it from outside):
 
    ```sh
-   npm run migrate -- hybrid back --home ~/.projectman --from <the copy> --confirm-source-retired
+   npm run cloud -- edge --config <PRIVATE_CONFIG>
+   ```
+
+   `<PRIVATE_CONFIG>` is the cloud configuration with `access.boardMode: private`. If the CLI or the API is
+   unreachable, the owner closes the board application to a private Allow in the Cloudflare dashboard (the
+   engine's Service Auth stays). The marking widget's hostname is a separate public gate: in an incident
+   the owner closes its ingress too, and deletes no other DNS or mail record. If the lock fails, stop the
+   cloud at once and do not wait for the pause.
+
+2. Pause the team in the cloud and wait until it is paused. Then stop the cloud and download its data, so
+   that the data is final:
+
+   ```sh
+   npm run cloud -- stop --config <PRIVATE_CONFIG>
+   npm run cloud -- status --config <PRIVATE_CONFIG>
+   npm run cloud -- pull-data --to <RETURN_DATA> --config <PRIVATE_CONFIG>
+   ```
+
+   Check that the container is stopped and the download is complete, in a new protected directory
+   (`<RETURN_DATA>`, not inside the home). The cloud never starts again on this replica and bucket pair
+   next to the Mac single mode. If the final data cannot be reached, stop: a snapshot recovery and the
+   exact loss are the owner's decision ([AWS.md](AWS.md#restoring-the-database-to-a-point-in-time)).
+
+3. Stop the engine and **uninstall its service first**: `npm run engine -- service uninstall` (and stop
+   a foreground one). A LaunchAgent that is still installed restarts the engine 30 s after every exit,
+   so both `hybrid back` and `instance activate` refuse while its file is in `~/Library/LaunchAgents`.
+4. Move the data into the home:
+
+   ```sh
+   npm run migrate -- hybrid back --home ~/.projectman --from <RETURN_DATA> --confirm-source-retired
    ```
 
    `--confirm-source-retired` is the person's statement that the cloud is stopped. The tool verifies
@@ -805,21 +870,37 @@ For when the owner wants the single-machine mode again.
    `worktrees/` and `workspaces/`, and the `instance.json` of a restored copy. None of them is carried
    back. Anything that belongs to the Mac (`providers/`, `engine.key` …) still stops the move.
 
-4. `npm run migrate -- instance activate --home ~/.projectman --confirm-source-retired`, then start the
-   single-machine mode as before. Activating from the `engine` role needs a database that holds the
-   cloud's engine row, so that the old pre-hybrid database does not replace the cloud's later work;
-   `--discard-cloud-data` states the opposite on purpose.
-5. **Clean up the secrets after verifying the rollback.** Once the single-machine mode and watcher
-   have run well, the owner separately decides when to delete or archive the downloaded copy (`--from`): it holds the
-   live cookie key, the secrets and the database, in a folder the sessions' sandboxes do not deny.
-   `pre-hybrid/` and `.hybrid-back/` inside the home are denied to every session (they hold the old
-   database, the old keys and the former machine key). The owner also decides when to delete
-   `pre-hybrid/`; the former machine key in it is revoked in the database already.
+5. Activate the home and check it:
+
+   ```sh
+   npm run migrate -- instance activate --home ~/.projectman --confirm-source-retired
+   npm run migrate -- instance status --home ~/.projectman
+   ```
+
+   Activating from the `engine` role needs a database that holds the cloud's engine row, so that the old
+   pre-hybrid database does not replace the cloud's later work. Do not add `--discard-cloud-data` on this
+   path: it states the opposite on purpose (it leaves the work done in the cloud behind). Check that the
+   cloud's data, attachments and counts are there, the engine is revoked, and the former entries are under
+   `pre-hybrid/<date>/`. `--confirm-source-retired` states a real stop; it is not a magic word.
+
+6. Only now start the single-machine mode (`npm run live -- install --root <LIVE_ROOT> --home ~/.projectman --port 4800`,
+   then `npm run live -- status --home ~/.projectman`; the command is kept only for this disaster recovery). Run it from a Mac
+   build the owner has approved **and that supports the migrated database schema**: the install starts the server
+   and resumes the sessions, so it runs only after `activate` and the data check. An older image or
+   `cloud rollback` does not reverse a schema migration. If an older build is needed, rehearse the
+   [point-in-time recovery](AWS.md#restoring-the-database-to-a-point-in-time) on an isolated copy first, and
+   name the lost period (database, cards, messages, uploads) in the owner's approval.
+7. **Clean up after verifying the rollback.** Once the single-machine mode has run well, the owner separately
+   decides when to delete or encrypt and archive the downloaded copy (`<RETURN_DATA>`): it holds the live cookie
+   key, the secrets and the database, in a folder the sessions' sandboxes do not deny, so it must not stay
+   readable before a new AI session. `pre-hybrid/` and `.hybrid-back/` inside the home are denied to every
+   session (they hold the old database, the old keys and the former machine key). The owner also decides when
+   to delete `pre-hybrid/`; the former machine key in it is revoked in the database already.
+
+The way back deletes no AWS resource: the machine, the volume, the address, the buckets and the roles keep
+costing until the owner approves their removal separately ([AWS.md, Teardown](AWS.md#teardown)). There is no
+tool to switch the DNS delegation back (PM-1116): the Route 53 zone stays until the owner decides, and a
+delegation change is the owner's manual step in Route 53 Domains, followed by mail and delivery checks.
 
 Sessions the cloud left open are not closed by the move (the tool reports their number); the first
 start resumes or ends them as after any restart.
-
-## Not decided here
-
-The real cutover date, the cloud address and the rehearsal's evidence are the owner's. Nothing in this
-repository has run the cutover.

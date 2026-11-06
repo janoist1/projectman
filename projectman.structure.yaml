@@ -107,7 +107,7 @@ modules:
     area: core
     kind: core
     name: Projektek
-    summary: Projektek, szerepkörök, szakaszfelelősök és láthatóság.
+    summary: Projektek, szerepek, a lépések gazdái és láthatóság.
     paths:
       - apps/server/src/core/projects/
   - id: core/tasks
@@ -159,6 +159,13 @@ modules:
     summary: Kártya- és üzenetmellékletek tárolása és feldolgozása.
     paths:
       - apps/server/src/core/attachments/
+  - id: core/documents
+    area: core
+    kind: core
+    name: Dokumentumok
+    summary: A projekt élő dokumentumai, jogosultsággal, hibaleképezéssel és értesítéssel a tároló fölött.
+    paths:
+      - apps/server/src/core/documents/
 
   # Server: runtime
   - id: runtime/admission
@@ -441,6 +448,12 @@ modules:
     summary: A motorok és a gépek állapotának nézete.
     paths:
       - apps/web/src/features/engines/
+  - id: web/documents
+    area: ui
+    name: Dokumentumok
+    summary: A projekt élő dokumentumainak oldala, szerkesztővel és előzményekkel.
+    paths:
+      - apps/web/src/features/documents/
   - id: web/feedback
     area: ui
     name: Visszajelzések
@@ -522,13 +535,13 @@ modules:
   - id: web/settings
     area: ui
     name: Beállítások
-    summary: A projektbeállítások nézete – kötelességek, szerepkörök és konfigurációs hibák.
+    summary: A projektbeállítások nézete – feladatkörök, szerepek és konfigurációs hibák.
     paths:
       - apps/web/src/features/settings/
   - id: web/team
     area: ui
     name: Csapat
-    summary: A csapat tagjai, szerepkörei és hozzáférései.
+    summary: A csapat tagjai, szerepei és hozzáférései.
     paths:
       - apps/web/src/features/team/
   - id: web/shell
@@ -572,7 +585,7 @@ modules:
   - id: templates
     area: shared
     name: Sablonok
-    summary: Projektsablonok, szerepkörök és az alapértelmezett megjelenített nevek.
+    summary: Projektsablonok, szerepek és az alapértelmezett megjelenített nevek.
     paths:
       - packages/templates/
 
@@ -680,6 +693,8 @@ links:
   - from: api
     to: core/attachments
   - from: api
+    to: core/documents
+  - from: api
     to: runtime/admission
   - from: api
     to: services/merges
@@ -687,6 +702,8 @@ links:
     to: services/structure
   - from: mcp
     to: core/tasks
+  - from: mcp
+    to: core/documents
   - from: mcp
     to: core/messages
   - from: mcp

@@ -1,9 +1,11 @@
 import { hashKey } from '@tanstack/react-query';
-import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient, QueryKey } from '@tanstack/react-query';
 import type {
   BoardView,
   ChatItem,
+  ConfigHistoryView,
   EngineStatusResponse,
+  InboxItem,
   InboxView,
   Me,
   MemberProfile,
@@ -16,6 +18,7 @@ import type {
 } from '@projectman/shared';
 import {
   hasBoundOrigin,
+  waitingForOthers,
   operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   PROJECT_MANAGER_ROLE,
@@ -24,6 +27,15 @@ import {
 import { openItemsFor } from '../lib/inbox';
 import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
+
+/**
+ * The inbox view with an item replaced or added. The owner's summary of what waits for others (PM-1252) is
+ * worked out again from the new list, with the rule the server uses, so it never lags behind the items.
+ */
+export function upsertInboxView(view: InboxView, item: InboxItem): InboxView {
+  const items = upsertBy(view.items, item, (entry) => entry.id);
+  return { ...view, items, ...(view.waiting ? { waiting: waitingForOthers(items) } : {}) };
+}
 
 /** Replaces the item with the same id, or appends it. Returns the same array when unchanged. */
 export function upsertBy<T>(list: readonly T[], item: T, id: (value: T) => string): T[] {
@@ -142,6 +154,19 @@ export function invalidateAttachments(client: QueryClient, key: string, taskKey:
 }
 
 /**
+ * A new save starts the settings history again from its first page: pages loaded before it are not
+ * joined to a history that has moved (PM-308). The rows already shown stay until the answer comes.
+ */
+export function refreshConfigHistory(client: QueryClient, key: string): void {
+  client.setQueryData<InfiniteData<ConfigHistoryView, number>>(queryKeys.configHistory(key), (data) =>
+    data && data.pages.length > 1
+      ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) }
+      : data,
+  );
+  invalidateOnce(client, queryKeys.configHistory(key));
+}
+
+/**
  * Applies a websocket event to the query cache so every screen updates live. Events for
  * data that is not in the cache are ignored; it is fetched fresh when a screen needs it.
  */
@@ -231,6 +256,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'task_attachments_changed':
       invalidateAttachments(client, event.projectKey, event.taskKey);
       return;
+    case 'documents_changed':
+      // The list and the open document (every version of it, its history too): the prefix covers all.
+      void client.invalidateQueries({ queryKey: queryKeys.documents(event.projectKey) });
+      return;
     case 'engine_changed': {
       invalidate(queryKeys.ownerAccounts);
       // The status list of every internal member, then the owner's list (counts, hello data) where it is on screen.
@@ -303,7 +332,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'inbox_upserted': {
       const { projectKey: key, item } = event;
       const inbox = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
-        view ? { items: upsertBy(view.items, item, (entry) => entry.id) } : view,
+        view ? upsertInboxView(view, item) : view,
       );
       patchOpenInboxCount(client, key, inbox);
       // A closed item joins the history that is on screen; an open one is not part of it.
@@ -370,6 +399,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       invalidate(queryKeys.me);
       invalidate(queryKeys.roles(key));
       invalidate(queryKeys.config(key));
+      refreshConfigHistory(client, key);
       invalidate(queryKeys.board(key));
       invalidate(queryKeys.members(key));
       invalidate(queryKeys.projects);

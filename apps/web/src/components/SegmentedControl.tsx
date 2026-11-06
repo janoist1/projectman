@@ -7,6 +7,8 @@ export interface SegmentOption<T extends string> {
   count?: number;
   ariaLabel?: string;
   indicator?: boolean;
+  /** The language of the label when it differs from the page's (a language's own name). */
+  lang?: string;
 }
 
 interface SegmentedControlProps<T extends string> {
@@ -61,6 +63,7 @@ export function SegmentedControl<T extends string>({
             aria-checked={asRadioGroup ? active : undefined}
             tabIndex={asRadioGroup && !active ? -1 : undefined}
             aria-label={option.ariaLabel}
+            lang={option.lang}
             onClick={() => onChange(option.value)}
           >
             <span>{option.label}</span>

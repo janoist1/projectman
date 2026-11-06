@@ -1,21 +1,19 @@
 import {
-  ALERT_SEEN_OPTION,
   alertPayloadOf,
   memberOf,
-  ownerHandles,
   partLeft,
   partReadyStage,
   REFINE_LABEL,
   SYSTEM_SENDER,
 } from '@projectman/shared';
-import type { PartsLeftAlert, ProjectConfig, Session, Task, TimelineEventData } from '@projectman/shared';
+import type { ProjectConfig, Session, Task, TimelineEventData } from '@projectman/shared';
 import { partsLeftText } from '../../agent-text';
 import type { DomainContext } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
 import type { Messaging } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TimelineService } from '../../core/timeline';
-import { KeyedMutex, SYSTEM_ACTOR, unique } from '../../kernel';
+import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
 
 /** How many `task_parts_left` events of a card are read back. */
 const EVENTS = 100;
@@ -24,9 +22,11 @@ const EVENTS = 100;
  * Parts of a broken-down card that were left in the first stage (PM-480). The member who broke the card
  * down creates the parts, labels them, orders them and takes them out of the first stage in the same
  * turn. When that turn ends and parts are still left, the member is told once, with an `action` message
- * on the parent card. If they are still left after the member's next turn, the owners get an alert. The
- * messages, the events on the parent and the alert are the trace; nothing here moves or labels a card
- * (decision 48: the members move, the system checks and says).
+ * on the parent card: a fast path. The owners' `parts_left` alert after the member's next turn is retired
+ * (PM-1226: the `next_step` obligation ladder follows every open card, so the parts left in the first stage
+ * are followed there); the alerts and `alerted` events an older build left still render, and an open alert
+ * still closes when its parts are in order. The messages and the events on the parent are the trace;
+ * nothing here moves or labels a card (decision 48: the members move, the system checks and says).
  */
 export class LeftParts {
   private readonly ctx: DomainContext;
@@ -53,7 +53,7 @@ export class LeftParts {
     this.timeline = deps.timeline;
   }
 
-  /** A turn of a member on a card ended (the session went idle or ended): tell them, or tell the owners. */
+  /** A turn of a member on a card ended (the session went idle or ended): tell them once. */
   async turnEnded(session: Session): Promise<void> {
     if (session.workItem.type !== 'task' || this.sessions.isPaused(session)) return;
     const { projectKey } = session;
@@ -69,16 +69,9 @@ export class LeftParts {
       const left = this.leftOf(config, projectKey, parentKey, member);
       if (left.length === 0) return;
 
-      const history = this.history(projectKey, parentKey, member);
-      const toTell = left.filter((part) => !history.told.has(part.key));
-      const toAlert = left.filter(
-        (part) =>
-          history.told.has(part.key) &&
-          !history.alerted.has(part.key) &&
-          this.delivered(history, part, member),
-      );
+      const told = this.told(projectKey, parentKey, member);
+      const toTell = left.filter((part) => !told.has(part.key));
       if (toTell.length > 0) await this.tell(config, parentKey, member, toTell);
-      if (toAlert.length > 0) this.alert(config, parentKey, member, toAlert);
     });
   }
 
@@ -110,10 +103,9 @@ export class LeftParts {
       .filter((part) => partLeft(part, config)?.member === member);
   }
 
-  /** What the member was told and what the owners were told about, from the parent's events. */
-  private history(projectKey: string, parentKey: string, member: string) {
-    const told = new Map<string, string>();
-    const alerted = new Set<string>();
+  /** The parts the member was already told about, from the parent's events. */
+  private told(projectKey: string, parentKey: string, member: string): Set<string> {
+    const told = new Set<string>();
     for (const event of this.ctx.repos.timeline.listOfTypes(
       projectKey,
       parentKey,
@@ -121,22 +113,10 @@ export class LeftParts {
       EVENTS,
     )) {
       const data = event.data as Partial<TimelineEventData['task_parts_left']>;
-      if (data.member !== member || !Array.isArray(data.parts)) continue;
-      for (const key of data.parts) {
-        if (data.phase === 'told') told.set(key, data.messageId ?? '');
-        else if (data.phase === 'alerted') alerted.add(key);
-      }
+      if (data.member !== member || data.phase !== 'told' || !Array.isArray(data.parts)) continue;
+      for (const key of data.parts) told.add(key);
     }
-    return { told, alerted };
-  }
-
-  /** Whether the member received the message that told them about the part (it was typed into a session). */
-  private delivered(history: { told: Map<string, string> }, part: Task, member: string): boolean {
-    const id = history.told.get(part.key);
-    const message = id ? this.ctx.repos.messages.get(id) : null;
-    if (!message) return false;
-    const receipt = message.receipts?.find((r) => r.handle === member);
-    return !!(receipt ? receipt.deliveredAt : message.deliveredAt);
+    return told;
   }
 
   private async tell(config: ProjectConfig, parentKey: string, member: string, parts: Task[]): Promise<void> {
@@ -163,30 +143,6 @@ export class LeftParts {
       actor: SYSTEM_ACTOR,
       type: 'task_parts_left',
       data: { phase: 'told', member, parts: parts.map((part) => part.key), messageId: message.id },
-    });
-  }
-
-  private alert(config: ProjectConfig, parentKey: string, member: string, parts: Task[]): void {
-    const projectKey = config.project.key;
-    const owners = ownerHandles(config);
-    if (owners.length === 0) return;
-    const keys = unique(parts.map((part) => part.key));
-    const item = this.inbox.create({
-      projectKey,
-      kind: 'alert',
-      assignees: owners,
-      source: 'system',
-      taskKey: parentKey,
-      title: `${parentKey}: ${keys.length} part${keys.length === 1 ? '' : 's'} left in the first stage after a reminder`,
-      payload: { alert: 'parts_left', taskKey: parentKey, member, parts: keys } satisfies PartsLeftAlert,
-      options: [ALERT_SEEN_OPTION],
-    });
-    this.timeline.append({
-      projectKey,
-      taskKey: parentKey,
-      actor: SYSTEM_ACTOR,
-      type: 'task_parts_left',
-      data: { phase: 'alerted', member, parts: keys, inboxItemId: item.id },
     });
   }
 }

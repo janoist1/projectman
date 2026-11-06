@@ -28,6 +28,8 @@ export interface HumanQuestionInput {
   recipient?: QuestionRecipient;
   reaskOf?: string;
   reaskReason?: string;
+  /** Member questions only: the owner topic of the coordinator's own decision question or of a re-ask (PM-1190). */
+  ownerTopic?: string;
   /** The system signal the question is about (PM-455); the caller's tool has checked it. */
   signalId?: string;
 }

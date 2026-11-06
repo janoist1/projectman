@@ -398,11 +398,13 @@ export class FakeWorktreeManager implements WorktreeManager {
     const path = join(this.root, args.project.project.key, `${args.taskKey}-${args.repoName}`);
     mkdirSync(path, { recursive: true });
     const repo = args.project.project.repos.find((repo) => repo.name === args.repoName)!;
+    const gitDir = join(args.project.project.workspacePath, repo.path, '.git');
     const info = {
       path,
       branch: `task/${args.taskKey}`,
       repo: args.repoName,
-      gitDir: join(args.project.project.workspacePath, repo.path, '.git'),
+      gitDir,
+      worktreeGitDir: join(gitDir, 'worktrees', `${args.taskKey}-${args.repoName}`),
     };
     this.existing.set(`${args.project.project.key}/${args.taskKey}/${args.repoName}`, info);
     return info;

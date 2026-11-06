@@ -29,6 +29,27 @@ function migrate(config: unknown) {
 }
 
 describe('project configuration migrations', () => {
+  it('drops and logs invalid document paths while keeping valid Markdown documents', () => {
+    const legacy = {
+      ...raw(),
+      project: {
+        ...testConfig().project,
+        repos: [
+          { name: 'web', path: '.', docs: { decisions: '.github/x.md', roadmap: 'docs/R.md' } },
+          { name: 'api', path: 'api', docs: { lessons: 'CLAUDE.md' } },
+        ],
+      },
+    };
+    const { config, warn } = migrate(legacy);
+    expect(config.project.repos[0]!.docs).toEqual({ roadmap: 'docs/R.md' });
+    expect(config.project.repos[1]).not.toHaveProperty('docs');
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', repo: 'web', doc: 'decisions' },
+      expect.any(String),
+    );
+    expect(warn).toHaveBeenCalledWith({ projectKey: 'AR', repo: 'api', doc: 'lessons' }, expect.any(String));
+    expect(migrate(config).warn).not.toHaveBeenCalled();
+  });
   it('gives a configuration without its stored team settings their defaults', () => {
     const legacy = raw();
     for (const key of Object.keys(storedTeamDefaults())) delete legacy.team[key];
@@ -46,6 +67,7 @@ describe('project configuration migrations', () => {
       complexitySetters: [],
       viewerRecipients: 'contacts',
       taskCreateAccess: 'client',
+      ownerDecisionTopics: [],
     } as const satisfies Partial<ProjectConfig['team']>;
     expect(Object.keys(chosen).sort()).toEqual(Object.keys(storedTeamDefaults()).sort());
     Object.assign(saved.team, structuredClone(chosen));
@@ -95,6 +117,61 @@ describe('project configuration migrations', () => {
       'Dropped the removed message storm threshold from the team limits',
     );
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the removed Operator approval waiver setting, once (PM-1259)', () => {
+    const legacy = raw();
+    legacy.team.operatorApprovalWaiver = true;
+    const { migrated, config, warn } = migrate(legacy);
+    expect(JSON.stringify(migrated)).not.toContain('operatorApprovalWaiver');
+    expect(config.team).not.toHaveProperty('operatorApprovalWaiver');
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR' },
+      'Dropped the removed Operator approval waiver setting',
+    );
+    expect(migrate(migrated).warn).not.toHaveBeenCalled();
+  });
+
+  describe('the removed project operation duty (PM-1259)', () => {
+    const RETIRED = 'project_operation';
+    const withDuty = () => {
+      const legacy = raw();
+      legacy.team.roles = [
+        { id: 'custom', name: 'Custom', summary: 'Custom.', holders: 'ai', duties: [RETIRED, 'code_review'] },
+      ];
+      legacy.team.roleOverrides = {
+        qa: { duties: [RETIRED, 'testing_acceptance'], instructions: 'Test.' },
+      };
+      legacy.team.complexitySetters = [RETIRED, 'implementation'];
+      legacy.pipeline.stages.find((s) => s.id === 'backlog')!.duty = RETIRED;
+      return legacy;
+    };
+
+    it('leaves the duty out of custom roles, role overrides, complexity setters and stages, once', () => {
+      const { migrated, config, warn } = migrate(withDuty());
+      expect(JSON.stringify(migrated)).not.toContain(RETIRED);
+      expect(config.team.roles[0]!.duties).toEqual(['code_review']);
+      expect(config.team.roleOverrides?.qa?.duties).toEqual(['testing_acceptance']);
+      expect(config.team.complexitySetters).toEqual(['implementation']);
+      expect(config.pipeline.stages.find((s) => s.id === 'backlog')).not.toHaveProperty('duty');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(migrate(migrated).warn).not.toHaveBeenCalled();
+    });
+
+    it('trims a label setter list, and a label only the duty could set falls to the system', () => {
+      const legacy = withDuty();
+      const base = { name: 'Fictional', color: 'gray' };
+      legacy.pipeline.labels.push(
+        { ...base, id: 'with-others', setBy: { duties: [RETIRED, 'code_review'] } } as never,
+        { ...base, id: 'with-member', setBy: { members: ['owner'], duties: [RETIRED] } } as never,
+        { ...base, id: 'only-duty', setBy: { duties: [RETIRED] } } as never,
+      );
+      const { config } = migrate(legacy);
+      const setBy = (id: string) => config.pipeline.labels.find((l) => l.id === id)!.setBy;
+      expect(setBy('with-others')).toEqual({ duties: ['code_review'] });
+      expect(setBy('with-member')).toEqual({ members: ['owner'] });
+      expect(setBy('only-duty')).toBe('system');
+    });
   });
 
   it('turns members of the removed scheduled role into maintainers with the daily schedule', () => {

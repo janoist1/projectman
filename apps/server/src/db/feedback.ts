@@ -66,6 +66,18 @@ export interface FeedbackEventRecord {
   createdAt: string;
 }
 
+/** The content-free trace of a deleted mark (PM-1189). */
+interface FeedbackDeletionRecord {
+  id: string;
+  projectKey: string;
+  markId: string;
+  author: string;
+  deletedBy: string;
+  /** The card the mark was tied to, if any. */
+  taskKey: string | null;
+  deletedAt: string;
+}
+
 /** What the list needs per mark, counted in one query: the thread's size, its latest entry, whether the viewer has unread entries. */
 export interface FeedbackMarkStats {
   commentCount: number;
@@ -327,6 +339,13 @@ export function createFeedbackRepository(db: Db) {
       `INSERT OR IGNORE INTO feedback_marker_colors (project_key, member, color_index)
        SELECT ?, ?, COUNT(*) % 8 FROM feedback_marker_colors WHERE project_key = ?`,
     ),
+    deleteMarkReads: db.prepare('DELETE FROM feedback_reads WHERE mark_id = ?'),
+    deleteMarkEvents: db.prepare('DELETE FROM feedback_events WHERE mark_id = ?'),
+    deleteMark: db.prepare('DELETE FROM feedback_marks WHERE id = ?'),
+    insertDeletion: db.prepare(
+      `INSERT INTO feedback_deletions (id, project_key, mark_id, author, deleted_by, task_key, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ),
     purgeCodes: db.prepare('DELETE FROM feedback_launch_codes WHERE expires_at < ?'),
     insertCode: db.prepare(
       `INSERT INTO feedback_launch_codes (code_hash, project_key, member, surface_id, origin, app_origin,
@@ -422,6 +441,24 @@ export function createFeedbackRepository(db: Db) {
       if (keys.length === 0) return false;
       const sql = `UPDATE feedback_marks SET ${keys.map((key) => `${PATCH_COLUMNS[key]} = ?`).join(', ')} WHERE id = ?`;
       return db.prepare(sql).run(...keys.map((key) => patch[key] ?? null), id).changes > 0;
+    },
+    /** Removes the mark with its thread and every member's read state; the caller keeps the trace. */
+    deleteMark(id: string): boolean {
+      statements.deleteMarkReads.run(id);
+      statements.deleteMarkEvents.run(id);
+      return statements.deleteMark.run(id).changes > 0;
+    },
+    /** What stays of a deleted mark: who made it, who deleted it and when; never its text or image. */
+    insertDeletion(deletion: FeedbackDeletionRecord): void {
+      statements.insertDeletion.run(
+        deletion.id,
+        deletion.projectKey,
+        deletion.markId,
+        deletion.author,
+        deletion.deletedBy,
+        deletion.taskKey,
+        deletion.deletedAt,
+      );
     },
     insertEvent(event: FeedbackEventRecord): void {
       statements.insertEvent.run(

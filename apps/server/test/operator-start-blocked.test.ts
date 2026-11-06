@@ -49,6 +49,7 @@ async function askAbout(signalId: string): Promise<string> {
   const { inboxItemId } = await h.domain.teamTools.askHuman(pm, {
     question: 'What now?',
     options: ['Yes', 'No'],
+    ownerTopic: 'risk_acceptance',
     signalId,
   });
   return inboxItemId;
@@ -126,6 +127,7 @@ describe('start_blocked signal', () => {
     const { inboxItemId } = await h.domain.teamTools.askHuman(pm, {
       question: 'Which repository?',
       options: ['web', 'api'],
+      ownerTopic: 'product_direction',
       signalId: signal!.id,
     });
     const asked = h.domain.inbox.get('AR', inboxItemId);
@@ -291,5 +293,33 @@ describe('start_blocked signal', () => {
       );
       expect(err.message).toContain('signal_not_open');
     });
+
+    it.each(['unreleased', 'structural_pattern', 'milestone_closed'] as const)(
+      'makes no owner question about a %s signal (PM-1243)',
+      async (kind) => {
+        await blocked('repo_required');
+        await sweep();
+        const signal = h.domain.operatorSignals.raise({ projectKey: 'AR', kind, caseKey: `${kind}:x` });
+        h.repos.operatorSignals.delivered([signal!.id], now.toISOString(), 'pm');
+        const pm: ToolContext = {
+          projectKey: 'AR',
+          member: 'pm',
+          sessionId: h.domain.sessions.list('AR', { member: 'pm' })[0]!.id,
+          taskKey: null,
+        };
+        const before = h.domain.inbox.list('AR', {}).length;
+        const err = await rejection(
+          h.domain.teamTools.askHuman(pm, {
+            question: 'Stop the signal?',
+            options: ['Yes', 'No'],
+            ownerTopic: 'risk_acceptance',
+            signalId: signal!.id,
+          }),
+          TeamToolError,
+        );
+        expect(err.message).toMatch(/^signal_not_for_owner:/);
+        expect(h.domain.inbox.list('AR', {})).toHaveLength(before);
+      },
+    );
   });
 });

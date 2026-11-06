@@ -6,6 +6,20 @@ import type {
   ShellToolRule,
 } from '@projectman/shared';
 
+/** Git metadata that host operations must never load from session-written files. */
+export const GIT_SHARED_READ_ONLY = ['config', 'config.lock', 'hooks', 'objects/info'] as const;
+export const GIT_ADMIN_LINKS = ['commondir', 'gitdir', 'config.worktree', 'hooks'] as const;
+export const GIT_CLONE_READ_ONLY = [
+  'config',
+  'config.lock',
+  'config.worktree',
+  'commondir',
+  'gitdir',
+  'hooks',
+  'modules',
+  'objects/info',
+] as const;
+
 /** Versioned provider-neutral intent. Legacy enforcement is not a strict isolation boundary. */
 export interface SessionPolicy {
   version: 1;

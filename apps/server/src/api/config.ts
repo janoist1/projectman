@@ -1,18 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  ConfigHistoryQuery,
   ProjectConfig,
   RevertConfigRequest,
   routes,
   PatchConfigRequest,
-  hasOperatorWaiverField,
 } from '@projectman/shared';
-import type { ConfigView } from '@projectman/shared';
+import type { ConfigHistoryView, ConfigView } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { configInvalid } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from '../http';
-import { forbidden } from '../kernel';
 
 type ProjectParams = { Params: { key: string } };
 
@@ -56,11 +55,16 @@ export function registerConfigRoutes(app: FastifyInstance, domain: ApiDomain): v
     return view(request.params.key);
   });
 
+  /** The history a page at a time, each version with what it changed (read by every member, like the configuration). */
+  app.get<ProjectParams>(routes.configHistory(':key'), async (request): Promise<ConfigHistoryView> => {
+    const key = request.params.key;
+    await requireAccess(domain, request, key);
+    return domain.projects.historyPage(key, parseBody(ConfigHistoryQuery, request.query));
+  });
+
   app.patch<ProjectParams>(routes.patchConfig(':key'), async (request): Promise<ConfigView> => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'admin' });
-    if (hasOperatorWaiverField(request.body))
-      throw forbidden('owner_approval_required', 'use the dedicated owner waiver endpoint');
     const patch = parseEdit(PatchConfigRequest, request.body);
     await domain.projects.patch(key, patch, { actor: actorOf(access), author: authorOf(request, access) });
     return view(key);

@@ -92,6 +92,7 @@ const RefusedInfo: z.ZodType<PermissionRefusedInfo> = z.strictObject({
   toolName: text,
   toolInput: z.unknown(),
   reason: text.optional(),
+  by: z.literal('engine_guard').optional(),
 });
 const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_data' }>> = z.discriminatedUnion(
   'type',
@@ -181,6 +182,8 @@ export const Hello = z.strictObject({
   administration: z.array(z.string()).optional(),
   /** 'engine': NanoGPT sessions use the engine's own key file; absent: the cloud's key (or an older engine). */
   nanogptKey: z.literal('engine').optional(),
+  /** true: `session.send` takes a `deliveryId` and does not type a repeated one again (PM-1205); absent: an older engine. */
+  deliveryIds: z.literal(true).optional(),
 });
 export type Hello = z.infer<typeof Hello>;
 export const EngineErrorCode = z.enum([
@@ -189,6 +192,8 @@ export const EngineErrorCode = z.enum([
   'not_running',
   'path_outside_roots',
   'permission_mode_too_high',
+  'permission_mode_too_low',
+  'provider_not_allowed',
   'command_not_allowed',
   'terminal_input_disabled',
   'repo_not_registered',

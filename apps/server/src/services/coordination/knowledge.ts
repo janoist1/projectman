@@ -83,7 +83,8 @@ export class OperatorKnowledge {
     return this.deps.projects.withConfigurationLock(ctx.projectKey, async (loaded) => {
       if (coordinationMemberOf(loaded.config)?.handle !== ctx.member)
         throw forbidden('operator_only', 'only the project manager may propose shared knowledge');
-      // No operate tool exists (decision 66): an approval has no continuation to carry operations.
+      // The project manager's operate tool starts operations on its own path: the approval of a knowledge
+      // proposal has no continuation to carry any.
       if (args.operations.length)
         throw invalid('invalid_request', 'a project manager proposal carries no operations');
       this.session(ctx);

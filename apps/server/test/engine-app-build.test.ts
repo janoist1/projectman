@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudDeps, RunOptions } from '../../../scripts/cloud/deps';
 import { buildEngineApp, isMachO } from '../../../scripts/engine-app/build';
 import { runEngineAppCli } from '../../../scripts/engine-app/commands';
@@ -50,7 +50,7 @@ const run: CloudDeps['run'] = async (command, args, options) => {
   return { code: 0, stdout, stderr: '' };
 };
 
-function build(adHoc = false) {
+function build(adHoc = false, updateRef?: string) {
   return buildEngineApp(
     { run, platform: 'darwin' },
     {
@@ -62,6 +62,7 @@ function build(adHoc = false) {
       identity: 'Developer ID Application: Example',
       teamId: 'ABCDE12345',
       notaryProfile: 'release-notary',
+      updateRef,
     },
   );
 }
@@ -158,6 +159,40 @@ it('ad-hoc builds have no team id, notarization, DMG signing or Gatekeeper asses
   expect(calls.some((c) => ['spctl', 'xcrun'].includes(c.command))).toBe(false);
   const manifest = JSON.parse(fs.readFileSync(path.join(out, 'projectman-motor.json'), 'utf8'));
   expect(manifest.teamId).toBe('');
+});
+
+describe('update trust keys of the Info.plist (PM-1199)', () => {
+  const plistOf = () => fs.readFileSync(path.join(out, 'projectman motor.app/Contents/Info.plist'), 'utf8');
+
+  it('a tagged ad-hoc build with an update ref trusts the GitHub attestation of that ref', async () => {
+    await build(true, 'refs/heads/main');
+    const plist = plistOf();
+    expect(plist).toContain('<key>ProjectmanUpdateTrust</key><string>github-attestation</string>');
+    expect(plist).toContain('<key>ProjectmanUpdateSourceRef</key><string>refs/heads/main</string>');
+    expect(plist).not.toContain('<!--');
+  });
+
+  it('a Developer ID, a ref-less and an untagged build carry no trust keys', async () => {
+    await build(false);
+    expect(plistOf()).not.toContain('ProjectmanUpdate');
+    fs.rmSync(out, { recursive: true });
+    await build(true);
+    expect(plistOf()).not.toContain('ProjectmanUpdate');
+    fs.rmSync(out, { recursive: true });
+    const file = path.join(pkg, 'engine-package.json');
+    write(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), tag: null }));
+    await build(true, 'refs/heads/main');
+    expect(plistOf()).not.toContain('ProjectmanUpdate');
+  });
+
+  it.each([
+    [false, 'refs/heads/main'],
+    [true, 'main'],
+    [true, 'refs/tags/v1'],
+  ])('refuses an update ref the build cannot use (ad-hoc %s, ref %s)', async (adHoc, ref) => {
+    await expect(build(adHoc, ref)).rejects.toMatchObject({ exitCode: 2 });
+    expect(calls).toEqual([]);
+  });
 });
 
 it.each(['swift', 'ditto', 'codesign', 'hdiutil', 'spctl', 'notarytool', 'stapler'])(
@@ -267,6 +302,19 @@ it('routes build CLI options with resolved paths', async () => {
     expect.objectContaining({ packageDir: pkg, outDir: out, adHoc: true }),
   );
   expect(await runEngineAppCli(['build', '--package', '--out', 'out'], deps)).toBe(64);
+  expect(
+    await runEngineAppCli(
+      ['build', '--package', 'package', '--out', 'out', '--ad-hoc', '--update-ref', 'refs/heads/main'],
+      deps,
+    ),
+  ).toBe(0);
+  expect(buildApp).toHaveBeenLastCalledWith(expect.objectContaining({ updateRef: 'refs/heads/main' }));
+  expect(
+    await runEngineAppCli(
+      ['build', '--package', 'package', '--out', 'out', '--update-ref', 'refs/heads/main'],
+      deps,
+    ),
+  ).toBe(64);
 });
 
 it('refuses signing options combined with ad-hoc mode', async () => {

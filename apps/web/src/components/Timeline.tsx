@@ -1,6 +1,8 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
-import { useEffect, useRef } from 'react';
+import { useContext, useEffect, useRef } from 'react';
+import { ProjectContext } from '../app/contexts';
+import { useConfig } from '../api/queries';
 import { Link, useLocation } from 'react-router';
 import { hasBoundOrigin, mentionTokens } from '@projectman/shared';
 import { Chip } from './Chip';
@@ -149,7 +151,15 @@ export function TimelineRow({
   onJump?: (id: string) => void;
   className?: string;
 }) {
-  const { text, emphasis, detail, resolution, note, link } = describeEvent(event, ctx);
+  const project = useContext(ProjectContext);
+  const config = useConfig(
+    event.projectKey,
+    project?.can.readConfig === true && !ctx.config && typeof event.data.ownerTopic === 'string',
+  );
+  const { text, emphasis, detail, resolution, note, link } = describeEvent(event, {
+    ...ctx,
+    config: ctx.config ?? config.data?.config,
+  });
   const comment = event.type === 'task_note';
   const imported =
     comment && (typeof event.data.importedAuthor === 'string' || typeof event.data.importedAt === 'string');

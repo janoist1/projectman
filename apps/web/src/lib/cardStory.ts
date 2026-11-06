@@ -71,6 +71,7 @@ const ESSENCE_TYPES: ReadonlySet<string> = new Set([
   'task_merge_failed',
   'task_merge_blocked',
   'feedback_linked',
+  'feedback_deleted',
   'host_request_opened',
   'host_request_answered',
 ]);

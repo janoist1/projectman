@@ -107,7 +107,7 @@ export class ScreenshotRuns {
     if (!scope)
       throw new TeamToolError(
         'forbidden',
-        'Screenshots by the server are only for a session that works in a worktree and has a session folder of its own; yours has not.',
+        'Screenshots by the server are only for a session that works in a checkout of the card (worktree or review copy) and has a session folder of its own; yours has not.',
       );
     const disk = this.deps.diskFor(ctx.sessionId);
     if (!this.executorOf(ctx.sessionId) || !disk)

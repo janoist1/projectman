@@ -7,7 +7,7 @@ import { flush } from './helpers/fakes';
 
 /**
  * Parts of a broken-down card that were left in the first stage (PM-480): the member who broke the card
- * down is told once when their turn ends, the owners when they are still left after the next turn. The
+ * down is told once when their turn ends (the owners' alert after the next turn is retired, PM-1226). The
  * system never moves or labels a card.
  */
 describe('parts left in the first stage after a breakdown', () => {
@@ -121,33 +121,30 @@ describe('parts left in the first stage after a breakdown', () => {
     expect(events('told')).toEqual([]);
   });
 
-  it('tells the owners when the parts are still left after the next turn, and only once', async () => {
+  it('opens no owner alert when the parts are still left after the next turn (PM-1226)', async () => {
     const session = await breakingDown();
     await part('Part one');
     await endTurn(session);
+    await nextTurn(session);
+    await nextTurn(session);
+
     expect(alerts()).toEqual([]);
-
-    await nextTurn(session);
-    const open = alerts();
-    expect(open).toHaveLength(1);
-    expect(open[0]!.payload).toMatchObject({
-      alert: 'parts_left',
-      taskKey: 'AR-1',
-      member: 'dev-1',
-      parts: ['AR-2'],
-    });
-    expect(events('alerted')).toHaveLength(1);
-
-    await nextTurn(session);
-    expect(alerts()).toHaveLength(1);
+    expect(events('alerted')).toEqual([]);
     expect(events('told')).toHaveLength(1);
   });
 
-  it('closes the alert when the parts are taken out afterwards', async () => {
-    const session = await breakingDown();
+  it('closes the alert an older build left when the parts are taken out afterwards', async () => {
     const one = await part('Part one');
-    await endTurn(session);
-    await nextTurn(session);
+    h.domain.inbox.create({
+      projectKey: 'AR',
+      kind: 'alert',
+      assignees: ['owner'],
+      source: 'system',
+      taskKey: 'AR-1',
+      title: 'AR-1: 1 part left in the first stage after a reminder',
+      payload: { alert: 'parts_left', taskKey: 'AR-1', member: 'dev-1', parts: [one.key] },
+      options: [],
+    });
     expect(alerts().filter((item) => item.state === 'open')).toHaveLength(1);
 
     await h.domain.tasks.update('AR', one.key, { stageId: 'ready' }, DEV);

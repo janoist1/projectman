@@ -1,6 +1,13 @@
 import clsx from 'clsx';
-import { memo } from 'react';
+import { memo, useContext } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router';
+import { documentLinkOf, documentOutline } from '@projectman/shared';
+import type { DocumentHeading, DocumentLink } from '@projectman/shared';
+import { ProjectContext } from '../app/contexts';
+import { documentAccessOf, documentRef, documentsPath } from '../app/documents';
+import { t } from '../i18n/t';
+import { Icon } from './Icon';
 import styles from './Markdown.module.css';
 
 /**
@@ -21,10 +28,14 @@ function parseBlocks(source: string): Block[] {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i]!;
-    if (/^```/.test(line)) {
+    // A fence opens with ``` or ~~~ and closes with the same character, at least as long (as `documentOutline` reads it).
+    const fence = /^(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
       const code: string[] = [];
       i += 1;
-      while (i < lines.length && !/^```/.test(lines[i]!)) {
+      while (i < lines.length) {
+        const closing = /^(`{3,}|~{3,})/.exec(lines[i]!)?.[1];
+        if (closing && closing[0] === fence[0] && closing.length >= fence.length) break;
         code.push(lines[i]!);
         i += 1;
       }
@@ -56,7 +67,7 @@ function parseBlocks(source: string): Block[] {
     while (
       i < lines.length &&
       lines[i]!.trim() !== '' &&
-      !/^```/.test(lines[i]!) &&
+      !/^(`{3,}|~{3,})/.test(lines[i]!) &&
       !/^#{1,4}\s/.test(lines[i]!) &&
       !/^\s*([-*•]|\d+[.)])\s+/.test(lines[i]!)
     ) {
@@ -68,11 +79,21 @@ function parseBlocks(source: string): Block[] {
   return blocks;
 }
 
+// The `doc:` branch comes before the https link, so a document link is never read as a plain one (PM-1223).
 const INLINE =
-  /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s)]+)/g;
+  /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]\n]+\]\(doc:[^)\s]*\)|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s)]+)/g;
 
 /** Renders a card key found in plain text (PM-429: the project manager's replies link the cards they name). */
 export type CardKeyRenderer = (cardKey: string) => ReactNode;
+
+/** Renders a link to a document or one of its sections (PM-1223); `key` is the React key. */
+export type DocumentLinkRenderer = (link: DocumentLink, key: string) => ReactNode;
+
+/** What the inline renderer can make of the text beyond plain markdown. */
+interface InlineOptions {
+  cardKey?: CardKeyRenderer;
+  docLink?: DocumentLinkRenderer;
+}
 
 const CARD_KEY = /\b[A-Z][A-Z0-9]{1,9}-\d+\b/g;
 
@@ -91,7 +112,8 @@ function plainText(text: string, keyPrefix: string, cardKey: CardKeyRenderer | u
   return nodes;
 }
 
-function renderInline(text: string, keyPrefix: string, cardKey?: CardKeyRenderer): ReactNode[] {
+function renderInline(text: string, keyPrefix: string, options: InlineOptions = {}): ReactNode[] {
+  const { cardKey, docLink } = options;
   const nodes: ReactNode[] = [];
   let last = 0;
   let index = 0;
@@ -110,6 +132,11 @@ function renderInline(text: string, keyPrefix: string, cardKey?: CardKeyRenderer
       nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
     } else if (token.startsWith('*')) {
       nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
+    } else if (token.startsWith('[') && token.includes('](doc:')) {
+      const link = documentLinkOf(token);
+      // Not a valid document link (a bad slug): plain text, never a broken link.
+      if (link && docLink) nodes.push(docLink(link, key));
+      else nodes.push(...plainText(token, key, cardKey));
     } else if (token.startsWith('[')) {
       const label = /^\[([^\]]+)\]/.exec(token)?.[1] ?? token;
       const href = match[2] ?? '#';
@@ -131,19 +158,66 @@ function renderInline(text: string, keyPrefix: string, cardKey?: CardKeyRenderer
   return nodes;
 }
 
-function withBreaks(text: string, keyPrefix: string, cardKey?: CardKeyRenderer): ReactNode[] {
+function withBreaks(text: string, keyPrefix: string, options?: InlineOptions): ReactNode[] {
   return text
     .split('\n')
     .flatMap((line, i) =>
       i === 0
-        ? renderInline(line, `${keyPrefix}-${i}`, cardKey)
-        : [<br key={`${keyPrefix}-br-${i}`} />, ...renderInline(line, `${keyPrefix}-${i}`, cardKey)],
+        ? renderInline(line, `${keyPrefix}-${i}`, options)
+        : [<br key={`${keyPrefix}-br-${i}`} />, ...renderInline(line, `${keyPrefix}-${i}`, options)],
     );
+}
+
+/**
+ * How a document link is drawn here (PM-1223): in a project the viewer may read documents of, a router link in the
+ * same tab (like a card key); anywhere else just its text, so the route guard never throws the viewer home.
+ */
+function useDocumentLink(): DocumentLinkRenderer {
+  const project = useContext(ProjectContext);
+  const projectKey = project?.key;
+  const canRead = documentAccessOf(project).read;
+  return (link, key) => {
+    const ref = documentRef(link.slug, link.section);
+    if (!projectKey || !canRead)
+      return (
+        <span key={key} title={ref}>
+          {link.text}
+        </span>
+      );
+    const split = link.text.search(/\s/);
+    const firstWord = split < 0 ? link.text : link.text.slice(0, split);
+    const rest = split < 0 ? '' : link.text.slice(split);
+    return (
+      <Link
+        key={key}
+        className={styles.docLink}
+        to={{ pathname: documentsPath(projectKey, link.slug), hash: link.section }}
+        title={t('documentLink.open', { ref })}
+      >
+        <span className={styles.docLinkStart}>
+          <Icon name="doc" size={14} />
+          {firstWord}
+        </span>
+        {rest}
+      </Link>
+    );
+  };
 }
 
 /** Inline markdown only (bold, italics, code, links, line breaks), for a sentence inside another element. */
 export function InlineMarkdown({ text }: { text: string }) {
-  return <>{withBreaks(text, 'i')}</>;
+  const docLink = useDocumentLink();
+  return <>{withBreaks(text, 'i', { docLink })}</>;
+}
+
+/**
+ * A document's headings (PM-150): real heading elements with the anchor `documentOutline` gives, so a link means
+ * the same section the AI reads; `#` is an h2 (the page's title is the h1). Only the documents page asks for it.
+ */
+export interface HeadingLinks {
+  /** The accessible name of the button that copies a heading's reference. */
+  copyLabel: (heading: DocumentHeading) => string;
+  onCopy: (heading: DocumentHeading) => void;
 }
 
 /** Memoized: a long chat re-renders on every live event, and its unchanged texts need no new parse (PM-1116). */
@@ -151,13 +225,19 @@ export const Markdown = memo(function Markdown({
   text,
   className,
   cardKey,
+  headingLinks,
 }: {
   text: string;
   className?: string;
   /** Renders each card key (like `PM-372`) found in the plain text, e.g. as a link. */
   cardKey?: CardKeyRenderer;
+  headingLinks?: HeadingLinks;
 }) {
+  const docLink = useDocumentLink();
+  const inline: InlineOptions = { cardKey, docLink };
   const blocks = parseBlocks(text);
+  const outline = headingLinks ? documentOutline(text) : [];
+  let headingIndex = 0;
   return (
     <div className={clsx(styles.markdown, className)}>
       {blocks.map((block, i) => {
@@ -169,12 +249,30 @@ export const Markdown = memo(function Markdown({
                 <code>{block.text}</code>
               </pre>
             );
-          case 'heading':
+          case 'heading': {
+            const anchored = headingLinks ? outline[headingIndex++] : undefined;
+            if (headingLinks && anchored) {
+              const Tag = `h${Math.min(anchored.level + 1, 5)}` as 'h2' | 'h3' | 'h4' | 'h5';
+              return (
+                <Tag key={key} id={anchored.anchor} tabIndex={-1} className={styles.anchoredHeading}>
+                  {renderInline(block.text, key, inline)}
+                  <button
+                    type="button"
+                    className={styles.headingLink}
+                    aria-label={headingLinks.copyLabel(anchored)}
+                    onClick={() => headingLinks.onCopy(anchored)}
+                  >
+                    <Icon name="link" size={15} strokeWidth={2} />
+                  </button>
+                </Tag>
+              );
+            }
             return (
               <p key={key} className={styles.heading}>
-                {renderInline(block.text, key, cardKey)}
+                {renderInline(block.text, key, inline)}
               </p>
             );
+          }
           case 'list': {
             const items = block.items.map((item, j) => {
               const task = !block.ordered ? /^\[([ xX])\]\s+(.*)$/.exec(item) : null;
@@ -183,10 +281,10 @@ export const Markdown = memo(function Markdown({
                   {task ? (
                     <label>
                       <input type="checkbox" checked={task[1]!.toLowerCase() === 'x'} disabled readOnly />{' '}
-                      {renderInline(task[2]!, `${key}-${j}`, cardKey)}
+                      {renderInline(task[2]!, `${key}-${j}`, inline)}
                     </label>
                   ) : (
-                    renderInline(item, `${key}-${j}`, cardKey)
+                    renderInline(item, `${key}-${j}`, inline)
                   )}
                 </li>
               );
@@ -194,7 +292,7 @@ export const Markdown = memo(function Markdown({
             return block.ordered ? <ol key={key}>{items}</ol> : <ul key={key}>{items}</ul>;
           }
           case 'paragraph':
-            return <p key={key}>{withBreaks(block.text, key, cardKey)}</p>;
+            return <p key={key}>{withBreaks(block.text, key, inline)}</p>;
         }
       })}
     </div>

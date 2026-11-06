@@ -1,11 +1,9 @@
 import {
-  ALERT_SEEN_OPTION,
   ANALYSIS_LABEL,
   cardAnalyst,
   isOpenTask,
   isTheme,
   memberOf,
-  ownerHandles,
   relationAsksAnalyst,
   SYSTEM_SENDER,
 } from '@projectman/shared';
@@ -32,7 +30,7 @@ const LABEL_EVENTS = 200;
  * card are told, as a stored `info` message from the system: it starts nothing, and an idle session
  * gets it before its next input. A prerequisite or a duplicate may change the work, so the card's
  * analyst is also asked, with an `action` message on this very card, to check whether it does. With no
- * analyst to ask, the owners get an alert. The messages are the trace: the timeline shows who was told
+ * analyst to ask, the alert goes to the project manager's signals (the owners' messages when there is none). The messages are the trace: the timeline shows who was told
  * and when, the receipt when it was typed in.
  */
 export class RelationNotices {
@@ -116,7 +114,7 @@ export class RelationNotices {
     let analyst: string | null = null;
     if (asksAnalyst) {
       analyst = cardAnalyst(config, this.analysisLabelSetter(projectKey, taskKey));
-      if (!analyst) this.alertOwners(config, task, actor.handle, relations);
+      if (!analyst) this.raiseRelationCheck(task, actor.handle, relations);
       else if (analyst === actor.handle) analyst = null;
     }
 
@@ -169,20 +167,14 @@ export class RelationNotices {
     return null;
   }
 
-  /** No analyst can check the new relations: the owners (but whoever added them) are told. */
-  private alertOwners(
-    config: ProjectConfig,
+  /** No analyst can check the new relations: the alert goes where the route rule sends it (the project manager). */
+  private raiseRelationCheck(
     task: Task,
     actorHandle: string | null,
     relations: RelationNoticeRelation[],
   ): void {
-    const owners = ownerHandles(config).filter((handle) => handle !== actorHandle);
-    if (owners.length === 0) return;
-    this.inbox.create({
+    this.inbox.raiseAlert({
       projectKey: task.projectKey,
-      kind: 'alert',
-      assignees: owners,
-      source: 'system',
       taskKey: task.key,
       title: `${task.key}: a new relation may change the work, and no analyst can check it`,
       payload: {
@@ -192,7 +184,7 @@ export class RelationNotices {
           .filter(({ kind }) => relationAsksAnalyst(kind))
           .map(({ kind, other }) => ({ kind, key: other.key })),
       } satisfies RelationCheckAlert,
-      options: [ALERT_SEEN_OPTION],
+      exceptRecipient: actorHandle,
     });
   }
 }

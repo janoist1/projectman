@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { isApiError } from '../../api/client';
 import { useLogin } from '../../api/queries';
 import { Button } from '../../components/Button';
@@ -16,6 +16,7 @@ export function PasswordLoginForm({
   onEmailChange,
   next,
   focus = 'email',
+  passwordCodes = false,
 }: {
   email: string;
   onEmailChange: (value: string) => void;
@@ -23,6 +24,8 @@ export function PasswordLoginForm({
   next: string | null;
   /** The field that takes the focus when the form appears. */
   focus?: 'email' | 'password';
+  /** Whether the server can mail a code that sets the password: shows the way to that page. */
+  passwordCodes?: boolean;
 }) {
   const login = useLogin();
   const navigate = useNavigate();
@@ -69,6 +72,17 @@ export function PasswordLoginForm({
         required
         autoFocus={focus === 'password'}
       />
+      {passwordCodes ? (
+        <div className={styles.forgot}>
+          <Link
+            to={{ pathname: '/login/password', search: next ? `?next=${encodeURIComponent(next)}` : '' }}
+            state={{ email: email.trim() }}
+            className={styles.linkButton}
+          >
+            {t('auth.passwordReset.link')}
+          </Link>
+        </div>
+      ) : null}
       {failure ? <ErrorBanner>{failure}</ErrorBanner> : null}
       <Button type="submit" variant="primary" size="xl" fullWidth loading={login.isPending}>
         {login.isPending ? t('auth.login.submitting') : t('auth.login.submit')}

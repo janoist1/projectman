@@ -201,6 +201,11 @@ export interface TemplateLocale {
     subject: string;
     text: (input: { code: string; validUntil: string }) => string;
   };
+  /** The mail that carries a one-time password-reset code (PM-946); same input as `emailLoginCode`. */
+  passwordResetCode: {
+    subject: string;
+    text: (input: { code: string; validUntil: string }) => string;
+  };
   /** Text of the outgoing channel e-mail (PM-941). */
   email: {
     /** The short notice under the first mail a member sends to a contact (PM-1017). */
@@ -210,6 +215,8 @@ export interface TemplateLocale {
   webPush: WebPushText;
   /** The fix round limit decision item the server makes (PM-714). */
   fixLimitItem: FixLimitItemText;
+  /** The Senior wait decision item of a project without a project manager (PM-1251); the project manager gets a signal instead. */
+  seniorWaitItem: { title: string };
   /** What the owner's todo says when the Operator could not finish a queue item (PM-885). */
   /** The headings of a system feedback sent as a card or an issue (PM-472). */
   systemFeedback: SystemFeedbackTextLabels;

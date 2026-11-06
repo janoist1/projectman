@@ -1,5 +1,4 @@
 import {
-  ALERT_SEEN_OPTION,
   isCommitId,
   isOpenTask,
   memberOf,
@@ -602,15 +601,12 @@ export class MergeTrains {
     const config = await this.deps.projects.config(train.projectKey);
     for (const row of this.rows(train)) {
       if (memberOf(config, row.merger)?.kind === 'human')
-        this.deps.inbox.create({
+        this.deps.inbox.raiseAlert({
           projectKey: row.projectKey,
           taskKey: row.taskKey,
-          kind: 'alert',
           assignees: [row.merger],
-          source: 'system',
           title: message,
           payload: { alert: 'merge_blocked', taskKey: row.taskKey, mergeId: row.id, reason, message },
-          options: [ALERT_SEEN_OPTION],
         });
       await this.steps.notify(row, config);
     }

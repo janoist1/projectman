@@ -1,4 +1,4 @@
-import { t } from './i18n';
+import { currentLanguage, t } from './i18n';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -39,5 +39,9 @@ export function messageTime(iso: string, now: number): string {
   if (days === 0) return t('time.todayAt', { time: clock(then) });
   if (days === 1) return t('time.yesterdayAt', { time: clock(then) });
   const date = new Date(then);
-  return t('time.dateAt', { date: `${date.getMonth() + 1}. ${date.getDate()}.`, time: clock(then) });
+  const label =
+    currentLanguage() === 'en'
+      ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(date)
+      : `${date.getMonth() + 1}. ${date.getDate()}.`;
+  return t('time.dateAt', { date: label, time: clock(then) });
 }

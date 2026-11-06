@@ -5,6 +5,26 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
   module: 'services/releases',
   tools: [
     defineTool({
+      name: 'get_release_status',
+      audience: { duties: ['deployment'] },
+      title: 'Read the version of the hub and the engines',
+      readOnly: true,
+      description:
+        'Which version the hub runs and, per engine, whether it is connected, which version it reports, ' +
+        'whether that differs from the hub and when it was last seen. Reads only. Use it in a release to check ' +
+        'that the hub is on the new version and that every engine has followed.',
+      input: {},
+      async run({ ctx, handler }) {
+        const status = await handler.getReleaseStatus(ctx);
+        const engines = status.engines.map(
+          (engine) =>
+            `${engine.id} ${engine.name} connected=${engine.connected} version=${engine.version ?? 'unknown'} ` +
+            `versionMismatch=${engine.versionMismatch} lastSeenAt=${engine.lastSeenAt ?? 'never'}`,
+        );
+        return [`hub version=${status.hub.version}`, ...engines].join('\n');
+      },
+    }),
+    defineTool({
       name: 'publish_release',
       audience: { duties: ['deployment'] },
       title: 'Publish a repository release',

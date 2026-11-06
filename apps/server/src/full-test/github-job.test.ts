@@ -238,6 +238,25 @@ describe('withGithubJob', () => {
     expect(branches.upstreamRepo).not.toHaveBeenCalled();
   });
 
+  it('dispatches a dedicated workflow like the general one (PM-1196)', async () => {
+    const { executor, actions } = setup();
+    const result = await runIt(executor, spec(jobRun({ workflow: 'projectman-deploy.yml' })));
+
+    expect(result).toMatchObject({ outcome: 'passed', artifact: { name: 'projectman-job-job-1' } });
+    expect(actions.dispatchWorkflow).toHaveBeenCalledWith(
+      'acme/widgets',
+      'projectman-deploy.yml',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(actions.findRunByTitle).toHaveBeenLastCalledWith(
+      'acme/widgets',
+      'projectman-deploy.yml',
+      { branch: 'main', displayTitle: TITLE },
+      expect.anything(),
+    );
+  });
+
   it('refuses a repository whose upstream is another one, without dispatching', async () => {
     const { executor, actions, branches } = setup();
     branches.upstreamRepo.mockResolvedValue('other/place');

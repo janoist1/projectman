@@ -13,6 +13,14 @@ export type SessionReadBoundary = z.infer<typeof SessionReadBoundary>;
 
 /** Where a session works. */
 export type SessionAccess = 'task_worktree' | 'review_copy' | 'read_only';
+
+/**
+ * Whether a placement holds the card's own code, so the server may run screenshots for it (PM-1202):
+ * a worktree or a review copy. A `read_only` placement is the project's own checkout, not the card's.
+ */
+export function screenshotPlacement(access: SessionAccess): boolean {
+  return access === 'task_worktree' || access === 'review_copy';
+}
 export type ReviewCopyMode = 'inherit' | 'read_only' | 'test';
 export interface ShellToolRule {
   command: string;

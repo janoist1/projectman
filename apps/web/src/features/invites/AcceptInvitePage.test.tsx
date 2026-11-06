@@ -166,6 +166,7 @@ describe('AcceptInvitePage with the e-mail code login', () => {
     const token = path.replace('/invite/', '');
     expect(project.requests.find((request) => request.path.endsWith('/email/request'))?.body).toEqual({
       inviteToken: token,
+      language: 'hu',
     });
 
     const code = backend.emailLogin.lastCodeTo(input.email)!;
@@ -176,6 +177,7 @@ describe('AcceptInvitePage with the e-mail code login', () => {
       inviteToken: token,
       code,
       name: 'Kata Kovács',
+      language: 'hu',
     });
     expect(backend.user.email).toBe(input.email);
     expect(backend.config.team.members.at(-1)).toMatchObject({

@@ -4,6 +4,12 @@ import { issueTarget } from './issueTarget';
 
 describe('configuration issue targets', () => {
   const config = new MockBackend().config;
+  it('preserves the owner topic index and field', () => {
+    expect(issueTarget('team.ownerDecisionTopics[5].hint', config)).toEqual({
+      section: 'team',
+      field: 'ownerDecisionTopics.5.hint',
+    });
+  });
   it.each(['pipeline.stages.3.gate.conditions.0.label', 'pipeline.stages[3].gate.conditions[0].label'])(
     'normalizes %s',
     (path) => {

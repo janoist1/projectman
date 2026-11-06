@@ -32,6 +32,7 @@ export function createGeminiAdapter(opts: {
       readiness: 'screen',
       toolGate: 'pre_tool_use',
       mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.gemini,
+      sandboxEscalation: false,
     },
     timing: CODEX_TIMING,
     inputTools: new Set(),

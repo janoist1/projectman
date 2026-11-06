@@ -188,6 +188,7 @@ export class SessionManager implements SessionRunner {
         logger: this.log,
         processScopes: this.scopes,
         broker: this.opts.broker,
+        ...(this.opts.engineGuard ? { engineGuard: this.opts.engineGuard } : {}),
         refreshDependencies: this.opts.refreshDependencies,
         permissionTimeoutMs: this.opts.permissionTimeoutMs,
         emit: (event) => this.emit(event),
@@ -291,10 +292,10 @@ export class SessionManager implements SessionRunner {
     return pending;
   }
 
-  sendUserMessage(sessionId: string, text: string): Promise<void> {
+  sendUserMessage(sessionId: string, text: string, options?: { deliveryId?: string }): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) return Promise.reject(new Error(`session ${sessionId} is not running`));
-    return session.send(text);
+    return session.send(text, options?.deliveryId);
   }
 
   async compact(sessionId: string, instruction: string): Promise<boolean> {

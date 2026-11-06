@@ -4,6 +4,49 @@ import { MockBackend } from './backend';
 const path = '/api/projects/AC/config';
 
 describe('mock configuration PATCH', () => {
+  it('validates and saves owner topics through the shared schema', () => {
+    const backend = new MockBackend();
+    const patch = (ownerDecisionTopics: unknown) =>
+      backend.handle('PATCH', path, { baseVersion: backend.configVersion, ownerDecisionTopics });
+    expect(patch([{ id: 'legal', label: 'Legal', hint: '' }])).toMatchObject({
+      status: 400,
+      body: {
+        error: {
+          code: 'config_invalid',
+          details: {
+            issues: expect.arrayContaining([
+              expect.objectContaining({ path: expect.stringContaining('ownerDecisionTopics.0.hint') }),
+            ]),
+          },
+        },
+      },
+    });
+    expect(patch([{ id: 'legal', label: 'Legal', hint: 'Contracts' }]).status).toBe(200);
+    expect(backend.config.team.ownerDecisionTopics).toEqual([
+      { id: 'legal', label: 'Legal', hint: 'Contracts' },
+    ]);
+    backend.viewerHandle = 'kata';
+    const admin = backend.config.team.members.find(({ handle }) => handle === 'kata')!;
+    if (admin.kind === 'human') admin.access = 'admin';
+    expect(patch([])).toMatchObject({ status: 403, body: { error: { code: 'owner_only' } } });
+  });
+  it('requires an owner to change project document paths', () => {
+    const backend = new MockBackend();
+    const owner = backend.viewerHandle;
+    backend.viewerHandle = 'kata';
+    const admin = backend.config.team.members.find((member) => member.handle === 'kata')!;
+    if (admin.kind === 'human') admin.access = 'admin';
+    const patch = {
+      baseVersion: backend.configVersion,
+      repoDocs: [{ repo: backend.config.project.repos[0]!.name, docs: { decisions: 'docs/D.md' } }],
+    };
+    expect(backend.handle('PATCH', path, patch)).toMatchObject({
+      status: 403,
+      body: { error: { code: 'owner_only' } },
+    });
+    backend.viewerHandle = owner;
+    expect(backend.handle('PATCH', path, patch).status).toBe(200);
+  });
   it('commits, broadcasts and records the human author', () => {
     const backend = new MockBackend();
     const historyLength = backend.history.length;

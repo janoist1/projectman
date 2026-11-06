@@ -20,6 +20,7 @@ function renderLogin(backend: MockBackend, route = '/login') {
       <Where />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/login/password" element={<p>reset</p>} />
         <Route path="/invite/:token" element={<p>invite</p>} />
         <Route path="/" element={<p>home</p>} />
       </Routes>
@@ -58,6 +59,24 @@ describe('LoginPage', () => {
       expect(screen.queryByRole('button', { name: t('auth.emailLogin.usePassword') })).toBeNull();
     },
   );
+
+  it('links to the password page only when the server has e-mail codes, keeping the next', async () => {
+    const backend = new MockBackend('login');
+    backend.emailLogin.enabled = true;
+    renderLogin(backend, `/login?next=${encodeURIComponent('/invite/abc')}`);
+    fireEvent.click(await screen.findByRole('link', { name: t('auth.passwordReset.link') }));
+    await screen.findByText('reset');
+    expect(screen.getByTestId('where').textContent).toBe(
+      `/login/password?next=${encodeURIComponent('/invite/abc')}`,
+    );
+  });
+
+  it('shows no password page link when the server has no e-mail codes', async () => {
+    const backend = new MockBackend('login');
+    renderLogin(backend);
+    expect(await screen.findByLabelText(t('auth.login.password'))).toBeTruthy();
+    expect(screen.queryByRole('link', { name: t('auth.passwordReset.link') })).toBeNull();
+  });
 
   it('goes on to a safe next after the login', async () => {
     const backend = new MockBackend('login');

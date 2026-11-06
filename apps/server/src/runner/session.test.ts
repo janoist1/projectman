@@ -3,6 +3,7 @@ import type { SessionState } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   DependencyGate,
+  EngineGuard,
   PermissionBroker,
   PermissionDecision,
   RunnerEvent,
@@ -297,6 +298,7 @@ function start(
     refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
     logger?: ReturnType<typeof silentLogger>;
     transcriptRoot?: string;
+    engineGuard?: EngineGuard;
   } = {},
 ) {
   const pty = new FakePty();
@@ -310,6 +312,7 @@ function start(
     deps: {
       logger: opts.logger ?? silentLogger(),
       transcriptRoot: opts.transcriptRoot,
+      ...(opts.engineGuard ? { engineGuard: opts.engineGuard } : {}),
       refreshDependencies: opts.refreshDependencies,
       broker: opts.broker ?? { decide: () => new Promise(() => undefined) },
       permissionTimeoutMs: PERMISSION_TIMEOUT_MS,
@@ -553,6 +556,207 @@ describe('a reader’s read boundary (PM-425)', () => {
   });
 });
 
+describe('the engine guard (PM-1176)', () => {
+  const guardSpec = (): Partial<StartSessionSpec> => {
+    const policy = geminiSpec().policy!;
+    policy.filesystem.deniedPaths = ['/engine-secrets'];
+    return { policy, member: 'dev-8', allowedTools: ['Edit(/outside/**)'] };
+  };
+  const preTool = (tool_name: string, tool_input: unknown) => ({
+    hook_event_name: 'PreToolUse',
+    tool_name,
+    tool_input,
+    tool_use_id: 'toolu_guard',
+  });
+  const refusedPreTool = {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: expect.any(String),
+    },
+  };
+  /** A started session; the broker would approve anything, remembered for the session and with a changed input. */
+  async function guarded(decision: PermissionDecision = { behavior: 'allow', rememberForSession: true }) {
+    const decide = vi.fn(async () => decision);
+    const refused = vi.fn();
+    const engineGuard = { refused: vi.fn() };
+    const s = await ready({ spec: guardSpec(), broker: { decide, refused }, engineGuard });
+    return { ...s, decide, refused, engineGuard };
+  }
+
+  it.each([
+    ['Write', { file_path: '/outside/a.ts' }],
+    ['Edit', { file_path: '/home/x/.zshrc', old_string: 'a', new_string: 'b' }],
+    ['MultiEdit', { file_path: '/outside/a.ts', edits: [] }],
+    ['NotebookEdit', { notebook_path: '/outside/n.ipynb' }],
+  ])(
+    'turns a %s outside the write zone away at PreToolUse, whatever was allowed before',
+    async (tool, input) => {
+      const { hook, decide, refused, engineGuard } = await guarded();
+      expect(await hook(preTool(tool, input))).toEqual(refusedPreTool);
+      expect(decide).not.toHaveBeenCalled();
+      expect(engineGuard.refused).toHaveBeenCalledOnce();
+      expect(engineGuard.refused).toHaveBeenCalledWith({
+        sessionId: 'ses_1',
+        member: 'dev-8',
+        code: 'outside_writable_roots',
+      });
+      expect(refused).toHaveBeenCalledWith(
+        expect.objectContaining({ toolName: tool, by: 'engine_guard', reason: 'outside_writable_roots' }),
+      );
+    },
+  );
+
+  it('turns a read below a denied path away at PreToolUse', async () => {
+    const { hook, decide, engineGuard } = await guarded();
+    expect(await hook(preTool('Read', { file_path: '/engine-secrets/key' }))).toEqual(refusedPreTool);
+    expect(engineGuard.refused).toHaveBeenCalledWith(expect.objectContaining({ code: 'denied_path' }));
+    expect(decide).not.toHaveBeenCalled();
+  });
+
+  it('holds at the permission request too, when no PreToolUse came before it', async () => {
+    const { hook, decide, engineGuard } = await guarded();
+    expect(
+      await hook({
+        ...preTool('Write', { file_path: '/outside/a.ts' }),
+        hook_event_name: 'PermissionRequest',
+      }),
+    ).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'deny', message: expect.any(String) },
+      },
+    });
+    expect(decide).not.toHaveBeenCalled();
+    expect(engineGuard.refused).toHaveBeenCalledOnce();
+  });
+
+  it('turns an approval that changes the tool input into a denial', async () => {
+    const { hook, decide, engineGuard, refused } = await guarded({
+      behavior: 'allow',
+      updatedInput: { file_path: '/outside/a.ts' },
+    });
+    const inside = { file_path: '/work/a.ts' };
+    expect(await hook({ ...preTool('Write', inside), hook_event_name: 'PermissionRequest' })).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'deny', message: expect.any(String) },
+      },
+    });
+    expect(decide).toHaveBeenCalledOnce();
+    expect(engineGuard.refused).toHaveBeenCalledWith(expect.objectContaining({ code: 'updated_input' }));
+    expect(refused).toHaveBeenCalledWith(
+      expect.objectContaining({ by: 'engine_guard', reason: 'updated_input' }),
+    );
+  });
+
+  it('lets a write inside the roots go on, and an approval without a changed input stand', async () => {
+    const { hook, decide, engineGuard } = await guarded({ behavior: 'allow' });
+    expect(await hook(preTool('Write', { file_path: '/work/a.ts' }))).toBeNull();
+    expect(
+      await hook({ ...preTool('Write', { file_path: '/work/a.ts' }), hook_event_name: 'PermissionRequest' }),
+    ).toEqual({
+      hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } },
+    });
+    expect(decide).toHaveBeenCalledOnce();
+    expect(engineGuard.refused).not.toHaveBeenCalled();
+  });
+
+  it('does not run without an engine guard (single mode)', async () => {
+    const decide = vi.fn(async (): Promise<PermissionDecision> => ({ behavior: 'allow' }));
+    const { hook } = await ready({ spec: guardSpec(), broker: { decide } });
+    expect(await hook(preTool('Write', { file_path: '/outside/a.ts' }))).toBeNull();
+  });
+
+  it('denies a Gemini edit outside the roots, or without a path, instead of asking', async () => {
+    const decide = vi.fn();
+    const refused = vi.fn();
+    const engineGuard = { refused: vi.fn() };
+    const s = start({
+      adapter: createGeminiAdapter({ bin: 'unused', logger: silentLogger() }),
+      spec: geminiSpec(),
+      broker: { decide, refused },
+      engineGuard,
+    });
+    const edit = (gemini_args: Record<string, unknown>) => ({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Write',
+      tool_input: {},
+      gemini_tool: 'write_to_file',
+      gemini_args,
+    });
+    expect(await s.hook(edit({ TargetFile: '/outside/a.ts' }))).toMatchObject({ decision: 'deny' });
+    expect(await s.hook(edit({}))).toMatchObject({ decision: 'deny' });
+    expect(decide).not.toHaveBeenCalled();
+    expect(engineGuard.refused).toHaveBeenCalledTimes(2);
+    expect(refused).toHaveBeenCalledWith(expect.objectContaining({ by: 'engine_guard' }));
+  });
+
+  describe('a request to run outside the sandbox (PM-1187)', () => {
+    const permission = (tool_name: string) => ({
+      hook_event_name: 'PermissionRequest',
+      tool_name,
+      tool_input: { command: 'git fetch' },
+      tool_use_id: 'call_1',
+    });
+    const codexSession = (engineGuard?: EngineGuard) => {
+      const decide = vi.fn(async (): Promise<PermissionDecision> => ({ behavior: 'allow' }));
+      const refused = vi.fn();
+      const s = start({
+        adapter: createCodexAdapter({
+          bin: 'unused',
+          logger: silentLogger(),
+          codexHome: '/unused-codex-home',
+        }),
+        spec: { provider: 'codex', member: 'dev-8' },
+        broker: { decide, refused },
+        ...(engineGuard ? { engineGuard } : {}),
+      });
+      return { ...s, decide, refused };
+    };
+
+    it('denies a Codex Bash request without asking the cloud, and reports the engine guard', async () => {
+      const engineGuard = { refused: vi.fn() };
+      const { hook, decide, refused } = codexSession(engineGuard);
+      expect(await hook(permission('Bash'))).toMatchObject({
+        hookSpecificOutput: { decision: { behavior: 'deny', message: expect.any(String) } },
+      });
+      expect(decide).not.toHaveBeenCalled();
+      expect(engineGuard.refused).toHaveBeenCalledWith({
+        sessionId: 'ses_1',
+        member: 'dev-8',
+        code: 'escalation_refused',
+      });
+      expect(refused).toHaveBeenCalledWith(
+        expect.objectContaining({ toolName: 'Bash', by: 'engine_guard', reason: 'escalation_refused' }),
+      );
+    });
+
+    it('leaves an MCP tool to the cloud', async () => {
+      const engineGuard = { refused: vi.fn() };
+      const { hook, decide } = codexSession(engineGuard);
+      void hook(permission('mcp__team__send_message'));
+      await vi.waitFor(() => expect(decide).toHaveBeenCalledOnce());
+      expect(engineGuard.refused).not.toHaveBeenCalled();
+    });
+
+    it('does not run without an engine guard (single mode)', async () => {
+      const { hook, decide } = codexSession();
+      void hook(permission('Bash'));
+      await vi.waitFor(() => expect(decide).toHaveBeenCalledOnce());
+    });
+
+    it('leaves a provider without sandbox escalation alone', async () => {
+      const engineGuard = { refused: vi.fn() };
+      const decide = vi.fn(async (): Promise<PermissionDecision> => ({ behavior: 'allow' }));
+      const { hook } = start({ spec: guardSpec(), broker: { decide }, engineGuard });
+      void hook(permission('Bash'));
+      await vi.waitFor(() => expect(decide).toHaveBeenCalledOnce());
+      expect(engineGuard.refused).not.toHaveBeenCalled();
+    });
+  });
+});
+
 describe('process liveness', () => {
   it('drops pause deadlines and the stop fallback when the process exits', async () => {
     const s = await ready();
@@ -586,6 +790,33 @@ describe('process liveness', () => {
     s.pty.exit();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(s.events.filter((e) => e.type === 'exit')).toHaveLength(1);
+  });
+
+  it('keeps the last output of a CLI that fails before it is ready in the failed state (PM-1207)', async () => {
+    const s = start({
+      adapter: createCodexAdapter({ bin: 'codex', codexHome: '/nonexistent', logger: silentLogger() }),
+    });
+    s.pty.print('Error: invalid configuration\r\n  mcp_servers.team: token=abcdefghijklmnop rejected\r\n');
+    s.pty.exit(1);
+    await s.session.exited;
+    const failed = s.events.filter((e) => e.type === 'state').at(-1);
+    expect(failed).toMatchObject({ state: 'failed' });
+    const activity = (failed as Extract<RunnerEvent, { type: 'state' }>).activity ?? '';
+    expect(activity).toContain('invalid configuration');
+    expect(activity).toContain('exit code 1');
+    expect(activity).not.toContain('abcdefghijklmnop');
+  });
+
+  it('adds no output to the exit of a session that was ready', async () => {
+    const s = await ready();
+    s.pty.print('some output\r\n');
+    s.pty.exit(1);
+    await s.session.exited;
+    const failed = s.events.filter((e) => e.type === 'state').at(-1) as Extract<
+      RunnerEvent,
+      { type: 'state' }
+    >;
+    expect(failed.activity).toBeNull();
   });
 
   it('keeps a live or inaccessible process running and stops probing after exit', async () => {
@@ -675,7 +906,11 @@ describe('AgentSession', () => {
     const { events, hook } = start({ spec: { initialMessage: 'Build the login page' } });
     await hook({ hook_event_name: 'SessionStart', source: 'startup' });
     await vi.advanceTimersByTimeAsync(
-      CLAUDE_TIMING.readySettleMs + TYPE_MS + CLAUDE_TIMING.submitTimeoutMs + CLAUDE_TIMING.enterRetryMs,
+      CLAUDE_TIMING.readySettleMs +
+        TYPE_MS +
+        CLAUDE_TIMING.submitTimeoutMs +
+        CLAUDE_TIMING.lateSubmitMs +
+        CLAUDE_TIMING.enterRetryMs,
     );
     expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
     expect(events.filter((e) => e.type === 'first_input_failed')).toEqual([

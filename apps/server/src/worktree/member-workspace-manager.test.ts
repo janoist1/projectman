@@ -513,6 +513,12 @@ describe('member workspaces', { timeout: 30_000 }, () => {
     await git('-C', projectRepo, 'worktree', 'add', '--quiet', '-b', 'linked', ws.path);
     expect((await refusal(manager.ensure(key('dev')))).code).toBe('workspace_invalid');
   });
+
+  it('refuses a clone with a commondir before running git in it', async () => {
+    const ws = await manager.ensure(key('dev'));
+    await writeFile(path.join(ws.gitDir, 'commondir'), `${path.join(projectRepo, '.git')}\n`);
+    await expect(manager.ensure(key('dev'))).rejects.toMatchObject({ code: 'workspace_invalid' });
+  });
 });
 
 describe('handing a task commit over (PM-739)', { timeout: 30_000 }, () => {

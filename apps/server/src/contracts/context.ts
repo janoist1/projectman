@@ -5,6 +5,7 @@ import type {
   AgentProvider,
   AiMemberConfig,
   Attachment,
+  DocumentSummary,
   HandoffFallbackReason,
   HandoffSummary,
   MemberView,
@@ -45,6 +46,11 @@ export interface ContextPackInput {
   /** Rebuilt from actual placement for every start, including resumes. */
   sessionPolicy?: SessionPolicy;
   /**
+   * The member's workspace was left without usable `node_modules` (PM-1203): the engine installs nothing
+   * for it and it has none (`missing`) or older than the lockfile (`stale`). Omitted when it is installed.
+   */
+  workspaceDependencies?: WorkspaceDependencyShortfall;
+  /**
    * The CLI's own sandbox the session's shell commands run in (PM-167), as the runner gets it;
    * absent when they are not sandboxed. A Claude member is told its boundary instead of the
    * server's command forms.
@@ -79,6 +85,11 @@ export interface ContextPackInput {
    * the parent has none, or the member may not read the parent.
    */
   parentAttachments?: { taskKey: string; attachments: Attachment[] };
+  /**
+   * The project's living documents (PM-149), newest list as the store gives it (by title); metadata only,
+   * never the text. Omitted when there are none, or in a project manager's guest conversation.
+   */
+  documents?: DocumentSummary[];
   /**
    * The member's other running sessions on cards that belong with this task (PM-184), for the brief
    * and the continue message. Omitted (or empty) when there are none.
@@ -211,6 +222,7 @@ const PROMPT_SECTION_IDS = [
   'checklist',
   'operator_knowledge',
   'operator_preference',
+  'documents',
   'memory',
 ] as const;
 export type PromptSectionId = (typeof PROMPT_SECTION_IDS)[number];
@@ -384,6 +396,8 @@ export interface WorktreeManager {
 export interface WorktreeManagerOptions {
   /** Where worktrees are created, e.g. ~/.projectman/worktrees. */
   rootDir: string;
+  /** Trusted engine-local repository anchor for path-only worktree operations. Missing paths fail closed. */
+  repoPathOf?(projectKey: string, repoName: string): string | null;
   logger: FastifyBaseLogger;
   /** PM-332: clone node_modules into a task worktree from an installed checkout with the same lockfile (APFS clonefile, macOS). Default false. */
   cloneDependencies?: boolean;
@@ -449,8 +463,20 @@ export type MemberWorkspaceErrorCode =
   | 'workspace_source_missing'
   | 'workspace_invalid';
 
+/**
+ * `skipped`: nothing was installed. `not_configured`: the engine installs nothing for this repository;
+ * `unavailable`: the default installation could not run here (no sandbox). `dependencies` (PM-1203) is
+ * set when the clone has a root `package-lock.json` and its `node_modules` is missing or older than it.
+ */
 export type WorkspaceDependenciesResult =
-  { status: 'ready'; key: string; changed: boolean } | { status: 'skipped'; reason: 'not_configured' };
+  | { status: 'ready'; key: string; changed: boolean }
+  | {
+      status: 'skipped';
+      reason: 'not_configured' | 'unavailable';
+      dependencies?: WorkspaceDependencyShortfall;
+    };
+
+export type WorkspaceDependencyShortfall = 'missing' | 'stale';
 
 export type WorkspaceDependencyFailure =
   | 'invalid_inputs'

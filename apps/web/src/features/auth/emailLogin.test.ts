@@ -15,6 +15,7 @@ function meWith(...keys: string[]): Me {
     userId: 'usr_1',
     name: 'Kata',
     email: 'kata@client.test',
+    language: 'hu',
     handles: {},
     instanceOwner: false,
     projects: keys.map((key) => ({ key, name: key, access: 'client', roles: [] })),

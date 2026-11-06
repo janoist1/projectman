@@ -359,8 +359,13 @@ export interface SessionRunner {
    * took it (reported the prompt). Rejects when the process ended first, or when the message was
    * typed but the CLI did not take it in time (PM-571): it did not reach the agent, so the caller
    * must not count it as delivered. A slash command reports no prompt, so it resolves once typed.
+   *
+   * With a `deliveryId` (the sender's key for this message) the call is idempotent per process (PM-1205): a
+   * repeat joins the message still awaited, and one the CLI already took (confirmed or not) is not typed
+   * again. A call that did not take the message (rejected as not taken) may be repeated with the same id.
+   * A message the CLI showed it was busy for after the timeout resolves as taken, unconfirmed.
    */
-  sendUserMessage(sessionId: string, text: string): Promise<void>;
+  sendUserMessage(sessionId: string, text: string, options?: { deliveryId?: string }): Promise<void>;
   /**
    * Compacts the session's conversation (PM-213): types the CLI's compaction command with
    * `instruction` once the session is idle, and holds every later message back until the CLI is
@@ -476,6 +481,16 @@ export interface PermissionRefusedInfo {
   toolName: string;
   toolInput: unknown;
   reason?: string;
+  /** Who refused: the engine's own guard (PM-1176); absent: the agent's own classifier (PM-165). */
+  by?: 'engine_guard';
+}
+
+export type EngineGuardCode =
+  'outside_writable_roots' | 'denied_path' | 'updated_input' | 'escalation_refused';
+
+/** Engine mode only (PM-1176): the engine itself refused a tool call; one audit line, no path or input. */
+export interface EngineGuard {
+  refused(entry: { sessionId: string; member?: string; code: EngineGuardCode }): void;
 }
 
 export interface TranscriptReader {
@@ -566,6 +581,12 @@ export interface RunnerModuleOptions {
   /** Base URL the CLI calls for HTTP hooks, e.g. http://127.0.0.1:4700 (the runner adds /hooks/<token>). */
   publicBaseUrl: string;
   broker: PermissionBroker;
+  /**
+   * Engine mode only (PM-1176): the runner itself keeps file tool calls inside the session's write
+   * zone and drops a broker answer that changes the tool input, whatever the cloud decided; every
+   * refusal is reported here. Absent (single mode): no such guard.
+   */
+  engineGuard?: EngineGuard;
   /** How long a permission request may wait for a human before it is denied. */
   permissionTimeoutMs: number;
   logger: FastifyBaseLogger;
@@ -623,6 +644,12 @@ export interface AmbientConfigLocations {
   codexManaged?: string[];
   /** Codex's user configuration (default: `$CODEX_HOME/config.toml`, else `~/.codex/config.toml`). */
   codexUser?: string;
+  /**
+   * Files whose mere presence refuses a Codex start (PM-1169): they are never read (default:
+   * `/etc/codex/hooks.json`, and on macOS the two `com.openai.codex.plist` MDM preference files).
+   * The user's `hooks.json` beside `codexUser` is checked as well.
+   */
+  codexPresenceRefused?: string[];
 }
 
 /**

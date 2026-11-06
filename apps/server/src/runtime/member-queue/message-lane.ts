@@ -7,13 +7,17 @@ import {
   messageWakes,
   pendingRecipientsOf,
   quoteOf,
+  SYSTEM_SENDER,
 } from '@projectman/shared';
+import { messageDroppedNotice } from '../../agent-text';
 import type { StoredMemberQueueItem } from '../../db';
 import type { DomainContext } from '../../core/base';
-import type { MessageService } from '../../core/messages';
+import type { MessageService, Messaging } from '../../core/messages';
 import { wakeFactsFor, wakesFor } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskService } from '../../core/tasks';
+import type { TimelineService } from '../../core/timeline';
+import { SYSTEM_ACTOR } from '../../kernel';
 import type { MessageDelivery, MessageRouter } from '../delivery';
 import type { SessionStartCause } from '../sessions';
 import type { MemberQueueLane } from './lane';
@@ -28,6 +32,8 @@ interface MessageLaneDeps {
   tasks: Pick<TaskService, 'find'>;
   messages: Pick<MessageService, 'recordAnswerDelivery' | 'rerouteRecipient'>;
   messageRouter: Pick<MessageRouter, 'holdNameOf'>;
+  messaging: Pick<Messaging, 'send'>;
+  timeline: Pick<TimelineService, 'append'>;
   delivery: Pick<MessageDelivery, 'deliverWaiting' | 'startAndDeliver'>;
 }
 
@@ -127,6 +133,38 @@ export function messageLane(deps: MessageLaneDeps): MemberQueueLane {
     },
     moved: (item, place) => {
       deps.messages.rerouteRecipient(item.source.id, item.member, place);
+    },
+    // The message ends here undelivered (PM-1248): the timeline says so, and an AI sender of an action hears it
+    // through an info message, which wakes nobody (decision 44).
+    dropped: async (item, reason) => {
+      const message = messageOf(item);
+      if (!message) return;
+      deps.timeline.append({
+        projectKey: item.projectKey,
+        taskKey: item.taskKey,
+        actor: SYSTEM_ACTOR,
+        type: 'message_dropped',
+        data: { messageId: message.id, recipient: item.member, reason },
+      });
+      const config = deps.projects.cachedConfig(item.projectKey);
+      // A message of the system (or of a person) is not reported back: only the timeline knows.
+      if (!config || memberOf(config, message.from)?.kind !== 'ai' || (message.kind ?? 'action') !== 'action')
+        return;
+      await deps.messaging.send(
+        item.projectKey,
+        SYSTEM_SENDER,
+        {
+          to: [message.from],
+          taskKey: item.taskKey,
+          text: messageDroppedNotice({
+            recipient: item.member,
+            taskKey: item.taskKey,
+            reason,
+            quote: quoteOf(message.body),
+          }),
+        },
+        { kind: 'info', actor: SYSTEM_ACTOR, workItem: { type: 'general' } },
+      );
     },
     deliverLive: (session) => deps.delivery.deliverWaiting(session),
     start: ({ member, place, items, run }) =>

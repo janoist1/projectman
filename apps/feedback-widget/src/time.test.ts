@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setWidgetLanguage } from './i18n';
 import { messageTime, relativeTime } from './time';
 
 const NOW = new Date(2026, 9, 12, 12, 0, 0).getTime();
@@ -21,6 +22,23 @@ describe('relativeTime', () => {
 
   it('returns nothing for a date it cannot read', () => {
     expect(relativeTime('nonsense', NOW)).toBe('');
+  });
+});
+
+describe('in English', () => {
+  afterEach(() => setWidgetLanguage('hu'));
+
+  it('uses the singular and the plural form of a relative time', () => {
+    setWidgetLanguage('en');
+    expect(relativeTime(ago(MINUTE), NOW)).toBe('1 minute ago');
+    expect(relativeTime(ago(5 * MINUTE), NOW)).toBe('5 minutes ago');
+    expect(relativeTime(ago(2 * HOUR), NOW)).toBe('2 hours ago');
+    expect(relativeTime(ago(3 * DAY), NOW)).toBe('3 days ago');
+  });
+
+  it('gives an older date as day and month', () => {
+    setWidgetLanguage('en');
+    expect(messageTime(new Date(2026, 9, 3, 14, 2).toISOString(), NOW)).toBe('3 Oct at 14:02');
   });
 });
 

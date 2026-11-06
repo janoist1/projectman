@@ -178,6 +178,48 @@ describe('engine local limit', () => {
       },
     );
 
+    it.each([false, true])('refuses a reading session without a portable boundary (%j)', async (missing) => {
+      await refused(
+        make(),
+        'session.start',
+        start({
+          policy: { ...policy(), access: 'read_only' },
+          sandbox: missing ? sandbox() : undefined,
+        }),
+        'invalid_params',
+      );
+    });
+
+    it('builds Claude read lists from the canonical boundary instead of hub lists', async () => {
+      const original = worktreeStart();
+      const physical = path.join(original.cwd, 'physical');
+      const alias = path.join(original.cwd, 'alias');
+      mkdirSync(physical, { recursive: true });
+      symlinkSync(physical, alias);
+      const input = {
+        ...original,
+        provider: 'claude',
+        sandbox: sandbox({
+          allowWrite: [],
+          allowRead: [original.cwd, alias, outside],
+          portable: {
+            allowWrite: [],
+            env: {},
+            readBoundary: {
+              deniedRoots: [],
+              allowedPaths: [
+                { path: original.cwd, kind: 'directory' },
+                { path: alias, kind: 'directory' },
+              ],
+            },
+          },
+        }),
+      };
+      const checked = await make().check('session.start', input as never);
+      expect(checked.sandbox?.denyRead).toEqual(expect.arrayContaining([userHome, home]));
+      expect(checked.sandbox?.allowRead).toEqual([input.cwd, alias, physical]);
+    });
+
     it('adds its own homes while preserving an own checkout underneath app home', async () => {
       const input = worktreeStart();
       const checked = await make().check('session.start', input as never);
@@ -393,6 +435,53 @@ describe('engine local limit', () => {
         start({ policy: policy({ filesystem: { writableRoots: [userHome] } }) }),
         'path_outside_roots',
       );
+    });
+
+    describe('the provider list and the Codex modes (PM-1187)', () => {
+      it('refuses a provider that is not in the list, and takes a missing provider for Claude', async () => {
+        const limited = make({ allowedProviders: ['codex'] });
+        await refused(limited, 'session.start', start({ provider: 'gemini' }), 'provider_not_allowed');
+        await refused(limited, 'session.start', start({ provider: undefined }), 'provider_not_allowed');
+        await expect(limited.check('session.start', worktreeStart('codex') as never)).resolves.toBeDefined();
+      });
+
+      it('starts any provider while the list is absent', async () => {
+        await expect(
+          make().check('session.start', start({ provider: 'gemini' }) as never),
+        ).resolves.toBeDefined();
+      });
+
+      it('starts no session with an empty list', async () => {
+        await refused(make({ allowedProviders: [] }), 'session.start', start(), 'provider_not_allowed');
+      });
+
+      const codexStart = (access: 'task_worktree' | 'read_only', provider: 'codex' | 'nanogpt' = 'codex') => {
+        const input = worktreeStart(provider);
+        return {
+          ...input,
+          policy: {
+            ...input.policy,
+            access,
+            permissions: { ...input.policy.permissions, approval: 'on-request' },
+          },
+        };
+      };
+
+      it.each(['codex', 'nanogpt'] as const)(
+        'refuses a %s writer in the default mode: its sandbox is read-only and it asks',
+        async (provider) => {
+          await refused(
+            make(),
+            'session.start',
+            codexStart('task_worktree', provider),
+            'permission_mode_too_low',
+          );
+        },
+      );
+
+      it('starts a Codex reading placement with the same mode', async () => {
+        await expect(make().check('session.start', codexStart('read_only') as never)).resolves.toBeDefined();
+      });
     });
 
     describe('the paths of a policy', () => {
@@ -1288,6 +1377,70 @@ describe('engine local limit', () => {
       await refused(limit, 'full_test.run', job({ requireHeavyLock: true }), 'invalid_params');
     });
 
+    it('runs a dedicated workflow only for a job registered with exactly that workflow (PM-1196)', async () => {
+      const registered = {
+        id: 'cloud-deploy',
+        command: 'npm run deploy',
+        runsOn: 'ubuntu-24.04' as const,
+        outputs: ['deploy.json'],
+        timeoutMinutes: 30,
+      };
+      const githubJob = {
+        ref: { projectKey: 'PM', repo: 'projectman' },
+        repo: 'owner/projectman',
+        base: 'main',
+        workflow: 'projectman-deploy.yml',
+        job: 'cloud-deploy',
+        commit: 'a'.repeat(40),
+        command: registered.command,
+        runsOn: registered.runsOn,
+        outputs: registered.outputs,
+        timeoutMinutes: 30,
+      };
+      const job = (change: Record<string, unknown> = {}) =>
+        fullTest({
+          cwd: 'github-job:owner/projectman',
+          command: githubJob.command,
+          githubJob: { ...githubJob, ...change },
+        });
+      const limitWith = (computeJobs: object[]) =>
+        make({
+          repos: [
+            {
+              project: 'PM',
+              repo: 'projectman',
+              path: repo,
+              fullTestCommand: 'npm test',
+              mergeBranch: 'main',
+              workspaceSetup: null,
+              computeJobs: computeJobs as never,
+            },
+          ],
+        });
+      const dedicated = limitWith([{ ...registered, workflow: 'projectman-deploy.yml' }]);
+      await expect(dedicated.check('full_test.run', job() as never)).resolves.toBeDefined();
+      // The registered workflow must match: the general one, another dedicated one, or one off the list.
+      await refused(
+        dedicated,
+        'full_test.run',
+        job({ workflow: 'projectman-job.yml' }),
+        'command_not_allowed',
+      );
+      await refused(
+        dedicated,
+        'full_test.run',
+        job({ workflow: 'projectman-engine-release.yml' }),
+        'command_not_allowed',
+      );
+      await refused(dedicated, 'full_test.run', job({ workflow: 'other.yml' }), 'invalid_params');
+      // A job registered without a workflow is the general one: it never gets a dedicated workflow.
+      const general = limitWith([registered]);
+      await refused(general, 'full_test.run', job(), 'command_not_allowed');
+      await expect(
+        general.check('full_test.run', job({ workflow: 'projectman-job.yml' }) as never),
+      ).resolves.toBeDefined();
+    });
+
     it('keeps the engine’s key and configuration out of the test and screenshot sandboxes', async () => {
       const limit = make({ linkHeadersFile: path.join(base, 'keys', 'headers.json') });
       type Denials = { spec: { sandbox: { denyRead: string[]; denyWrite?: string[] } } };
@@ -1661,6 +1814,7 @@ describe('engine local limit', () => {
       }
       const commit = (files: { path: string; text: string }[], message = 'm', onto = sha) =>
         refused(limit, 'merge.commit_files', { ref, onto, files, message }, 'invalid_params');
+      await commit([{ path: '.github/workflows/x.yml', text: 'x' }]);
       await commit([{ path: 'a.md', text: 'x'.repeat(1024 * 1024 + 1) }]);
       await commit([{ path: 'a.md', text: 'é'.repeat(600 * 1024) }]); // under 1 MiB in characters, over in bytes
       await commit([{ path: 'a.md', text: 'a\0b' }]);

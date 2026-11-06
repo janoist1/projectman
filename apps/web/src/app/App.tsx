@@ -9,6 +9,7 @@ import { ToastProvider } from '../components/Toast';
 import { BoardPage } from '../features/board/BoardPage';
 import { TaskDrawer } from '../features/board/TaskDrawer';
 import { t } from '../i18n/t';
+import { useLanguage } from '../i18n/useLanguage';
 import { readStorage } from '../lib/hooks';
 import { AuthGate } from './AuthGate';
 import { NotFoundPage } from './NotFoundPage';
@@ -37,6 +38,7 @@ const projectSetupPage = lazyPage(
 );
 const setupPage = lazyPage(() => import('../features/auth/SetupPage'), 'SetupPage');
 const loginPage = lazyPage(() => import('../features/auth/LoginPage'), 'LoginPage');
+const passwordResetPage = lazyPage(() => import('../features/auth/PasswordResetPage'), 'PasswordResetPage');
 const createProjectPage = lazyPage(
   () => import('../features/projects/CreateProjectPage'),
   'CreateProjectPage',
@@ -54,6 +56,8 @@ const notificationsPage = lazyPage(
   () => import('../features/notifications/NotificationsPage'),
   'NotificationsPage',
 );
+const documentsPage = lazyPage(() => import('../features/documents/routes'), 'DocumentsRoute');
+const documentPage = lazyPage(() => import('../features/documents/routes'), 'DocumentRoute');
 const howWeWorkPage = lazyPage(() => import('../features/how-we-work/HowWeWorkPage'), 'HowWeWorkPage');
 const settingsPage = lazyPage(() => import('../features/settings/SettingsPage'), 'SettingsPage');
 
@@ -72,15 +76,15 @@ function HomeRedirect() {
   return <Navigate to={`/p/${target.key}`} replace />;
 }
 
-const notFound = <NotFoundPage message={t('app.notFound')} />;
-
 export function AppRoutes() {
+  const notFound = <NotFoundPage message={t('app.notFound')} />;
   return (
     <Routes>
       <Route path="/invite/:token" element={invitePage} />
       <Route path="/owner-invite/:token" element={ownerInvitePage} />
       <Route path="/setup" element={setupPage} />
       <Route path="/login" element={loginPage} />
+      <Route path="/login/password" element={passwordResetPage} />
       <Route element={<AuthGate />}>
         <Route index element={<HomeRedirect />} />
         <Route path="/welcome" element={welcomePage} />
@@ -111,6 +115,8 @@ export function AppRoutes() {
           <Route path="feedback" element={feedbackPage} />
           <Route path="feedback/:markId" element={feedbackPage} />
           <Route path="notifications" element={notificationsPage} />
+          <Route path="docs" element={documentsPage} />
+          <Route path="docs/:slug" element={documentPage} />
           <Route path="how-we-work" element={howWeWorkPage} />
           <Route path="settings" element={settingsPage} />
           <Route path="settings/:section" element={settingsPage} />
@@ -124,11 +130,13 @@ export function AppRoutes() {
 
 export function App() {
   const [queryClient] = useState(createQueryClient);
+  const language = useLanguage();
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <ToastProvider>
-          <AppRoutes />
+          {/* A new language remounts the pages (the cache and the route stay): every text is read again. */}
+          <AppRoutes key={language} />
         </ToastProvider>
       </BrowserRouter>
     </QueryClientProvider>

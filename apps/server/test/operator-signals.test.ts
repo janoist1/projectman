@@ -34,7 +34,18 @@ async function setup() {
     },
   });
 }
-it('raises a failed process cleanup signal and resolves it on confirmed recovery', async () => {
+const failedCleanup = {
+  scopeId: 'scp_0123456789abcdef',
+  kind: 'process_group' as const,
+  outcome: 'failed' as const,
+  reason: 'stop' as const,
+  killed: true,
+  survivors: 1,
+  durationMs: 7000,
+};
+const cleanupSignals = () =>
+  h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'process_cleanup_failed');
+async function startCleanupTask() {
   await setup();
   await h.domain.tasks.create('AR', { title: 'Cleanup test' }, OWNER_ACTOR);
   await h.domain.taskStarts.start('AR', 'AR-1', {
@@ -42,19 +53,31 @@ it('raises a failed process cleanup signal and resolves it on confirmed recovery
     actor: OWNER_ACTOR,
     author: { name: 'Owner', email: 'owner@example.com' },
   });
-  const sessionId = h.runner.lastStarted().sessionId;
-  const cleanup = {
-    scopeId: 'scp_0123456789abcdef',
-    kind: 'process_group' as const,
-    outcome: 'failed' as const,
-    reason: 'stop' as const,
-    killed: true,
-    survivors: 1,
-    durationMs: 7000,
-  };
-  h.runner.emit({ type: 'exit', sessionId, exitCode: 0, signal: null, cleanup });
+  return h.runner.lastStarted().sessionId;
+}
+it('holds back the failed process cleanup signal while the failure is within the grace period', async () => {
+  const sessionId = await startCleanupTask();
+  h.runner.emit({ type: 'exit', sessionId, exitCode: 0, signal: null, cleanup: failedCleanup });
+  now = new Date(now.getTime() + 60_000);
+  h.runner.emit({ type: 'scope_recovered', sessionId, cleanup: { ...failedCleanup, reason: 'recovery' } });
   await flush();
-  const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'process_cleanup_failed');
+  expect(cleanupSignals()).toHaveLength(0);
+  h.runner.emit({
+    type: 'scope_recovered',
+    sessionId,
+    cleanup: { ...failedCleanup, outcome: 'clean', reason: 'recovery', survivors: 0 },
+  });
+  await flush();
+  expect(cleanupSignals()).toHaveLength(0);
+});
+it('raises a failed process cleanup signal and resolves it on confirmed recovery', async () => {
+  const sessionId = await startCleanupTask();
+  const cleanup = failedCleanup;
+  h.runner.emit({ type: 'exit', sessionId, exitCode: 0, signal: null, cleanup });
+  now = new Date(now.getTime() + 121_000);
+  h.runner.emit({ type: 'scope_recovered', sessionId, cleanup: { ...cleanup, reason: 'recovery' } });
+  await flush();
+  const signal = cleanupSignals()[0];
   expect(signal).toMatchObject({
     caseKey: `cleanup:${cleanup.scopeId}`,
     subject: cleanup.scopeId,
@@ -235,18 +258,11 @@ describe('Operator system signals', () => {
     });
     await h.domain.outages.check();
     await flush();
-    const alert = h.domain.inbox
-      .list('AR', { kind: 'alert', state: 'open' })
-      .find((item) => item.payload.alert === 'work_outage')!;
+    // The outage raises no inbox alert: only the project manager's signal (PM-1250).
+    expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
     const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'outage')!;
     expect(h.domain.outages.activeIds('AR')!.has(signal.subject!)).toBe(true);
-    await h.domain.inbox.resolve(
-      'AR',
-      alert.id,
-      { optionId: 'seen' },
-      (await h.domain.accessFor('AR', 'owner@example.com'))!,
-    );
-    // Acknowledging the warning does not end a still observed outage.
+    // A sweep does not end a still observed outage.
     await h.domain.operatorSignals.sweep('AR');
     expect(get(signal.id).resolvedAt).toBeNull();
     h = await restartDomainHarness(h, { now: () => now });
@@ -573,35 +589,41 @@ describe('Operator system signals', () => {
     expect(get(signal.id)).toMatchObject({ state: 'open', deliveredTo: 'pm' });
   });
 
-  it('detects a card with no eligible label setter and resolves it when the label arrives', async () => {
+  it('raises no signal for a card with no eligible label setter: the next_step ladder carries it', async () => {
     await setup();
-    const task = await h.domain.tasks.create('AR', { title: 'Nobody can approve this' }, OWNER_ACTOR);
+    await h.domain.tasks.create('AR', { title: 'Nobody can approve this' }, OWNER_ACTOR);
     // A previously stored configuration can outlive its label setter. Model that state directly.
     const config = h.domain.projects.cachedConfig('AR')!;
     config.pipeline.labels.push({ id: 'unowned', name: 'Unowned', setBy: { members: ['ghost'] } });
     config.pipeline.stages[0]!.gate = { conditions: [{ type: 'has_label', label: 'unowned' }] };
-    // Put the card at a stage whose next step requires a label nobody can set.
     await h.domain.operatorSignals.sweep('AR');
-    const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'nobody');
-    expect(signal?.caseKey).toBe(`nobody:${task.key}:${task.stageId}`);
-    h.repos.tasks.update(task.id, { labels: ['unowned'] });
-    await h.domain.operatorSignals.sweep('AR');
-    expect(get(signal!.id).resolvedAt).not.toBeNull();
+    expect(h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'nobody')).toEqual([]);
   });
 
   it('connects outage and stalled events and resolves released input', async () => {
     await setup();
-    await h.domain.ctx.events.emit('work_outage_started', {
+    h.domain.inbox.raiseAlert({
       projectKey: 'AR',
-      outageId: 'provider',
-      inboxItemId: 'alert_1',
+      title: 'Work is blocked by an outage',
+      payload: {
+        alert: 'work_outage',
+        outage: { kind: 'engine', id: 'provider', engine: null, since: new Date().toISOString() },
+        members: [],
+        tasks: [],
+        checkedAt: new Date().toISOString(),
+      },
     });
     await vi.waitFor(() => expect(h.domain.sessions.list('AR', { member: 'pm' })).toHaveLength(1));
     await flush();
     h.runner.setState((await tool()).sessionId, 'idle');
     await flush();
     const outage = h.repos.operatorSignals.list('AR')[0]!;
-    expect(outage).toMatchObject({ kind: 'outage', state: 'open', inboxItemId: 'alert_1' });
+    expect(outage).toMatchObject({
+      kind: 'outage',
+      state: 'open',
+      caseKey: 'outage:provider',
+      inboxItemId: null,
+    });
     await h.domain.ctx.events.emit('work_outage_ended', { projectKey: 'AR', outageId: 'provider' });
     expect(get(outage.id).state).toBe('resolved');
     const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });

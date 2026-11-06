@@ -156,7 +156,7 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
     expect(h.domain.tasks.get('AR', key)).toMatchObject({ labels, stageId: stage });
   });
 
-  it('gives the todo to the owners when no integrator can take it', async () => {
+  it('keeps the todo in the integrator queue when no integrator can take it, never at the owners (PM-1246)', async () => {
     await harness();
     integrator.available = false;
     const key = await create();
@@ -166,12 +166,11 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
     }
     expect(todos()).toHaveLength(1);
-    expect(questionPayloadOf(todos()[0]!)).toMatchObject({ recipient: 'owner' });
-    expect(events('obligation_handed_over')[0]?.data).toMatchObject({
-      recipient: 'owner',
-      recipientRefusal: 'integrator_unavailable',
-    });
-    expect(ownerCount()).toBe(1);
+    expect(questionPayloadOf(todos()[0]!)).toMatchObject({ recipient: 'integrator' });
+    expect(events('obligation_handed_over')[0]?.data).toMatchObject({ recipient: 'integrator' });
+    expect(events('obligation_handed_over')[0]?.data).not.toHaveProperty('recipientRefusal');
+    expect(todos()[0]!.route).toMatchObject({ kind: 'system_todo', to: 'integrator_queue' });
+    expect(ownerCount()).toBe(0);
   });
 
   it('closes without a reminder when the merge lands in time', async () => {
@@ -386,6 +385,97 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       expect(reminders(key)).toHaveLength(1);
     });
 
+    describe('a related card waits for an owner', () => {
+      const askOwner = (taskKey: string) =>
+        h.domain.inbox.create({
+          projectKey: 'AR',
+          kind: 'question',
+          source: 'dev-1',
+          taskKey,
+          assignees: ['owner'],
+          title: 'Which way?',
+          payload: { question: 'Which way?', requestedRecipient: 'owner', recipient: 'owner' },
+          options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
+        });
+
+      /** The card `key` has a merge step open for 10 minutes, then `related` waits for the owner. */
+      const pausedBy = async (setup: () => Promise<{ key: string; related: string }>) => {
+        await harness();
+        const { key, related } = await setup();
+        await requestMerge(key);
+        await sweep();
+        minutes(10);
+        const question = askOwner(related);
+        await sweep();
+        return { key, related, question };
+      };
+
+      it.each([
+        [
+          'an open prerequisite',
+          async () => {
+            const related = await create('The prerequisite');
+            const key = await create('Waits');
+            await h.domain.tasks.update(
+              'AR',
+              key,
+              { relations: { add: [{ kind: 'prerequisite', key: related }] } },
+              OWNER_ACTOR,
+            );
+            return { key, related };
+          },
+        ],
+        [
+          'the parent',
+          async () => {
+            const related = await create('The parent');
+            const key = (
+              await h.domain.tasks.create('AR', { title: 'A part', parentKey: related }, OWNER_ACTOR)
+            ).key;
+            return { key, related };
+          },
+        ],
+      ])('neither wakes, tells the pm nor hands over while %s waits, then goes on', async (_name, setup) => {
+        const { key, related, question } = await pausedBy(setup);
+        expect(rows(key)[0]).toMatchObject({ pauseReason: 'related_inbox' });
+        expect(events('obligation_paused')).toMatchObject([
+          { taskKey: key, data: { reason: 'related_inbox', waitingTaskKey: related } },
+        ]);
+        minutes(120);
+        await sweep();
+        expect(reminders(key)).toHaveLength(0);
+        expect(events('obligation_woken')).toEqual([]);
+        expect(events('obligation_pm_told')).toEqual([]);
+        expect(todos()).toHaveLength(0);
+        await h.domain.inbox.resolve(
+          'AR',
+          question.id,
+          { optionId: 'answer', note: 'Straight on' },
+          { handle: 'owner', access: 'owner' },
+        );
+        await sweep();
+        expect(rows(key)[0]).toMatchObject({ pausedSince: null, pauseReason: null });
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        expect(reminders(key)).toHaveLength(1);
+      });
+
+      it('reads the pending items once per sweep, not once per card', async () => {
+        await harness();
+        const list = vi.spyOn(h.repos.inbox, 'list');
+        await requestMerge(await create('One'));
+        await h.domain.obligations.sweep();
+        list.mockClear();
+        await h.domain.obligations.sweep();
+        const forOne = list.mock.calls.length;
+        for (const title of ['Two', 'Three', 'Four']) await requestMerge(await create(title));
+        await h.domain.obligations.sweep();
+        list.mockClear();
+        await h.domain.obligations.sweep();
+        expect(list.mock.calls.length).toBe(forOne);
+      });
+    });
+
     it('stands still while the team is paused', async () => {
       await harness();
       const key = await create();
@@ -532,6 +622,31 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       expect(questionPayloadOf(todos()[0]!)).toMatchObject({
         obligation: { kind: 'work', responsible: 'dev-1' },
       });
+    });
+
+    it('wakes the assignee and starts the session although a queued item of theirs does not wake (PM-1212)', async () => {
+      const key = await openWork();
+      h.repos.memberQueue.insert({
+        id: 'mqi_probe',
+        projectKey: 'AR',
+        member: 'dev-1',
+        kind: 'message',
+        source: { type: 'message', id: 'msg_probe' },
+        place: { type: 'task', taskKey: key },
+        taskKey: key,
+        wake: false,
+        title: 'probe',
+        from: null,
+        queuedAt: clock.toISOString(),
+      });
+      minutes(FIRST_EXPIRY);
+      await sweep();
+      expect(reminders(key)).toMatchObject([{ member: 'dev-1', wake: true }]);
+      expect(
+        h.domain.sessions
+          .list('AR', { taskKey: key })
+          .some((s) => s.member === 'dev-1' && h.domain.sessions.isRunning(s.id)),
+      ).toBe(true);
     });
 
     it('is not tracked while the assignee works on it from the start', async () => {
@@ -705,6 +820,229 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       await sweep();
       expect(rows(key).map((row) => row.kind)).toEqual(['refinement_turn']);
     });
+
+    /** PM-1225: the next step of an open card that no other kind follows. */
+    describe('next step', () => {
+      const overdueSignals = () =>
+        h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'obligation_overdue');
+      /** A part the analyst `ana` created and left in the first stage, with no `refine` label on it. */
+      const leftPart = async (adjust: (c: ProjectConfig) => void = refinery) => {
+        await harness(adjust);
+        const parent = await create();
+        const part = await h.domain.tasks.create(
+          'AR',
+          { title: 'A part', parentKey: parent },
+          aiActor('ana'),
+        );
+        await flush();
+        await stopSessions();
+        await sweep();
+        return part.key;
+      };
+
+      it('follows a part its creator left: the analyst is woken, the pm told, the work handed over', async () => {
+        const key = await leftPart();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: 'ana' }]);
+        await oneReminderOneTodo(key, 'ana', true);
+        expect(overdueSignals()).toMatchObject([{ taskKey: key }]);
+        expect(questionPayloadOf(todos()[0]!)).toMatchObject({
+          obligation: { kind: 'next_step', responsible: 'ana' },
+        });
+      });
+
+      it('makes the pm responsible when the creator of the part is away, and does not tell them again', async () => {
+        const key = await leftPart((c) => {
+          refinery(c);
+          const ana = c.team.members.find((m) => m.handle === 'ana')!;
+          if (ana.kind === 'ai') ana.onLeave = true;
+        });
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: 'pm' }]);
+        await oneReminderOneTodo(key, 'pm');
+        expect(events('obligation_pm_told')).toHaveLength(0);
+      });
+
+      /** A sweep, and another one long after: no row opens and nobody is reminded. */
+      const staysUnfollowed = async (key: string) => {
+        await sweep();
+        minutes(120);
+        await sweep();
+        expect(rows(key)).toEqual([]);
+        expect(reminders(key)).toHaveLength(0);
+        expect(todos()).toHaveLength(0);
+      };
+
+      it('opens no row for a card a person owns', async () => {
+        await harness(refinery);
+        const key = await create();
+        await flush();
+        await stopSessions();
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { status: 'blocked' });
+        await staysUnfollowed(key);
+      });
+
+      it('opens no row for a card parked in the backlog', async () => {
+        await harness(refinery);
+        const key = await create();
+        await flush();
+        await stopSessions();
+        await staysUnfollowed(key);
+      });
+
+      it('opens no row for a card that holds back for an open prerequisite', async () => {
+        await harness();
+        const first = await create('The prerequisite');
+        const key = await create('Waits');
+        await h.domain.tasks.update(
+          'AR',
+          key,
+          { relations: { add: [{ kind: 'prerequisite', key: first }] } },
+          OWNER_ACTOR,
+        );
+        await flush();
+        await stopSessions();
+        await staysUnfollowed(key);
+      });
+
+      it('opens a row with no responsible for a system step, and kicks the refinement at the first deadline', async () => {
+        await harness(refinery);
+        const key = await create();
+        // `refine` with every label of the gates on: the refinement has only its own closing step left.
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { labels: ['refine', 'scope-ok'] });
+        await sweep();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        expect(events('obligation_woken')).toMatchObject([
+          { data: { kind: 'next_step', responsible: null } },
+        ]);
+        // The refinement ran again by itself: the card left the backlog and `refine` is off.
+        const task = h.domain.tasks.get('AR', key);
+        expect(task.stageId).not.toBe('backlog');
+        expect(task.labels).not.toContain('refine');
+        // The system sends no reminder to a member: the ladder goes on from the pm.
+        expect(reminders(key)).toHaveLength(0);
+      });
+
+      it('neither wakes nor kicks a card in the ready queue that the start has not taken', async () => {
+        // The pm is on leave: nobody takes the start offer, so the card stands as the system's step to start.
+        await harness((c) => {
+          refinery(c);
+          const pm = c.team.members.find((m) => m.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = true;
+        });
+        const key = await create();
+        await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
+        await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
+        await flush();
+        await stopSessions();
+        await sweep();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        // No wake rung and no kick: the admission cycle repeats the start itself; the first rung left is the hand-over.
+        expect(events('obligation_woken')).toEqual([]);
+        expect(reminders(key)).toHaveLength(0);
+        minutes(HAND_OVER);
+        await sweep();
+        expect(events('obligation_woken')).toEqual([]);
+        expect(questionPayloadOf(todos()[0]!)).toMatchObject({ obligation: { kind: 'next_step' } });
+      });
+
+      it('opens no row for a collecting card in the ready queue while one of its parts is open', async () => {
+        await harness((c) => {
+          refinery(c);
+          const pm = c.team.members.find((m) => m.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = true;
+        });
+        const key = await create();
+        await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
+        await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
+        await h.domain.tasks.create('AR', { title: 'A part', parentKey: key }, OWNER_ACTOR);
+        await flush();
+        await stopSessions();
+        await staysUnfollowed(key);
+      });
+
+      it('opens no row and no todo for a collecting card in the work stage whose part waits on the owner', async () => {
+        await harness();
+        const key = await create();
+        await h.domain.tasks.moveToStage('AR', key, 'development', OWNER_ACTOR);
+        const part = await h.domain.tasks.create('AR', { title: 'A part', parentKey: key }, OWNER_ACTOR);
+        h.domain.inbox.create({
+          projectKey: 'AR',
+          kind: 'question',
+          source: 'dev-1',
+          taskKey: part.key,
+          assignees: ['owner'],
+          title: 'Raise the fix limit?',
+          payload: { question: 'Raise the fix limit?', requestedRecipient: 'owner', recipient: 'owner' },
+          options: [{ id: 'answer', label: 'Answer', style: 'primary' }],
+        });
+        await flush();
+        await stopSessions();
+        // Nobody works on the parent: the stage has several owners, so the step would fall to the pm.
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { status: 'waiting', assignee: null });
+        const ownerItems = ownerCount();
+        await staysUnfollowed(key);
+        expect(ownerCount()).toBe(ownerItems);
+      });
+
+      it('still opens a row for a collecting card in the ready queue whose parts are all closed', async () => {
+        await harness((c) => {
+          refinery(c);
+          const pm = c.team.members.find((m) => m.handle === 'pm')!;
+          if (pm.kind === 'ai') pm.onLeave = true;
+        });
+        const key = await create();
+        await h.domain.tasks.changeLabels('AR', key, { add: ['scope-ok'] }, OWNER_ACTOR);
+        await h.domain.tasks.moveToStage('AR', key, 'ready', OWNER_ACTOR);
+        const part = await h.domain.tasks.create('AR', { title: 'A part', parentKey: key }, OWNER_ACTOR);
+        h.repos.tasks.update(h.domain.tasks.get('AR', part.key).id, { status: 'done' });
+        await flush();
+        await stopSessions();
+        await sweep();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+      });
+
+      it('hands no overdue step to a person once the pm dismissed its signal', async () => {
+        const key = await leftPart();
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        await endTurns(key);
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        const [signal] = overdueSignals();
+        expect(rows(key)[0]).toMatchObject({ pmToldAt: expect.any(String), handedOverAt: null });
+        // The pm has the signal and judges the situation intermediate.
+        h.repos.operatorSignals.save({ ...signal!, deliveredAt: clock.toISOString(), deliveredTo: 'pm' });
+        h.domain.operatorSignals.dismissByOperator('AR', signal!.id, 'pm', 'The part is being refined.');
+        minutes(HAND_OVER);
+        await sweep();
+        await sweep();
+        expect(todos()).toHaveLength(0);
+        expect(events('obligation_handed_over')).toHaveLength(0);
+        expect(rows(key)).toEqual([]);
+        expect(ownerCount()).toBe(0);
+      });
+
+      it('kicks the automatic advance of a step card whose next gate is met', async () => {
+        await harness();
+        const key = await create();
+        await h.domain.tasks.moveToStage('AR', key, 'code_review', OWNER_ACTOR);
+        await flush();
+        await stopSessions();
+        // The end of the session has its automatic look at the card; the labels come after it, as if it missed them.
+        await flush();
+        h.repos.tasks.update(h.domain.tasks.get('AR', key).id, { labels: ['code-review-ok', 'merge-ok'] });
+        await sweep();
+        expect(rows(key)).toMatchObject([{ kind: 'next_step', responsible: null }]);
+        minutes(FIRST_EXPIRY);
+        await sweep();
+        expect(events('obligation_woken')).toHaveLength(1);
+        expect(h.domain.tasks.get('AR', key).stageId).toBe('merge');
+        expect(reminders(key)).toHaveLength(0);
+      });
+    });
   });
 
   /** PM-809: the step of an AI owner of a `step` stage (the code review of the test project, owner `cr`). */
@@ -843,8 +1181,15 @@ describe('obligations: the responsible, the deadline, one reminder, one todo', (
       minutes(120);
       await sweep();
       await sweep();
+      // The review step does not open again; what the card still waits for is the `next_step` row's, not a new review.
       expect(review(key)).toEqual([]);
-      expect(reminders(key).filter((m) => m.member === 'cr')).toHaveLength(0);
+      const sent = reminders(key).filter((m) => m.source.type === 'obligation');
+      expect(sent).toHaveLength(1);
+      const source = sent[0]!.source;
+      expect(source.type === 'obligation' && h.repos.obligations.get(source.id)).toMatchObject({
+        kind: 'next_step',
+        responsible: sent[0]!.member,
+      });
       expect(todos()).toHaveLength(0);
     });
 

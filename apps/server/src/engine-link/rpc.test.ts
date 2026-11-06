@@ -387,6 +387,12 @@ describe('engine RPC', () => {
       expect(params.safeParse(value).success).toBe(false);
     expect(result.safeParse({ status: 'ready', key: 'a'.repeat(64), changed: true }).success).toBe(true);
     expect(result.safeParse({ status: 'skipped', reason: 'not_configured' }).success).toBe(true);
+    expect(
+      result.safeParse({ status: 'skipped', reason: 'unavailable', dependencies: 'stale' }).success,
+    ).toBe(true);
+    expect(
+      result.safeParse({ status: 'skipped', reason: 'not_configured', dependencies: 'gone' }).success,
+    ).toBe(false);
     expect(result.safeParse({ status: 'ready', key: '', changed: true }).success).toBe(false);
     expect(
       result.safeParse({ status: 'ready', key: 'a'.repeat(64), changed: true, output: 'extra' }).success,

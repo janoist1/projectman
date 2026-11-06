@@ -106,17 +106,58 @@
   font-size: var(--text-sm);
 }
 
-/* The save bar stays at the bottom of the screen while the matrix is long. */
-.saveBar {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+/* A cell only an owner may change: the lock sits beside the box. */
+.lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--c-ink-3);
+}
+
+/* Why a cell was not saved: right under the cell, in the danger colour. */
+.refusal {
+  color: var(--c-blocked-text);
+  overflow-wrap: anywhere;
+  text-align: left;
+  font-weight: normal;
+  min-width: 160px;
+}
+
+/* Why the four-eyes switch is not the admin's: the lock and the sentence beside it. */
+.hint {
+  color: var(--c-ink-3);
+  font-size: var(--text-sm);
+}
+
+/* Someone else saved first: the matrix was reloaded and nothing queued was replayed. */
+.band {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  background: var(--c-line-soft);
+  font-size: var(--text-sm);
+}
+
+/* One text of a role: the field, and under it the small save row while it holds a change. */
+.textEdit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  text-align: left;
+}
+
+.textActions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px 0;
-  background: var(--c-surface);
-  border-top: 1px solid var(--c-line);
+  align-items: center;
+  gap: 6px;
+}
+
+.unsaved {
+  flex-basis: 100%;
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
 }
 
 /* ---------- phones: one folding card per role ---------- */

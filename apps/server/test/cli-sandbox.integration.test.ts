@@ -117,6 +117,13 @@ it(
           expect.stringMatching(/\/\.git\/refs\/replace$/),
           expect.stringMatching(/\/\.git\/refs\/projectman$/),
           expect.stringMatching(/\/\.git\/info\/grafts$/),
+          ...['config', 'config.lock', 'hooks', 'objects/info'].map((file) =>
+            expect.stringMatching(new RegExp(`/\\.git/${file.replaceAll('.', '\\.')}$`)),
+          ),
+          join(worktree, '.git'),
+          ...['commondir', 'gitdir', 'config.worktree', 'hooks'].map((file) =>
+            expect.stringMatching(new RegExp(`/\\.git/worktrees/[^/]+/${file.replaceAll('.', '\\.')}$`)),
+          ),
           // PM-156: the private launch files of the sessions, closed to writing as to reading.
           sessionConfigRoot,
         ],

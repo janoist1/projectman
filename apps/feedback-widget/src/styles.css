@@ -828,6 +828,46 @@ ol {
   justify-self: end;
 }
 
+/* --- deleting a mark */
+.link.danger {
+  color: var(--c-blocked-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.link.danger:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.link.danger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.del-confirm {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--c-line-soft);
+}
+.del-ask {
+  font-weight: 700;
+}
+.del-info {
+  font-size: 13px;
+  color: var(--c-ink-3);
+}
+.del-confirm .err {
+  margin: 0;
+}
+.del-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.btn.danger {
+  background: var(--c-blocked-text);
+  border-color: var(--c-blocked-text);
+  color: #fff;
+}
+
 /* --- panel */
 .back {
   align-self: flex-start;

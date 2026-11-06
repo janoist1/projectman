@@ -15,6 +15,7 @@ import type {
   QuestionRecipient,
   QuestionRecipientRefusal,
 } from './inbox';
+import type { ItemRouteReason, ItemRouteTarget } from './item-route';
 import type { ObligationKind } from './obligation';
 import type { MemberQueueCloseReason, MemberQueueItemKind } from './member-queue';
 import type { SessionStop } from './involvement';
@@ -89,6 +90,7 @@ export const TimelineEventType = z.enum([
   'attachment_added',
   'attachment_deleted',
   'feedback_linked',
+  'feedback_deleted',
   'schedule_started',
   'schedule_skipped',
   'session_started',
@@ -107,6 +109,7 @@ export const TimelineEventType = z.enum([
   'question_screened',
   'question_recipient_escalated',
   'fix_limit_recipient_escalated',
+  'item_routed',
   'question_screening_skipped',
   'question_closed',
   'question_answer_delivery',
@@ -136,8 +139,10 @@ export const TimelineEventType = z.enum([
   'super_operation_changed',
   'obligation_woken',
   'member_queue_item_closed',
+  'message_dropped',
   'obligation_handed_over',
   'obligation_pm_told',
+  'obligation_paused',
   'workspace_released',
   'host_request_opened',
   'host_request_answered',
@@ -302,7 +307,9 @@ export interface TimelineEventData {
    * for the `seniors` (those developers); `decided` `by` answered it (`wait` on, or `any` free developer);
    * `senior_took` the open question closed because such a developer got the card; `no_senior` the
    * automatic start gave the card out by the "any" rule because no developer's limit reaches its
-   * `points` (or the wait ended for that).
+   * `points` (or the wait ended for that). Since PM-1251 the `deciders` are the project manager (a
+   * `senior_wait` signal), who decides with `decide_senior_wait` and a `reason`; the owners only on a project
+   * without one.
    */
   task_senior_wait: {
     phase: 'asked' | 'decided' | 'senior_took' | 'no_senior';
@@ -312,6 +319,7 @@ export interface TimelineEventData {
     deciders?: string[];
     decision?: 'wait' | 'any';
     by?: string;
+    reason?: string;
   };
   /** Legacy: checks were replaced by labels; old events keep this shape. */
   task_check_changed: { check: string; from: string | null; to: string };
@@ -376,6 +384,11 @@ export interface TimelineEventData {
   attachment_deleted: { attachmentId: string; fileName: string; size: number; mediaType: string };
   /** A feedback mark was tied to the card (PM-506): `created` the card was opened from it, else it was linked. */
   feedback_linked: { markId: string; created: boolean };
+  /**
+   * A feedback mark tied to the card was deleted (PM-1189): the actor deleted it, `author` made it,
+   * `created` the card was opened from it. No text or image of the mark is kept.
+   */
+  feedback_deleted: { markId: string; author: string; created: boolean };
   schedule_started: { runId: string; member: string; scheduledFor: string };
   schedule_skipped: { runId: string; member: string; scheduledFor: string; reason: string };
   /**
@@ -443,13 +456,14 @@ export interface TimelineEventData {
   };
   /**
    * A request that never became an inbox item (PM-165): the member's approver is nobody
-   * (`by: 'approver_none'`) or the agent's own auto mode refused it (`by: 'classifier'`). `reason`
-   * is the agent's raw (English) explanation, shown behind "Részletek".
+   * (`by: 'approver_none'`), the agent's own auto mode refused it (`by: 'classifier'`) or the engine's
+   * own guard did (`by: 'engine_guard'`, PM-1176; `reason` is its code). `reason` is otherwise the agent's
+   * raw (English) explanation, shown behind "Részletek".
    */
   permission_refused: {
     toolName: string;
     summary: string;
-    by: 'approver_none' | 'classifier';
+    by: 'approver_none' | 'classifier' | 'engine_guard';
     reason?: string;
   };
   /**
@@ -473,12 +487,25 @@ export interface TimelineEventData {
     question: string;
     screening?: true;
     unscreened?: { reason: string; previousItemId: string };
+    /** The owner topic of an owner decision that skips the screening (PM-1190). */
+    ownerTopic?: string;
   };
   question_answered: {
     inboxItemId: string;
     answer: string;
     groupPrimaryItemId?: string;
     integratorTodo?: { optionId: 'todo_done' | 'todo_cannot'; note: string | null };
+  };
+  /**
+   * The route rule placed an item (PM-1246, `routeItem`): `requested` is the recipient the asker named, `to` the
+   * final target and `reason` why. Written for every routed item, on the card or on the project.
+   */
+  item_routed: {
+    itemId: string;
+    kind: string;
+    requested: 'owner' | 'integrator' | null;
+    to: ItemRouteTarget;
+    reason: ItemRouteReason;
   };
   question_recipient_escalated: {
     inboxItemId: string;
@@ -516,14 +543,16 @@ export interface TimelineEventData {
     answer?: string;
     todo?: QuestionTodo;
     feedbackId?: string;
+    /** The owner topic a decision or an owner's todo went to the owner under (PM-1190). */
+    ownerTopic?: string;
   };
   /** A question of `asker` went to the people with no Operator outcome (PM-556). */
   question_screening_skipped: { inboxItemId: string; asker: string; reason: 'timeout' | 'unavailable' };
-  /** The system reminded `responsible` of an open step once (PM-806, actor system); `minutes` is the deadline length. */
+  /** The system reminded `responsible` of an open step once (PM-806, actor system); `minutes` is the deadline length. No responsible (PM-1225): the system kicked its own step again. */
   obligation_woken: {
     obligationId: string;
     kind: ObligationKind;
-    responsible: MemberHandle;
+    responsible: MemberHandle | null;
     subject: string;
     openedAt: string;
     minutes: number;
@@ -538,17 +567,35 @@ export interface TimelineEventData {
     minutes: number;
     signalId: string;
   };
+  /** The deadline of a step stands still because a related card waits for an owner (PM-1247, actor system); `waitingTaskKey` is that card. */
+  obligation_paused: {
+    obligationId: string;
+    kind: ObligationKind;
+    responsible: MemberHandle | null;
+    subject: string;
+    reason: 'related_inbox';
+    waitingTaskKey: string;
+  };
   /** An automatic start no longer applies, or failed for a reason retrying cannot clear (PM-927). */
   member_queue_item_closed: {
     itemId: string;
     kind: MemberQueueItemKind;
     reason: MemberQueueCloseReason;
   };
+  /**
+   * A team message was dropped before it reached `recipient` (PM-1248): its card closed (`place_closed`) or the
+   * recipient left the team (`member_removed`). On the card the message was about, else on the project; the actor is the system.
+   */
+  message_dropped: {
+    messageId: string;
+    recipient: MemberHandle;
+    reason: 'place_closed' | 'member_removed';
+  };
   /** The step stayed open after the reminder, so the system gave it to `recipient` as a todo (PM-806, actor system). */
   obligation_handed_over: {
     obligationId: string;
     kind: ObligationKind;
-    responsible: MemberHandle;
+    responsible: MemberHandle | null;
     subject: string;
     openedAt: string;
     minutes: number;

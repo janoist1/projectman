@@ -17,6 +17,7 @@ export const queryKeys = {
   checklist: (key: string) => ['project', key, 'checklist'] as const,
   serverVersion: ['server-version'] as const,
   operatorKnowledge: (key: string) => ['project', key, 'operator-knowledge'] as const,
+  ownerQuestions: (key: string) => ['project', key, 'owner-questions'] as const,
   /** The corner member's queue (PM-894, PM-1042); the shorter key is every member and `closedSince` of it. */
   operatorQueueAll: (key: string) => ['project', key, 'operator-queue'] as const,
   operatorQueue: (key: string, handle: string, closedSince: string) =>
@@ -56,6 +57,11 @@ export const queryKeys = {
   /** A closed handoff record of a task (PM-342); its note never changes. */
   taskHandoff: (key: string, taskKey: string, handoffId: string) =>
     ['project', key, 'task-handoff', taskKey, handoffId] as const,
+  /** The project's documents: the list, one document (with its version), and its history (PM-150). */
+  documents: (key: string) => ['project', key, 'documents'] as const,
+  document: (key: string, slug: string, version?: string) =>
+    ['project', key, 'documents', slug, version ?? 'current'] as const,
+  documentHistory: (key: string, slug: string) => ['project', key, 'documents', slug, 'history'] as const,
   /** A task's attachment list: next to the task detail, not under it, so the detail's prefix never matches it. */
   attachments: (key: string, taskKey: string) => ['project', key, 'attachments', taskKey] as const,
   /** Prefix of every task detail query of a project. */
@@ -109,6 +115,8 @@ export const queryKeys = {
   members: (key: string) => ['project', key, 'members'] as const,
   roles: (key: string) => ['project', key, 'roles'] as const,
   config: (key: string) => ['project', key, 'config'] as const,
+  /** The settings history, one infinite query: the first page of 5, then pages of 50. */
+  configHistory: (key: string) => ['project', key, 'config-history'] as const,
   /** The instance's pause (PM-220): not under a project, it covers all of them. */
   instancePause: ['instancePause'] as const,
 };

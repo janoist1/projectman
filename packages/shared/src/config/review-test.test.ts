@@ -232,9 +232,8 @@ describe('review_test owner-only change', () => {
     expect(ownerOnlyChanges(two(), next)).toEqual(['locations', 'review_test']);
   });
 
-  it('is not reported for requireMerge, docs, a restated default, a new repository without a test', () => {
+  it('is not reported for requireMerge, a restated default, a new repository without a test', () => {
     expect(edited((r) => (r[0]!.requireMerge = false))).toEqual([]);
-    expect(edited((r) => (r[0]!.docs = { decisions: 'D.md' }))).toEqual([]);
     expect(edited((r) => (r[0]!.fullTestAtMerge = false))).toEqual([]);
     const restated = applyConfigPatch(
       two(),

@@ -52,7 +52,14 @@ describe('engine registry in the project change journal (PM-761)', () => {
     });
     woken = [];
     registry.useJournalWake((key) => woken.push(key));
-    repos.users.insert({ id: 'usr_t', name: 't', email: 't@example.test', passwordHash: '', createdAt: AT });
+    repos.users.insert({
+      id: 'usr_t',
+      name: 't',
+      email: 't@example.test',
+      passwordHash: '',
+      createdAt: AT,
+      language: 'hu',
+    });
     addProject('AR');
     addProject('BR');
   });

@@ -192,4 +192,62 @@ final class InstallerTests: XCTestCase {
         XCTAssertEqual(kept, ["1.1.0", "1.2.0"])
         XCTAssertEqual(fixture.layout.currentVersion(), "1.2.0")
     }
+
+    private func writeBundle(_ fixture: InstallerFixture, version: String, node: String) throws {
+        try Data("{\"version\":\"\(version)\"}".utf8).write(to: fixture.bundle.appendingPathComponent(EngineLocator.packageFile))
+        try Data(node.utf8).write(to: fixture.bundle.appendingPathComponent("bin/node"))
+    }
+    private func runtimeNames(_ fixture: InstallerFixture) -> Set<String> {
+        Set((try? FileManager.default.contentsOfDirectory(atPath: fixture.layout.runtimes.path)) ?? [])
+    }
+    func testStageMovesNodeToAContentAddressedRuntimeAndLinksIt() throws {
+        let fixture = try InstallerFixture()
+        try writeBundle(fixture, version: "1.0.0", node: "node-a")
+        _ = try fixture.installer().stage()
+        let hash = try EngineLayout.sha256(of: fixture.bundle.appendingPathComponent("bin/node"))
+        let node = fixture.layout.version("1.0.0").appendingPathComponent("bin/node")
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: node.path), "../../../runtimes/\(hash)/node")
+        XCTAssertEqual(try String(contentsOf: fixture.layout.runtime(hash)), "node-a")
+        XCTAssertEqual(try String(contentsOf: node), "node-a")
+        XCTAssertEqual(node.resolvingSymlinksInPath().path, fixture.layout.runtime(hash).resolvingSymlinksInPath().path)
+    }
+    func testSecondVersionWithTheSameNodeReusesTheRuntime() throws {
+        let fixture = try InstallerFixture()
+        try writeBundle(fixture, version: "1.0.0", node: "node-a")
+        _ = try fixture.installer().stage()
+        let runtime = try XCTUnwrap(runtimeNames(fixture).first)
+        let before = try FileManager.default.attributesOfItem(atPath: fixture.layout.runtime(runtime).path)[.systemFileNumber] as? Int
+        try writeBundle(fixture, version: "1.1.0", node: "node-a")
+        _ = try fixture.installer().stage()
+        XCTAssertEqual(runtimeNames(fixture), [runtime])
+        XCTAssertEqual(try FileManager.default.attributesOfItem(atPath: fixture.layout.runtime(runtime).path)[.systemFileNumber] as? Int, before)
+        let link = fixture.layout.version("1.1.0").appendingPathComponent("bin/node").path
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link), EngineLayout.runtimeLink(runtime))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.layout.runtime(runtime).deletingLastPathComponent().path), ["node"])
+    }
+    func testDifferentNodeGetsANewRuntime() throws {
+        let fixture = try InstallerFixture()
+        try writeBundle(fixture, version: "1.0.0", node: "node-a")
+        _ = try fixture.installer().stage()
+        try writeBundle(fixture, version: "1.1.0", node: "node-b")
+        _ = try fixture.installer().stage()
+        XCTAssertEqual(runtimeNames(fixture).count, 2)
+    }
+    func testPruneKeepsOnlyTheRuntimesOfKeptVersions() throws {
+        let fixture = try InstallerFixture()
+        for (version, node) in [("1.0.0", "node-a"), ("1.1.0", "node-b"), ("1.2.0", "node-b")] {
+            try writeBundle(fixture, version: version, node: node)
+            _ = try fixture.installer().prepare(progress: { _, _ in })
+        }
+        let kept = try EngineLayout.sha256(of: fixture.layout.version("1.2.0").appendingPathComponent("bin/node"))
+        XCTAssertEqual(fixture.layout.runtimeName(ofVersion: "1.1.0"), kept)
+        XCTAssertEqual(runtimeNames(fixture), [kept])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.layout.runtime(kept).path))
+    }
+    func testFailedCopyLeavesNoPartialRuntimeLink() throws {
+        let fixture = try InstallerFixture()
+        fixture.copyFails = true
+        XCTAssertThrowsError(try fixture.installer().stage())
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.runtimes.path))
+    }
 }

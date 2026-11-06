@@ -4,6 +4,7 @@ import { isApiError, onUnauthorized } from '../api/client';
 import { useMe, useSetUiStyle, useSetupStatus } from '../api/queries';
 import { SocketProvider } from '../api/SocketProvider';
 import { ErrorState, LoadingState } from '../components/States';
+import { setCurrentLanguage } from '../i18n/language';
 import { DEFAULT_UI_STYLE, applyUiStyle, clearUiStylePending, pendingUiStyle } from '../lib/uiStyle';
 import { MeContext } from './contexts';
 import { loginPath } from './paths';
@@ -21,6 +22,12 @@ export function AuthGate() {
   const [expired, setExpired] = useState(false);
 
   useEffect(() => onUnauthorized(() => setExpired(true)), []);
+
+  // The account's language wins over the one stored in this browser (PM-1168); it is stored for the next login page.
+  const accountLanguage = me.data?.language;
+  useEffect(() => {
+    if (accountLanguage) setCurrentLanguage(accountLanguage);
+  }, [accountLanguage]);
 
   // The style saved on the account follows the user to every device (PM-363). A choice whose save failed stays on
   // this device and is saved again now and whenever the connection returns.

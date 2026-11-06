@@ -91,6 +91,14 @@ describe('compute jobs', () => {
             node: '24',
             timeoutMinutes: 30,
           },
+          {
+            id: 'cloud-deploy',
+            workflow: 'projectman-deploy.yml',
+            command: 'npm run deploy',
+            runsOn: 'ubuntu-24.04',
+            outputs: ['deploy.json'],
+            timeoutMinutes: 30,
+          },
         ];
         config.team.members.push(
           MemberConfig.parse({
@@ -164,6 +172,19 @@ describe('compute jobs', () => {
     expect(h.domain.timeline.latest('AR', 'AR-1', 'task_note')?.data).toMatchObject({
       text: expect.stringContaining(RUN_URL),
     });
+  });
+
+  it('dispatches a registered dedicated workflow, and the general one when none is registered (PM-1196)', async () => {
+    await setup();
+
+    await start({ job: 'cloud-deploy' });
+    await start();
+    await running();
+
+    expect(jobs.pending.map((call) => call.spec.githubJob?.workflow)).toEqual([
+      'projectman-deploy.yml',
+      'projectman-job.yml',
+    ]);
   });
 
   it.each([

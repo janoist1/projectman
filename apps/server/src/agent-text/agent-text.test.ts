@@ -163,6 +163,30 @@ describe('describeEvent', () => {
       'told the project manager about the open review step (code_review@x) of cr: still no action after the reminder',
     );
   });
+  it('says why a team message was dropped undelivered (PM-1248)', () => {
+    const dropped = event('message_dropped', { messageId: 'm1', recipient: 'dev-2', reason: 'place_closed' });
+    expect(describeEvent(dropped, 100)).toContain('dev-2');
+    expect(describeEvent(dropped, 100)).toContain('card');
+    const removed = event('message_dropped', {
+      messageId: 'm1',
+      recipient: 'dev-2',
+      reason: 'member_removed',
+    });
+    expect(describeEvent(removed, 100)).toContain('no longer a member');
+  });
+  it('names the related card a paused step waits for (PM-1247)', () => {
+    const data = { kind: 'next_step', responsible: 'dev-1', subject: 'x', waitingTaskKey: 'PM-304' };
+    expect(describeEvent(event('obligation_paused', data, undefined, null), 100)).toContain('PM-304');
+  });
+  it('words the kick of a system step apart from a reminder (PM-1225)', () => {
+    const kicked = event('obligation_woken', {
+      kind: 'next_step',
+      responsible: null,
+      subject: 'x',
+      minutes: 20,
+    });
+    expect(describeEvent(kicked, 100)).toContain('ran the automatic step');
+  });
   it('names the labels of a label change', () => {
     const changed = event('task_labels_changed', { added: ['qa-ok'], removed: ['qa-failed', 'qa-retest'] });
     expect(describeEvent(changed, 100)).toBe('labels added: qa-ok; labels removed: qa-failed, qa-retest');

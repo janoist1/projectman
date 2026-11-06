@@ -4,6 +4,7 @@ import type { SuperOperationQuestionPayload } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { useEngines } from '../../api/queries';
+import { intlLocale } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { visibleCommandText } from './commandPresentation';
 import styles from './OwnerCommand.module.css';
@@ -81,7 +82,7 @@ export function OwnerCommandBody({
           </dl>
           <p>
             {t('ownerCommand.footer', {
-              time: new Date(payload.expiresAt).toLocaleTimeString('hu', {
+              time: new Date(payload.expiresAt).toLocaleTimeString(intlLocale(), {
                 hour: '2-digit',
                 minute: '2-digit',
               }),

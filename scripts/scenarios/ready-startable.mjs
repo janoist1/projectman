@@ -2,7 +2,7 @@
  * Scenario for PM-1079 (docs/SCREENSHOTS.md): the cards of the ready queue that wait for a prerequisite. It shoots,
  * at 1512 and 390 px:
  *
- *   a. the board: startable cards (green stripe, "Indítható") beside cards that wait ("Vár: … (Szakasz)", "+2"), and
+ *   a. the board: startable cards (green stripe, "Indítható") beside cards that wait ("Vár: … (Lépés)", "+2"), and
  *      the column head's "N indítható" chip
  *   b. the drawer of the card with three prerequisites ("Miért áll?")
  *   c. the board where no card can be started ("nincs indítható")

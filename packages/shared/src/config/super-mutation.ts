@@ -207,15 +207,11 @@ export function isPaidProvider(provider: AgentProvider): boolean {
 }
 
 /** The owner-only changes that are the owner's security settings in super mode. */
-const SECURITY_OWNER_ONLY_CHANGES: readonly OwnerOnlyChange[] = [
-  'operator_approval_waiver',
-  'permissions',
-  'machine_access',
-];
+const SECURITY_OWNER_ONLY_CHANGES: readonly OwnerOnlyChange[] = ['permissions', 'machine_access'];
 
 /**
  * The owner's own login and security settings changed: a human's access level, login e-mail or a human turned
- * into another kind of member, a new owner, the Operator waiver, the AI members' machine access, their permission
+ * into another kind of member, a new owner, the AI members' machine access, their permission
  * settings and the boundary delegation (the owner kept the last two on 2026-10-20, PM-862 inventory row 33).
  */
 function securityChanged(previous: ProjectConfig, next: ProjectConfig): boolean {

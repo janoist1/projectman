@@ -49,12 +49,28 @@ const MEMOIZED = new Set<WorkspaceDependencyFailure>([
 const hash = (parts: string[]) => createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 const markerSchema = readySchema.extend({ preparedAt: z.iso.datetime() });
 
+/** The end of an installer's output, enough to see why it failed (PM-1213). */
+function outputTail(output: string): string {
+  const lines = output.split(/\r?\n/).filter((line) => line.trim() !== '');
+  return lines.slice(-10).join('\n').slice(-1500);
+}
+
 class WorkspaceDependencyError extends Error {
   readonly code = 'workspace_dependencies_failed';
-  readonly details: { reason: WorkspaceDependencyFailure; exitCode: number | null; key: string | null };
-  constructor(reason: WorkspaceDependencyFailure, key: string | null, exitCode: number | null = null) {
+  readonly details: {
+    reason: WorkspaceDependencyFailure;
+    exitCode: number | null;
+    key: string | null;
+    outputTail: string | null;
+  };
+  constructor(
+    reason: WorkspaceDependencyFailure,
+    key: string | null,
+    exitCode: number | null = null,
+    output: string | null = null,
+  ) {
     super(`workspace dependency preparation failed: ${reason}`);
-    this.details = { reason, exitCode, key };
+    this.details = { reason, exitCode, key, outputTail: output === null ? null : outputTail(output) || null };
   }
 }
 
@@ -69,7 +85,11 @@ export interface WorkspaceDependencyInstallerOptions {
   heavyLockDir: string;
   worktreesRoot: string;
   denyRead: string[];
-  setupOf(project: string, repo: string): { kind: 'npm_ci'; timeoutMs: number } | null;
+  /**
+   * `implicit` (PM-1203): the engine's default, not an operator's setting. It installs member clones only
+   * where there is a lockfile and a sandbox, and never touches the engine's own checkout.
+   */
+  setupOf(project: string, repo: string): { kind: 'npm_ci'; timeoutMs: number; implicit?: boolean } | null;
   /** The engine's own binding of a repository (`repos[].path`); null: not bound here. */
   repoPathOf(project: string, repo: string): string | null;
   logger: FastifyBaseLogger;
@@ -77,6 +97,18 @@ export interface WorkspaceDependencyInstallerOptions {
   execute?: typeof runSandboxed;
   /** Temporary roots, injectable for tests just like the full-test executor's. */
   tmpDir?: string;
+}
+
+/** Nothing was installed; says whether the clone is left without usable dependencies (PM-1203). */
+async function skipped(
+  reason: 'not_configured' | 'unavailable',
+  repoPath: string,
+): Promise<Extract<WorkspaceDependenciesResult, { status: 'skipped' }>> {
+  const state = await dependencyState(repoPath).catch(() => null);
+  // Without a root lockfile there is nothing to install, so nothing to report either.
+  if (!state || state.lockTime === null) return { status: 'skipped', reason };
+  if (state.installedAt === null) return { status: 'skipped', reason, dependencies: 'missing' };
+  return state.fresh ? { status: 'skipped', reason } : { status: 'skipped', reason, dependencies: 'stale' };
 }
 
 /** Engine-owned preparation: a caller's wait ending never cancels the installation. */
@@ -113,6 +145,7 @@ export function createWorkspaceDependencyInstaller(
     let waitedMs = 0;
     let outcome = 'ready';
     let exitCode: number | null = null;
+    let tail: string | null = null;
     const store = path.join(options.home, 'workspace-deps');
     const markerDir = path.join(
       store,
@@ -189,6 +222,9 @@ export function createWorkspaceDependencyInstaller(
       for (const name of Object.keys(env)) if (name.startsWith('PROJECTMAN_')) delete env[name];
       const run: SandboxedRun = {
         cwd: request.repoPath,
+        // srt's mandatory write denials hang on its own directory; the clone's `node_modules` holds
+        // `.idea` and the like (PM-1213).
+        anchorDir: paths.sandbox,
         env,
         settings: paths.installerSettings,
         command,
@@ -213,6 +249,7 @@ export function createWorkspaceDependencyInstaller(
                     : 'install_failed',
             key,
             end.exitCode,
+            end.output,
           );
         throw err;
       }
@@ -380,6 +417,7 @@ export function createWorkspaceDependencyInstaller(
               );
       outcome = failure.details.reason;
       exitCode = failure.details.exitCode;
+      tail = failure.details.outputTail;
       if (MEMOIZED.has(failure.details.reason)) {
         const previous = failures.get(request.repoPath);
         if (
@@ -406,6 +444,7 @@ export function createWorkspaceDependencyInstaller(
           durationMs: Date.now() - started,
           exitCode,
           waitedMs,
+          ...(tail ? { outputTail: tail } : {}),
         },
         'workspace dependency preparation ended',
       );
@@ -415,7 +454,8 @@ export function createWorkspaceDependencyInstaller(
   async function refreshCheckout(request: Omit<WorkspaceDependencyRequest, 'member'>) {
     const setup = options.setupOf(request.project, request.repo);
     const bound = options.repoPathOf(request.project, request.repo);
-    if (!setup || !bound || closed) return;
+    // The checkout may be a person's own working directory: only an explicit setting touches it.
+    if (!setup || setup.implicit || !bound || closed) return;
     const [boundReal, checkoutReal] = await Promise.all([realpath(bound), realpath(request.repoPath)]);
     // Only the engine's own checkout of the bound repository; any other worktree is left alone.
     if (boundReal !== checkoutReal || (await dependencyState(checkoutReal)).fresh) return;
@@ -448,7 +488,10 @@ export function createWorkspaceDependencyInstaller(
     },
     async prepare(request, { waitMs }) {
       const setup = options.setupOf(request.project, request.repo);
-      if (!setup) return { status: 'skipped', reason: 'not_configured' };
+      if (!setup) return skipped('not_configured', request.repoPath);
+      // Nothing to install without a lockfile; the default setting stays out of such a repository.
+      if (setup.implicit && (await dependencyState(request.repoPath).catch(() => null))?.lockTime == null)
+        return skipped('not_configured', request.repoPath);
       if (closed) throw new WorkspaceDependencyError('aborted', null);
       let preparation = running.get(request.repoPath);
       if (!preparation) {
@@ -476,6 +519,12 @@ export function createWorkspaceDependencyInstaller(
             );
           }),
         ]);
+      } catch (err) {
+        // The default installation never blocks a start (PM-1203, PM-1213): the member starts and is
+        // told what is missing. An explicit setting still does; a stop of the installer is no failure.
+        if (setup.implicit && err instanceof WorkspaceDependencyError && err.details.reason !== 'aborted')
+          return skipped('unavailable', request.repoPath);
+        throw err;
       } finally {
         clearTimeout(timer);
       }

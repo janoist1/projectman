@@ -7,12 +7,18 @@ import {
 } from '@projectman/shared';
 import type { EngineId, ProjectConfig, ServerVersionView, TaskKey } from '@projectman/shared';
 import { MergeError } from '../../contracts';
-import type { BranchMerger, EngineDirectory, GithubService, PublishedRelease } from '../../contracts';
+import type {
+  BranchMerger,
+  EngineDirectory,
+  GithubService,
+  PublishedRelease,
+  UnreleasedWork,
+} from '../../contracts';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
 import { conflict, forbidden, invalid, KeyedMutex, newId } from '../../kernel';
-import { landedCards, landedMerges, resolveLandedCommit } from './landed-cards';
+import { landedBetween, landedCards, landedMerges, resolveLandedCommit } from './landed-cards';
 
 type RepoConfig = ProjectConfig['project']['repos'][number];
 
@@ -79,6 +85,30 @@ export class ReleasePublishService {
       // The download link is a convenience; it must not hide the running version either.
     }
     return { version, commit, tag, latestReleaseTag };
+  }
+
+  /**
+   * The work merged on each repository's default branch after the previous release (PM-1201), from the recorded
+   * merges alone: the same base and the same merges `publish_release` previews, so the signal and the preview
+   * agree. A repository with an unknown base (no release yet, or one that is no recorded merge) or with nothing
+   * new is left out. It reads only, never throws, and costs no git: the sweep asks it every minute.
+   */
+  unreleased(projectKey: string): UnreleasedWork[] {
+    try {
+      const config = this.deps.projects.cachedConfig(projectKey);
+      return (config?.project.repos ?? []).flatMap((repo) => {
+        const base = repo.github ? this.baseOf(projectKey, repo.name) : null;
+        if (base === null) return [];
+        const landed = landedMerges(this.deps.ctx.repos.taskMerges.mergedOf(projectKey, repo.name));
+        const since = landedBetween(landed, base) ?? [];
+        const first = since[0];
+        if (!first) return [];
+        const taskKeys = [...new Set(since.map((entry) => entry.taskKey))];
+        return [{ repo: repo.name, base, count: taskKeys.length, oldestAt: first.at, taskKeys }];
+      });
+    } catch {
+      return [];
+    }
   }
 
   /** What `publish` would do, with nothing recorded and nothing sent. */

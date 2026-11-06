@@ -1,12 +1,51 @@
+import { currentLanguage } from './language';
 import { t } from './t';
 
-/** BCP 47 locale for dates and numbers (Intl), matching the UI language. */
-export const LOCALE = 'hu-HU';
+/** BCP 47 locale for dates and numbers (Intl), matching the UI language: en-GB gives 24-hour time, day before month. */
+export function intlLocale(): 'hu-HU' | 'en-GB' {
+  return currentLanguage() === 'hu' ? 'hu-HU' : 'en-GB';
+}
 
-const timeFormat = new Intl.DateTimeFormat(LOCALE, { hour: '2-digit', minute: '2-digit' });
-const dateFormat = new Intl.DateTimeFormat(LOCALE, { month: 'short', day: 'numeric' });
-const dateYearFormat = new Intl.DateTimeFormat(LOCALE, { year: 'numeric', month: 'short', day: 'numeric' });
-const dayHeadingFormat = new Intl.DateTimeFormat(LOCALE, { weekday: 'long', month: 'long', day: 'numeric' });
+/** A formatter per language, built on first use (the language can change while the app runs). */
+function perLanguage<T>(create: (locale: string) => T): () => T {
+  const made = new Map<string, T>();
+  return () => {
+    const locale = intlLocale();
+    let formatter = made.get(locale);
+    if (!formatter) {
+      formatter = create(locale);
+      made.set(locale, formatter);
+    }
+    return formatter;
+  };
+}
+
+const numberFormatCache = new Map<string, Intl.NumberFormat>();
+
+/** A number formatter of the current language with the given options (cached per language and options). */
+export function numberFormat(options: Intl.NumberFormatOptions = {}): Intl.NumberFormat {
+  const locale = intlLocale();
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let format = numberFormatCache.get(key);
+  if (!format) {
+    format = new Intl.NumberFormat(locale, options);
+    numberFormatCache.set(key, format);
+  }
+  return format;
+}
+
+const timeFormat = perLanguage(
+  (locale) => new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }),
+);
+const dateFormat = perLanguage(
+  (locale) => new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }),
+);
+const dateYearFormat = perLanguage(
+  (locale) => new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' }),
+);
+const dayHeadingFormat = perLanguage(
+  (locale) => new Intl.DateTimeFormat(locale, { weekday: 'long', month: 'long', day: 'numeric' }),
+);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -24,12 +63,12 @@ export function daysBetween(value: string | Date, now: Date = new Date()): numbe
 }
 
 export function formatTime(value: string | Date): string {
-  return timeFormat.format(toDate(value));
+  return timeFormat().format(toDate(value));
 }
 
 export function formatDate(value: string | Date, now: Date = new Date()): string {
   const d = toDate(value);
-  return d.getFullYear() === now.getFullYear() ? dateFormat.format(d) : dateYearFormat.format(d);
+  return d.getFullYear() === now.getFullYear() ? dateFormat().format(d) : dateYearFormat().format(d);
 }
 
 /**
@@ -43,6 +82,27 @@ export function formatStamp(value: string | Date, now: Date = new Date()): strin
   if (days === 1) return t('time.yesterdayAt', { time });
   if (days === -1) return t('time.tomorrowAt', { time });
   return t('time.dateAt', { date: formatDate(value, now), time });
+}
+
+// Calendar days ("2026-10-26") are dates without a zone: read and printed in UTC so no zone shifts them.
+const calendarDayFormat = perLanguage(
+  (locale) => new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' }),
+);
+const calendarDayYearFormat = perLanguage(
+  (locale) =>
+    new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }),
+);
+
+/**
+ * A range of calendar days: "okt. 26. – nov. 1.", with the year ("2025. dec. 29. – 2026. jan. 4.") when asked
+ * for or when the range crosses a year.
+ */
+export function formatDayRange(start: string, end: string, withYear = false): string {
+  const from = new Date(`${start}T00:00:00Z`);
+  const to = new Date(`${end}T00:00:00Z`);
+  const format =
+    withYear || from.getUTCFullYear() !== to.getUTCFullYear() ? calendarDayYearFormat() : calendarDayFormat();
+  return `${format.format(from)} – ${format.format(to)}`;
 }
 
 /** Short age for cards: "ma", "tegnap", "3 napja". */
@@ -61,6 +121,15 @@ export function formatAgo(value: string | Date, now: Date = new Date()): string 
   return formatStamp(value, now);
 }
 
+/** How long something has waited: "12 perce", "5 órája", "2 napja" (never "most": a wait is at least a minute). */
+export function formatWaitAge(value: string | Date, now: Date = new Date()): string {
+  const minutes = Math.max(1, Math.floor((now.getTime() - toDate(value).getTime()) / 60_000));
+  if (minutes < 60) return t('time.minutesAgo', { count: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t('time.hoursAgo', { count: hours });
+  return t('time.daysAgo', { count: Math.floor(hours / 24) });
+}
+
 /** A running clock: "0:07", "5:00", "12:03" (minutes unbounded); a negative span reads "0:00". */
 export function formatClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -73,23 +142,21 @@ export function formatDayHeading(value: string | Date, now: Date = new Date()): 
   const days = daysBetween(value, now);
   if (days <= 0) return t('time.todayHeading');
   if (days === 1) return t('time.yesterdayHeading');
-  return dayHeadingFormat.format(toDate(value));
+  return dayHeadingFormat().format(toDate(value));
 }
 
-const sizeFormat = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+const sizeFormat = () => numberFormat({ maximumFractionDigits: 1 });
 
 /** File size in decimal units, like the 25 MB limit: "812 B", "4,2 kB", "25 MB". */
 export function formatBytes(bytes: number): string {
-  if (bytes < 1000) return t('attachments.size.bytes', { value: sizeFormat.format(bytes) });
-  if (bytes < 1_000_000) return t('attachments.size.kilobytes', { value: sizeFormat.format(bytes / 1000) });
-  return t('attachments.size.megabytes', { value: sizeFormat.format(bytes / 1_000_000) });
+  if (bytes < 1000) return t('attachments.size.bytes', { value: sizeFormat().format(bytes) });
+  if (bytes < 1_000_000) return t('attachments.size.kilobytes', { value: sizeFormat().format(bytes / 1000) });
+  return t('attachments.size.megabytes', { value: sizeFormat().format(bytes / 1_000_000) });
 }
-
-const countFormat = new Intl.NumberFormat(LOCALE);
 
 /** A token count with the locale's digit grouping: "12 345". */
 export function formatTokens(count: number): string {
-  return countFormat.format(count);
+  return numberFormat().format(count);
 }
 
 export function formatPercent(value: number): string {
@@ -101,7 +168,7 @@ export function formatMemory(bytes: number | null): string {
   if (bytes === null) return t('planUsage.unknown');
   return bytes < 1024 ** 3
     ? t('machine.megabytes', { value: Math.round(bytes / 1024 ** 2) })
-    : t('machine.gigabytes', { value: sizeFormat.format(bytes / 1024 ** 3) });
+    : t('machine.gigabytes', { value: sizeFormat().format(bytes / 1024 ** 3) });
 }
 
 export function formatDuration(ms: number): string {

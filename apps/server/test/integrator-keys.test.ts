@@ -12,6 +12,7 @@ const user = (id: string) => ({
   email: `${id}@example.com`,
   passwordHash: 'test-hash',
   createdAt: START,
+  language: 'hu' as const,
 });
 
 describe('integrator key modes and lifecycle', () => {

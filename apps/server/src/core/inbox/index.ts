@@ -14,4 +14,4 @@ export { AgentQuestions, agentQuestionsOf } from './agent-question';
 export { QuestionClosing } from './question-closing';
 export { QuestionScreening } from './question-screening';
 export { OpenQuestionLabel } from './open-question-label';
-export type { IntegratorTodoAccess } from './ports';
+export type { IntegratorTodoAccess, AlertNoticeSink, AlertPmSignals } from './ports';

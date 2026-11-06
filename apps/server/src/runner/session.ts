@@ -7,6 +7,8 @@ import type { FastifyBaseLogger } from 'fastify';
 import { COMPACTING_PROVIDERS } from '../contracts';
 import type {
   DependencyGate,
+  EngineGuard,
+  EngineGuardCode,
   PauseOptions,
   PauseOutcome,
   PermissionBroker,
@@ -18,6 +20,7 @@ import type {
 } from '../contracts';
 import type { OpenScope, ProcessScopeDriver } from './process-scope';
 import type { HookPayload } from './hook-payload';
+import { exitOutputTail, OutputTail } from './exit-output';
 import { InputQueue, NotSubmittedError } from './input-queue';
 import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL, PauseState } from './pause';
 import { PermissionGate } from './permission-gate';
@@ -26,7 +29,15 @@ import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './pro
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
 import { needsDependencies, toolActivity } from './tools';
-import { TOOL_DENY_MESSAGES, claudeFileToolPaths, decideToolCall } from './tool-decision';
+import {
+  TOOL_DENY_MESSAGES,
+  claudeFileToolPaths,
+  decideToolCall,
+  engineEscalationRefused,
+  engineFileToolVerdict,
+  engineWriteZone,
+  type EngineWriteZone,
+} from './tool-decision';
 import { readTranscriptText } from './transcript/reader';
 import { TranscriptTailer } from './transcript/tailer';
 
@@ -36,6 +47,19 @@ const DIALOG_ROWS = 15;
 /** What the agent is told when its terminal question was sent to the humans' inbox instead (PM-199). */
 const QUESTION_FORWARDED =
   'Nobody reads this terminal, so the question was sent to the humans in the team inbox. The answer arrives later as a team message. Do not ask it again and do not wait here: carry on with what does not depend on the answer, or finish your turn. Next time ask with the ask_human tool.';
+
+/** What the agent is told when the broker's approval carried a changed tool input (PM-1176). */
+const UPDATED_INPUT_REFUSED =
+  'The approval changed the tool input, which this engine does not accept, so the call was denied.';
+
+/** Hooks of the main agent that show the CLI is working on a turn (PM-1205). */
+const TURN_HOOKS: ReadonlySet<string> = new Set([
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionRequest',
+  'Stop',
+]);
 
 /** The key that interrupts a turn in both CLIs. */
 const ESC = '\x1b';
@@ -87,6 +111,8 @@ interface SessionDeps {
   refreshDependencies?: (cwd: string) => Promise<void | DependencyGate>;
   logger: FastifyBaseLogger;
   broker: PermissionBroker;
+  /** Engine mode only (PM-1176): the session keeps its file tools in its write zone itself. */
+  engineGuard?: EngineGuard;
   permissionTimeoutMs: number;
   emit(event: RunnerEvent): void;
   /** Called after scope cleanup and final reads, immediately before the exit event. */
@@ -117,6 +143,8 @@ export class AgentSession {
   private readonly deps: SessionDeps;
   private readonly log: FastifyBaseLogger;
   private readonly timing: SessionTiming;
+  /** Where the file tools may write (engine mode, PM-1176); null: no guard. */
+  private readonly writeZone: EngineWriteZone | null;
   private proc: PtyProcess | null = null;
   private scope: OpenScope | null = null;
   private cleanup: Promise<SessionCleanup> | null = null;
@@ -128,6 +156,8 @@ export class AgentSession {
   private stopRequested = false;
   private readonly startedAt = Date.now();
 
+  /** The end of the CLI's raw output: the reason it leaves when it exits before it is ready (PM-1207). */
+  private readonly outputTail = new OutputTail();
   /** First SessionStart seen (or other proof that the prompt is up). */
   private ready = false;
   private readyAt = 0;
@@ -199,6 +229,7 @@ export class AgentSession {
     this.timing = args.adapter.timing;
     this.deps = args.deps;
     this.log = args.deps.logger;
+    this.writeZone = args.deps.engineGuard ? engineWriteZone(args.spec) : null;
     this.initialMessageSent = args.initialMessageSent ?? false;
     // Known up front when we chose it (Claude) or resume it (both).
     if (this.adapter.capabilities.presetSessionId || args.spec.resume) {
@@ -239,6 +270,12 @@ export class AgentSession {
       remembersSessionAllows: !this.adapter.capabilities.sessionPermissionRules,
       answer: (decision, payload) => this.adapter.permissionOutput(decision, payload),
       deny: (message) => this.adapter.denyOutput(message),
+      vetDecision: (decision, payload) => {
+        if (!this.deps.engineGuard || decision.behavior !== 'allow' || decision.updatedInput === undefined)
+          return null;
+        this.engineRefused(payload, 'updated_input');
+        return UPDATED_INPUT_REFUSED;
+      },
       // A refused call sends no PostToolUse: it is not a running tool (a pause must not wait for it).
       onDenied: (payload) => {
         if (!payload.agent_id) this.noteToolEnd(payload);
@@ -307,6 +344,7 @@ export class AgentSession {
     if (proc.pid <= 1 && this.scope) this.cleanup ??= this.scope.close('start_failed', { force: true });
     proc.onData((data) => {
       this.screen.write(data);
+      this.outputTail.push(data);
       this.quotaScreenNeedsFlush = true;
       this.deps.emit({ type: 'terminal_data', sessionId: this.id, data });
       // PTY chunks may split the error from its reset duration. Read the rendered screen
@@ -396,10 +434,11 @@ export class AgentSession {
 
   /**
    * Queues a message for the agent; resolves once the CLI took it (UserPromptSubmit), rejects when it
-   * was typed but the CLI did not take it in time (PM-571): it did not reach the agent.
+   * was typed but the CLI did not take it in time (PM-571): it did not reach the agent. A `deliveryId`
+   * keeps a retried call from typing the message again (PM-1205).
    */
-  send(text: string): Promise<void> {
-    return this.input.enqueueSubmitted(text);
+  send(text: string, deliveryId?: string): Promise<void> {
+    return this.input.enqueueSubmitted(text, deliveryId);
   }
 
   /** A message is still on its way to the agent (queued, being typed, or not yet submitted). */
@@ -770,12 +809,25 @@ export class AgentSession {
       void this.readSubagentUsage(payload.agent_transcript_path);
     }
     if (!subagent) this.noteProviderSessionId(payload);
+    // The main agent working shows the CLI took a typed message it did not report (PM-1205); Notification
+    // says the CLI is idle and a subagent may run in the background, so neither counts.
+    if (!subagent && TURN_HOOKS.has(payload.hook_event_name)) this.input.noteTurnActivity();
     const authError = this.adapter.hookAuthError(payload);
     if (authError) {
       this.authFailed(authError);
       return this.adapter.capabilities.toolGate === 'pre_tool_use' && payload.hook_event_name === 'PreToolUse'
         ? this.adapter.denyOutput(authError)
         : null;
+    }
+    // The engine's own write guard (PM-1176) comes before the dependency gate: a slow gate must not let
+    // the hook forwarder give up (it fails open) and the call run unchecked.
+    if (payload.hook_event_name === 'PreToolUse') {
+      const code = this.engineFileGuard(payload);
+      if (code) {
+        this.engineRefused(payload, code);
+        const message = TOOL_DENY_MESSAGES[code === 'denied_path' ? 'denied_path' : 'outside_writable_roots'];
+        return this.adapter.refuseToolOutput?.(message) ?? this.adapter.denyOutput(message);
+      }
     }
     if (payload.hook_event_name === 'PreToolUse' && this.deps.refreshDependencies) {
       const tool = payload.tool_name ?? '';
@@ -843,10 +895,12 @@ export class AgentSession {
             this.spec.policy,
             payload,
             this.deps.transcriptRoot ?? null,
+            ...(this.writeZone ? [this.writeZone] : []),
           );
           if (!decision) return this.adapter.denyOutput('No tool decision is available.');
           if (decision.decision === 'deny') {
             this.log.info({ sessionId: this.id, tool: name, reason: decision.reason }, 'tool call denied');
+            if (decision.reason === 'outside_writable_roots') this.engineRefused(payload, decision.reason);
             return this.adapter.denyOutput(TOOL_DENY_MESSAGES[decision.reason]);
           }
           const late = this.turnEnded;
@@ -1079,12 +1133,55 @@ export class AgentSession {
       this.apply({ kind: 'pre_tool', activity, needsInput: true });
       return null;
     }
+    // Depth in defence: the PreToolUse guard answers first, this holds if that hook never came (PM-1176).
+    const code = this.engineFileGuard(payload);
+    if (code) {
+      this.engineRefused(payload, code);
+      if (!payload.agent_id) this.noteToolEnd(payload);
+      return this.adapter.denyOutput(
+        TOOL_DENY_MESSAGES[code === 'denied_path' ? 'denied_path' : 'outside_writable_roots'],
+      );
+    }
+    // Engine mode (PM-1187): a request to run outside the provider's sandbox is never the cloud's to approve.
+    if (this.deps.engineGuard && engineEscalationRefused(this.adapter.capabilities, toolName)) {
+      this.engineRefused(payload, 'escalation_refused');
+      if (!payload.agent_id) this.noteToolEnd(payload);
+      return this.adapter.denyOutput(TOOL_DENY_MESSAGES.escalation_refused);
+    }
     // A reader's file tool: refused below the closed home, allowed where the boundary leaves it open (PM-425).
     const verdict = this.readBoundaryVerdict(payload);
     if (verdict === 'refuse') return this.adapter.denyOutput(TOOL_DENY_MESSAGES.denied_path);
     if (verdict === 'free') return this.adapter.permissionOutput({ behavior: 'allow' }, payload);
     if (!payload.agent_id) this.waitingTool = toolName;
     return this.permissions.request(payload, activity, withdrawn);
+  }
+
+  /**
+   * Engine mode (PM-1176): why this Claude Code file tool call must not run, or null. Claude Code's file
+   * tools run outside its OS sandbox, so the engine keeps them to the write zone itself and does not
+   * leave that to the cloud's approval.
+   */
+  private engineFileGuard(payload: HookPayload): EngineGuardCode | null {
+    if (!this.writeZone || this.adapter.provider !== 'claude') return null;
+    return engineFileToolVerdict(this.writeZone, payload.tool_name ?? '', payload.tool_input, this.spec.cwd);
+  }
+
+  /** The engine's own guard refused a call: one audit line (no path, no input) and a note for the cloud. */
+  private engineRefused(payload: HookPayload, code: EngineGuardCode): void {
+    const toolName = payload.tool_name ?? 'unknown';
+    this.log.info({ sessionId: this.id, tool: toolName, code }, 'tool call refused by the engine guard');
+    this.deps.engineGuard?.refused({
+      sessionId: this.id,
+      ...(this.spec.member ? { member: this.spec.member } : {}),
+      code,
+    });
+    this.deps.broker.refused?.({
+      sessionId: this.id,
+      toolName,
+      toolInput: payload.tool_input ?? null,
+      by: 'engine_guard',
+      reason: code,
+    });
   }
 
   /**
@@ -1460,16 +1557,24 @@ export class AgentSession {
 
     const failed =
       this.rateLimitFailure !== null || (!this.stopRequested && (exitCode !== 0 || (signal ?? 0) !== 0));
+    // A CLI that fails before it is ready says why in its output only (PM-1207): keep the last of it
+    // (redacted and bounded) in the log and in the session's last state.
+    const earlyExit = this.ready ? null : exitOutputTail(this.outputTail.plainText());
     // Leave a trace in the terminal, so its snapshot shows why the session is gone.
     const note = `\r\n\x1b[2m[session ended: exit code ${exitCode}${signal ? `, signal ${signal}` : ''}]\x1b[0m\r\n`;
     this.screen.write(note);
     this.deps.emit({ type: 'terminal_data', sessionId: this.id, data: note });
     if (!this.ready)
       this.log.warn(
-        { sessionId: this.id, exitCode, signal, provider: this.adapter.provider },
+        { sessionId: this.id, exitCode, signal, provider: this.adapter.provider, output: earlyExit },
         'agent CLI exited before it was ready',
       );
-    this.apply({ kind: 'exit', failed, message: this.rateLimitFailure ?? undefined });
+    const message =
+      this.rateLimitFailure ??
+      (failed && earlyExit !== null
+        ? `${this.adapter.label} exited before it was ready (exit code ${exitCode}${signal ? `, signal ${signal}` : ''})${earlyExit ? `: ${earlyExit}` : ''}`
+        : undefined);
+    this.apply({ kind: 'exit', failed, message });
     // A pause still stopping the session ends with it.
     const p = this.pauseState;
     if (p?.phase === 'stopping') {

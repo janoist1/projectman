@@ -8,6 +8,10 @@ import {
 import type { QueryClient } from '@tanstack/react-query';
 import { SESSION_CHAT_WINDOW } from '@projectman/shared';
 import type {
+  CreateDocumentRequest,
+  DeleteDocumentQuery,
+  RestoreDocumentRequest,
+  UpdateDocumentRequest,
   Task,
   CreateOwnerInviteRequest,
   CreatedOwnerInvitation,
@@ -35,6 +39,8 @@ import type {
   AcceptInviteRequest,
   EmailLoginCodeRequest,
   EmailLoginVerifyRequest,
+  PasswordCodeRequest,
+  PasswordResetRequest,
   CustomRoleRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
@@ -60,7 +66,15 @@ import type {
   LabelView,
 } from '@projectman/shared';
 import { isApiError } from './client';
-import { invalidateAttachments, patchOpenInboxCount, upsertBy, writeTask, writeTaskDetail } from './cache';
+import {
+  invalidateAttachments,
+  patchOpenInboxCount,
+  refreshConfigHistory,
+  upsertBy,
+  upsertInboxView,
+  writeTask,
+  writeTaskDetail,
+} from './cache';
 import { api } from './endpoints';
 import { unsubscribeThisDevice } from '../lib/pushDevice';
 import { queryKeys } from './queryKeys';
@@ -810,6 +824,33 @@ export function useReopenFeedback(key: string, markId: string) {
   return useFeedbackMutation<void>(key, () => api.feedbackReopen(key, markId));
 }
 
+/**
+ * Deletes a mark. The answer says whether it was already gone (someone else deleted it first): that is
+ * the same end state, so the view treats it as done with a different notice.
+ */
+export function useDeleteFeedback(key: string, markId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<{ alreadyGone: boolean }> => {
+      try {
+        await api.feedbackDelete(key, markId);
+        return { alreadyGone: false };
+      } catch (error) {
+        if (isApiError(error) && error.status === 404) return { alreadyGone: true };
+        throw error;
+      }
+    },
+    onSuccess: async () => {
+      client.removeQueries({ queryKey: queryKeys.feedbackMark(key, markId) });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.feedback(key) }),
+        // The card keeps its own line about the deletion.
+        client.invalidateQueries({ queryKey: queryKeys.taskDetails(key) }),
+      ]);
+    },
+  });
+}
+
 /** The viewer has read the thread of a mark: the unread dot and the badge come off. */
 export function useReadFeedback(key: string) {
   const client = useQueryClient();
@@ -890,7 +931,7 @@ export function useResolveInbox(key: string, myHandle: string | null) {
         },
       };
       const next = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
-        view ? { items: upsertBy(view.items, resolved, (entry) => entry.id) } : view,
+        view ? upsertInboxView(view, resolved) : view,
       );
       if (next) patchOpenInboxCount(client, key, next);
       return { previous };
@@ -923,9 +964,31 @@ export function useCheckOutage(key: string) {
     mutationFn: (itemId: string) => api.checkOutage(key, itemId),
     onSuccess: (response) => {
       const next = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
-        view ? { items: upsertBy(view.items, response.item, (entry) => entry.id) } : view,
+        view ? upsertInboxView(view, response.item) : view,
       );
       if (next) patchOpenInboxCount(client, key, next);
+    },
+  });
+}
+
+/**
+ * "Átveszem" (PM-1252): an owner takes a question that waits for the project manager. The answer holds the
+ * question as it is now (open, the owners' own); it replaces the one in the list, and the summary is read again.
+ */
+export function usePullWaitingQuestion(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) => api.pullWaitingQuestion(key, itemId),
+    onSuccess: (response) => {
+      const next = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
+        view ? upsertInboxView(view, response.item) : view,
+      );
+      if (next) patchOpenInboxCount(client, key, next);
+    },
+    onSettled: () => {
+      // The question left the Operator's trail too.
+      void client.invalidateQueries({ queryKey: queryKeys.screenedQuestionsAll(key) });
+      return client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
     },
   });
 }
@@ -940,12 +1003,35 @@ export function useConfig(key: string, enabled = true) {
   });
 }
 
+/** Rows the settings history shows before "Korábbiak", and the size of the pages after it. */
+export const HISTORY_HEAD_SIZE = 5;
+const HISTORY_PAGE_SIZE = 50;
+
+/** The settings history: the first page of 5, then pages of 50 (`fetchNextPage` is "Korábbiak" / "Továbbiak"). */
+export function useConfigHistory(key: string) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.configHistory(key),
+    queryFn: ({ pageParam }) =>
+      api.configHistory(key, {
+        offset: pageParam,
+        limit: pageParam === 0 ? HISTORY_HEAD_SIZE : HISTORY_PAGE_SIZE,
+      }),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((count, page) => count + page.entries.length, 0);
+      return last.entries.length > 0 && loaded < last.total ? loaded : undefined;
+    },
+    retry: false,
+  });
+}
+
 export function usePatchConfig(key: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: PatchConfigRequest) => api.patchConfig(key, body),
     onSuccess: async (view) => {
       client.setQueryData(queryKeys.config(key), view);
+      refreshConfigHistory(client, key);
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.roles(key) }),
         client.invalidateQueries({ queryKey: queryKeys.projects }),
@@ -960,6 +1046,7 @@ export function useRevertConfig(key: string) {
   return useMutation({
     mutationFn: (version: string) => api.revertConfig(key, { version }),
     onSuccess: async () => {
+      refreshConfigHistory(client, key);
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.config(key) }),
         client.invalidateQueries({ queryKey: queryKeys.roles(key) }),
@@ -1288,6 +1375,24 @@ export function useVerifyEmailLogin() {
   });
 }
 
+/* ---------- password set or reset with an e-mail code (PM-946) ---------- */
+
+export function useRequestPasswordCode() {
+  return useMutation({ mutationFn: (body: PasswordCodeRequest) => api.requestPasswordCode(body) });
+}
+
+/** A redeemed password code starts a session like a login: a fresh cache with `Me`. */
+export function useResetPassword() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PasswordResetRequest) => api.resetPassword(body),
+    onSuccess: (me) => {
+      client.clear();
+      client.setQueryData(queryKeys.me, me);
+    },
+  });
+}
+
 /** The cards closed in the last `days` days with their rounds and tokens (PM-222). */
 export function useClosedCardsMeasure(key: string, days: number, enabled = true) {
   return useQuery({
@@ -1433,4 +1538,59 @@ export function useUnreadTeamMessages(key: string, enabled: boolean) {
     queryFn: () => api.teamMessages(key, undefined, true),
     enabled,
   });
+}
+
+/* ---------- documents (PM-150) ---------- */
+
+export function useDocuments(key: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.documents(key),
+    queryFn: () => api.documents(key),
+    enabled,
+    retry: retryUnlessRefused,
+  });
+}
+
+/** One document; `version`: an older commit of it. A gone document (404) is final. */
+export function useDocument(key: string, slug: string, version?: string) {
+  return useQuery({
+    queryKey: queryKeys.document(key, slug, version),
+    queryFn: () => api.document(key, slug, version),
+    enabled: Boolean(slug),
+    retry: retryUnlessRefused,
+  });
+}
+
+export function useDocumentHistory(key: string, slug: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.documentHistory(key, slug),
+    queryFn: () => api.documentHistory(key, slug),
+    enabled: enabled && Boolean(slug),
+    retry: retryUnlessRefused,
+  });
+}
+
+/** A write changes the list, the document and its history: the live event would do it too, this is the quick path. */
+function useDocumentMutation<T, V>(key: string, run: (variables: V) => Promise<T>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.documents(key) }),
+  });
+}
+
+export function useCreateDocument(key: string) {
+  return useDocumentMutation(key, (body: CreateDocumentRequest) => api.createDocument(key, body));
+}
+
+export function useUpdateDocument(key: string, slug: string) {
+  return useDocumentMutation(key, (body: UpdateDocumentRequest) => api.updateDocument(key, slug, body));
+}
+
+export function useRestoreDocument(key: string, slug: string) {
+  return useDocumentMutation(key, (body: RestoreDocumentRequest) => api.restoreDocument(key, slug, body));
+}
+
+export function useDeleteDocument(key: string, slug: string) {
+  return useDocumentMutation(key, (body: DeleteDocumentQuery) => api.deleteDocument(key, slug, body));
 }

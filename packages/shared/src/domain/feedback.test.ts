@@ -3,6 +3,7 @@ import { applyConfigPatch, PatchConfigRequest } from '../config/edit';
 import type { MemberConfig, ProjectConfig } from '../config/schema';
 import { FeedbackAnchor, FeedbackConfig, FeedbackSurface } from './feedback';
 import {
+  canDeleteFeedback,
   canMarkFeedback,
   canProcessFeedback,
   feedbackCardRef,
@@ -244,6 +245,17 @@ describe('who processes and who marks', () => {
     expect(canProcessFeedback(c, human('d', 'developer', ['project_manager']))).toBe(true);
     expect(canProcessFeedback(c, ai('dev', 'developer'))).toBe(false);
     expect(canProcessFeedback(c, human('cl', 'client'))).toBe(false);
+  });
+
+  it('lets the author and a human owner or admin delete a mark, nobody else', () => {
+    const mark = { author: 'cl' };
+    expect(canDeleteFeedback(human('cl', 'client'), mark)).toBe(true);
+    expect(canDeleteFeedback(human('cl', 'developer'), mark)).toBe(true);
+    expect(canDeleteFeedback(human('o', 'owner'), mark)).toBe(true);
+    expect(canDeleteFeedback(human('a', 'admin'), mark)).toBe(true);
+    expect(canDeleteFeedback(human('d', 'developer'), mark)).toBe(false);
+    expect(canDeleteFeedback(human('cl', 'viewer'), mark)).toBe(false);
+    expect(canDeleteFeedback(ai('pm', 'project_manager'), { author: 'pm' })).toBe(false);
   });
 
   it('gives the reason a member may not mark', () => {

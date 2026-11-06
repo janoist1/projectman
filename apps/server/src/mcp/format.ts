@@ -4,6 +4,7 @@ import {
   isCardLink,
   isTheme,
   modelForProvider,
+  neutralizeMessageHeaders,
   QUESTION_SCREENING_MINUTES,
 } from '@projectman/shared';
 import type {
@@ -246,11 +247,15 @@ function signalLine(signal: OperatorSignal): string {
     process_cleanup_failed:
       "An ended session still has running processes; its workspace remains reserved (subject: the process scope). Bring this to the owners; never stop another member's processes yourself. Only if an owner explicitly asks to free the workspace, run workspace_release with the subject as scopeId and the owner's reason.",
     outage: 'A provider or engine outage needs attention.',
+    relation_check:
+      'A card changed that others relate to (subject: the relations as kind:KEY pairs; facts list them). Check each related card and its relation; fix a relation that no longer holds, then close the case with dismiss_signal and a note. It closes itself when the relations are gone.',
     nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',
     silent: 'The working session has been silent too long.',
     obligation_overdue:
       'A step stood open past its reminder and the responsible did not act (subject: the obligation; facts say who, since when and when it goes to a person). Check the card first; take the step in step if it has one, close an intermediate or resolved case with dismiss_signal and a note.',
+    senior_wait:
+      'A card waits for a developer whose limit reaches its points (subject: the obligation; facts name the card, the Seniors and why). Decide it with decide_senior_wait (wait or any, with a reason); when the choice needs more capacity (money), ask the owners first with ask_human and the cost topic.',
     idle: 'Retired kind (an old signal): the card had an AI holder, but no work ran on it for a while.',
     merge_waiting:
       'Retired kind (an old signal): the merge was requested, but the merger had not started it.',
@@ -937,7 +942,7 @@ export function formatFeedbackMark(read: FeedbackToolMark): string {
     );
   }
   if (mark.card) lines.push(`Card: ${mark.card.key} "${mark.card.title}" (${mark.card.stageName})`);
-  lines.push('', 'Text:', mark.body, '');
+  lines.push('', 'Text:', neutralizeMessageHeaders(mark.body), '');
   if (mark.thread.length > 0) {
     lines.push('Thread:');
     for (const entry of mark.thread) {
@@ -945,7 +950,7 @@ export function formatFeedbackMark(read: FeedbackToolMark): string {
       const card = entry.card ? ` ${entry.card.key}` : '';
       lines.push(
         `- ${formatTimestamp(entry.createdAt)} ${entry.actor.name} (${entry.actor.handle}) ${what}${card}` +
-          (entry.body ? `: ${entry.body}` : ''),
+          (entry.body ? `: ${neutralizeMessageHeaders(entry.body)}` : ''),
       );
     }
     lines.push('');

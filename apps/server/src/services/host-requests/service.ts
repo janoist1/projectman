@@ -1,11 +1,9 @@
 import {
-  ALERT_SEEN_OPTION,
   HOST_REQUEST_OPEN_LIMIT,
   coordinationActorRefusal,
   coordinationMemberOf,
   hostRequestRefusal,
   memberOf,
-  ownerHandles,
 } from '@projectman/shared';
 import type {
   AnswerHostRequestRequest,
@@ -46,7 +44,7 @@ interface HostRequestsDeps {
   projects: Pick<ProjectService, 'config' | 'summary'>;
   tasks: Pick<TaskService, 'find'>;
   messaging: Pick<Messaging, 'send'>;
-  inbox: Pick<InboxService, 'create'>;
+  inbox: Pick<InboxService, 'raiseAlert'>;
   timeline: Pick<TimelineService, 'append'>;
   /** Tells the host a request came in (web push); a failure only goes to the log. */
   notifyHost(
@@ -255,25 +253,14 @@ export class HostRequestsService {
       type: 'host_request_answered',
       data: { requestId: request.id, title: request.title, outcome: input.outcome },
     });
-    const owners = ownerHandles(config);
-    if (owners.length > 0) {
-      const payload: HostRequestAnsweredAlert = {
-        alert: 'host_request_answered',
-        requestId: request.id,
-        title: request.title,
-        outcome: input.outcome,
-        answer: input.answer,
-      };
-      this.deps.inbox.create({
-        projectKey,
-        kind: 'alert',
-        assignees: owners,
-        source: 'system',
-        title: request.title,
-        payload,
-        options: [ALERT_SEEN_OPTION],
-      });
-    }
+    const payload: HostRequestAnsweredAlert = {
+      alert: 'host_request_answered',
+      requestId: request.id,
+      title: request.title,
+      outcome: input.outcome,
+      answer: input.answer,
+    };
+    this.deps.inbox.raiseAlert({ projectKey, title: request.title, payload });
     const recipient = this.recipientOf(config, request);
     if (!recipient) return;
     const taskKey =

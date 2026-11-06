@@ -9,6 +9,7 @@ import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
 import type { ChangeJournal } from '../core/base';
 import type { AttachmentService, MessageAttachmentService } from '../core/attachments';
+import type { DocumentService } from '../core/documents';
 import type { BoardService, CardMeasure, InvolvementService, TaskService, TaskWaits } from '../core/tasks';
 import type { ProjectService, RoleService, ChecklistService } from '../core/projects';
 import type {
@@ -48,6 +49,7 @@ export interface ApiDomain extends AuthDomain {
   readonly superOperations: SuperOperations;
   readonly structure: StructureService;
   readonly attachments: AttachmentService;
+  readonly documents: DocumentService;
   readonly board: BoardService;
   readonly changes: ChangeJournal;
   readonly cardMeasure: CardMeasure;

@@ -1,4 +1,10 @@
-import type { MemberQueueItemKind, ProjectConfig, Session, WorkItemRef } from '@projectman/shared';
+import type {
+  MemberQueueCloseReason,
+  MemberQueueItemKind,
+  ProjectConfig,
+  Session,
+  WorkItemRef,
+} from '@projectman/shared';
 import type { StoredMemberQueueItem } from '../../db';
 import type { EnsureSessionResult, SessionStartCause } from '../sessions';
 
@@ -8,6 +14,9 @@ import type { EnsureSessionResult, SessionStartCause } from '../sessions';
  * so (the item stays `processing` until then), `finish` when the member's turn on it ends.
  */
 type MemberQueueCompletion = 'delivery' | 'source' | 'finish' | 'start';
+
+/** The close reasons after which the driver calls a lane's `dropped`. */
+export type MemberQueueDropReason = Extract<MemberQueueCloseReason, 'place_closed' | 'member_removed'>;
 
 /** What a lane tells the driver about its items; the driver works them (PM-925). */
 export interface MemberQueueLane {
@@ -43,6 +52,11 @@ export interface MemberQueueLane {
   relocate?(item: StoredMemberQueueItem): WorkItemRef | 'closed' | null;
   /** The item was moved to `place`: the lane keeps what it keeps about the place in step. */
   moved?(item: StoredMemberQueueItem, place: WorkItemRef): void;
+  /**
+   * The driver closed the item for good without delivering it, because its place closed or the member left
+   * (never for another reason): the lane may tell whoever made the item (PM-1248). It wakes nobody.
+   */
+  dropped?(item: StoredMemberQueueItem, reason: MemberQueueDropReason): void | Promise<void>;
   /** A lane that renders nothing types its items into the member's live session itself. */
   deliverLive?(session: Session, items: StoredMemberQueueItem[]): void;
   /** A lane that brings its own first input starts the session through `run` itself. */

@@ -706,6 +706,11 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
         join(gitDir, 'refs/replace'),
         join(gitDir, 'refs/projectman'),
         join(gitDir, 'info/grafts'),
+        ...['config', 'config.lock', 'hooks', 'objects/info'].map((name) => join(gitDir, name)),
+        join(spec.cwd, '.git'),
+        ...['commondir', 'gitdir', 'config.worktree', 'hooks'].map((name) =>
+          join(gitDir, 'worktrees', `${task.key}-web`, name),
+        ),
       ],
       // The app home is not below the user's home here, so it is closed on its own; the credentials
       // and the live data stay closed too: the narrower path wins over any re-opened one.
@@ -801,7 +806,7 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
       rmSync(configDir, { recursive: true, force: true });
     });
 
-    it('has no shared git directory to protect: its own clone is in the working directory', async () => {
+    it('protects git configuration and links in its independent clone', async () => {
       h = await createDomainHarness({ userHome: home, appHome, memberWorkspaces: true });
       await git(h.workspace, 'init', '--quiet', '-b', 'main');
       writeFileSync(join(h.workspace, 'README.md'), 'hello\n');
@@ -817,6 +822,16 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
       const attachments = await h.attachmentStorage.taskDirectory('AR', 'AR-1');
       expect(spec.sandbox).toEqual({
         ...common(),
+        denyWrite: [
+          'config',
+          'config.lock',
+          'config.worktree',
+          'commondir',
+          'gitdir',
+          'hooks',
+          'modules',
+          'objects/info',
+        ].map((name) => join(spec.cwd, '.git', name)),
         denyRead: [home, appHome, ...sensitivePaths({ userHome: home, appHome })],
         allowRead: [spec.cwd, attachments, ...memberDirs(), memberGitConfig(), ...homeReads()],
       });

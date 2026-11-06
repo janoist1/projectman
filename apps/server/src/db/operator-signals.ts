@@ -56,6 +56,15 @@ export function createOperatorSignalRepository(db: Db) {
       const row = openByCase.get(projectKey, caseKey) as Row | undefined;
       return row ? record(row) : null;
     },
+    /** The newest signal of the case, open or not. */
+    latestOfCase(projectKey: string, caseKey: string): OperatorSignalRecord | null {
+      const row = db
+        .prepare(
+          `SELECT ${columns} FROM operator_signals WHERE project_key = ? AND case_key = ? ORDER BY rowid DESC LIMIT 1`,
+        )
+        .get(projectKey, caseKey) as Row | undefined;
+      return row ? record(row) : null;
+    },
     get(id: string): OperatorSignalRecord | null {
       const row = db.prepare(`SELECT ${columns} FROM operator_signals WHERE id = ?`).get(id) as
         Row | undefined;

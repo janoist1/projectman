@@ -338,18 +338,40 @@ describe('the limit', () => {
   });
 });
 
+/** The example team with the `lead` member's role replaced (a PM-like lead holds only the code review duty). */
+function withLeadRole(role: string) {
+  const members = config().team.members.map((member) =>
+    member.handle === 'lead' && member.kind === 'ai' ? { ...member, role } : member,
+  );
+  return ProjectConfig.parse({ ...config(), team: { ...config().team, members } });
+}
+
+/** The example team with the `lead` and `arch` members' flags changed (leave). */
+function withOnLeave(...handles: string[]) {
+  const members = config().team.members.map((member) =>
+    handles.includes(member.handle) ? { ...member, onLeave: true } : member,
+  );
+  return ProjectConfig.parse({ ...config(), team: { ...config().team, members } });
+}
+
 describe('who decides', () => {
-  it('picks the AI member with technical direction and code review who is not the assignee', () => {
+  it('picks the AI member with the code review duty who is not the assignee', () => {
     expect(fixLimitLead(config(), ['dev'])).toBe('lead');
-    expect(fixLimitLead(config(), ['lead'])).toBeNull();
   });
 
-  it('skips a lead on leave', () => {
-    const away = config().team.members.map((member) =>
-      member.handle === 'lead' ? { ...member, onLeave: true } : member,
-    );
-    const onLeave = ProjectConfig.parse({ ...config(), team: { ...config().team, members: away } });
-    expect(fixLimitLead(onLeave, ['dev'])).toBeNull();
+  it('picks the code reviewer although they do not hold the technical direction duty', () => {
+    expect(fixLimitLead(withLeadRole('code_review'), ['dev'])).toBe('lead');
+  });
+
+  it('falls back to the technical direction holder when no code reviewer is available', () => {
+    expect(fixLimitLead(config(), ['lead'])).toBe('arch');
+    expect(fixLimitLead(withLeadRole('code_review'), ['dev', 'lead'])).toBe('arch');
+    expect(fixLimitLead(withOnLeave('lead'), ['dev'])).toBe('arch');
+  });
+
+  it('picks nobody, so a person decides, when neither duty has an available AI holder', () => {
+    expect(fixLimitLead(withOnLeave('lead', 'arch'), ['dev'])).toBeNull();
+    expect(fixLimitLead(config(), ['lead', 'arch'])).toBeNull();
   });
 
   it('picks the planner among the others with technical direction', () => {
@@ -360,6 +382,12 @@ describe('who decides', () => {
   it('asks for the more exact plan of a person from the planner, not the lead who passed the card on', () => {
     expect(fixLimitPlannerForOwner(config(), 'dev')).toBe('arch');
     expect(fixLimitPlannerForOwner(config(), 'arch')).toBeNull();
+    expect(fixLimitPlannerForOwner(withLeadRole('code_review'), 'dev')).toBe('arch');
+  });
+
+  it('does not send the more exact plan to the architect who already decided as the fallback', () => {
+    expect(fixLimitLead(withOnLeave('lead'), ['dev'])).toBe('arch');
+    expect(fixLimitPlannerForOwner(withOnLeave('lead'), 'dev')).toBeNull();
   });
 
   it('sends the people decision to the owners with the duty, else to the owners', () => {

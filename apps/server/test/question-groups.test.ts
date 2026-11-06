@@ -95,7 +95,12 @@ describe('combined owner questions', () => {
     expect(row(first).title).toBe('May both cards proceed?');
     expect(questionPayloadOf(row(first))!.group!.originalQuestion).toBe('May the first proceed?');
     expect(questionPayloadOf(row(first))!.screening!.until).toBe(deadline);
-    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', note: 'Owner decides' });
+    await h.domain.inbox.releaseScreened(first, {
+      outcome: 'decision',
+      by: 'pm',
+      ownerTopic: 'cost',
+      note: 'Owner decides',
+    });
     expect(row(first).state).toBe('open');
     expect(h.repos.inbox.get(second)!.state).toBe('screening');
     expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
@@ -143,7 +148,11 @@ describe('combined owner questions', () => {
         expect(sources.find((source) => source.itemId === id)?.question).toBe(original.payload.question);
         h.runner.setState(original.sessionId!, 'idle');
       }
-      await h.domain.inbox.releaseScreened(primaryItemId, { outcome: 'decision', by: 'pm' });
+      await h.domain.inbox.releaseScreened(primaryItemId, {
+        outcome: 'decision',
+        by: 'pm',
+        ownerTopic: 'cost',
+      });
       await resolve(primaryItemId);
       const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');
       expect(answers).toHaveLength(2);
@@ -182,7 +191,7 @@ describe('combined owner questions', () => {
       question: 'General question?',
       state: 'withdrawn',
     });
-    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
     await resolve(first);
     const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');
     expect(answers.map((message) => message.answer!.inboxItemId)).toEqual([second]);
@@ -200,10 +209,37 @@ describe('combined owner questions', () => {
       question: null,
       state: 'deleted',
     });
-    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
     await resolve(first);
     const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');
     expect(answers.map((message) => message.answer!.inboxItemId)).toEqual([first]);
+  });
+
+  it('skips only the recipient whose card is deleted while the answers are recorded (PM-1161)', async () => {
+    const [first, second] = await pair();
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
+    const insert = h.repos.messages.insert.bind(h.repos.messages);
+    vi.spyOn(h.repos.messages, 'insert').mockImplementation((message) => {
+      insert(message);
+      h.repos.db.prepare('DELETE FROM tasks WHERE key = ?').run('AR-2');
+    });
+    await resolve(first);
+    for (const id of [first, second]) expect(row(id).state).toBe('resolved');
+    const answers = h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer');
+    expect(answers.map((message) => message.answer!.inboxItemId)).toEqual([first]);
+  });
+
+  it('keeps the answer when its delivery fails after it was recorded (PM-1161)', async () => {
+    const [first, second] = await pair();
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
+    vi.spyOn(h.domain.sessions, 'assertProviderCooldown').mockImplementation(() => {
+      throw new Error('delivery failed');
+    });
+    await expect(resolve(first)).resolves.toMatchObject({ state: 'resolved' });
+    for (const id of [first, second]) expect(row(id).state).toBe('resolved');
+    expect(
+      h.repos.messages.list('AR', {}).filter((message) => message.origin?.kind === 'answer'),
+    ).toHaveLength(2);
   });
 
   it('rejects incompatible choices without writing a group or changing any question', async () => {
@@ -256,16 +292,17 @@ describe('combined owner questions', () => {
     ).rejects.toThrow('operator_owner_only');
   });
 
-  it('falls back once at the earliest deadline and never opens a linked question', async () => {
+  it('marks the representative overdue once at the earliest deadline, opens no owner question and never touches a linked one', async () => {
     const first = await ask('AR-1', 'First?');
     now = new Date(now.getTime() + 120_000);
     const second = await ask('AR-2', 'Second?');
     await combine([first, second]);
     now = new Date(now.getTime() + 480_001);
     await h.domain.questionScreening.sweep();
-    expect(row(first).state).toBe('open');
+    expect(row(first).state).toBe('screening');
+    expect(questionPayloadOf(row(first))?.screening?.waiting?.overdue).toBe(true);
     expect(h.repos.inbox.get(second)!.state).toBe('screening');
-    expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(1);
+    expect(h.domain.inbox.countOpenFor('AR', 'owner')).toBe(0);
     expect(await h.domain.inbox.releaseScreened(second, { fallback: 'timeout' })).toBeNull();
   });
 
@@ -278,7 +315,7 @@ describe('combined owner questions', () => {
     expect(h.domain.tasks.get('AR', 'AR-1').labels).not.toContain('waiting-answer');
     expect(h.domain.tasks.get('AR', 'AR-2').labels).toContain('waiting-answer');
     await expect(withdraw(first)).rejects.toThrow('question_closed');
-    await h.domain.inbox.releaseScreened(second, { outcome: 'decision', by: 'pm' });
+    await h.domain.inbox.releaseScreened(second, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
     await resolve(first);
     const answers = h.repos.messages.list('AR', {}).filter((m) => m.origin?.kind === 'answer');
     expect(questionPayloadOf(row(first))?.group?.answeredCount).toBe(1);
@@ -342,7 +379,7 @@ describe('combined owner questions', () => {
 
   it('allows moot for an opened group linked member while preserving the other answer', async () => {
     const [first, second] = await pair();
-    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
     await h.domain.teamTools.screenQuestion(await pm(), {
       itemId: second,
       outcome: 'moot',
@@ -364,7 +401,7 @@ describe('combined owner questions', () => {
 
   it('serializes a withdrawal against the owner answer and fallback without duplicating a recipient', async () => {
     const [first, second] = await pair();
-    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
     await Promise.all([
       resolve(first),
       withdraw(second, dev2).catch(() => undefined),
@@ -378,7 +415,7 @@ describe('combined owner questions', () => {
 
   it('excludes a withdrawal that acquired the group lock before the answer', async () => {
     const [first, second] = await pair();
-    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
     await Promise.all([
       h.domain.inbox.closeQuestion(second, { rule: 'withdrawn', by: 'dev-2', note: 'No longer needed' }),
       resolve(first),
@@ -389,19 +426,20 @@ describe('combined owner questions', () => {
     expect(row(second).state).toBe('cancelled');
   });
 
-  it('restores the durable group after restart and releases only its representative on timeout', async () => {
+  it('restores the durable group after restart and marks only its representative overdue on timeout', async () => {
     const [first, second] = await pair();
     now = new Date(now.getTime() + 600_001);
     h = await restartDomainHarness(h, { screenQuestions: true, now: () => now });
     await h.domain.questionScreening.sweep();
-    expect(row(first).state).toBe('open');
+    expect(row(first).state).toBe('screening');
+    expect(questionPayloadOf(row(first))?.screening?.waiting?.overdue).toBe(true);
     expect(h.repos.inbox.get(second)!.state).toBe('screening');
     expect(questionPayloadOf(row(first))?.group?.itemIds).toEqual([first, second]);
   });
 
   it('keeps the historical answer count when a source card is deleted later', async () => {
     const [first] = await pair();
-    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
     await resolve(first);
     expect(questionPayloadOf(row(first))?.group?.answeredCount).toBe(2);
     h.repos.db.prepare('DELETE FROM tasks WHERE key = ?').run('AR-2');
@@ -413,7 +451,7 @@ describe('combined owner questions', () => {
 
   it('shares one answer file through each recipient’s own visible message and deletes every reference', async () => {
     const [first, second] = await pair();
-    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
     const file = await h.domain.messageAttachments.upload({
       projectKey: 'AR',
       actor: OWNER_ACTOR,
@@ -460,7 +498,7 @@ describe('combined owner questions', () => {
 
   it('rolls back every row, file binding and timeline on a mid-fanout failure, then retries once', async () => {
     const [first, second] = await pair();
-    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm' });
+    await h.domain.inbox.releaseScreened(first, { outcome: 'decision', by: 'pm', ownerTopic: 'cost' });
     const file = await h.domain.messageAttachments.upload({
       projectKey: 'AR',
       actor: OWNER_ACTOR,

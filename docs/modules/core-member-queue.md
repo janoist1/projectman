@@ -7,27 +7,26 @@ members from it in `runtime/member-queue`.
 
 ## Member queue (PM-894)
 
-Every AI member has one durable queue of what is waiting for them: a message, an Operator todo, a fix limit decision
-(later slices add permission requests, signals, obligations and starts). Slice A (PM-894) stores and shows; slice B
-(PM-925) adds the driver that wakes members from the queue (see "Driver" below).
+Every AI member has one durable queue of what is waiting for them: a message, a screening item, a permission request, a fix limit decision,
+a signal, an obligation or a start. An integrator item (a todo, or a fix limit decision addressed to the
+connected Claude) is not queued (see below). The storage shows the queue; the driver wakes members
+from it (see "Driver" below).
 
 - **Storage**: `member_queue_items` (`apps/server/src/db/member-queue.ts`). One row per (project, member, source type,
   source id), unique, so enqueueing twice is a no-op. Columns: `kind` (`message`, `todo`, `fix_limit`, ...), the `place`
   the member works it in (a card, or `general` = the member's desk with no workspace), `wake`, `state`
-  (`queued`, `processing`, `done`, `cancelled`), the close reason, `attempts`, a wait code and the Operator's outcome.
+  (`queued`, `processing`, `done`, `cancelled`), the close reason, `attempts`, a wait code and the project manager's
+  outcome (`OperatorQueueOutcome`).
   The contract is `packages/shared/src/domain/member-queue.ts` (`MemberQueueItem`, `MemberQueueView`,
   `nominalMessagePlace`, `memberQueueSourceId`).
 - **Enqueue**: `core/member-queue` (`MemberQueue`). The two source repositories run listeners inside the transaction of
   every write (`messages.onPendingChange`, `inbox.onChange`), so a row commits with its source and no call site has to
-  remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`; the
-  `team_message_pending` table is gone since migration 99); the item closes
-  `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way. Since
-  PM-1045 the Operator gets no item at all, and since PM-1076 (decision 66) it is no member: a message to the
-  handle `operator` finds no member, and an integrator todo or narrow fix limit decision stays an open inbox item,
-  which the connected client reads through the super-mode tools (`open_integrator_todo`,
-  `resolveIntegratorTodo`). Migration 121 cancelled the Operator rows that were open (the inbox items stayed).
-  Both reconcilers are idempotent and a failure is logged and never changes what the
-  source write does.
+  remember it. A message gets an item for each AI recipient it is pending for (a receipt without `deliveredAt`); the
+  item closes `done`/`delivered` on delivery and `cancelled`/`source_closed` when the receipt is settled any other way.
+  A todo for the connected Claude or a narrow fix limit decision stays an open inbox item, which the connected Claude reads through
+  the super-mode tools (`open_integrator_todo`, `resolveIntegratorTodo`). Old rows of the retired Operator member
+  (the handle `operator` is no member) stay readable. Both reconcilers are idempotent and a failure is logged and
+  never changes what the source write does.
 - **Invariant**: the open message items are exactly the messages pending for an AI recipient. `recover()` runs at
   startup (after `messageAttachments.recover()`) and fills in what is missing or closes what is stale; running it again
   changes nothing. The pending counts, `get_project_state` and the diagnostics read the queue.
@@ -40,13 +39,15 @@ Every AI member has one durable queue of what is waiting for them: a message, an
   `wait_details`); there is no deferred-start row for it. The sweep (`DomainOptions.memberQueueSweepMs`, default 30 s,
   in the kernel's sweep list) calls `ensure` for every member with an open item, so a lost wake or a limit that lifted
   without an event is found at the next sweep. A lane (`MemberQueueLane`) says what its items are; the message lane
-  delivers as before (receipt and item close together). Items a session works (`processing`) return to the queue
+  delivers as before (receipt and item close together). An item closed as `place_closed` or `member_removed` is
+  reported to its lane (`dropped`, PM-1248): the message lane writes a `message_dropped` timeline event and sends the
+  AI sender of an `action` a non-waking info message into its general conversation. Items a session works (`processing`) return to the queue
   when the session is gone, after `MEMBER_QUEUE_MAX_ATTEMPTS` they are handed off, and after 45 minutes the session is
   stopped. An old `message_wake` deferred-start row is read once (`ensure`) and deleted.
-- **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/operator/queue` only (PM-1030 deleted the
-  per-member and all-members routes; nothing called them). Access: a person's own login (developer or more) or
-  an integrator read or super key. Legacy keys fail authentication with 401 (PM-1037). The route stays for the old Operator rows and is empty for a project after migration 121.
+- **API** (`apps/server/src/api/member-queue.ts`): `GET /api/projects/:key/project-manager/queue` only. Access: a
+  person's own login (developer or more) or a connected Claude's read or super key. Keys of the retired legacy mode fail
+  authentication with 401.
 - **WebSocket**: `member_queue_changed {projectKey, member}`, once per member per unit of work. Clients do not see it.
-- **Remote engine**: no machine-dependent part is added. The queue, the driver and the sweep live on the hub with the
-  database; only the session start crosses to an engine, as before. A member whose engine is offline waits with
+- **Remote engine**: the queue, the driver and the sweep live on the hub with the database; only the session start
+  crosses to an engine ([MACHINE-DEPENDENT.md](../MACHINE-DEPENDENT.md)). A member whose engine is offline waits with
   `engine_offline` as the item's wait, and the sweep starts it when the engine is back.

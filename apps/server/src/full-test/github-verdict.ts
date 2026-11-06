@@ -36,10 +36,24 @@ type Judgement =
   | { kind: 'passed' }
   | { kind: 'failed'; failed: WorkflowJobInfo[] }
   | { kind: 'timeout' }
+  | { kind: 'missing'; message: string }
   | { kind: 'error'; message: string };
 
-const mergeStepOf = (job: WorkflowJobInfo): WorkflowStepInfo | undefined =>
-  job.steps.find((step) => step.name === MERGE_TEST_STEP);
+/**
+ * A job GitHub finished with a verdict but whose steps are not settled: during a GitHub incident the jobs API gives
+ * an empty `steps` list, and the steps may show up later; the job can also end a moment before its `merge-test`
+ * step is marked completed. Not a skipped or cancelled job, which has no finished steps for real.
+ */
+export const stepsMissing = (job: WorkflowJobInfo): boolean => {
+  if (job.conclusion !== 'success' && job.conclusion !== 'failure') return false;
+  if (job.steps.length === 0) return true;
+  const step = mergeStepOf(job);
+  return step !== undefined && (step.status !== 'completed' || step.conclusion === null);
+};
+
+function mergeStepOf(job: WorkflowJobInfo): WorkflowStepInfo | undefined {
+  return job.steps.find((step) => step.name === MERGE_TEST_STEP);
+}
 
 const succeeded = (job: WorkflowJobInfo): boolean =>
   job.conclusion === 'success' && mergeStepOf(job)?.conclusion === 'success';
@@ -63,6 +77,12 @@ export function judge(run: WorkflowRunInfo, commit: string, jobs: readonly Workf
   if (jobs.length === 0) return { kind: 'error', message: 'The run has no jobs.' };
   const skipped = jobs.find((job) => job.conclusion === 'skipped');
   if (skipped) return { kind: 'error', message: `The job "${skipped.name}" was skipped.` };
+  const bare = jobs.find(stepsMissing);
+  if (bare)
+    return {
+      kind: 'missing',
+      message: `GitHub gave no finished ${MERGE_TEST_STEP} step for the job "${bare.name}" (${bare.conclusion}), so the test verdict is missing on GitHub's side; try the check again.`,
+    };
   const without = jobs.find((job) => !mergeStepOf(job));
   if (without) return { kind: 'error', message: `The job "${without.name}" has no ${MERGE_TEST_STEP} step.` };
   if (jobs.every(succeeded)) return { kind: 'passed' };

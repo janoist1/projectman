@@ -3,7 +3,11 @@ import {
   OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEP_KINDS,
+  OPERATOR_UNRELEASED_STEP_GAP_HOURS,
+  OWNER_SILENT_SIGNAL_KINDS,
   operatorSignalBudget,
+  ownerQuestionSignalRefusal,
+  ownerQuestionSignalRefusalMessage,
   operatorSignalStepRefusal,
 } from './operator-watch';
 import type { OperatorSignalStepTargets } from './operator-watch';
@@ -14,6 +18,20 @@ const minutesAgo = (minutes: number) => new Date(Date.parse(NOW) - minutes * 60_
 
 const idleAllowed: OperatorSignalStepTargets = { startTask: 'AR-1', members: [], taskKey: null };
 const mergeAllowed: OperatorSignalStepTargets = { startTask: null, members: ['claude'], taskKey: 'AR-2' };
+
+describe('ownerQuestionSignalRefusal (PM-1243)', () => {
+  it('lists the kinds the owners get no question about', () => {
+    expect(OWNER_SILENT_SIGNAL_KINDS).toEqual(['unreleased', 'structural_pattern', 'milestone_closed']);
+  });
+  it.each(OperatorSignalKind.options)('refuses exactly the owner-silent kinds: %s', (kind) => {
+    const silent = (OWNER_SILENT_SIGNAL_KINDS as readonly string[]).includes(kind);
+    expect(ownerQuestionSignalRefusal(kind)).toBe(silent ? 'signal_not_for_owner' : null);
+  });
+  it('tells the coordinator what to do instead', () => {
+    expect(ownerQuestionSignalRefusalMessage('unreleased')).toContain('start_member');
+    expect(ownerQuestionSignalRefusalMessage('milestone_closed')).toContain('dismiss_signal');
+  });
+});
 
 describe('operatorSignalBudget', () => {
   it('gives no step at report, one at unblock and three at drive', () => {
@@ -74,15 +92,42 @@ describe('operatorSignalStepRefusal', () => {
     });
   });
 
-  it('keeps the board kinds that only drive covers away from unblock', () => {
+  describe('the unreleased step the owner granted (PM-1201)', () => {
     const unreleased = { ...base, kind: 'unreleased', tool: 'start_member' } as const;
     const allowed = { startTask: null, members: ['devops'], taskKey: null };
     const target = { member: 'devops', taskKey: null };
-    expect(operatorSignalStepRefusal({ ...unreleased, target, allowed })).toEqual({
-      code: 'operator_no_request',
-      reason: 'kind',
+    const hoursAgo = (hours: number) => minutesAgo(hours * 60);
+
+    it.each(['report', 'unblock', 'drive'] as const)('lets the step through at level %s', (level) => {
+      expect(operatorSignalStepRefusal({ ...unreleased, level, target, allowed })).toBeNull();
+      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('unreleased');
     });
-    expect(operatorSignalStepRefusal({ ...unreleased, level: 'drive', target, allowed })).toBeNull();
+
+    it('refuses start_task: the signal gives no card to start', () => {
+      expect(
+        operatorSignalStepRefusal({ ...unreleased, level: 'report', tool: 'start_task', target, allowed }),
+      ).toEqual({
+        code: 'operator_no_request',
+        reason: 'tool',
+      });
+    });
+
+    it('allows one step a day with no limit on their number, and tells when the next one may come', () => {
+      const level = 'report';
+      const many = Array.from({ length: 5 }, (_, i) => hoursAgo(25 + i * 24));
+      expect(operatorSignalStepRefusal({ ...unreleased, level, target, allowed, stepsAt: many })).toBeNull();
+      const recent = hoursAgo(5);
+      expect(operatorSignalStepRefusal({ ...unreleased, level, target, allowed, stepsAt: [recent] })).toEqual(
+        {
+          code: 'operator_signal_budget',
+          reason: 'too_soon',
+          retryAt: new Date(
+            Date.parse(recent) + OPERATOR_UNRELEASED_STEP_GAP_HOURS * 3_600_000,
+          ).toISOString(),
+        },
+      );
+      expect(operatorSignalBudget(level, [recent], NOW, 'unreleased').left).toBe(1);
+    });
   });
 
   it('binds answer_stalled to start_member at unblock and drive, with no task start', () => {

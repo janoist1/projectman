@@ -407,6 +407,25 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     await waitState(s.sessionId, 'idle');
   });
 
+  it('types a message once when the CLI reports its prompt late, and not again for the same delivery (PM-1205)', async () => {
+    // Later than the submit timeout (8 s), well within the late wait: the Enter was not lost, the report is slow.
+    process.env.FAKE_CLAUDE_SUBMIT_HOOK_DELAY_MS = '9000';
+    await setup();
+    const s = spec();
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+
+    const options = { deliveryId: 'dlv_0123456789abcdef0123456789abcdef' };
+    await runner.runner.sendUserMessage(s.sessionId, 'Delayed report', options);
+    await assistantSaid(s.sessionId, 'Echo: Delayed report');
+    // The hub repeats the call (a lost reply): the CLI took the message, so it is not typed again.
+    await runner.runner.sendUserMessage(s.sessionId, 'Delayed report', options);
+    await waitState(s.sessionId, 'idle');
+
+    const prompts = chatOf(s.sessionId).filter((i) => i.kind === 'user_text');
+    expect(prompts.map((i) => (i.kind === 'user_text' ? i.text : ''))).toEqual(['Delayed report']);
+  });
+
   it('asks the broker for permission and remembers an "allow for this session"', async () => {
     await setup();
     const s = spec();

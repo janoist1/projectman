@@ -5,6 +5,7 @@ import {
   obligationMinutesOf,
   obligationRungsOf,
   planObligation,
+  relatedOwnerWait,
   type Obligation,
   type ObligationFacts,
 } from './obligation';
@@ -27,6 +28,8 @@ const row = (patch: Partial<Obligation> = {}): Obligation => ({
   pmToldAt: null,
   handedOverAt: null,
   inboxItemId: null,
+  decision: null,
+  decidedBy: null,
   state: 'open',
   closedAt: null,
   ...patch,
@@ -205,6 +208,12 @@ describe('obligationRungsOf', () => {
     ]);
   });
 
+  test('keeps the reminder of a step that kicks the system when nobody is responsible', () => {
+    expect(obligationRungsOf(full, { responsible: null, projectManager: 'pm', kicks: true })).toEqual([
+      ...full,
+    ]);
+  });
+
   test('drops the word to the project manager when there is none', () => {
     expect(obligationRungsOf(full, { responsible: 'dev', projectManager: null })).toEqual([
       'wake',
@@ -228,6 +237,40 @@ describe('obligationMinutesOf', () => {
 
   test('uses the configured value', () => {
     expect(obligationMinutesOf({ obligationMinutes: 10 })).toBe(10);
+  });
+});
+
+describe('relatedOwnerWait', () => {
+  const card = (key: string, patch: Partial<Parameters<typeof relatedOwnerWait>[0]> = {}) => ({
+    key,
+    parentKey: null,
+    status: 'active',
+    links: [],
+    ...patch,
+  });
+  const item = (taskKey: string, patch: Partial<{ kind: string; state: string }> = {}) => ({
+    taskKey,
+    kind: 'question',
+    state: 'open',
+    ...patch,
+  });
+  const task = card('PM-10', { links: [{ kind: 'prerequisite', ref: 'PM-11' }] });
+
+  test('names a part, an open prerequisite or the parent that waits for an owner', () => {
+    const child = card('PM-12', { parentKey: 'PM-10' });
+    expect(relatedOwnerWait(task, [child], [item('PM-12')])).toBe('PM-12');
+    expect(relatedOwnerWait(task, [card('PM-11')], [item('PM-11', { kind: 'decision' })])).toBe('PM-11');
+    expect(relatedOwnerWait({ ...task, parentKey: 'PM-9' }, [], [item('PM-9')])).toBe('PM-9');
+  });
+
+  test('skips an alert, a closed item, a done prerequisite and an unrelated card', () => {
+    const items = [item('PM-11', { kind: 'alert' }), item('PM-11', { state: 'resolved' }), item('PM-50')];
+    expect(relatedOwnerWait(task, [card('PM-11')], items)).toBeNull();
+    expect(relatedOwnerWait(task, [card('PM-11', { status: 'done' })], [item('PM-11')])).toBeNull();
+  });
+
+  test('ignores a question on the card itself', () => {
+    expect(relatedOwnerWait(task, [], [item('PM-10')])).toBeNull();
   });
 });
 

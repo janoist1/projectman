@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import type { CloudContext } from './context';
+import type { HostContext } from './context';
 import type { PipeEnd, RunResult } from './deps';
 import { CloudError, refused } from './errors';
 import type { CloudTransportError } from './errors';
@@ -19,10 +19,14 @@ const SCRIPT_LIMIT_BYTES = 90_000;
 export const HOST_SUBCOMMANDS = [
   'bootstrap',
   'receive-env',
+  /** Checks that cloud.env holds the required names; prints names only, never a value (PM-1197). */
+  'env-check',
   'receive-image',
   /** Downloads and unpacks a GitHub artifact from a pre-signed link on the standard input (PM-1154). */
   'stage-image',
   'start',
+  /** Removes the old projectman-cloud images and downloaded bundles after a healthy deploy (PM-1197). */
+  'prune-images',
   'stop',
   'status',
   'logs',
@@ -41,6 +45,7 @@ export type HostSubcommand = (typeof HOST_SUBCOMMANDS)[number];
  * listed is treated as a state change, so it waits for the load check and is never repeated by the transport.
  */
 export const READ_ONLY_SUBCOMMANDS: ReadonlySet<HostSubcommand> = new Set([
+  'env-check',
   'status',
   'logs',
   'seed-check',
@@ -162,7 +167,7 @@ export interface HostSession {
 
 /** Both transports send the same script and payload, and interpret the same host.sh responses. */
 export function createHostSession(
-  context: CloudContext,
+  context: HostContext,
   address: string,
   signal: AbortSignal,
   sshArgs: () => Promise<string[]>,
@@ -219,7 +224,7 @@ export function createHostSession(
 }
 
 /** Runs `body` with an ssh session on the machine (through SSM; see `ec2-host.ts` for what is opened and closed). */
-export function withHost<T>(context: CloudContext, body: (host: HostSession) => Promise<T>): Promise<T> {
+export function withHost<T>(context: HostContext, body: (host: HostSession) => Promise<T>): Promise<T> {
   return withEc2Host(context, body);
 }
 

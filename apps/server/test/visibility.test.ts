@@ -67,6 +67,13 @@ describe('what a member sees of their project', () => {
     expect(canSeeProjectEvent(owner, checklist)).toBe(true);
   });
 
+  it('tells a document change to every member but a client (PM-147)', () => {
+    const changed = { type: 'documents_changed', projectKey: 'AR', slug: 'plan' } as ProjectEvent;
+    for (const member of [owner, admin, developer, viewer])
+      expect(canSeeProjectEvent(member, changed)).toBe(true);
+    expect(canSeeProjectEvent(client, changed)).toBe(false);
+  });
+
   it('cuts the quote of a team message that started a session from those it is not for (PM-78)', () => {
     const lookup = (id: string) => (id === 'msg_1' ? { from: 'qa', to: ['designer'] } : null);
     const detail = (event: TimelineEvent) =>

@@ -26,15 +26,11 @@ import {
   isCoordinatorOnlySignal,
   humanInboxAssignment,
   isIntegratorTodo,
-  planIntegratorInboxEscalation,
-  integratorSideAvailable,
-  ownerHandles,
   connectedActorOf,
   ownerReservedEffect,
   canonical,
   canReadOperatorKnowledge,
   DEFAULT_OPERATOR_PREFERENCE,
-  OperatorApprovalWaiverRequest,
   OperatorKnowledgeDocument,
   OperatorPreferenceDocument,
   operatorKnowledgeApprovalOf,
@@ -50,6 +46,12 @@ import {
   CreateIntegratorAccessKeyRequest,
   IntegratorKeyAuditQuery,
   SuperAuditQuery,
+  OwnerQuestionsQuery,
+  weeklyOwnerQuestions,
+  waitingForOthers,
+  screeningWaitingSince,
+  isLinkedQuestion,
+  coordinationMemberOf,
   InvolvementQuery,
   canManageProviderKeys,
   SetProviderKeyRequest,
@@ -80,6 +82,7 @@ import {
   INLINE_MEDIA_TYPES,
   InvitationView,
   LoginRequest,
+  SetLanguageRequest,
   MAX_ATTACHMENT_BYTES,
   MAX_UNSENT_MESSAGE_ATTACHMENTS,
   canDeleteMessageAttachment,
@@ -91,6 +94,9 @@ import {
   RenameMemberRequest,
   RetireMemberRequest,
   RevertConfigRequest,
+  ConfigHistoryQuery,
+  configHistoryEntries,
+  revertMessage,
   SendMessageRequest,
   ReadTeamMessagesRequest,
   SendTeamMessageRequest,
@@ -106,8 +112,6 @@ import {
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
-  hasOperatorWaiverField,
-  operatorWaiverChanged,
   unknownPatchRepo,
   approvalRefusal,
   attachmentPreviewOf,
@@ -222,7 +226,11 @@ import {
   remainingFixExtraRounds,
   MAX_FIX_EXTRA_ROUNDS,
   FixLimitAssessment,
-  selectFixLimitRecipient,
+  isDelegableFixLimitDecision,
+  fixLimitRoutePayload,
+  fixLimitRouteTopic,
+  itemRouteRecord,
+  routeItem,
   fixLimitDeciders,
   fixLimitLead,
   fixLimitPlanner,
@@ -333,6 +341,7 @@ import type {
   TimelineEvent,
   TimelineEventData,
   TimelineEventType,
+  UiLanguage,
   WorkOutage,
 } from '@projectman/shared';
 import {
@@ -347,6 +356,7 @@ import * as fixtures from './fixtures';
 import { t } from '../i18n/t';
 import { MockEmailLogin } from './email-login';
 import { MockEmail } from './email';
+import { MockDocuments } from './documents';
 import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
 import { MockPush } from './push';
@@ -502,10 +512,10 @@ export class MockBackend {
   viewerHandle: string = fixtures.OWNER;
   /** Tests can exercise the same credential policy as REST without an HTTP bearer secret. */
   integratorMode: 'super' | 'read' | null = null;
-  /** Whether some owner has a live super key (PM-1045); the integrator's todos go to the owners without one. */
-  liveSuperKey = true;
   private readonly mergeOrders = new Map<string, { revision: number; taskKeys: string[] }>();
   user = { ...fixtures.mockUser };
+  /** The system language of whoever is logged in (PM-1177); the mock keeps one for all its accounts. */
+  language: UiLanguage = 'hu';
   /** The interface style the fake user chose (PM-363); `failUiStyleSave` makes saving it fail, as when offline. */
   uiStyle: UiStyle | undefined = undefined;
   failUiStyleSave = false;
@@ -513,6 +523,10 @@ export class MockBackend {
   structure = clone(fixtures.structureFixture);
   configVersion = fixtures.projectSummary.configVersion;
   history: ConfigVersionEntry[] = clone(fixtures.configHistory);
+  /** The configuration as of each saved version, to compare consecutive ones; the old fixture versions have none. */
+  private readonly configSnapshots = new Map<string, ProjectConfig>([
+    [this.configVersion, clone(this.config)],
+  ]);
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
@@ -605,6 +619,13 @@ export class MockBackend {
     addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
     emit: (event) => this.emit(event),
   });
+  /** The project's living documents (PM-150); a project starts without any, a test or scenario seeds them. */
+  readonly documents: MockDocuments = new MockDocuments({
+    config: () => this.config,
+    viewerHandle: () => this.viewerHandle,
+    delegated: () => this.integratorMode !== null,
+    emit: (event) => this.emit(event),
+  });
   /** The e-mail channel (PM-942): its contacts' choices and its log; a test or a scenario fills the log. */
   readonly email: MockEmail = new MockEmail({
     config: () => this.config,
@@ -673,6 +694,12 @@ export class MockBackend {
     inviteEmail: (token) => this.openClientInvite(token)?.email ?? null,
     eligible: (email) => this.emailLoginEligible(email),
     hasAccount: (email) => this.accounts.has(email),
+    hasClientAccount: (email) => this.accounts.has(email) && this.clientMemberships(email) > 0,
+    setPassword: (email, password) => {
+      const account = this.accounts.get(email);
+      if (account) account.password = password;
+      return this.startEmailSession(email, null);
+    },
     inviteDisplayName: (email) =>
       this.openInvitesOf(email).find((invite) => invite.displayName)?.displayName ?? null,
     startSession: (email, name) => this.startEmailSession(email, name),
@@ -1486,17 +1513,30 @@ export class MockBackend {
       resolution: null,
       createdAt: nowIso(),
     };
-    const recipient = selectFixLimitRecipient(
-      item,
-      this.integratorKeys.some((key) => key.mode === 'super' && key.state === 'active'),
-    );
-    item.payload = {
-      ...item.payload,
-      ...recipient,
-      ...(recipient.recipient === 'integrator' ? { integratorOpenedAt: nowIso() } : {}),
+    // Like the server: the one route rule decides (PM-1246); the owners get a decision with its topic, never a lost item.
+    const delegable = isDelegableFixLimitDecision(item);
+    const routeInput = {
+      kind: 'fix_limit' as const,
+      topic: fixLimitRouteTopic(delegable),
+      requested: null,
+      issuerMachineAccess: true,
+      pm: 'available' as const,
+      integrator: this.integratorKeys.some((key) => key.mode === 'super' && key.state === 'active'),
+      decider: false,
     };
-    this.updateTask(task.key, { fixLimit: { ...task.fixLimit!, recipient: recipient.recipient } });
+    const route = routeItem(routeInput);
+    const routed = fixLimitRoutePayload(route, delegable, nowIso());
+    item.route = itemRouteRecord(routeInput, route);
+    item.payload = { ...item.payload, ...routed };
+    this.updateTask(task.key, { fixLimit: { ...task.fixLimit!, recipient: routed.recipient } });
     this.upsertInbox(item);
+    this.addTimeline(task.key, null, 'item_routed', {
+      itemId: item.id,
+      kind: item.route.kind,
+      requested: item.route.requested,
+      to: item.route.to,
+      reason: item.route.reason,
+    });
     this.addTimeline(
       task.key,
       decider,
@@ -1990,61 +2030,12 @@ export class MockBackend {
     }
   }
 
-  sweepIntegratorTodos(now: string): void {
-    // Like the server: the integrator's items go to the owners only when no owner has a live super key (no clock).
-    if (integratorSideAvailable(this.config, () => this.liveSuperKey)) return;
-    for (const item of this.inbox) {
-      const patch = planIntegratorInboxEscalation(
-        item,
-        now,
-        ownerHandles(this.config),
-        'integrator_unavailable',
-      );
-      if (!patch) continue;
-      this.upsertInbox({ ...item, ...patch });
-      if (fixLimitDecisionOf(item)) {
-        const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
-        if (task?.fixLimit)
-          this.updateTask(task.key, {
-            fixLimit: { ...task.fixLimit, recipient: 'owner', deciders: patch.assignees },
-          });
-        this.addTimeline(
-          item.taskKey,
-          null,
-          'fix_limit_recipient_escalated',
-          {
-            inboxItemId: item.id,
-            from: 'integrator',
-            to: 'owner',
-            reason: 'integrator_unavailable',
-            openedAt: item.payload.integratorOpenedAt as string,
-          },
-          null,
-          now,
-        );
-        continue;
-      }
-      this.addTimeline(
-        item.taskKey,
-        null,
-        'question_recipient_escalated',
-        {
-          inboxItemId: item.id,
-          asker: item.source,
-          from: 'integrator',
-          to: 'owner',
-          openedAt: questionPayloadOf(item)!.integratorOpenedAt!,
-          reason: 'integrator_unavailable',
-        },
-        item.sessionId,
-        now,
-      );
-    }
-  }
-
   private commitConfig(message: string): void {
     this.syncPermissionViews();
-    this.configVersion = Math.random().toString(16).slice(2, 9);
+    this.configVersion = Array.from({ length: 5 }, () =>
+      Math.random().toString(16).slice(2, 10).padEnd(8, '0'),
+    ).join('');
+    this.configSnapshots.set(this.configVersion, clone(this.config));
     this.history.unshift({ version: this.configVersion, message, author: this.user.name, at: nowIso() });
     this.emit({ type: 'config_changed', projectKey: fixtures.PROJECT_KEY, version: this.configVersion });
   }
@@ -2060,7 +2051,6 @@ export class MockBackend {
   }
 
   private board(): BoardView {
-    this.sweepIntegratorTodos(nowIso());
     const stages = resolvedStages(this.config);
     return {
       project: {
@@ -2158,6 +2148,9 @@ export class MockBackend {
     }
     if (path === '/api/auth/email/request' && method === 'POST') return this.emailLogin.request(body);
     if (path === '/api/auth/email/verify' && method === 'POST') return this.emailLogin.verify(body);
+    if (path === '/api/auth/password/request' && method === 'POST')
+      return this.emailLogin.request(body, 'password');
+    if (path === '/api/auth/password/reset' && method === 'POST') return this.emailLogin.resetPassword(body);
     if (path === '/api/auth/logout' && method === 'POST') {
       this.auth = 'login';
       return ok();
@@ -2165,6 +2158,12 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/auth/language' && method === 'PUT') {
+      const input = parseBody(SetLanguageRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid language');
+      this.language = input.language;
+      return ok(this.me());
+    }
     if (path === '/api/me/ui-style' && method === 'PUT') {
       const input = parseBody(SetUiStyleRequest, body);
       if (!input) return error(400, 'invalid_request', 'Invalid style');
@@ -2412,6 +2411,7 @@ export class MockBackend {
     return {
       ...this.user,
       ...(this.uiStyle ? { uiStyle: this.uiStyle } : {}),
+      language: this.language,
       hostOwner: this.isHostOwner(),
       ...(this.ownerAccountIds.has(this.user.userId) ? { ownerAccount: true } : {}),
       instanceOwner: this.isHostOwner(),
@@ -2763,6 +2763,23 @@ export class MockBackend {
       if (!verdict.allowed) return error(403, verdict.code, 'Credential access refused');
     }
     let m: RegExpExecArray | null;
+    if (rest === '/operator/owner-questions' && method === 'GET') {
+      if (this.viewerAccess() !== 'owner' || this.integratorMode)
+        return error(403, 'insufficient_access', 'Own owner login required');
+      const input = OwnerQuestionsQuery.safeParse(Object.fromEntries(query));
+      if (!input.success) return error(400, 'invalid_request', 'Invalid weeks');
+      return ok(
+        weeklyOwnerQuestions(
+          this.inbox.filter((item) => !isLinkedQuestion(item)),
+          {
+            timezone: this.config.project.timezone,
+            now: new Date(nowIso()),
+            weeks: input.data.weeks,
+            coordinatorHandle: coordinationMemberOf(this.config)?.handle ?? null,
+          },
+        ),
+      );
+    }
     if (rest === '/operator-super/audit') {
       if (this.viewerAccess() !== 'owner' || this.integratorMode)
         return error(403, 'owner_only', 'Own owner login required');
@@ -2837,6 +2854,11 @@ export class MockBackend {
         this.feedback.handle(method, rest.slice('/feedback'.length), body, query) ??
         error(404, 'not_found', 'Unknown route')
       );
+    if (rest === '/documents' || rest.startsWith('/documents/'))
+      return (
+        this.documents.handle(method, rest.slice('/documents'.length), body, query) ??
+        error(404, 'not_found', 'Unknown route')
+      );
     if (rest === '/schedules' && method === 'GET') return ok(this.schedulesView());
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
@@ -2909,23 +2931,6 @@ export class MockBackend {
                 ),
               })),
           });
-    }
-    if (rest === '/operator/approval-waiver' && method === 'PUT') {
-      if (this.viewerAccess() !== 'owner')
-        return error(403, 'owner_approval_required', 'Owner login required');
-      const input = parseBody(OperatorApprovalWaiverRequest, body);
-      if (!input) return error(400, 'invalid_request', 'Invalid waiver request');
-      if (input.baseVersion !== this.configVersion)
-        return error(409, 'config_conflict', 'Configuration changed');
-      if (input.agreementVersion !== this.operatorKnowledge.agreement?.version)
-        return error(409, 'operator_knowledge_stale', 'Agreement changed');
-      this.config.team.operatorApprovalWaiver = input.enabled;
-      this.configVersion = mockId('config');
-      return ok({
-        version: this.configVersion,
-        enabled: input.enabled,
-        agreementVersion: input.agreementVersion,
-      });
     }
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
     if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
@@ -3259,7 +3264,6 @@ export class MockBackend {
       }
     }
     if (rest === '/inbox') {
-      this.sweepIntegratorTodos(nowIso());
       // Like the server: open items by default and never cut off; any other state is a history, the newest N.
       const wanted = query.get('state') ?? 'open';
       const limit = Number(query.get('limit')) || (wanted === 'open' || wanted === 'active' ? Infinity : 500);
@@ -3284,9 +3288,21 @@ export class MockBackend {
             .slice(-limit)
             .map((item) => visibleQuestionItem(this.taskViewer(), item, (key) => !!this.findTask(key))),
         ),
+        // The owner's summary of what waits for others (PM-1252): the same rule as the server.
+        ...(this.viewerAccess() === 'owner' && !this.integratorMode
+          ? {
+              waiting: waitingForOthers(
+                this.inbox.filter(
+                  (item) =>
+                    ['open', 'screening'].includes(item.state) && canSeeInboxItem(this.taskViewer(), item),
+                ),
+              ),
+            }
+          : {}),
       });
     }
     if (rest === '/inbox/screened' && method === 'GET') return this.screenedQuestions(query);
+    if ((m = /^\/inbox\/([\w-]+)\/pull$/.exec(rest)) && method === 'POST') return this.pullWaiting(m[1]!);
     if ((m = /^\/inbox\/([\w-]+)\/resolve$/.exec(rest)) && method === 'POST')
       return this.resolve(m[1]!, body);
     if ((m = /^\/inbox\/([\w-]+)\/check$/.exec(rest)) && method === 'POST') return this.checkOutage(m[1]!);
@@ -3300,8 +3316,23 @@ export class MockBackend {
       if (!input) return error(400, 'invalid_request', 'Invalid revert request');
       const target = this.history.find((entry) => entry.version === input.version);
       if (!target) return error(404, 'not_found', 'Unknown version');
-      this.commitConfig(`Revert to ${target.version}`);
+      const snapshot = this.configSnapshots.get(target.version);
+      if (snapshot) this.config = clone(snapshot);
+      this.commitConfig(revertMessage(fixtures.PROJECT_KEY, target.version));
       return ok({ version: this.configVersion });
+    }
+    if (rest === '/config/history' && method === 'GET') {
+      const page = ConfigHistoryQuery.safeParse(Object.fromEntries(query));
+      if (!page.success) return error(400, 'invalid_request', 'Invalid history query');
+      const { limit, offset } = page.data;
+      const rows = this.history.slice(offset, offset + limit + 2).map((entry) => ({
+        entry,
+        config: this.configSnapshots.get(entry.version) ?? null,
+      }));
+      return ok({
+        entries: clone(configHistoryEntries(rows, limit)),
+        total: this.history.length,
+      });
     }
     return error(404, 'not_found', `No route for ${method} ${rest}`);
   }
@@ -3317,8 +3348,6 @@ export class MockBackend {
           effect,
         });
     }
-    if (operatorWaiverChanged(this.config, next))
-      return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind !== 'human' || !['owner', 'admin'].includes(viewer.access))
       return error(403, 'insufficient_access', 'Requires admin access');
@@ -3372,8 +3401,6 @@ export class MockBackend {
   }
 
   private patchConfig(body: unknown): MockResponse {
-    if (hasOperatorWaiverField(body))
-      return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const member = memberOf(this.config, this.viewerHandle);
     if (member?.kind !== 'human' || !['owner', 'admin'].includes(member.access)) {
       return error(403, 'insufficient_access', 'Requires admin access');
@@ -3585,7 +3612,9 @@ export class MockBackend {
       return error(409, 'login_required', 'Log in as the invited account');
     if (account && !parseBody(AcceptInviteRequest, body))
       return error(400, 'invalid_request', 'Invalid invitation acceptance body');
-    const input = account ? null : parseBody(AcceptInviteRequest.required(), body);
+    const input = account
+      ? null
+      : parseBody(AcceptInviteRequest.required({ name: true, password: true }), body);
     if (!account && !input)
       return error(400, 'invalid_request', 'Name and eight-character password required');
     return this.acceptInvite(invite, account ?? { name: input!.name, password: input!.password });
@@ -3606,7 +3635,9 @@ export class MockBackend {
       });
     if (account && (this.auth !== 'ready' || this.user.userId !== account.userId))
       return error(409, 'login_required', 'Log in as the invited account');
-    const input = account ? null : parseBody(AcceptInviteRequest.required(), body);
+    const input = account
+      ? null
+      : parseBody(AcceptInviteRequest.required({ name: true, password: true }), body);
     if (!account && !input)
       return error(400, 'invalid_request', 'Name and eight-character password required');
     const user = account ?? {
@@ -3659,6 +3690,14 @@ export class MockBackend {
     );
     if (memberships.some((member) => member.kind !== 'human' || member.access !== 'client')) return false;
     return memberships.length > 0 || open.length > 0;
+  }
+
+  /** The client seats of the address, 0 when it is not eligible for the e-mail login at all. */
+  private clientMemberships(email: string): number {
+    if (!this.emailLoginEligible(email)) return 0;
+    return this.config.team.members.filter(
+      (member) => member.kind === 'human' && member.email?.toLowerCase() === email,
+    ).length;
   }
 
   /** A right code: accepts the open client invitations, makes the passwordless account and starts the session. */
@@ -5863,8 +5902,6 @@ export class MockBackend {
 
   /** Hires an AI member with the role's defaults, named and handled like the server does. */
   private hire(body: unknown): MockResponse {
-    if (hasOperatorWaiverField(body))
-      return error(403, 'owner_approval_required', 'Use the dedicated owner waiver endpoint');
     const input = parseBody(HireMemberRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid hire request');
     const failure = this.validateRole(input.role, 'ai');
@@ -6782,8 +6819,32 @@ export class MockBackend {
     return ok({ items: clone(all.slice(0, 20)), today: all.length });
   }
 
+  /** An owner takes a question that waits for the project manager (PM-1252): it opens for the owners. */
+  private pullWaiting(itemId: string): MockResponse {
+    if (this.viewerAccess() !== 'owner' || this.integratorMode)
+      return error(403, 'insufficient_access', 'Own owner login required');
+    const item = this.inbox.find((entry) => entry.id === itemId);
+    if (!item || !canSeeInboxItem(this.taskViewer(), item))
+      return error(404, 'not_found', 'Unknown inbox item');
+    if (!screeningWaitingSince(item))
+      return error(409, 'question_not_screening', 'The question does not wait for the project manager');
+    const { waiting: _waiting, ...screening } = (item.payload.screening ?? {}) as Record<string, unknown>;
+    const at = nowIso();
+    const pulled: InboxItem = {
+      ...item,
+      state: 'open',
+      payload: {
+        ...item.payload,
+        recipient: 'owner',
+        screening: { ...screening, at, outcome: 'decision', by: this.viewerHandle },
+      },
+      route: { kind: 'owner_pulled', requested: null, to: 'owner_side', reason: 'owner_side' },
+    };
+    this.upsertInbox(pulled);
+    return ok({ item: clone(pulled) });
+  }
+
   private resolve(itemId: string, body: unknown): MockResponse {
-    this.sweepIntegratorTodos(nowIso());
     const pending = this.inbox.find((item) => item.id === itemId);
     if (pending && isIntegratorTodo(pending) && (this.integratorMode || this.viewerAccess() !== 'owner'))
       return error(403, 'super_relay_refused', 'Use the dedicated super endpoint or the owner login');

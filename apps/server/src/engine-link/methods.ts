@@ -502,7 +502,11 @@ const workspaces = {
     z.tuple([key]),
     z.discriminatedUnion('status', [
       z.strictObject({ status: z.literal('ready'), key: z.string().min(1).max(128), changed: z.boolean() }),
-      z.strictObject({ status: z.literal('skipped'), reason: z.literal('not_configured') }),
+      z.strictObject({
+        status: z.literal('skipped'),
+        reason: z.enum(['not_configured', 'unavailable']),
+        dependencies: z.enum(['missing', 'stale']).optional(),
+      }),
     ]),
   ),
   findTaskBranch: method(
@@ -538,7 +542,11 @@ const transcriptOptions = z.strictObject({
 /** The only method gateway. Receivers validate both parameters and results. */
 export const methods = {
   'session.start': method(EngineStartSpec, RunningSession),
-  'session.send': method(session.extend({ message: text }), done),
+  // `deliveryId` (PM-1205): only sent to an engine that advertises `deliveryIds` in its hello.
+  'session.send': method(
+    session.extend({ message: text, deliveryId: text.regex(/^dlv_[0-9a-f]{32}$/).optional() }),
+    done,
+  ),
   'session.compact': method(session.extend({ instruction: text }), z.boolean()),
   'session.stop': method(session.extend({ force: z.boolean().optional() }), done),
   'session.close_scopes': method(

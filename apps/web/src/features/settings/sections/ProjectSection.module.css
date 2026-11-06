@@ -1,0 +1,47 @@
+.edit {
+  margin-left: auto;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.readOnly {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-4);
+  overflow-wrap: anywhere;
+}
+
+/* The saved values light up for a moment after a save. */
+.saved {
+  animation: savedFlash 1.2s ease-out;
+}
+
+@keyframes savedFlash {
+  from {
+    background: var(--c-line-soft);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .saved {
+    animation: none;
+  }
+}

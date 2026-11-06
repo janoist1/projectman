@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
+import { LanguageSwitch } from '../../app/LanguageSwitch';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
 import styles from './AuthLayout.module.css';
@@ -20,6 +21,10 @@ export function AuthLayout({
 }) {
   return (
     <div className={styles.page}>
+      <div className={styles.language}>
+        <Icon name="globe" size={16} />
+        <LanguageSwitch focusTarget="switch" />
+      </div>
       <main className={clsx(styles.card, wide && styles.wide)}>
         <div className={styles.brand}>
           <span className={styles.logo}>

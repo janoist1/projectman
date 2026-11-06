@@ -1,4 +1,22 @@
-import type { InboxItem, MemberHandle, ProjectConfig } from '@projectman/shared';
+import type { AlertPayload, InboxItem, MemberHandle, ProjectConfig, SystemNotice } from '@projectman/shared';
+
+/**
+ * Where an alert of the `owner_messages` class goes (PM-1250): a `system_notice` message to the recipients'
+ * general conversation, with no push and no inbox item. `core/messages` implements it (it depends on this module,
+ * not the other way round); the failure to send is the sink's to log, the alert's caller goes on.
+ */
+export interface AlertNoticeSink {
+  send(input: { projectKey: string; recipients: readonly string[]; notice: SystemNotice }): Promise<void>;
+}
+
+/**
+ * Where an alert of the `pm` class goes (PM-1250): the project manager's signal of the same case. The signal is
+ * idempotent per case, so raising it again for a case that is open changes nothing. `services/coordination`
+ * implements it.
+ */
+export interface AlertPmSignals {
+  raise(projectKey: string, alert: Extract<AlertPayload, { alert: 'relation_check' | 'work_outage' }>): void;
+}
 
 /** Whether integrator work stays on its side: an owner has a live super key, so a connected client can work it (PM-1045). */
 export interface IntegratorTodoAccess {

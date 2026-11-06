@@ -1,9 +1,12 @@
 import {
-  coordinationMemberOf,
+  APPROVAL_OWNER_TOPIC,
+  ownerTopicRefusal,
+  ownerTopicRefusalMessage,
   externalOriginActor,
   hasBoundOrigin,
   memberOf,
   ownerHandles,
+  projectManagerOf,
   QUESTION_SCREENING_MINUTES,
   questionApprovalLabel,
   questionChoices,
@@ -24,8 +27,10 @@ import type {
   HumanQuestionInput,
   HumanQuestionsPort,
 } from '../../contracts';
-import { aiActor, conflict, DomainError, unique } from '../../kernel';
+import { aiActor, conflict, DomainError, KeyedMutex, unique } from '../../kernel';
+import { isoNow } from '../base';
 import type { DomainContext } from '../base';
+import type { AppliedRoute } from './apply-route';
 import type { ProjectService } from '../projects';
 import type { TaskService } from '../tasks';
 import type { TimelineService } from '../timeline';
@@ -36,6 +41,8 @@ import type { QuestionScreening } from './question-screening';
 
 const refuse = (message: string) => new DomainError('invalid_request', message);
 const missing = (message: string) => new DomainError('not_found', message, { status: 404 });
+/** The owner topic the route records for an information question, which names none (the payload keeps none). */
+const INFORMATION_ROUTE_TOPIC = 'information';
 
 /**
  * The questions people are asked (PM-784), for a member in a session and for the integrator in super mode.
@@ -52,6 +59,7 @@ export class HumanQuestions implements HumanQuestionsPort {
   private readonly timeline: TimelineService;
   private readonly questionScreening: Pick<QuestionScreening, 'enqueue' | 'enabled' | 'cannotScreen'>;
   private readonly openQuestionLabel: OpenQuestionLabel;
+  private readonly reasks = new KeyedMutex();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -71,7 +79,20 @@ export class HumanQuestions implements HumanQuestionsPort {
     this.openQuestionLabel = deps.openQuestionLabel;
   }
 
-  async ask(projectKey: string, caller: HumanQuestionCaller, input: HumanQuestionInput): Promise<AskedHuman> {
+  /**
+   * A re-ask is checked ("once per earlier question") and written with an await between them (the waiting
+   * label), so two concurrent re-asks of one question would both pass: they take turns per earlier question.
+   */
+  ask(projectKey: string, caller: HumanQuestionCaller, input: HumanQuestionInput): Promise<AskedHuman> {
+    if (caller.kind !== 'member' || !input.reaskOf) return this.askNow(projectKey, caller, input);
+    return this.reasks.run(`${projectKey}/${input.reaskOf}`, () => this.askNow(projectKey, caller, input));
+  }
+
+  private async askNow(
+    projectKey: string,
+    caller: HumanQuestionCaller,
+    input: HumanQuestionInput,
+  ): Promise<AskedHuman> {
     const config = await this.projects.config(projectKey);
     const external = caller.kind === 'external';
     const asker = external ? caller.origin.actor.handle : caller.member;
@@ -95,13 +116,25 @@ export class HumanQuestions implements HumanQuestionsPort {
       (input.recipient !== undefined && input.recipient !== 'owner')
     )
       throw refuse('The integrator cannot re-ask or choose the recipient.');
+    const aiMember = caller.kind === 'member' && memberOf(config, asker)?.kind === 'ai';
+    // The project manager on leave is still the project's: its questions are screened by no one else, and the
+    // questions of the others wait for it (PM-1249).
+    const projectManager = projectManagerOf(config);
+    const coordinator = projectManager?.handle === asker;
     // Every other AI member's question goes through the project manager first (PM-558); a re-ask does not.
-    const screened =
-      caller.kind === 'member' &&
-      this.questionScreening.enabled &&
-      coordinationMemberOf(config)?.handle !== asker &&
-      !unscreened &&
-      memberOf(config, asker)?.kind === 'ai';
+    const screenable = aiMember && !coordinator && !unscreened;
+    const screened = screenable && this.questionScreening.enabled && !!projectManager;
+    // Nobody screens it (the project has no project manager, or the screening is off): the question names its
+    // owner topic itself, or asks the integrator, or is refused (PM-1249).
+    const nobodyScreens = screenable && !screened;
+    // An AI member's question that skips the screening names its owner topic itself (PM-1190); the screening
+    // names it for any other.
+    const ownTopic = aiMember && (coordinator || unscreened !== null || nobodyScreens);
+    if (input.ownerTopic !== undefined && !ownTopic)
+      throw refuse(
+        "owner_topic_not_allowed: only the project manager's own question, a re-ask or a question nobody " +
+          'screens names an owner topic; the screening names it for yours.',
+      );
 
     const responsePurpose = input.responsePurpose ?? (external ? 'owner_decision' : undefined);
     let assignees: string[];
@@ -150,10 +183,93 @@ export class HumanQuestions implements HumanQuestionsPort {
           assignees,
         })
       : null;
+    // A question nobody screens that asks for the integrator (and names no owner topic) becomes its todo.
+    const integratorTodoAsked =
+      nobodyScreens && input.recipient === 'integrator' && input.ownerTopic === undefined && !approvalLabel;
+    const ownerTopic =
+      ownTopic && !integratorTodoAsked
+        ? this.ownerTopic(config, input.ownerTopic, approvalLabel, responsePurpose, nobodyScreens)
+        : null;
     // The files are checked before the label is claimed: a refusal leaves no waiting label behind.
     const attachments = this.questionAttachments(config, projectKey, task, assignees, input.attachmentIds);
     const autoLabel = await this.openQuestionLabel.claim(projectKey, taskKey, asker, question);
     const requestedRecipient = input.recipient ?? 'owner';
+    const payload = {
+      question,
+      requestedRecipient,
+      recipient: 'owner',
+      ...(screened
+        ? {
+            screening: {
+              until: new Date(this.ctx.now().getTime() + QUESTION_SCREENING_MINUTES * 60_000).toISOString(),
+            },
+          }
+        : {}),
+      ...(unscreened ? { unscreened } : {}),
+      // A question that appears to ask for an approval is always an owner decision (PM-762): the asking
+      // member cannot make it relayable.
+      ...(approvalLabel
+        ? { responsePurpose: 'owner_decision' as const }
+        : responsePurpose
+          ? { responsePurpose }
+          : {}),
+      options: choices.map((choice) => choice.label),
+      ...(approvalLabel ? { approvalLabel } : {}),
+      ...(ownerTopic ? { ownerTopic } : {}),
+      ...(recommendedIndex >= 0 ? { recommended: options[recommendedIndex]!.id } : {}),
+      ...(reason ? { recommendationReason: reason } : {}),
+      ...(details ? { details } : {}),
+      ...(autoLabel ? { autoLabel } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(input.signalId ? { signalId: input.signalId } : {}),
+      ...(caller.kind === 'external' ? { externalQuestion: caller.origin } : {}),
+    };
+    // Where it goes (PM-1246, PM-1249): the integrator's own question is the owner's side; the questions that
+    // name their own owner topic take the shared rule; the integrator todo comes with its fields.
+    let routed: AppliedRoute | undefined;
+    let created: { payload: Record<string, unknown>; options: InboxOption[] } = { payload, options };
+    if (external) routed = this.inbox.applyRoute(config, { kind: 'integrator_question' });
+    else if (integratorTodoAsked) {
+      const todo = this.inbox.unscreenedTodo(
+        {
+          id: 'draft',
+          projectKey,
+          kind: 'question',
+          assignees,
+          source: asker,
+          sessionId: caller.kind === 'member' ? caller.sessionId : null,
+          taskKey,
+          title: question,
+          body: null,
+          payload,
+          options,
+          state: 'open',
+          resolution: null,
+          createdAt: isoNow(this.ctx),
+        },
+        config,
+      );
+      if (!todo)
+        throw new DomainError(
+          'owner_topic_required',
+          ownerTopicRefusalMessage(config, 'owner_topic_required', { unscreened: true }),
+        );
+      routed = todo.route;
+      created = todo;
+    } else if (ownTopic) {
+      routed = this.inbox.applyRoute(config, {
+        kind: nobodyScreens ? 'unscreened_question' : coordinator ? 'coordinator_question' : 'reask',
+        topic: approvalLabel
+          ? 'approval'
+          : ownerTopic
+            ? { ownerTopic }
+            : { ownerTopic: INFORMATION_ROUTE_TOPIC },
+        requested: requestedRecipient,
+        topicGuidance: ownerTopicRefusalMessage(config, 'owner_topic_required', {
+          unscreened: nobodyScreens,
+        }),
+      });
+    }
     const item = this.inbox.create({
       projectKey,
       kind: 'question',
@@ -163,36 +279,9 @@ export class HumanQuestions implements HumanQuestionsPort {
       taskKey,
       title: question,
       ...(screened ? { state: 'screening' as const } : {}),
-      payload: {
-        question,
-        requestedRecipient,
-        recipient: 'owner',
-        ...(screened
-          ? {
-              screening: {
-                until: new Date(this.ctx.now().getTime() + QUESTION_SCREENING_MINUTES * 60_000).toISOString(),
-              },
-            }
-          : {}),
-        ...(unscreened ? { unscreened } : {}),
-        // A question that appears to ask for an approval is always an owner decision (PM-762): the asking
-        // member cannot make it relayable.
-        ...(approvalLabel
-          ? { responsePurpose: 'owner_decision' as const }
-          : responsePurpose
-            ? { responsePurpose }
-            : {}),
-        options: choices.map((choice) => choice.label),
-        ...(approvalLabel ? { approvalLabel } : {}),
-        ...(recommendedIndex >= 0 ? { recommended: options[recommendedIndex]!.id } : {}),
-        ...(reason ? { recommendationReason: reason } : {}),
-        ...(details ? { details } : {}),
-        ...(autoLabel ? { autoLabel } : {}),
-        ...(attachments.length > 0 ? { attachments } : {}),
-        ...(input.signalId ? { signalId: input.signalId } : {}),
-        ...(caller.kind === 'external' ? { externalQuestion: caller.origin } : {}),
-      },
-      options,
+      payload: created.payload,
+      options: created.options,
+      ...(routed ? { routed } : {}),
     });
     this.timeline.append({
       projectKey,
@@ -206,6 +295,7 @@ export class HumanQuestions implements HumanQuestionsPort {
         requestedRecipient,
         ...(screened ? { screening: true as const } : {}),
         ...(unscreened ? { unscreened } : {}),
+        ...(ownerTopic ? { ownerTopic } : {}),
       },
     });
     // An Operator that cannot take it gives the question to the people before this call returns; one that
@@ -218,11 +308,14 @@ export class HumanQuestions implements HumanQuestionsPort {
       if (hopeless) await handed;
       else void handed;
     }
+    // A question the people already got (an approval, a requested integrator) is not in screening any more.
+    const stillScreening =
+      screened && (!hopeless || this.ctx.repos.inbox.get(item.id)?.state === 'screening');
     return {
       inboxItemId: item.id,
       ...(approvalLabel ? { approvalLabel } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
-      ...(screened && !hopeless ? { screening: true as const } : {}),
+      ...(stillScreening ? { screening: true as const } : {}),
     };
   }
 
@@ -271,6 +364,24 @@ export class HumanQuestions implements HumanQuestionsPort {
   }
 
   /**
+   * The owner topic of a question that skips the screening (PM-1190): `approval` for an approval question,
+   * none for an information question, else one of the project's topics; throws before anything is written.
+   */
+  private ownerTopic(
+    config: ProjectConfig,
+    asked: string | undefined,
+    approvalLabel: string | null,
+    responsePurpose: HumanQuestionInput['responsePurpose'],
+    unscreened: boolean,
+  ): string | null {
+    if (approvalLabel) return APPROVAL_OWNER_TOPIC;
+    if (responsePurpose === 'information') return null;
+    const refusal = ownerTopicRefusal(config, asked);
+    if (refusal) throw new DomainError(refusal, ownerTopicRefusalMessage(config, refusal, { unscreened }));
+    return asked!;
+  }
+
+  /**
    * A question asked again after the Operator answered, forwarded or closed it (PM-558): the new question
    * goes to the people unscreened, once per earlier question. Returns what the new item records, or null for
    * an ordinary question. Throws `reask_not_allowed` before anything is written.
@@ -294,10 +405,8 @@ export class HumanQuestions implements HumanQuestionsPort {
     const answeredFromQueue = previous.resolution?.rule === 'operator_answered';
     if (outcome !== 'answered' && outcome !== 'forwarded' && outcome !== 'moot' && !answeredFromQueue)
       throw refuse('reask_not_allowed: the Operator did not answer, forward or close that question.');
-    const asked = this.inbox
-      .list(projectKey, { kind: 'question' })
-      .some((item) => questionPayloadOf(item)?.unscreened?.previousItemId === reaskOf);
-    if (asked) throw refuse('reask_not_allowed: that question was already asked again.');
+    if (this.ctx.repos.inbox.findQuestionAskedAgainFrom(projectKey, reaskOf))
+      throw refuse('reask_not_allowed: that question was already asked again.');
     return { reason, previousItemId: reaskOf };
   }
 

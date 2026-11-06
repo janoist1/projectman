@@ -188,11 +188,6 @@ export const en: TemplateLocale = {
       name: 'Final decision',
       description: 'Settle escalated decisions. Only humans may hold this duty.',
     },
-    project_operation: {
-      name: 'Project operation',
-      description:
-        "Change how the project works at the owner's request. Only AI may hold this duty, and only on request.",
-    },
   },
   roles: {
     operator: {
@@ -427,11 +422,17 @@ export const en: TemplateLocale = {
     text: ({ code, validUntil }) =>
       `Your login code: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message.\n`,
   },
+  passwordResetCode: {
+    subject: 'Your password code',
+    text: ({ code, validUntil }) =>
+      `The code to set your password: ${code}\n\nThe code works once and is valid until ${validUntil}.\n\nIf you did not ask for it, ignore this message; your password stays as it is.\n`,
+  },
   email: {
     quoteHeader: ({ date, name }) => `On ${date}, ${name} wrote:`,
     firstNotice: ({ member, project }) =>
       `${member} (AI member, ${project} project). If you'd rather not get more e-mail, just reply and say so.`,
   },
+  seniorWaitItem: { title: '{key} is waiting for a developer who can take it' },
   fixLimitItem: {
     title: 'Fix round limit: {key}',
     summary: '{key} did not pass after {rounds} fix rounds ({parts}). {reason}',

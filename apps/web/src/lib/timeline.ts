@@ -4,12 +4,15 @@ import {
   ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
+  ItemRouteReason,
+  ItemRouteTarget,
   ObligationKind,
   QuestionCloseRule,
   TaskRelationKind,
   TaskPriority,
 } from '@projectman/shared';
-import type { LabelView, MergeBlockReason, TimelineEvent } from '@projectman/shared';
+import type { LabelView, MergeBlockReason, TimelineEvent, ProjectConfig } from '@projectman/shared';
+import { ownerTopicLabel } from './ownerTopics';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { fixRoundParts } from './fixLimit';
 import { fallbackReasonText, handoffEndName, noteExcerpt, providerName } from './handoff';
@@ -25,6 +28,7 @@ import { closureTexts, eventClosure } from './sessions';
 import { describeStart, describeStop, involvementText } from './involvement';
 
 export interface TimelineContext {
+  config?: Pick<ProjectConfig, 'team'>;
   pipeline: PipelineIndex | null;
   /** The project's label definitions, for label names. */
   labels?: readonly LabelView[];
@@ -760,6 +764,10 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'feedback_linked':
       return normal(t(d.created === true ? 'timeline.feedbackCreated' : 'timeline.feedbackLinked'));
+    case 'feedback_deleted':
+      return normal(
+        t(d.created === true ? 'timeline.feedbackDeletedCreated' : 'timeline.feedbackDeletedLinked'),
+      );
     case 'schedule_started':
       return normal(t('schedules.startedEvent'));
     case 'schedule_skipped':
@@ -927,7 +935,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           t(
             d.by === 'classifier'
               ? 'timeline.events.permission_refused_classifier'
-              : 'timeline.events.permission_refused_approver_none',
+              : d.by === 'engine_guard'
+                ? 'timeline.events.permission_refused_engine_guard'
+                : 'timeline.events.permission_refused_approver_none',
             { summary: str(d.summary) || str(d.toolName) },
           ),
         ),
@@ -952,10 +962,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         d.screening === true
           ? 'timeline.events.question_asked_screening'
           : unscreened
-            ? 'timeline.events.question_asked_unscreened'
-            : 'timeline.events.question_asked';
+            ? d.ownerTopic
+              ? 'timeline.events.question_asked_unscreened_topic'
+              : 'timeline.events.question_asked_unscreened'
+            : d.ownerTopic
+              ? 'timeline.events.question_asked_topic'
+              : 'timeline.events.question_asked';
       return {
-        text: t(key, { question: str(d.question), reason: str(unscreened?.reason) }),
+        text: t(key, {
+          question: str(d.question),
+          reason: str(unscreened?.reason),
+          topic: ownerTopicLabel(str(d.ownerTopic), ctx.config),
+        }),
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
       };
     }
@@ -979,8 +997,33 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             }),
           )
         : normal(t('timeline.events.fix_limit_recipient_escalated_timeout'));
+    case 'item_routed': {
+      const to = ItemRouteTarget.safeParse(d.to);
+      const reason = ItemRouteReason.safeParse(d.reason);
+      const parts = {
+        to: to.success ? t(`timeline.itemRoute.to.${to.data}`) : str(d.to),
+        reason: reason.success ? t(`timeline.itemRoute.reason.${reason.data}`) : str(d.reason),
+      };
+      return normal(
+        d.requested === 'owner' || d.requested === 'integrator'
+          ? t('timeline.events.item_routed_requested', {
+              ...parts,
+              requested: t(`timeline.itemRoute.requested.${d.requested}`),
+            })
+          : t('timeline.events.item_routed', parts),
+      );
+    }
     case 'member_queue_item_closed':
       return normal(t('timeline.events.member_queue_item_closed'));
+    case 'message_dropped':
+      return normal(
+        t(
+          d.reason === 'member_removed'
+            ? 'timeline.events.message_dropped_member_removed'
+            : 'timeline.events.message_dropped_place_closed',
+          { recipient: nameOf(str(d.recipient), ctx.members, ctx.myHandle) },
+        ),
+      );
     case 'obligation_woken':
     case 'obligation_pm_told':
     case 'obligation_handed_over': {
@@ -989,7 +1032,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         t(
           event.type === 'obligation_handed_over' && str(d.recipientRefusal)
             ? 'timeline.events.obligation_handed_over_refused'
-            : `timeline.events.${event.type}`,
+            : event.type === 'obligation_woken' && d.responsible === null
+              ? 'timeline.events.obligation_kicked'
+              : `timeline.events.${event.type}`,
           {
             responsible: nameOf(str(d.responsible), ctx.members, ctx.myHandle),
             step: kind.success
@@ -999,6 +1044,17 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             reason: str(d.recipientRefusal),
           },
         ),
+      );
+    }
+    case 'obligation_paused': {
+      const kind = ObligationKind.safeParse(d.kind);
+      return normal(
+        t('timeline.events.obligation_paused', {
+          step: kind.success
+            ? t(`timeline.obligationSteps.${kind.data}`)
+            : t('timeline.obligationSteps.step'),
+          key: str(d.waitingTaskKey),
+        }),
       );
     }
     case 'question_answered':
@@ -1040,7 +1096,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             }),
           );
         case 'decision':
-          return normal(t('timeline.events.question_screened_decision', { note }));
+          return normal(
+            t(
+              d.ownerTopic
+                ? 'timeline.events.question_screened_decision_topic'
+                : 'timeline.events.question_screened_decision',
+              { note, topic: ownerTopicLabel(str(d.ownerTopic), ctx.config) },
+            ),
+          );
         case 'todo':
           // A machine step no integrator could take went to the technical decider, not to the owners (PM-1139).
           if (str(d.forwardedTo))
@@ -1056,9 +1119,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           return normal(
             t(
               str(d.feedbackId)
-                ? 'timeline.events.question_screened_todo_recorded'
-                : 'timeline.events.question_screened_todo',
-              { note },
+                ? d.ownerTopic
+                  ? 'timeline.events.question_screened_todo_recorded_topic'
+                  : 'timeline.events.question_screened_todo_recorded'
+                : d.ownerTopic
+                  ? 'timeline.events.question_screened_todo_topic'
+                  : 'timeline.events.question_screened_todo',
+              { note, topic: ownerTopicLabel(str(d.ownerTopic), ctx.config) },
             ),
           );
         default:

@@ -182,6 +182,8 @@ export interface FeedbackMarkView {
   commentCount: number;
   unread: boolean;
   hasScreenshot: boolean;
+  /** The viewer may delete the mark (`canDeleteFeedback`, PM-1189). */
+  canDelete: boolean;
   createdAt: string;
   updatedAt: string;
   lastActivityAt: string;

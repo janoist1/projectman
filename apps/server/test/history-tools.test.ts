@@ -186,9 +186,9 @@ describe('the history tools of a member (PM-787)', () => {
       });
       await h.domain.projects.syncFromStore();
       const err = await refusal(tools().searchHistory(toolOf('acme'), { query: 'page' }));
-      expect(err.message).toMatch(/^insufficient_access:/);
+      expect(err.message).toMatch(/^operator_owner_only:/);
       const read = await refusal(tools().readHistorySource(toolOf('acme'), { sourceId: 'msg_x' }));
-      expect(read.message).toMatch(/^insufficient_access:/);
+      expect(read.message).toMatch(/^operator_owner_only:/);
       expect(rows()).toEqual([]);
     });
 

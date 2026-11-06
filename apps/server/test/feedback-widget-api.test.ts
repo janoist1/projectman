@@ -438,10 +438,24 @@ describe('feedback widget API (PM-509)', () => {
           payload: { body: 'x' },
         }),
         await api('POST', `/marks/${elsewhere.id}/read`, { token: tokens.client! }),
+        await api('DELETE', `/marks/${elsewhere.id}`, { token: tokens.owner! }),
       ]) {
         expect(response.statusCode).toBe(404);
         expect(errorCode(response)).toBe('feedback_mark_not_found');
       }
+    });
+
+    it('deletes a mark for its author or an owner, and refuses another marker (PM-1189)', async () => {
+      const made = (await (await postMark(tokens.client!)).json()) as MarkDetail;
+      expect(made.canDelete).toBe(true);
+      const developer = await api('DELETE', `/marks/${made.id}`, { token: tokens.developer! });
+      expect(developer.statusCode).toBe(403);
+      expect(errorCode(developer)).toBe('insufficient_access');
+      expect((await list(tokens.developer!)).marks[0]?.canDelete).toBe(false);
+
+      expect((await api('DELETE', `/marks/${made.id}`, { token: tokens.client! })).statusCode).toBe(204);
+      expect((await api('GET', `/marks/${made.id}`, { token: tokens.owner! })).statusCode).toBe(404);
+      expect((await list(tokens.owner!)).marks).toEqual([]);
     });
 
     it('refuses a page off the surface and a screenshot that is no image', async () => {

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { TimelineEvent } from '@projectman/shared';
+import { setCurrentLanguage } from '../i18n/language';
 import { t } from '../i18n/t';
 import { describeEvent, shortCommit } from './timeline';
 
@@ -14,6 +15,59 @@ const creation: TimelineEvent = {
   createdAt: '2024-03-12T09:15:00.000Z',
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
+
+it.each([
+  [null, 'timeline.events.item_routed'],
+  ['integrator', 'timeline.events.item_routed_requested'],
+] as const)('shows where a route went, and who the asker named (requested %s)', (requested, key) => {
+  const event = {
+    ...creation,
+    type: 'item_routed' as const,
+    data: { itemId: 'i1', kind: 'member_todo', requested, to: 'integrator_queue', reason: 'machine_work' },
+  };
+  expect(describeEvent(event, context).text).toBe(
+    t(key, {
+      to: t('timeline.itemRoute.to.integrator_queue'),
+      reason: t('timeline.itemRoute.reason.machine_work'),
+      requested: t('timeline.itemRoute.requested.integrator'),
+    }),
+  );
+});
+
+it.each([
+  ['question_asked', {}, 'timeline.events.question_asked_topic'],
+  ['question_asked', { unscreened: { reason: 'Again' } }, 'timeline.events.question_asked_unscreened_topic'],
+  ['question_screened', { outcome: 'decision' }, 'timeline.events.question_screened_decision_topic'],
+  ['question_screened', { outcome: 'todo' }, 'timeline.events.question_screened_todo_topic'],
+  [
+    'question_screened',
+    { outcome: 'todo', feedbackId: 'f1' },
+    'timeline.events.question_screened_todo_recorded_topic',
+  ],
+] as const)('names an owner topic for %s %j', (type, extra, key) => {
+  const event = {
+    ...creation,
+    type,
+    data: { ...extra, ownerTopic: 'cost', question: 'Proceed?', note: 'Budget' },
+  };
+  expect(describeEvent(event, context).text).toBe(
+    t(key, {
+      topic: t('ownerTopics.builtIn.cost.label'),
+      question: 'Proceed?',
+      reason: 'Again',
+      note: 'Budget',
+    }),
+  );
+});
+
+it('keeps legacy screened decisions unchanged', () => {
+  expect(
+    describeEvent(
+      { ...creation, type: 'question_screened', data: { outcome: 'decision', note: 'Legacy' } },
+      context,
+    ).text,
+  ).toBe(t('timeline.events.question_screened_decision', { note: 'Legacy' }));
+});
 
 it('renders a PM loop assessment without exposing its private note', () => {
   const event: TimelineEvent = {
@@ -154,6 +208,7 @@ it.each([
 it.each([
   ['approver_none', 'permission_refused_approver_none'],
   ['classifier', 'permission_refused_classifier'],
+  ['engine_guard', 'permission_refused_engine_guard'],
 ] as const)('describes a refused permission request (by %s) with the reason folded away', (by, key) => {
   const event: TimelineEvent = {
     ...creation,
@@ -301,6 +356,28 @@ describe('the reason of a reassignment on the timeline (PM-1040)', () => {
   });
 });
 
+describe('a dropped team message on the timeline (PM-1248)', () => {
+  const row = (reason: string) =>
+    describeEvent(
+      {
+        ...creation,
+        actor: { kind: 'system', handle: null },
+        type: 'message_dropped',
+        data: { messageId: 'msg_1', recipient: 'dev-1', reason },
+      },
+      context,
+    ).text;
+
+  it('names the recipient and tells a closed card from a member who left', () => {
+    expect(row('place_closed')).toBe(
+      t('timeline.events.message_dropped_place_closed', { recipient: 'dev-1' }),
+    );
+    expect(row('member_removed')).toBe(
+      t('timeline.events.message_dropped_member_removed', { recipient: 'dev-1' }),
+    );
+  });
+});
+
 describe('open-step reminders on the timeline (PM-806)', () => {
   const row = (
     type: 'obligation_woken' | 'obligation_pm_told' | 'obligation_handed_over',
@@ -313,6 +390,19 @@ describe('open-step reminders on the timeline (PM-806)', () => {
     );
   });
 
+  it('names the related card the paused deadline waits for (PM-1247)', () => {
+    const paused = describeEvent(
+      {
+        ...creation,
+        actor: { kind: 'system', handle: null },
+        type: 'obligation_paused',
+        data: { kind: 'next_step', responsible: 'dev-1', reason: 'related_inbox', waitingTaskKey: 'PM-304' },
+      },
+      context,
+    ).text;
+    expect(paused).toBe(t('timeline.events.obligation_paused', { step: 'következő lépés', key: 'PM-304' }));
+  });
+
   it('names the responsible, the step and the minutes', () => {
     const data = { kind: 'merge', responsible: 'dev-1', minutes: 30 };
     expect(row('obligation_woken', data)).toBe(
@@ -320,6 +410,12 @@ describe('open-step reminders on the timeline (PM-806)', () => {
     );
     expect(row('obligation_handed_over', data)).toBe(
       t('timeline.events.obligation_handed_over', { responsible: 'dev-1', step: 'beolvasztás', minutes: 30 }),
+    );
+  });
+
+  it('tells a kick of the system from a reminder when nobody is responsible (PM-1225)', () => {
+    expect(row('obligation_woken', { kind: 'next_step', responsible: null, minutes: 20 })).toBe(
+      t('timeline.events.obligation_kicked', { step: 'következő lépés', minutes: 20 }),
     );
   });
 
@@ -1067,5 +1163,57 @@ describe('the project focus on the timeline (PM-427)', () => {
     expect(describeEvent(pulled(undefined), context).text).toBe(
       t('timeline.events.task_stage_changed', { from: 'ready', to: 'dev' }),
     );
+  });
+});
+
+describe('the timeline in English (PM-1180)', () => {
+  afterEach(() => setCurrentLanguage('hu'));
+  const accented = /[áéíóöőúüű]/i;
+  const system = { kind: 'system', handle: null } as const;
+
+  it('draws the key-drawn rows, an old check row included, in English', () => {
+    setCurrentLanguage('en');
+    const rows: TimelineEvent[] = [
+      { ...creation, type: 'task_check_changed', data: { check: 'qa', to: 'retest_needed' } },
+      {
+        ...creation,
+        actor: system,
+        type: 'obligation_woken',
+        data: { kind: 'merge', responsible: 'dev-1', minutes: 30 },
+      },
+      {
+        ...creation,
+        actor: { kind: 'ai', handle: 'pm' },
+        type: 'loop_triaged',
+        data: { loopId: 'loop_1', generation: 0, outcome: 'progress', evidenceIds: [], headCommit: null },
+      },
+    ];
+    for (const row of rows) expect(describeEvent(row, context).text).not.toMatch(accented);
+  });
+
+  it('keeps a free-text note as it was written', () => {
+    setCurrentLanguage('en');
+    const line = describeEvent(
+      { ...creation, type: 'task_assigned', data: { assignee: 'dev-1', note: 'dev-2 elfoglalt' } },
+      context,
+    ).text;
+    expect(line).toContain('dev-2 elfoglalt');
+  });
+
+  it('uses the singular for one minute and the plural for more', () => {
+    setCurrentLanguage('en');
+    const row = (minutes: number) =>
+      describeEvent(
+        {
+          ...creation,
+          actor: system,
+          type: 'obligation_woken',
+          data: { kind: 'merge', responsible: 'dev-1', minutes },
+        },
+        context,
+      ).text;
+    expect(row(1)).toContain('1 minute');
+    expect(row(1)).not.toContain('1 minutes');
+    expect(row(30)).toContain('30 minutes');
   });
 });

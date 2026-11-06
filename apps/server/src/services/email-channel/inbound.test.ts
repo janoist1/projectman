@@ -1,4 +1,4 @@
-import { EMAIL_PARKED_ALERTS_PER_DAY, alertPayloadOf } from '@projectman/shared';
+import { EMAIL_PARKED_ALERTS_PER_DAY } from '@projectman/shared';
 import type { MemberConfig } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -8,6 +8,8 @@ import {
   type DomainHarness,
 } from '../../../test/helpers/domain-harness';
 import { addTwinEmailProject } from '../../../test/helpers/email-twin-project';
+import { flush } from '../../../test/helpers/fakes';
+import { systemNotices } from '../../../test/helpers/notices';
 import { EmailSendError, type OutboundMail } from './ses-sender';
 import type { DeliveryEvent, InboundMail } from './types';
 
@@ -96,7 +98,7 @@ describe('EmailInbound', () => {
       },
     });
     harnesses.push(harness);
-    const { emailChannel, tasks, inbox, projects } = harness.domain;
+    const { emailChannel, tasks, projects } = harness.domain;
     emailChannel.setContact('AR', 'owner', true, { handle: 'owner' });
     const card = await tasks.create('AR', { title: 'Customer card' }, OWNER_ACTOR);
     await emailChannel.send('AR', 'dev-1', {
@@ -129,7 +131,11 @@ describe('EmailInbound', () => {
     };
     const inboundRows = () =>
       emailChannel.log('AR', null).entries.flatMap((entry) => (entry.kind === 'inbound' ? [entry] : []));
-    const alerts = () => inbox.list('AR', { kind: 'alert' });
+    /** A parked mail is told to the owners in a notice message (PM-1250), once the send has settled. */
+    const alerts = async () => {
+      await flush();
+      return systemNotices(harness, 'email_parked');
+    };
     return { harness, emailChannel, projects, card, replyTo, reply, inboundRows, alerts, sent };
   }
 
@@ -144,6 +150,20 @@ describe('EmailInbound', () => {
       expect(await emailChannel.inbound.receive(mail)).toBe('parked');
       expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({
         inReplyTo: null,
+        parkReason: 'authentication_failed',
+      });
+    });
+
+    it.each([
+      ['two From headers', 'From: owner@example.com\r\nFrom: attacker@example.test'],
+      ['two mailboxes in one From', 'From: owner@example.com, attacker@example.test'],
+    ])('parks a mail with %s as failed authentication (PM-1011)', async (_name, from) => {
+      const { harness, emailChannel, reply } = await setup();
+      const mail = reply({
+        raw: new TextEncoder().encode(`${from}\r\nSubject: Re: Summary\r\n\r\nAnswer`),
+      });
+      expect(await emailChannel.inbound.receive(mail)).toBe('parked');
+      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({
         parkReason: 'authentication_failed',
       });
     });
@@ -270,7 +290,7 @@ describe('EmailInbound', () => {
       });
       expect(row).toMatchObject({ status: 'delivered', member: 'dev-1', contact: 'owner' });
       expect(inboundRows()).toHaveLength(1);
-      expect(alerts()).toEqual([]);
+      expect(await alerts()).toEqual([]);
     });
 
     it('turns an instruction in the text into a message only', async () => {
@@ -311,7 +331,7 @@ describe('EmailInbound', () => {
       const { emailChannel, reply, inboundRows, alerts } = await setup();
       expect(await emailChannel.inbound.receive(reply({ to }))).toBe('dropped');
       expect(inboundRows()).toEqual([]);
-      expect(alerts()).toEqual([]);
+      expect(await alerts()).toEqual([]);
     });
 
     const parked: { name: string; reason: string; options: ReplyOptions }[] = [
@@ -353,9 +373,8 @@ describe('EmailInbound', () => {
       expect(inboundRows()).toMatchObject([{ status: 'parked', parkReason: reason }]);
       const row = harness.repos.emailChannel.messages.byProviderId(mail.providerId)!;
       expect(row.messageId).toBeNull();
-      const [alert] = alerts();
-      expect(alert).toMatchObject({ assignees: ['owner'] });
-      expect(alertPayloadOf(alert!)).toMatchObject({ alert: 'email_parked', emailId: row.id, reason });
+      const [notice] = await alerts();
+      expect(notice).toMatchObject({ to: ['owner'], origin: { params: { emailId: row.id, reason } } });
     });
 
     it('parks a mail whose reply address has expired', async () => {
@@ -410,7 +429,7 @@ describe('EmailInbound', () => {
         .log('AR', null, 100)
         .entries.filter((entry) => entry.kind === 'inbound');
       expect(parked).toHaveLength(EMAIL_PARKED_ALERTS_PER_DAY + 1);
-      expect(alerts()).toHaveLength(EMAIL_PARKED_ALERTS_PER_DAY);
+      expect(await alerts()).toHaveLength(EMAIL_PARKED_ALERTS_PER_DAY);
     });
   });
 
@@ -464,7 +483,7 @@ describe('EmailInbound', () => {
         attachments: [{ fileName: 'plan.pdf' }],
       });
       expect(inboundRows()).toHaveLength(1);
-      expect(alerts()).toEqual([]);
+      expect(await alerts()).toEqual([]);
     });
 
     it('reaches a renamed member under the new and the old address (PM-1025)', async () => {
@@ -498,7 +517,7 @@ describe('EmailInbound', () => {
       const { emailChannel, reply, inboundRows, alerts } = await setupDirect();
       expect(await emailChannel.inbound.receive(reply({ to }))).toBe('dropped');
       expect(inboundRows()).toEqual([]);
-      expect(alerts()).toEqual([]);
+      expect(await alerts()).toEqual([]);
     });
 
     it('drops a mail to a handle that members of two projects share', async () => {
@@ -508,15 +527,15 @@ describe('EmailInbound', () => {
       expect(inboundRows()).toEqual([]);
     });
 
-    it('parks a mail from an unknown sender without an alert', async () => {
-      const { emailChannel, reply, inboundRows, alerts } = await setupDirect();
-      expect(await emailChannel.inbound.receive(reply({ to: address, from: 'stranger@example.org' }))).toBe(
-        'parked',
-      );
+    it('parks a mail from an unknown sender without an alert and keeps no text of it', async () => {
+      const { harness, emailChannel, reply, inboundRows, alerts } = await setupDirect();
+      const mail = reply({ to: address, from: 'stranger@example.org', body: 'Click here' });
+      expect(await emailChannel.inbound.receive(mail)).toBe('parked');
       expect(inboundRows()).toMatchObject([
         { status: 'parked', parkReason: 'unknown_sender', member: 'dev-1' },
       ]);
-      expect(alerts()).toEqual([]);
+      expect(harness.repos.emailChannel.messages.byProviderId(mail.providerId)).toMatchObject({ text: '' });
+      expect(await alerts()).toEqual([]);
     });
 
     it('parks a mail that fails DMARC and alerts the owners', async () => {
@@ -524,7 +543,7 @@ describe('EmailInbound', () => {
       const mail = reply({ to: address, verdicts: { dmarc: 'fail' } });
       expect(await emailChannel.inbound.receive(mail)).toBe('parked');
       expect(inboundRows()).toMatchObject([{ parkReason: 'authentication_failed' }]);
-      expect(alerts()).toHaveLength(1);
+      expect(await alerts()).toHaveLength(1);
     });
 
     it('parks a mail from a client for a member who is not a contact', async () => {

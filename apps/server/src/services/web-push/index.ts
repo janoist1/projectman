@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   canSeeInboxItem,
+  DEFAULT_UI_LANGUAGE,
   deviceLabelOf,
   holdsOwnershipByEmail,
   isAllowedPushEndpoint,
@@ -15,7 +16,7 @@ import type {
   PushSettings,
   SubscribePushRequest,
 } from '@projectman/shared';
-import { hu } from '@projectman/templates';
+import { getLocale } from '@projectman/templates';
 import type { FastifyBaseLogger } from 'fastify';
 import type { PhoneChannel, PhoneMessage, PushSendOutcome, PushTransport } from '../../contracts';
 import type { PresenceService } from '../../core/members';
@@ -118,6 +119,9 @@ export function createWebPushService(opts: WebPushOptions) {
     repo.recordResult(row, outcome, now().toISOString());
     opts.logger.info({ deviceId: row.id, result: outcome.result }, 'web push delivery');
   }
+  /** The push and phone texts in the recipient's system language (PM-1177). */
+  const textFor = (userId: string) =>
+    getLocale(opts.repos.users.get(userId)?.language ?? DEFAULT_UI_LANGUAGE).webPush;
   /** A user is reachable through a browser device or the phone channel (ntfy, PM-901). */
   const reachable = (userId: string) => active(userId).length > 0 || !!opts.phone?.active(userId);
   const sendAll = (userId: string, payload: PushPayload, phone: PhoneMessage, createdBefore?: string) =>
@@ -178,20 +182,21 @@ export function createWebPushService(opts: WebPushOptions) {
         repo.setDue(userId, repo.quiet(userId).length ? time.toISOString() : null);
       });
       const latest = items.sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      const text = textFor(userId);
       if (latest)
         await sendAll(
           userId,
           {
             v: 1,
             kind: 'digest',
-            title: hu.webPush.digest.title.replace('{n}', String(items.length)),
-            body: hu.webPush.digest.body,
+            title: text.digest.title.replace('{n}', String(items.length)),
+            body: text.digest.body,
             tag: 'digest',
             url: `/p/${encodeURIComponent(latest.projectKey)}/inbox`,
           },
           {
-            ...hu.webPush.ntfy.digest,
-            title: hu.webPush.ntfy.digest.title.replace('{n}', String(items.length)),
+            ...text.ntfy.digest,
+            title: text.ntfy.digest.title.replace('{n}', String(items.length)),
             urgent: false,
           },
         );
@@ -278,7 +283,7 @@ export function createWebPushService(opts: WebPushOptions) {
       if (time - (testTimes.get(id) ?? -Infinity) < 5000)
         throw new DomainError('web_push_test_too_soon', 'Wait before testing again', { status: 429 });
       testTimes.set(id, time);
-      await send(row, { v: 1, kind: 'test', ...hu.webPush.test, tag: `test-${id}`, url: '/' });
+      await send(row, { v: 1, kind: 'test', ...textFor(userId).test, tag: `test-${id}`, url: '/' });
       return pushDeviceView(device(userId, id));
     },
     async onItem(item: InboxItem) {
@@ -318,14 +323,14 @@ export function createWebPushService(opts: WebPushOptions) {
           {
             v: 1,
             kind: 'item',
-            title: hu.webPush.title[category],
+            title: textFor(user.id).title[category],
             body: item.kind === 'release' ? item.projectKey : (item.taskKey ?? item.projectKey),
             tag: `inbox-${item.id}`,
             url: `/p/${encodeURIComponent(item.projectKey)}/inbox?via=push#inbox-item-${encodeURIComponent(item.id)}`,
             itemId: item.id,
             projectKey: item.projectKey,
           },
-          { ...hu.webPush.ntfy.item, urgent: true },
+          { ...textFor(user.id).ntfy.item, urgent: true },
           item.createdAt,
         );
       }
@@ -357,12 +362,12 @@ export function createWebPushService(opts: WebPushOptions) {
         {
           v: 1,
           kind: 'item',
-          title: hu.webPush.title.host_request,
+          title: textFor(user.id).title.host_request,
           body: request.title,
           tag: `host-request-${request.requestId}`,
           url: home ? `/p/${encodeURIComponent(home)}/settings/owners` : '/',
         },
-        { ...hu.webPush.ntfy.item, urgent: true },
+        { ...textFor(user.id).ntfy.item, urgent: true },
       );
     },
     sweep(): Promise<void> {

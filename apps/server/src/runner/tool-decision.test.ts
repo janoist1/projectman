@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import { DEVELOPMENT_SHELL_TOOLS, REVIEW_SHELL_TOOLS } from '@projectman/shared';
 import type { SessionReadBoundary } from '@projectman/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { SessionPolicy } from '../contracts';
+import type { SessionPolicy, StartSessionSpec } from '../contracts';
 import {
   claudeFileToolPaths,
   decideToolCall,
+  engineFileToolVerdict,
+  engineWriteZone,
   readBoundaryVerdict,
   resolveToolPath,
   toolPathForms,
@@ -1148,4 +1150,99 @@ describe('a shell rule and what the shell expands by itself', () => {
       });
     });
   }
+});
+
+describe('the engine write zone (PM-1176)', () => {
+  const sessionFolder = join(root, 'session-folder');
+  const specFor = (policy: SessionPolicy): StartSessionSpec => ({
+    sessionId: 'ses_zone',
+    claudeSessionId: '0b8a3c2e-1f5d-4c4e-9a7b-2d6e8f1a3b5c',
+    resume: false,
+    cwd: work,
+    displayName: 'x',
+    appendSystemPrompt: '',
+    mcpUrl: 'http://127.0.0.1:4700/mcp/tok',
+    allowedTools: [`Edit(${outside}/**)`],
+    policy: { ...policy, filesystem: { ...policy.filesystem, sessionFolder } },
+    sandbox: {
+      allowWrite: [extra],
+      allowedDomains: [],
+      allowLocalBinding: false,
+      denyWrite: [join(work, 'src')],
+    },
+  });
+  const zone = engineWriteZone(specFor(policyFor('default')), { home });
+  const verdict = (tool: string, input: unknown, z = zone) =>
+    engineFileToolVerdict(z, tool, input, work, { home, caseInsensitive: false });
+
+  it.each([
+    ['a write in the working directory', 'Write', { file_path: join(work, 'a.ts') }, null],
+    ['a write to a file that does not exist yet', 'Edit', { file_path: join(work, 'new', 'b.ts') }, null],
+    ['a relative write', 'MultiEdit', { file_path: 'a.ts' }, null],
+    ['a write in the session folder', 'Write', { file_path: join(sessionFolder, 'note.md') }, null],
+    ['a write in an allowWrite root', 'Write', { file_path: join(extra, 'x') }, null],
+    ['a write outside every root', 'Write', { file_path: join(outside, 'x') }, 'outside_writable_roots'],
+    ['a write in the home directory', 'Edit', { file_path: join(home, '.zshrc') }, 'outside_writable_roots'],
+    [
+      'a write behind a symlink pointing out',
+      'Write',
+      { file_path: join(work, 'outside-link', 'x') },
+      'outside_writable_roots',
+    ],
+    [
+      'a write behind a ".." out of the root',
+      'Write',
+      { file_path: join(work, '..', 'outside', 'x') },
+      'outside_writable_roots',
+    ],
+    [
+      'a notebook write outside',
+      'NotebookEdit',
+      { notebook_path: join(outside, 'n.ipynb') },
+      'outside_writable_roots',
+    ],
+    [
+      'a write into the git directory',
+      'Write',
+      { file_path: join(work, '.git', 'hooks', 'pre-commit') },
+      'outside_writable_roots',
+    ],
+    ['a write below denyWrite', 'Write', { file_path: join(work, 'src', 'a.ts') }, 'outside_writable_roots'],
+    [
+      'a write in a read-only path',
+      'Write',
+      { file_path: join(attachments, 'a.txt') },
+      'outside_writable_roots',
+    ],
+    ['a write without a path', 'Write', {}, 'outside_writable_roots'],
+    [
+      'a write under a denied path',
+      'Write',
+      { file_path: join(home, '.ssh', 'authorized_keys') },
+      'denied_path',
+    ],
+    ['a read under a denied path', 'Read', { file_path: join(home, '.ssh', 'id_ed25519') }, 'denied_path'],
+    ['a search under a denied path', 'Grep', { path: join(home, '.config', 'gh') }, 'denied_path'],
+    ['a read outside the roots', 'Read', { file_path: join(outside, 'x') }, null],
+    ['a tool that is not a file tool', 'Bash', { command: 'echo > /etc/x' }, null],
+  ])('%s', (_name, tool, input, expected) => {
+    expect(verdict(tool, input)).toBe(expected);
+  });
+
+  it('does not let a reading placement write its working directory', () => {
+    const policy = policyFor('default', { access: 'read_only' });
+    policy.filesystem.writableRoots = [];
+    const reading = engineWriteZone(specFor(policy), { home });
+    expect(verdict('Write', { file_path: join(work, 'a.ts') }, reading)).toBe('outside_writable_roots');
+    expect(verdict('Write', { file_path: join(sessionFolder, 'a.md') }, reading)).toBeNull();
+  });
+
+  it('denies, never asks, an edit outside the zone in the Gemini decision, and keeps asking without a zone', () => {
+    const policy = policyFor('default');
+    const call: NormalizedToolCall = { category: 'edit', paths: [join(outside, 'x')] };
+    expect(decideToolCall(policy, call, { home, engineWriteZone: zone })).toEqual(
+      denied('outside_writable_roots'),
+    );
+    expect(decideToolCall(policy, call, { home })).toEqual(ASK);
+  });
 });

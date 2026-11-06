@@ -1,3 +1,4 @@
+import { currentLanguage } from '../../i18n/language';
 import { t, tDynamic } from '../../i18n/t';
 
 export interface ZoneOption {
@@ -82,7 +83,7 @@ export function zoneOptions(saved: string, now: Date): ZoneOptions {
   if (deviceZone) zones.delete(deviceZone);
   const others = [...zones]
     .map((zone) => ({ value: zone, label: zoneLabel(zone, now), offset: offsetMinutes(zone, now) ?? 0 }))
-    .sort((a, b) => a.offset - b.offset || a.label.localeCompare(b.label, 'hu'))
+    .sort((a, b) => a.offset - b.offset || a.label.localeCompare(b.label, currentLanguage()))
     .map(({ value, label }) => ({ value, label }));
   return { device, others };
 }

@@ -45,7 +45,23 @@ export interface ObligationStartOffers {
  */
 export interface ObligationPmNotices {
   raise(input: { projectKey: string; taskKey: string; obligationId: string }): string;
+  /** The `senior_wait` signal of a card that waits for a Senior past the limit (PM-1251); same shape as `raise`. */
+  raiseSeniorWait(input: { projectKey: string; taskKey: string; obligationId: string }): string;
   deliver(projectKey: string): Promise<void>;
+  /** Whether the project manager (or an owner) dismissed the signal raised for the obligation (PM-1234). */
+  dismissed(projectKey: string, obligationId: string): boolean;
+}
+
+/**
+ * How the tracking kicks a system step that runs only on events (PM-1225): it runs the step's existing
+ * automatic watcher again for the card. The system never decides or sets a label by this; the watcher does
+ * what it would have done on the event.
+ */
+export interface ObligationKicks {
+  /** The refinement round of the card (`RefinementSteps.changed`). */
+  refinement(projectKey: string, taskKey: string): Promise<void>;
+  /** The automatic move on to the next stage (`AutoAdvance.check`). */
+  advance(projectKey: string, taskKey: string): Promise<void>;
 }
 
 /** The runtime's existing fix-limit decision path, adapted by the assembly. */

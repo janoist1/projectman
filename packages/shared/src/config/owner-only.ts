@@ -17,7 +17,7 @@ import { TEAM_SETTING_KEYS, TEAM_SETTING_POLICY, teamSettingValue } from './team
 /**
  * Configuration changes only an owner may make (checked on every configuration commit by a
  * human who is not an owner):
- * - `locations`: the workspace or a repository path;
+ * - `locations`: the workspace, repository or project document paths;
  * - `admin_or_account`: granting admin access, or changing a human's account (email) binding,
  *   except an invitation claiming a seat that had no account yet;
  * - `approval_policy`: approvals (gate labels only humans may set) and who may give them,
@@ -31,13 +31,14 @@ import { TEAM_SETTING_KEYS, TEAM_SETTING_POLICY, teamSettingValue } from './team
  * - `compute_jobs`: a repository's compute jobs, `computeJobs`: their commands run on GitHub with the right to
  *   attest their outputs (PM-1148);
  * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548);
- * - `operator_approval_waiver`: whether eligible Operator changes may skip the approval click (PM-691);
  * - `email_send_policy`: whether an AI member can send email without human approval (PM-940), except
  *   that switching sending on or off clears the bypass with it (PM-956);
  * - `machine_access`: whether an AI member may put machine work in the owners' queue (decision 66), by its
  *   effective value (`machineAccessOf`);
  * - `task_create_access`: the lowest human access that may open a new card (PM-1100), by its effective value
- *   (`taskCreateAccessOf`).
+ *   (`taskCreateAccessOf`);
+ * - `owner_decision_topics`: the topics an AI member may ask the owner to decide under (PM-1190), by their
+ *   effective value (`ownerDecisionTopicsOf`).
  */
 const OWNER_ONLY_CHANGES = [
   'locations',
@@ -49,10 +50,10 @@ const OWNER_ONLY_CHANGES = [
   'review_test',
   'compute_jobs',
   'operator_watch',
-  'operator_approval_waiver',
   'email_send_policy',
   'machine_access',
   'task_create_access',
+  'owner_decision_topics',
 ] as const;
 export type OwnerOnlyChange = (typeof OWNER_ONLY_CHANGES)[number];
 
@@ -210,7 +211,17 @@ function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConfig): bo
 function locationsSignature(config: ProjectConfig): string {
   return JSON.stringify({
     workspace: config.project.workspacePath,
-    repos: config.project.repos.map((repo) => ({ name: repo.name, path: repo.path })),
+    repos: config.project.repos.map((repo) => ({
+      name: repo.name,
+      path: repo.path,
+      docs: repo.docs
+        ? {
+            decisions: repo.docs.decisions ?? null,
+            roadmap: repo.docs.roadmap ?? null,
+            lessons: repo.docs.lessons ?? null,
+          }
+        : null,
+    })),
   });
 }
 

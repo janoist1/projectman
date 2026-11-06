@@ -19,6 +19,7 @@ import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorCode, errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
+import { useMeContext } from '../../app/contexts';
 import { AuthLayout } from '../auth/AuthLayout';
 import { defaultFirst } from '../engines/engineView';
 import { ownEngines } from '../owner-onboarding/welcomeState';
@@ -41,6 +42,7 @@ export function CreateProjectPage() {
   useDocumentTitle(t('projects.create.title'));
   const projects = useProjects();
   const me = useMe();
+  const systemLanguage = useMeContext().language;
   const ownerAccount = me.data?.ownerAccount === true;
   const engineStatus = useEngineStatus();
   // An owner account always creates on a machine of its own; the host only once it has several of its own.
@@ -86,7 +88,7 @@ export function CreateProjectPage() {
   const [key, setKey] = useState('');
   const [keyTouched, setKeyTouched] = useState(false);
   const [workspace, setWorkspace] = useState('');
-  const [language, setLanguage] = useState<'hu' | 'en'>('hu');
+  const [language, setLanguage] = useState<'hu' | 'en'>(systemLanguage);
   const [chosenProvider, setChosenProvider] = useState<AgentProvider | null>(null);
   const [errors, setErrors] = useState<Errors>({});
   const [repos, setRepos] = useState<RepoRow[]>([]);

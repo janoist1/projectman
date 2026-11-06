@@ -283,6 +283,7 @@ describe('team tools', () => {
     const { inboxItemId } = await h.domain.teamTools.askHuman(dev, {
       question: 'Which font should the login page use?',
       options: ['Inter', 'Roboto'],
+      ownerTopic: 'cost',
     });
     const item = h.domain.inbox.get('AR', inboxItemId);
     expect(item).toMatchObject({ kind: 'question', assignees: ['owner'], source: 'dev-1', taskKey: 'AR-1' });
@@ -317,6 +318,7 @@ describe('team tools', () => {
       recommended: 'Pop-up',
       recommendationReason: ' It is easier to read on a phone. ',
       details: `  ${details}\n`,
+      ownerTopic: 'cost',
     });
 
     // Read back from the database, as the inbox API serves it.
@@ -346,6 +348,7 @@ describe('team tools', () => {
       recommended: 'option_2',
       recommendationReason: 'It is easier to read on a phone.',
       details,
+      ownerTopic: 'cost',
     });
     expect(questionPayloadOf(item)).toEqual(item.payload);
 
@@ -370,6 +373,7 @@ describe('team tools', () => {
     const { inboxItemId } = await h.domain.teamTools.askHuman(dev, {
       question: 'Which font should the login page use?',
       options: ['Inter', 'Roboto', ' Inter '],
+      ownerTopic: 'cost',
     });
 
     const item = h.domain.inbox.get('AR', inboxItemId);
@@ -378,6 +382,7 @@ describe('team tools', () => {
       requestedRecipient: 'owner',
       recipient: 'owner',
       options: ['Inter', 'Roboto'],
+      ownerTopic: 'cost',
     });
     // The first option is the primary button when nothing is recommended.
     expect(item.options).toEqual([
@@ -390,6 +395,7 @@ describe('team tools', () => {
       requestedRecipient: 'owner',
       recipient: 'owner',
       options: ['Inter', 'Roboto'],
+      ownerTopic: 'cost',
     });
   });
 

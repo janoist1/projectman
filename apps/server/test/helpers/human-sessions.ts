@@ -39,6 +39,7 @@ export async function createHumanSessions(
       email: human.email ?? `${human.handle}@example.test`,
       passwordHash: repos.users.findByEmail(OWNER_LOGIN.email)!.passwordHash,
       createdAt: new Date().toISOString(),
+      language: 'hu',
     });
     cookies[key] = `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(auth.createSession(id)))}`;
   }

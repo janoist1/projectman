@@ -11,6 +11,7 @@ import type {
   Actor,
   AiMemberConfig,
   Attachment,
+  DocumentSummary,
   DutyId,
   HandoffSummary,
   MemberView,
@@ -1782,7 +1783,7 @@ describe('system prompt', () => {
       for (const text of [
         'a "question screening" notice',
         'call screen_question for every question in the notice, always with a note.',
-        'Always choose decision for an approval, a release, human access, a cost or fee, a change of scope or deadline',
+        'owner_topic',
         "start or move nothing on the board, change no settings, and never decide in the owner's name.",
       ])
         expect(pm.guide.role).toContain(text);
@@ -1790,8 +1791,7 @@ describe('system prompt', () => {
         'in the decision log (DECISIONS.md), in the roadmap (ROADMAP.md), in the code or in an earlier owner answer; name the source in the note',
         'forwarded: when answering is another AI member',
         'moot: when the question is obsolete',
-        'todo: a step for the owner or their external integrator; give what, where, expected and recipient (owner or integrator).',
-        'Independently choose the recipient, regardless of requestedRecipient',
+        'A todo always goes to the integrator when there is one',
         'Integrator addressing grants no execution authority; approvals and decisions stay with the owner.',
         'technicalDecider',
       ]) {
@@ -1843,7 +1843,8 @@ describe('system prompt', () => {
         if (level) project.team.operatorWatch = level;
         return builder.build(input({ project, handle: 'pm' })).guide.role!;
       };
-      const ban = 'You change nothing until an owner says yes.';
+      const ban = 'You change nothing until an owner says yes';
+      const unreleased = 'On an unreleased signal, at any level, start the deployment duty member';
       const step = 'the tool named in its step field (start_task or start_member)';
 
       it('lets a project that sets no level only report, and bans every change until an owner says yes', () => {
@@ -1853,6 +1854,13 @@ describe('system prompt', () => {
         expect(report).not.toContain(step);
         expect(report).not.toContain('steps_left');
       });
+
+      it.each(['report', 'unblock', 'drive'] as const)(
+        'lets the PM start the release owner on an unreleased signal at level %s (PM-1201)',
+        (level) => {
+          expect(promptAt(level)).toContain(unreleased);
+        },
+      );
 
       it('lets the unblock level take one step on an idle or merge signal, with no general ban', () => {
         const unblock = promptAt('unblock');
@@ -1868,17 +1876,15 @@ describe('system prompt', () => {
         expect(unblock).toContain('It is one step per signal (steps_left).');
         expect(unblock).toContain('follow_up true');
         expect(unblock).not.toContain(ban);
-        expect(unblock).not.toContain('start the release owner');
       });
 
-      it('lets the drive level take up to three steps and start the release owner', () => {
+      it('lets the drive level take up to three steps', () => {
         const drive = promptAt('drive');
         expect(drive).toContain(step);
         expect(drive).toContain(
           'up to three steps per signal, at least 30 minutes apart (steps_left, next_step_at)',
         );
-        expect(drive).toContain('start the release owner on an unreleased signal (propose a release)');
-        expect(drive).toContain('When steps_left is 0, bring the signal to the owners.');
+        expect(drive).toContain('When steps_left is 0 on any other signal, bring the signal to the owners.');
         expect(drive).not.toContain(ban);
       });
 
@@ -1889,9 +1895,9 @@ describe('system prompt', () => {
           expect(operator).toContain(
             level === 'report' ? 'On a signal you never merge' : 'Apart from the step a signal names',
           );
-          expect(operator).toContain(
-            'When a stalled, silent, outage, nobody or start_blocked signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human.',
-          );
+          expect(operator).toContain('open_integrator_todo');
+          expect(operator).toContain("ask_human, its owner_topic and the signal's signal_id");
+          expect(operator).toContain('signal_not_for_owner');
           expect(operator).not.toContain('always goes to the owners');
           expect(operator).toContain('at most one message per wake-up');
           expect(operator).toContain('with signal_ids');
@@ -1931,7 +1937,22 @@ describe('system prompt', () => {
         lessons: 'docs/LESSONS.md',
       };
       const pack = builder.build(
-        input({ project, handle: 'pm', workItem: { type: 'general' }, task: null, stage: null }),
+        input({
+          project,
+          handle: 'pm',
+          workItem: { type: 'general' },
+          task: null,
+          stage: null,
+          documents: [
+            {
+              slug: 'memorianaplo',
+              title: 'Memórianapló',
+              version: 'a'.repeat(40),
+              updatedAt: '2026-11-01T10:00:00.000Z',
+              updatedBy: { kind: 'ai', name: 'PM', handle: 'pm' },
+            },
+          ],
+        }),
       );
       await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
         '__snapshots__/project-manager-general.system-prompt.txt',
@@ -1940,7 +1961,8 @@ describe('system prompt', () => {
         '__snapshots__/project-manager-general.role-guide.txt',
       );
       // UTF-8 bytes, including the snapshot's final newline; baseline: 22,588 B / 12,295 B / no guide.
-      expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(13_942);
+      // The prompt cap includes the documents section with the memory log rule (PM-1228, ~1.3 KB).
+      expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(15_300);
       expect(Buffer.byteLength(`${roleOf(pack.appendSystemPrompt).trimEnd()}\n`)).toBeLessThan(7_000);
     });
 
@@ -2826,6 +2848,18 @@ describe('expected steps', () => {
     expect(guide()).toContain('despite_prerequisites');
   });
 
+  it("lists the project's owner topics in the project manager's guide (PM-1190)", () => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    const guide = () => builder.build(input({ project, handle: 'pm' })).guide.role!;
+    expect(guide()).toContain('`product_direction`');
+    project.team.ownerDecisionTopics = [{ id: 'hiring', label: 'Felvétel', hint: 'who joins the team' }];
+    expect(guide()).toContain('`hiring` (Felvétel): who joins the team');
+    expect(guide()).not.toContain('`product_direction`');
+    project.team.ownerDecisionTopics = [];
+    expect(guide()).toContain('The project lists no owner topics');
+  });
+
   it('tells a member holding the prioritization duty that it may set a priority, when the setting allows it (PM-1096)', () => {
     const project = buildProject();
     addMember(project, 'pm', 'project_manager');
@@ -3286,6 +3320,15 @@ describe('the designer round on a UI card (PM-235)', () => {
 });
 
 describe('duty prompt composition', () => {
+  it('gives the deployment duty the release chain, its one question and the preview’s commit (PM-1201)', () => {
+    const project = buildProject();
+    const member = { ...aiMember(project, 'fe-1'), role: 'devops' };
+    const prompt = builder.build(input({ project, member, handle: 'fe-1' })).appendSystemPrompt;
+    expect(prompt).toContain(DUTIES.deployment.prompt);
+    for (const key of ['publish_release', 'preview: true', 'docs/DEPLOY.md', 'exactly the previewed commit'])
+      expect(DUTIES.deployment.prompt).toContain(key);
+  });
+
   it('orders duty fragments, role extra responsibilities and member instructions for overridden and custom bundles', () => {
     const project = buildProject();
     project.team.roleOverrides = {
@@ -3757,6 +3800,33 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(prompt).not.toContain('# Your session folder');
   });
 
+  it.each([
+    ['open', 'Outbound network: on', true],
+    ['allowlist', 'Outbound network: off', false],
+  ] as const)(
+    'shows a Codex member the network state of its policy (%s) and words the escalation to match (PM-1172)',
+    (outbound, line, open) => {
+      const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider: 'codex' };
+      const policy = { ...readerPolicy, network: { ...readerPolicy.network, outbound } };
+      const pack = builder.build(
+        input({ project, member, handle: 'code-review', task, sessionPolicy: policy, sandbox }),
+      );
+      expect(section(pack.appendSystemPrompt, '# Session policy')).toContain(line);
+      // The escalation sentence is in the commands guide.
+      const commands = pack.guide.commands ?? '';
+      expect(commands.includes('(the network or a write outside your working directory')).toBe(!open);
+      expect(commands.includes('(a write outside your working directory')).toBe(open);
+    },
+  );
+
+  it('keeps the Outbound network line out of the Claude Code context (PM-1172)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider: 'claude' };
+    const prompt = builder.build(
+      input({ project, member, handle: 'code-review', task, sessionPolicy: readerPolicy, sandbox }),
+    ).appendSystemPrompt;
+    expect(prompt).not.toContain('Outbound network:');
+  });
+
   it('tells a read-only Codex or NanoGPT reader that the server puts files in its folder (PM-522)', () => {
     const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
     const policy = withSessionFolders(readerPolicy, { own: folder, root: '/tmp/projectman-sessions/abc123' });
@@ -3783,6 +3853,29 @@ describe("the CLI's own sandbox (PM-167)", () => {
       expect(text).not.toContain('$TMPDIR');
       expect(text).not.toContain('take_screenshots` tool');
     }
+  });
+
+  it('tells a read-only Codex developer in a worktree to make screenshots with take_screenshots (PM-1202)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
+    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
+    const worktreePolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      permissionMode: 'default',
+      placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+    });
+    const policy = withSessionFolders(worktreePolicy, {
+      own: folder,
+      root: '/tmp/projectman-sessions/abc123',
+    });
+    expect(policy.permissions.sandbox).toBe('read-only');
+    const prompt = builder.build(
+      input({ project, member, handle: 'fe-1', task, sessionPolicy: policy }),
+    ).appendSystemPrompt;
+    const text = section(prompt, '# Your session folder');
+    expect(text).toContain('`take_screenshots` tool');
+    expect(text).not.toContain('you make no screenshots');
   });
 
   it('tells a Gemini member its session folder: file tools, view_file, no screenshots (PM-522)', () => {
@@ -3920,26 +4013,68 @@ describe('who decides a permission question (the approver, PM-165)', () => {
 });
 
 describe('member workspaces (PM-138)', () => {
-  it.each([false, true])(
-    'gives one installation rule in a worktree with member workspace %s',
-    (workspace) => {
-      const source = input({ handle: 'fe-1' });
+  it('gives the installation rule in a worktree that is not a member workspace', () => {
+    const source = input({ handle: 'fe-1' });
+    source.sessionPolicy = buildSessionPolicy({
+      config: source.project,
+      role: 'developer',
+      task: source.task!,
+      placement: { kind: 'task_worktree', path: '/work/task' },
+    });
+    const text = section(builder.build(source).appendSystemPrompt, '# Session policy');
+    expect(text).toContain('npm ci');
+    expect(text).toContain('cloned automatically');
+    expect(text).not.toContain('install in the default checkout');
+  });
+
+  describe('dependencies the engine left out (PM-1203)', () => {
+    const promptFor = (
+      handle: string,
+      role: 'developer' | 'qa',
+      workspaceDependencies?: 'missing' | 'stale',
+      provider?: 'codex',
+    ) => {
+      const base = input({ handle });
+      const source = provider
+        ? input({ handle, member: { ...aiMember(base.project, handle), provider } })
+        : base;
       source.sessionPolicy = buildSessionPolicy({
         config: source.project,
-        role: 'developer',
+        role,
         task: source.task!,
-        placement: {
-          kind: 'task_worktree',
-          path: '/work/task',
-          ...(workspace ? { workspace: { branch: 'AR-21', baseCommit: null } } : {}),
-        },
+        placement:
+          role === 'developer'
+            ? { kind: 'task_worktree', path: '/work/task', workspace: { branch: 'AR-21', baseCommit: null } }
+            : { kind: 'read_only', path: '/work/task' },
       });
-      const text = section(builder.build(source).appendSystemPrompt, '# Session policy');
-      expect(text).toContain('npm ci');
-      expect(text.includes('cloned automatically')).toBe(!workspace);
-      expect(text).not.toContain('install in the default checkout');
-    },
-  );
+      return section(
+        builder.build({ ...source, ...(workspaceDependencies ? { workspaceDependencies } : {}) })
+          .appendSystemPrompt,
+        '# Session policy',
+      );
+    };
+
+    it('says nothing about installing when the workspace is installed', () => {
+      expect(promptFor('fe-1', 'developer')).not.toContain('npm ci');
+    });
+
+    it.each(['missing', 'stale'] as const)('tells a writer to run npm ci when they are %s', (state) => {
+      const text = promptFor('fe-1', 'developer', state);
+      expect(text).toContain('run npm ci');
+      expect(text).not.toContain('Do not try to install');
+    });
+
+    it('tells a reader and a Codex writer to ask a human, without trying to install', () => {
+      for (const text of [
+        promptFor('code-review', 'qa', 'missing'),
+        promptFor('fe-1', 'developer', 'missing', 'codex'),
+      ]) {
+        expect(text).toContain('Do not try to install');
+        expect(text).toContain('ask_human');
+        expect(text).not.toContain('run npm ci');
+      }
+    });
+  });
   it('tells a developer which branch of its own workspace it works on, and that switching needs committed work', () => {
     const project = buildLocalOnlyProject('.');
     const task = makeTask({ stageId: 'dev', repo: 'app' });
@@ -4911,5 +5046,121 @@ describe('handover and previous conversation (PM-342)', () => {
     expect(builder.handoffCancelled({ taskKey: 'AR-21' })).toBe(
       'The handover of AR-21 is called off: the card stays with you. Carry on where you left off.',
     );
+  });
+});
+
+describe('project documents (PM-149)', () => {
+  const documentsOf = (count: number): DocumentSummary[] =>
+    Array.from({ length: count }, (_, i) => ({
+      slug: `doc-${i}`,
+      title: `Document ${i}`,
+      version: 'a'.repeat(40),
+      updatedAt: '2026-10-31T10:00:00.000Z',
+      updatedBy:
+        i === 0
+          ? { kind: 'human', name: 'Ann Example', handle: null }
+          : { kind: 'ai', name: 'Dev', handle: 'dev' },
+    }));
+  const promptOf = (documents?: DocumentSummary[]) =>
+    builder.build(input({ ...(documents ? { documents } : {}) })).appendSystemPrompt;
+
+  it('lists the documents with slug, last change and who, without any text', () => {
+    const list = section(promptOf(documentsOf(2)), '# Project documents');
+    expect(list).toContain('- Document 0 (doc-0), updated 2026-10-31 by Ann Example');
+    expect(list).toContain('- Document 1 (doc-1), updated 2026-10-31 by dev');
+    expect(list).toContain('read_document');
+  });
+
+  it('leaves the section out when there are no documents', () => {
+    expect(promptOf()).not.toContain('# Project documents');
+    expect(promptOf([])).not.toContain('# Project documents');
+  });
+
+  it('names the first thirty and points to list_documents for the rest', () => {
+    const list = section(promptOf(documentsOf(32)), '# Project documents');
+    expect(list).toContain('(doc-29)');
+    expect(list).not.toContain('(doc-30)');
+    expect(list).toContain('… and 2 more: list_documents shows them all.');
+  });
+
+  describe('memory log rule (PM-1228)', () => {
+    // The log sits after the thirty named documents, so the whole list is checked.
+    const withLog = (): DocumentSummary[] => [
+      ...documentsOf(31),
+      { ...documentsOf(1)[0]!, slug: 'memorianaplo', title: 'Memory log' },
+    ];
+    const ruleOf = (prompt: string) => section(prompt, '# Project documents');
+
+    it('names the four event types and the log only where the project has the document', () => {
+      const rule = ruleOf(promptOf(withLog()));
+      for (const text of ['memorianaplo#1-hogyan-irj-bele', 'forgotten_rule', 'owner_repeat'])
+        expect(rule).toContain(text);
+      for (const text of ['recurring_failure', 'stale_knowledge', 'write_document'])
+        expect(rule).toContain(text);
+      expect(ruleOf(promptOf(documentsOf(31)))).not.toContain('recurring_failure');
+    });
+
+    it('tells the project manager to record owner_repeat itself, and others to leave it to the manager', () => {
+      const prompt = (handle: string, workItem?: WorkItemRef) =>
+        builder.build(
+          input({
+            handle,
+            documents: withLog(),
+            ...(workItem ? { workItem, task: null, stage: null } : {}),
+          }),
+        ).appendSystemPrompt;
+      expect(ruleOf(prompt('pm', { type: 'general' }))).toContain('You record every owner_repeat');
+      expect(ruleOf(prompt('code-review'))).toContain('The project manager records owner_repeat');
+      expect(ruleOf(prompt('pm', { type: 'general', with: 'guest' }))).not.toContain('recurring_failure');
+    });
+  });
+
+  describe('links on a card (PM-1223)', () => {
+    const briefOf = (description: string, documents?: DocumentSummary[]) =>
+      builder.build(input({ task: makeTask({ description }), ...(documents ? { documents } : {}) }))
+        .initialMessage ?? '';
+    const linked = (brief: string) => section(brief, '## Linked documents');
+
+    it('lists the linked documents with the ref to read, and only when the description has links', () => {
+      const brief = briefOf('Plan: [Plan › 1. Goal](doc:doc-0#1-goal) and [all](doc:doc-1).', documentsOf(2));
+      expect(linked(brief)).toContain('- `doc-0#1-goal`: "Plan › 1. Goal"');
+      expect(linked(brief)).toContain('- `doc-1` (whole document): "all"');
+      expect(linked(brief)).toContain('only that section');
+      expect(briefOf('No links here.', documentsOf(2))).not.toContain('## Linked documents');
+    });
+
+    it('skips a sample quoted in code, marks an unknown slug, and names the links beyond ten', () => {
+      expect(briefOf('Write `[text](doc:slug#anchor)` like this.')).not.toContain('## Linked documents');
+      expect(linked(briefOf('[gone](doc:doc-9)', documentsOf(2)))).toContain('no such document now');
+      const many = Array.from({ length: 12 }, (_, i) => `[d](doc:doc-${i})`).join(' ');
+      const list = linked(briefOf(many, documentsOf(12)));
+      expect(list).toContain('`doc-9`');
+      expect(list).not.toContain('`doc-10`');
+      expect(list).toContain('… and 2 more in the description.');
+    });
+
+    it('describes the doc: link in the documents section and offers saving a plan, with no rule', () => {
+      const list = section(promptOf(documentsOf(1)), '# Project documents');
+      expect(list).toContain('doc:slug');
+      expect(list).toContain('you may save it with write_document');
+    });
+
+    it('offers the architect and the analyst a document for a long plan only where documents exist', () => {
+      for (const [role, offer] of [
+        ['architect', 'A long plan may go into a project document'],
+        ['business_analyst', 'A long analysis may go into a project document'],
+      ] as const) {
+        const project = buildProject();
+        addMember(project, 'member', role);
+        const task = makeTask({ stageId: 'ready', assignee: null });
+        const stepsOf = (documents?: DocumentSummary[]) =>
+          doneSteps(
+            builder.build(input({ project, handle: 'member', task, ...(documents ? { documents } : {}) }))
+              .appendSystemPrompt,
+          );
+        expect(stepsOf(documentsOf(1)), role).toContain(offer);
+        expect(stepsOf(), role).not.toContain(offer);
+      }
+    });
   });
 });

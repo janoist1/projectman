@@ -8,8 +8,9 @@ import type { EngineAppFetchRequest } from './fetch';
 
 const FETCH_USAGE =
   'usage: npm run engine-app -- fetch --commit <sha> --out <new directory> [--run <number>] [--dry-run] [--open]';
+const UPLOAD_USAGE = 'usage: npm run engine-app -- upload --tag <tag> --dir <build output directory>';
 const USAGE =
-  'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>] | build --package <dir> --out <dir> [--ad-hoc | --identity <name> --team-id <id> --notary-profile <name>] | publish --tag <tag> --config <absolute-file> | fetch --commit <sha> --out <new directory> [--run <number>] [--dry-run] [--open]';
+  'usage: npm run engine-app -- package --commit <sha> --out <dir> [--repo <https-url>] | build --package <dir> --out <dir> [--ad-hoc [--update-ref refs/heads/<branch>] | --identity <name> --team-id <id> --notary-profile <name>] | publish --tag <tag> --config <absolute-file> | upload --tag <tag> --dir <dir> | fetch --commit <sha> --out <new directory> [--run <number>] [--dry-run] [--open]';
 
 export interface EngineAppCliDeps {
   /** The remote the commit is fetched from when `--repo` is absent: `origin` of the source checkout. */
@@ -19,6 +20,8 @@ export interface EngineAppCliDeps {
   build(request: EnginePackageRequest): Promise<{ root: string }>;
   buildApp?(request: EngineAppBuildRequest): Promise<{ root: string }>;
   publish?(request: { tag: string; config?: string; repositoryUrl: string }): Promise<void>;
+  /** Puts an already built app on the tag's existing release (PM-1198). */
+  upload?(request: { tag: string; dir: string; repositoryUrl: string }): Promise<void>;
   /** Downloads the GitHub-built app; returns its path (with `dryRun`, the address of the run). */
   fetch?(request: EngineAppFetchRequest): Promise<string>;
   out(text: string): void;
@@ -57,6 +60,28 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
       deps.out(`published engine app for ${tag}`);
       return 0;
     }
+    if (command === 'upload') {
+      const seen = new Set<string>();
+      for (let index = 0; index < args.length; index += 2) {
+        const key = args[index]!;
+        if (
+          !['--tag', '--dir'].includes(key) ||
+          seen.has(key) ||
+          !args[index + 1] ||
+          args[index + 1]!.startsWith('--')
+        )
+          throw badUsage(UPLOAD_USAGE);
+        seen.add(key);
+      }
+      const tag = option(args, '--tag');
+      const dir = option(args, '--dir');
+      if (!tag || !RELEASE_TAG_PATTERN.test(tag) || !dir || !deps.upload) throw badUsage(UPLOAD_USAGE);
+      const repositoryUrl = await deps.originUrl();
+      if (!repositoryUrl) throw badUsage('the source checkout has no origin remote');
+      await deps.upload({ tag, dir: path.resolve(deps.cwd, dir), repositoryUrl });
+      deps.out(`uploaded engine app for ${tag}`);
+      return 0;
+    }
     if (command === 'fetch') {
       const allowed = new Set(['--commit', '--out', '--run']);
       const seen = new Set<string>();
@@ -85,7 +110,14 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
       return 0;
     }
     if (command === 'build') {
-      const allowed = new Set(['--package', '--out', '--identity', '--team-id', '--notary-profile']);
+      const allowed = new Set([
+        '--package',
+        '--out',
+        '--identity',
+        '--team-id',
+        '--notary-profile',
+        '--update-ref',
+      ]);
       const seen = new Set<string>();
       for (let index = 0; index < args.length; index++) {
         const key = args[index]!;
@@ -100,6 +132,7 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
         ['--identity', '--team-id', '--notary-profile'].some((key) => seen.has(key))
       )
         throw badUsage('--ad-hoc cannot be combined with signing options');
+      if (seen.has('--update-ref') && !seen.has('--ad-hoc')) throw badUsage('--update-ref needs --ad-hoc');
       const packageDir = option(args, '--package');
       const outDir = option(args, '--out');
       if (!packageDir || !outDir || !deps.buildApp) throw badUsage(USAGE);
@@ -114,6 +147,7 @@ export async function runEngineAppCli(argv: string[], deps: EngineAppCliDeps): P
         identity: option(args, '--identity'),
         teamId: option(args, '--team-id'),
         notaryProfile: option(args, '--notary-profile'),
+        updateRef: option(args, '--update-ref'),
       });
       deps.out(root);
       return 0;

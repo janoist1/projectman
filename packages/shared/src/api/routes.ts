@@ -30,10 +30,11 @@ export const routes = {
   projectManagerQueue: (key: string) => `/api/projects/${key}/project-manager/queue`,
   operatorPreferences: (key: string) => `/api/projects/${key}/operator/preferences`,
   operatorKnowledge: (key: string) => `/api/projects/${key}/operator/knowledge`,
+  /** GET the weekly owner question measure (`OwnerQuestionsReport`, PM-1192); `?weeks=8`; the owner's own login only. */
+  operatorOwnerQuestions: (key: string) => `/api/projects/${key}/operator/owner-questions`,
   projectChecklist: (key: string) => `/api/projects/${key}/checklist`,
   projectChecklistItemState: (key: string, itemId: string) =>
     `/api/projects/${key}/checklist/items/${itemId}/state`,
-  operatorApprovalWaiver: (key: string) => `/api/projects/${key}/operator/approval-waiver`,
   /** GET the super mode's audit (`SuperAuditPage`, PM-757), newest first; the owner's own login only. */
   operatorSuperAudit: (key: string) => `/api/projects/${key}/operator-super/audit`,
   /** POST `SuperOperateRequest`: starts a command; 202 `{operation}` (PM-764). */
@@ -87,8 +88,14 @@ export const routes = {
   emailLoginRequest: () => '/api/auth/email/request',
   /** POST: redeems the code (`EmailLoginVerifyRequest`); 200 `Me` and a new session cookie (PM-670). */
   emailLoginVerify: () => '/api/auth/email/verify',
+  /** POST: asks for a password-reset code (`PasswordCodeRequest`); always 202 `EmailLoginCodeRequested` (PM-946). */
+  passwordCodeRequest: () => '/api/auth/password/request',
+  /** POST: redeems the code and sets the password (`PasswordResetRequest`); 200 `Me` and a new session cookie (PM-946). */
+  passwordReset: () => '/api/auth/password/reset',
   logout: () => '/api/auth/logout',
   me: () => '/api/me',
+  /** PUT (a logged-in user, not an integrator key): saves the account's system language (`SetLanguageRequest`); 200 `Me` (PM-1177). */
+  myLanguage: () => '/api/auth/language',
   /** PUT: saves the signed-in user's interface style (`SetUiStyleRequest`, PM-363); 200 `Me`. */
   meUiStyle: () => '/api/me/ui-style',
 
@@ -128,6 +135,18 @@ export const routes = {
   /** A small WebP preview (at most 640 px) of an image attachment; 404 for anything else. */
   attachmentThumbnail: (key: string, taskKey: string, id: string) =>
     `/api/projects/${key}/tasks/${taskKey}/attachments/${id}/thumbnail`,
+
+  /** GET lists (`DocumentListResponse`), POST creates (`CreateDocumentRequest` -> `DocumentDetail`). Not for a client. */
+  documents: (key: string) => `/api/projects/${key}/documents`,
+  /**
+   * GET reads (`?version=` an old one; -> `DocumentDetail`), PATCH edits or renames (`UpdateDocumentRequest`),
+   * DELETE deletes (`?baseVersion=`; owner and admin only, with their own login).
+   */
+  document: (key: string, slug: string) => `/api/projects/${key}/documents/${slug}`,
+  /** GET (`?limit=` -> `DocumentHistoryResponse`), newest first. */
+  documentHistory: (key: string, slug: string) => `/api/projects/${key}/documents/${slug}/history`,
+  /** POST (`RestoreDocumentRequest` -> `DocumentDetail`): an old version becomes a new one. */
+  documentRestore: (key: string, slug: string) => `/api/projects/${key}/documents/${slug}/restore`,
 
   /** PUT chooses the card's cover (`TaskCoverRequest`): a given image, or none; the answer is `{ task }`. */
   taskCover: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/cover`,
@@ -210,11 +229,14 @@ export const routes = {
   /** GET (owner, admin; query `since`, ISO): the questions the Operator screened, newest first (PM-556). */
   screenedQuestions: (key: string) => `/api/projects/${key}/inbox/screened`,
   resolveInbox: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/resolve`,
+  /** POST (owner's own login only): takes a question that waits for the project manager into the owners' inbox (PM-1252). */
+  pullWaitingQuestion: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/pull`,
   checkOutage: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/check`,
 
   config: (key: string) => `/api/projects/${key}/config`,
   patchConfig: (key: string) => `/api/projects/${key}/config`,
   revertConfig: (key: string) => `/api/projects/${key}/config/revert`,
+  configHistory: (key: string) => `/api/projects/${key}/config/history`,
 
   /** GET (`FeedbackInboxResponse`; `?task=KEY` only the marks of that card) the project's feedback marks (PM-506). */
   feedback: (key: string) => `/api/projects/${key}/feedback`,
@@ -227,7 +249,7 @@ export const routes = {
   /** POST (owner, admin): ends every tool session of the member. */
   feedbackMarkerLogout: (key: string, handle: string) =>
     `/api/projects/${key}/feedback/markers/${handle}/logout`,
-  /** GET `FeedbackMarkDetail`. */
+  /** GET `FeedbackMarkDetail`; DELETE the mark (204; its author, an owner or an admin, PM-1189). */
   feedbackMark: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}`,
   /** GET (processors): the screenshot; `?thumb=1` the small one. */
   feedbackScreenshot: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/screenshot`,

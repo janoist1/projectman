@@ -17,11 +17,14 @@ import type {
   GithubToolsHandler,
   ReleaseToolsHandler,
   ComputeJobToolsHandler,
+  DocumentToolsHandler,
   OperatorToolsHandler,
   ProjectDocToolsHandler,
   SystemFeedbackToolsHandler,
   HistoryToolsHandler,
   AttachmentPage,
+  ReadDocumentArgs,
+  WriteDocumentArgs,
   ListMergeChecksInput,
   ListTasksInput,
   LocatedAttachmentForTool,
@@ -29,6 +32,7 @@ import type {
   MessageAttachmentReading,
   PublishedRelease,
   PublishReleaseArgs,
+  ReleaseStatus,
   ListComputeJobsArgs,
   RunComputeJobArgs,
   ScreenshotRun,
@@ -109,6 +113,7 @@ export class TeamToolsService implements TeamToolsHandler {
     screenshots: ScreenshotToolsHandler;
     releases: ReleaseToolsHandler;
     computeJobs: ComputeJobToolsHandler;
+    documents: DocumentToolsHandler;
     operator: OperatorToolsHandler;
     projectDocs: ProjectDocToolsHandler;
     systemFeedback: SystemFeedbackToolsHandler;
@@ -174,6 +179,7 @@ export class TeamToolsService implements TeamToolsHandler {
       screenshots: ScreenshotToolsHandler;
       releases: ReleaseToolsHandler;
       computeJobs: ComputeJobToolsHandler;
+      documents: DocumentToolsHandler;
       operator: OperatorToolsHandler;
       projectDocs: ProjectDocToolsHandler;
       systemFeedback: SystemFeedbackToolsHandler;
@@ -359,6 +365,10 @@ export class TeamToolsService implements TeamToolsHandler {
     return this.tools.releases.publishRelease(ctx, args);
   }
 
+  async getReleaseStatus(ctx: ToolContext): Promise<ReleaseStatus> {
+    return this.tools.releases.getReleaseStatus(ctx);
+  }
+
   async runComputeJob(ctx: ToolContext, args: RunComputeJobArgs) {
     return this.tools.computeJobs.runComputeJob(ctx, args);
   }
@@ -369,6 +379,22 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async listComputeJobs(ctx: ToolContext, args: ListComputeJobsArgs) {
     return this.tools.computeJobs.listComputeJobs(ctx, args);
+  }
+
+  async listDocuments(ctx: ToolContext) {
+    return this.tools.documents.listDocuments(ctx);
+  }
+
+  async readDocument(ctx: ToolContext, args: ReadDocumentArgs) {
+    return this.tools.documents.readDocument(ctx, args);
+  }
+
+  async writeDocument(ctx: ToolContext, args: WriteDocumentArgs) {
+    return this.tools.documents.writeDocument(ctx, args);
+  }
+
+  async documentHistory(ctx: ToolContext, args: { slug: string; limit?: number }) {
+    return this.tools.documents.documentHistory(ctx, args);
   }
 
   async updateTask(
@@ -432,6 +458,7 @@ export class TeamToolsService implements TeamToolsHandler {
       signalId?: string;
       responsePurpose?: QuestionResponsePurpose;
       recipient?: QuestionRecipient;
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -456,6 +483,7 @@ export class TeamToolsService implements TeamToolsHandler {
       forwardTo?: string;
       todo?: ScreeningTodo;
       feedbackId?: string;
+      ownerTopic?: string;
     },
   ): Promise<{
     inboxItemId: string;
@@ -479,6 +507,9 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { signalId: string; note: string },
   ): Promise<{ signalId: string; state: 'dismissed' }> {
     return this.tools.operator.dismissSignal(ctx, args);
+  }
+  async decideSeniorWait(ctx: ToolContext, args: Parameters<OperatorToolsHandler['decideSeniorWait']>[1]) {
+    return this.tools.operator.decideSeniorWait(ctx, args);
   }
   async reassignTask(ctx: ToolContext, args: Parameters<OperatorToolsHandler['reassignTask']>[1]) {
     return this.tools.operator.reassignTask(ctx, args);

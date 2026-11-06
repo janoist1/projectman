@@ -48,7 +48,7 @@ After two warmup rounds each path runs ten complete rounds, repeated five times:
 - `pending`: read each recipient's pending messages, then count messages waiting for the local
   engine. This intentionally includes both the delivery read and the settings/outage count.
 - `thirty`: deferred admission/urgent pull, review watch, full-test recovery and outage checks.
-- `sixty`: loop watch and Operator signal reconciliation, including structural patterns.
+- `sixty`: loop watch and signal reconciliation (`operatorSignals.sweep`), including structural patterns.
 - `combined`: the two periodic paths and the pending path in sequence.
 
 These are direct calls to the same services the assembly timers invoke, without waiting for
@@ -120,13 +120,13 @@ at both scales and both scenarios (about 0.3–1 ms CPU), because the harness ha
 developer: free developers are checked before any card is read. Starts with a free developer
 are covered by the read-counting tests in `urgent-pull.test.ts` and `task-scheduling-reads.test.ts`.
 
-## Operator history reads (PM-771)
+## Signal history reads (PM-771)
 
 The 60 second path (`sixty`: `loopWatch.sweep` and `operatorSignals.sweep`) walked the closed history of
 every project: all cards and links through the board cases and the task waits, and the project's whole
 timeline for the 7-day structural evidence. PM-771 reads the open cards, the cards a prerequisite link
-or a window event names, and the window events through an index (`docs/ARCHITECTURE.md`, "Operator history
-reads"). The generator (seed 733) gained **current 7-day evidence at both scales**: per project one
+or a window event names, and the window events through an index (`docs/ARCHITECTURE.md`, "Signal history
+reads (PM-771, PM-783)"). The generator (seed 733) gained **current 7-day evidence at both scales**: per project one
 family of three subtasks that close inside the window, their parent, and a few more structural events
 (`currentEvidence` in the harness; 8 cards and 24 events, the same at every scale). The old closed
 subtask families (a parent and four children, with a stage-change event each) were already in the

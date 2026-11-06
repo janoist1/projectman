@@ -111,6 +111,8 @@ function logTail(file) {
  *   dir        data directory (default: a new temporary one, which `stop()` removes; a given one is kept)
  *   seed       'demo' (the Acme project, four cards, no session) or 'none'
  *   web        start Vite too (default true)
+ *   language   the system language of the accounts the setup and the invitations create: 'hu' (default, so the
+ *              screenshot scenarios stay Hungarian) or 'en' (PM-1177)
  *   fakeEnv    FAKE_CLAUDE_*, FAKE_CODEX_*, FAKE_GH_* variables for the fake CLIs
  *   ports      { server, web }; by default free ports, chosen again up to 3 times on a collision
  * and, for scripts/demo.mjs:
@@ -125,6 +127,7 @@ export async function startInstance(options = {}) {
   const {
     seed = 'demo',
     web = true,
+    language = 'hu',
     machine,
     fakeEnv = {},
     ports = {},
@@ -135,6 +138,7 @@ export async function startInstance(options = {}) {
   } = options;
   checkOptions({ dir: options.dir, seed, fakeEnv, ports });
   if (terminal !== 'pipe' && terminal !== 'pty') throw new Error(`Unknown terminal: ${terminal}.`);
+  if (language !== 'hu' && language !== 'en') throw new Error(`Unknown language: ${language}.`);
   const ownsDir = options.dir === undefined;
   // The real path: the fake claude trusts a folder by its real path, and a temporary directory is
   // below a symbolic link on macOS (/var -> /private/var).
@@ -315,7 +319,7 @@ export async function startInstance(options = {}) {
       passwords.set(owner.email, password);
       const result = await send('/api/setup', {
         method: 'POST',
-        body: { name: owner.name, email: owner.email, password },
+        body: { name: owner.name, email: owner.email, password, language },
       });
       cookies.set(owner.email, result.cookie);
     } else await login(owner);
@@ -462,7 +466,10 @@ export async function startInstance(options = {}) {
       const token = created.path.split('/').pop();
       const account = Object.freeze({ email: email.toLowerCase(), name });
       const password = randomBytes(18).toString('base64url');
-      const result = await send(`/api/invites/${token}/accept`, { method: 'POST', body: { name, password } });
+      const result = await send(`/api/invites/${token}/accept`, {
+        method: 'POST',
+        body: { name, password, language },
+      });
       passwords.set(account.email, password);
       cookies.set(account.email, result.cookie);
       return account;

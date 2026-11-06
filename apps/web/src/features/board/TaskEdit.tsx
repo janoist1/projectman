@@ -8,6 +8,7 @@ import { DescriptionEditor } from '../../components/DescriptionEditor';
 import { Markdown } from '../../components/Markdown';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { useDocumentLinkTool } from '../documents/DocumentLinkDialog';
 import drawer from './drawer.module.css';
 import styles from './TaskEdit.module.css';
 
@@ -104,6 +105,7 @@ export function TaskDescription({ task, className }: { task: Task; className?: s
   const update = useUpdateTask(key);
   const [editing, setEditing] = useState(false);
   const [description, setDescription] = useState(task.description);
+  const documentLinkTool = useDocumentLinkTool();
   if (!task.description && !can.createTasks) return null;
   return (
     <section className={drawer.section}>
@@ -141,6 +143,7 @@ export function TaskDescription({ task, className }: { task: Task; className?: s
             value={description}
             onChange={setDescription}
             disabled={update.isPending}
+            insertTool={documentLinkTool}
           />
           {update.isError ? (
             <p role="alert" className={drawer.error}>

@@ -77,6 +77,13 @@ const ai = (config: ProjectConfig, handle: string) => {
 };
 
 describe('ownerOnlyChanges', () => {
+  it('requires ownership to change repository document paths', () => {
+    expect(
+      changed((next) => {
+        next.project.repos[0]!.docs = { decisions: 'docs/D.md' };
+      }),
+    ).toEqual(['locations']);
+  });
   it.each([
     [undefined, true, ['email_send_policy']],
     [true, false, ['email_send_policy']],

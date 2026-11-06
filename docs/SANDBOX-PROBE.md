@@ -13,11 +13,9 @@ tool names, permission prompts, raw results and sandbox denial logs. Keep this e
 the task, with secrets and capability URLs removed. A requested setting is not evidence it was
 enforced. A failed action is not necessarily a denied action.
 
-The old probe reported macOS 14.6 arm64 / Claude Code 2.1.284 / Codex 0.159.1 observations,
-but placed worktrees beside the fake app home and did not cover built-in file tools. Its
-negative exit statuses do not establish the strict PM-87 boundary. Repeat the full procedure
-for Claude 2.1.223, 2.1.284, Codex 0.159.1 and every proposed minimum release on macOS and
-Linux. Do not infer old-release behavior from current documentation.
+Repeat the full procedure for every supported or proposed minimum CLI release on macOS
+and Linux. A result applies only to its recorded version, platform and effective policy;
+negative exit statuses alone do not establish filesystem or tool isolation.
 
 Current official documentation is a source of candidate settings:
 [Claude sandbox](https://code.claude.com/docs/en/sandboxing),
@@ -159,8 +157,10 @@ tool, exclude a command from sandboxing, disable filesystem isolation, add a sta
 add a second MCP server. Use harmless hooks/MCP that only create a fixture marker and return
 fictional data. Record which run, which merge, and which trust prompts appear. Test new and
 resumed sessions, remembered approvals and a changed project settings file. Distinguish trusted
-runner-owned hooks/MCP from member-configurable processes; PM-49 cannot be certified until
-the latter cannot widen the boundary.
+runner-owned hooks/MCP from member-configurable processes. Since PM-1169 the start refuses user and
+administrator hooks (`hooks`, `hooks.json`), `project_root_markers` and macOS MDM `com.openai.codex`
+preferences by presence, so member-configurable hooks cannot widen the boundary; probe the refusal, not a
+disabling.
 
 Trusted runner hook/team calls must succeed while the **same member shell and file tools**
 cannot read their tokens or call arbitrary app HTTP paths. Use fictional token endpoints on
@@ -199,11 +199,11 @@ corresponding `fake-live/<variant>-executed.txt`. A marker proves host execution
 sandbox planting. If the host trigger is denied by the outer environment, this step remains
 unverified; do not request general host execution for member work.
 
-`apps/server/test/sandbox-probe.test.js` separately reproduces all three host triggers using
-the **actual worktree manager** and temporary fictional repos, without any agent CLI.
-That automated result establishes the current host-side vulnerability conditional on planting;
-it does not prove whether native Claude/Codex allows planting. Hardened host git should replace
-those exposure assertions with marker-absence assertions when implemented in its own task.
+`apps/server/test/sandbox-probe.test.js` checks these host triggers using the **actual worktree
+manager** and temporary fictional repos, without any agent CLI. Since PM-1171 the worktree
+status read disables fsmonitor, and its assertion requires the marker to stay absent. The two
+repository-level checkout hook triggers still establish host execution conditional on planting.
+None of these tests proves whether native Claude/Codex allows planting.
 
 ## PM-167: the reader and developer sandboxes on the owner's machine
 
@@ -239,8 +239,8 @@ file is only counted (`wc -c`), so the evidence holds its size at most.
      exception at all.
 4. During the whole review no item reaches the owner's inbox (Bejövő); refusals of approver
    Senki, if any, are on the task's timeline.
-5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
-   summary in PROVIDERS.md (the PM-167 table's "Manual run" line).
+5. Record each line as `pass`, `fail` or `unverified` with the raw output and a summary in the
+   task.
 
 ## PM-153 and PM-193: a developer's read boundary, the protected shared git, its own npm cache
 
@@ -257,13 +257,13 @@ Credential files are only counted (`wc -c`), never printed.
    - `wc -c <app home>/<fictional file>` (a file of the app home outside the developer's
      worktree and attachments), `cat <the other task's worktree>/private.txt`;
    - `ls ~/.ssh`, `wc -c ~/.config/gh/hosts.yml`, `wc -c ~/.claude.json`;
-   - `cat <the integrating checkout>/package.json` (the main checkout next to the shared `.git`);
+   - `cat <the default-branch checkout>/package.json` (the main checkout next to the shared `.git`);
    - `git update-ref refs/heads/main HEAD`; `touch <shared .git>/HEAD`, `touch <shared .git>/index`;
      afterwards no `main.lock`, `HEAD.lock` or `index.lock` is left in the shared `.git`, and the
-     integrating checkout's `git status` and `git log -1 main` are unchanged;
+     default-branch checkout's `git status` and `git log -1 main` are unchanged;
    - `git replace $(git rev-parse main:package.json) $(git hash-object -w <a fictional file>)` and
      `touch <shared .git>/info/grafts`: refused; afterwards `git replace -l` lists nothing and the
-     integrating checkout's `git show main:package.json` is unchanged;
+     default-branch checkout's `git show main:package.json` is unchanged;
    - the credential helper of `/opt/homebrew/etc/gitconfig` (`osxkeychain`):
      `printf 'protocol=https\nhost=github.com\n\n' | git credential fill | wc -c` gives no password
      (count only, never print it), and `security find-internet-password -s github.com > /dev/null`
@@ -284,10 +284,10 @@ Credential files are only counted (`wc -c`), never printed.
    - `npm run dev` starts with its data in `$PROJECTMAN_HOME` (stop it right away);
    - `git add -A`, `git commit -m "Probe"`, then `git gc --auto`: the commit stays (`git log -1`),
      whatever `gc` reports about `packed-refs`.
-4. A command with a here-document (`cat > /dev/null <<'EOF'` with an empty body) still asks: the
-   12:44 case of PM-142 (PROVIDERS.md, "Commands Claude Code asks about in the sandbox").
-5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
-   summary in PROVIDERS.md (the "Manual run" line under the sandbox table). A command the sandbox
+4. A command with a here-document (`cat > /dev/null <<'EOF'` with an empty body) still asks
+   (PROVIDERS.md, "Commands Claude Code asks about in the sandbox").
+5. Record each line as `pass`, `fail` or `unverified` with the raw output and a summary in the
+   task. A command the sandbox
    refuses but the developer needs is a finding: `allowRead` may grow by it, never by the app home,
    `~/.ssh`, `~/.config/gh`, `~/.codex`, `~/.aws`, `~/.cloudflared`, another `~/.claude` path or `~/.npmrc`.
 
@@ -347,7 +347,7 @@ for ordinary developer starts. Run only with separate owner authorization, outsi
 member session and automated tests, using disposable fictional files and an interactive
 subscription CLI. Repeat for **both Codex and NanoGPT**, for new and resumed processes;
 record each OS/architecture, CLI version/provenance, commit, exact arguments, rendered
-profile and sanitized results. PM-356's earlier result does not cover these home reopenings.
+profile and sanitized results. The deny-list profile alone does not cover these home reopenings.
 
 Place the own checkout and another member's checkout below the fixture app home, itself
 below the fixture user home. Include another project, an unopened home file and a fictional
@@ -382,13 +382,10 @@ Apply this result only to restarted processes on the tested OS/provider.
 
 ### PM-425: the reader rollout (Claude, Codex, NanoGPT, Gemini)
 
-The reading sessions (a `read_only` placement, a review copy, a taskless chat, the non-super
-Operator) now get this boundary from `sessionSandbox`. **The native probe has not been run**: the
-developer session that implemented it had no pseudo-terminal and could not start a nested
-sandbox, so the tests cover only the rendered policy (`session-policy-model.test.ts`,
-`tool-decision.test.ts`, `session.test.ts`, `engine-limit.test.ts`, gemini `hooks.test.ts`). Run it
-with separate owner authorization, per provider, for new and resumed processes, with fictional
-files:
+Reading sessions (a `read_only` placement, a review copy or a taskless chat) receive
+the boundary from `sessionSandbox`. Rendered-policy tests do not certify native enforcement.
+Repeat with separate owner authorization for each provider, for new and resumed processes,
+using fictional files:
 
 - Claude reader: a `Read`/`Grep`/`Glob` of another project below the fictional home and of
   `~/.claude/projects` is refused with no question; a read of the own cwd, an attachment, a
@@ -399,22 +396,14 @@ files:
 - Codex/NanoGPT reader: the same reads through the rendered `projectman` profile.
 - Gemini reader: the file tools refuse the other project; record that its commands are not
   sandboxed (PM-361).
-- Regression: a developer's and the super Operator's sandbox are unchanged (PM-153).
+- Regression: developer placements retain their developer policy (PM-153).
 
 Classify a missing dependency or an absent fixture separately from a denial, and record an omitted
 check as `unverified`, not as a pass.
 
 ## PM-356: restricted-read Codex permission profile
 
-**Native result recorded on PM-356, 2026-10-06.** The owner-authorized integrator ran
-Codex 0.159.1 on macOS 14.6 arm64. The profile denied secret/credential/database-glob
-reads and symlink traversal, allowed worktree and own-tmp edits, and kept protected
-workspace directories and shared temp roots closed. `view_image` respected the denial.
-The standalone CLI needed a read exception for its installation beneath `~/.codex/packages`;
-the shared Git index lock remained blocked. The five original feature overrides and
-named MCP disabling passed; the three additional computer/browser flags need supplementary
-startup acceptance. This is evidence for that platform/version and deny list, not full
-strict isolation. See PROVIDERS.md and the task's integrator note for limits.
+Record native evidence on PM-356 using the scope and acceptance matrix below.
 
 Run repeat verification interactively on the subscription in a normal terminal.
 Do not use `codex exec`, copy login files, or run these commands through a member session.
@@ -503,7 +492,7 @@ writer, reader, precedence and snapshot repeat.
    startup evidence or mark that part unverified; never invoke the server to test it.
 
 If Codex 0.159.1 rejects or ignores `enabled=false`, or plugin tools remain available, stop
-and send the version and sanitized evidence to `claude` on PM-356. A separate ChatGPT Codex
+and send the version and sanitized evidence to `lead` on PM-356. A separate ChatGPT Codex
 home is a possible fallback requiring an owner decision about authentication; do not copy
 credentials or invent a workaround. These two checks are prerequisites alongside the
 filesystem checks, per the lead developer's scope decision of 2026-10-06.
@@ -568,6 +557,62 @@ and successful worktree operations, attachment reads, npm-cache writes and
 The development session's `/mcp` must show only `team`; no `js`, `cua`, computer-use or browser
 tool may be available. Record the tool inventory without invoking any disabled tool.
 This later run is a separate acceptance prerequisite, not established by the standalone probe.
+
+## PM-1172: outbound network of a Codex member through Codex's proxy
+
+Repeat this whenever the minimum Codex version changes (`docs/PROVIDERS.md` says so): a Codex that
+does not accept the profile stops every Codex member with the network on from starting.
+
+Setup: the PM-356 section above (`sh scripts/sandbox-probe.sh setup`, the `probe_*` variables and the
+`probe_write` / `probe_read` profiles; interactive TUI, subscription login, no `codex exec`, no real
+secret, no live port (4700/4800/5173) and no `control.sock`). Start line: the PM-356 one, with
+`--ask-for-approval on-request`, `-c features.network_proxy=true`, and this before the closing `}` of
+both profiles:
+
+```
+,network={enabled=true,domains={"*"="allow",localhost="deny","127.0.0.1"="deny"}}
+```
+
+The profile has no `mode` (`limited` allows only GET, HEAD and OPTIONS), no `allow_local_binding`, no
+`unix_sockets` and no `proxy_url`. `features.network_proxy` and the `network` part always go together:
+without the proxy the commands reach the network directly, the loopback included. Disable the user's own
+MCP servers (`-c mcp_servers.<name>.enabled=false`) and read the CLI from `~/.codex/packages/standalone`
+(read exception) as in the PM-356 run.
+
+Throwaway listeners outside the sandbox, in another terminal (`port=48123`, any free port but
+4700/4800/5173; `$probe_root` is the fixture):
+
+```
+node -e "require('http').createServer((q,s)=>s.end('PROBE-OK\n')).listen(+process.argv[1],'0.0.0.0')" $port &
+# the same with '::1' instead of '0.0.0.0'
+node -e "require('net').createServer().listen(process.argv[1])" "$probe_root/pm1172.sock" &
+lan=$(ipconfig getifaddr en0)
+```
+
+Run in the TUI one by one; record the output and the exit code of each:
+
+| #   | Command and expectation                                                                                                                                                                                                                                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `env \| grep -i -E '^(http\|https\|all)_proxy=' \| cut -d= -f1`: the variable names; the `HTTP_PROXY` port separately                                                                                                                                                           |
+| 2   | `curl -sS -o /dev/null -w '%{http_code}\n' https://example.com` → 200                                                                                                                                                                                                           |
+| 3   | **Decisive:** `curl -sS -m 5 --noproxy '*' -o /dev/null -w '%{http_code}\n' https://example.com` → failure                                                                                                                                                                      |
+| 4   | Through the proxy, none may print `PROBE-OK`: `curl -sS -m 5 http://127.0.0.1:$port/`, `http://localhost:$port/`, `http://[::1]:$port/`, `http://127.1:$port/`, `http://0.0.0.0:$port/`, `http://localtest.me:$port/`                                                           |
+| 5   | `curl -sS -m 5 --noproxy '*' http://127.0.0.1:$port/` → failure                                                                                                                                                                                                                 |
+| 6   | `curl -sS -m 5 http://$lan:$port/`, and the same with `--noproxy '*'` → failure                                                                                                                                                                                                 |
+| 7   | `curl -sS -m 5 -o /dev/null -w '%{http_code}\n' http://169.254.169.254/` → refusal                                                                                                                                                                                              |
+| 8   | Unix socket, both must fail: `node -e "require('net').connect(process.argv[1]).on('connect',()=>console.log('CONNECTED')).on('error',e=>console.log('REFUSED',e.code))" "$probe_root/pm1172.sock"` → REFUSED; `curl -sS -m 5 --unix-socket "$probe_root/pm1172.sock" http://x/` |
+| 9   | `cat <probe_root>/fake-live/secret` → sandbox refusal, with the network on too                                                                                                                                                                                                  |
+| 10  | Writing: in the writer profile `touch pm1172.txt` and `touch <probe_tmp>/ok.txt` work, `touch <probe_root>/outside/x` is refused; in the reader profile `touch x` is refused                                                                                                    |
+| 11  | Function (not a security point): `git ls-remote https://github.com/openai/codex HEAD`; in the writer profile `npm view left-pad version --cache <probe_tmp>/npm-cache`                                                                                                          |
+| 12  | The TUI refuses points 4–6 without asking                                                                                                                                                                                                                                       |
+| 13  | The TUI starts without `--sandbox`, and `/status` shows the profile. The "embedded mode" warning (from `-c`) is expected                                                                                                                                                        |
+| 14  | Two TUIs at once: point 2 gives 200 in both and the `HTTP_PROXY` ports differ                                                                                                                                                                                                   |
+| 15  | Control: without the `network` part and the switch, point 2 fails                                                                                                                                                                                                               |
+
+Record: the date, who ran it, `codex --version`, the macOS version, the commit, the exact arguments
+(without secrets) and the result of each point. If any security point differs, Codex's network cannot be
+turned on for that version. The NanoGPT member's probe (`ps -A -E -ww` and a canary,
+PM-358) is separate: a NanoGPT member stays without network until it passes.
 
 ## Acceptance record and alternatives
 

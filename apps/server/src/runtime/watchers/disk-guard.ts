@@ -1,7 +1,5 @@
-import { ALERT_SEEN_OPTION, alertPayloadOf } from '@projectman/shared';
 import type { DiskLowAlert, EngineId, ProjectConfig } from '@projectman/shared';
 import type { EngineDirectory } from '../../contracts';
-import { ownerHandles } from '@projectman/shared';
 import type { DomainContext } from '../../core/base';
 import { conflict } from '../../kernel';
 import type { InboxService } from '../../core/inbox';
@@ -17,8 +15,8 @@ const FREE_DISK_STALE_MS = 5 * FREE_DISK_CACHE_MS;
 
 /**
  * Free disk space (PM-243). A full disk froze the owner's machine, so below the project's
- * `minFreeDiskGb` the owners get one `alert` (kept open while the space is short, and withdrawn once
- * there is room again) and admission refuses new AI sessions (`disk_low`); running sessions are not
+ * `minFreeDiskGb` the integrator gets one todo (kept open while the space is short, and withdrawn once
+ * there is room again; PM-1250) and admission refuses new AI sessions (`disk_low`); running sessions are not
  * touched and finish their step. A measurement that fails or is not available (`freeBytes` returns
  * null) never blocks anything.
  */
@@ -126,30 +124,22 @@ export class DiskGuard {
     const thresholdBytes = config.team.limits.minFreeDiskGb * GB;
     const freeBytes = free ?? 0;
     const low = free !== null && thresholdBytes > 0 && free < thresholdBytes;
-    const open = this.inbox
-      .list(config.project.key, { state: 'open', kind: 'alert' })
-      .filter((item) => alertPayloadOf(item)?.alert === 'disk_low');
     if (!low) {
       // Room again (or the check is off): the warning is no longer true, and the next shortage says so anew.
       if (free !== null) {
         this.told.delete(config.project.key);
-        for (const item of open) this.inbox.cancel(item.id);
+        this.inbox.settleAlert(config.project.key, 'disk_low');
       }
       return { low: false, freeBytes, thresholdBytes };
     }
-    const owners = ownerHandles(config);
-    // One warning per shortage: an owner who has seen it is not told again every minute.
-    if (!this.told.has(config.project.key) && open.length === 0 && owners.length > 0) {
+    // One todo per shortage: the integrator is not asked again every minute (`raiseAlert` keeps one open).
+    if (!this.told.has(config.project.key)) {
       this.told.add(config.project.key);
       const payload: DiskLowAlert = { alert: 'disk_low', freeBytes, thresholdBytes };
-      this.inbox.create({
+      this.inbox.raiseAlert({
         projectKey: config.project.key,
-        kind: 'alert',
-        assignees: owners,
-        source: 'system',
         title: `Only ${Math.floor(freeBytes / GB)} GB of disk space is free (limit ${thresholdBytes / GB} GB)`,
         payload,
-        options: [ALERT_SEEN_OPTION],
       });
       this.ctx.logger.warn({ freeBytes, thresholdBytes }, 'free disk space is below the limit');
     }

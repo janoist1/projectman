@@ -40,14 +40,26 @@ export function isRepoFilePath(path: string): boolean {
   return segments[0] !== '.git';
 }
 
-const RepoFilePath = z.string().min(1).max(200).refine(isRepoFilePath, 'Not a path inside the repository');
+/** A Markdown project document, excluding hidden paths and agent instruction files. */
+export function isProjectDocPath(path: string): boolean {
+  if (!isRepoFilePath(path) || !path.toLowerCase().endsWith('.md')) return false;
+  const segments = path.split('/');
+  return (
+    !segments.some((segment) => segment.startsWith('.')) &&
+    !['claude.md', 'claude.local.md', 'agents.md', 'agents.override.md', 'gemini.md'].includes(
+      segments[segments.length - 1]!.toLowerCase(),
+    )
+  );
+}
+
+const ProjectDocPath = z.string().min(1).max(200).refine(isProjectDocPath, 'Not a project document path');
 
 /** Where a repository keeps the project documents. A document with no path is off. */
 export const RepoDocs = z
   .object({
-    decisions: RepoFilePath.optional(),
-    roadmap: RepoFilePath.optional(),
-    lessons: RepoFilePath.optional(),
+    decisions: ProjectDocPath.optional(),
+    roadmap: ProjectDocPath.optional(),
+    lessons: ProjectDocPath.optional(),
   })
   .strict()
   .refine((docs) => {

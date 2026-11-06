@@ -1,7 +1,7 @@
 # Deployment and operation
 
 The supported installation uses a cloud hub and a Mac engine; see [HYBRID.md](HYBRID.md)
-and [AWS.md](AWS.md). This page covers local operation, releases and integrator access.
+and [AWS.md](AWS.md). This page covers operating the Mac engine, releases and the connected Claude's access.
 
 ## Engine app build (PM-1104, PM-1122)
 
@@ -34,7 +34,11 @@ The identity and profile are keychain names; provision the Developer ID certific
 private key and notary credentials in the release machine's login keychain, with access
 for the background release process. No secrets belong in command arguments or the repo.
 The ad-hoc build skips hardened runtime, notarization, DMG signing and Gatekeeper assessment
-and records an empty Team ID (the updater must remain disabled). Without hardened runtime,
+and records an empty Team ID. With `--update-ref refs/heads/<branch>` (only with `--ad-hoc`; the release workflow
+passes `${{ github.ref }}`) and a tagged package, the Info.plist also gets `ProjectmanUpdateTrust =
+github-attestation` and `ProjectmanUpdateSourceRef = <ref>` (PM-1199): the app then updates itself on the GitHub
+build attestation instead of an Apple signature (see "Engine menu bar app"). Developer ID and untagged builds get
+neither key. Without hardened runtime,
 Node can load ad-hoc native modules that have no Team ID. Signing options cannot be combined
 with `--ad-hoc`. Node receives JIT and unsigned executable memory entitlements in both modes;
 signed release builds keep hardened runtime and library validation enabled. Verify real Node/native module
@@ -73,6 +77,26 @@ engine's `engine.json`, in the `computeJobs` of the repository entry (`repos[].c
 ]
 ```
 
+A registration may also name a **dedicated workflow** with the optional `workflow` field (PM-1196): one of
+`projectman-deploy.yml` or `projectman-engine-release.yml`, a fixed list in `DEDICATED_COMPUTE_JOB_WORKFLOWS`. A
+dedicated workflow has its own environment and rights (an AWS OIDC role, `contents: write`), which the general
+workflow, that runs any command, never gets. Without the field the general `projectman-job.yml` runs, so older
+registrations stay valid. The engine starts a dedicated workflow only for a job registered with exactly that
+workflow (and every other value as above): a different workflow is `command_not_allowed`, one off the list
+`invalid_params`; an older engine refuses a dedicated job with `invalid_params` and the link stays up. The dedicated
+workflow takes the same inputs, run title, `projectman-job output ...` lines and `projectman-job-<run_id>` artifact.
+
+```json
+{
+  "id": "cloud-deploy",
+  "workflow": "projectman-deploy.yml",
+  "runsOn": "ubuntu-24.04",
+  "timeoutMinutes": 30,
+  "outputs": ["deploy/report.json"],
+  "command": "cloud-deploy"
+}
+```
+
 Start it for a commit of the default branch (the workflow runs only those) either with the team tool,
 `run_compute_job job=engine-app commit=<SHA40>`, or by hand with the `gh workflow run` line that
 `engine-app fetch` prints when it finds no run. Then, on the Mac the app goes to:
@@ -89,10 +113,9 @@ inside the app with the commit. Any failure removes the output directory. On suc
 the zip and the manifest, and prints the app's path as its last line. It needs `gh` logged in with read access to the
 repository's Actions (gh 2.49 or newer for `gh attestation`), `ditto` and `codesign`; the artifact lives 7 days.
 `--dry-run` stops at the run's address. `fetch` downloads only the manifest and the zip, not the disk image: the
-install unpacks the zip, and the image (kept for `publish`, which builds on the release Mac) was 388 MB of the 635 MB
-a run used to bring (PM-1157). A registration made before PM-1157 lists the `.dmg` among its `outputs`; the owner
-changes it to the two paths above in `engine.json` and in the hub's `repoComputeJobs`, otherwise the run still
-uploads the image in the artifact and `fetch` still downloads it (it discards it unused).
+install unpacks the zip, and the image is kept for `publish`, which builds on the release machine. The registration
+lists exactly the two `outputs` above, in `engine.json` and in the hub's `repoComputeJobs`; one that still lists the
+`.dmg` makes the run upload the image and `fetch` download it (it discards it unused).
 
 **Installing is opening the new app, not a bare `service switch --to`.** The menu bar app that is still installed
 decides by `SwitchPolicy.candidate` only whether the packaged version and the running one differ; after a manual
@@ -100,17 +123,55 @@ decides by `SwitchPolicy.candidate` only whether the packaged version and the ru
 opened (`--open`, or `open "<out>/projectman motor.app"`), copies itself into `/Applications` and stops the old
 one; its own release switch (`Installer.switchEngine`) stages the package in `engine/versions/<version>`, runs
 `service switch --to`, moves `current` and cleans up. An idle engine switches at once; with work running the menu
-offers "Update now…". The `gh` and `ditto` downloads carry no quarantine attribute, so the ad-hoc app starts; the
-LuLu firewall still asks to allow each new engine version's `bin/node` until the app is signed. The Team ID is
-empty, so the updater is off.
+offers "Update now…". The `gh` and `ditto` downloads carry no quarantine attribute, so the ad-hoc app starts. The
+staging moves `bin/node` to `engine/runtimes/<sha256>/node` and leaves a relative link in its place (PM-1200), so
+the same Node runs from the same path in every version: the LuLu firewall asks once and again only when the pinned
+Node changes (`scripts/engine-app/node-pin.ts`), not for every engine version. The Team ID is empty, but the
+build of GitHub Actions carries the attestation trust keys (PM-1199), so the app updates itself from the next
+release on (see "Engine menu bar app"); the app installed by hand once must be one of these releases
+(`engine-app fetch --open`), an older ad-hoc app (`CFBundleVersion` `0`) never updates itself.
 
-**Measuring (PM-1157).** Compare before (local `package` then `build --ad-hoc` on the Mac, about 3.5 minutes,
-with `npm ci` and Spotlight indexing loading the machine) and after (GitHub), both from the start to the app
-running: for the local path, the two commands' wall time and the load average (`uptime`) during them; for GitHub,
-the run's queue and run time from `get_compute_job` (or the run page), plus the `fetch --open` time on the Mac until
-the new version runs. Keep the GitHub path only if the Mac's time and load fall enough to be worth the queue wait.
-If a Developer ID comes later, the same job signs and notarizes and attaches the files as release assets, and the
-self-update takes them from there.
+With a Developer ID, the same job would sign and notarize and attach the files as release assets, and the
+self-update would take them from there.
+
+### On GitHub, for a release (PM-1198)
+
+The `engine-app` job above builds a commit that has no tag, so its `bundleVersion` is `0` and the app's updater never
+sees it as newer. The dedicated workflow `.github/workflows/projectman-engine-release.yml` (PM-1196) builds the
+commit of a release tag instead and puts the result on that tag's GitHub release, so the app, the remote engines and
+a manual install all take the same assets. It is registered like any dedicated job, in `engine.json`
+(`repos[].computeJobs`) and in the hub's `repoComputeJobs`:
+
+```json
+{
+  "id": "engine-release",
+  "workflow": "projectman-engine-release.yml",
+  "runsOn": "macos-15",
+  "node": "22",
+  "timeoutMinutes": 60,
+  "outputs": ["app/projectman-motor.json"],
+  "command": "engine-release"
+}
+```
+
+After `publish_release`, the devops member starts it with `run_compute_job job=engine-release commit=<SHA40>`, where
+the commit is the one the tag points at. The workflow runs one fixed procedure (the `command` is only a marker it
+checks) and fails unless: it runs from the default branch; the inputs are exactly the registered ones; the commit is
+on the default branch; exactly one tag of the `RELEASE_TAG_PATTERN` form points at it; and that tag has a GitHub
+release (otherwise `app_release_missing`). Then it checks the commit out with its full history and tags, so
+`engine-app package` finds the tag and the `bundleVersion` is the tag's `YYYYMMDD.N`; builds with `build --ad-hoc`;
+attests the zip, the disk image and the manifest with this workflow's identity (`actions/attest-build-provenance`);
+and runs `npm run engine-app -- upload --tag <tag> --dir <output>` with the run's `GITHUB_TOKEN` (`contents: write`).
+The run's artifact is the manifest (`app/projectman-motor.json`), as for the other compute jobs.
+
+`upload` is the uploading half of `publish`, shared with it (`scripts/engine-app/release-assets.ts`): it refuses a
+manifest whose `tag` is not `--tag` or whose `version` is not the tag's commit, and archives that are not the ones
+the manifest names (`REFUSED [app_manifest_mismatch]`); an existing asset with the same SHA-256 is skipped; a
+different one is `REFUSED [app_asset_conflict]` and is never overwritten; the manifest goes up last. It accepts the
+ad-hoc manifest (empty `teamId`); `publish` still requires its Team ID. Rerunning after an interruption is safe.
+**A tag whose assets an ad-hoc build took cannot get a Developer ID publication later** (`app_asset_conflict`): once
+there is a Developer ID, the signed release gets a new tag. The macOS runner is free for a public repository, and the
+disk image (about 388 MB) goes up inside GitHub.
 
 ## GitHub attribution
 
@@ -136,7 +197,12 @@ finished, then the session is held), the server closes, and after the start the 
 The pause waits `PROJECTMAN_SHUTDOWN_PAUSE_MS` (default 60 000; 0 stops without pausing, as before) and a few
 seconds more. The service manager must allow this pause to finish before terminating child sessions. A crash does not pause, and neither does a second Ctrl-C.
 
-To update without losing the sessions' place, pause by hand, and wait for it, before the switch:
+In the hybrid mode the pause is part of the deploy: the hub's container receives SIGTERM from `npm run cloud --
+deploy` (the unit allows 75 s to stop) and pauses by itself, and the engine's service stop waits for its own
+pause (see "Controlling the engine service"). The image holds no control socket client, so the manual pause below
+is for a server that runs on a Mac (the single-mode recovery service, a development server).
+
+To update such a server without losing the sessions' place, pause by hand, and wait for it, before the switch:
 
 ```sh
 npm run control -- pause --wait --reason "update"   # returns when every session has stopped; exit 0
@@ -155,13 +221,68 @@ admins, the instance's owners).
 A pause made by hand survives a restart and is not lifted by the start: the team waits until someone resumes
 it. Only the pause of the stop itself ends with the start.
 
-## Release (PM-1113)
+## Release
 
-The supported release path is an owner-requested cloud deployment followed by publication.
-There is no release watcher or administration supervisor, and no in-app proposal or approval
-that waits for one. Pipeline release gates remain the project's human approval gates.
+A release has two paths: the release chain, which runs on GitHub and is the normal one, and the by-hand
+procedure, the fallback for when the chain cannot run. The manual deploy of the live instance (`npm run cloud --
+deploy --ref <commit>`, then the engine at the same commit) is the same under both; before live operation the
+owner's connected Claude does it, and AI team members do not deploy (Projektterv, chapter 4: this page does not
+repeat the rule).
 
-1. On the administration Mac, the owner or the integrator acting on the owner's request first
+### The release chain (PM-1193)
+
+The release chain runs on GitHub and is driven by the devops member (the deployment duty), with the owner's one yes.
+Every release still needs the owner's yes (decision 26): the chain only removes the manual steps after it.
+
+**When it starts.** The hub raises an `unreleased` signal for a repository (`caseKey` `unreleased:<repo>:<base>`)
+when the oldest merge on its default branch since the previous release is at least `OPERATOR_UNRELEASED_HOURS`
+(24) hours old. The base is the commit of the last published release, else of the last live release; the signal ends
+when `publish_release` moves it. At any watch level, `report` included, the project manager may then start the
+deployment member once per 24 hours per case (`start_member`, with no count limit) unless that member still has an
+open question to a person. The step starts one question and changes nothing live. The owner may also ask for a
+release at any time.
+
+**The chain**, run by the devops in one session:
+
+1. Proposal. Run `publish_release` with `preview: true`. If it names no cards, stop. Otherwise send exactly one
+   `ask_human` with `owner_topic: risk_acceptance` and `response_purpose: owner_decision`: the tag, the commit SHA,
+   the cards and the steps of this chain. The options are "Indulhat" (recommended) and "Most nem". After "Most nem"
+   the session ends; the signal may start it again after 24 hours, with a new preview.
+2. After the yes the answer arrives in the same session. From here on the chain runs on exactly the commit and tag
+   of the preview, never on the current head of the default branch (a later merge is the next release).
+3. `run_compute_job job=cloud-image commit=<SHA>` builds the image bundle.
+4. `run_compute_job job=cloud-deploy commit=<SHA>` deploys it (PM-1197, see "Deploy from GitHub Actions").
+5. `get_release_status`: the hub shows the new version. It is read-only and gives the hub's version and, per engine,
+   `connected`, `version`, `versionMismatch` and `lastSeenAt`.
+6. `publish_release commit=<SHA> tag=<the preview's tag>` tags the commit and creates the GitHub release.
+7. `run_compute_job job=engine-release commit=<SHA>` builds and attests the engine app for that tag (PM-1198).
+8. Poll `get_release_status` until every connected engine shows the new version and no `versionMismatch`, for at most
+   2 hours (the menu bar apps check for an update every 30 minutes, PM-1199).
+9. Cleanup runs by itself: the cloud keeps the current and the previous image (`prune-images`), each engine prunes
+   its old app versions (keeps the current and the previous), and the run artifacts expire after 7 days.
+
+**On failure** (a rollback of the deploy, a timeout, `env_missing`, `app_asset_conflict`, `compute_job_unknown`, or any
+other error), the devops stops, turns to the connected Claude with the error and the run link, and does not retry. A chain
+that stopped after step 6 is finished by the connected Claude from the failing step with the same commit and tag.
+
+**One-time rollout**, by the connected Claude and only after the owner's yes:
+
+1. `npm run cloud -- github-deploy-setup --dry-run`, then without `--dry-run` (see "Deploy from GitHub Actions").
+2. Register the `cloud-deploy` and `engine-release` jobs in the engine's `engine.json` (`repos[].computeJobs`) and in
+   the hub's `repoComputeJobs`, with the values given under "Deploy from GitHub Actions" and "On GitHub, for a release".
+3. Install the first attestation-mode app by hand: `npm run engine-app -- fetch --open`. Older apps verify the manifest
+   only, so the first update across that boundary is the manual one.
+4. The first release that contains this chain is issued by the connected Claude by hand, with the fallback below. The
+   connected Claude then retires its own earlier release script, which lives outside this repository.
+
+### By hand, the fallback (PM-1113)
+
+This is the by-hand procedure, the fallback: the release chain above is the normal path. Use this one when the chain
+cannot run (GitHub down, a job not yet registered, a commit before the chain). It is an owner-requested cloud
+deployment followed by publication. No in-app proposal or approval waits for it; pipeline release gates remain the
+project's human approval gates.
+
+1. On the release machine, the owner or the connected Claude acting on the owner's request first
    gets the image bundle of the commit: start the general GitHub workflow by hand (the
    `gh workflow run projectman-job.yml ...` line in [AWS.md](AWS.md#prebuilt-arm-images-pm-718), or
    the line `image-fetch` prints when it finds no run). With `deployment.imageSource: "github"` (PM-1154),
@@ -171,19 +292,22 @@ that waits for one. Pipeline release gates remain the project's human approval g
    its attestation and needs no Docker, and then `deploy --ref <commit>`. Credentials stay
    under `~/.config/projectman/cloud/`; see [AWS.md](AWS.md) for image verification and rollback.
    The local `image-build` remains the fallback (GitHub down, or a commit before PM-1145).
-2. Update the Mac engine's own checkout to the same commit, run `npm ci`, then
-   `npm run build -w @projectman/server` and `npm run engine -- service install`.
-   The engine runs `apps/server/dist/index.js`; installation refuses a missing bundle.
-   These steps run on the engine machine, including when it is remote from the hub.
+2. Update the Mac engine to the same commit through the engine app: build the app (see "Engine app build", on
+   GitHub with the `engine-app` job or on the release machine) and open it; it stages the packaged engine
+   and switches the service itself (see "Engine menu bar app"). The engine runs the app's packaged server, not a
+   checkout build. These steps run on the engine machine, including when it is remote from the hub.
 3. On request, a deployment duty holder calls `publish_release`, first with
    `preview: true`, then with the English release summary. This creates the annotated tag
    and public GitHub release; it does not deploy anything.
-4. On the release Mac, run
-   `npm run engine-app -- publish --tag <tag> --config <absolute-file>` to build the
-   engine and signed app from that remote tag and upload zip, DMG, then manifest.
+4. Either on GitHub (PM-1198, no Mac and no Developer ID needed): `run_compute_job job=engine-release
+commit=<SHA40>` builds the app ad-hoc signed at the commit of the release tag and uploads zip, DMG, then
+   manifest to that tag's release (see "On GitHub, for a release" below). Or on the release Mac, with a Developer
+   ID, run `npm run engine-app -- publish --tag <tag> --config <absolute-file>` to build the
+   engine and signed app from that remote tag and upload zip, DMG, then manifest. Use one of the two for a tag:
+   whichever uploads first owns the assets, the other then ends in `app_asset_conflict`.
 
 Before the first app publication, the owner needs Apple Developer Program membership,
-a Developer ID Application certificate in the administration Mac's login keychain, and
+a Developer ID Application certificate in the release machine's login keychain, and
 `xcrun notarytool store-credentials <profile>`. Run the first publication from Terminal
 so keychain access prompts can be answered with Always Allow. Create an absolute-path
 JSON configuration file containing names only (no secrets):
@@ -209,14 +333,11 @@ Exit codes: 0 complete, 1 operational failure, 2 missing configuration/release o
 conflict (`REFUSED [app_release_not_configured|app_release_missing|app_asset_conflict]`),
 64 invalid arguments. Remote engine machines only download these assets.
 
-The owner's decision is the request to deploy and publish. No unused approval item is created.
-Historical releases and timeline events remain readable; migration 129 cancels open approvals
-of the retired watcher. Old cloud configuration keys `releaseTarget` and `hybrid` are ignored
-with a warning, and no `PROJECTMAN_RELEASE_*` settings are sent to the cloud.
+The owner's decision is the request to deploy and publish.
 
 ## Single-mode recovery service
 
-The [cloud cutover rollback](CLOUD-CUTOVER.md) can return to a single-mode server on a Mac.
+[The way back](HYBRID.md#the-way-back) can return to a single-mode server on a Mac.
 Its service installer is retained for this recovery path; it installs only `com.projectman.live`,
 which runs the compiled server through `scripts/live/bin/projectman-live`.
 It pauses a running server, stops it, verifies the installed build and resumes.
@@ -229,18 +350,28 @@ npm run live -- uninstall --home <single-home>
 ```
 
 The LaunchAgent has KeepAlive and allows the shutdown pause to finish. It records the
-installing shell's allowed environment names, never billing credentials or an integrator key.
-Logs stay in `<single-home>/logs/live-server.log`. This is a recovery service, not a second
-release path; there is no watcher, remote, journal or automatic tag publication.
+installing shell's allowed environment names, never billing credentials or a connected Claude's key.
+Logs stay in `<single-home>/logs/live-server.log`. This is a recovery service, not a release path.
 
 ## Keeping the Mac awake while the engine works (PM-1086)
 
 The engine keeps the Mac from sleeping on its own while a session, a merge check or a screenshot run is
-active, and lets go two minutes after the last one ended. Running `caffeinate` by hand is no longer needed.
-It holds `/usr/bin/caffeinate -i -s` (idle and system sleep on mains power; the display may sleep, and a Mac
+active, and lets go two minutes after the last one ended. It holds `/usr/bin/caffeinate -i -s` (idle and system sleep on mains power; the display may sleep, and a Mac
 on battery with the lid closed sleeps anyway). `npm run engine -- status` shows whether it holds and what
 runs. To turn it off (or on again): `npm run engine -- keep-awake off|on`; it takes effect when the engine
 is restarted.
+
+## The providers an engine starts sessions for (PM-1187)
+
+`engine.json` may list the providers the engine starts sessions for (`allowedProviders`). `npm run engine -- init`
+writes `claude, codex, nanogpt` on a new engine (no Gemini: its commands run without an OS sandbox) and keeps the
+previous value, a missing one too, with `--force`. Change it with
+`npm run engine -- providers claude,codex|all|none`; `all` removes the list (every provider, the engine from
+before this change), `none` starts no session. It takes effect when the engine is restarted, and
+`npm run engine -- status` shows it. A start for another provider fails with `session_start_failed` and the
+engine's message. A Codex or NanoGPT writer in the `default` mode does not start either on an engine (it needs
+`acceptEdits` or `auto`). **Deploy the hub before the engine:** the hub closes the link on an error code it does
+not know (`provider_not_allowed`, `permission_mode_too_low`).
 
 ## Controlling the engine service (PM-1087)
 
@@ -282,15 +413,13 @@ report only; the damaged file is preserved and mutation commands continue to ref
 `npm run engine -- service start|stop|restart` controls the installed LaunchAgent. `stop` keeps the file (the
 engine starts again at the next login) and waits until the engine has paused its running sessions and left,
 up to 100 seconds. `npm run engine -- status --json` prints the whole state on one line for other programs
-and `npm run engine -- logs [--lines N]` the end of the service's logs. The plist now has `ExitTimeOut` 100, so
-that a stop or restart does not kill the engine while it pauses the work: **on a machine where the service is
-already installed, run `npm run engine -- service install` once more** for the new setting to apply.
+and `npm run engine -- logs [--lines N]` the end of the service's logs. The plist has `ExitTimeOut` 100, so
+that a stop or restart does not kill the engine while it pauses the work.
 
 ## Engine menu bar app (macOS 13+, PM-1088, PM-1125)
 
 The engine's Mac gets the engine from the downloaded app (`projectman motor.app`, the engine app
-package of PM-1104); nothing is built on the Mac any more. `npm run engine -- app install` is
-retired (`REFUSED [app_install_retired]`).
+package of PM-1104); nothing is built on the Mac.
 
 **First launch.** Open the downloaded app. It checks the machine first: Apple Silicon and macOS 13 or
 later are required (otherwise a window says so and nothing is installed), and the Xcode command line tools
@@ -298,7 +427,7 @@ must be present (the window offers `xcode-select --install` and checks again eve
 moves itself to `/Applications` (or `~/Applications` when that is not writable) and starts again from there;
 if neither works, an alert says so and the app quits.
 
-**Install.** A window lists the steps: remove the PM-1088 app (only if it is there), unpack the engine into
+**Install.** A window lists the steps: unpack the engine into
 `~/Library/Application Support/projectman/engine/versions/<version>`, run `service install --path <PATH>`
 (the PATH comes from the user's login shell, with a fallback list), register the background item and start
 the engine. The layout is `engine/versions/<version>`, `engine/current` (a link to the running version) and
@@ -308,12 +437,23 @@ and waits (checking every 2 seconds). When a step fails, the app undoes the half
 `REFUSED [code]` line with a copy button; running the app again retries. When the engine is not set up yet
 (no `engine.json` or key), the app waits until it is wired and then installs the service itself.
 
-**Switching from PM-1088.** On launch the app removes the old `com.projectman.engine-menubar` agent, its
-plist, its app and `menubar.json`. When the engine is already installed this happens silently; a deletion
-that fails is logged and retried at the next launch. A Mac that runs the engine from a checkout (the admin
-Mac) only gets the menu: the app does not install, switch or uninstall there.
+**Self-update (PM-1126, PM-1199).** At launch and every 30 minutes (when idle) the app reads the manifest of
+`releases/latest` (not an API call) and installs a newer `bundleVersion`. The trust is `team` (Developer ID:
+the signature must carry the app's Team ID) or, for the ad-hoc build, `attestation`: after the size and sha256
+the app runs `gh attestation verify <zip> --repo <repo> --signer-workflow <repo>/.github/workflows/projectman-engine-release.yml
+--source-ref <ref> --deny-self-hosted-runners` with the user's own `gh` (2.49+, logged in, found on the engine's
+PATH), then checks the unpacked app's signature (valid, identifier `com.projectman.engine-app`), its
+`bundleVersion` and that the bundled `engine-package.json` commit equals the manifest `version`
+(`version_mismatch`). The attestation mode takes only an ad-hoc release (a manifest with a Team ID is
+`team_mismatch`: install a Developer ID release by hand once). Failure codes show in the menu:
+`attestation_invalid`, `gh_missing`, `signature_invalid`, `version_mismatch`, `size_mismatch`, `sha256_mismatch`.
+A build without a tag (`CFBundleVersion` `0`) never updates itself. The downloaded zip has no quarantine
+attribute (the app does not set `LSFileQuarantineEnabled`). The trust is the same as `engine-app fetch`: whoever
+can merge to the default branch, and GitHub/Sigstore. The running engine then switches by the usual release
+switch rules (idle at once, otherwise "Update now…").
 
-**Menu.** The menu shows the engine's state, work count, keep-awake state and local details. Start, Stop
+**Menu.** A Mac that runs the engine from a checkout (the manual path) only gets the menu: the app does not
+install, switch or uninstall there. The menu shows the engine's state, work count, keep-awake state and local details. Start, Stop
 and Restart control the engine's installed service. Quit closes the menu app until the next login and leaves
 the engine running. A terminal-started engine must be stopped in that terminal.
 
@@ -322,8 +462,7 @@ confirmation, then runs `service uninstall`, deletes `engine/`, unregisters the 
 result; `~/.projectman` stays. Afterwards drag the app to the Trash. Without the app:
 `npm run engine -- service uninstall`.
 
-`npm run engine -- app uninstall` still removes what PM-1088 left (app, agent, `menubar.json`, build cache)
-for a Mac where the old app is still installed. Test the Swift core with
+Test the Swift core with
 `swift test --package-path deploy/mac/menubar`; the Node fixture guard checks the CLI contract. Native
 screenshots, Login Items approval and VoiceOver checks require the logged-in Mac desktop.
 
@@ -400,9 +539,10 @@ nothing new crosses the server and engine boundary.
 
 ## Cloud deployment of the hybrid mode (PM-317)
 
-The data-preserving rollback from EC2 to the owner's Mac is in
-[CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). The single-mode service is retained for that
-recovery path. Use the release procedure above to update the cloud and the Mac engine.
+The data-preserving rollback from EC2 to the owner's Mac is [HYBRID.md, The way back](HYBRID.md#the-way-back).
+The single-mode service is retained for that recovery path. Use the release procedure above to update the
+cloud and the Mac engine. The AWS resources and the `npm run cloud` commands that make them are in
+[AWS.md](AWS.md).
 
 The cloud side of a hybrid installation (`PROJECTMAN_MODE=cloud`, no AI session of its own, the
 engine on your Mac does the work) is a container: `deploy/cloud/Dockerfile`, with the Cloudflare
@@ -411,32 +551,49 @@ port: the only way in is the outbound tunnel. The whole guide is [HYBRID.md](HYB
 the storage, the first setup from a browser (a one-time setup code from the log), the backup, the
 restore rehearsal and the update.
 
-# Integrator access
+### Deploy from GitHub Actions (PM-1197)
 
-Cloud installations with the separate machine entrance (PM-675) use the explicit
-`cloudflare.integratorHostname` as the integrator's origin. Set the existing client's `baseUrl`
-to `https://<integratorHostname>`; `/api/...` and `/mcp` and the existing key files do not change.
+The cloud can also be deployed by a GitHub Actions job, with no AWS profile or key on the Mac and no `cloud.env` on
+GitHub. The devops starts it for a commit of the default branch with the team tool:
+
+```
+run_compute_job job=cloud-deploy commit=<SHA40>
+```
+
+It runs the dedicated workflow `.github/workflows/projectman-deploy.yml` (a registration with
+`"workflow": "projectman-deploy.yml"`, the values of the `cloud-deploy` example above: `runsOn` `ubuntu-24.04`,
+`outputs` `["deploy/report.json"]`, `command` `cloud-deploy`; the workflow refuses any other command, runner or
+output). The image is the one the `cloud-image` job built for the same commit, so that job must have run first
+(`run_compute_job job=cloud-image commit=<SHA40>`). The job assumes the OIDC role `projectman-cloud-deploy` for an hour
+(docs/AWS.md "Deploy role for GitHub Actions"), deploys, keeps the current and the previous image on the machine
+and removes the older ones, and leaves `deploy/report.json` (commit, image, previous, `healthy`, `rolledBack`, `pruned`)
+as the attested artifact `projectman-job-<run_id>`. A deploy that did not become healthy rolls back as `npm run cloud --
+deploy` does, reports `rolledBack: true` and fails the job.
+
+One-off setup, by the connected Claude and only after the owner's yes: `npm run cloud -- github-deploy-setup --dry-run`, then
+without `--dry-run`. It makes the IAM role, the `cloud-production` environment (default branch only) and its three
+variables, and is safe to repeat. Until then the workflow stops in its guard for the missing variables.
+`npm run cloud -- deploy` from the owner's computer keeps working, and is still how a new machine gets its first
+`cloud.env`; the job refuses with `env_missing` when the machine has none.
+
+# Connected Claude access
+
+The owner's Claude Code (the "connected Claude") reaches the hub through the integrator entrance. The code names
+stay: the integrator host and the integrator key (`pmi_`, modes `super` and `read`). A cloud installation uses the
+explicit `cloudflare.integratorHostname` as that entrance's origin. Set the client's `baseUrl`
+to `https://<integratorHostname>`; `/api/...` and `/mcp` and the key file do not change.
 The host requires its own Access Service Auth token and the application's `pmi_` key. A human
 cookie alone gets 401 there; the board refuses bearer authentication with 403
-`integrator_host_required` and closes bare `/mcp`. Human login, key management, super audit and
-owner decisions remain on the board's cookie API. Stage the server with
-`PROJECTMAN_INTEGRATOR_HOSTNAME` while the board is private, verify and move the client, then
-switch the board to public; see [the public board guide](AWS.md#the-public-board-pm-672-part-of-pm-664).
+`integrator_host_required` and closes bare `/mcp`. Human login, key management, the key's audit and
+owner decisions remain on the board's cookie API. The board is public (decision 56); the entrance's setup and
+checks are in [the public board guide](AWS.md#the-public-board-pm-672-part-of-pm-664).
 
-The host owner can create an integrator key in Settings → Operator permissions → Claude Code
-on your machine, using their own login. Both `super` and `read` keys offer 1, 7, 30 or 365 days,
-or **Never expires**; the default remains 7 days. A non-expiring key stays valid until revoked
-or replaced. If it leaks, it can be used until revocation; the owner can revoke it at any time
+The host owner can create a key in Settings → Claude Code on your machine, using their own login. Both `super` and
+`read` keys offer 1, 7, 30 or 365 days, or **Never expires**; the default is 7 days. A non-expiring key stays valid
+until revoked or replaced. If it leaks, it can be used until revocation; the owner can revoke it at any time
 in the same settings section. Non-expiring keys show no imminent-expiry warning.
-The key's lifetime is separate from the Operator's machine-access grant.
 
-**Before deploying PM-1037:** the owner must check Settings → Integrator for an active
-“Régi kulcs” (legacy key). If one exists, issue a super or read key and replace the integrator's
-stored credential before approving the release. Migration 114 revokes legacy keys with an audit
-entry; their rows remain visible in history. Legacy credentials then receive 401 on REST, MCP
-and event reads. The singular `/api/auth/integrator-key` endpoint is removed.
-
-The secret is shown once; save it as `~/.config/projectman/integrator-key` on the integrator's
+The secret is shown once; save it as `~/.config/projectman/integrator-key` on the connected Claude's
 machine, with directory mode 700 and file mode 600. Never put it in a message, task, commit,
 member prompt or engine payload.
 Send it in the `Authorization: Bearer <key>` header on `/api/*` requests. For example:
@@ -447,8 +604,8 @@ curl -H "Authorization: Bearer $(cat ~/.config/projectman/integrator-key)" http:
 ```
 
 Against a cloud installation (hybrid mode, [HYBRID.md](HYBRID.md)) the request first has to pass
-Cloudflare Access, so it carries a second pair of headers: a service token made for the integrator
-alone (not the engine's), kept next to the key in `~/.config/projectman/` with mode 600. The key and
+Cloudflare Access on the integrator hostname, so it carries a second pair of headers: a service token made for the
+connected Claude alone (not the engine's), kept next to the key in `~/.config/projectman/` with mode 600. The key and
 the service token are two separate secrets, and the service token alone gets nowhere in
 projectman:
 
@@ -457,17 +614,17 @@ curl \
   -H "CF-Access-Client-Id: $(cat ~/.config/projectman/access-client-id)" \
   -H "CF-Access-Client-Secret: $(cat ~/.config/projectman/access-client-secret)" \
   -H "Authorization: Bearer $(cat ~/.config/projectman/integrator-key)" \
-  https://projectman.example.com/api/projects
+  https://<integratorHostname>/api/projects
 ```
 
 Bearer authentication takes precedence over a login cookie. A revoked or expired key fails with
 `integrator_key_invalid`; a replacement immediately revokes the previous key of the same mode.
-Read keys cannot write. Super keys act as the project's Operator under the current owner's
+Read keys cannot write. A `super` key changes things under the current owner's
 membership and the shared mutation policy. Owner-reserved security, deletion and cost effects
 remain refused without an exact owner grant. Keys cannot manage keys or authenticate a websocket
-connection. Operations retain their integrator attribution and audit after revocation.
+connection. Operations retain their attribution (`via: 'integrator'`) and audit after revocation.
 
-## The integrator's MCP endpoint (PM-760)
+## The connected Claude's MCP endpoint (PM-760)
 
 An MCP client (an AI tool working for the owner) can use the same keys over MCP at
 `POST /mcp`, with no login, no session and no running engine:
@@ -487,6 +644,10 @@ An MCP client (an AI tool working for the owner) can use the same keys over MCP 
   `integrator_read_only`), and the member's session, decision and file tools are never offered.
   `super` and `read` keys use the same scope as over REST, and a `super` key's calls are audited as
   `mcp_<tool>`.
+- The project documents (PM-1232): `list_documents`, `read_document` and `document_history` with either key;
+  `write_document` (create, edit and rename, with a one-line reason and `base_version` for an edit) with a
+  `super` key only, `integrator_read_only` with a `read` key. There is no delete and no restore on `/mcp`.
+  The commit stands under the key holder's name; the history marks it as made through the integrator.
 - The member MCP, `/mcp/<token>`, is unchanged: for the agents on the same machine only.
 
 Client configuration (no secret in it; the key is read from the file above when the client starts):
@@ -496,7 +657,7 @@ Client configuration (no secret in it; the key is read from the file above when 
   "mcpServers": {
     "projectman": {
       "type": "http",
-      "url": "https://projectman.example.com/mcp",
+      "url": "https://integrator.example.com/mcp",
       "headers": {
         "Authorization": "Bearer ${PROJECTMAN_INTEGRATOR_KEY}",
         "CF-Access-Client-Id": "${PROJECTMAN_ACCESS_CLIENT_ID}",
@@ -510,32 +671,45 @@ Client configuration (no secret in it; the key is read from the file above when 
 Export the three variables from the files in `~/.config/projectman/` (mode 600) in the shell that starts
 the client. Locally the URL is `http://localhost:4800/mcp` and the two `CF-Access-*` headers are left out.
 
-Behind a proxy or the Cloudflare tunnel the entrance must pass `/mcp` and refuse `/mcp/` and `/hooks`:
+Behind the Cloudflare tunnel (`npm run cloud -- edge` writes this) the integrator hostname passes only `/api/` and
+the exact `/mcp`, each with the integrator application's Access audience, and answers 404 to everything else.
+On the board's name the bare `/mcp` is a 404 too, and `/mcp/` and `/hooks` stay closed:
 
 ```yaml
 ingress:
+  - hostname: integrator.example.com
+    path: ^/api/
+    service: http://127.0.0.1:4700 # originRequest.access: the integrator application's audience
+  - hostname: integrator.example.com
+    path: ^/mcp$
+    service: http://127.0.0.1:4700 # the same audience
+  - hostname: integrator.example.com
+    service: http_status:404
   - hostname: projectman.example.com
     path: ^/hooks
     service: http_status:404
   - hostname: projectman.example.com
-    path: ^/mcp/ # the member door; the slash keeps the bare /mcp open
+    path: ^/mcp/ # the member door
     service: http_status:404
   - hostname: projectman.example.com
-    service: http://127.0.0.1:4800
+    path: ^/mcp$ # the bare /mcp lives only on the integrator hostname
+    service: http_status:404
+  # ... the board's name: /engine and the rest, see AWS.md "The public board"
   - service: http_status:404
 ```
 
-A reverse proxy does the same: `location = /mcp` goes to the service with `Host` kept and
-`X-Forwarded-Proto: https` set; `location ^~ /mcp/` and `location ^~ /hooks` answer `404`. The check
-script (`deploy/cloudflare/check.sh`) still expects `/mcp/x` and `/hooks/x` to be `404`; a
-`POST /mcp` without a key must be `401` with `integrator_key_invalid`.
+A reverse proxy does the same: on the integrator host `location = /mcp` and `location ^~ /api/` go to the service
+with `Host` kept and `X-Forwarded-Proto: https` set, and everything else answers `404`; `location ^~ /mcp/` and
+`location ^~ /hooks` answer `404` on the board's name. The check script (`deploy/cloudflare/check.sh`) expects
+`/mcp/x` and `/hooks/x` to be `404`; a `POST /mcp` without a key must be `401` with `integrator_key_invalid`.
+Locally (`http://localhost:4800/mcp`) no ingress is involved.
 
 ## The `projectman` command and the MCP proxy (PM-765)
 
 `projectman` is a thin client of the REST API and the change journal above, and `projectman mcp-proxy` is a
 stdio shim for MCP clients that cannot send an HTTP header. Both use the same key, the same rights and the
 same audit as the endpoints; the command never decides anything the server does not. It runs on the
-integrator's machine only (`npm run projectman -- <command>` in a checkout, or `projectman` once the
+connected Claude's machine only (`npm run projectman -- <command>` in a checkout, or `projectman` once the
 package is linked with `npm link`).
 
 The client has one configuration file, `~/.config/projectman/client.json` (`--config FILE` names another).
@@ -552,8 +726,8 @@ It holds paths and an origin, never a secret:
 
 - `baseUrl` is an origin: HTTPS, or HTTP to this machine (`localhost`, `127.x`, `[::1]`). No user name,
   path, query or fragment. A redirect is never followed, so the key never goes to another origin.
-- `keyFile` is the file of "Integrator access" above. `accessHeadersFile` (cloud only) is the
-  integrator's service-token file made by `npm run cloud -- edge` (`CF-Access-Client-Id`,
+- `keyFile` is the file of "Connected Claude access" above. `accessHeadersFile` (cloud only) is the
+  connected Claude's service-token file made by `npm run cloud -- edge` (`CF-Access-Client-Id`,
   `CF-Access-Client-Secret`). A relative path is relative to the configuration file's directory. A
   further owner's client points `accessHeadersFile` at the file `owners/<id>/integrator-access-token.json`
   that the host made for them (PM-1065) and handed over outside projectman.
@@ -575,7 +749,7 @@ projectman messages send --project PM --to dev --task PM-12 --file message.txt
 projectman labels add PM-12 waiting-answer --note "Waiting for the reply"
 projectman inbox list --project PM [--state open|all|…]
 projectman inbox answer ITEM --project PM --file answer.txt   # relays the owner's words; no decision
-projectman inbox fix-limit ITEM --project PM --option replan|reassign|another_round|to_owner [--note TEXT]   # only the item addressed to the integrator
+projectman inbox fix-limit ITEM --project PM --option replan|reassign|another_round|to_owner [--note TEXT]   # only the item addressed to the connected Claude
 projectman merges list --project PM --repo web
 projectman merges enqueue PM-12
 projectman merges prioritize PM-12 --reason "release blocker"
@@ -637,6 +811,6 @@ A further owner's client (PM-1063, Claude Desktop with `mcp-proxy`) is set up th
 machine: their own `super` or `read` key (made in their own login; an owner account with a password may hold
 one, and revoking the account revokes the key), their own Access header file (`accessHeadersFile`, see above)
 and a `client.json` that names both by path. No secret goes into the MCP client's configuration. The key reaches
-only the projects that owner holds; the administration, the machine state and the instance knowledge of the
+only the projects that owner holds; the instance administration, the machine state and the instance knowledge of the
 host are refused with `host_only`, and the machine work in the owner's queue is theirs to do on their own
 machine, with their approval.

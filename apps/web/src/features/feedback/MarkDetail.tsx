@@ -17,6 +17,7 @@ import { AttachmentImageDialog } from '../board/AttachmentImageDialog';
 import { CloseMarkDialog } from './CloseMarkDialog';
 import { CreateCardDialog } from './CreateCardDialog';
 import { DecisionRow } from './DecisionRow';
+import { DeleteMarkMenu } from './DeleteMarkMenu';
 import { sourceLabel } from './feedbackModel';
 import { useLaunchSurface } from './LaunchButton';
 import { LinkCardDialog } from './LinkCardDialog';
@@ -174,6 +175,7 @@ function Opened({
           <h2 className={styles.title}>{mark.body}</h2>
           <div className={styles.status}>
             <MarkStatusChip mark={mark} ownerName={ownerName} />
+            <DeleteMarkMenu mark={mark} search={search} />
           </div>
         </header>
         <p className={styles.meta}>

@@ -4,12 +4,14 @@ import { statSync } from 'node:fs';
 import path from 'node:path';
 import { toolPathForms, withoutFirmlink, pathPatternMatcher, isReadBoundaryPath } from '../../tool-decision';
 import type { StartSessionSpec } from '../../../contracts';
+import { GIT_SHARED_READ_ONLY, GIT_ADMIN_LINKS, GIT_CLONE_READ_ONLY } from '../../../contracts';
 import {
   FAST_HOOK_TIMEOUT_S,
   TOOL_PREPARE_HOOK_TIMEOUT_S,
   forwarderCommand,
   permissionHookTimeoutS,
 } from '../../hook-forwarder';
+import { mcpBridgeCommand } from '../../mcp-bridge';
 import { sanitizeMessage } from '../../typing';
 
 /**
@@ -20,7 +22,8 @@ import { sanitizeMessage } from '../../typing';
  * - hooks: command hooks for every event we follow, running the curl/Node forwarder that
  *   POSTs the payload to /hooks/<token> (Codex has no HTTP hooks). The PermissionRequest
  *   forwarder prints the answer, which Codex reads as the hook's decision.
- * - the team MCP server over Streamable HTTP, its tools pre-approved;
+ * - the team MCP server through a stdio bridge to its Streamable HTTP route (`mcp-bridge.ts`), its
+ *   tools pre-approved;
  * - the member's system prompt as `developer_instructions`;
  * - trust for the session's directory (as an inline table: a path in the key would be split
  *   at its dots), so the trust screen never shows;
@@ -133,11 +136,15 @@ interface CodexArgsInput {
   spec: StartSessionSpec;
   /** The private file holding the hooks' POST target (`writeHookConfig`, PM-156). */
   hookConfigPath: string;
+  /** The private file holding the team MCP URL, read by the stdio bridge (`writeMcpBridgeConfig`, PM-1170). */
+  mcpConfigPath: string;
   permissionTimeoutMs: number;
   /** The session's directory, resolved (Codex looks its trust up by the resolved path). */
   realCwd: string;
   /** Node binary used when curl is missing (defaults to the running Node). */
   nodePath?: string;
+  /** The engine's platform (defaults to the running one); Codex's network proxy is verified on macOS only. */
+  platform?: NodeJS.Platform;
 }
 
 interface CodexModelProvider {
@@ -172,6 +179,21 @@ type CodexAccess = 'read' | 'write' | 'deny';
 interface CodexPermissionProfile {
   extends: ':read-only' | ':workspace';
   filesystem: Record<string, CodexAccess | Record<string, CodexAccess>>;
+  /** Codex's own network proxy rules (PM-1172); only together with `features.network_proxy`. */
+  network?: { enabled: true; domains: Record<string, 'allow' | 'deny'> };
+}
+
+/**
+ * The profile's `network` part for an open outbound network (PM-1172, probed on codex-cli 0.159.1):
+ * every host but the denied ones. No `mode` (`limited` allows only GET, HEAD and OPTIONS), no
+ * `allow_local_binding` and no `unix_sockets`: then the proxy blocks the loopback, private and
+ * link-local addresses (also by the resolved IP) and the sandbox refuses Unix sockets.
+ */
+function codexNetwork(deniedHosts: readonly string[]): NonNullable<CodexPermissionProfile['network']> {
+  return {
+    enabled: true,
+    domains: { '*': 'allow', ...Object.fromEntries(deniedHosts.map((host) => [host, 'deny' as const])) },
+  };
 }
 
 function insidePath(candidate: string, parent: string): boolean {
@@ -342,16 +364,7 @@ function codexSharedGitAccess(
     const ownGitDir = path.join(placement.path, '.git');
     return {
       writable: [ownGitDir],
-      readOnly: [
-        'config',
-        'config.lock',
-        'config.worktree',
-        'commondir',
-        'gitdir',
-        'hooks',
-        'modules',
-        path.join('objects', 'info'),
-      ].map((name) => path.join(ownGitDir, name)),
+      readOnly: GIT_CLONE_READ_ONLY.map((name) => path.join(ownGitDir, name)),
     };
   }
   if (!gitDir || !adminDir) return { writable: [], readOnly: [] };
@@ -363,10 +376,8 @@ function codexSharedGitAccess(
       adminDir,
     ],
     readOnly: [
-      ...['config', 'config.lock', 'hooks', path.join('objects', 'info')].map((name) =>
-        path.join(gitDir, name),
-      ),
-      ...['commondir', 'gitdir', 'config.worktree', 'hooks'].map((name) => path.join(adminDir, name)),
+      ...GIT_SHARED_READ_ONLY.map((name) => path.join(gitDir, name)),
+      ...GIT_ADMIN_LINKS.map((name) => path.join(adminDir, name)),
       // Only Codex lifts the lock denial; packed-refs and all other checkout protections stay.
       ...denyWrite.filter((entry) => insidePath(entry, gitDir) && entry !== packedRefsLock),
     ],
@@ -469,7 +480,9 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   // The team server stays optional (PM-1070): `required = true` (PM-1055) made Codex exit at start
   // ("agent CLI exited before it was ready") for every session, so a failing team MCP must only
   // cost the tools, not the session.
-  const team: Record<string, unknown> = { url: spec.mcpUrl };
+  // A stdio bridge reads the URL from the session's private file: the URL holds the session's
+  // token and must not be on the command line (PM-1170).
+  const team: Record<string, unknown> = { ...mcpBridgeCommand(input.mcpConfigPath, input.nodePath) };
   if (approvals.all) team.default_tools_approval_mode = 'approve';
   if (approvals.names.length > 0) {
     team.tools = Object.fromEntries(approvals.names.map((t) => [t, { approval_mode: 'approve' }]));
@@ -508,10 +521,16 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     ...(portable?.allowWrite ?? []),
     ...(tmpDir ? [tmpDir] : []),
   ];
+  // PM-1172: the open network and its proxy come from this one branch. Without the proxy the commands
+  // would reach every address directly, the loopback included; only macOS is verified (Linux stays closed).
+  const networkProxy =
+    spec.policy?.network.outbound === 'open' && (input.platform ?? process.platform) === 'darwin'
+      ? codexNetwork(spec.policy.network.deniedHosts ?? [])
+      : undefined;
+  if (networkProxy) c('features.network_proxy', true);
   c('default_permissions', CODEX_PERMISSION_PROFILE);
-  c(
-    `permissions.${CODEX_PERMISSION_PROFILE}`,
-    codexPermissionProfile({
+  c(`permissions.${CODEX_PERMISSION_PROFILE}`, {
+    ...codexPermissionProfile({
       sandbox: writes ? 'workspace-write' : 'read-only',
       deniedPaths: codexDeniedPaths(input),
       writableRoots,
@@ -528,7 +547,8 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
       tmpDir,
       cliPath: input.cliPath,
     }),
-  );
+    ...(networkProxy ? { network: networkProxy } : {}),
+  });
 
   // Every command sees them, also one run outside the sandbox after a question.
   // The browsers belong to a writing sandbox. A read-only one still names the session folder (PM-522):

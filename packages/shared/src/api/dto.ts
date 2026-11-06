@@ -8,6 +8,7 @@ import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { ConfigChangeRow } from '../config/operator';
 import { canonical } from '../config/canonical';
+import { ConfigDiffItem } from '../config/diff';
 import { OperatorKnowledgeChange } from '../domain/operator-knowledge';
 import {
   RedactionCounts,
@@ -24,6 +25,7 @@ import { CardStep } from '../domain/card-step';
 import { Actor, TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem, InboxOption } from '../domain/inbox';
+import { WaitingForOthers } from '../domain/waiting-for-others';
 import { WorkOutage } from '../domain/outage';
 
 import {
@@ -106,6 +108,10 @@ export const CheckOutageResponse = z.object({
   checkedAt: z.string(),
 });
 export type CheckOutageResponse = z.infer<typeof CheckOutageResponse>;
+
+/** The answer of taking a question that waits for the project manager (PM-1252): the question as it is now. */
+export const PullWaitingResponse = z.object({ item: InboxItem });
+export type PullWaitingResponse = z.infer<typeof PullWaitingResponse>;
 
 const ProjectManagerChannelState = z.enum([
   'available',
@@ -206,10 +212,12 @@ export const OPERATOR_ANSWER_STALL_GRACE_MS = 120_000;
 /** The least time between two wake-ups carrying `answer_stalled` signals in one project (PM-694). */
 export const OPERATOR_ANSWER_STALL_WAKE_MS = 60_000;
 export const OPERATOR_SILENT_WORK_MINUTES = 30;
+/** A merge on the default branch that stood unreleased this long opens an `unreleased` signal (PM-1201). */
+export const OPERATOR_UNRELEASED_HOURS = 24;
 /**
- * `idle`, `merge_waiting`, `ready_waiting` and `refinement_stalled` are no longer raised (PM-1152: the
- * obligation ladder watches those stalls, its project manager rung is `obligation_overdue`); they stay in
- * the enum for the rows that exist.
+ * `idle`, `merge_waiting`, `ready_waiting`, `refinement_stalled` and `nobody` are no longer raised (PM-1152,
+ * PM-1226: the obligation ladder watches those stalls, its project manager rung is `obligation_overdue`);
+ * they stay in the enum for the rows that exist.
  */
 export const OperatorSignalKind = z.enum([
   'loop_suspected',
@@ -229,6 +237,8 @@ export const OperatorSignalKind = z.enum([
   'refinement_stalled',
   'start_blocked',
   'obligation_overdue',
+  'senior_wait',
+  'relation_check',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
 /** The start waits a `start_blocked` signal tells the project manager about (PM-455). */
@@ -393,12 +403,19 @@ export const IntegratorKeyAuditPage = z.object({
 });
 export type IntegratorKeyAuditPage = z.infer<typeof IntegratorKeyAuditPage>;
 
+/** The system language of an account (PM-1168): the web interface, and the push, ntfy and login mail it receives. */
+export const UiLanguage = z.enum(['en', 'hu']);
+export type UiLanguage = z.infer<typeof UiLanguage>;
+export const DEFAULT_UI_LANGUAGE: UiLanguage = 'en';
+
 export const SetupRequest = z.object({
   name: z.string().min(1),
   email: z.string().min(3),
   password: z.string().min(8),
   /** The one-time code the cloud server logs at start (PM-317); only a non-local request needs it. */
   setupCode: z.string().optional(),
+  /** The language chosen on the page before login; the new account's system language. */
+  language: UiLanguage.optional(),
 });
 export type SetupRequest = z.infer<typeof SetupRequest>;
 
@@ -416,8 +433,8 @@ const NewAccountName = z.string().trim().min(1).max(100);
 
 /** Asks for a code by the address, or by an invitation token (the code goes to the invited address). */
 export const EmailLoginCodeRequest = z.union([
-  z.object({ email: LoginEmail }).strict(),
-  z.object({ inviteToken: InviteToken }).strict(),
+  z.object({ email: LoginEmail, language: UiLanguage.optional() }).strict(),
+  z.object({ inviteToken: InviteToken, language: UiLanguage.optional() }).strict(),
 ]);
 export type EmailLoginCodeRequest = z.infer<typeof EmailLoginCodeRequest>;
 
@@ -430,10 +447,34 @@ export type EmailLoginCodeRequested = z.infer<typeof EmailLoginCodeRequested>;
 
 /** `name` is needed only for a new account whose invitation has no display name. */
 export const EmailLoginVerifyRequest = z.union([
-  z.object({ email: LoginEmail, code: LoginCode, name: NewAccountName.optional() }).strict(),
-  z.object({ inviteToken: InviteToken, code: LoginCode, name: NewAccountName.optional() }).strict(),
+  z
+    .object({
+      email: LoginEmail,
+      code: LoginCode,
+      name: NewAccountName.optional(),
+      language: UiLanguage.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      inviteToken: InviteToken,
+      code: LoginCode,
+      name: NewAccountName.optional(),
+      language: UiLanguage.optional(),
+    })
+    .strict(),
 ]);
 export type EmailLoginVerifyRequest = z.infer<typeof EmailLoginVerifyRequest>;
+
+/** Asks for a password-reset code (PM-946); always 202 `EmailLoginCodeRequested`, whoever the address belongs to. */
+export const PasswordCodeRequest = z.object({ email: LoginEmail }).strict();
+export type PasswordCodeRequest = z.infer<typeof PasswordCodeRequest>;
+
+/** Redeems the password-reset code and sets the new password; the answer is `Me` and a new session. */
+export const PasswordResetRequest = z
+  .object({ email: LoginEmail, code: LoginCode, password: SetupRequest.shape.password })
+  .strict();
+export type PasswordResetRequest = z.infer<typeof PasswordResetRequest>;
 
 /** `details` of `email_login_rate_limited`. */
 export const EmailLoginRateLimitedDetails = z.object({ retryAfterSeconds: z.number().int().positive() });
@@ -457,6 +498,8 @@ export const Me = z.object({
   userId: z.string(),
   name: z.string(),
   email: z.string(),
+  /** The account's system language (PM-1168). */
+  language: UiLanguage,
   /** Member handle of this user per project key. */
   handles: z.record(z.string(), MemberHandle),
   projects: z
@@ -480,6 +523,9 @@ export const SetupStatus = z.object({
   publicBoard: z.boolean().optional(),
 });
 export type SetupStatus = z.infer<typeof SetupStatus>;
+
+export const SetLanguageRequest = z.object({ language: UiLanguage }).strict();
+export type SetLanguageRequest = z.infer<typeof SetLanguageRequest>;
 
 /* ---------- providers ---------- */
 
@@ -1351,7 +1397,11 @@ export type ReadTeamMessagesRequest = z.infer<typeof ReadTeamMessagesRequest>;
 
 /* ---------- inbox ---------- */
 
-export const InboxView = z.object({ items: z.array(InboxItem) });
+export const InboxView = z.object({
+  items: z.array(InboxItem),
+  /** What waits for the project manager and the connected Claude (PM-1252); only an owner gets it. */
+  waiting: WaitingForOthers.optional(),
+});
 export type InboxView = z.infer<typeof InboxView>;
 
 export const ResolveInboxRequest = z.object({
@@ -1412,18 +1462,34 @@ export const ConfigView = z.object({
 });
 export type ConfigView = z.infer<typeof ConfigView>;
 
-export const OperatorApprovalWaiverRequest = z.strictObject({
-  baseVersion: z.string(),
-  enabled: z.boolean(),
-  agreementVersion: z.number().int().min(1),
+/**
+ * A row of the history: the saved version with what it changed (`changes`: null when a version cannot be read) and,
+ * when it only undid the one before or reverted to an earlier version, which one (`restores`).
+ */
+export const ConfigHistoryEntry = ConfigVersionEntry.extend({
+  changes: z.array(ConfigDiffItem).nullable(),
+  restores: z
+    .object({
+      kind: z.enum(['undo', 'revert']),
+      version: z.string(),
+      changes: z.array(ConfigDiffItem).nullable(),
+    })
+    .optional(),
 });
-export type OperatorApprovalWaiverRequest = z.infer<typeof OperatorApprovalWaiverRequest>;
-export const OperatorApprovalWaiverResponse = z.object({
-  version: z.string(),
-  enabled: z.boolean(),
-  agreementVersion: z.number().int().min(1),
+export type ConfigHistoryEntry = z.infer<typeof ConfigHistoryEntry>;
+
+export const ConfigHistoryView = z.object({
+  entries: z.array(ConfigHistoryEntry),
+  /** How many versions the project has in all. */
+  total: z.number().int().nonnegative(),
 });
-export type OperatorApprovalWaiverResponse = z.infer<typeof OperatorApprovalWaiverResponse>;
+export type ConfigHistoryView = z.infer<typeof ConfigHistoryView>;
+
+export const ConfigHistoryQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(5),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type ConfigHistoryQuery = z.infer<typeof ConfigHistoryQuery>;
 
 export const RevertConfigRequest = z.object({ version: z.string() });
 export type RevertConfigRequest = z.infer<typeof RevertConfigRequest>;
@@ -1543,6 +1609,7 @@ export type OwnerAccountsView = z.infer<typeof OwnerAccountsView>;
 export const AcceptInviteRequest = z.object({
   name: SetupRequest.shape.name.trim().min(1).optional(),
   password: SetupRequest.shape.password.optional(),
+  language: UiLanguage.optional(),
 });
 export type AcceptInviteRequest = z.infer<typeof AcceptInviteRequest>;
 

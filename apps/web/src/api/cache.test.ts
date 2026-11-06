@@ -137,6 +137,7 @@ describe('applyServerEvent', () => {
     const client = seed();
     client.setQueryData<Me>(queryKeys.me, {
       ...mockUser,
+      language: 'hu',
       instanceOwner: true,
       handles: { [KEY]: 'owner' },
       projects: [],
@@ -324,6 +325,15 @@ describe('applyServerEvent', () => {
     applyServerEvent(client, { type: 'config_changed', projectKey: KEY, version: 'abc1234' });
     expect(client.getQueryState(queryKeys.board(KEY))!.isInvalidated).toBe(true);
     expect(client.getQueryState(queryKeys.members(KEY))!.isInvalidated).toBe(true);
+  });
+
+  it('starts the settings history again from its first page when the config changes', () => {
+    const client = seed();
+    const page = (offset: number) => ({ entries: [], total: 60 + offset });
+    client.setQueryData(queryKeys.configHistory(KEY), { pages: [page(0), page(5)], pageParams: [0, 5] });
+    applyServerEvent(client, { type: 'config_changed', projectKey: KEY, version: 'abc1234' });
+    expect(client.getQueryData<{ pages: unknown[] }>(queryKeys.configHistory(KEY))!.pages).toEqual([page(0)]);
+    expect(client.getQueryState(queryKeys.configHistory(KEY))!.isInvalidated).toBe(true);
   });
 });
 

@@ -11,12 +11,12 @@ import { CLOUDFLARE_TOKEN_FILE_NAME, CONFIG_FILE_NAME, secretsDir } from './secr
  * the cloud board use them (PM-535 to PM-537).
  */
 
-const REGION = /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/;
+export const REGION = /^[a-z]{2}(?:-[a-z]+)+-\d{1,2}$/;
 /** S3 rules for a bucket that is used with path-style and virtual-host-style access: no dots. */
 const BUCKET = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 const RESERVED_BUCKET_PARTS = [/^xn--/, /^sthree-/, /-s3alias$/, /--ol-s3$/, /--x-s3$/];
 /** Instance and IAM names: the IAM user is `<name>-litestream`, at most 64 characters. */
-const INSTANCE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/;
+export const INSTANCE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/;
 const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const ZONE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const EMAIL = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63}$/;

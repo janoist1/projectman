@@ -249,6 +249,23 @@ describe('buildSettings', () => {
         allowLocalBinding: true,
       });
     });
+
+    // The engine's control socket stays out of reach of a member's commands (PM-293): the sandbox names no Unix socket.
+    it.each([[['registry.npmjs.org']], [['*']]])(
+      'never grants a Unix socket to the member sandbox (allowedDomains %j)',
+      (allowedDomains) => {
+        const settings = buildSettings({
+          hookUrl: 'http://h/hooks/t',
+          hookConfigPath: HOOK_CONFIG,
+          allowedTools: [],
+          permissionTimeoutMs: 1000,
+          sandbox: { allowWrite: [], allowedDomains, allowLocalBinding: true },
+        });
+        const text = JSON.stringify(settings.sandbox);
+        expect(text).not.toContain('allowUnixSockets');
+        expect(text).not.toContain('allowAllUnixSockets');
+      },
+    );
   });
 
   it('refuses to start a read-only directory that a rule cannot name as it is', () => {

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -357,6 +358,19 @@ describe('engine start command', () => {
       command: path.join(dir, 'bin/node'),
       args: [path.join(dir, 'apps/server/dist/index.js')],
     });
+  });
+
+  it('runs a package whose bin/node is a link into the shared runtimes folder, with the resolved path as execPath', () => {
+    const dir = fs.mkdtempSync(path.join(world.root, 'start-link-'));
+    fs.mkdirSync(path.join(dir, 'versions/1.0.0/bin'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'runtimes/abc'), { recursive: true });
+    fs.symlinkSync(process.execPath, path.join(dir, 'runtimes/abc/node'));
+    fs.symlinkSync('../../../runtimes/abc/node', path.join(dir, 'versions/1.0.0/bin/node'));
+    const root = path.join(dir, 'versions/1.0.0');
+    fs.writeFileSync(path.join(root, 'engine-package.json'), '{}');
+    const { command } = engineStartCommand(root, '/usr/bin/node');
+    const run = spawnSync(command, ['-p', 'process.execPath'], { encoding: 'utf8' });
+    expect(run.stdout.trim()).toBe(fs.realpathSync(process.execPath));
   });
 });
 

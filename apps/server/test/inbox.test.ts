@@ -496,6 +496,24 @@ describe('inbox: who decides when the CLI asks (the approver, PM-165)', () => {
     ]);
   });
 
+  it("records the engine guard's refusal on the timeline as its own, with the code as the reason", async () => {
+    const sessionId = await start('human');
+    h.runnerModule.broker().refused?.({
+      sessionId,
+      toolName: 'Write',
+      toolInput: { file_path: '/Users/x/.zshrc' },
+      reason: 'outside_writable_roots',
+      by: 'engine_guard',
+    });
+    expect(h.domain.inbox.list('AR', {})).toEqual([]);
+    expect(permissionEvents()).toMatchObject([
+      {
+        type: 'permission_refused',
+        data: { toolName: 'Write', by: 'engine_guard', reason: 'outside_writable_roots' },
+      },
+    ]);
+  });
+
   it('starts the session with the denials in its policy, and the mode of the member as it is', async () => {
     await start('none');
     const spec = h.runner.lastStarted();

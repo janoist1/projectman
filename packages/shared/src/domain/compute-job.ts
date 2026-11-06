@@ -7,6 +7,19 @@ import { z } from 'zod';
  */
 export const COMPUTE_JOB_WORKFLOW = 'projectman-job.yml';
 
+/**
+ * The dedicated workflows a registered job may run instead of the general one (PM-1196): each has its own
+ * environment and rights (the cloud deploy, the engine release), which a general workflow that runs any command
+ * must never get. They follow the general workflow's contract (inputs, run title, output lines, artifact).
+ */
+const DEDICATED_COMPUTE_JOB_WORKFLOWS = ['projectman-deploy.yml', 'projectman-engine-release.yml'] as const;
+const DedicatedComputeJobWorkflow = z.enum(DEDICATED_COMPUTE_JOB_WORKFLOWS);
+
+/** Whether a workflow file may run a compute job: the general one or a dedicated one. */
+export function isComputeJobWorkflow(workflow: string): boolean {
+  return workflow === COMPUTE_JOB_WORKFLOW || DedicatedComputeJobWorkflow.safeParse(workflow).success;
+}
+
 /** The limits of a job definition, shared by the hub's settings, the engine's registration and the wire. */
 export const COMPUTE_JOB_COMMAND_MAX = 2000;
 export const COMPUTE_JOB_TIMEOUT_MINUTES_MAX = 360;
@@ -45,6 +58,8 @@ export type GithubJobRunner = z.infer<typeof GithubJobRunner>;
  */
 export const ComputeJobDefinition = z.strictObject({
   id: ComputeJobId,
+  /** A dedicated workflow to run; absent means the general `COMPUTE_JOB_WORKFLOW`. */
+  workflow: DedicatedComputeJobWorkflow.optional(),
   command: z.string().min(1).max(COMPUTE_JOB_COMMAND_MAX),
   runsOn: GithubJobRunner,
   outputs: z

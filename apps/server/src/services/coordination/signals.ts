@@ -15,9 +15,11 @@ import {
   memberQueueSourceId,
   coordinationMemberOf,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
-  OPERATOR_SIGNAL_STEP_KINDS,
   OPERATOR_SIGNAL_STEPS,
+  OPERATOR_UNRELEASED_HOURS,
   operatorSignalBudget,
+  operatorSignalStepAllowed,
+  operatorSignalStepGapMs,
   operatorWatchOf,
   OperatorSignal,
   LoopTriageFacts,
@@ -27,6 +29,8 @@ import {
   memberOf,
   openPrerequisites,
   stageOf,
+  complexityOf,
+  seniorWaitMinutesOf,
   OPERATOR_SILENT_WORK_MINUTES,
   OPERATOR_START_FETCH_FAILED_MINUTES,
   START_BLOCKED_REASONS,
@@ -40,10 +44,12 @@ import type {
   OperatorSignalStepTargets,
   OperatorWatch,
   ProjectConfig,
+  SeniorWaitDecisionPayload,
   StartBlockedReason,
   Task,
   TaskStartWaiting,
   TimelineEvent,
+  WorkOutageAlert,
 } from '@projectman/shared';
 import type { OperatorSignalRecord } from '../../db';
 import {
@@ -62,7 +68,7 @@ import type { MemberQueue } from '../../core/member-queue';
 import type { ProjectService } from '../../core/projects';
 import { prerequisiteCards } from '../../core/tasks';
 import type { TaskWaits } from '../../core/tasks';
-import type { TaskSchedulingReader } from '../../contracts';
+import type { TaskSchedulingReader, UnreleasedWork } from '../../contracts';
 import { KeyedMutex, conflict, invalid } from '../../kernel';
 import { newId } from '../../kernel';
 
@@ -86,14 +92,16 @@ const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
 ]);
 
 /**
- * The kinds of the stall detectors PM-1152 removed: nothing raises them any more, so an open row an older build
- * left is resolved by the sweep (state, event and the questions asked about it, as for any ended case).
+ * The kinds of the stall detectors PM-1152 and PM-1226 removed: nothing raises them any more (the `next_step`
+ * obligation ladder carries those stalls), so an open row an older build left is resolved by the sweep (state,
+ * event and the questions asked about it, as for any ended case).
  */
 const RETIRED_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
   'idle',
   'merge_waiting',
   'ready_waiting',
   'refinement_stalled',
+  'nobody',
 ]);
 
 /** The card events of a member that prove a step of work (PM-694); an incoming message, a transition and a question do not. */
@@ -114,7 +122,7 @@ const CARD_EVENTS_READ = 300;
 const REBOUND_PREFIX = 'rebound:';
 
 const WAKE_NEVER =
-  "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent, outage or nobody signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human; a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
+  "On a signal never merge, release, approve, move a card, or set a label or a setting. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and the signal's signal_id (never about an unreleased, structural_pattern or milestone_closed signal: the server refuses it); a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
 const WAKE_ONE_MESSAGE =
   'Send the owners one message for the whole wake-up (send_message with signal_ids, excluding structural_pattern and milestone_closed; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
 const WAKE_STRUCTURAL =
@@ -125,14 +133,19 @@ const WAKE_LOOP =
   'A loop_suspected signal is report-only: inspect current card, commits, review findings and delivery; call triage_loop with evidence and progress or loop. Message count alone is no loop. Never present it to owners as an authorization request, stop work or choose stop/let_run.';
 const WAKE_STEP =
   'Where a signal has a step, you may take it yourself with its signal_id after weighing it, within steps_left and not before next_step_at; a signal with follow_up true was acted on, so tell the owners what you did and what became of it.';
+const WAKE_UNRELEASED =
+  "An unreleased signal is the one exception at every level: take its step (start_member on the deployment member, once per 24 hours) and do not bring it to the owners (the server refuses an owner question about it: signal_not_for_owner); the member asks the owner one question, and nothing live changes before the owner's yes.";
 const WAKE_DISMISS =
   'An obligation_overdue signal says the responsible did not act even after the reminder, and that the step goes to a person at hand_over_at in its facts: check get_task and get_project_state first; when the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners; otherwise take its step or leave it to go to the person.';
 
+const WAKE_SENIOR =
+  'A senior_wait signal is your decision at every level, and the owners are not asked about it unless it costs money: a card waits for a developer whose limit reaches its points. Read get_task and the facts, then call decide_senior_wait (task_key, decision "wait" to keep waiting for the Senior or "any" to let a free developer take the card, and a reason). When the choice needs more capacity (a paid plan, a temp worker), ask the owners with ask_human, the topic cost and the signal_id, and decide when they answer.';
+
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_UNRELEASED} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
 };
 
 /** The case key of a card's blocked start: one per card and reason (PM-455). */
@@ -148,6 +161,38 @@ function answerStalledMember(caseKey: string): string | null {
 /** The case key of an overdue obligation: one per obligation row (the row is unique for ever). */
 function obligationOverdueCaseKey(obligationId: string): string {
   return `obligation_overdue:${obligationId}`;
+}
+
+/**
+ * The case key of new relations that need a check (PM-1250): one per card and set of relations. The signal's
+ * subject carries the relations as `kind:KEY` pairs, comma separated, which `relationCheckFacts` reads back.
+ */
+export function relationCheckCase(
+  taskKey: string,
+  relations: readonly { kind: string; key: string }[],
+): { caseKey: string; subject: string } {
+  const subject = relations
+    .map(({ kind, key }) => `${kind}:${key}`)
+    .sort()
+    .join(',');
+  return { caseKey: `relation_check:${taskKey}:${subject}`, subject };
+}
+
+function relationCheckFacts(signal: OperatorSignalRecord): { relations: { kind: string; key: string }[] } {
+  return {
+    relations: (signal.subject ?? '')
+      .split(',')
+      .filter(Boolean)
+      .map((pair) => {
+        const [kind = '', key = ''] = pair.split(':');
+        return { kind, key };
+      }),
+  };
+}
+
+/** The case key of a Senior wait that needs the project manager's decision: one per `senior_wait` row (PM-1251). */
+function seniorWaitCaseKey(obligationId: string): string {
+  return `senior_wait:${obligationId}`;
 }
 
 type OpenMerge = ReturnType<DomainContext['repos']['taskMerges']['openOfProject']>[number];
@@ -177,10 +222,14 @@ export class OperatorSignals {
     wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
+    /** What an outage is now (members, cards); null when it is over. The outage has no inbox item since PM-1250. */
+    outageFacts: (projectKey: string, outageId: string) => WorkOutageAlert | null;
     inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal'>;
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
     startAttempting: (task: Task) => boolean;
+    /** The work merged since each repository's last release (PM-1201); reads only. */
+    unreleased: (projectKey: string) => UnreleasedWork[];
   }) {
     this.deps = privateDeps;
   }
@@ -194,11 +243,14 @@ export class OperatorSignals {
     wake: (projectKey: string, member: string) => Promise<void>;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
+    outageFacts: (projectKey: string, outageId: string) => WorkOutageAlert | null;
     inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal'>;
     /** Why the start of AI work on a stored card waits (PM-455): the scheduling reads carry no `startWaiting`. */
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
     startAttempting: (task: Task) => boolean;
+    /** The work merged since each repository's last release (PM-1201); reads only. */
+    unreleased: (projectKey: string) => UnreleasedWork[];
   };
 
   /** The targeted card reads (PM-771): the periodic work never lists the project's whole card history. */
@@ -260,6 +312,29 @@ export class OperatorSignals {
       taskKey: input.taskKey,
       subject: input.obligationId,
     }).id;
+  }
+
+  /**
+   * The pending signal of a card that waits for a Senior past the wait limit (PM-1251): the project manager
+   * decides with `decide_senior_wait`. One per `senior_wait` row, stored with the caller's write; `deliver`
+   * brings it to the project manager. Returns the signal id.
+   */
+  raiseSeniorWait(input: { projectKey: string; taskKey: string; obligationId: string }): string {
+    return this.raise({
+      projectKey: input.projectKey,
+      kind: 'senior_wait',
+      caseKey: seniorWaitCaseKey(input.obligationId),
+      taskKey: input.taskKey,
+      subject: input.obligationId,
+    }).id;
+  }
+
+  /** Whether the signal of the obligation was dismissed: its situation was judged and needs no person (PM-1234). */
+  obligationDismissed(projectKey: string, obligationId: string): boolean {
+    return (
+      this.deps.ctx.repos.operatorSignals.latestOfCase(projectKey, obligationOverdueCaseKey(obligationId))
+        ?.state === 'dismissed'
+    );
   }
 
   presentation(projectKey: string, id: string, by?: string): OperatorSignalRecord {
@@ -405,7 +480,15 @@ export class OperatorSignals {
       allowed.members = merger ? startable([merger]) : [];
       allowed.taskKey = task.key;
     } else if (signal.kind === 'unreleased') {
-      allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle));
+      // A member who still waits for a person's answer is not started again: no second proposal beside an open one.
+      const asking = new Set(
+        this.deps.inbox
+          .list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question' })
+          .map((item) => item.source),
+      );
+      allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle)).filter(
+        (handle) => !asking.has(handle),
+      );
     } else if (signal.kind === 'answer_stalled' && task) {
       const stage = stageOf(config, task.stageId);
       const wait = taskWaits.ofCard(config, task);
@@ -485,7 +568,7 @@ export class OperatorSignals {
 
   /** The one step a signal allows at this level, as the coordinator is told (the budget is told apart). */
   private stepOf(level: OperatorWatch, config: ProjectConfig, signal: OperatorSignalRecord) {
-    if (!OPERATOR_SIGNAL_STEP_KINDS[level].includes(signal.kind)) return null;
+    if (!operatorSignalStepAllowed(level, signal.kind)) return null;
     const allowed = this.stepTargetsOf(config, signal);
     if (allowed.startTask) return { tool: 'start_task' as const, task_key: allowed.startTask, members: [] };
     return allowed.members.length
@@ -493,10 +576,14 @@ export class OperatorSignals {
       : null;
   }
 
-  /** The coordinator took a step on the signal: it is shown again if the case still stands in half an hour. */
+  /** The coordinator took a step on the signal: it is shown again if the case still stands after the step gap (half an hour; a day for `unreleased`). */
   stepTaken(signalId: string): void {
-    const at = this.deps.ctx.now().getTime() + OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000;
-    this.deps.ctx.repos.operatorSignals.followUp(signalId, new Date(at).toISOString());
+    const { ctx } = this.deps;
+    const kind = ctx.repos.operatorSignals.get(signalId)?.kind;
+    const at =
+      ctx.now().getTime() +
+      (kind ? operatorSignalStepGapMs(kind) : OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000);
+    ctx.repos.operatorSignals.followUp(signalId, new Date(at).toISOString());
   }
 
   /** Delivered, unresolved signals still awaiting presentation or a decision, oldest first. */
@@ -607,13 +694,6 @@ export class OperatorSignals {
           subject: milestone.eventId,
         });
     }
-    for (const [taskKey, wait] of reads.waits) {
-      if (wait?.reason !== 'nobody') continue;
-      const task = cards.find((t) => t.key === taskKey)!;
-      const caseKey = `nobody:${task.key}:${task.stageId}`;
-      active.add(caseKey);
-      this.raise({ projectKey: key, kind: 'nobody', caseKey, taskKey, subject: task.stageId });
-    }
     for (const task of cards) {
       const reason = this.startBlockedReason(task);
       if (!reason) {
@@ -662,16 +742,18 @@ export class OperatorSignals {
       if (signal.kind === 'outage' && outages !== null && !outages.has(signal.subject ?? ''))
         this.resolve(key, signal.caseKey);
       if (
-        (signal.kind === 'nobody' ||
-          signal.kind === 'silent' ||
-          signal.kind === 'start_blocked' ||
-          BOARD_KINDS.has(signal.kind)) &&
+        (signal.kind === 'silent' || signal.kind === 'start_blocked' || BOARD_KINDS.has(signal.kind)) &&
         !active.has(signal.caseKey)
       )
         this.resolve(key, signal.caseKey);
       if (RETIRED_KINDS.has(signal.kind)) this.resolve(key, signal.caseKey);
       // The step was done, ended or handed over to a person: nothing is left to tell the project manager.
-      if (signal.kind === 'obligation_overdue' && !this.caseHolds(config, signal))
+      if (
+        (signal.kind === 'obligation_overdue' ||
+          signal.kind === 'senior_wait' ||
+          signal.kind === 'relation_check') &&
+        !this.caseHolds(config, signal)
+      )
         this.resolve(key, signal.caseKey);
       if (
         signal.kind === 'stalled' &&
@@ -809,6 +891,7 @@ export class OperatorSignals {
                   level,
                   steps.filter((step) => step.status !== 'refused').map((step) => step.at),
                   now,
+                  s.kind,
                 );
           return JSON.stringify({
             ...OperatorSignal.parse(s),
@@ -818,15 +901,21 @@ export class OperatorSignals {
                 ? LoopTriageFacts.parse(JSON.parse(s.subject!))
                 : s.kind === 'obligation_overdue'
                   ? this.obligationOverdueFacts(s)
-                  : s.kind === 'answer_stalled'
-                    ? this.answerStalledFacts(s)
-                    : s.kind === 'start_blocked'
-                      ? this.startBlockedFacts(config, s)
-                      : s.inboxItemId
-                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                        : s.subject
-                          ? ctx.repos.sessions.get(s.subject)?.activity
-                          : null,
+                  : s.kind === 'senior_wait'
+                    ? this.seniorWaitFacts(config, s)
+                    : s.kind === 'answer_stalled'
+                      ? this.answerStalledFacts(s)
+                      : s.kind === 'start_blocked'
+                        ? this.startBlockedFacts(config, s)
+                        : s.kind === 'relation_check'
+                          ? relationCheckFacts(s)
+                          : s.inboxItemId
+                            ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                            : s.kind === 'outage'
+                              ? this.deps.outageFacts(s.projectKey, s.subject ?? '')
+                              : s.subject
+                                ? ctx.repos.sessions.get(s.subject)?.activity
+                                : null,
             step: this.stepOf(level, config, s),
             steps_left: structuralKind(s.kind) ? 0 : budget.left,
             next_step_at: structuralKind(s.kind) ? null : budget.nextAt,
@@ -939,7 +1028,7 @@ export class OperatorSignals {
     structural = this.lazyStructuralEvaluation(config),
   ): boolean {
     if (structuralKind(s.kind)) return (structural()?.facts(s) ?? null) !== null;
-    const { ctx, taskWaits } = this.deps;
+    const { ctx } = this.deps;
     if (s.kind === 'loop_suspected') {
       const facts = LoopTriageFacts.parse(JSON.parse(s.subject!));
       const loop = ctx.repos.taskLoops.get(facts.loopId);
@@ -952,15 +1041,6 @@ export class OperatorSignals {
       );
     }
     if (BOARD_KINDS.has(s.kind)) return board().has(s.caseKey);
-    if (s.kind === 'nobody') {
-      const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
-      return (
-        !!task &&
-        !!config &&
-        task.stageId === s.subject &&
-        taskWaits.ofCard(config, task)?.reason === 'nobody'
-      );
-    }
     if (s.kind === 'start_blocked') {
       const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
       return !!task && (this.startBlockedReason(task) === s.subject || this.startAttemptRunning(task));
@@ -969,6 +1049,16 @@ export class OperatorSignals {
       // The step is still the responsible's and the project manager has been told: any other end closes the case.
       const obligation = ctx.repos.obligations.get(s.subject ?? '');
       return obligation?.state === 'open' && obligation.pmToldAt !== null;
+    }
+    if (s.kind === 'relation_check') {
+      // The new relations matter while the card is open; a done or cancelled card has no work to change.
+      const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
+      return !!task && isOpenTask(task);
+    }
+    if (s.kind === 'senior_wait') {
+      // The card still waits for the decision: the row was handed over and nobody decided it yet.
+      const obligation = ctx.repos.obligations.get(s.subject ?? '');
+      return obligation?.state === 'handed_over' && obligation.decision === null;
     }
     if (s.kind === 'silent' || s.kind === 'stalled') {
       const session = ctx.repos.sessions.get(s.subject ?? '');
@@ -1048,6 +1138,18 @@ export class OperatorSignals {
           subject: row.failure?.reason ?? row.block?.reason ?? state,
         });
       }
+
+    // Work merged on a default branch that waited a day for a release (PM-1201): one case per repository and base,
+    // so a release (which moves the base) ends it.
+    for (const work of this.deps.unreleased(projectKey)) {
+      if (now - Date.parse(work.oldestAt) < OPERATOR_UNRELEASED_HOURS * 3_600_000) continue;
+      add({
+        kind: 'unreleased',
+        caseKey: `unreleased:${work.repo}:${work.base}`,
+        taskKey: null,
+        subject: String(work.count),
+      });
+    }
 
     return { cases: found };
   }
@@ -1153,6 +1255,25 @@ export class OperatorSignals {
         // The step goes to a person when the row's deadline passes (the last rung).
         handOverAt: row.dueAt,
       },
+    };
+  }
+
+  /** What the project manager weighs about a card that waits for a Senior: the wait, its points and the developers it waits for. */
+  private seniorWaitFacts(
+    config: ProjectConfig,
+    signal: OperatorSignalRecord,
+  ): SeniorWaitDecisionPayload | null {
+    const row = this.deps.ctx.repos.obligations.get(signal.subject ?? '');
+    const task = signal.taskKey ? this.deps.ctx.repos.tasks.get(signal.taskKey) : null;
+    if (!row || !task) return null;
+    const points = complexityOf(task);
+    return {
+      taskKey: task.key,
+      since: row.openedAt,
+      minutes: seniorWaitMinutesOf(config.team.limits),
+      seniors: this.deps.startWaitingOf(task)?.seniors ?? [],
+      reason: task.complexity?.reason ?? null,
+      ...(points === null ? {} : { points }),
     };
   }
 

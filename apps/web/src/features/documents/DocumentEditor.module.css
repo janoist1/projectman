@@ -1,0 +1,109 @@
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.bar {
+  margin: 0;
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-xl);
+  background: var(--c-accent-bg);
+  font-size: var(--text-sm);
+}
+
+/* A save that did not go through: the warning tone of the app's "needs you" states, not the neutral info bar. */
+.barAlert {
+  border-color: var(--c-blocked-text);
+  background: var(--c-blocked-bg);
+  color: var(--c-blocked-text);
+}
+
+.barActions {
+  margin-left: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kept {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--c-line);
+  border-radius: var(--radius-xl);
+}
+
+.keptHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+}
+
+.keptText {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 8px;
+  border: 1px solid var(--c-line-soft);
+  border-radius: var(--radius-lg);
+  background: var(--c-muted);
+  color: inherit;
+}
+
+.secrets {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-4);
+}
+
+.secrets svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.bytes {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+  text-align: right;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* On a phone the editor is tall: the buttons stay above the tab bar. */
+@media (max-width: 767px) {
+  .actions {
+    position: sticky;
+    /* The scroller already ends above the tab bar (the column's padding), so 0 sits right on it. */
+    bottom: 0;
+    z-index: 2;
+    margin: 0 -14px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--c-line);
+    background: var(--c-page);
+  }
+
+  .actions > * {
+    flex: 1;
+  }
+}

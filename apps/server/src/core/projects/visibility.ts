@@ -1,4 +1,5 @@
 import {
+  canReadDocuments,
   canSeeAllTeamMessages,
   canSeeInboxItem,
   canSeeOperatorSessions,
@@ -106,6 +107,7 @@ export function canSeeProjectEvent(
   if (event.type === 'operator_signal')
     return viewer.access === 'owner' && !isCoordinatorOnlySignal(event.signal.kind);
   if (event.type === 'inbox_upserted') return canSeeInboxItem(viewer, event.item);
+  if (event.type === 'documents_changed') return canReadDocuments(viewer);
   if (event.type === 'team_message' || event.type === 'team_message_updated')
     return canSeeTeamMessage(viewer, event.message);
   // The Operator's sessions and the PM's conversations with others are the owner's and the admin's to see

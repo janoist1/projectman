@@ -63,6 +63,7 @@ describe('super-mode origin and audit (PM-757)', () => {
         email: OWNER.email,
         passwordHash: 'unused-test-hash',
         createdAt: new Date().toISOString(),
+        language: 'hu',
       };
       h.repos.users.insert(user);
     }
@@ -621,6 +622,7 @@ describe('super-mode origin and audit (PM-757)', () => {
       email: 'owner@example.com',
       passwordHash: 'unused-test-hash',
       createdAt: new Date().toISOString(),
+      language: 'hu',
     });
     const scope = { scope: 'project', projectKey: 'AR' } as const;
     const typed = (type: string) => h.repos.timeline.list('AR').filter((e) => e.type === type);

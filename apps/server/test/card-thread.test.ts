@@ -26,7 +26,7 @@ describe('the card’s thread: workers and questions', () => {
   async function ask(sessionId: string, member: string, question: string, options?: string[]) {
     const { inboxItemId } = await h.domain.teamTools.askHuman(
       { sessionId, projectKey: 'AR', member, taskKey: 'AR-1' },
-      { question, ...(options ? { options } : {}) },
+      { question, ownerTopic: 'cost', ...(options ? { options } : {}) },
     );
     return inboxItemId;
   }

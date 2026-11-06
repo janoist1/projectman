@@ -28,7 +28,7 @@ import type { MemberIndex } from '../../lib/members';
 import { ConfigProblems } from './ConfigProblems';
 import { DutiesMatrix } from './DutiesMatrix';
 import { issueTarget } from './issueTarget';
-import { SettingsEditingProvider } from './SettingsEditor';
+import { SettingsEditingProvider } from './edit/SettingsEditing';
 import { isSettingsSection, SETTINGS_SECTIONS, SETTINGS_WIDE_QUERY } from './sections';
 import type { SettingsSectionId } from './sections';
 import styles from './SettingsPage.module.css';
@@ -156,6 +156,8 @@ export function SettingsPage() {
     open: hostRequests.data?.requests.length ?? 0,
   };
   const location = useLocation();
+  const ownerTopicTarget =
+    new URLSearchParams(location.search).get('field')?.startsWith('ownerDecisionTopics') === true;
   const main = useRef<HTMLDivElement>(null);
   const previousSection = useRef(section);
   const base = `/p/${key}/settings`;
@@ -170,6 +172,11 @@ export function SettingsPage() {
     config.data?.config.project.name ?? me.projects.find((p) => p.key === key)?.name,
   );
   useEffect(() => {
+    // The topic editor opens and focuses its own field for a configuration problem link.
+    if (section === 'team' && ownerTopicTarget) {
+      previousSection.current = section;
+      return;
+    }
     main.current?.closest('main')?.scrollTo?.(0, 0);
     if (wide && location.state?.settingsIssueTarget && section) {
       main.current?.querySelector<HTMLElement>(`#settings-${section}`)?.focus();
@@ -194,6 +201,7 @@ export function SettingsPage() {
     Boolean(config.data),
     location.state?.settingsIssueTarget,
     location.state?.settingsReturn,
+    ownerTopicTarget,
   ]);
 
   if (isSettingsSection(legacy))
@@ -297,7 +305,7 @@ export function SettingsPage() {
         content = <LabelsSection config={view.config} />;
         break;
       case 'duties':
-        content = <DutiesMatrix key={view.version} config={view.config} version={view.version} />;
+        content = <DutiesMatrix config={view.config} />;
         break;
       case 'team':
         content = <TeamSection config={view.config} />;
@@ -318,7 +326,7 @@ export function SettingsPage() {
         content = <EmailSection config={view.config} version={view.version} />;
         break;
       case 'history':
-        content = <HistorySection history={view.history} current={view.version} canRevert={isOwner} />;
+        content = <HistorySection current={view.version} canRevert={isOwner} />;
         break;
       case 'providers':
         content = <ProvidersSection config={view.config} />;

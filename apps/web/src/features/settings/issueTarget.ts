@@ -29,6 +29,7 @@ export function issueTarget(path: string, config: ProjectConfig): IssueTarget | 
   }
   const starts = (prefix: string) => normalized === prefix || normalized.startsWith(`${prefix}.`);
   if (starts('team.members')) return { section: 'team' };
+  if (starts('team.ownerDecisionTopics')) return { section: 'team', field: normalized.slice('team.'.length) };
   if (starts('team.limits')) return { section: 'limits' };
   if (starts('team.contacts')) return { section: 'team', field: 'contacts' };
   if (starts('team.merger')) return { section: 'team', field: 'merger' };

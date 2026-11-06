@@ -388,6 +388,73 @@ describe('feedback marks API (PM-506)', () => {
     });
   });
 
+  describe('deleting a mark (PM-1189)', () => {
+    const del = async (cookie: string, markId: string) =>
+      inject(h.app, 'DELETE', routes.feedbackMark('AR', markId), cookie);
+    const listed = async (cookie: string) =>
+      FeedbackInboxResponse.parse((await get(cookie, routes.feedback('AR'))).json()).marks;
+
+    it('tells each viewer whether they may delete a mark', async () => {
+      const made = await mark('cleo');
+      const flag = async (cookie: string) => (await listed(cookie)).find((m) => m.id === made.id)?.canDelete;
+      expect(await flag(cookies.client!)).toBe(true);
+      expect(await flag(owner)).toBe(true);
+      expect(await flag(cookies.admin!)).toBe(true);
+      expect(await flag(cookies.developer!)).toBe(false);
+      const detail = await get(cookies.developer!, routes.feedbackMark('AR', made.id));
+      expect(FeedbackMarkDetail.parse(detail.json()).canDelete).toBe(false);
+    });
+
+    it('lets the author delete the mark with its screenshot and keeps a trace without its text', async () => {
+      const made = await mark('cleo', { screenshot: true, body: 'Private words' });
+      const dir = join(h.home, 'feedback', 'AR');
+      expect(readdirSync(dir)).toHaveLength(2);
+      events.length = 0;
+
+      const response = await del(cookies.client!, made.id);
+      expect(response.statusCode, response.body).toBe(204);
+      expect((await get(owner, routes.feedbackMark('AR', made.id))).statusCode).toBe(404);
+      expect(await listed(owner)).toEqual([]);
+      expect(readdirSync(dir)).toEqual([]);
+      expect(events).toContainEqual({ type: 'feedback_changed', projectKey: 'AR', markId: made.id });
+      const trace = h.app.projectman.repos.db
+        .prepare('SELECT * FROM feedback_deletions WHERE mark_id = ?')
+        .all(made.id);
+      expect(trace).toMatchObject([{ author: 'cleo', deleted_by: 'cleo', task_key: null }]);
+      expect(JSON.stringify(trace)).not.toContain('Private words');
+    });
+
+    it('lets an admin delete another’s mark, and refuses a developer and a viewer', async () => {
+      const made = await mark('cleo');
+      for (const cookie of [cookies.developer!, cookies.viewer!]) {
+        const refused = await del(cookie, made.id);
+        expect(refused.statusCode).toBe(403);
+        expect(errorCode(refused)).toBe('insufficient_access');
+      }
+      expect(await listed(owner)).toHaveLength(1);
+      expect((await del(cookies.admin!, made.id)).statusCode).toBe(204);
+      expect((await del(cookies.admin!, made.id)).statusCode).toBe(404);
+    });
+
+    it('keeps the card of the mark and notes the deletion in its timeline', async () => {
+      const made = await mark('cleo');
+      const created = CreateTaskFromFeedbackResponse.parse(
+        (
+          await post(owner, routes.feedbackTask('AR', made.id), { title: 'Fix the total', description: '' })
+        ).json(),
+      );
+      expect((await del(cookies.admin!, made.id)).statusCode).toBe(204);
+      expect(h.app.projectman.domain.tasks.find('AR', created.task.key)).toBeTruthy();
+      const event = h.app.projectman.repos.timeline.latestOfType('AR', created.task.key, 'feedback_deleted');
+      expect(event).toMatchObject({
+        actor: { handle: 'ada' },
+        data: { markId: made.id, author: 'cleo', created: true },
+      });
+      const { feedback: repo } = h.app.projectman.repos;
+      expect(repo.listMarks('AR', { taskKey: created.task.key, limit: 10 })).toEqual([]);
+    });
+  });
+
   describe('settings and signing the tool out', () => {
     it('shows the surfaces and the markers to an owner or admin, and ends a marker’s sessions', async () => {
       await mark('cleo');

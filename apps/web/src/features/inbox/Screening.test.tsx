@@ -416,7 +416,7 @@ describe('"Az Operátor intézte" (PM-561)', () => {
     renderInbox([question('inb_plain', { options: [{ id: 'yes', label: 'Igen', style: 'primary' }] })]);
     await screen.findByText('Kérdés inb_plain');
     expect(screen.queryByText(t('inbox.operatorTrail.titleUnknown'))).toBeNull();
-    expect(screen.queryByText(/Az Operátor intézte/)).toBeNull();
+    expect(screen.queryByText(/A csatlakoztatott Claude intézte/)).toBeNull();
   });
 
   it('is not asked for, nor shown, to someone who cannot manage the team', async () => {
@@ -426,7 +426,7 @@ describe('"Az Operátor intézte" (PM-561)', () => {
       expect(project.requests.some((request) => request.path.includes('/inbox?'))).toBe(true),
     );
     expect(project.requests.some((request) => request.path.includes('/inbox/screened'))).toBe(false);
-    expect(screen.queryByText(/Az Operátor intézte/)).toBeNull();
+    expect(screen.queryByText(/A csatlakoztatott Claude intézte/)).toBeNull();
   });
 
   it("says how many of the day's are shown when there are more than the list holds", async () => {

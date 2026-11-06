@@ -24,6 +24,7 @@ const timing = {
   enterRetryMs: 1_000,
   maxEnterRetries: 2,
   submitTimeoutMs: 5_000,
+  lateSubmitMs: 20_000,
 };
 /** Time to type a one-piece message and press Enter. */
 const TYPE_MS = timing.stepDelayMs + timing.enterDelayMs;
@@ -147,7 +148,7 @@ describe('input queue under the TestClock', () => {
     );
   });
 
-  it('gives up on a typed message exactly at submitTimeoutMs, and types the next one afterwards', async () => {
+  it('stops waiting at submitTimeoutMs and types the next message, but fails a silent one only at lateSubmitMs', async () => {
     const { host, typed, warn } = hostOf();
     await run(host, (queue) =>
       Effect.gen(function* () {
@@ -164,15 +165,127 @@ describe('input queue under the TestClock', () => {
 
         yield* adjust(1);
         expect(warn).toHaveBeenCalledTimes(1);
-        const cause = yield* failureOf(first);
-        expect(cause).toBeDefined();
-        expect(String(cause)).toContain(new NotSubmittedError('ses_1').message);
-        // The next message is typed only now.
+        expect(queue.state().awaitingSubmit).toBe(false);
+        // The next message is typed now; the first one is still waited for.
         yield* adjust(TYPE_MS);
         expect(typed().pastes).toEqual(['first', 'second']);
         yield* Fiber.join(second);
+
+        yield* adjust(timing.lateSubmitMs - TYPE_MS - 1);
+        expect(first.pollUnsafe()).toBeUndefined();
+        yield* adjust(1);
+        const cause = yield* failureOf(first);
+        expect(String(cause)).toContain(new NotSubmittedError('ses_1').message);
       }),
     );
+  });
+
+  it.each([
+    ['a turn hook came', (_state: { idle: boolean }, queue: InputQueueEffects) => queue.noteTurnActivity],
+    [
+      'the CLI left idle',
+      (state: { idle: boolean }) =>
+        Effect.sync(() => {
+          state.idle = false;
+        }),
+    ],
+  ])('takes a typed message as unconfirmed at submitTimeoutMs when %s', async (_name, signal) => {
+    const { host, state, typed } = hostOf();
+    await run(host, (queue) =>
+      Effect.gen(function* () {
+        const message = yield* start(queue.enqueueSubmitted('busy'));
+        yield* adjust(TYPE_MS);
+        yield* signal(state, queue);
+        yield* adjust(timing.submitTimeoutMs);
+        expect(yield* failureOf(message)).toBeUndefined();
+        expect(typed().pastes).toEqual(['busy']);
+      }),
+    );
+  });
+
+  it.each([
+    ['a submission', (queue: InputQueueEffects) => queue.submitted],
+    ['a turn hook', (queue: InputQueueEffects) => queue.noteTurnActivity],
+  ])('takes a silent message late when %s comes within lateSubmitMs', async (_name, signal) => {
+    const { host, typed } = hostOf();
+    await run(host, (queue) =>
+      Effect.gen(function* () {
+        const message = yield* start(queue.enqueueSubmitted('quiet'));
+        yield* adjust(TYPE_MS + timing.submitTimeoutMs);
+        expect(message.pollUnsafe()).toBeUndefined();
+        expect(queue.state().awaitingSubmit).toBe(false);
+        yield* adjust(timing.lateSubmitMs / 2);
+        yield* signal(queue);
+        expect(yield* failureOf(message)).toBeUndefined();
+        // No new text was typed, and the expired late wait raises nothing.
+        yield* adjust(timing.lateSubmitMs);
+        expect(typed().pastes).toEqual(['quiet']);
+      }),
+    );
+  });
+
+  it('does not hold a late message in pending input, and fails it when the scope closes', async () => {
+    const { host } = hostOf();
+    await run(host, (queue, scope) =>
+      Effect.gen(function* () {
+        const message = yield* start(queue.enqueueSubmitted('quiet'));
+        yield* adjust(TYPE_MS + timing.submitTimeoutMs);
+        expect(queue.state()).toMatchObject({ typing: false, queued: 0, awaitingSubmit: false });
+        yield* Scope.close(scope, Exit.void);
+        expect(String(yield* failureOf(message))).toContain('exited');
+      }),
+    );
+  });
+
+  describe('deliveryId', () => {
+    const DELIVERY = 'dlv_00000000000000000000000000000001';
+
+    it('joins a repeated call to the message still awaited instead of typing it again', async () => {
+      const { host, typed } = hostOf();
+      await run(host, (queue) =>
+        Effect.gen(function* () {
+          const first = yield* start(queue.enqueueSubmitted('once', DELIVERY));
+          yield* adjust(TYPE_MS);
+          const repeat = yield* start(queue.enqueueSubmitted('once', DELIVERY));
+          yield* queue.submitted;
+          expect(yield* failureOf(first)).toBeUndefined();
+          expect(yield* failureOf(repeat)).toBeUndefined();
+          expect(typed().pastes).toEqual(['once']);
+        }),
+      );
+    });
+
+    it('does not type a message again that the CLI took', async () => {
+      const { host, typed } = hostOf();
+      await run(host, (queue) =>
+        Effect.gen(function* () {
+          const first = yield* start(queue.enqueueSubmitted('once', DELIVERY));
+          yield* adjust(TYPE_MS);
+          yield* queue.submitted;
+          yield* Fiber.join(first);
+          const repeat = yield* start(queue.enqueueSubmitted('once', DELIVERY));
+          yield* adjust(TYPE_MS);
+          expect(yield* failureOf(repeat)).toBeUndefined();
+          expect(typed().pastes).toEqual(['once']);
+        }),
+      );
+    });
+
+    it('types a message again that the CLI never took', async () => {
+      const { host, typed } = hostOf();
+      await run(host, (queue) =>
+        Effect.gen(function* () {
+          const first = yield* start(queue.enqueueSubmitted('again', DELIVERY));
+          yield* adjust(TYPE_MS + timing.submitTimeoutMs + timing.lateSubmitMs);
+          expect(yield* failureOf(first)).toBeDefined();
+          const repeat = yield* start(queue.enqueueSubmitted('again', DELIVERY));
+          yield* adjust(TYPE_MS);
+          yield* queue.submitted;
+          expect(yield* failureOf(repeat)).toBeUndefined();
+          expect(typed().pastes).toEqual(['again', 'again']);
+        }),
+      );
+    });
   });
 
   it('presses Enter again every enterRetryMs, at most maxEnterRetries times', async () => {

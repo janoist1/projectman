@@ -57,6 +57,8 @@ const REFUSAL_CODES: ReadonlySet<EngineErrorCode> = new Set([
   'unknown_method',
   'path_outside_roots',
   'permission_mode_too_high',
+  'permission_mode_too_low',
+  'provider_not_allowed',
   'command_not_allowed',
   'terminal_input_disabled',
   'repo_not_registered',
@@ -202,8 +204,8 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
         ? deps.nanogptStart(spec.sessionId, start)
         : start();
     },
-    async 'session.send'({ sessionId, message }) {
-      await runner.sendUserMessage(sessionId, message);
+    async 'session.send'({ sessionId, message, deliveryId }) {
+      await runner.sendUserMessage(sessionId, message, deliveryId ? { deliveryId } : undefined);
       return none;
     },
     async 'session.compact'({ sessionId, instruction }) {

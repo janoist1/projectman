@@ -34,13 +34,17 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
    GitHub accounts, and a local app gets no webhooks. GitHub is used for PRs, reviews,
    checks, merges and releases; issue creation and project mirroring come later.
 10. **English source code; Hungarian UI** through locale files.
+    _Refined by 72: the UI is Hungarian and English._
 11. **Self-shaping within limits (later phase, "Rendszer" in `design/phase2.md`).** A system agent may change configuration
     only through a fixed list of typed operations; invariants always hold; only the owner
     widens the limits.
+    _Superseded by 37: the „System” member is not planned._
 12. **Project manager (later phase)**: an optional member (human or AI). An intake
     conversation sets up the working mode and rituals. It proposes; humans prioritise.
+    _Superseded by 65: the project manager runs the project's work._
 13. **Feedback loop (later phase)**: anyone (optionally AI members, evidence-based) can file
     observations; the retro turns them into configuration changes, tasks or nothing.
+    _Superseded by 37: retrospectives are not planned._
 14. **Role catalogue.** Roles are responsibilities, separate from a human's access level. An
     AI member holds exactly one role; a human may hold several. 20 built-in roles (operator
     and product owner are human-only, the watchdog is AI-only) plus custom roles the team
@@ -49,6 +53,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     report) and the coach (retros, role and process improvement) are separate roles; the
     watchdog's monitoring and the coach's retro come in a later phase. _Partly superseded by
     16: who may hold a role and what an AI holder is told now come from its duties._
+    _Today there are 21 built-in roles (`packages/templates`)._
 15. **OpenAI Codex CLI as a second provider, through its interactive TUI and hooks, on the
     subscription only.** Each AI member runs in Claude Code or Codex (default Claude Code),
     on its sponsor's plan: Codex members use the owner's ChatGPT login. Codex runs like
@@ -63,6 +68,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     Code's usage probe, ChatGPT's from the rate limits Codex records in its transcripts
     (nothing is spent to read either), and new work pauses on the plan of the member's own
     provider.
+    _Extended by 73: members also run on Gemini and on NanoGPT (34)._
 16. **Roles are configurable bundles of fixed duties.** Approved by the owner on 2026-09-30.
     Duties, rather than role names, determine who owns stages, who may approve gates and
     which prompt fragments and session tools an AI receives. Teams may change built-in
@@ -121,6 +127,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     - Clean-up: remove the unused fields, GitHub helpers and `PUT /config`; rename the
       misleading names with a migration; rewrite legacy configuration and check formats once
       and drop the converters. Reverting to a configuration from before labels need not work.
+    _The managed VM profile named here was dropped by 36._
 20. **The live instance runs apart from development (PM-72).** Decided by the owner on
     2026-09-30. The owner's instance runs a production build from its own checkout and is
     updated only with the owner's approval; development builds (`npm run dev`, agent
@@ -128,6 +135,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     restart the owner's instance or stop its AI sessions, and a newer build never migrates
     the live database unasked. This is the precondition for projectman developing itself
     (PM-51).
+    _Refined by 68: until production use, the owner's connected Claude updates the live
+    instance on its own judgement and reports afterwards._
 21. **The integrating session pushes `main` after each verified merge.** Decided by the owner
     on 2026-09-30 (review question 12). Cloud sessions then start from the current state.
     Agents and workstreams still commit on their own branch and do not push. The repository
@@ -135,12 +144,15 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     profile (decision 26): members there may publish their own task branches through a
     restricted gate and a separate GitHub identity, never `main` (PM-142); everywhere else
     agents do not push._
+    _Refined by 71: the merger member merges and pushes `main` with `merge_task`; the VM
+    profile was dropped by 36._
 22. **One word per thing in the Hungarian UI.** Decided by the owner on 2026-10-01, answering
     the reviewer's question on PM-96. A session is a "munkamenet" (not "session") and a
     pipeline stage is a "lépés" (not "szakasz"). Developer words stay out of plain UI text:
     error codes sit behind "Részletek", settings versions in a tooltip, and a schedule has a
     plain label with an example instead of raw cron. The strings live only in
     `apps/web/src/i18n/hu.ts`, so changing a word is one edit.
+    _Refined by 67 and 72: the glossary picks the word, and the UI is also in English._
 23. **As many AIs work as the team has, except those on leave.** Decided by the owner on
     2026-10-01: "ne legyen korlátozás, annyi AI fut amennyi a csapat - kivéve, akit
     »szabadságra küldünk«". There is no project-wide cap on concurrent AI sessions, and a
@@ -153,6 +165,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     hook endpoints; the question goes away once the server runs on its own machine (PM-45).
     _Decision 25 replaces the strict native sandbox direction this exception belonged to; in
     the managed VM the workers' loopback access is the one documented in `docs/VM.md`._
+    _The managed VM was dropped by 36._
 25. **The work moves to the virtual-machine direction.** Decided by the owner on 2026-10-01
     (PM-135, "Átállás a VM-es irányra"). The remaining parts of the old strict native sandbox
     direction stop: further work on PM-128, PM-129, PM-130, PM-132 and PM-136 ends, and what
@@ -163,6 +176,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     withdrawn. The VM is built first as a reproducible guest on
     the owner's Mac, later from the same files on a Linux server (PM-137, `docs/VM.md`); it is
     not a migration of the live instance, which needs its own approval (PM-143).
+    _Superseded by 36._
 26. **Protected control, free workspace.** Decided by the owner on 2026-10-01 (PM-135, "Védett
     vezérlés, szabad munkatér"). Inside the VM the daily work of the AI members is free; the live
     projectman, its data (database, cookie secret, audit, logs, other members' tokens) and the
@@ -186,12 +200,14 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
       them are done (PM-141, PM-142). In every other profile they apply as before.
     - Old `permissionMode` values are never migrated to a freer mode automatically; the VM
       profile and the delegation rights are owner-only settings.
+    _Its VM parts were dropped by 36._
 27. **Each worker has its own subscription login.** Decided by the owner on 2026-10-01 (PM-140,
     "Tagonként saját bejelentkezés"). In the managed VM the members' sessions run as their own
     worker accounts, so each worker gets its own Claude and Codex login on the same subscription,
     made once by a person per worker and provider; the login file stays in that worker's home,
     readable by nobody else. No login is copied between accounts or handed to a session by the
     launcher, and no API key is used (decisions 1 and 15 stand).
+    _Superseded by 36: there are no worker accounts; members run on the owner's machine._
 28. **Permissions follow Claude Code and Codex; two settings per AI member.** Decided by the
     owner on 2026-10-01 (PM-162, PM-164). The principle, in the owner's words: „úgy kéne nálunk
     megtervezni a rendszert, h azt a filozófiát kövessük, amit a claude és a codex is tesz. ezen
@@ -272,6 +288,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     once the new build runs. The releases before v2026.10.5.5 were tagged afterwards from the live
     switch backups, without GitHub releases. The roadmap update before a release moved from the
     integrator to the Operator (decision 50).
+    _Since 66 there is no Operator: the project manager updates the roadmap (PM-1023)._
 36. **The virtual-machine direction is dropped.** Decided by the owner on 2026-10-06 (board
     triage; „felesleges nekünk menedzselni még egy réteget, ha nem elengedhetetlen a rendszer
     futásához”). This supersedes decision 25. The members keep running on the owner's machine in
@@ -298,6 +315,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     check of a card is the integrating session's merge test before `main` moves (the whole suite
     when shared code or configuration changed). The owner's first idea, a full test only when a
     collecting card is finished, was set aside because its parts reach `main` one by one.
+    _Refined by 71: the merger runs the full check with `merge_task`, on the card's engine or
+    on GitHub Actions._
 41. **Outbound network is a per-member setting, on by default.** Decided by the owner on
     2026-10-05 (PM-355), in three answers: the scope is „Csak a kimenő hálózat, ki/be” (one
     on/off switch, no address list); the default is „Mindenkinek be” (every role, the read-only
@@ -309,12 +328,14 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     are never migrated to a freer mode"): a member saved before this setting existed has the
     network on, because the owner chose „Mindenkinek be”. Protections that stay with the
     network on are listed in `docs/SECURITY.md`.
+    _The managed VM profile it mentions was dropped by 36._
 42. **Now: critical fixes, and the operator's UI as the new feature work.** Decided by the owner
     on 2026-10-07. Besides fixing critical bugs and wrong behaviour, new features serve the person
     who runs the team: talking to the AI members easily, seeing the work at a glance, keeping up
     with fast changes, reading only what matters to them, and having the right context for every
     decision. First cards: the flow map (PM-379) and intent-driven control (PM-384). Hybrid mode
     (PM-286) comes after this.
+    _„Operator” here is the person who runs the team, not the later Operator actor (52, 66)._
 43. **The old assignee writes the handoff note within 10 minutes; after that the transcript
     summary stands in, without a compact.** Decided by the owner on 2026-10-05 (PM-342, K1 and
     K2). When a card changes hands, the old AI member's session is asked at a safe point for a
@@ -350,6 +371,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     developer or the developer who built the card merges it. "Done means merged" (PM-448)
     still holds; the system may give the member a tool and check that the work is in the main
     branch, but it does not merge on its own.
+    _Refined by 71: the merger member (`team.merger`, the lead developer in PM) merges with
+    `merge_task`._
 48. **The board helps, the members work.** Decided by the owner on 2026-10-10 as a principle to
     decide the details by. The board (the app) records, connects, reminds, checks and enforces
     the rules (gates, approvals); it never works on the result: it writes no code, merges and
@@ -358,6 +381,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     with them; the board asks for them and records them. Who does a kind of work is set per
     project, as a duty in the project's configuration, never fixed in the app: in projectman
     the senior developer merges (decision 47), another project may choose differently.
+    _Refined by 71: in projectman the lead developer merges now._
 49. **A card's conversation always has a recipient.** Decided by the owner on 2026-10-11
     (PM-488). When nobody else is on the card (no one works on it, no assignee, no stage owner
     but the writer), the project manager is the default recipient and passes the message on to
@@ -373,12 +397,16 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     offers the owner's answers to card questions as decision candidates (PM-496); the owner's
     yes or no is remembered, so a candidate is not offered twice. This modifies decision 35
     only in who updates the roadmap before a release.
+    _Since 66 there is no Operator: the project manager writes both, at the owner's request
+    or after the owner's yes (PM-1023, PM-1044)._
 51. **The board runs in the cloud.** Decided by the owner on 2026-10-12, so that the board is
     reachable while the Mac is off. Host: an AWS Lightsail instance (2 GB) running the
     `deploy/cloud` container, behind Cloudflare Tunnel and Access at chopper.istvan.io (PM-532).
     A container is a deployment option under `deploy/`; the projectman core does not depend on
     Docker. The public entrance from the Mac (PM-200, `docs/DEPLOY.md`) is dropped; Fly.io stays
     only as an alternative.
+    _Superseded in part by 70: the hub runs on EC2, not Lightsail; Access on the board was
+    removed by 56._
 52. **Outwardly there is one actor, the Operator.** Decided by the owner on 2026-10-19 (PM-824,
     PM-782, PM-818): „kifelé egyetlen szereplő van, az »Operátor«. A super mód csak egy belső
     állapot: épp az integrátor (Claude Code) vezeti-e az Operátort a saját kulcsával.” What says
@@ -387,6 +415,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     connected (super mode), the Operator AI otherwise, and it reaches the owner only when
     neither can do it. On to-dos for the Operator, „Nem tudom megcsinálni” becomes „Operátori
     segítség kérése” (the owner's idea). Refined by decision 54.
+    _Superseded by 66: there is no Operator actor._
 53. **General or PM-specific.** Decided by the owner on 2026-10-20 (PM-850). The PM project
     develops projectman, but it is only one project among many. What is about how the PM team
     works in this repository (test style, merge test, repository rules, PM's settings) is
@@ -411,6 +440,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     engine is, akkor is lenne ez a funkció, mert … megemelt jogosítványokat lehetne
     biztosítani.”
     _Refined by decision 55._
+    _Superseded by 66: there is no Operator actor; a connected Claude acts for its person._
 55. **The Operator can do everything; super reaches outside.** Decided by the owner on
     2026-10-20 (PM-875); refines decision 54. Inside the app the Operator can do everything the
     owner can, except the most critical actions (deleting members, keys, the project or a
@@ -426,12 +456,14 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     extra réteg azért, hogy az operátor ki tudjon nyúlni a helyéről és az én gépem erőforrásait
     és akár engedéllyel és utasítással az én jogaimmal is élhessen, pl használhassa a
     parancssoromat, mint a claude desktop !”
+    _Superseded by 66: there is no Operator actor; a connected Claude acts for its person._
 56. **The board is public behind its own login.** Decided by the owner on 2026-10-21 (PM-930).
     Cloudflare Access is removed from chopper.istvan.io; the board is reached directly and
     guarded by projectman's own email and password login, without an emailed code. Only the
     integrator's machine host keeps Access (a service token plus the integrator key). The
     owner's words: „nem lenne elég egy szokásos email/jelszó ??” and „vedd le az Access-t a
     chopper.istvan.io-ról, tedd publikussá a táblát”.
+    _Refined by 74: a client logs in with a code sent by email (PM-946)._
 57. **What is in Indulhat starts by itself.** Decided by the owner on 2026-10-22. The project
     manager starts the cards in Indulhat (ready) when a member is free; nothing is taken from
     Ötletek (incoming) on its own. When Indulhat is empty, what goes there next is agreed with
@@ -482,6 +514,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     (amennyiben szükséges), de az nincs, h nekem kelljen manuálisan írogatnom doksikat meg
     futtatnom parancsokat, amiket technikaliag te is tudsz” and „ezt legjobb lenne, ha az
     illetékes magától megtenni legközelebb, ne nekünk kelljen az ilyet kiszúrni”.
+    _Since 66 there is no Operator: the project manager maintains `docs/LESSONS.md`._
 64. **The project manager speaks like a person.** Decided by the owner on 2026-10-26. The
     project manager writes in a human, plain-spoken tone that anyone can follow, and still
     answers technical details in technical language when asked. This is the default of the
@@ -503,6 +536,7 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     rendszergazda és magától nem csinál sokat, legalábbis minden ticket szabály stb stb azt a
     pm-nek kéne. az operátor segít nekem fejleszteni, hibás vagy hiányzó funkcionalitást
     áthidalni, svájci bicska”.
+    _Refined by 66: there is no Operator actor; the project manager part stands._
 66. **No Operator; a connected Claude acts for its person or for a member.** Decided by the
     owner on 2026-10-27; refines decision 65. There is no separate Operator actor. Members do
     the project's work; a member may get "machine access" (the name is not final), which lets
@@ -515,3 +549,42 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     words: „az Op az kizárólag az enyém”, „nem lenne jobb annak, aki kiadta? pl devops?” and,
     on dropping the word Operator for one notion of a connected Claude: „rendben, ez így
     sokkal tisztább. én is hajlok a B-re.”
+67. **The glossary picks the one word; the team's word may win in the UI.** Decided by the
+    owner on 2026-11-01 on PM-1218 and PM-1227; refines decision 22. The word for a thing is
+    the one in the project's glossary document ("Fogalomtár"). Where the word the team uses
+    is better and more widespread than the UI's, the UI takes the team's word (`hu.ts`,
+    `docs/design/glossary.md`), decided word by word by the business analyst. The owner's
+    words: „felőlem a felületen is használhatjuk azt amit a csapatnál” and, on recording it
+    here: „Igen, írd be”.
+68. **Before production use, the owner's connected Claude deploys on its own judgement.**
+    Decided by the owner on 2026-11-04 (PM-151, project plan chapter 4); refines decision 20.
+    Until projectman is in production use, the owner's connected Claude updates the live
+    instance when it judges it right and reports afterwards; the team's AI members do not.
+    Decision 35 stands: every release still gets a tag and a GitHub release. The owner's
+    words: „mehet javaslatod szerint”, „ok”, „Igen, mindkettőt” and „ez a rendszer még NEM
+    éles”.
+69. **At the fix-round limit the lead developer decides how a card goes on.** Decided by the
+    owner on 2026-11-04 (PM-151). When a card reaches the fix-round limit, the lead developer
+    chooses: one more round, a more precise plan from the architect, or handing it to the
+    owner. Only a repeated deadlock reaches the owner.
+70. **The cloud hub runs on EC2 instead of Lightsail.** Recorded by the owner on 2026-11-04
+    (PM-151); supersedes the host of decision 51. The board moved to an AWS EC2 instance
+    (PM-674, PM-676, PM-677; the way back is in `docs/HYBRID.md`). The owner's words: „volt
+    lightsail is de meggondoltuk magunkat” and „Igen, vedd fel”.
+71. **The merger merges with `merge_task`; the full check runs once, at the merge.** Recorded
+    by the owner on 2026-11-05 (PM-1244, „Igen, mehet”); refines decisions 21, 40, 47 and 48.
+    The project's merger member (`team.merger`, the lead developer in PM) merges a card and
+    pushes `main` with `merge_task`. The server runs the card's one full check
+    (`npm run merge-test`) before `main` moves, in the sandbox of the card's engine or on
+    GitHub Actions, as the repository is set up. There is no integrating session.
+72. **The UI is Hungarian and English.** Recorded by the owner on 2026-11-05 (PM-1244,
+    „Igen, mehet”); refines decisions 10 and 22. UI text lives in one `hu` and one `en` locale
+    file per place; `hu` is the source of the keys, and the English wording follows
+    `docs/design/glossary.md`.
+73. **Members run on Claude Code, Codex, Gemini and NanoGPT.** Recorded by the owner on
+    2026-11-05 (PM-1244, „Igen, mehet”); extends decision 15. Besides Claude Code and Codex,
+    the team has Gemini members and NanoGPT members (decision 34), each on its own
+    subscription or the projectman-managed NanoGPT key.
+74. **A client logs in with a code sent by email.** Recorded by the owner on 2026-11-05
+    (PM-1244, „Igen, mehet”; PM-946); supersedes the „without an emailed code” part of
+    decision 56. The board stays public behind projectman's own login.

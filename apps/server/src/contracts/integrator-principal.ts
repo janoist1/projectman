@@ -81,7 +81,7 @@ export interface AuthenticatedIntegratorExecutionContext {
 
 export interface IntegratorCredentialAuthority {
   assertActive(principal: IntegratorPrincipal): void;
-  user(id: string): { email: string } | null;
+  user(id: string): { email: string; name?: string } | null;
   /** Whether the user is the host owner (PM-1061); absent: nobody is, so the host's operations are refused. */
   isHostOwner?(userId: string): boolean;
   /**

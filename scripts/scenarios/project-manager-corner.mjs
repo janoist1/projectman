@@ -3,8 +3,8 @@
  * machine grant that moved out of its panel (the machine panel row and Settings → Integrator).
  *
  * The server and the fake CLIs are real, but a real manager turn (steps, signals, a queue) needs a running
- * session, so the corner's answer (`/project-manager`) and the thread are changed in the browser, as
- * `operator.mjs` does. Everything else is the real UI on the real demo project.
+ * session, so the corner's answer (`/project-manager`) and the thread are changed in the browser.
+ * Everything else is the real UI on the real demo project.
  *
  *   npm run shots -- scripts/scenarios/project-manager-corner.mjs --widths 1512,390
  */

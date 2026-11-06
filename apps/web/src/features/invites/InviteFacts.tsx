@@ -1,4 +1,5 @@
 import type { PublicInviteView } from '@projectman/shared';
+import { intlLocale } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
 
@@ -14,7 +15,7 @@ export function InviteFacts({ invite }: { invite: PublicInviteView }) {
           {t('invites.roles')}: {invite.roleNames.join(t('common.listSeparator'))}
         </p>
       ) : null}
-      <p>{t('invites.expires', { date: new Date(invite.expiresAt).toLocaleString('hu-HU') })}</p>
+      <p>{t('invites.expires', { date: new Date(invite.expiresAt).toLocaleString(intlLocale()) })}</p>
     </>
   );
 }

@@ -686,8 +686,12 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       'request_structural_review',
       'ask_human',
       'withdraw_question',
+      'write_document',
     ];
     const superReaders = [
+      'list_documents',
+      'read_document',
+      'document_history',
       'read_project_doc',
       'get_role_configuration',
       'read_attachment',

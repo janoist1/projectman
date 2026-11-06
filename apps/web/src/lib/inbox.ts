@@ -19,12 +19,13 @@ import type {
   InboxItem,
   InboxOption,
   LabelView,
+  ObligationRef,
   QuestionScreening,
   Task,
   TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
-import { formatStamp, formatTime, formatTokens } from '../i18n/format';
+import { formatAgo, formatStamp, formatTime, formatTokens, formatWaitAge, intlLocale } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
 import { labelName } from './labels';
@@ -110,8 +111,41 @@ export function inboxHeading(item: InboxItem): string {
       return t('inbox.permissionHeading', { tool: toolPresentationFor(tool, summary).label });
     }
   }
+  const obligation = obligationTodoOf(item);
+  if (obligation)
+    return t('inbox.obligationTodo.heading', {
+      key: obligation.taskKey,
+      step: tDynamic(`task.steps.kinds.obligation.${obligation.ref.kind}`, t('task.steps.kinds.other')),
+    });
   if (item.kind === 'question') return splitQuestion(item.title).title ?? t('inbox.question.untitled');
   return item.title;
+}
+
+/**
+ * The obligation an integrator todo hands over (PM-1235), with the card it is about, or null. The server's
+ * English text is written for the integrator; the owner's heading is built from this data instead.
+ */
+function obligationTodoOf(item: InboxItem): { taskKey: string; ref: ObligationRef } | null {
+  if (item.kind !== 'question' || !item.taskKey) return null;
+  const ref = questionPayloadOf(item)?.obligation;
+  return ref ? { taskKey: item.taskKey, ref } : null;
+}
+
+/** The line under an obligation todo's heading: who is responsible and since when. */
+export function obligationTodoMeta(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const obligation = obligationTodoOf(item);
+  if (!obligation) return null;
+  const when = formatAgo(obligation.ref.openedAt);
+  return obligation.ref.responsible
+    ? t('inbox.obligationTodo.meta', {
+        member: nameOf(obligation.ref.responsible, members, myHandle),
+        when,
+      })
+    : t('inbox.obligationTodo.metaNobody', { when });
 }
 
 /** A one-line question up to this many plain characters stays whole, as the heading. */
@@ -180,7 +214,7 @@ function sentenceEnd(line: string): number {
     if (abbreviations().includes(word.toLowerCase())) continue;
     const next = line.slice(cut).trimStart().charAt(0);
     // The next sentence starts with a capital or a mark.
-    if (next && !/[\p{Lu}*`„"\d]/u.test(next)) continue;
+    if (next && !/[\p{Lu}*`„“"\d]/u.test(next)) continue;
     return cut;
   }
   return line.length;
@@ -604,7 +638,7 @@ export function delegationNote(
   if (delegation?.state === 'pending_lead')
     return t('inbox.delegation.pendingLead', {
       names: joinNames(namesOf(delegation.leads, members, myHandle)),
-      time: new Date(delegation.leadDeadline).toLocaleTimeString('hu-HU', {
+      time: new Date(delegation.leadDeadline).toLocaleTimeString(intlLocale(), {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
@@ -996,6 +1030,19 @@ export function operatorTrailMark(item: InboxItem): OperatorTrailMark {
 }
 
 /**
+ * "vár 5 órája · a projektmenedzser szabadságon van": how long a question has waited for the project manager's
+ * screening and why (PM-1252); null when the question does not wait for it.
+ */
+export function waitingNote(item: InboxItem, now: Date = new Date()): string | null {
+  const waiting = screeningOf(item)?.waiting;
+  if (item.state !== 'screening' || !waiting) return null;
+  return t('inbox.waiting.note', {
+    age: formatWaitAge(waiting.since, now),
+    reason: tDynamic(`inbox.waiting.reasons.${waiting.reason}`, t('inbox.waiting.reasons.unknown')),
+  });
+}
+
+/**
  * The line under a trail row: the Operator's note (for a forwarded question, who got it), or for a question
  * still with the Operator when it goes to the people.
  */
@@ -1006,6 +1053,7 @@ export function operatorTrailNote(
 ): string | null {
   const screening = screeningOf(item);
   if (item.state === 'screening' && screening?.queue) return t('inbox.operatorTrail.queued');
+  if (item.state === 'screening' && screening?.waiting) return waitingNote(item);
   if (item.state === 'screening' && screening)
     return t('inbox.operatorTrail.until', { time: formatTime(screening.until) });
   const note = screening?.note?.trim();

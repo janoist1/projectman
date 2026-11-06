@@ -35,3 +35,13 @@ export function slugId(name: string, taken: readonly string[], options: SlugOpti
   }
   return id;
 }
+
+/** A label id from its name: lowercase ascii words joined by dashes, unique in the project. */
+export function labelId(name: string, taken: readonly string[]): string {
+  return slugId(name, taken, { separator: '-', maxLength: 36, fallback: 'label' });
+}
+
+/** Stage and column ids follow the config's 32-character, lowercase underscore format. */
+export function pipelineId(name: string, ids: string[]): string {
+  return slugId(name, ids, { separator: '_', maxLength: 32, letterPrefix: 'stage_' });
+}

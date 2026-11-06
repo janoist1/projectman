@@ -13,7 +13,7 @@ import path from 'node:path';
  */
 
 export type PressureLevel = 'normal' | 'warn' | 'critical';
-export type PressureSource = 'sysctl' | 'psi';
+type PressureSource = 'sysctl' | 'psi';
 
 export interface PressureReading {
   level: PressureLevel;
@@ -21,19 +21,19 @@ export interface PressureReading {
 }
 
 /** The content of `pressure.json`. */
-export interface PressureFile extends PressureReading {
+interface PressureFile extends PressureReading {
   /** ISO. */
   at: string;
 }
 
 export const PRESSURE_FILE = 'pressure.json';
-export const PRESSURE_INTERVAL_MS = 10_000;
+const PRESSURE_INTERVAL_MS = 10_000;
 /** A reading older than this holds nothing back. */
-export const PRESSURE_FRESH_MS = 30_000;
+const PRESSURE_FRESH_MS = 30_000;
 const SYSCTL_TIMEOUT_MS = 5_000;
 
 /** `sysctl -n kern.memorystatus_vm_pressure_level`: 1 normal, 2 warn, 4 critical; anything else is no reading. */
-export function parseDarwinPressure(stdout: string): PressureLevel | null {
+function parseDarwinPressure(stdout: string): PressureLevel | null {
   switch (stdout.trim()) {
     case '1':
       return 'normal';
@@ -47,7 +47,7 @@ export function parseDarwinPressure(stdout: string): PressureLevel | null {
 }
 
 /** `/proc/pressure/memory`: `full avg10 ≥ 5` is critical, `some avg10 ≥ 10` warn; no `some` line is no reading. */
-export function parseLinuxPressure(text: string): PressureLevel | null {
+function parseLinuxPressure(text: string): PressureLevel | null {
   const avg10 = (kind: 'some' | 'full'): number | undefined => {
     const match = new RegExp(`^${kind}\\s.*\\bavg10=([0-9.]+)`, 'm').exec(text);
     const value = match ? Number(match[1]) : NaN;

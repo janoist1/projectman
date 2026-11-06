@@ -1,4 +1,9 @@
-import { isCardComment, type TimelineEvent, type TimelineEventType } from '@projectman/shared';
+import {
+  isCardComment,
+  type CommentAttachmentRef,
+  type TimelineEvent,
+  type TimelineEventType,
+} from '@projectman/shared';
 import { numberedRef } from './links';
 import { MESSAGE_DROP_REASONS } from './message-notices';
 import { relationPhrase } from './relations';
@@ -165,11 +170,17 @@ export function describeEvent(
         ? `told the owners that ${list('parts').join(', ')} stayed in the first stage after ${text('member') ?? '?'}'s reminder`
         : `reminded ${text('member') ?? '?'} that ${list('parts').join(', ')} are left in the first stage`;
     case 'task_note': {
-      if (!isCardComment(event)) return `note: ${text('text') ?? ''}`.trimEnd();
-      // A comment carries its id, so an AI member can answer it with reply_to (PM-1275).
+      const files = Array.isArray(data.attachments) ? (data.attachments as CommentAttachmentRef[]) : [];
       const replyTo = text('replyTo');
-      const head = replyTo ? `reply ${event.id} to comment ${replyTo}` : `comment ${event.id}`;
-      return `${head}${importedOrigin(data)}: ${text('text') ?? ''}`.trimEnd();
+      const head = isCardComment(event)
+        ? `${replyTo ? `reply ${event.id} to comment ${replyTo}` : `comment ${event.id}`}${importedOrigin(data)}`
+        : 'note';
+      const note = `${head}: ${text('text') ?? ''}`.trimEnd();
+      if (!files.length) return note;
+      const names = files
+        .map((file) => `${file.id} ${JSON.stringify(file.fileName)}${file.gone ? ' (deleted)' : ''}`)
+        .join(', ');
+      return `${note}${text('text') ? ' ·' : ''} files: ${names}`;
     }
     case 'attachment_added':
       return `attached the file ${text('fileName') ?? '?'}`;

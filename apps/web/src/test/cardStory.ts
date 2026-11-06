@@ -8,7 +8,10 @@ type Scope = Pick<BoundFunctions<typeof queries>, 'findByRole' | 'queryByRole'>;
  * Goes to one of the card's tabs. The controls of a tab that does not show are not reachable by role, so a
  * test that read one tab goes back to the other before it uses its controls again.
  */
-export async function openTab(tab: 'card' | 'attachments' | 'steps', scope: Scope = screen): Promise<void> {
+export async function openTab(
+  tab: 'card' | 'thread' | 'attachments' | 'steps',
+  scope: Scope = screen,
+): Promise<void> {
   const tabs = await scope.findByRole('group', { name: t('task.view.label') });
   fireEvent.click(within(tabs).getByRole('button', { name: new RegExp(`^${t(`task.view.${tab}`)}`) }));
 }

@@ -10,6 +10,7 @@ import { EXIT_ALREADY_RUNNING, EXIT_QUEUE_UNAVAILABLE, parseHeavyArgs } from '..
 import { guardWorkerParent } from '../../../scripts/lib/worker-parent-guard.mjs';
 import { acquireHeavyLock, heavyCommandKey, machineHost, readHeavyQueue } from '../src/full-test/heavy-lock';
 import type { HeavyLock } from '../src/full-test/heavy-lock';
+import { writePressure } from '../src/full-test/machine-pressure';
 import { waitFor } from './helpers/wait';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -255,6 +256,16 @@ describe('the heavy CLI', () => {
     expect(ran.stderr).toMatch(/heavy: started after 0m0\ds\n/);
   });
 
+  it("says it waits for the machine's critical memory pressure, and starts when it eases (PM-1314)", async () => {
+    await writePressure(dir, { level: 'critical', source: 'sysctl' });
+    const ran = await heavy(node('process.exit(0)'), {}, (stderr) => {
+      if (stderr.includes('memory pressure is critical'))
+        void writePressure(dir, { level: 'normal', source: 'sysctl' });
+    });
+    expect(ran.code).toBe(0);
+    expect(ran.stderr).toContain('memory pressure is critical');
+  });
+
   it('exits with 79 at once when the same command of the session is already running', async () => {
     const command = node('process.exit(0)');
     const first = await acquireHeavyLock({
@@ -302,6 +313,18 @@ describe('the heavy CLI', () => {
       PROJECTMAN_HEAVY_LOCK_HELD: outer.ticket,
     });
     expect(ran).toEqual({ code: 0, stdout: `${outer.ticket}\n`, stderr: '' });
+  });
+
+  it('does not reserve a place of its own for a nested --places 1 run', async () => {
+    const outer = await acquireHeavyLock({ dir, label: 'the outer run', places: { min: 2, max: 2 } });
+    locks.push(outer);
+    const ran = await heavy(['--places', '1', ...queueReader()], {
+      PROJECTMAN_HEAVY_LOCK_HELD: outer.ticket,
+    });
+    const seen = JSON.parse(ran.stdout) as Seen;
+    expect(ran.code).toBe(0);
+    expect(seen.holders.map((holder) => holder.label)).toEqual(['the outer run']);
+    expect(seen.held).toBe(outer.ticket);
   });
 
   it('does not take a hand-set 1 as a hold when no older holder lives', async () => {

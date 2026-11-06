@@ -1,4 +1,26 @@
 import type { TimelineEvent } from './event';
+import { canUploadAttachment } from './attachment';
+import type { AttachmentViewer, CommentAttachmentRef } from './attachment';
+import { canCommentOnTask } from '../config/communication';
+
+export function canAttachToComment(viewer: AttachmentViewer): boolean {
+  return canUploadAttachment(viewer) && canCommentOnTask(viewer.access);
+}
+
+/** Deleted state is projected on read; the stored timeline remains append-only. */
+export function withGoneCommentFiles(
+  events: readonly TimelineEvent[],
+  live: ReadonlySet<string>,
+): TimelineEvent[] {
+  return events.map((event) => {
+    if (event.type !== 'task_note' || !Array.isArray(event.data.attachments)) return event;
+    const attachments = (event.data.attachments as CommentAttachmentRef[]).map((file) => {
+      const { gone: _, ...ref } = file;
+      return live.has(file.id) ? ref : { ...ref, gone: true as const };
+    });
+    return { ...event, data: { ...event.data, attachments } };
+  });
+}
 
 /**
  * Whether a timeline event is a comment on the card (PM-1290): the Comments column, as opposed to a
@@ -12,6 +34,16 @@ export function isCardComment(event: Pick<TimelineEvent, 'type' | 'data' | 'acto
   // integrator's note is Process.
   if (event.data.replyTo || event.data.importedAuthor) return true;
   return event.actor.kind === 'human' && !event.actor.via;
+}
+
+/**
+ * Whether a timeline event belongs in the card's Process story (PM-1290): not a comment (the Comments
+ * column has it) and not a person's direct message (their conversation, not the card's). The server,
+ * the web and the web's test fake all use this one rule.
+ */
+export function isProcessTimelineEvent(event: Pick<TimelineEvent, 'type' | 'data' | 'actor'>): boolean {
+  if (isCardComment(event)) return false;
+  return !(event.type === 'team_message' && event.data.conversation === 'direct');
 }
 
 /** The id of the top-level comment a reply answers, or undefined for a top-level comment. */

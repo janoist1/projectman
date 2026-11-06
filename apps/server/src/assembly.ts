@@ -390,6 +390,7 @@ export interface DomainOptions {
    */
   freeDiskBytes?: () => Promise<number | null>;
   heavyRunSessions?: () => Promise<string[]>;
+  endSessionRuns?: (sessionId: string) => Promise<number>;
   /** How often the free disk space is checked (default 1 min). */
   diskCheckMs?: number;
   /** How often the owners' waiting digest is considered (default 10 min; it is sent at most once a day, PM-1250). */
@@ -569,6 +570,7 @@ export function createDomain(opts: DomainOptions) {
           screenshotExecutor: opts.screenshotExecutor,
           freeDiskBytes: opts.freeDiskBytes,
           heavyRunSessions: opts.heavyRunSessions,
+          endSessionRuns: opts.endSessionRuns,
           processExists: opts.processExists,
           workspacePath: (projectKey) => projects.cachedConfig(projectKey)?.project.workspacePath ?? null,
           repoPath: localRepoPath,
@@ -2238,6 +2240,7 @@ export function createDomain(opts: DomainOptions) {
 
   let sweeps: RunningSweeps | undefined;
   let stopMessageSweep: (() => void) | undefined;
+  let stopCommentSweep: (() => void) | undefined;
 
   /** What the engine's settings view counts (PM-315): its sessions and what waits for it. */
   const engineCounters = (id: EngineId): EngineCounters => ({
@@ -2388,6 +2391,7 @@ export function createDomain(opts: DomainOptions) {
       }
       // Uploads no message took within a day are deleted (now, and hourly).
       stopMessageSweep = messageAttachments.startSweeping();
+      stopCommentSweep = attachments.startSweeping();
       emailChannel.start();
       emailQueue?.start();
       githubSync.start();
@@ -2582,6 +2586,7 @@ export function createDomain(opts: DomainOptions) {
       unsubscribeSignalActivity();
       usage.stop();
       stopMessageSweep?.();
+      stopCommentSweep?.();
       emailChannel.stop();
       await emailQueue?.stop();
       const drained = schedules.stop();

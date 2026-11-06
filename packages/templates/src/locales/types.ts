@@ -51,6 +51,7 @@ export type ChecklistItemKey =
 export type TemplateMemberKey = 'daily_worker';
 
 export interface WebPushText {
+  files: { one: string; many: string };
   title: Record<
     'question' | 'decision' | 'approval' | 'permission' | 'release' | 'host_request' | 'comment' | 'mention',
     string

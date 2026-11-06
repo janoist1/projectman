@@ -1127,6 +1127,7 @@ export function useCreateTaskComment(key: string) {
       api.createTaskComment(key, taskKey, body),
     onSuccess: async (detail) => {
       writeTaskDetail(client, key, detail);
+      void client.invalidateQueries({ queryKey: queryKeys.taskComments(key, detail.task.key) });
       // Mentions message the mentioned members.
       await client.invalidateQueries({ queryKey: queryKeys.messages(key) });
     },
@@ -1137,7 +1138,11 @@ export function useChangeTaskLabels(key: string) {
   return useMutation({
     mutationFn: ({ taskKey, body }: { taskKey: string; body: ChangeTaskLabelsRequest }) =>
       api.changeTaskLabels(key, taskKey, body),
-    onSuccess: (detail) => writeTaskDetail(client, key, detail),
+    onSuccess: (detail, { taskKey, body }) => {
+      writeTaskDetail(client, key, detail);
+      // The reason of a change is a comment of the card.
+      if (body.comment) void client.invalidateQueries({ queryKey: queryKeys.taskComments(key, taskKey) });
+    },
   });
 }
 
@@ -1499,11 +1504,11 @@ export function useDismissOperatorSignal(key: string) {
   });
 }
 
-/** The team messages written about one card, as the viewer may see them (PM-273). */
+/** The team messages written about one card before the comments (PM-273), as the viewer may see them: the earlier conversations. */
 export function useTaskMessages(key: string, taskKey: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.taskMessages(key, taskKey),
-    queryFn: () => api.teamMessageList(key, { taskKey }),
+    queryFn: () => api.teamMessageList(key, { taskKey, place: 'card' }),
     enabled,
   });
 }

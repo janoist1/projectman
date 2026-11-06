@@ -485,6 +485,17 @@ describe('cloud mode remote parts', () => {
       expect(await host.heavyRunSessions()).toEqual([]);
     });
 
+    it('ends session runs on the remote engine through an open method', async () => {
+      const engine = await online();
+      const host = remote.directory.host('eng_a' as never)!;
+      engine.answer('host.end_session_runs', ({ sessionId }) => (sessionId === 's1' ? 2 : 0));
+      expect(await host.endSessionRuns('s1')).toBe(2);
+      expect(engine.requests.at(-1)).toMatchObject({
+        method: 'host.end_session_runs',
+        params: { sessionId: 's1' },
+      });
+    });
+
     it('reads a working directory as a directory or missing, `not_held` outside the roots, and passes other failures on (PM-1077)', async () => {
       const engine = await online();
       const host = remote.directory.host('eng_a' as never)!;

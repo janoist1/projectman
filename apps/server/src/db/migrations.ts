@@ -2955,6 +2955,14 @@ migrations.push({
 });
 migrations.push({
   version: 148,
+  name: 'comment attachments',
+  sql: `ALTER TABLE attachments ADD COLUMN comment_upload INTEGER NOT NULL DEFAULT 0 CHECK (comment_upload IN (0, 1));
+    ALTER TABLE attachments ADD COLUMN comment_event_id TEXT;
+    CREATE INDEX attachments_unsent_comment ON attachments(project_key, uploaded_by_kind, uploaded_by_handle, created_at)
+      WHERE comment_upload = 1 AND comment_event_id IS NULL;`,
+});
+migrations.push({
+  version: 149,
   name: 'message turns',
   // PM-1290/PM-1303: the turn a message was typed into, per recipient. It ties a message to the session that
   // processes it, so a later state of that session cannot rewrite an older message's feedback. `ended_at` is

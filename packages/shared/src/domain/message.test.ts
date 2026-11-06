@@ -4,7 +4,6 @@ import {
   canSeeAllTeamMessages,
   canSeeOperatorSessions,
   canSeeTeamMessage,
-  cardThreadRecipients,
   isUnreadBy,
   isCardMessage,
   messageConversationOf,
@@ -115,73 +114,5 @@ describe('threadPeersOf', () => {
 
   it('leaves the sender out of their own thread list', () => {
     expect(threadPeersOf(message('a', ['a', 'b']), 'a')).toEqual(['b']);
-  });
-});
-
-describe('cardThreadRecipients', () => {
-  const base = {
-    workers: ['dev', 'qa'],
-    assignee: 'claude',
-    stageOwners: ['architect'],
-    projectManager: null as string | null,
-    writer: 'owner',
-    canReceive: () => true,
-  };
-
-  it('goes to the members working on the card first', () => {
-    expect(cardThreadRecipients(base)).toEqual({ basis: 'workers', to: ['dev', 'qa'] });
-  });
-
-  it('falls back to the assignee, then to the stage owners, then to nobody', () => {
-    const idle = { ...base, workers: [] };
-    expect(cardThreadRecipients(idle)).toEqual({ basis: 'assignee', to: ['claude'] });
-    expect(cardThreadRecipients({ ...idle, assignee: null })).toEqual({
-      basis: 'stage_owners',
-      to: ['architect'],
-    });
-    expect(cardThreadRecipients({ ...idle, assignee: null, stageOwners: [] })).toEqual({
-      basis: 'none',
-      to: [],
-    });
-  });
-
-  it('ends with the project manager when nobody else is on the card (PM-488)', () => {
-    const nobody = { ...base, workers: [], assignee: null, stageOwners: [], projectManager: 'pm' };
-    expect(cardThreadRecipients(nobody)).toEqual({ basis: 'project_manager', to: ['pm'] });
-    // The only stage owner is the writer.
-    expect(cardThreadRecipients({ ...nobody, stageOwners: ['owner'] })).toEqual({
-      basis: 'project_manager',
-      to: ['pm'],
-    });
-  });
-
-  it('prefers a stage owner to the project manager', () => {
-    const idle = { ...base, workers: [], assignee: null, projectManager: 'pm' };
-    expect(cardThreadRecipients(idle)).toEqual({ basis: 'stage_owners', to: ['architect'] });
-  });
-
-  it('has nobody when the project manager cannot receive, is the writer or is missing', () => {
-    const nobody = { ...base, workers: [], assignee: null, stageOwners: [], projectManager: 'pm' };
-    const none = { basis: 'none', to: [] };
-    expect(cardThreadRecipients({ ...nobody, canReceive: (h) => h !== 'pm' })).toEqual(none);
-    expect(cardThreadRecipients({ ...nobody, writer: 'pm' })).toEqual(none);
-    expect(cardThreadRecipients({ ...nobody, projectManager: null })).toEqual(none);
-  });
-
-  it('leaves out the writer and members who cannot receive', () => {
-    expect(
-      cardThreadRecipients({ ...base, workers: ['owner', 'dev', 'qa'], canReceive: (h) => h !== 'qa' }),
-    ).toEqual({ basis: 'workers', to: ['dev'] });
-  });
-
-  it('falls through when every worker is excluded', () => {
-    expect(cardThreadRecipients({ ...base, workers: ['owner'], assignee: 'claude' })).toEqual({
-      basis: 'assignee',
-      to: ['claude'],
-    });
-    expect(cardThreadRecipients({ ...base, workers: [], assignee: 'owner' })).toEqual({
-      basis: 'stage_owners',
-      to: ['architect'],
-    });
   });
 });

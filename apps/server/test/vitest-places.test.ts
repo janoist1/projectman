@@ -3,7 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { placeWorkers } from '@projectman/shared';
+import { machinePlaces as capacityOf, placeWorkers, TARGETED_TEST_FILES_MAX } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { machinePlaces } from '../../../scripts/heavy/vitest-places.mjs';
 import { acquireHeavyLock, heavyCommandKey, machineHost, readHeavyQueue } from '../src/full-test/heavy-lock';
@@ -14,6 +14,7 @@ const CLAIM = Symbol.for('projectman.machinePlaces');
 interface FakeVitest {
   config: {
     reporters: unknown[];
+    related?: string[];
     maxWorkers?: number;
     minWorkers?: number;
     poolOptions?: {
@@ -101,6 +102,46 @@ describe('the vitest places plugin', () => {
     expect(vitest.config.maxWorkers).toBe(1);
     expect(vitest.config.poolOptions?.threads).toMatchObject({ maxThreads: 1, minThreads: 1 });
     expect(await held()).toEqual([Math.min(granted!, 1 + Math.min(workers, 1))]);
+  });
+
+  describe('the file threshold', () => {
+    const specs = (count: number) => Array.from({ length: count }, (_, i) => ({ moduleId: `f${i}.test.ts` }));
+
+    it('turns a related run over the threshold into a full run: gives back its places, asks for all, says why', async () => {
+      const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const vitest = fakeVitest();
+      vitest.config.related = ['test/helpers/app-harness.ts'];
+      await configure(vitest);
+      await reporter(vitest).onTestRunStart(specs(TARGETED_TEST_FILES_MAX + 1));
+      expect(await held()).toEqual([capacityOf(machineHost())]);
+      expect(String(write.mock.calls.map(([line]) => line))).toContain(
+        `selected ${TARGETED_TEST_FILES_MAX + 1} test files`,
+      );
+      await close();
+      expect(await held()).toEqual([]);
+    });
+
+    it('keeps a related run of few files on its small share', async () => {
+      const vitest = fakeVitest();
+      vitest.config.related = ['src/a.ts'];
+      await configure(vitest);
+      const [granted] = await held();
+      const workers = placeWorkers(granted!, machineHost());
+      await reporter(vitest).onTestRunStart(specs(10));
+      expect(await held()).toEqual([Math.min(granted!, 1 + Math.min(workers, 10))]);
+    });
+
+    it('does not apply to a run of named files', async () => {
+      const vitest = fakeVitest();
+      await configure(vitest);
+      const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+      const [granted] = await held();
+      const workers = placeWorkers(granted!, machineHost());
+      await reporter(vitest).onTestRunStart(specs(TARGETED_TEST_FILES_MAX + 1));
+      // Still its own share, never the full run's.
+      expect(await held()).toEqual([Math.min(granted!, 1 + workers)]);
+      expect(write).not.toHaveBeenCalled();
+    });
   });
 
   it('takes one claim for the projects of a run, which configure it one after the other', async () => {

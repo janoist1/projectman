@@ -37,6 +37,20 @@ export function attachmentPreviewOf(mediaType: string): AttachmentPreview {
 export const AttachmentId = z.string().regex(/^att_[a-z0-9]{10,32}$/);
 export type AttachmentId = z.infer<typeof AttachmentId>;
 
+export const MAX_COMMENT_ATTACHMENTS = 10;
+export const MAX_UNSENT_COMMENT_ATTACHMENTS = 20;
+export const UNSENT_COMMENT_ATTACHMENT_TTL_MS = 24 * 60 * 60_000;
+
+export const CommentAttachmentRef = z.object({
+  id: AttachmentId,
+  fileName: z.string(),
+  size: z.number().int().nonnegative(),
+  mediaType: z.string(),
+  preview: AttachmentPreview,
+  gone: z.literal(true).optional(),
+});
+export type CommentAttachmentRef = z.infer<typeof CommentAttachmentRef>;
+
 /**
  * A file attached to a task, as the web sees it. The file's place in storage is not part of
  * it: the content is reached only through the protected REST routes.
@@ -54,6 +68,7 @@ export const Attachment = z.object({
   preview: AttachmentPreview,
   uploadedBy: Actor,
   createdAt: z.string(),
+  comment: z.object({ eventId: z.string().nullable() }).optional(),
 });
 export type Attachment = z.infer<typeof Attachment>;
 

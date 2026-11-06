@@ -1,0 +1,258 @@
+/* The card's comments (PM-1290): one left-aligned column, thin dividers, no bubbles. `--thread-pad-x` is set by
+   the drawer for each layout: the sides of the list and of the box. */
+.panel {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-surface);
+}
+
+.visibility {
+  flex: none;
+  margin: 0;
+  padding: 8px var(--thread-pad-x, 22px);
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+/* The list opens at its end; the box under it stays in place. */
+.log {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 8px max(var(--thread-pad-x, 22px), 8px);
+}
+
+.list,
+.replies {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The 8px side padding is the room of the highlight frame; the negative margin keeps the text where it was. */
+.thread {
+  margin: 0 -8px;
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--c-line-soft);
+  scroll-margin: 16px;
+}
+
+.thread:last-child {
+  border-bottom: 0;
+}
+
+/* One level only: a reply is indented with a line at its left. */
+.replies {
+  margin: 8px 0 0 16px;
+  padding-left: 4px;
+  border-left: 2px solid var(--c-line);
+}
+
+.replies > li {
+  margin-right: -8px;
+  padding: 6px 8px;
+}
+
+.replyBox {
+  padding-top: 4px;
+}
+
+.entry {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.head {
+  margin: 0 0 2px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.author {
+  font-weight: 700;
+  color: var(--c-ink);
+}
+
+.imported {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
+.body {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--c-ink);
+  white-space: pre-wrap;
+}
+
+.mention {
+  font-weight: 700;
+  color: var(--c-accent-text);
+  background: var(--c-accent-soft);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.posted {
+  margin: 4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
+/* A flat text button: compact with a pointer, 44px to touch and on a narrow screen. */
+.replyButton {
+  min-height: 28px;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-accent-text);
+  cursor: pointer;
+}
+
+@media (pointer: coarse), (max-width: 767px) {
+  .replyButton {
+    min-height: 44px;
+  }
+}
+
+.replyButton:hover {
+  text-decoration: underline;
+}
+
+.replyButton:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.empty {
+  margin: auto;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--c-ink-3);
+}
+
+.notice,
+.stale {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--c-warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
+  font-size: var(--text-sm);
+}
+
+.failure {
+  margin: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--c-warn-text);
+}
+
+.failure p {
+  margin: 0;
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 0;
+}
+
+.skeletonRow {
+  display: block;
+  height: 44px;
+  border-radius: var(--radius-xs);
+  background: var(--c-muted);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The comment a link led to: framed for two seconds, with room around the text (the thread's own side padding);
+   the fade is left out when the reader asks for less motion. */
+.flash {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--c-accent) 8%, transparent),
+    color-mix(in srgb, var(--c-accent) 8%, transparent)
+  );
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 45%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .flash {
+    animation: flash 2s ease-out;
+  }
+}
+
+@keyframes flash {
+  from {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 60%, transparent);
+  }
+  80% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 45%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+/* The box is pinned under the list; its top line runs the whole width of the panel. */
+.composer {
+  flex-shrink: 0;
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.composerColumn {
+  position: relative;
+  padding: 0 var(--thread-pad-x, 22px) 12px;
+}
+
+.readOnly {
+  margin: 0;
+  padding: 14px var(--thread-pad-x, 22px);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+@media (max-width: 767px) {
+  .head {
+    overflow-wrap: anywhere;
+  }
+}

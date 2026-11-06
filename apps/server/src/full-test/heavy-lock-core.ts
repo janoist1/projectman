@@ -1,13 +1,17 @@
 import { Cause, Clock, Data, Effect, Exit } from 'effect';
 import type { HeavyLockEntry } from './heavy-lock';
 
-/** What a waiter is told: the live holders (the first is `holder`), the places free now and the pool's size. */
+/**
+ * What a waiter is told: the live holders (the first is `holder`), the places free now and the pool's size;
+ * `pressure` when a fresh critical memory pressure of the machine holds every grant back (PM-1314).
+ */
 export interface HeavyWait {
   holder: HeavyLockEntry | null;
   holders: HeavyLockEntry[];
   ahead: number;
   free: number;
   capacity: number;
+  pressure?: 'critical';
 }
 export type TurnResult = { acquired: true } | ({ acquired: false } & HeavyWait);
 export interface LockWaitDeps {

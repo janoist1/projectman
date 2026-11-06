@@ -16,6 +16,9 @@ import {
 } from './sandbox';
 import type { RunPaths } from './sandbox';
 
+/** The places a screenshot run takes from the machine's pool (PM-1278). */
+const SCREENSHOT_PLACES = { min: 3, max: 3 };
+
 /**
  * The `srt` settings of a screenshot run: as the full test's (`srtSettings`) with the session's own
  * limits. It reads what the session's sandbox reads, and writes what it writes (its session folder
@@ -100,7 +103,12 @@ export function createScreenshotExecutor(options: FullTestExecutorOptions): Scre
       let lock: HeavyLock | undefined;
       if (options.heavyLockDir) {
         try {
-          lock = await acquireHeavyLock({ dir: options.heavyLockDir, label: spec.label, signal });
+          lock = await acquireHeavyLock({
+            dir: options.heavyLockDir,
+            label: spec.label,
+            places: SCREENSHOT_PLACES,
+            signal,
+          });
         } catch (err) {
           if (signal.aborted) return ended({ aborted: true });
           // Nothing is held back because of the lock: without it the run goes on.

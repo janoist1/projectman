@@ -3,6 +3,7 @@ import {
   COMPLEXITY_REASON_MAX,
   MemberHandle,
   StageId,
+  TASK_COMMENT_MAX,
   TaskPriority,
   TaskRelationKind,
   TaskStatus,
@@ -21,7 +22,6 @@ import {
   taskKeyInput,
   TASK_VISIBILITY_REMOVED,
 } from '../kit';
-const MAX_NOTE_CHARS = 10_000;
 
 const complexityInput = z
   .number()
@@ -375,7 +375,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .string()
           .trim()
           .min(1)
-          .max(MAX_NOTE_CHARS)
+          .max(TASK_COMMENT_MAX)
           .optional()
           .describe('Note for the timeline: findings, decisions, what changed; with labels, their comment.'),
         title: z

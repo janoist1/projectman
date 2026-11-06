@@ -333,7 +333,7 @@ export const hu = {
     revokeReadBody:
       'A scriptek minden hívása azonnal elutasítást kap. Amit eddig tettek, a naplóban megmarad.',
     intro:
-      'Ha a Claude Code-dal dolgozol, ezzel a kulccsal a csatlakoztatott Claude-od vagy: a te nevedben, a te jogaiddal éri el a műveleteket, naplózva. A sor nélküle is halad.',
+      'Ha a Claude Code-dal dolgozol, ezzel a kulccsal a csatlakoztatott Claude-od a te nevedben, a te jogaiddal éri el a műveleteket, naplózva. A sor nélküle is halad.',
     none: 'Még nincs kulcs.',
     noValid: 'Nincs érvényes kulcs.',
     create: 'Kulcs létrehozása',

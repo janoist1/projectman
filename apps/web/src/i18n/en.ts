@@ -5039,9 +5039,9 @@ export const en = {
     // What waits for someone other than the owner: a folded band above the list (PM-1252).
     waiting: {
       title: 'Waiting for others',
-      both: '{screening|# question is|# questions are} waiting for the project manager to screen, {integrator|# machine todo|# machine todos} for the connected Claude',
+      both: '{screening|# question is|# questions are} waiting for the project manager to screen, {integrator|# machine to-do|# machine to-dos} for the connected Claude',
       onlyScreening: '{count|# question is|# questions are} waiting for the project manager to screen',
-      onlyIntegrator: '{count|# machine todo is|# machine todos are} waiting for the connected Claude',
+      onlyIntegrator: '{count|# machine to-do is|# machine to-dos are} waiting for the connected Claude',
       oldest: 'oldest: {age}',
       show: 'Show',
       hide: 'Hide',

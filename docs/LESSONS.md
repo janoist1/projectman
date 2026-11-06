@@ -5,6 +5,10 @@ where it went. Newest first. The owner's decisions stay in [DECISIONS.md](DECISI
 file keeps the experience behind them, so that members and the project manager do not learn it
 twice. Anyone may propose a lesson; the project manager adds it.
 
+## 2026-11-06: a "related" run that was the whole suite
+
+**Eight related runs filled the Mac's memory.** On PM-363 a developer ran `npx vitest related src/db/migrations.ts src/auth/... --run` eight times. `migrations.ts` is imported almost everywhere, so each run selected 348 test files, the whole server suite, about 2 GB each. One run passed the foreground timeout and went to the background; the member started the same run again beside it, while PM-1271 ran another large related run. With 16 GB and a full swap they ran over 20 minutes until the owner's connected Claude stopped them. _Lesson:_ `vitest related` on a hub file (`db/migrations.ts`, `contracts`, `packages/shared`) is the full suite: run the specific test files instead. Never start a second copy of a run that is still going in the background. If it happens again, a guard in the heavy-run queue should catch a related selection above a set number of files. (PM-363, PM-1271)
+
 ## 2026-11-05: work that stops in silence
 
 **The owner found a stopped board in the morning.** On 2026-11-04 at 20:16 merges were stopped while GitHub Actions had an incident, and nobody told the owner. In the morning they did not understand why the work stood. _Lesson:_ when part of the work stops on purpose or for an outside reason (a pause, an outside service failing, a card waiting long), the project manager sends the owner one short info message: what stands, why, what it needs to go on, and whether the owner has to do anything (if not, say so). One message per situation, to Messages, not to the owner's inbox.

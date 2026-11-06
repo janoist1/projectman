@@ -37,16 +37,15 @@ describe('task comments API', () => {
     expect(response.statusCode).toBe(201);
     const event = TaskDetail.parse(response.json()).timeline.find((event) => event.type === 'task_note')!;
     expect(event).toMatchObject({ actor: OWNER_ACTOR, data: { text, mentions: ['robin', 'dev-1'] } });
-    const messages = h.app.projectman.domain.messages.list('AR', { unreadFor: 'robin' });
+    // A human is told by a mention item in Rád vár (PM-1307), only an AI member by a team message.
+    const { domain } = h.app.projectman;
+    expect(domain.messages.list('AR', { unreadFor: 'robin' })).toEqual([]);
+    expect(domain.inbox.list('AR', { kind: 'mention' })).toMatchObject([
+      { assignees: ['robin'], body: text },
+    ]);
+    const messages = domain.messages.list('AR', { unreadFor: 'dev-1' });
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatchObject({
-      from: 'owner',
-      taskKey: 'AR-1',
-      body: text,
-      receipts: expect.arrayContaining([
-        expect.objectContaining({ handle: 'robin', kind: 'human', readAt: null }),
-      ]),
-    });
+    expect(messages[0]).toMatchObject({ from: 'owner', taskKey: 'AR-1', body: text, to: ['dev-1'] });
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     await flush();
     expect(h.runner.lastStarted().initialMessage).toContain('[team message from owner about AR-1]');
@@ -70,7 +69,7 @@ describe('task comments API', () => {
     expect(h.app.projectman.repos.messages.pending('AR', 'cr')).toHaveLength(1);
   });
 
-  it('AI update_task notes notify humans and AI with the AI author', async () => {
+  it('AI update_task notes message the AI mentions and open an item for the human, with the AI author', async () => {
     const { domain } = h.app.projectman;
     const { session } = await domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: 'AR-1' });
     const text = '@OWNER @cr @dev-1 please review';
@@ -79,9 +78,13 @@ describe('task comments API', () => {
       { taskKey: 'AR-1', note: text },
     );
     await flush();
-    expect(domain.messages.list('AR', { unreadFor: 'owner' })[0]).toMatchObject({
+    expect(domain.messages.list('AR', { unreadFor: 'owner' })).toEqual([]);
+    expect(domain.inbox.list('AR', { kind: 'mention' })).toMatchObject([
+      { assignees: ['owner'], source: 'dev-1', body: text },
+    ]);
+    expect(domain.messages.list('AR', { unreadFor: 'cr' })[0]).toMatchObject({
       from: 'dev-1',
-      to: ['owner', 'cr'],
+      to: ['cr'],
       body: text,
     });
     expect(domain.timeline.list('AR').find((event) => event.type === 'task_note')).toMatchObject({

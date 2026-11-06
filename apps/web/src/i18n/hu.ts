@@ -4802,6 +4802,7 @@ export const hu = {
       approval: 'Jóváhagyás',
       alert: 'Figyelmeztetés',
       release: 'Kiadás',
+      mention: 'Említés',
       // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
       todo: 'Teendő',
     },
@@ -4814,6 +4815,7 @@ export const hu = {
       approval: 'jóváhagyás',
       alert: 'figyelmeztetés',
       release: 'kiadás',
+      mention: 'említés',
       todo: 'teendő',
     },
     options: {
@@ -5218,6 +5220,7 @@ export const hu = {
       group_withdrawn: 'Minden kérdező visszavonta',
       obligation_closed: 'A lépés közben elkészült vagy megszűnt',
       signal_resolved: 'A jelzés magától lezárult',
+      mention_replied: 'Válaszoltál az említésre',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',

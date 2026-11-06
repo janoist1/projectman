@@ -29,11 +29,28 @@ No runtime module is imported by this module.
 
 ## Files
 
-All files live in `apps/server/src/core/inbox/`: `index.ts`, `ports.ts`, `inbox.ts`, `approval-questions.ts`, `card-questions.ts`, `agent-question.ts`, `question-closing.ts`, `question-screening.ts` and `open-question-label.ts`.
+All files live in `apps/server/src/core/inbox/`: `index.ts`, `ports.ts`, `inbox.ts`, `approval-questions.ts`, `card-questions.ts`, `agent-question.ts`, `question-closing.ts`, `question-screening.ts`, `open-question-label.ts` and `mentions.ts`.
 The authoritative descriptor is
 [`core-inbox.ts`](../../apps/server/test/architecture/modules/core-inbox.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts);
 its only path is `core/inbox/` and the module is sealed.
+
+## Mention items (PM-1307)
+
+A card note that mentions a human opens a `mention` item for that human in Rád vár (PM-1276 shows it). The
+payload is `MentionPayload` (`eventId`, `place`: `comment` | `reply` | `note`, `threadId`; null for a
+process note, which has no thread), `source` is the author, `body` the excerpt and the only option `seen`.
+`TaskStore.recordNote` appends the note, opens the items (`mentionItemTargets`: humans only, never the
+author, none for an import or the system, none the author may not message) and, for a human's reply, closes
+the replier's own open items of the same thread raised before it (`mentionsClosedByReply`) in one unit of
+work, through `InboxService.openMentions` / `closeMentionsByReply` (`mentions.ts`). The reply closes them
+with `resolution.rule = 'mention_replied'` (`optionId` `replied`): a system rule, so no `inbox_resolved`
+is emitted; `seen` is the ordinary resolve. A repeated `clientRequestId` returns the first note before any
+of this. Only the assignee may resolve a mention (`canResolveInboxItem`); the item sends no push
+(`pushCategoryOf` is null; the note's `onNote` push is the one), is no wait reason of the card
+(`taskWait`), stays out of `openOwnerItems`, outlives a retired author (`cancelOpenFromSource` skips it)
+and is `cancelled` when its assignee leaves the team (`reassignRemovedHuman`). A mentioned human gets no
+team message any more (`messaging.mentionNotice` writes to AI members only).
 
 ## Shared owner questions (PM-695)
 

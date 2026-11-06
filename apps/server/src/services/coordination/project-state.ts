@@ -327,6 +327,8 @@ export class ProjectState {
       waitingStarts,
       openOwnerItems: ctx.repos.inbox
         .list(projectKey, { state: 'open' })
+        // A mention is a person's to see, not something the project manager urges the owners on (PM-1307).
+        .filter((item) => item.kind !== 'mention')
         .filter((item) => item.assignees.some((handle) => owners.includes(handle)))
         .map((item) => ({ id: item.id, kind: item.kind, taskKey: item.taskKey, title: item.title })),
       release: null,

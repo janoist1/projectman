@@ -391,6 +391,7 @@ describe('Operator system signals', () => {
 
   it('presents one signal without authorizing other writes, then accepts an owner request', async () => {
     await setup();
+    h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
     const signal = raise();
     await deliver();
     await expect(

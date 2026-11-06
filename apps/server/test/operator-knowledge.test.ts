@@ -410,6 +410,7 @@ describe('shared knowledge session boundaries', () => {
 
   it('never falls back to a normal owner request for a forged approval origin', async () => {
     await setup();
+    h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
     const requests = new OperatorRequests({ ctx: h.domain.ctx });
     requests.closeForSession(ctx.sessionId);
     const message = h.domain.messages.record({

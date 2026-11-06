@@ -53,8 +53,10 @@ stay.
   `source: 'app'`, `prefix: 'operator-app'` and `keyId` = the project manager's session id, acting as the first owner
   (by handle) with a user account. The authority wrapped around the key authority accepts an app principal only when it
   was issued there (a `WeakSet`) and `OperatorAppSessions.active` holds: the session is live, it is the project
-  manager's own general conversation (no guest) and an owner message or answer request is open. Otherwise
-  `insufficient_access`.
+  manager's own general conversation (no guest) and the facade's `actingRequest` yields a request: an owner message,
+  answer or queue request, or a signal round (the session's own round under `outside_owner_only`, PM-1287; under
+  `owner_request` only the owner's message or answer). Otherwise `insufficient_access`. The request origin is `owner`
+  only on the owner's own message or answer.
 - **Idempotence.** The request id of an operation is a UUID v8 from the first 16 bytes of
   `sha256(operatorRequestId:request_key)`, so a retry in the same request is the same operation.
 - **Owner's yes.** The operation waits (`waiting_owner`) with the usual question. After the owner's own login says yes,

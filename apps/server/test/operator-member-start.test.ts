@@ -130,8 +130,9 @@ describe('Operator member starts without a card (PM-546)', () => {
     expect(steps().at(-1)).toMatchObject({ action: 'task_start', status: 'refused' });
   });
 
-  it('refuses non-Operators and a closed owner request before sending', async () => {
+  it('refuses non-Operators and a closed owner request before sending, under owner_request', async () => {
     await setup();
+    h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
     const before = h.repos.messages.list('AR');
     await expect(
       h.domain.teamTools.startMember({ ...ctx, member: 'dev-1' }, { member: 'devops', text: 'Work' }),

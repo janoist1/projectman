@@ -52,12 +52,13 @@ export function isAppOperation(ctx: DomainContext, operation: SuperOperation): b
 
 /**
  * The live check of an app principal: the session runs, it is the project's Operator in its own general
- * conversation (not a guest's), and an owner request is open.
+ * conversation (not a guest's), and it has a request to act on: an owner request is open, or (PM-1287) the PM
+ * acts on its own authority.
  */
 export function createOperatorAppSessions(deps: {
   ctx: DomainContext;
   projects: Pick<ProjectService, 'cachedConfig'>;
-  hasOpenRequest(sessionId: string): boolean;
+  actingRequest(projectKey: string, sessionId: string): { source: string; fromHandle: string } | null;
 }): OperatorAppSessions {
   return {
     active(principal) {
@@ -65,14 +66,16 @@ export function createOperatorAppSessions(deps: {
       const session = deps.ctx.repos.sessions.get(principal.keyId);
       if (!session || !isLiveSessionState(session.state)) return false;
       const config = deps.projects.cachedConfig(session.projectKey);
-      return (
-        !!config &&
-        session.member === principal.member &&
-        coordinationMemberOf(config)?.handle === session.member &&
-        session.workItem.type === 'general' &&
-        !session.workItem.with &&
-        deps.hasOpenRequest(session.id)
-      );
+      if (
+        !config ||
+        session.member !== principal.member ||
+        coordinationMemberOf(config)?.handle !== session.member ||
+        session.workItem.type !== 'general' ||
+        session.workItem.with
+      )
+        return false;
+      const source = deps.actingRequest(session.projectKey, session.id)?.source;
+      return source === 'message' || source === 'answer' || source === 'queue' || source === 'signal';
     },
   };
 }
@@ -97,8 +100,8 @@ interface OperatorAppCredentials {
 export function createOperatorAppCredentials(deps: {
   base: IntegratorCredentialAuthority | undefined;
   sessions: OperatorAppSessions;
-  /** The session's open request, when there is one: where it came from decides what the session may start. */
-  openRequest(sessionId: string): { source: string; fromHandle: string } | null;
+  /** The request the session acts on, when there is one: where it came from decides what the session may start. */
+  actingRequest(projectKey: string, sessionId: string): { source: string; fromHandle: string } | null;
   user(id: string): { email: string; name?: string } | null;
   userByEmail(email: string): { id: string; email: string } | null;
 }): OperatorAppCredentials {
@@ -160,7 +163,7 @@ export function createOperatorAppCredentials(deps: {
         sessionId,
         null,
         member,
-        appRequestOrigin(config, deps.openRequest(sessionId)),
+        appRequestOrigin(config, deps.actingRequest(config.project.key, sessionId)),
       );
       if (principal) live.add(principal);
       return principal;

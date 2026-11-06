@@ -739,7 +739,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Execute one command as the Operator or PM",
     },
-    "description": "Start ONE command on the shared operation path, logged as you, during an open owner message or answer; follow it with get_operation until final. A K3 effect waits for the owner and then runs by itself: do not repeat it. Which kinds you may run, and their fields: get_guide with topic "operations".",
+    "description": "Start ONE command on the shared operation path, as you, on your own authority (merge and other owner commands need an owner request); follow it with get_operation until final. A K3 effect waits for the owner, then runs by itself: do not repeat it. Kinds, fields: get_guide with topic "operations".",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -956,7 +956,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "Read an operation",
     },
-    "description": "Only the Operator or selected PM, in its own general conversation during an open owner request. One operation of this project and, once the adapter recorded it, its result: {operation, result}. A running operation is settled first, so ask again until its state is final.",
+    "description": "Only the Operator or selected PM, in its own general conversation (no owner request needed). One operation of this project and, once the adapter recorded it, its result: {operation, result}. A running operation is settled first, so ask again until its state is final.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -1094,7 +1094,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": true,
       "title": "Read one built-in role configuration",
     },
-    "description": "Read one built-in role's configuration version, stored override (null when absent) and effective full bundle, in your own general conversation during an open owner request. Read it before editing a role; preserve its existing instructions and other bundle fields.",
+    "description": "Read one built-in role's configuration version, stored override (null when absent) and effective full bundle, in your own general conversation (no owner request needed). Read it before editing a role; preserve its existing instructions and other bundle fields.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -1764,7 +1764,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Operate the project",
     },
-    "description": "Propose a configuration, member, session, message or project pause operation, in your own general conversation during an open owner request. The server runs immediate changes, asks the owner for restricted ones and refuses forbidden ones. Rules and fields: get_guide with topic "operations".",
+    "description": "Propose a configuration, member, session, message or pause operation on your own authority (an owner request only under owner_request). Immediate changes run, restricted ones ask the owner, forbidden ones are refused. Rules and fields: get_guide with topic "operations".",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4918,7 +4918,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Start a member on work without a card",
     },
-    "description": "Start an AI member on work without a card, during your own open owner request or on a signal_id: the text goes to their general conversation (a running one gets it when its turn ends). Waits up to 5 seconds and says what became of the start. For work on a card use start_task.",
+    "description": "Start an AI member on work without a card, on your own authority (an owner request only under owner_request) or on a signal_id: the text goes to their general conversation (a running one gets it when its turn ends). Waits up to 5 seconds and says what became of the start. For a card use start_task.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4964,7 +4964,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Start work on a task",
     },
-    "description": "Start a task during your own open owner request or on a signal_id; also restarts a stalled card in its work stage. Gates, prerequisites and the PM stage-move rules apply. A refused start waits for nothing; the error names why (e.g. member_at_capacity, assignee_unfit, team_paused).",
+    "description": "Start a task on your own authority (an owner request only under owner_request) or on a signal_id; also restarts a stalled card in its work stage. Gates, prerequisites and the PM stage-move rules apply. A refused start waits for nothing; the error names why (e.g. member_at_capacity, assignee_unfit).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

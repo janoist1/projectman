@@ -144,6 +144,7 @@ describe('repository prompt conventions (PM-1112)', () => {
     (level) => {
       const project = buildProject();
       project.team.operatorWatch = level;
+      project.team.projectManagerAuthority = 'owner_request';
       const pack = builder.build(input({ project, handle: 'pm', task: null, workItem: { type: 'general' } }));
       for (const text of [pack.appendSystemPrompt, pack.guide.role!])
         expect(text.includes('Apart from the step a signal names')).toBe(level !== 'report');
@@ -1838,9 +1839,15 @@ describe('system prompt', () => {
     });
 
     describe('the level of the signals (PM-550)', () => {
-      const promptAt = (level?: 'report' | 'unblock' | 'drive', language = 'en') => {
+      // The wording below is the `owner_request` authority's; the default authority has its own (PM-1287).
+      const promptAt = (
+        level?: 'report' | 'unblock' | 'drive',
+        language = 'en',
+        authority: 'owner_request' | 'outside_owner_only' = 'owner_request',
+      ) => {
         const project = buildProject('web-client-project', language);
         if (level) project.team.operatorWatch = level;
+        project.team.projectManagerAuthority = authority;
         return builder.build(input({ project, handle: 'pm' })).guide.role!;
       };
       const ban = 'You change nothing until an owner says yes';
@@ -1911,6 +1918,19 @@ describe('system prompt', () => {
         },
       );
 
+      it.each(['report', 'unblock', 'drive'] as const)(
+        'says a signal grants no right of its own under outside_owner_only at level %s (PM-1287)',
+        (level) => {
+          const operator = promptAt(level, 'en', 'outside_owner_only');
+          expect(operator).toContain('A signal grants no right of its own');
+          expect(operator).toContain('your own authority');
+          expect(operator).toContain(unreleased);
+          expect(operator).toContain('signal_not_for_owner');
+          expect(operator).not.toContain(ban);
+          expect(operator).not.toContain('Apart from the step a signal names');
+        },
+      );
+
       it('names the two parts of the message in the language of the project', () => {
         const hungarian = promptAt('drive', 'hu');
         expect(hungarian).toContain('**Megtettem** (signal → step → result)');
@@ -1975,7 +1995,7 @@ describe('system prompt', () => {
       for (const text of [
         'Signal level: drive',
         'Keep the personal instructions.',
-        'start_task/start_member',
+        'start_task and start_member',
       ])
         expect(role).toContain(text);
       for (const text of [
@@ -2837,6 +2857,41 @@ describe('expected steps', () => {
     project.team.projectManagerLifecycle = [];
     expect(prompt()).not.toContain('reassign_task');
     expect(prompt()).not.toContain('cancel_task');
+  });
+
+  it.each([
+    ['outside_owner_only', true, 'with no owner request'],
+    ['owner_request', false, 'during your own open owner message or answer'],
+  ] as const)('gives the project manager one authority line for %s (PM-1287)', (authority, own, marker) => {
+    const project = buildProject();
+    addMember(project, 'pm', 'project_manager');
+    project.team.projectManagerAuthority = authority;
+    const prompt = builder.build(input({ project, handle: 'pm' })).appendSystemPrompt;
+    expect(prompt.split('Authority: in your own internal general conversation')).toHaveLength(2);
+    expect(prompt).toContain(marker);
+    expect(prompt.includes('run the team’s operations yourself')).toBe(own);
+  });
+
+  it.each([
+    [true, ['assign'], true, true],
+    [false, ['assign'], false, true],
+    [true, [], true, false],
+  ] as const)(
+    'names prioritising and assigning in the blocking-card sentence by the settings (setsPriority %s, lifecycle %j; PM-1287)',
+    (setsPriority, lifecycle, prioritises, assigns) => {
+      const project = buildProject();
+      addMember(project, 'pm', 'project_manager');
+      project.team.prioritySetters = setsPriority ? ['project_manager'] : [];
+      project.team.projectManagerLifecycle = [...lifecycle];
+      const prompt = builder.build(input({ project, handle: 'pm' })).appendSystemPrompt;
+      expect(prompt.includes('Prioritise')).toBe(prioritises);
+      expect(prompt.includes('assign a blocking card')).toBe(assigns);
+      expect(prompt.includes('hand it to its next owner')).toBe(!assigns);
+    },
+  );
+
+  it('tells the project manager it is a professional one who acts on its own authority (PM-1287)', () => {
+    expect(ROLE_PURPOSES.project_manager).toContain('experienced project manager');
   });
 
   it('tells the project manager about despite_prerequisites only when the project lets it override (PM-1099)', () => {

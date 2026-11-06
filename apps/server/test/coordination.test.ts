@@ -89,6 +89,7 @@ async function idleSignal() {
 describe('PM authorization', () => {
   it('reserves structural approval without accepting legacy approval rows or knowledge continuations', async () => {
     await setup();
+    h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
     const pm = await internal();
     const input = {
       projectKey: 'AR',
@@ -226,8 +227,9 @@ describe('PM authorization', () => {
     expect(requests().openFor(pm.sessionId)).toBeNull();
   });
 
-  it('uses only the PM own delivered owner request', async () => {
+  it('uses only the PM own delivered owner request under owner_request', async () => {
     await setup();
+    h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
     const pm = await internal();
     expect(requests().openFor(pm.sessionId)).toBeNull();
     await expect(h.domain.teamTools.startMember(pm, { member: 'dev-2', text: 'Work.' })).rejects.toThrow(

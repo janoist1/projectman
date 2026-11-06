@@ -165,7 +165,7 @@ export class ToolCaller {
   private readonly projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
   private readonly tasks: Pick<TaskService, 'find' | 'get'>;
   private readonly operatorRequests: Pick<OperatorRequests, 'openFor' | 'openRound' | 'approvalFor'>;
-  private readonly coordinationRequests: Pick<CoordinationRequests, 'openFor'>;
+  private readonly coordinationRequests: Pick<CoordinationRequests, 'openFor' | 'actingRequest'>;
   private readonly operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
   private readonly operatorSignals: Pick<
     OperatorSignals,
@@ -181,7 +181,7 @@ export class ToolCaller {
     projects: Pick<ProjectService, 'config' | 'cachedConfig'>;
     tasks: Pick<TaskService, 'find' | 'get'>;
     operatorRequests: Pick<OperatorRequests, 'openFor' | 'openRound' | 'approvalFor'>;
-    coordinationRequests: Pick<CoordinationRequests, 'openFor'>;
+    coordinationRequests: Pick<CoordinationRequests, 'openFor' | 'actingRequest'>;
     operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
     operatorSignals: Pick<
       OperatorSignals,
@@ -273,15 +273,19 @@ export class ToolCaller {
     }
     if (['operate', 'execute_operation', 'get_operation', 'get_role_configuration'].includes(tool)) {
       this.assertCoordinationSession(ctx, config);
-      const request = this.coordinationRequests.openFor(ctx.sessionId);
+      // Reading needs no request in the PM's own conversation (PM-1287).
+      if (tool === 'get_operation' || tool === 'get_role_configuration')
+        return { config, request: null, guest: null };
+      const request = this.coordinationRequests.actingRequest(ctx.projectKey, ctx.sessionId);
       if (
         !request ||
-        !isOwner(config, request.fromHandle) ||
-        (request.source !== 'message' && request.source !== 'answer')
+        (request.source !== 'signal' &&
+          (!isOwner(config, request.fromHandle) ||
+            (request.source !== 'message' && request.source !== 'answer')))
       )
         throw new TeamToolError(
           'forbidden',
-          'operator_no_request: shared operations require an open owner message or answer.',
+          'operator_no_request: shared operations require an open owner message or answer, or the PM own authority.',
         );
       return { config, request, guest: null };
     }
@@ -340,14 +344,16 @@ export class ToolCaller {
         return { config, request: null, guest: null };
       // A signal always keeps its exact binding and budget, even when an owner request is open.
       if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
-      if (!request)
+      // Under `outside_owner_only` the PM starts on its own authority: its own round, without a signal (PM-1287).
+      const acting = request ?? this.coordinationRequests.actingRequest(ctx.projectKey, ctx.sessionId);
+      if (!acting)
         throw new TeamToolError(
           'forbidden',
-          'operator_no_request: coordination starts require your own open owner request or a permitted signal.',
+          'operator_no_request: coordination starts require your own open owner request, the PM own authority or a permitted signal.',
         );
       const beforeRecord = () => {
         this.assertCoordinationSession(ctx, this.projects.cachedConfig(ctx.projectKey)!);
-        if (this.coordinationRequests.openFor(ctx.sessionId)?.id !== request.id)
+        if (this.coordinationRequests.actingRequest(ctx.projectKey, ctx.sessionId)?.id !== acting.id)
           throw new TeamToolError(
             'forbidden',
             'operator_no_request: the coordination request expired or closed.',
@@ -355,7 +361,7 @@ export class ToolCaller {
       };
       return {
         config,
-        request,
+        request: acting,
         guest: null,
         beforeRecord,
         beforeWrite: async () => {

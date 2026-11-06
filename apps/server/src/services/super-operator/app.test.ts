@@ -6,18 +6,22 @@ import { createOperatorAppCredentials } from './app';
 describe('the credential authority of the in-app Operator', () => {
   const credentialsOver = (
     base: IntegratorCredentialAuthority | undefined,
-    openRequest: (sessionId: string) => { source: string; fromHandle: string } | null = () => null,
+    actingRequest: (
+      projectKey: string,
+      sessionId: string,
+    ) => { source: string; fromHandle: string } | null = () => null,
   ) =>
     createOperatorAppCredentials({
       base,
       sessions: { active: () => false },
-      openRequest,
+      actingRequest,
       user: () => null,
       userByEmail: (email) => ({ id: 'usr_owner', email }),
     });
 
   describe('the request origin of an app principal (PM-1010)', () => {
     const config = {
+      project: { key: 'AR' },
       team: {
         members: [{ kind: 'human', handle: 'owner', access: 'owner', email: 'owner@example.com' }],
       },
@@ -26,6 +30,7 @@ describe('the credential authority of the in-app Operator', () => {
     it.each([
       [{ source: 'message', fromHandle: 'owner' }, 'owner'],
       [{ source: 'queue', fromHandle: 'owner' }, 'member'],
+      [{ source: 'signal', fromHandle: 'projectman' }, 'member'],
       [null, 'member'],
     ] as const)('takes it from the open request %j: %s', (request, origin) => {
       const principal = credentialsOver(undefined, () => request).issue(config, 'ses_1', 'operator');

@@ -79,7 +79,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       readOnly: true,
       description:
         "Read one built-in role's configuration version, stored override (null when absent) and effective full " +
-        'bundle, in your own general conversation during an open owner request. Read it before editing a ' +
+        'bundle, in your own general conversation (no owner request needed). Read it before editing a ' +
         'role; preserve its existing instructions and other bundle fields.',
       input: { role: BuiltInRoleId },
       external: {
@@ -397,9 +397,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Operate the project',
       readOnly: false,
       description:
-        'Propose a configuration, member, session, message or project pause operation, in your own general ' +
-        'conversation during an open owner request. The server runs immediate changes, asks ' +
-        `the owner for restricted ones and refuses forbidden ones. Rules and fields: ${OPERATIONS_GUIDE}.`,
+        'Propose a configuration, member, session, message or pause operation on your own authority (an owner ' +
+        'request only under owner_request). Immediate changes run, restricted ones ask the owner, forbidden ' +
+        `ones are refused. Rules and fields: ${OPERATIONS_GUIDE}.`,
       input: {
         title: z.string().trim().min(1).max(120).describe('The result, in the project language.'),
         operation: kindInput('op', OperatorOperation.options, 'The operation'),
@@ -417,9 +417,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Execute one command as the Operator or PM',
       readOnly: false,
       description:
-        'Start ONE command on the shared operation path, logged as you, during an open owner message or ' +
-        'answer; follow it with get_operation until final. A K3 effect waits for the owner and then runs by ' +
-        `itself: do not repeat it. Which kinds you may run, and their fields: ${OPERATIONS_GUIDE}.`,
+        'Start ONE command on the shared operation path, as you, on your own authority (merge and ' +
+        'other owner commands need an owner request); follow it with get_operation until final. A K3 effect ' +
+        `waits for the owner, then runs by itself: do not repeat it. Kinds, fields: ${OPERATIONS_GUIDE}.`,
       input: {
         request_key: z
           .string()
@@ -451,7 +451,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Read an operation',
       readOnly: true,
       description:
-        'Only the Operator or selected PM, in its own general conversation during an open owner request. One operation of this project and, once the adapter recorded it, its result: {operation, result}. A running operation is settled first, so ask again until its state is final.',
+        'Only the Operator or selected PM, in its own general conversation (no owner request needed). One operation of this project and, once the adapter recorded it, its result: {operation, result}. A running operation is settled first, so ask again until its state is final.',
       input: { operation_id: GetSuperOperationArgs.shape.operation_id },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.getOperation(ctx, { operationId: args.operation_id }));
@@ -661,9 +661,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start work on a task',
       readOnly: false,
       description:
-        'Start a task during your own open owner request or on a signal_id; also restarts a stalled card in ' +
-        'its work stage. Gates, prerequisites and the PM stage-move rules apply. A refused start waits for ' +
-        'nothing; the error names why (e.g. member_at_capacity, assignee_unfit, team_paused).',
+        'Start a task on your own authority (an owner request only under owner_request) or on a signal_id; ' +
+        'also restarts a stalled card in its work stage. Gates, prerequisites and the PM stage-move rules ' +
+        'apply. A refused start waits for nothing; the error names why (e.g. member_at_capacity, assignee_unfit).',
       input: {
         task_key: TaskKey,
         assignee: MemberHandle.optional().describe(
@@ -758,9 +758,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start a member on work without a card',
       readOnly: false,
       description:
-        'Start an AI member on work without a card, during your own open owner request or on a signal_id: ' +
-        'the text goes to their general conversation (a running one gets it when its turn ends). Waits up to ' +
-        '5 seconds and says what became of the start. For work on a card use start_task.',
+        'Start an AI member on work without a card, on your own authority (an owner request only under ' +
+        'owner_request) or on a signal_id: the text goes to their general conversation (a running one gets it ' +
+        'when its turn ends). Waits up to 5 seconds and says what became of the start. For a card use start_task.',
       input: {
         member: MemberHandle,
         despite_workers: z

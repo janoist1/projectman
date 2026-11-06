@@ -548,7 +548,9 @@ export class OperatorTools implements OperatorToolsHandler {
   /**
    * The selected PM's call on the shared super-operation path (PM-888): in its own general conversation, during a
    * direct internal owner request (a message or an answer) or a queue item (PM-885); not an approval continuation,
-   * a signal or a guest. Returns the caller whose request the credential of the call stands on.
+   * a signal or a guest. Under `outside_owner_only` the PM's own round stands in for the owner request (PM-1287).
+   * Reading (`get_operation`, `get_role_configuration`) needs no request. Returns the caller whose request the
+   * credential of the call stands on.
    */
   private async appCaller(ctx: ToolContext, tool: string) {
     const caller = await this.calls.callerWithRequest(ctx, tool);
@@ -558,12 +560,15 @@ export class OperatorTools implements OperatorToolsHandler {
         'operator_only: only the selected PM may use the super operations.',
       );
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    const reads = tool === 'get_operation' || tool === 'get_role_configuration';
     if (
-      !caller.request ||
+      (!reads &&
+        (!caller.request ||
+          (caller.request.source !== 'message' &&
+            caller.request.source !== 'answer' &&
+            caller.request.source !== 'queue' &&
+            caller.request.source !== 'signal'))) ||
       caller.guest ||
-      (caller.request.source !== 'message' &&
-        caller.request.source !== 'answer' &&
-        caller.request.source !== 'queue') ||
       !session ||
       session.projectKey !== ctx.projectKey ||
       session.member !== ctx.member ||
@@ -814,7 +819,12 @@ export class OperatorTools implements OperatorToolsHandler {
                     return now.assignee === card.assignee && now.stageId === card.stageId;
                   },
                 }
-              : { startSetters: true, sponsor: caller.request!.fromHandle }),
+              : {
+                  startSetters: true,
+                  // The requester sponsors a temp worker only on an owner request; on its own authority the PM
+                  // leaves it to the default, the first owner (PM-1287).
+                  ...(caller.request!.source === 'signal' ? {} : { sponsor: caller.request!.fromHandle }),
+                }),
           });
           return {
             task_key: result.task.key,
@@ -887,7 +897,8 @@ export class OperatorTools implements OperatorToolsHandler {
                 kind: 'action',
                 operatorRequest: who.request!.id,
                 awaitWake: true,
-                workerCheck: !args.despiteWorkers,
+                // Only an owner request may start a member despite the workers on the card (PM-1287).
+                workerCheck: !args.despiteWorkers || who.request!.source === 'signal',
                 beforeRecord: () => {
                   who.beforeRecord?.();
                   this.structuralReviews.assertStart(ctx, args);

@@ -99,6 +99,14 @@ describe('the project manager’s rights on the server', () => {
     });
   });
 
+  it('reassigns a card and changes its theme without any open owner request (PM-1287)', async () => {
+    expect(h.repos.operatorRequests.openOfSession(pm.sessionId)).toEqual([]);
+    await h.domain.teamTools.reassignTask(pm, { taskKey: 'AR-1', assignee: 'dev-1', reason: 'Free' });
+    expect(card().assignee).toBe('dev-1');
+    await h.domain.teamTools.updateTask(pm, { taskKey: 'AR-1', themeKey: null });
+    expect(card().themeKey ?? null).toBeNull();
+  });
+
   describe('lifecycle (PM-1098)', () => {
     const allow = (actions: ProjectConfig['team']['projectManagerLifecycle']) =>
       h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {

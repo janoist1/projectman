@@ -85,7 +85,7 @@ export function describeTeamRule(rule: TeamRule, project: ProjectConfig): string
         .filter(Boolean)
         .join('; ')}.`;
     case 'project_manager_rights':
-      return `Project manager: ${rule.moves === 'start_only' ? 'starts cards only' : 'moves cards between queues and starts them'}; lifecycle actions on its own: ${rule.lifecycle.length ? codeList(rule.lifecycle) : 'none'}; ${rule.prerequisiteOverride ? 'may' : 'may not'} override an open prerequisite.`;
+      return `Project manager: ${rule.moves === 'start_only' ? 'starts cards only' : 'moves cards between queues and starts them'}; lifecycle actions on its own: ${rule.lifecycle.length ? codeList(rule.lifecycle) : 'none'}; ${rule.prerequisiteOverride ? 'may' : 'may not'} override an open prerequisite; ${rule.authority === 'outside_owner_only' ? 'acts on its own authority outside the owner-only settings, with no owner request' : 'needs an open owner request for settings, members and starts'}.`;
     case 'viewer_recipients':
       return `Viewers (read-only people) may write only to ${rule.mode === 'contacts' ? "the project's contacts" : 'the project manager'}.`;
     default: {

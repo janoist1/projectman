@@ -88,7 +88,8 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       expect(other.operation.id).not.toBe(first.operation.id);
     });
 
-    it('is refused with no open owner request, and from an approval request', async () => {
+    it('is refused with no open owner request, and from an approval request, under owner_request', async () => {
+      h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
       h.repos.operatorRequests.close(REQUEST, NOW);
       await expect(execute('closed')).rejects.toMatchObject({
         message: expect.stringContaining('operator_no_request'),
@@ -156,7 +157,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       const sessions = createOperatorAppSessions({
         ctx: { repos: h.repos } as unknown as DomainContext,
         projects: h.domain.projects,
-        hasOpenRequest: () => true,
+        actingRequest: () => ({ source: 'message', fromHandle: 'owner' }),
       });
       const { session } = seedOperatorRequest(h, 'AR');
       expect(
@@ -221,7 +222,8 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       });
     });
 
-    it('requires an open owner request', async () => {
+    it('requires an open owner request under owner_request', async () => {
+      h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
       h.repos.operatorRequests.close(REQUEST, NOW);
       await expect(execute('pm-closed')).rejects.toMatchObject({ code: 'forbidden' });
       openRequest(ctx.sessionId, 'opr_pm_guest', 'message', 'dev-1');
@@ -232,7 +234,7 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
       const sessions = createOperatorAppSessions({
         ctx: { repos: h.repos } as unknown as DomainContext,
         projects: h.domain.projects,
-        hasOpenRequest: () => true,
+        actingRequest: () => ({ source: 'message', fromHandle: 'owner' }),
       });
       const principal: IntegratorPrincipal = {
         kind: 'integrator',
@@ -326,6 +328,95 @@ describe('the in-app Operator on the shared super-operation path (PM-888)', () =
           }),
         ]),
       );
+    });
+  });
+
+  describe('the project manager on its own authority (PM-1287)', () => {
+    beforeEach(async () => {
+      await boot('pm');
+      h.repos.operatorRequests.close(REQUEST, NOW);
+    });
+
+    const member = (handle: string) =>
+      h.domain.projects.cachedConfig('AR')!.team.members.find((candidate) => candidate.handle === handle)!;
+    const ownRound = () => h.repos.operatorRequests.openOfSession(ctx.sessionId);
+    const update = (handle: string, changes: Record<string, unknown>) =>
+      h.domain.teamTools.operate(ctx, {
+        title: 'Change a member',
+        operation: { op: 'member_update', handle, changes } as never,
+      });
+
+    it('puts a step without an owner request on the session`s own round, off the signal budget', async () => {
+      const { operation } = await execute('own-round');
+      expect(operation.state).toBe('succeeded');
+      const rounds = ownRound();
+      expect(rounds).toHaveLength(1);
+      expect(rounds[0]).toMatchObject({ source: 'signal' });
+      expect(h.repos.operatorRequests.steps(rounds[0]!.id)).toMatchObject([
+        { action: 'operation', status: 'done', signalId: null },
+      ]);
+    });
+
+    it('sends a member on leave and brings them back', async () => {
+      await update('dev-1', { onLeave: true });
+      expect(member('dev-1')).toMatchObject({ onLeave: true });
+      await update('dev-1', { onLeave: false });
+      expect(member('dev-1')).not.toMatchObject({ onLeave: true });
+    });
+
+    it('changes capacity', async () => {
+      const result = await update('dev-1', { capacity: 3 });
+      expect(result.status).toBe('done');
+      expect(member('dev-1')).toMatchObject({ capacity: 3 });
+    });
+
+    it('waits for the owner on a K3 effect and on an owner-only config change', async () => {
+      const k3 = await update('dev-1', { outboundNetwork: false });
+      expect(k3.status).toBe('awaiting_approval');
+      const patch = await h.domain.teamTools.operate(ctx, {
+        title: 'Change settings',
+        operation: { op: 'config_patch', patch: { projectManagerAuthority: 'owner_request' } },
+      });
+      expect(patch.status).toBe('awaiting_approval');
+      expect(h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority).not.toBe('owner_request');
+    });
+
+    it.each([
+      { kind: 'inbox_resolve', itemId: 'inb_x', answer: { optionId: 'yes' } },
+      { kind: 'workspace_release', scopeId: 'scp_0123456789abcdef', reason: 'Checked' },
+    ] as unknown as NewSuperCommand[])('refuses an owner-only command of kind $kind', async (command) => {
+      await expect(execute('owner-only', command)).rejects.toMatchObject({
+        code: 'forbidden',
+        message: expect.stringContaining('operator_owner_only'),
+      });
+    });
+
+    it('reads an operation without an owner request', async () => {
+      const { operation } = await execute('read-first');
+      expect((await h.domain.teamTools.getOperation(ctx, { operationId: operation.id })).operation.id).toBe(
+        operation.id,
+      );
+    });
+
+    it('is refused under owner_request without an owner request', async () => {
+      h.domain.projects.cachedConfig('AR')!.team.projectManagerAuthority = 'owner_request';
+      await expect(execute('needs-owner')).rejects.toMatchObject({
+        message: expect.stringContaining('operator_no_request'),
+      });
+      expect(ownRound()).toEqual([]);
+    });
+
+    it('is refused in a guest conversation', async () => {
+      const base = h.repos.sessions.get(ctx.sessionId)!;
+      h.repos.sessions.insert({
+        ...base,
+        id: 'ses_pm_own_guest',
+        workItem: { type: 'general', with: 'guest' },
+      });
+      await expect(execute('guest', TASK, { ...ctx, sessionId: 'ses_pm_own_guest' })).rejects.toMatchObject({
+        code: 'forbidden',
+      });
+      expect(h.repos.tasks.get('AR-1')).toBeNull();
     });
   });
 

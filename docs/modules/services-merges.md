@@ -63,6 +63,19 @@ older engine refuse the descriptor with `github_unavailable`, a run that stopped
 A train groups only cards of the same runner (`train-selection.ts`). `merge_check_runs` records the
 `runner` and the `url` (migration 95); `list_merge_checks` shows both.
 
+**Infrastructure faults (PM-1292).** The executor decides whether a failed GitHub run was the infrastructure's
+fault and marks the `error` result with `infra` (`CheckInfraCause`, an optional field of `FullTestResult`
+and of the engine link's `fullResult`; `merge_check_runs.infra`, migration 147; `list_merge_checks` prints an
+`infra:` line). `judge` (`full-test/github-verdict.ts`) gives the verdict `unacquired` when at least one
+unsuccessful job got no machine (`notAcquired`: not successful, no runner id or name, no step started) and every
+other unsuccessful job failed in its `merge-test` step; a real `merge-test` failure wins and the result is
+`failed`. A job that started and failed earlier (`npm ci`) is the card's own error, never infra. The causes are
+`runner_not_acquired` (`unacquired`), `verdict_missing` (the job ended without a finished `merge-test` step) and
+`service_unreachable` (a `TRANSIENT` dispatch, lookup or read failure that lasted, a run that did not appear,
+GitHub unreachable until the time limit). Permanent failures (`FATAL` codes, upstream mismatch, push,
+timeout, a descriptor the executor refuses) carry none, and the local executor never sets it. The merge still
+blocks as before; the cause is recorded and visible, and PM-1292 B builds the retry on it.
+
 `task_merged` stands on the member who started the merge (`startedBy`, `{ kind, handle }`); a merge found
 already in the default branch stays a system event.
 Conflicts and failed checks notify the merger and keep the card in place; a failed check tells an AI merger

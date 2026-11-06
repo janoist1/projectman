@@ -69,6 +69,8 @@ const jobInfo = (conclusion: string): WorkflowJobInfo => ({
   conclusion,
   startedAt: null,
   completedAt: null,
+  runnerId: null,
+  runnerName: null,
   steps: [],
 });
 

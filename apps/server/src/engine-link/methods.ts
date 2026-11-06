@@ -5,6 +5,7 @@ import {
   COMPUTE_JOB_COMMAND_MAX,
   COMPUTE_JOB_NODE_VERSION,
   ComputeJobOutputPath,
+  CheckInfraCause,
   FullTestErrorReason,
   GITHUB_REPO_PATTERN,
   GithubJobRunner,
@@ -126,6 +127,8 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
 const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outcome: z.enum(['passed', 'failed', 'error']),
   reason: FullTestErrorReason.optional(),
+  // Only a GitHub Actions error can have one (PM-1292); an older engine never sends it.
+  infra: CheckInfraCause.optional(),
   exitCode: z.number().int().nullable(),
   durationMs: int,
   failedFiles: texts,

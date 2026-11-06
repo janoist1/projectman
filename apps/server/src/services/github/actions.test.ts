@@ -250,6 +250,58 @@ describe('createGithubActionsClient', () => {
     });
   });
 
+  it('maps the runner of a job, and a job that no runner took (null, 0 or missing) to null or 0 (PM-1292)', async () => {
+    // A real failed run (42253831611, and 17 more) lists a job with no machine as `cancelled`, runner_id 0,
+    // runner_name '', `steps: []` and its own started_at / completed_at; the REST documentation allows null,
+    // and an older payload omits both.
+    const pending = { name: 'merge-test', status: 'pending', conclusion: null, started_at: null };
+    const actions = await client({
+      [`GET repos/${REPO}/actions/runs/7/jobs`]: {
+        json: {
+          jobs: [
+            {
+              id: 11,
+              name: 'taken',
+              status: 'completed',
+              conclusion: 'success',
+              runner_id: 5,
+              runner_name: 'GitHub Actions 5',
+              steps: [],
+            },
+            {
+              id: 12,
+              name: 'queued',
+              status: 'completed',
+              conclusion: 'cancelled',
+              runner_id: null,
+              runner_name: null,
+              steps: [pending],
+            },
+            {
+              id: 13,
+              name: 'zero',
+              status: 'completed',
+              conclusion: 'cancelled',
+              started_at: '2026-11-06T16:35:38Z',
+              completed_at: '2026-11-06T16:50:40Z',
+              runner_id: 0,
+              runner_name: '',
+              steps: [],
+            },
+            { id: 14, name: 'absent', status: 'completed', conclusion: 'cancelled' },
+          ],
+        },
+      },
+    });
+    const jobs = await actions.listJobs(REPO, 7, new AbortController().signal);
+    expect(jobs.map((job) => [job.runnerId, job.runnerName])).toEqual([
+      [5, 'GitHub Actions 5'],
+      [null, null],
+      [0, ''],
+      [null, null],
+    ]);
+  });
+
   it('returns the job log as it is', async () => {
     const actions = await client({
       [`GET repos/${REPO}/actions/jobs/11/logs`]: { stdout: '2026-10-20T10:00:00Z hello\n' },

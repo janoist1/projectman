@@ -22,6 +22,7 @@ function start(n: number, patch: Partial<MergeCheckRunStart> = {}): MergeCheckRu
 const end = (status: 'passed' | 'failed', n: number) => ({
   status,
   reason: null,
+  infra: null,
   durationMs: 1000 * n,
   report: null,
   url: null,
@@ -74,6 +75,7 @@ describe('merge check repository (PM-876)', () => {
       ...start(1, { kind: 'train', trainId: 'mrg_train', taskKeys: ['PM-3', 'PM-1'] }),
       status: 'passed',
       reason: null,
+      infra: null,
       startedAt: minute(2),
       finishedAt: minute(2),
       durationMs: 900,
@@ -92,6 +94,22 @@ describe('merge check repository (PM-876)', () => {
     repos.mergeCheckRuns.start(start(2));
     expect(repos.mergeCheckRuns.get('mergecheck_1')).toMatchObject({ runner: 'github_actions', url });
     expect(repos.mergeCheckRuns.get('mergecheck_2')).toMatchObject({ runner: 'engine', url: null });
+  });
+
+  it('keeps the infrastructure cause an errored run ended with; none, or one this build does not know, reads as null (PM-1292)', () => {
+    repos.mergeCheckRuns.start(start(1, { runner: 'github_actions' }));
+    repos.mergeCheckRuns.finish('mergecheck_1', {
+      ...end('failed', 1),
+      status: 'error',
+      reason: 'github_unavailable',
+      infra: 'runner_not_acquired',
+    });
+    repos.mergeCheckRuns.start(start(2));
+    repos.mergeCheckRuns.finish('mergecheck_2', end('passed', 2));
+    expect(repos.mergeCheckRuns.get('mergecheck_1')).toMatchObject({ infra: 'runner_not_acquired' });
+    expect(repos.mergeCheckRuns.get('mergecheck_2')).toMatchObject({ infra: null });
+    repos.db.prepare("UPDATE merge_check_runs SET infra = 'from_the_future' WHERE id = 'mergecheck_1'").run();
+    expect(repos.mergeCheckRuns.get('mergecheck_1')?.infra).toBeNull();
   });
 
   describe('listing', () => {

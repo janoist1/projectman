@@ -1,4 +1,9 @@
-import type { FullTestErrorReason, GithubJobRunner, MergeTestReport } from '@projectman/shared';
+import type {
+  CheckInfraCause,
+  FullTestErrorReason,
+  GithubJobRunner,
+  MergeTestReport,
+} from '@projectman/shared';
 import type { MergeRepoRef } from './engine';
 
 /**
@@ -129,6 +134,11 @@ export interface FullTestResult {
   outcome: 'passed' | 'failed' | 'error';
   /** `error` only. */
   reason?: FullTestErrorReason;
+  /**
+   * `error` only (PM-1292): the run gave no verdict because of the runner's infrastructure, not the checked
+   * code, so another try may pass. An older engine never sends it.
+   */
+  infra?: CheckInfraCause;
   exitCode: number | null;
   durationMs: number;
   /** Files of the `merge-test failed:` lines, else of vitest's " FAIL " lines, unique, at most 20. */

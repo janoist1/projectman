@@ -2540,6 +2540,18 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
   PM-1059 does not touch this check: it keeps running on the engine the card's merge already uses, and the
   engine-side `gh` client keeps its project-less `MachineGithubService` contract.
+  **Infrastructure faults (PM-1292):** the same executor tells a GitHub infrastructure fault from a fault of the
+  checked code and marks the errored `FullTestResult` with `infra` (`CheckInfraCause`: `runner_not_acquired`
+  when every unsuccessful job got no machine — no runner id or name, no step started —, `verdict_missing`
+  when a job ended without its finished `merge-test` step, `service_unreachable` when a temporary GitHub
+  failure outlasted the tries or the run never appeared). A job that failed in the `merge-test` step always
+  wins: the result is `failed`, whatever happened to the other shards, and a job that started but failed
+  earlier (`npm ci`) is never marked. The detection runs where `gh` runs, on the card's engine, and reads
+  only the jobs the existing client lists (`runner_id`, `runner_name`); **Remote engine:** only the bounded
+  `infra` value crosses the boundary, in the existing `full_test.run`/`attach` result (an optional field of the
+  strict result schema, the protocol version unchanged), so no new machine assumption arises. Install the hub
+  before the engine: an older engine sends no `infra` and keeps the former behavior. The hub records it in
+  `merge_check_runs.infra` and `list_merge_checks` shows it; the local executor never sets it.
   **Compute jobs (PM-1147):** a `full_test.run` that carries `githubJob` (`FullTestSpec.githubJob`, exclusive
   with `githubActions`) runs one job of the general `projectman-job.yml` workflow (PM-1144) instead: no check
   branch is pushed; the workflow is dispatched on the owner's merge branch (`base`) with the inputs `job`,

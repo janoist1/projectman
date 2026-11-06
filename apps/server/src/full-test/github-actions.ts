@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { isRepoFilePath, MERGE_CHECK_WORKFLOW } from '@projectman/shared';
+import { isRepoFilePath, MERGE_CHECK_WORKFLOW, type CheckInfraCause } from '@projectman/shared';
 import {
   GithubError,
   type CheckBranchGit,
@@ -112,9 +112,11 @@ type FollowFailureReason = 'github_unavailable' | 'github_run_error' | 'timeout'
 /** A read of the finished run that did not give an answer; thrown by `finish` it ends the follow too. */
 class ReadFailure extends Error {
   readonly reason: FollowFailureReason;
-  constructor(reason: FollowFailureReason, message: string) {
+  readonly infra: CheckInfraCause | undefined;
+  constructor(reason: FollowFailureReason, message: string, infra?: CheckInfraCause) {
     super(message);
     this.reason = reason;
+    this.infra = infra;
   }
 }
 
@@ -160,6 +162,8 @@ export interface FollowedRun {
 interface FollowFailure {
   reason: FollowFailureReason;
   message: string;
+  /** Set when GitHub's infrastructure, not the checked code, ended the follow (PM-1292). */
+  infra?: CheckInfraCause;
   /** The last run seen, if the run appeared. */
   run: WorkflowRunInfo | null;
   startedAt: number;
@@ -191,9 +195,9 @@ export async function followWorkflowRun<T>(
     started = true;
     req.onStarted?.();
   };
-  const stop = (reason: FollowFailureReason, message: string): Followed<T> => ({
+  const stop = (reason: FollowFailureReason, message: string, infra?: CheckInfraCause): Followed<T> => ({
     ok: false,
-    failure: { reason, message, run, startedAt, runningSince },
+    failure: { reason, message, ...(infra ? { infra } : {}), run, startedAt, runningSince },
   });
   const killed = () => stop('killed', req.stoppedMessage);
   if (signal.aborted) return killed();
@@ -225,7 +229,11 @@ export async function followWorkflowRun<T>(
       if (signal.aborted) return killed();
       const code = codeOf(err);
       if (!TRANSIENT.has(code) || attempt >= DISPATCH_RETRIES)
-        return stop('github_unavailable', `The workflow could not be started (${code}): ${messageOf(err)}`);
+        return stop(
+          'github_unavailable',
+          `The workflow could not be started (${code}): ${messageOf(err)}`,
+          TRANSIENT.has(code) ? 'service_unreachable' : undefined,
+        );
       await sleep(DISPATCH_RETRY_MS, signal);
       if (signal.aborted) return killed();
     }
@@ -248,7 +256,7 @@ export async function followWorkflowRun<T>(
     if (run) break;
     if (signal.aborted) return killed();
     if (now() - lookStarted >= RUN_APPEAR_MAX_MS || now() >= deadline)
-      return stop('github_unavailable', 'The dispatched run did not appear.');
+      return stop('github_unavailable', 'The dispatched run did not appear.', 'service_unreachable');
     await sleep(RUN_APPEAR_POLL_MS, signal);
   }
 
@@ -269,7 +277,11 @@ export async function followWorkflowRun<T>(
       await cancel(run.id);
       // GitHub never answered after the run was found: the state of the run is not known.
       return reads === 0 && failedReads > 0
-        ? stop('github_unavailable', 'GitHub could not be reached until the time limit.')
+        ? stop(
+            'github_unavailable',
+            'GitHub could not be reached until the time limit.',
+            'service_unreachable',
+          )
         : stop(
             'timeout',
             `The run did not finish within ${Math.round(req.timeoutMs / 1000)} s and was cancelled.`,
@@ -308,6 +320,7 @@ export async function followWorkflowRun<T>(
           throw new ReadFailure(
             code === 'not_found' ? 'github_run_error' : 'github_unavailable',
             `${what} could not be read (${code}): ${messageOf(err)}`,
+            TRANSIENT.has(code) ? 'service_unreachable' : undefined,
           );
         await sleep(LOG_POLL_MS, signal);
       }
@@ -355,7 +368,7 @@ export async function followWorkflowRun<T>(
     });
     return { ok: true, value };
   } catch (err) {
-    if (err instanceof ReadFailure) return stop(err.reason, err.message);
+    if (err instanceof ReadFailure) return stop(err.reason, err.message, err.infra);
     throw err;
   }
 }
@@ -408,10 +421,12 @@ export function withGithubActions(local: FullTestExecutor, deps: GithubActionsDe
     const error = (
       reason: 'github_unavailable' | 'github_run_error' | 'timeout' | 'killed',
       message: string,
+      infra?: CheckInfraCause,
     ) =>
       ({
         outcome: 'error',
         reason,
+        ...(infra ? { infra } : {}),
         exitCode: null,
         durationMs: Math.max(0, now() - (runningSince ?? pushedAt ?? began)),
         failedFiles: [],
@@ -484,7 +499,14 @@ export function withGithubActions(local: FullTestExecutor, deps: GithubActionsDe
           runningSince = done.runningSince;
           const judgement = judge(done.run, check.commit, done.jobs);
           if (judgement.kind === 'error') return error('github_run_error', judgement.message);
-          if (judgement.kind === 'missing') return error('github_unavailable', judgement.message);
+          if (judgement.kind === 'missing')
+            return error('github_unavailable', judgement.message, 'verdict_missing');
+          if (judgement.kind === 'unacquired')
+            return error(
+              'github_unavailable',
+              `GitHub gave no machine to the job${judgement.jobs.length === 1 ? '' : 's'} ${judgement.jobs.map((name) => `"${name}"`).join(', ')}, so the tests did not run there; try the check again.`,
+              'runner_not_acquired',
+            );
           if (judgement.kind === 'timeout') return error('timeout', 'A job of the run timed out on GitHub.');
           const finished: FinishedRun = {
             run: done.run,
@@ -501,7 +523,7 @@ export function withGithubActions(local: FullTestExecutor, deps: GithubActionsDe
       if (followed.ok) return followed.value;
       run = followed.failure.run;
       runningSince = followed.failure.runningSince;
-      return error(followed.failure.reason, followed.failure.message);
+      return error(followed.failure.reason, followed.failure.message, followed.failure.infra);
     } finally {
       active.delete(branch);
       try {

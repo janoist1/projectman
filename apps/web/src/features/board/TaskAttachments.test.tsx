@@ -626,7 +626,33 @@ describe('attachments: delete', () => {
 });
 
 describe('attachments: who may do what', () => {
-  it.each(['viewer', 'client'] as const)(
+  it('lets a client upload and delete their own file only (PM-1270)', async () => {
+    const project = mockProject();
+    project.backend.addAttachment(
+      'AC-20',
+      { name: 'mine.png', size: 10, type: 'image/png' },
+      { kind: 'human', handle: 'bence' },
+    );
+    project.backend.addAttachment(
+      'AC-20',
+      { name: 'team.txt', size: 10, type: 'text/plain' },
+      { kind: 'human', handle: 'owner' },
+    );
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', actAs(project, 'bence', 'client'));
+    await fromList();
+    expect(screen.getByRole('button', { name: t('attachments.chooseFiles') })).toBeTruthy();
+    expect(screen.getByLabelText(t('attachments.inputLabel'))).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'mine.png' }) }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: t('attachments.deleteLabel', { fileName: 'team.txt' }) }),
+    ).toBeNull();
+    choose(makeFile('shot.png', 'image/png'));
+    await waitFor(() => expect(uploads(project)).toHaveLength(1));
+  });
+
+  it.each(['viewer'] as const)(
     'offers a %s the list and downloads, but no upload, no paste and no delete',
     async (access) => {
       const project = mockProject();

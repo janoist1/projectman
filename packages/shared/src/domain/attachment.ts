@@ -104,23 +104,28 @@ export function coverAttachmentId(
 export type AttachmentViewer = TaskViewer;
 
 /**
- * Uploading to a card: every member except those who only read and comment (AI and the other workers
- * may). A message's own files go another way (PM-516).
+ * Uploading to a card: every member except a viewer, a client included (PM-1270; AI and the other
+ * workers may). A message's own files go another way (PM-516).
  */
 export function canUploadAttachment(viewer: AttachmentViewer): boolean {
-  return viewer.access !== 'viewer' && viewer.access !== 'client';
+  return viewer.access !== 'viewer';
 }
 
 /**
- * Deleting: the uploader, or a human owner or admin. A member who only reads and comments never
- * deletes, not even an older upload of their own.
+ * Deleting: the uploader, or a human owner or admin. A client deletes their own upload only; a
+ * viewer never deletes.
  */
 export function canDeleteAttachment(
   viewer: AttachmentViewer,
   attachment: Pick<Attachment, 'uploadedBy'>,
 ): boolean {
-  if (viewer.access === 'viewer' || viewer.access === 'client') return false;
+  if (viewer.access === 'viewer') return false;
   if (viewer.access === 'owner' || viewer.access === 'admin') return true;
   const kind = viewer.access === 'ai' ? 'ai' : 'human';
   return attachment.uploadedBy.kind === kind && attachment.uploadedBy.handle === viewer.handle;
+}
+
+/** Choosing or hiding the card's cover stays with the team (PM-1270): not a client, not a viewer. */
+export function canSetTaskCover(viewer: AttachmentViewer): boolean {
+  return viewer.access !== 'viewer' && viewer.access !== 'client';
 }

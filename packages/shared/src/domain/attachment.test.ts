@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attachmentPreviewOf,
   canDeleteAttachment,
+  canSetTaskCover,
   canUploadAttachment,
   coverAttachmentId,
   INLINE_MEDIA_TYPES,
@@ -90,14 +91,15 @@ describe('the cover choice', () => {
 
 describe('who may upload and delete attachments', () => {
   it.each([
-    ['owner', true],
-    ['admin', true],
-    ['developer', true],
-    ['ai', true],
-    ['client', false],
-    ['viewer', false],
-  ] as const)('%s: upload %s', (access, upload) => {
+    ['owner', true, true],
+    ['admin', true, true],
+    ['developer', true, true],
+    ['ai', true, true],
+    ['client', true, false],
+    ['viewer', false, false],
+  ] as const)('%s: upload %s, set the cover %s', (access, upload, cover) => {
     expect(canUploadAttachment(viewerOf(access))).toBe(upload);
+    expect(canSetTaskCover(viewerOf(access))).toBe(cover);
   });
 
   it('lets the uploader, a human owner or a human admin delete', () => {
@@ -126,7 +128,8 @@ describe('who may upload and delete attachments', () => {
     expect(canDeleteAttachment(viewerOf('viewer', 'vic'), uploadedBy('human', 'vic'))).toBe(false);
   });
 
-  it('never lets a client delete, not even an older upload of their own (PM-985)', () => {
-    expect(canDeleteAttachment(viewerOf('client', 'cleo'), uploadedBy('human', 'cleo'))).toBe(false);
+  it('lets a client delete their own upload only (PM-1270)', () => {
+    expect(canDeleteAttachment(viewerOf('client', 'cleo'), uploadedBy('human', 'cleo'))).toBe(true);
+    expect(canDeleteAttachment(viewerOf('client', 'cleo'), uploadedBy('human', 'dana'))).toBe(false);
   });
 });

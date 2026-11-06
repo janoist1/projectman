@@ -1,7 +1,13 @@
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
-import { MAX_ATTACHMENT_BYTES, canDeleteAttachment, canUploadAttachment, routes } from '@projectman/shared';
+import {
+  MAX_ATTACHMENT_BYTES,
+  canDeleteAttachment,
+  canSetTaskCover,
+  canUploadAttachment,
+  routes,
+} from '@projectman/shared';
 import type { Attachment, AttachmentViewer, Task, TaskCoverChoice } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { useAttachments, useDeleteAttachment, useSetTaskCover } from '../../api/queries';
@@ -282,6 +288,8 @@ export function TaskAttachments({
   const refused = list.isError && isRefusal(list.error);
   const attachments = refused ? [] : (list.data?.attachments ?? []);
   const canUpload = viewer !== null && !refused && canUploadAttachment(viewer);
+  // The team chooses the cover; a client uploads but does not pick it (PM-1270).
+  const canCover = viewer !== null && !refused && canSetTaskCover(viewer);
   const setCover = useSetTaskCover(key, task.key);
   // An automatic cover is the first image, so images without a cover can only mean it was hidden.
   const hasImage = attachments.some((attachment) => attachment.preview === 'image');
@@ -379,7 +387,7 @@ export function TaskAttachments({
         ) : null
       ) : (
         <>
-          {coverHidden && canUpload ? (
+          {coverHidden && canCover ? (
             <p className={styles.coverNote}>{t('attachments.coverHidden')}</p>
           ) : null}
           {setCover.isError ? (
@@ -396,7 +404,7 @@ export function TaskAttachments({
                 members={members}
                 canDelete={canDeleteAttachment(viewer, attachment)}
                 isCover={attachment.id === task.coverAttachmentId}
-                canSetCover={canUpload}
+                canSetCover={canCover}
                 settingCover={
                   setCover.isPending &&
                   (setCover.variables.mode === 'hidden'

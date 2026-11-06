@@ -31,8 +31,8 @@ export class MachineGuard {
   private readonly engines: Pick<EngineDirectory, 'get' | 'projectEngine'> | undefined;
   /** Projects whose integrator was told of the spell that lasts. */
   private readonly told = new Set<string>();
-  /** The engines whose last reading was critical: since when, and the last reading of the spell. */
-  private readonly critical = new Map<EngineId, { since: number; last: number }>();
+  /** Per project, the engines whose last reading was critical: since when, and the last reading of the spell. */
+  private readonly critical = new Map<string, Map<EngineId, { since: number; last: number }>>();
   /** The last successful measurement per engine. */
   private readonly measured = new Map<EngineId, { at: number; load: MachineLoad }>();
   /** The measurements under way per engine: concurrent starts share one. */
@@ -99,14 +99,25 @@ export class MachineGuard {
       });
   }
 
-  /** Every project: one fresh measurement of its engine, then the alert raised or withdrawn. */
+  /**
+   * Every project: the pressure of its engine, and of the engines it was seen critical on (an engine only an
+   * admission check reached), measured once per engine; then the alert raised or withdrawn.
+   */
   async check(): Promise<void> {
     // The watcher's reading is newer than any cached one: the admission checks measure afresh after it.
     this.measured.clear();
+    const pressures = new Map<EngineId, MachineLoad['pressure']>();
+    const pressureOf = async (engineId: EngineId): Promise<MachineLoad['pressure']> => {
+      if (!pressures.has(engineId)) pressures.set(engineId, (await this.load(engineId))?.pressure ?? null);
+      return pressures.get(engineId) ?? null;
+    };
     for (const summary of this.projects.summaries()) {
       const config = this.projects.cachedConfig(summary.key);
-      const engineId = config ? this.engines?.projectEngine(summary.key) : null;
-      if (config && engineId) this.evaluate(config, engineId, (await this.load(engineId))?.pressure ?? null);
+      if (!config) continue;
+      const engineIds = new Set<EngineId>(this.critical.get(summary.key)?.keys());
+      const own = this.engines?.projectEngine(summary.key);
+      if (own) engineIds.add(own);
+      for (const engineId of engineIds) this.evaluate(config, engineId, await pressureOf(engineId));
     }
   }
 
@@ -116,19 +127,22 @@ export class MachineGuard {
     if (pressure === null) return false;
     const now = this.now();
     const projectKey = config.project.key;
+    const spells = this.critical.get(projectKey) ?? new Map<EngineId, { since: number; last: number }>();
     if (pressure !== 'critical') {
-      this.critical.delete(engineId);
-      // Eased everywhere: the todo is no longer true, and the next spell says so anew.
-      if (this.critical.size === 0) {
+      spells.delete(engineId);
+      if (spells.size === 0) {
+        this.critical.delete(projectKey);
+        // Eased on every engine of the project: the todo is no longer true, and the next spell says so anew.
         this.told.delete(projectKey);
         this.inbox.settleAlert(projectKey, 'machine_busy');
       }
       return false;
     }
-    const known = this.critical.get(engineId);
+    const known = spells.get(engineId);
     const spell = known && now - known.last <= CRITICAL_GAP_MS ? known : { since: now, last: now };
     spell.last = now;
-    this.critical.set(engineId, spell);
+    spells.set(engineId, spell);
+    this.critical.set(projectKey, spells);
     const lasted = now - spell.since;
     // One todo per spell: the integrator is not asked again every minute (`raiseAlert` keeps one open).
     if (lasted >= CRITICAL_ALERT_AFTER_MS && !this.told.has(projectKey)) {

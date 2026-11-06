@@ -169,9 +169,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`routes.taskAttachments` and its `content`/`download` children, a multipart upload of one
   file per request, never buffered whole); there is no public static route. Who may read, upload
   and delete is one rule in `packages/shared` (`canUploadAttachment`,
-  `canDeleteAttachment`): every project member reads (a client like a viewer, PM-79); a viewer and a
-  client only read; AI members and the other workers upload; the uploader or
-  a human owner or admin deletes. The attachments service ([`core/attachments`](modules/core-attachments.md), the contract in
+  `canDeleteAttachment`): every project member reads (a client like a viewer, PM-79); a viewer
+  only reads; a client, AI members and the other workers upload (PM-1270); the uploader or
+  a human owner or admin deletes, so a client deletes their own upload only. The attachments service ([`core/attachments`](modules/core-attachments.md), the contract in
   `contracts/attachments.ts`) takes a stream, so REST and the team tools share one size,
   storage and access check, and judges the member against the current roster
   again just before an upload is published. The media type is proven from the
@@ -194,7 +194,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (first frame, EXIF orientation applied, no metadata; a pixel and a time limit, one run per
   attachment and two at a time; an image it cannot decode answers 404 until the server restarts)
   and keeps as `<id>.thumb` next to the file. The same access check as the content.
-  **Chosen cover** (PM-224): whoever may upload (`canUploadAttachment`) can pin one of the card's
+  **Chosen cover** (PM-224): whoever may upload except a client (`canSetTaskCover`, PM-1270; a
+  client's image is still the automatic cover) can pin one of the card's
   images or hide the cover with `PUT routes.taskCover` (`TaskCoverChoice`, answer `{ task }`; 422
   `cover_not_an_image` for a file that is not a ready image of the card). The choice is one row in
   `task_covers`; `coverAttachmentId(attachments, choice)` applies it: hidden → none, even after a

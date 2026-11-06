@@ -3,6 +3,7 @@ import { assertSuperMutation } from '../../../kernel';
 import {
   attachmentPreviewOf,
   canDeleteAttachment,
+  canSetTaskCover,
   canUploadAttachment,
   coverAttachmentId,
   memberOf,
@@ -211,10 +212,11 @@ export class AttachmentService implements AttachmentOperations {
 
   /**
    * A person's choice of the card's cover (PM-224): one of its ready images, or none. Boards hear of
-   * it as a changed task. The same access as an upload; no timeline event (a cosmetic setting).
+   * it as a changed task. The team's choice: a client uploads but does not pick (PM-1270); no timeline
+   * event (a cosmetic setting).
    */
   async setCover(projectKey: string, taskKey: string, choice: TaskCoverChoice, actor: Actor): Promise<Task> {
-    await this.authorize(projectKey, taskKey, actor, 'upload');
+    await this.authorize(projectKey, taskKey, actor, 'cover');
     if (choice.mode === 'pinned') {
       const record = this.ctx.repos.attachments.get(choice.attachmentId);
       if (
@@ -326,7 +328,7 @@ export class AttachmentService implements AttachmentOperations {
     projectKey: string,
     taskKey: string,
     actor: Actor,
-    need: 'read' | 'upload' = 'read',
+    need: 'read' | 'upload' | 'cover' = 'read',
   ): Promise<{ viewer: AttachmentViewer; task: Task }> {
     if (!this.projects.has(projectKey)) throw notFound('project', projectKey);
     const member =
@@ -342,6 +344,9 @@ export class AttachmentService implements AttachmentOperations {
     if (!task) throw notFound('task', taskKey);
     if (need === 'upload' && !canUploadAttachment(viewer)) {
       throw forbidden('insufficient_access', 'read-only members cannot attach files');
+    }
+    if (need === 'cover' && !canSetTaskCover(viewer)) {
+      throw forbidden('insufficient_access', 'only the team chooses the cover');
     }
     return { viewer, task };
   }

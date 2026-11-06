@@ -115,6 +115,7 @@ import {
   attachmentPreviewOf,
   withQuestionAttachmentGone,
   canDeleteAttachment,
+  canSetTaskCover,
   canResolveInboxItem,
   canSeeInboxItem,
   visibleQuestionItem,
@@ -4162,7 +4163,7 @@ export class MockBackend {
     const viewer = this.taskViewer();
     const task = this.findTask(taskKey);
     if (!task) return error(404, 'not_found', 'Unknown task');
-    if (!canUploadAttachment(viewer)) return error(403, 'insufficient_access', 'Viewers cannot attach files');
+    if (!canSetTaskCover(viewer)) return error(403, 'insufficient_access', 'Only the team chooses the cover');
     const choice = parseBody(TaskCoverRequest, body);
     if (!choice) return error(400, 'invalid_request', 'Invalid cover choice');
     if (choice.mode === 'pinned') {

@@ -106,12 +106,12 @@
 }
 
 .stateDot[data-state='reminded'] {
-  border-color: var(--c-needs);
+  border-color: var(--c-warn);
 }
 
 .stateDot[data-state='handed_over'] {
-  border-color: var(--c-needs);
-  background: var(--c-needs);
+  border-color: var(--c-warn);
+  background: var(--c-warn);
 }
 
 @keyframes stepPulse {
@@ -175,5 +175,5 @@
 
 .overdue {
   font-weight: 800;
-  color: var(--c-needs-mark);
+  color: var(--c-warn-mark);
 }

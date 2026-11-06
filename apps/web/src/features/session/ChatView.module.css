@@ -294,7 +294,7 @@
 }
 
 .decisionNo {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .decisionIcon {
@@ -313,8 +313,8 @@
 }
 
 .decisionNo .decisionIcon {
-  background: var(--c-needs-bg);
-  color: var(--c-needs-mark);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-mark);
 }
 
 /* permission prompt */

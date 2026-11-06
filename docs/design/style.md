@@ -22,8 +22,8 @@ by the inline script in `index.html`.
 
 1. **One thing needs the owner, and it is the loudest thing.** "Needs you" ("rád vár") is the only signal colour on
    screen (Classic: orange; Win 3.11: yellow with black text). Nothing else may use it. A warning that is not "needs
-   you" (a loaded machine, a nearly used plan, a stuck card, a failed delivery, a config problem) uses the **warning
-   tokens** `--c-warn-*`: the same orange in Classic, a brown/amber in Win 3.11, never yellow. The machine-load
+   you" (a loaded machine, a nearly used plan, a stuck card, a held card, a failed delivery, a config problem, a
+   destructive button) uses the **warning tokens** `--c-warn-*`: the same orange in Classic, a brown/amber in Win 3.11, never yellow. The machine-load
    indicator in the top bar is a warning, not a "needs you" surface.
 2. **Colour never carries meaning alone.** Every state also has an icon or a word ("!", "?", a check, the label).
 3. **Tokens, not values.** A colour, radius, shadow, font size or bevel in a component is a token. A new need becomes
@@ -103,9 +103,9 @@ Reference: Windows for Workgroups 3.11. Not a joke and not a skin: it is a serio
 
 ### Not built yet
 
-The accepted sample (`pm363-g.html`, attached to PM-363) shows more than the token layer does today. Built: the
-tokens, columns as windows, buttons, fields, dialogs and the picker. Still missing, tracked on PM-1273; treat them as
-the goal and follow the sample when you touch the screen:
+The accepted sample (the "G" sample: `.demo/pm363-g.html`, attached to PM-363 as `att_mw4xn716ae2042ace5`) shows more
+than the token layer does today. Built: the tokens, columns as windows, buttons, fields, dialogs and the picker. Still
+missing, tracked on **PM-1273** (theme PM-390); treat them as the goal and follow the sample when you touch the screen:
 
 - the top bar as a menu bar with underlined Alt letters, and a status bar at the bottom;
 - a column as a window with a centred "Name (n)" title and a white sunken list;

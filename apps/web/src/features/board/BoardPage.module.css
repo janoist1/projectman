@@ -269,9 +269,9 @@
 }
 @keyframes pm-held {
   from {
-    outline: 2px solid var(--c-needs);
+    outline: 2px solid var(--c-warn);
     outline-offset: 1px;
-    background: var(--c-needs-border);
+    background: var(--c-warn-border);
   }
   to {
     outline: 2px solid transparent;
@@ -282,7 +282,7 @@
 @media (prefers-reduced-motion: reduce) {
   .held {
     animation: none;
-    outline: 2px solid var(--c-needs);
+    outline: 2px solid var(--c-warn);
     outline-offset: 1px;
   }
 }

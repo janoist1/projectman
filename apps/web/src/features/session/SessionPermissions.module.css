@@ -25,5 +25,5 @@
 .warning {
   margin: 0;
   font-size: 0.8125rem;
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }

@@ -134,27 +134,27 @@
 
 .danger {
   background: transparent;
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .danger:hover:not(:disabled) {
-  background: var(--c-needs-bg);
-  color: var(--c-needs-strong);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-strong);
 }
 
 .dangerSolid {
-  background: var(--c-needs-text);
+  background: var(--c-warn-text);
   color: var(--c-on-primary);
 }
 .dangerSolid:hover:not(:disabled) {
-  background: var(--c-needs-strong);
+  background: var(--c-warn-strong);
   color: var(--c-on-primary);
 }
 
 @media (prefers-color-scheme: dark) {
   .dangerSolid,
   .dangerSolid:hover:not(:disabled) {
-    color: var(--c-on-needs);
-    background: var(--c-needs);
+    color: var(--c-on-warn);
+    background: var(--c-warn);
   }
 }
 

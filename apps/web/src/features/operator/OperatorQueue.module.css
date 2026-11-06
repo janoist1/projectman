@@ -140,8 +140,8 @@
   margin: 0;
   padding: 8px 10px;
   border-radius: var(--radius-md);
-  background: var(--c-needs-bg);
-  color: var(--c-needs-strong);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-strong);
   font-size: var(--text-sm);
 }
 
@@ -282,7 +282,7 @@
 }
 
 .didHanded {
-  background: var(--c-needs-bg);
+  background: var(--c-warn-bg);
 }
 
 .didFailed {

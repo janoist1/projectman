@@ -46,8 +46,8 @@
 .alert {
   padding: 12px;
   border-radius: var(--radius-sm);
-  background: var(--c-needs-bg);
-  color: var(--c-needs-text);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
 }
 .actions {
   display: flex;

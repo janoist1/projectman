@@ -125,7 +125,7 @@
 .checkRow dd[data-state='blocked'],
 .checkRow dd[data-state='failed'],
 .checkRow dd[data-state='retest_needed'] {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .people {

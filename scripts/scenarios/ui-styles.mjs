@@ -3,8 +3,8 @@
  *
  *   npm run shots -- scripts/scenarios/ui-styles.mjs
  *
- * Screens: the board, an open card with a question, the "Rád vár" list, the Team page, a Settings page and the
- * Megjelenés picker. The style is the account's own setting (PUT /api/me/ui-style), exactly as a user would set it.
+ * Screens: the board, an open card with a question and its thread, the "Rád vár" list, the Team page, two Settings
+ * pages (engines, owners) and the Megjelenés picker. The style is the account's own setting (PUT /api/me/ui-style), exactly as a user would set it.
  */
 const QUESTION = 'Which colour should the basket button be?';
 
@@ -49,6 +49,7 @@ export default async ({ instance, open, shoot, step }) => {
     { name: 'waiting-list', path: '/p/AC/inbox', ready: `text=${QUESTION} >> visible=true`, inbox: true },
     { name: 'team', path: '/p/AC/team' },
     { name: 'settings', path: '/p/AC/settings/engines' },
+    { name: 'owners', path: '/p/AC/settings/owners' },
     { name: 'appearance', path: '/p/AC/settings/account', ready: '[role=radiogroup]' },
   ];
 

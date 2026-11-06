@@ -48,8 +48,10 @@ import {
   createWorkspaceDependencyInstaller,
   defaultHeavyLockDir,
   readHeavyRunSessions,
+  startPressureMeter,
   withGithubRuns,
 } from './full-test';
+import type { PressureReading } from './full-test';
 import { createCheckBranchGit, createKeepAwake, freeBytesOf, spawnKeepAwakeProcess } from './engine-host';
 import { nonLocalReason } from './kernel';
 import { assertHomeMayStart } from './instance';
@@ -102,6 +104,8 @@ export interface EngineAppModules {
     spawn?: Parameters<typeof createKeepAwake>[0]['spawn'];
     releaseDelayMs?: number;
   };
+  /** PM-1314: the memory-pressure reading written for the machine's pool; tests supply a fake. */
+  measurePressure?: () => Promise<PressureReading | null>;
 }
 
 export interface EngineAppOptions {
@@ -703,6 +707,12 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     status.set({ running: runningState(), work, keepAwake: keepAwake.state() });
   }, PENDING_INPUT_POLL_MS);
   poll.unref();
+  // The machine's memory pressure for the pool (PM-1314): the members' sandboxes cannot measure it.
+  const pressureMeter = startPressureMeter({
+    dir: heavyLockDir,
+    ...(modules.measurePressure ? { measure: modules.measurePressure } : {}),
+    onError: (err) => log.warn({ err }, 'the memory pressure cannot be measured'),
+  });
 
   // The CLIs' hooks (`/hooks/:token`) and the team tools (`/mcp/:token`), on the loopback listener only.
   runnerModule.registerHookRoutes(app);
@@ -841,6 +851,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       if (closed) return;
       closed = true;
       clearInterval(poll);
+      await pressureMeter.close();
       handlers.dispose();
       await workspaceDependencies?.close();
       // The sessions stop first so that their last events (exit, paused) are in what is sent.

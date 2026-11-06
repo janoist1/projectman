@@ -23,7 +23,8 @@ import {
   readHeavyQueue,
   readHeavyRunSessions,
 } from './heavy-lock';
-import type { HeavyLock, HeavyLockEntry } from './heavy-lock';
+import type { HeavyLock, HeavyLockEntry, HeavyWait } from './heavy-lock';
+import { writePressure } from './machine-pressure';
 import { waitFor } from '../../test/helpers/wait';
 
 const FIXTURE = fileURLToPath(new URL('../../test/fixtures/heavy-holder.ts', import.meta.url));
@@ -411,6 +412,27 @@ describe('the pool of places', () => {
     expect(waits[0]).toBe(1);
     await first.release();
     expect((await second).granted).toBe(2);
+  });
+
+  it('hands out nothing under a fresh critical memory pressure, and says so (PM-1314)', async () => {
+    await writePressure(dir, { level: 'critical', source: 'sysctl' });
+    const waits: HeavyWait[] = [];
+    const waiting = acquire('waiting', { ...some(1), onWait: (wait) => waits.push(wait) });
+    await waitFor(() => waits.length > 0, 'the wait notice');
+    expect(waits[0]).toMatchObject({ free: 4, pressure: 'critical' });
+    await writePressure(dir, { level: 'normal', source: 'sysctl' });
+    expect((await waiting).granted).toBe(1);
+  });
+
+  it.each([
+    [
+      'a stale critical reading',
+      () => writePressure(dir, { level: 'critical', source: 'psi' }, Date.now() - 31_000),
+    ],
+    ['no reading', async () => undefined],
+  ])('holds nothing back with %s', async (_name, prepare) => {
+    await prepare();
+    expect((await acquire('free', { ...some(1), maxWaitMs: 1_000 })).granted).toBe(1);
   });
 
   it('lets nobody overtake a request for all the places, however small', async () => {

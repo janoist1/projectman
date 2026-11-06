@@ -28,7 +28,11 @@ export function waitingLine(wait: HeavyWait & { waitedMs: number }): string {
   const holding = (holder: HeavyLockEntry): string =>
     `"${holder.label}" since ${clock(holder.since ?? holder.queuedAt)} (${holder.granted ?? wait.capacity} of ${wait.capacity} places)`;
   const who = wait.holders.length > 0 ? wait.holders.map(holding).join(', ') : 'someone';
-  return `heavy: waiting for the machine's heavy-run queue (${wait.free} of ${wait.capacity} places free): ${who}, ${wait.ahead} ahead of you (waited ${formatDuration(wait.waitedMs)})\n`;
+  const pressure =
+    wait.pressure === 'critical'
+      ? "heavy: the machine's memory pressure is critical: no places are handed out until it eases\n"
+      : '';
+  return `heavy: waiting for the machine's heavy-run queue (${wait.free} of ${wait.capacity} places free): ${who}, ${wait.ahead} ahead of you (waited ${formatDuration(wait.waitedMs)})\n${pressure}`;
 }
 
 /** The queue cannot be used, so the command did not run (owner's decision, PM-346). */

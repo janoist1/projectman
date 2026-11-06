@@ -1683,6 +1683,27 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
   The queue does not apply in GitHub mode (`FullTestSpec.githubActions`, PM-900): the machine does not run the tests.
   **Module:** `full-test`
+- **Memory pressure of the machine** — `full-test/machine-pressure.ts`, started by `engine-app.ts` (engine
+  mode) and `app.ts` (single mode, which is its own engine; not in cloud mode), read in
+  `full-test/heavy-lock.ts` (PM-1278 B1 / PM-1314). The places count only what starts through the pool;
+  a dev server, Docker, a hand-opened browser or the owner's own programs show up only in the machine's
+  memory pressure. The engine process measures it every 10 s: on macOS
+  `sysctl -n kern.memorystatus_vm_pressure_level` (1 normal, 2 warn, 4 critical), on Linux
+  `/proc/pressure/memory` (`full avg10 ≥ 5` critical, `some avg10 ≥ 10` warn); on any other system, or
+  when nothing can be read, there is no reading. A reading is written atomically (temporary file and
+  rename, mode 0600) to `pressure.json` in the pool's folder (`<heavyLockDir>/pressure.json`, by default
+  `/tmp/projectman-<uid>/heavy/pressure.json`) as `{ level, at, source }`; a round without a reading
+  writes nothing, so the file goes stale. The file exists because the members' sandboxes may not run
+  `sysctl`. The head of the queue reads it every round: while it is `critical` and at most 30 s old no
+  places are handed out, and the waiting line of the heavy CLI and the vitest places plugin says so
+  (`HeavyWait.pressure`); a stale, missing or broken file holds nothing back. Assumes the engine process
+  may run `sysctl` (macOS) or read PSI (Linux, kernel 4.20+ with PSI on; a container without it gets
+  no reading) and shares `/tmp` and the user id with the members' heavy runs. Two engines on one
+  machine (the live one and a dev instance) write the same file with the same kind of reading.
+  **Remote engine:** the measurement runs on the engine's machine and the file is in that machine's
+  pool folder; nothing crosses the server/engine boundary. Without an engine (CI, a lone developer)
+  there is no file and only the places count.
+  **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `start.ts` (`loggerOptions`)
   (PM-444), exposed through `logging/index.ts` to `start.ts` and
   `engine-link/engine-audit.ts` (PM-649). Every process logs pino's JSON lines to the terminal and, since PM-444, to

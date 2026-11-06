@@ -35,6 +35,12 @@ handover-check` asks for 2 to 4 once, through the heavy CLI, and its steps run u
   long it runs. After a sleep a live holder can be broken for a moment (two runs overlap); the holder notices
   at its next heartbeat and logs it once. `readHeavyQueue` shows who holds places and who waits, with the free
   places, for the PM-300 display; the wait line names the first holder and the number ahead.
+- **Memory pressure (PM-1278 B1 / PM-1314).** The places count only what goes through the pool. The engine
+  (and single mode) measures the machine's memory pressure every 10 s (`full-test/machine-pressure.ts`:
+  macOS `sysctl kern.memorystatus_vm_pressure_level`, Linux `/proc/pressure/memory`) and writes it atomically
+  to `pressure.json` in the pool's folder, since the sandboxes may not run `sysctl`. While a reading at most
+  30 s old is `critical`, the head hands out nothing and the wait line says so; a stale or missing file
+  holds nothing back, so without an engine only the places count.
 - **One command at a time per session.** The same `sessionId` and command (`heavyCommandKey`: the checkout and
   the argument list) with a live entry of another pid is refused: exit status 79 and a message that names the
   running one. Do not start it again, wait for the running one (a backgrounded run is not restarted). A run

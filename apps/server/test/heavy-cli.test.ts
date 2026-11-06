@@ -10,6 +10,7 @@ import { EXIT_ALREADY_RUNNING, EXIT_QUEUE_UNAVAILABLE, parseHeavyArgs } from '..
 import { guardWorkerParent } from '../../../scripts/lib/worker-parent-guard.mjs';
 import { acquireHeavyLock, heavyCommandKey, machineHost, readHeavyQueue } from '../src/full-test/heavy-lock';
 import type { HeavyLock } from '../src/full-test/heavy-lock';
+import { writePressure } from '../src/full-test/machine-pressure';
 import { waitFor } from './helpers/wait';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -253,6 +254,16 @@ describe('the heavy CLI', () => {
       /heavy: waiting for the machine's heavy-run queue \(0 of \d+ places free\): "the long test" since \d\d:\d\d:\d\d \(\d+ of \d+ places\), 0 ahead of you \(waited 0m00s\)\n/,
     );
     expect(ran.stderr).toMatch(/heavy: started after 0m0\ds\n/);
+  });
+
+  it("says it waits for the machine's critical memory pressure, and starts when it eases (PM-1314)", async () => {
+    await writePressure(dir, { level: 'critical', source: 'sysctl' });
+    const ran = await heavy(node('process.exit(0)'), {}, (stderr) => {
+      if (stderr.includes('memory pressure is critical'))
+        void writePressure(dir, { level: 'normal', source: 'sysctl' });
+    });
+    expect(ran.code).toBe(0);
+    expect(ran.stderr).toContain('memory pressure is critical');
   });
 
   it('exits with 79 at once when the same command of the session is already running', async () => {

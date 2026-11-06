@@ -403,6 +403,29 @@ describe('kinds', () => {
     },
   );
 
+  it('keeps the focus on the switch while the save runs and ignores another change meanwhile', async () => {
+    const project = renderPage();
+    const reachable = createMockFetch(project.backend, project.requests);
+    let finish: () => void = () => {};
+    setFetchImplementation(
+      (input, init) =>
+        new Promise<Response>((resolve) => {
+          if (init?.method !== 'PUT') return void resolve(reachable(String(input), init));
+          finish = () => resolve(reachable(String(input), init));
+        }),
+    );
+    const comment = await screen.findByRole('switch', { name: new RegExp(t('notifications.kinds.comment')) });
+    const mention = screen.getByRole('switch', { name: new RegExp(t('notifications.kinds.mention')) });
+    comment.focus();
+    fireEvent.click(comment);
+    await waitFor(() => expect(comment.getAttribute('aria-disabled')).toBe('true'));
+    expect(document.activeElement).toBe(comment);
+    fireEvent.click(mention);
+    finish();
+    expect(await screen.findByText(t('notifications.kinds.saved'))).toBeTruthy();
+    expect(project.backend.push.settings.categories).toMatchObject({ comment: false, mention: true });
+  });
+
   it('puts the switch back and says so when the save fails', async () => {
     const project = renderPage();
     const reachable = createMockFetch(project.backend, project.requests);

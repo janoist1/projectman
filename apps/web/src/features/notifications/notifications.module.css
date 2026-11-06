@@ -366,7 +366,8 @@
   transform: translateX(14px);
 }
 
-.switch:disabled {
+.switch:disabled,
+.switch[aria-disabled='true'] {
   opacity: 0.5;
   cursor: default;
 }

@@ -28,7 +28,8 @@ export function AuthGate() {
     if (accountLanguage) setCurrentLanguage(accountLanguage);
   }, [accountLanguage]);
 
-  const next = `${location.pathname}${location.search}`;
+  // The hash stays: a notification opens a card at one comment (#timeline-…).
+  const next = `${location.pathname}${location.search}${location.hash}`;
   if (setup.isPending) return <LoadingState className={styles.full} />;
   if (setup.isError)
     return <ErrorState className={styles.full} error={setup.error} onRetry={() => void setup.refetch()} />;

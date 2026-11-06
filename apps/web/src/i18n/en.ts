@@ -6496,7 +6496,7 @@ export const en = {
       loadFailed: 'Couldn’t load the ntfy setting.',
       unavailable: 'Notifications aren’t switched on on this instance, so ntfy doesn’t work either.',
       intro:
-        'If the browser notification doesn’t reach your phone, the ntfy app can alert you too. Only this goes out: “New item in For you” or “There’s a new comment or mention.”, and a link here. No title, project, card key or content.',
+        'If the browser notification doesn’t reach your phone, the ntfy app can alert you too. Only this goes out: “New item in For you” or “There’s a new comment or mention”, and a link here. No title, project, card key or content.',
       setUp: 'Set it up',
       setUpFailed: 'Couldn’t set it up. Try again.',
       created: 'Done. Add the topic below in the ntfy app.',
@@ -6558,7 +6558,7 @@ export const en = {
     },
     kinds: {
       title: 'What should we let you know about?',
-      hint: 'Applies to all your devices',
+      hint: 'Applies to all your devices and ntfy',
       question: 'Question',
       questionHint: 'A member asks you something.',
       decision: 'Decision',

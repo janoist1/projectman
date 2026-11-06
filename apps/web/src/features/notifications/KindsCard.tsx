@@ -33,6 +33,8 @@ export function KindsCard({ settings }: { settings: PushSettings }) {
   const save = useSavePushSettings();
 
   function change(id: keyof PushCategories, enabled: boolean) {
+    // While a save runs the switches only look inactive (aria-disabled): a disabled input would lose the focus.
+    if (save.isPending) return;
     save.mutate(
       { ...settings, categories: { ...settings.categories, [id]: enabled } },
       {
@@ -59,7 +61,7 @@ export function KindsCard({ settings }: { settings: PushSettings }) {
               role="switch"
               className={styles.switch}
               aria-describedby={`push-kind-${kind.id}-hint`}
-              disabled={save.isPending}
+              aria-disabled={save.isPending}
               checked={settings.categories[kind.id]}
               onChange={(event) => change(kind.id, event.target.checked)}
             />

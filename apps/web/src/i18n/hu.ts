@@ -1082,7 +1082,7 @@ export const hu = {
       loadFailed: 'Nem sikerült betölteni az ntfy-beállítást.',
       unavailable: 'Ezen a példányon az értesítés nincs bekapcsolva, ezért az ntfy sem működik.',
       intro:
-        'Ha a böngészős értesítés nem érkezik meg a telefonodra, az ntfy alkalmazás is jelezhet. Csak ennyi megy ki: „Új elem a Rád vár-ban” vagy „Új hozzászólás vagy említés vár.”, és egy hivatkozás ide. Cím, projekt, kártyakulcs és tartalom nem.',
+        'Ha a böngészős értesítés nem érkezik meg a telefonodra, az ntfy alkalmazás is jelezhet. Csak ennyi megy ki: „Új elem a Rád vár-ban” vagy „Új hozzászólás vagy említés vár”, és egy hivatkozás ide. Cím, projekt, kártyakulcs és tartalom nem.',
       setUp: 'Beállítom',
       setUpFailed: 'Nem sikerült beállítani. Próbáld újra.',
       created: 'Kész. Add hozzá az alábbi témát az ntfy alkalmazásban.',
@@ -1142,7 +1142,7 @@ export const hu = {
     },
     kinds: {
       title: 'Miről szóljunk?',
-      hint: 'Minden eszközödre érvényes',
+      hint: 'Minden eszközödre és az ntfy-ra érvényes',
       question: 'Kérdés',
       questionHint: 'Egy tag kérdez tőled valamit.',
       decision: 'Döntés',

@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { Route, Routes } from 'react-router';
+import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
@@ -121,6 +121,26 @@ describe('language before login', () => {
     expect(project.requests.some((r) => r.path === '/api/auth/language')).toBe(false);
   });
 });
+
+describe('return target after login', () => {
+  it('keeps the hash of the page, such as a comment anchor opened from a notification (PM-1271)', async () => {
+    const project = mockProject(new MockBackend('login'));
+    project.render(
+      <Routes>
+        <Route element={<AuthGate />}>
+          <Route index element={<p>inside</p>} />
+        </Route>
+        <Route path="/login" element={<LoginTarget />} />
+      </Routes>,
+      '/#timeline-evt_1',
+    );
+    expect((await screen.findByTestId('target')).textContent).toBe('/#timeline-evt_1');
+  });
+});
+
+function LoginTarget() {
+  return <p data-testid="target">{new URLSearchParams(useLocation().search).get('next')}</p>;
+}
 
 describe('language of the account', () => {
   it('wins over the one stored in the browser', async () => {

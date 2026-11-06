@@ -98,6 +98,17 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
     ],
     tests: ['apps/server/test/operator-*.test.ts'],
   },
+  {
+    reason:
+      'the migration tests build an old schema from the migration list; some import it through the db facade, not db/migrations (PM-1324)',
+    sources: ['apps/server/src/db/migrations.ts'],
+    tests: [
+      'apps/server/test/*-migration.test.ts',
+      'apps/server/test/db.test.ts',
+      'apps/server/test/history-index.test.ts',
+      'apps/server/test/hot-read-indexes.test.ts',
+    ],
+  },
 ];
 
 export interface HandoverSelection {

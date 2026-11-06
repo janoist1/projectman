@@ -2,8 +2,12 @@
 
 What building projectman with its own AI team taught us: the challenge, what we learned, and
 where it went. Newest first. The owner's decisions stay in [DECISIONS.md](DECISIONS.md); this
-file keeps the experience behind them, so that members and the Operator do not learn it twice.
-Anyone may propose a lesson; the Operator adds it.
+file keeps the experience behind them, so that members and the project manager do not learn it
+twice. Anyone may propose a lesson; the project manager adds it.
+
+## 2026-11-05: work that stops in silence
+
+**The owner found a stopped board in the morning.** On 2026-11-04 at 20:16 merges were stopped while GitHub Actions had an incident, and nobody told the owner. In the morning they did not understand why the work stood. _Lesson:_ when part of the work stops on purpose or for an outside reason (a pause, an outside service failing, a card waiting long), the project manager sends the owner one short info message: what stands, why, what it needs to go on, and whether the owner has to do anything (if not, say so). One message per situation, to Messages, not to the owner's inbox.
 
 ## 2026-10-25 – 2026-10-26: checks that only the merge ran
 

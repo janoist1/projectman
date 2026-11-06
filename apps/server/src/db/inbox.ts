@@ -69,6 +69,7 @@ const toItem = (r: InboxRow): InboxItem => ({
 export function createInboxRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM inbox_items WHERE id = ?'),
+    getMany: db.prepare('SELECT * FROM inbox_items WHERE id IN (SELECT value FROM json_each(?))'),
     insert: db.prepare(
       `INSERT INTO inbox_items (id, project_key, kind, assignees, source, session_id, task_key, title, body, payload,
          options, state, resolution, created_at, updated_at, route)
@@ -196,6 +197,13 @@ export function createInboxRepository(db: Db) {
      */
     onChange(listener: (item: InboxItem) => void): void {
       listeners.push(listener);
+    },
+    /** The items with these ids in one read: id → item, for those that exist. */
+    getMany(ids: readonly string[]): Map<string, InboxItem> {
+      if (ids.length === 0) return new Map();
+      return new Map(
+        (statements.getMany.all(JSON.stringify(ids)) as InboxRow[]).map((row) => [row.id, toItem(row)]),
+      );
     },
     groupOf(id: string): QuestionGroupRow | null {
       return groupsOf([id]).get(id) ?? null;

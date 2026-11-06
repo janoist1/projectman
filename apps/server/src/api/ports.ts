@@ -36,6 +36,7 @@ import type {
   OperatorPreferences,
   OperatorSignals,
   ProjectManagerChannels,
+  WorkQueues,
 } from '../services/coordination';
 
 export interface ApiDomain extends AuthDomain {
@@ -76,6 +77,7 @@ export interface ApiDomain extends AuthDomain {
   readonly pauses: PauseService;
   readonly profiles: MemberProfiles;
   readonly projectManagerChannels: ProjectManagerChannels;
+  readonly workQueues: WorkQueues;
   readonly projects: ProjectService;
   readonly providerKeys: ProviderKeys | null;
   readonly roles: RoleService;

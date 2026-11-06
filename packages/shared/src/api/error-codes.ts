@@ -305,6 +305,8 @@ export const ERROR_CODES = [
   // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
   // request of the owner; a tool it never calls.
   'operator_owner_only',
+  // The work queues (PM-1294): the viewer's access reads none of them, or not this one.
+  'work_queues_forbidden',
   // A connected Claude's step on a queue item (decision 66): the item is not open for the key's holder (403),
   // or its issuer has no machine access (409).
   'queue_item_not_yours',

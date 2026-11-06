@@ -1,4 +1,11 @@
-import type { AlertPayload, InboxItem, MemberHandle, ProjectConfig, SystemNotice } from '@projectman/shared';
+import type {
+  AlertPayload,
+  InboxItem,
+  IntegratorChannel,
+  MemberHandle,
+  ProjectConfig,
+  SystemNotice,
+} from '@projectman/shared';
 
 /**
  * Where an alert of the `owner_messages` class goes (PM-1250): a `system_notice` message to the recipients'
@@ -18,9 +25,24 @@ export interface AlertPmSignals {
   raise(projectKey: string, alert: Extract<AlertPayload, { alert: 'relation_check' | 'work_outage' }>): void;
 }
 
-/** Whether integrator work stays on its side: an owner has a live super key, so a connected client can work it (PM-1045). */
+/** A connected Claude as the work queues show it (PM-1294): a live super key of an owner, never its token. */
+interface IntegratorConnection {
+  ownerHandle: MemberHandle;
+  keyId: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  lastUsedChannel: IntegratorChannel | null;
+}
+
+/**
+ * Whether integrator work stays on its side: an owner has a live super key, so a connected client can work it
+ * (PM-1045). `connections` lists those keys and `onChange` hears of a key created or revoked (PM-1294); a port
+ * without them has no connection state to show.
+ */
 export interface IntegratorTodoAccess {
   available(config: ProjectConfig): boolean;
+  connections?(config: ProjectConfig): IntegratorConnection[];
+  onChange?(listener: () => void): () => void;
 }
 
 /** Records all original answers and their durable messages in one unit of work, before delivery. */

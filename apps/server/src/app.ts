@@ -526,6 +526,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       integratorTodoAccess: {
         available: (config) =>
           integratorSideAvailable(config, (email) => auth.hasActiveSuperKey(email, config.project.key)),
+        // The work queues show each owner's live connection and hear of a key created or revoked (PM-1294).
+        connections: (config) =>
+          config.team.members.flatMap((member) => {
+            if (member.kind !== 'human' || member.access !== 'owner' || !member.email) return [];
+            const key = auth.superKeyConnection(member.email, config.project.key);
+            return key
+              ? [
+                  {
+                    ownerHandle: member.handle,
+                    keyId: key.id,
+                    expiresAt: key.expiresAt,
+                    lastUsedAt: key.lastUsedAt,
+                    lastUsedChannel: key.lastUsedChannel,
+                  },
+                ]
+              : [];
+          }),
+        onChange: (listener) => auth.onIntegratorKeysChanged(listener),
       },
       appVersion: options.appVersion ?? 'dev',
       ...(options.appTag ? { appTag: options.appTag } : {}),

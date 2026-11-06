@@ -4,6 +4,7 @@ import {
   canSeeInboxItem,
   canSeeOperatorSessions,
   canSeeTeamMessage,
+  canSeeWorkQueue,
   isCoordinatorOnlySignal,
   visibleQuestionItem,
   visibleTimelineEvent,
@@ -69,7 +70,9 @@ export function visibleTaskDetail(
   messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): TaskDetail {
   const timeline = detail.timeline.map((event) => visibleTimelineEvent(viewer, event, messageParticipants));
-  const earlier = detail.earlierEvents?.map((event) => visibleTimelineEvent(viewer, event, messageParticipants));
+  const earlier = detail.earlierEvents?.map((event) =>
+    visibleTimelineEvent(viewer, event, messageParticipants),
+  );
   const sessions = detail.sessions.map((session) => visibleSession(viewer, session, messageParticipants));
   if (
     timeline.some((event, index) => event !== detail.timeline[index]) ||
@@ -100,7 +103,14 @@ export function canSeeProjectEvent(
   viewer: Viewer,
   event: ProjectEvent,
   isRestrictedSession?: (sessionId: string) => boolean,
+  isProjectManager?: (handle: string) => boolean,
 ): boolean {
+  // A queue change reaches those who may read that queue (PM-1294); without the manager check only the readers
+  // of every queue get it.
+  if (event.type === 'member_queue_changed')
+    return canSeeWorkQueue(viewer, { type: 'member', member: event.member }, isProjectManager);
+  // Who is connected is the connection state of the integrator queue, visible to whoever reads every queue.
+  if (event.type === 'integrator_connections_changed') return canSeeWorkQueue(viewer, { type: 'integrator' });
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
   if (event.type === 'project_checklist_changed')
     return viewer.access === 'owner' || viewer.access === 'admin';

@@ -112,14 +112,18 @@ export function createIntegratorKeyRepository(db: Db) {
           .get(id, at) as KeyRow | undefined,
       );
     },
-    /** Whether the user has a super key that is neither revoked nor expired at `at` (PM-1045). */
-    hasActiveSuper(userId: string, at: string): boolean {
-      return !!db
+    /**
+     * The user's super key that is neither revoked nor expired at `at` (PM-1045); null for none. There is at
+     * most one: creating a key revokes the previous one of its mode.
+     */
+    activeSuper(userId: string, at: string): IntegratorAccessKeyInfo | null {
+      const row = db
         .prepare(
-          `SELECT 1 FROM integrator_keys WHERE user_id = ? AND mode = 'super'
-           AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?) LIMIT 1`,
+          `SELECT * FROM integrator_keys WHERE user_id = ? AND mode = 'super'
+           AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?) ORDER BY rowid DESC LIMIT 1`,
         )
-        .get(userId, at);
+        .get(userId, at) as KeyRow | undefined;
+      return row ? accessInfo(row, at) : null;
     },
     /** When the key expires: null for none, undefined for an unknown key. */
     expiresAt(id: string): string | null | undefined {

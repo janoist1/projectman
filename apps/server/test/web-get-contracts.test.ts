@@ -15,6 +15,8 @@ import {
   TaskDetail,
   TeamMessagesView,
   TeamThreadsView,
+  WorkQueueDetail,
+  WorkQueuesView,
   routes,
 } from '@projectman/shared';
 import { createAppHarness, createProject, inject, setupOwner, type AppHarness } from './helpers/app-harness';
@@ -57,6 +59,9 @@ describe('web GET contracts and SQL budgets', () => {
     [routes.task('AR', 'AR-1'), TaskDetail, 45],
     [routes.inbox('AR'), InboxView, 85],
     [routes.projectManager('AR'), ProjectManagerCorner, 20],
+    [routes.workQueues('AR'), WorkQueuesView, 25],
+    [routes.workQueueMember('AR', 'dev-1'), WorkQueueDetail, 15],
+    [routes.workQueueIntegrator('AR'), WorkQueueDetail, 28],
     [routes.members('AR'), MemberView.array(), 20],
     [routes.memberProfile('AR', 'dev-1'), MemberProfile, 250],
     [routes.roles('AR'), RolesView, 10],

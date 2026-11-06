@@ -418,6 +418,7 @@ export const en = {
       project_manager_required:
         'Can’t be retired: this is the project’s only AI project manager. Hire another one first.',
       operator_owner_only: 'Only the owner of the project can ask the connected Claude for this.',
+      work_queues_forbidden: 'Your access can’t see the work queues, or this one.',
       queue_item_not_yours:
         'This queue item isn’t open for the key’s owner: it isn’t theirs, it is already closed, or it belongs to another project.',
       issuer_without_machine_access:

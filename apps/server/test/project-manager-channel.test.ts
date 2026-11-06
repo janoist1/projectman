@@ -39,7 +39,7 @@ async function harness(onLeave = false) {
   });
   return h;
 }
-const view = () => h.domain.projectManagerChannels.view('AR', 'owner');
+const view = () => h.domain.projectManagerChannels.view('AR', { access: 'owner', handle: 'owner' });
 
 describe('the permanent project manager channel', () => {
   it.each(['direct', 'admission'] as const)(
@@ -280,7 +280,9 @@ describe('the permanent project manager channel', () => {
     await harness();
     const { session } = await h.domain.sessions.ensureSession('AR', 'pm', { type: 'general', with: 'kata' });
     h.repos.sessions.update(session.id, { state: 'working' });
-    expect(await h.domain.projectManagerChannels.view('AR', 'kata')).toMatchObject({
+    expect(
+      await h.domain.projectManagerChannels.view('AR', { access: 'client', handle: 'kata' }),
+    ).toMatchObject({
       readOnly: true,
       state: 'working',
       sessionId: session.id,

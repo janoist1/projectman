@@ -112,7 +112,7 @@ interface ExternalToolsDeps {
   superOperations: SuperOperations;
   inbox: Pick<
     InboxService,
-    'get' | 'list' | 'resolve' | 'resolveIntegratorTodo' | 'resolveIntegratorFixLimit'
+    'get' | 'list' | 'integratorQueue' | 'resolve' | 'resolveIntegratorTodo' | 'resolveIntegratorFixLimit'
   >;
   history: Pick<HistoryService, 'search' | 'read'>;
   operatorKnowledge: Pick<

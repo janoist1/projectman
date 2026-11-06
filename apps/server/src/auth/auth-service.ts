@@ -9,6 +9,7 @@ import {
 } from '@projectman/shared';
 import type {
   CreateIntegratorAccessKeyRequest,
+  IntegratorAccessKeyInfo,
   IntegratorChannel,
   IntegratorKeyAuditQuery,
   UiLanguage,
@@ -103,13 +104,17 @@ export class AuthService {
    * an unknown email, and for a project another owner account created (`keyCoversProject`).
    */
   hasActiveSuperKey(email: string, projectKey: string): boolean {
+    return this.superKeyConnection(email, projectKey) !== null;
+  }
+
+  /**
+   * The live super key `hasActiveSuperKey` finds, as the work queues show the connection (PM-1294): its id, its
+   * expiry and its last use, never the token; null when there is none.
+   */
+  superKeyConnection(email: string, projectKey: string): IntegratorAccessKeyInfo | null {
     const user = this.repos.users.findByEmail(email.trim());
-    return (
-      !!user &&
-      this.keyHolderAllowed(user.id) &&
-      this.keyCoversProject(user.id, projectKey) &&
-      this.repos.integratorKeys.hasActiveSuper(user.id, this.now().toISOString())
-    );
+    if (!user || !this.keyHolderAllowed(user.id) || !this.keyCoversProject(user.id, projectKey)) return null;
+    return this.repos.integratorKeys.activeSuper(user.id, this.now().toISOString());
   }
 
   /**

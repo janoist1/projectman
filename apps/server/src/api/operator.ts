@@ -104,6 +104,6 @@ export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Api
         'operator_owner_only',
         "only a person's own login may see the project manager's conversation",
       );
-    return domain.projectManagerChannels.view(request.params.key, access.handle);
+    return domain.projectManagerChannels.view(request.params.key, access);
   });
 }

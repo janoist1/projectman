@@ -36,6 +36,7 @@ export * from './domain/card-measure';
 export * from './domain/actor-origin';
 export * from './domain/external-tool-origin';
 export * from './domain/event';
+export * from './domain/comments';
 export * from './domain/super-audit';
 export * from './domain/attachment';
 export * from './domain/document';

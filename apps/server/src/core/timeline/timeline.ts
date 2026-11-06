@@ -69,6 +69,21 @@ export class TimelineService {
     return this.ctx.repos.timeline.latestWork(projectKey, taskKey);
   }
 
+  /** All the notes of a card, oldest first (PM-1290). */
+  notesOfCard(projectKey: string, taskKey: string): TimelineEvent[] {
+    return this.ctx.repos.timeline.notesOfCard(projectKey, taskKey);
+  }
+
+  /** The note this author already submitted on the card with this client request id, or null (PM-1290). */
+  noteByClientRequest(
+    projectKey: string,
+    taskKey: string,
+    actor: Actor,
+    clientRequestId: string,
+  ): TimelineEvent | null {
+    return this.ctx.repos.timeline.noteByClientRequest(projectKey, taskKey, actor, clientRequestId);
+  }
+
   /** Most recent events, oldest first. */
   list(
     projectKey: string,

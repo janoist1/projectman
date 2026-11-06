@@ -15,20 +15,23 @@ import {
   routes,
   StartTaskRequest,
   taskCreateAccessOf,
+  TaskCommentsQuery,
   UpdateTaskRequest,
 } from '@projectman/shared';
 import type {
   BoardMoveResult,
   ClosedCardsMeasure,
   Task,
+  TaskCommentsPage,
   TaskDetail,
   TaskHandoffRecord,
+  TimelineEvent,
   UpdateTaskResponse,
 } from '@projectman/shared';
 import type { ApiDomain } from './ports';
 import { forbidden, notFound } from '../kernel';
 import type { ProjectAccess } from '../core/members';
-import { visibleTaskDetail } from '../core/projects';
+import { visibleTaskDetail, visibleTimelineEvent } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from '../http';
 
@@ -113,6 +116,23 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
     },
   );
 
+  /** The card's comments in threads, paged by top-level comments (PM-1290); every event passes the viewer's filter. */
+  app.get<TaskParams>(routes.taskComments(':key', ':taskKey'), async (request): Promise<TaskCommentsPage> => {
+    const { key, taskKey } = request.params;
+    const access = await requireAccess(domain, request, key);
+    const query = parseBody(TaskCommentsQuery, request.query);
+    const page = domain.tasks.commentThreads(key, taskKey, query);
+    const visible = (event: TimelineEvent) =>
+      visibleTimelineEvent(access, event, (id) => domain.messages.get(id));
+    return {
+      threads: page.threads.map(({ comment, replies }) => ({
+        comment: visible(comment),
+        replies: replies.map(visible),
+      })),
+      nextBefore: page.nextBefore,
+    };
+  });
+
   app.post<TaskParams>(routes.taskComments(':key', ':taskKey'), async (request, reply) => {
     const { key, taskKey } = request.params;
     // Every member but the read-only viewer comments (PM-985); the domain checks the author again.
@@ -120,8 +140,8 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
     if (!canCommentOnTask(access.access))
       throw forbidden('insufficient_access', 'read-only members cannot comment');
     // Imported comments (author and time from elsewhere) are owner-only; the domain enforces it.
-    const { text, ...imported } = parseBody(CreateTaskCommentRequest, request.body);
-    await domain.tasks.addNote(key, taskKey, text, actorOf(access), null, imported);
+    const { text, ...extra } = parseBody(CreateTaskCommentRequest, request.body);
+    await domain.tasks.addNote(key, taskKey, text, actorOf(access), null, extra);
     return reply.code(201).send(domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)));
   });
 

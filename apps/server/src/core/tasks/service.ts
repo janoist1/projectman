@@ -8,8 +8,9 @@ import type {
   AgentProvider,
   BoardMoveRequest,
   BoardMoveResult,
+  CommentThreadsPage,
   Stage,
-  CreateTaskCommentRequest,
+  TaskCommentsQuery,
   TimelineEvent,
   CancelTaskRequest,
   CreateTaskRequest,
@@ -104,7 +105,7 @@ import type {
 } from './moves';
 import { SUBTASK_PARENT_REFUSALS, TaskRelations } from './relations';
 import { requireStage, runEffects, TaskStore } from './store';
-import type { Effect, StartWaitingReader } from './store';
+import type { Effect, NoteExtra, StartWaitingReader } from './store';
 import { TaskThemes } from './themes';
 import type { ThemeView } from './themes';
 
@@ -158,6 +159,8 @@ interface TaskUpdate {
   removeLabels?: string[];
   /** A comment for the timeline; with a label change it is the labels' comment. */
   note?: string;
+  /** PM-1290: the note is a reply to this comment of the card (it then needs a note and no label change). */
+  replyTo?: string;
   stageId?: string;
   /** Relations to other cards (PM-192): removals first, then additions; all or nothing with the rest. */
   relations?: RelationsChange;
@@ -857,6 +860,9 @@ export class TaskService implements TaskSchedulingReader {
     let next = task;
     let handoffStart: HandoffStart | undefined;
     const labelsChanged = labelsChange(labels);
+    // A reply is a comment of its own: with a label change the note is that change's comment instead.
+    if (change.replyTo !== undefined && (!note || labelsChanged))
+      throw invalid('invalid_request', 'replyTo needs a note and cannot go with a label change');
     if (
       fields.length > 0 ||
       patch.assignee !== undefined ||
@@ -943,7 +949,17 @@ export class TaskService implements TaskSchedulingReader {
     if (relationPlan && relationPlan.steps.length > 0)
       next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects, added);
     this.announceRelations(task.projectKey, actor, added, effects);
-    if (note && !labelsChanged) this.store.recordNote(config, next, note, actor, sessionId, effects);
+    if (note && !labelsChanged)
+      this.store.recordNote(
+        config,
+        next,
+        note,
+        actor,
+        sessionId,
+        effects,
+        change.replyTo !== undefined ? 'comment' : 'process',
+        change.replyTo !== undefined ? { replyTo: change.replyTo } : {},
+      );
     if (!moving) return { task: next, handoffStart };
     const moved = this.moves.move(config, next, change.stageId!, actor, effects, {
       ...prepared,
@@ -1242,9 +1258,14 @@ export class TaskService implements TaskSchedulingReader {
     text: string,
     actor: Actor,
     sessionId: string | null = null,
-    imported: Pick<CreateTaskCommentRequest, 'importedAuthor' | 'importedAt'> = {},
+    extra: NoteExtra = {},
   ): Promise<TimelineEvent> {
-    return this.store.addNote(projectKey, taskKey, text, actor, sessionId, imported);
+    return this.store.addNote(projectKey, taskKey, text, actor, sessionId, extra);
+  }
+
+  /** One page of the card's comment threads (PM-1290), every reply with its comment. */
+  commentThreads(projectKey: string, taskKey: string, query: TaskCommentsQuery): CommentThreadsPage {
+    return this.store.commentThreads(projectKey, taskKey, query);
   }
 
   assign(

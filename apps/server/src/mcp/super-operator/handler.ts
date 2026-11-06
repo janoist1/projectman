@@ -410,6 +410,7 @@ export class ExternalTools implements ExternalToolsHandler {
         addLabels: args.addLabels,
         removeLabels: args.removeLabels,
         note: args.note,
+        ...(args.replyTo ? { replyTo: args.replyTo } : {}),
         stageId: args.stageId,
       },
       ctx.actor,

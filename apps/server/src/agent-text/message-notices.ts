@@ -1,5 +1,48 @@
-import { stageOf } from '@projectman/shared';
-import type { ProjectConfig, QuestionCloseRule, SessionStartCause } from '@projectman/shared';
+import { isCardComment, messageTextWithAttachments, stageOf } from '@projectman/shared';
+import type {
+  ProjectConfig,
+  QuestionCloseRule,
+  SessionStartCause,
+  TeamMessage,
+  TimelineEvent,
+} from '@projectman/shared';
+
+/**
+ * The line before the text of a mention notice whose origin is a comment on the card (PM-1290): it says
+ * what the text is, its event id, where the answer goes and who reads it. A mention in a note that is
+ * not a comment (an AI's process note) gets no such line.
+ */
+function commentMentionFrame(taskKey: string | null, eventId: string): string {
+  const card = taskKey ? ` on ${taskKey}` : ' on a card';
+  return (
+    `[Comment${card}, event_id: ${eventId}. To answer it, call update_task with note and reply_to "${eventId}": ` +
+    'the reply lands in the comment thread, which every reader of the card sees, a client too. ' +
+    'Do not send a separate acknowledgement.]'
+  );
+}
+
+/**
+ * The comment frame of a message, or null: only the mention notice of a comment of the card has one.
+ * `findEvent` reads the timeline event the message names as its origin.
+ */
+export function commentFrameOf(
+  message: Pick<TeamMessage, 'origin' | 'taskKey'>,
+  findEvent: (eventId: string) => Pick<TimelineEvent, 'type' | 'data' | 'actor'> | null,
+): string | null {
+  const eventId = message.origin?.kind === 'note' ? message.origin.eventId : null;
+  const event = eventId ? findEvent(eventId) : null;
+  return eventId && event && isCardComment(event) ? commentMentionFrame(message.taskKey, eventId) : null;
+}
+
+/** What a recipient reads of a message: its text and files, with the comment frame above them when it has one. */
+export function messageTextWithCommentFrame(
+  message: Pick<TeamMessage, 'body' | 'attachments' | 'from' | 'email' | 'origin' | 'taskKey'>,
+  findEvent: (eventId: string) => Pick<TimelineEvent, 'type' | 'data' | 'actor'> | null,
+): string {
+  const text = messageTextWithAttachments(message);
+  const frame = commentFrameOf(message, findEvent);
+  return frame ? `${frame}\n${text}` : text;
+}
 
 /** How much of a question and of its answer the notice to the card's other workers carries. */
 export const QUESTION_NOTICE_LIMIT = 200;

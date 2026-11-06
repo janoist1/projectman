@@ -143,6 +143,8 @@ export const ERROR_CODES = [
   'unknown_column',
   'task_not_cancelled',
   'task_session_live',
+  // A reply (PM-1290) must answer a comment of the same card.
+  'reply_target_invalid',
   'priority_humans_only',
   'subtask_self_parent',
   'subtask_parent_not_found',

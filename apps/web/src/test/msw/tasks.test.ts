@@ -83,4 +83,47 @@ describe('task mock contracts', () => {
     onTaskComment('AC-20', backend.taskDetail(backend.findTask('AC-20')!));
     expect((await send(backend, '/comments', 'POST', { text: 'Note' })).status).toBe(201);
   });
+
+  describe('comment threads (PM-1290)', () => {
+    const lastNote = (backend: MockBackend) =>
+      backend.timeline.filter((event) => event.taskKey === 'AC-20' && event.type === 'task_note').at(-1)!;
+    const threads = async (backend: MockBackend, query = '') =>
+      (await createMockFetch(backend)(`${path}/comments${query}`)).json();
+
+    it('keeps a reply to a reply on the parent and refuses a target that is no comment', async () => {
+      const backend = new MockBackend();
+      await send(backend, '/comments', 'POST', { text: 'Question' });
+      const top = lastNote(backend);
+      await send(backend, '/comments', 'POST', { text: 'Answer', replyTo: top.id });
+      const reply = lastNote(backend);
+      await send(backend, '/comments', 'POST', { text: 'Follow-up', replyTo: reply.id });
+      expect(lastNote(backend).data).toMatchObject({ comment: true, replyTo: top.id });
+      const processNote = backend.addTimeline('AC-20', 'be-1', 'task_note', {
+        text: 'Process',
+        comment: false,
+      });
+      for (const replyTo of ['evt_missing', processNote.id]) {
+        const response = await send(backend, '/comments', 'POST', { text: 'No', replyTo });
+        expect(response.status).toBe(400);
+        expect((await response.json()).error.code).toBe('reply_target_invalid');
+      }
+    });
+
+    it('adds a repeated clientRequestId once and pages the comments without process notes', async () => {
+      const backend = new MockBackend();
+      const clientRequestId = '6f1c2d4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f';
+      await send(backend, '/comments', 'POST', { text: 'Once', clientRequestId });
+      await send(backend, '/comments', 'POST', { text: 'Once', clientRequestId });
+      await send(backend, '/comments', 'POST', { text: 'Second' });
+      const page = await threads(backend, '?limit=1');
+      expect(
+        page.threads.map((thread: { comment: { data: { text: string } } }) => thread.comment.data.text),
+      ).toEqual(['Second']);
+      const older = await threads(backend, `?limit=5&before=${page.nextBefore}`);
+      expect(
+        older.threads.map((thread: { comment: { data: { text: string } } }) => thread.comment.data.text),
+      ).toEqual(['Once']);
+      expect(older.nextBefore).toBeNull();
+    });
+  });
 });

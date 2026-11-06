@@ -405,6 +405,7 @@ export class TeamToolsService implements TeamToolsHandler {
       addLabels?: string[];
       removeLabels?: string[];
       note?: string;
+      replyTo?: string;
       title?: string;
       description?: string;
       repo?: string | null;

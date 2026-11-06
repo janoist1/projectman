@@ -675,6 +675,7 @@ describe('team tools', () => {
         { add_labels: ['code-review-ok'], note: 'No findings.', stage_id: 'qa' },
         { stageId: 'qa', addLabels: ['code-review-ok'], note: 'No findings.' },
       ],
+      ['reply to a comment', { note: 'Done.', reply_to: 'evt_1' }, { note: 'Done.', replyTo: 'evt_1' }],
     ];
     for (const [label, args, expected] of cases) {
       const result = await call(client, 'update_task', { task_key: 'AR-21', ...args });

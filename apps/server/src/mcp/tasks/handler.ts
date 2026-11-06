@@ -133,6 +133,7 @@ export class TaskTools implements TaskToolsHandler {
       addLabels?: string[];
       removeLabels?: string[];
       note?: string;
+      replyTo?: string;
       title?: string;
       description?: string;
       repo?: string | null;
@@ -338,6 +339,7 @@ export class TaskTools implements TaskToolsHandler {
           addLabels: args.addLabels,
           removeLabels: args.removeLabels,
           note: args.note,
+          ...(args.replyTo ? { replyTo: args.replyTo } : {}),
           stageId: args.stageId,
         },
         aiActor(ctx.member),

@@ -317,7 +317,7 @@ export class ComputeJobService {
         taskKey: row.taskKey,
         actor: SYSTEM_ACTOR,
         type: 'task_note',
-        data: { text: endNote(row), mentions: [] },
+        data: { text: endNote(row), mentions: [], comment: false },
       });
     }
   }

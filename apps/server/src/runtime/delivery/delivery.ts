@@ -11,6 +11,7 @@ import {
 } from '@projectman/shared';
 import type { Session, Task, TeamMessage, WorkItemRef } from '@projectman/shared';
 import { Cause, Data, Effect, Exit, FiberMap, Scope } from 'effect';
+import { commentFrameOf, messageTextWithCommentFrame } from '../../agent-text';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../../core/base';
 import { runPromise } from '../../kernel';
@@ -140,6 +141,14 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
   Effect.gen(function* () {
     const { ctx, sessions, projects, messages } = deps;
     const scope = yield* Effect.scope;
+    /** The timeline event a message names as its origin (the comment a mention notice is about). */
+    const findEventOf = (message: TeamMessage) => (eventId: string) =>
+      ctx.repos.timeline.get(message.projectKey, eventId);
+    /** The text of a message in a batch: the comment frame (PM-1290) above it, when it has one. */
+    const framedBody = (message: TeamMessage): string => {
+      const frame = commentFrameOf(message, findEventOf(message));
+      return frame ? `${frame}\n${message.body}` : message.body;
+    };
     /** The pending retry of each session (PM-571): a fiber asleep until the next attempt. */
     const retryTimers = yield* FiberMap.make<string>();
     /** Retries started for a session since typing last worked (`retryLater`). */
@@ -305,7 +314,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
                 ? neutralizeMessageHeaders(messageTextWithAttachments(message))
                 : formatInjectedTeamMessage(
                     message.from,
-                    messageTextWithAttachments(message),
+                    messageTextWithCommentFrame(message, findEventOf(message)),
                     message.taskKey,
                     message.via,
                     message.actor,
@@ -405,7 +414,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
           via: m.via,
           actor: m.actor,
           taskKey: m.taskKey,
-          body: m.body,
+          body: framedBody(m),
           attachments: m.attachments,
           email: m.email,
           location: m.location,
@@ -611,7 +620,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
           keep(session, {
             text: formatInjectedTeamMessage(
               message.from,
-              messageTextWithAttachments(message),
+              messageTextWithCommentFrame(message, findEventOf(message)),
               message.taskKey,
               undefined,
               undefined,

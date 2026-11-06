@@ -118,6 +118,7 @@ export const routes = {
   /** GET: a closed handoff of the card with its note or summary (`TaskHandoffRecord`, PM-342). */
   taskHandoff: (key: string, taskKey: string, id: string) =>
     `/api/projects/${key}/tasks/${taskKey}/handoffs/${id}`,
+  /** POST (`CreateTaskCommentRequest` -> `TaskDetail`) adds a comment; GET (`TaskCommentsQuery` -> `TaskCommentsPage`) lists them (PM-1290). */
   taskComments: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/comments`,
   taskLabels: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/labels`,
   startTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/start`,

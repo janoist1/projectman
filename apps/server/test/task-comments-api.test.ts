@@ -51,6 +51,8 @@ describe('task comments API', () => {
     await flush();
     expect(h.runner.lastStarted().initialMessage).toContain('[team message from owner about AR-1]');
     expect(h.runner.lastStarted().initialMessage).toContain(text);
+    // The mention of a comment tells the reader how to answer it (PM-1290).
+    expect(h.runner.lastStarted().initialMessage).toContain('reply_to');
     expect(h.runner.messages).toEqual([]);
   });
 
@@ -89,6 +91,8 @@ describe('task comments API', () => {
     });
     // The reviewer starts for it and takes the whole message in its first input.
     expect(h.runner.started.find((spec) => spec.member === 'cr')?.initialMessage).toContain(text);
+    // An AI's process note is no comment: its mention carries no reply instruction.
+    expect(h.runner.started.find((spec) => spec.member === 'cr')?.initialMessage).not.toContain('reply_to');
   });
 
   /** Robin's access, and the project's contacts, as the owner sets them. */
@@ -212,5 +216,147 @@ describe('task comments API', () => {
     expect((await comment({ text: 'No one mentioned' })).statusCode).toBe(201);
     expect((await comment({ text: 'History', importedAuthor: 'Morgan' })).statusCode).toBe(201);
     expect(raised).toEqual([{ mentions: [], taskKey: 'AR-1' }]);
+  });
+
+  describe('threads (PM-1290)', () => {
+    const notes = () =>
+      h.app.projectman.domain.timeline.list('AR').filter((event) => event.type === 'task_note');
+    /** Posts a comment and returns the id of the note it recorded. */
+    const post = async (body: Record<string, unknown>, cookie = owner) => {
+      const response = await comment(body, cookie);
+      expect(response.statusCode).toBe(201);
+      return notes().at(-1)!.id;
+    };
+    const page = (query = '', cookie = owner) =>
+      h.app.inject({
+        method: 'GET',
+        url: `${routes.taskComments('AR', 'AR-1')}${query}`,
+        headers: { cookie },
+      });
+
+    it('marks a posted comment and keeps a process note out of the comment list', async () => {
+      const { domain } = h.app.projectman;
+      const { session } = await domain.sessions.ensureSession('AR', 'dev-1', {
+        type: 'task',
+        taskKey: 'AR-1',
+      });
+      const ctx = { projectKey: 'AR', taskKey: 'AR-1', member: 'dev-1', sessionId: session.id };
+      await domain.teamTools.updateTask(ctx, { taskKey: 'AR-1', note: 'Working on it' });
+      const top = await post({ text: 'Question' });
+      expect(notes()[0]).toMatchObject({ data: { comment: false } });
+      expect(notes()[1]).toMatchObject({ data: { comment: true } });
+      const body = (await page()).json();
+      expect(body.threads.map((thread: { comment: { id: string } }) => thread.comment.id)).toEqual([top]);
+    });
+
+    it('lands a reply to a reply on the parent comment', async () => {
+      const top = await post({ text: 'Question' });
+      const reply = await post({ text: 'Answer', replyTo: top });
+      const deeper = await post({ text: 'Follow-up', replyTo: reply });
+      expect(notes().find((event) => event.id === reply)?.data).toMatchObject({
+        comment: true,
+        replyTo: top,
+      });
+      expect(notes().find((event) => event.id === deeper)?.data).toMatchObject({ replyTo: top });
+      const [thread] = (await page()).json().threads;
+      expect(thread.replies.map((event: { id: string }) => event.id)).toEqual([reply, deeper]);
+    });
+
+    it('lets an AI member reply through update_task and records a comment', async () => {
+      const { domain } = h.app.projectman;
+      const top = await post({ text: 'Question' });
+      const { session } = await domain.sessions.ensureSession('AR', 'dev-1', {
+        type: 'task',
+        taskKey: 'AR-1',
+      });
+      await domain.teamTools.updateTask(
+        { projectKey: 'AR', taskKey: 'AR-1', member: 'dev-1', sessionId: session.id },
+        { taskKey: 'AR-1', note: 'Done', replyTo: top },
+      );
+      expect(notes().at(-1)).toMatchObject({
+        actor: { kind: 'ai', handle: 'dev-1' },
+        data: { comment: true, replyTo: top },
+      });
+    });
+
+    it('refuses a reply to a process note, to another card and to nothing', async () => {
+      const { domain } = h.app.projectman;
+      await domain.tasks.create('AR', { title: 'Other card' }, OWNER_ACTOR);
+      const other = await comment({ text: 'Elsewhere' }, owner, 'AR-2');
+      expect(other.statusCode).toBe(201);
+      const otherId = notes().at(-1)!.id;
+      const { session } = await domain.sessions.ensureSession('AR', 'dev-1', {
+        type: 'task',
+        taskKey: 'AR-1',
+      });
+      await domain.teamTools.updateTask(
+        { projectKey: 'AR', taskKey: 'AR-1', member: 'dev-1', sessionId: session.id },
+        { taskKey: 'AR-1', note: 'Process' },
+      );
+      const processId = notes().at(-1)!.id;
+      for (const replyTo of [processId, otherId, 'evt_missing']) {
+        const response = await comment({ text: 'Answer', replyTo });
+        expect(response.statusCode).toBe(400);
+        expect(response.json().error.code).toBe('reply_target_invalid');
+      }
+    });
+
+    it('imports a reply only for owners and wakes nobody', async () => {
+      const top = await post({ text: 'Question' });
+      const body = { text: '@robin @cr old answer', replyTo: top, importedAuthor: 'Morgan' };
+      expect((await comment(body, developer)).statusCode).toBe(403);
+      await post(body);
+      await flush();
+      expect(h.app.projectman.domain.messages.list('AR')).toHaveLength(0);
+      expect(h.runner.started).toHaveLength(0);
+    });
+
+    it('records a repeated clientRequestId of the same author once', async () => {
+      const clientRequestId = '6f1c2d4e-8a3b-4c5d-9e7f-0a1b2c3d4e5f';
+      const raised: string[] = [];
+      h.app.projectman.domain.ctx.events.on('task_note_added', (note) => {
+        raised.push(note.event.id);
+      });
+      const first = await post({ text: 'Once', clientRequestId });
+      const again = await comment({ text: 'Once', clientRequestId });
+      expect(again.statusCode).toBe(201);
+      expect(notes()).toHaveLength(1);
+      expect(notes()[0]!.id).toBe(first);
+      // The repeat returns before the append: no second note event and no second mention notice.
+      expect(raised).toEqual([first]);
+      // Another author with the same id is a different submission.
+      await post({ text: 'Once', clientRequestId }, developer);
+      expect(notes()).toHaveLength(2);
+    });
+
+    it('pages by top-level comment on a card of more than 100 events with no orphaned reply', async () => {
+      const tops: string[] = [];
+      for (let index = 0; index < 40; index += 1) {
+        const top = await post({ text: `Comment ${index}` });
+        await post({ text: `Reply ${index}a`, replyTo: top });
+        await post({ text: `Reply ${index}b`, replyTo: top });
+        tops.push(top);
+      }
+      expect(h.app.projectman.domain.timeline.list('AR').length).toBeGreaterThan(100);
+      const newest = (await page('?limit=15')).json();
+      expect(newest.threads.map((thread: { comment: { id: string } }) => thread.comment.id)).toEqual(
+        tops.slice(25),
+      );
+      expect(newest.threads.every((thread: { replies: unknown[] }) => thread.replies.length === 2)).toBe(
+        true,
+      );
+      expect(newest.nextBefore).toBe(tops[25]);
+      const older = (await page(`?limit=15&before=${newest.nextBefore}`)).json();
+      expect(older.threads.map((thread: { comment: { id: string } }) => thread.comment.id)).toEqual(
+        tops.slice(10, 25),
+      );
+      const reply = notes().find((event) => event.data.replyTo === tops[3])!;
+      const around = (await page(`?limit=5&around=${reply.id}`)).json();
+      expect(around.threads.map((thread: { comment: { id: string } }) => thread.comment.id)).toEqual(
+        tops.slice(1, 6),
+      );
+      expect((await page('?before=evt_missing')).statusCode).toBe(404);
+      expect((await page('?limit=51')).statusCode).toBe(400);
+    });
   });
 });

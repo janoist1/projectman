@@ -20,8 +20,8 @@
   gap: 6px;
   padding: 10px 12px;
   border-radius: var(--radius-md);
-  background: var(--c-needs-soft);
-  border: 1px solid var(--c-needs-border);
+  background: var(--c-warn-soft);
+  border: 1px solid var(--c-warn-border);
   min-width: 0;
 }
 
@@ -30,7 +30,7 @@
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .todoText {
@@ -64,7 +64,7 @@
   padding: 8px 10px;
   border-radius: var(--radius-md);
   background: var(--c-surface);
-  border: 1px solid var(--c-needs-code-border);
+  border: 1px solid var(--c-warn-code-border);
   font-size: 12.5px;
   white-space: nowrap;
   overflow-x: auto;
@@ -158,7 +158,7 @@
 .checkResult {
   font-size: var(--text-sm);
   font-weight: 700;
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 @media (max-width: 640px) {

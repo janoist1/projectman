@@ -55,6 +55,7 @@
   height: 12px;
   border-radius: 50%;
   background: var(--status-dot);
+  box-shadow: var(--mark-ring);
   border: 2px solid var(--avatar-ring, var(--c-surface));
   box-sizing: border-box;
 }

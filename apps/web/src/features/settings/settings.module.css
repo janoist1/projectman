@@ -402,7 +402,7 @@ details[open] > .foldSummary .chevron {
 
 /* A help line that says something is off: nobody holds the duty it relies on. */
 .warning {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
   font-weight: 700;
 }
 

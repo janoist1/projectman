@@ -50,8 +50,8 @@
   margin: 0;
   padding: 8px 14px;
   border-radius: var(--radius-lg);
-  background: var(--c-needs-bg);
-  color: var(--c-needs-text);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
   font-size: var(--text-sm);
 }
 /* A card waits for this member's place (PM-297): quiet, the way the leave note is, in the neutral tone. */

@@ -11,6 +11,7 @@ export type ChipTone =
   | 'accent'
   | 'operator'
   | 'needs'
+  | 'warn'
   | 'ok'
   | 'blocked'
   | 'kind'

@@ -4,6 +4,7 @@ import { useProject } from '../../../app/contexts';
 import { Button } from '../../../components/Button';
 import { t } from '../../../i18n/t';
 import shared from '../settings.module.css';
+import { AppearancePicker } from './AppearancePicker';
 import { SettingsSection } from './SettingsSection';
 
 /** The signed-in user's account and handle here, with log out. */
@@ -31,6 +32,7 @@ export function AccountSection() {
           </div>
         ) : null}
       </dl>
+      <AppearancePicker />
       <Button
         variant="secondary"
         icon="logout"

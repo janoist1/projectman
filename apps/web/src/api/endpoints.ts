@@ -136,6 +136,7 @@ import type {
   RevertConfigRequest,
   SendMessageRequest,
   SetLanguageRequest,
+  SetUiStyleRequest,
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
@@ -255,6 +256,8 @@ export const api = {
   me: () => apiRequest(routes.me(), { schema: Me }),
   setLanguage: (body: SetLanguageRequest) =>
     apiRequest(routes.myLanguage(), { method: 'PUT', body, schema: Me }),
+  setUiStyle: (body: SetUiStyleRequest) =>
+    apiRequest(routes.meUiStyle(), { method: 'PUT', body, schema: Me }),
 
   invitations: (key: string) => apiRequest(routes.invitations(key), { schema: InvitationsView }),
   createInvite: (key: string, body: CreateInviteRequest) =>

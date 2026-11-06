@@ -96,7 +96,7 @@
 
 .heroNeeds .heroIcon {
   background: var(--c-needs-bg);
-  color: var(--c-needs);
+  color: var(--c-needs-mark);
 }
 
 .heroBody {
@@ -281,11 +281,11 @@
 }
 
 .toneExp {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .toneExp .dot {
-  background: var(--c-needs);
+  background: var(--c-warn);
 }
 
 .why {

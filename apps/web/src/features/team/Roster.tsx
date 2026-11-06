@@ -112,7 +112,7 @@ function MemberIdentity({
               ) : null}
             </>
           ) : null}
-          {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
+          {member.temp ? <Chip tone="warn">{t('team.temp')}</Chip> : null}
           {isContact ? <Chip>{t('team.contactChip')}</Chip> : null}
           {required && !compact ? (
             <Chip tone="accent" title={t('pm.required.title')}>

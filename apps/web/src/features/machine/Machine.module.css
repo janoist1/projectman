@@ -17,9 +17,9 @@
 }
 .indicator[data-level='high'],
 .tile[data-level='high'] {
-  background: var(--c-needs-soft);
-  border-color: var(--c-needs-border);
-  color: var(--c-needs-text);
+  background: var(--c-warn-soft);
+  border-color: var(--c-warn-border);
+  color: var(--c-warn-text);
 }
 .indicator[data-level='critical'],
 .tile[data-level='critical'] {
@@ -71,8 +71,8 @@
   color: var(--c-ink-3);
 }
 .pill[data-level='high'] {
-  background: var(--c-needs-soft);
-  color: var(--c-needs-text);
+  background: var(--c-warn-soft);
+  color: var(--c-warn-text);
 }
 .pill[data-level='critical'] {
   background: var(--c-blocked-bg);
@@ -126,7 +126,7 @@
   color: var(--c-ink-4);
 }
 .late {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .tiles {
   display: grid;
@@ -309,7 +309,7 @@
 }
 .state i[data-state='waiting_input'],
 .state i[data-state='waiting_permission'] {
-  background: var(--c-needs);
+  background: var(--c-warn);
 }
 .details {
   background: var(--c-subtle);
@@ -596,7 +596,7 @@
   }
   .subline i[data-state='waiting_input'],
   .subline i[data-state='waiting_permission'] {
-    background: var(--c-needs);
+    background: var(--c-warn);
   }
   .subline .work,
   .origin {

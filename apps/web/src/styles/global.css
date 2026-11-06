@@ -1,5 +1,6 @@
 @import './tokens.css';
 @import './tones.css';
+@import './win311.css';
 
 *,
 *::before,
@@ -128,10 +129,11 @@ kbd {
   }
 }
 
+/* The Win 3.11 style (PM-363) has no fades: it sets --fade-from to 1 and --fade-offset to 0. */
 @keyframes pm-fade-in {
   from {
-    opacity: 0;
-    transform: translateY(4px);
+    opacity: var(--fade-from, 0);
+    transform: translateY(var(--fade-offset, 4px));
   }
   to {
     opacity: 1;

@@ -116,8 +116,8 @@
 .warn {
   padding: 10px 12px;
   border-radius: var(--radius-lg);
-  background: var(--c-needs-soft);
-  color: var(--c-needs-text);
+  background: var(--c-warn-soft);
+  color: var(--c-warn-text);
   font-size: 13px;
 }
 .actions {
@@ -155,8 +155,8 @@
   background: var(--c-ok-bg);
 }
 .live[data-state='error'] {
-  background: var(--c-needs-soft);
-  color: var(--c-needs-text);
+  background: var(--c-warn-soft);
+  color: var(--c-warn-text);
 }
 .liveDot {
   flex-shrink: 0;
@@ -173,7 +173,7 @@
   background: var(--c-ok);
 }
 .live[data-state='error'] .liveDot {
-  background: var(--c-needs);
+  background: var(--c-warn);
 }
 @keyframes pulse {
   0%,
@@ -220,7 +220,7 @@
   font-size: 13px;
 }
 .providerState[data-tone='needs'] {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .providerTodo {
   flex-basis: 100%;

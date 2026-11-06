@@ -40,6 +40,9 @@
   gap: 12px;
   padding: 18px 20px 14px;
   border-bottom: 1px solid var(--c-line-soft);
+  /* A dialog is the active window: its head is the active title bar (neutral in the classic style). */
+  background: var(--c-titlebar-active-bg);
+  color: var(--c-titlebar-active-fg);
 }
 
 .titles {
@@ -63,7 +66,7 @@
 .kicker {
   flex: 1;
   min-width: 0;
-  color: var(--c-ink-3);
+  color: var(--c-titlebar-active-fg-soft);
   font-size: 12.5px;
 }
 .detailHeader .title {
@@ -83,7 +86,7 @@
 
 .description {
   font-size: 13.5px;
-  color: var(--c-ink-3);
+  color: var(--c-titlebar-active-fg-soft);
   line-height: 1.45;
 }
 

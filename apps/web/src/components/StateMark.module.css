@@ -10,6 +10,7 @@
 
 .needs_you {
   border-radius: 50%;
+  box-shadow: var(--mark-ring);
 }
 
 .working {

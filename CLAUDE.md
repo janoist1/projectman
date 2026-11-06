@@ -174,8 +174,8 @@ selects the nearest tests of your diff in every workspace (a shared schema, the 
 other path-reading tests and the tool snapshot included; at most 60 files, and it says how many
 the merge-test runs on top), runs them with the type check of the affected workspaces and
 `dead-code`, and does not queue. Fix new `dead-code` findings rather than extending the baseline.
-It does not replace the merge-test. A test that reads the repository by path goes into
-`PATH_READ_TESTS` (`scripts/merge-test/handover.ts`) and a file that starts programs into
+It does not replace the merge-test. A test that no import reaches (it reads the repository by path, or
+uses the code over HTTP) gets a rule in `SELECTION_RULES` (`scripts/merge-test/handover.ts`) and a file that starts programs into
 `RUNTIME_ENTRIES`, not into a new line of this list. They never run the full suite. The merger (`team.merger`,
 `lead` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
 before `main` moves: `npm run merge-test`, in the sandbox of the card's engine or on GitHub

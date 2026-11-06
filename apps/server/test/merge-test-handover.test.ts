@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { TARGETED_TEST_FILES_MAX } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { handoverSelection, PATH_READ_TESTS } from '../../../scripts/merge-test/handover';
+import { handoverSelection, matchesPattern, SELECTION_RULES } from '../../../scripts/merge-test/handover';
 import { runHandoverCheck } from '../../../scripts/merge-test/handover-run';
 import type { MergeTestFile } from '../../../scripts/merge-test/impact';
 import type { StepRun } from '../../../scripts/merge-test/steps';
@@ -130,29 +130,85 @@ describe('handover selection', () => {
   });
 });
 
-describe('path-read tests', () => {
+describe('selection rules', () => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   const tracked = execFileSync('git', ['ls-files', 'apps', 'packages'], { cwd: root, encoding: 'utf8' })
     .split('\n')
     .filter((path) => /\.test\.tsx?$/.test(path));
-  const listed = (path: string) =>
-    PATH_READ_TESTS.some(({ test }) => (test.endsWith('/') ? path.startsWith(test) : path === test));
+  const listed = (path: string) => SELECTION_RULES.some(({ tests }) => matchesPattern(path, tests));
+  const operatorTree = [
+    file('apps/server/src/services/coordination/requests.ts', 'export const r = 1;'),
+    file('apps/server/test/operator-knowledge.test.ts'),
+    file('apps/server/test/operator-signals.test.ts'),
+    file('apps/server/test/operator-app-operations.test.ts'),
+    file('apps/server/test/other.test.ts'),
+    file('apps/server/src/mcp/caller.ts', 'export const c = 1;'),
+    file('apps/server/src/core/unrelated.ts', 'export const u = 1;'),
+  ];
+  const OPERATOR_TESTS = [
+    'apps/server/test/operator-app-operations.test.ts',
+    'apps/server/test/operator-knowledge.test.ts',
+    'apps/server/test/operator-signals.test.ts',
+  ];
 
-  it('lists every test that reads its sources with import.meta.glob', () => {
+  it.each([
+    'apps/server/src/services/coordination/requests.ts',
+    'apps/server/src/mcp/caller.ts',
+    'apps/server/src/mcp/project-manager/tools.ts',
+  ])('selects every operator test when %s changes, although nothing imports them', (changed) => {
+    const tree = [
+      ...operatorTree,
+      file('apps/server/src/mcp/project-manager/tools.ts', 'export const t = 1;'),
+    ];
+    const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(expect.arrayContaining(OPERATOR_TESTS));
+    expect(files).not.toContain('apps/server/test/other.test.ts');
+  });
+
+  it('selects no operator test for a change outside the rule sources', () => {
+    const files = select(operatorTree, ['apps/server/src/core/unrelated.ts']).tests.flatMap(
+      (entry) => entry.files,
+    );
+    expect(files.filter((path) => path.includes('/operator-'))).toEqual([]);
+  });
+
+  it('names the rule tests the cap left out', () => {
+    const operators = Array.from({ length: TARGETED_TEST_FILES_MAX + 2 }, (_, i) =>
+      file(`apps/server/test/operator-t${String(i).padStart(2, '0')}.test.ts`),
+    );
+    const selection = select([...operatorTree.slice(0, 1), ...operators], [operatorTree[0]!.path]);
+    expect(selection.tests[0]!.files).toHaveLength(TARGETED_TEST_FILES_MAX);
+    expect(selection.omittedRuleTests).toEqual([
+      'apps/server/test/operator-t60.test.ts',
+      'apps/server/test/operator-t61.test.ts',
+    ]);
+  });
+
+  it.each([
+    ['apps/web/src/**/*.ts', 'apps/web/src/a/b.ts', true],
+    ['apps/web/src/**/*.ts', 'apps/web/src/b.ts', true],
+    ['apps/server/test/operator-*.test.ts', 'apps/server/test/operator-x.test.ts', true],
+    ['apps/server/test/operator-*.test.ts', 'apps/server/test/sub/operator-x.test.ts', false],
+    ['apps/server/', 'apps/server/src/a.ts', true],
+    ['apps/server/', 'apps/web/src/a.ts', false],
+  ])('matches the pattern %s against %s: %s', (pattern, path, expected) => {
+    expect(matchesPattern(path, [pattern])).toBe(expected);
+  });
+
+  it('covers every test that reads its sources with import.meta.glob', () => {
     const unlisted = tracked.filter(
       (path) =>
         readFileSync(`${root}${path}`, 'utf8').includes(['import', 'meta', 'glob('].join('.')) &&
         !listed(path),
     );
-    expect(unlisted, 'add the test to PATH_READ_TESTS in scripts/merge-test/handover.ts').toEqual([]);
+    expect(unlisted, 'add a rule to SELECTION_RULES in scripts/merge-test/handover.ts').toEqual([]);
   });
 
-  it('lists only tests that exist', () => {
-    const stale = PATH_READ_TESTS.filter(
-      ({ test }) =>
-        !tracked.some((path) => listed(path) && (test.endsWith('/') ? path.startsWith(test) : path === test)),
+  it('names only tests that exist', () => {
+    const stale = SELECTION_RULES.flatMap(({ tests }) =>
+      tests.filter((pattern) => !tracked.some((path) => matchesPattern(path, [pattern]))),
     );
-    expect(stale.map(({ test }) => test)).toEqual([]);
+    expect(stale).toEqual([]);
   });
 });
 

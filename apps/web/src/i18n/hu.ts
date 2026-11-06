@@ -7659,6 +7659,15 @@ export const hu = {
       name: 'Név',
       email: 'E-mail',
       handle: 'Azonosítód itt',
+      appearance: {
+        title: 'Megjelenés',
+        classic: 'Klasszikus',
+        classicSummary: 'A projectman mai kinézete.',
+        win311: 'Win 3.11',
+        win311Summary: 'Retró ablakok és domború gombok, mai kezeléssel.',
+        saveFailed: 'Nem sikerült menteni, ezért csak ezen az eszközön érvényes.',
+        retry: 'Újra',
+      },
     },
     edit: {
       description: 'Leírás',

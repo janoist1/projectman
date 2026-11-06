@@ -128,9 +128,9 @@
   font-size: var(--text-sm);
 }
 .warning {
-  background: var(--c-needs-bg);
-  color: var(--c-needs-text);
-  border-color: var(--c-needs-border);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
+  border-color: var(--c-warn-border);
 }
 .repos > summary {
   cursor: pointer;

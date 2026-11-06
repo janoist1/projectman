@@ -1,0 +1,304 @@
+/*
+ * The Win 3.11 style (PM-363): a layer over the shared tokens, switched on by `data-style='win311'` on <html>
+ * (lib/uiStyle.ts). It only sets token values and a few global rules; components read the same tokens in both
+ * styles. Colours come from the old 16-colour palette. Written style guide: docs/design/style.md.
+ *
+ * The attribute selector is more specific than tokens.css's dark block, so the dark values sit in their own
+ * media block below and come later in this file.
+ */
+:root[data-style='win311'] {
+  /* System fonts only: nothing to download. */
+  --font-display: Tahoma, Verdana, 'Segoe UI', system-ui, sans-serif;
+  --font-body: Tahoma, Verdana, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Courier New', Courier, monospace;
+
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+
+  /* 14px for body text; 13px (--text-xs) is the smallest reading text, 12px for non-reading marks only. */
+  --text-2xs: 12px;
+  --text-xs: 13px;
+  --text-sm: 14px;
+  --text-md: 14px;
+  --text-display: 28px;
+
+  --fade-from: 1;
+  --fade-offset: 0;
+
+  /* The larger text needs the room: a tighter top bar. */
+  --topbar-pad-x: 12px;
+  --topbar-gap: 8px;
+
+  /* Board columns are windows: silver, the name goes in the title bar. */
+  --column-gray-fg: #000000;
+  --column-gray-bg: #c0c0c0;
+  --column-blue-fg: #000000;
+  --column-blue-bg: #c0c0c0;
+  --column-teal-fg: #000000;
+  --column-teal-bg: #c0c0c0;
+  --column-green-fg: #000000;
+  --column-green-bg: #c0c0c0;
+  --column-yellow-fg: #000000;
+  --column-yellow-bg: #c0c0c0;
+  --column-orange-fg: #000000;
+  --column-orange-bg: #c0c0c0;
+  --column-red-fg: #000000;
+  --column-red-bg: #c0c0c0;
+  --column-pink-fg: #000000;
+  --column-pink-bg: #c0c0c0;
+  --column-purple-fg: #000000;
+  --column-purple-bg: #c0c0c0;
+
+  /* surfaces: teal desktop, silver windows, white sunken lists and fields */
+  --c-page: #008080;
+  --c-rail: #c0c0c0;
+  --c-surface: #ffffff;
+  --c-subtle: #f4f4f4;
+  --c-muted: #dcdcdc;
+  --c-muted-hover: #cfcfcf;
+  --c-sunken: #d0d0d0;
+  --c-column: #c0c0c0;
+  --c-column-done: #c0c0c0;
+  --c-bubble-out: #ffffff;
+  --c-line: #808080;
+  --c-line-strong: #404040;
+  --c-line-soft: #9a9a9a;
+  --c-backdrop: rgba(0, 0, 0, 0.45);
+
+  /* All black: subtitles also sit straight on the teal desktop (black on teal is 5.3:1, grey would not pass). */
+  --c-ink: #000000;
+  --c-ink-2: #000000;
+  --c-ink-3: #000000;
+  --c-ink-4: #000000;
+
+  --c-mark-muted: #808080;
+  --c-mark-idle: #808080;
+  --c-mark-ready: #808080;
+  --c-mark-off: #a0a0a0;
+  --c-seg-done: #000080;
+  --c-seg-todo: #a0a0a0;
+
+  /* primary = navy, the selected colour; buttons themselves are silver and raised */
+  --c-primary: #000080;
+  --c-primary-hover: #0000a8;
+  --c-on-primary: #ffffff;
+  --c-button: #c0c0c0;
+  --c-button-hover: #d0d0d0;
+  --focus-line: dotted;
+
+  /* working = blue */
+  --c-accent: #0000a8;
+  --c-accent-hover: #000080;
+  --c-accent-text: #000080;
+  --c-accent-bg: #d8d8ff;
+  --c-accent-soft: #ececff;
+  --c-on-accent: #ffffff;
+  --c-pulse: transparent;
+  --c-pulse-end: transparent;
+
+  /* needs you = yellow with black text, always with a "!" or "?" beside it (19:1) */
+  --c-needs: #ffff00;
+  --c-needs-text: #000000;
+  --c-needs-strong: #000000;
+  --c-needs-bg: #ffff00;
+  --c-needs-soft: #ffffa0;
+  --c-needs-border: #000000;
+  --c-needs-code-border: #808000;
+  --c-needs-icon-bg: #ffff00;
+  --c-on-needs: #000000;
+  --c-needs-mark: #000000;
+  --c-card-needs: #ffff00;
+  --mark-ring: 0 0 0 1px #000000;
+
+  /* a warning that is not "needs you": a machine load, a nearly used plan, a stuck card; brown, never yellow */
+  --c-warn: #c06000;
+  --c-warn-text: #6b3a00;
+  --c-warn-strong: #6b3a00;
+  --c-warn-bg: #f2e2c4;
+  --c-warn-soft: #f8efde;
+  --c-warn-border: #6b3a00;
+  --c-warn-code-border: #a07030;
+  --c-warn-icon-bg: #f2e2c4;
+  --c-on-warn: #000000;
+  --c-warn-mark: #6b3a00;
+  --c-card-warn: #f2e2c4;
+
+  --c-ok: #008000;
+  --c-ok-text: #006400;
+  --c-ok-bg: #d8f0d8;
+  --c-on-ok: #ffffff;
+
+  --c-blocked: #c00000;
+  --c-blocked-text: #a00000;
+  --c-blocked-bg: #ffe0e0;
+  --c-blocked-border: #800000;
+
+  --c-mono-add: #006400;
+  --c-mono-del: #a00000;
+
+  /* 3D borders instead of shadows */
+  --bevel-raised:
+    inset -1px -1px 0 #404040, inset 1px 1px 0 #ffffff, inset -2px -2px 0 #808080, inset 2px 2px 0 #dfdfdf;
+  --bevel-sunken:
+    inset 1px 1px 0 #404040, inset -1px -1px 0 #ffffff, inset 2px 2px 0 #808080, inset -2px -2px 0 #dfdfdf;
+  --shadow-xs: var(--bevel-raised);
+  --shadow-sm: var(--bevel-raised);
+  --shadow-rail-active: var(--bevel-sunken);
+  --shadow-drawer: -3px 0 0 rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 0 0 1px #000000, 3px 3px 0 rgba(0, 0, 0, 0.45), var(--bevel-raised);
+  --ring-selected: 0 0 0 2px #000080;
+
+  /* title bars: white inactive, navy active (the window in focus) */
+  --titlebar-pad-y: 4px;
+  --titlebar-pad-x: 8px;
+  --c-titlebar-bg: #ffffff;
+  --c-titlebar-fg: #000000;
+  --c-titlebar-fg-soft: #404040;
+  --c-titlebar-active-bg: #000080;
+  --c-titlebar-active-fg: #ffffff;
+  --c-titlebar-active-fg-soft: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-style='win311'] {
+    --column-gray-fg: #f2f2f2;
+    --column-gray-bg: #3c3c3c;
+    --column-blue-fg: #f2f2f2;
+    --column-blue-bg: #3c3c3c;
+    --column-teal-fg: #f2f2f2;
+    --column-teal-bg: #3c3c3c;
+    --column-green-fg: #f2f2f2;
+    --column-green-bg: #3c3c3c;
+    --column-yellow-fg: #f2f2f2;
+    --column-yellow-bg: #3c3c3c;
+    --column-orange-fg: #f2f2f2;
+    --column-orange-bg: #3c3c3c;
+    --column-red-fg: #f2f2f2;
+    --column-red-bg: #3c3c3c;
+    --column-pink-fg: #f2f2f2;
+    --column-pink-bg: #3c3c3c;
+    --column-purple-fg: #f2f2f2;
+    --column-purple-bg: #3c3c3c;
+
+    --c-page: #004040;
+    --c-rail: #3c3c3c;
+    --c-surface: #1c1c1c;
+    --c-subtle: #262626;
+    --c-muted: #484848;
+    --c-muted-hover: #555555;
+    --c-sunken: #2a2a2a;
+    --c-column: #3c3c3c;
+    --c-column-done: #3c3c3c;
+    --c-bubble-out: #2a2a2a;
+    --c-line: #6e6e6e;
+    --c-line-strong: #8a8a8a;
+    --c-line-soft: #555555;
+    --c-backdrop: rgba(0, 0, 0, 0.6);
+
+    --c-ink: #f2f2f2;
+    --c-ink-2: #e0e0e0;
+    --c-ink-3: #d0d0d0;
+    --c-ink-4: #bdbdbd;
+
+    --c-mark-muted: #9a9a9a;
+    --c-mark-idle: #9a9a9a;
+    --c-mark-ready: #9a9a9a;
+    --c-mark-off: #6e6e6e;
+    --c-seg-done: #7aa7ff;
+    --c-seg-todo: #5a5a5a;
+
+    --c-primary: #2b3fb0;
+    --c-primary-hover: #3a50d0;
+    --c-on-primary: #ffffff;
+    --c-button: #3c3c3c;
+    --c-button-hover: #4a4a4a;
+
+    --c-accent: #7aa7ff;
+    --c-accent-hover: #a8c6ff;
+    --c-accent-text: #a8c6ff;
+    --c-accent-bg: #1f2f7a;
+    --c-accent-soft: #172055;
+    --c-on-accent: #000000;
+
+    /* needs you, dark: a surface (a panel, a chip) is dark olive with yellow text and frame; a solid signal (the
+       count badge, the "Rád vár" pill) stays yellow with black text (--c-needs, --c-on-needs). */
+    --c-needs-text: #ffff00;
+    --c-needs-strong: #ffff00;
+    --c-needs-bg: #4d4d00;
+    --c-needs-soft: #333300;
+    --c-needs-border: #ffff00;
+    --c-needs-code-border: #808000;
+    --c-needs-mark: #ffff00;
+    --c-card-needs: #3d3d00;
+
+    --c-warn: #ffb060;
+    --c-warn-text: #ffb060;
+    --c-warn-strong: #ffd0a0;
+    --c-warn-bg: #4a3000;
+    --c-warn-soft: #3a2600;
+    --c-warn-border: #ffb060;
+    --c-warn-code-border: #806030;
+    --c-warn-icon-bg: #4a3000;
+    --c-on-warn: #000000;
+    --c-warn-mark: #ffb060;
+    --c-card-warn: #3d2a00;
+
+    --c-ok: #5fd35f;
+    --c-ok-text: #7be67b;
+    --c-ok-bg: #143014;
+    --c-on-ok: #000000;
+
+    --c-blocked: #ff6b6b;
+    --c-blocked-text: #ff9a9a;
+    --c-blocked-bg: #4a1818;
+    --c-blocked-border: #a03030;
+
+    --c-mono-add: #7be67b;
+    --c-mono-del: #ff9a9a;
+
+    --bevel-raised:
+      inset -1px -1px 0 #000000, inset 1px 1px 0 #8a8a8a, inset -2px -2px 0 #1c1c1c, inset 2px 2px 0 #555555;
+    --bevel-sunken:
+      inset 1px 1px 0 #000000, inset -1px -1px 0 #8a8a8a, inset 2px 2px 0 #1c1c1c, inset -2px -2px 0 #555555;
+    --shadow-pop: 0 0 0 1px #000000, 3px 3px 0 rgba(0, 0, 0, 0.7), var(--bevel-raised);
+    --ring-selected: 0 0 0 2px #7aa7ff;
+
+    --c-titlebar-bg: #8a8a8a;
+    --c-titlebar-fg: #000000;
+    --c-titlebar-fg-soft: #000000;
+    --c-titlebar-active-bg: #1f2f7a;
+    --c-titlebar-active-fg: #ffffff;
+    --c-titlebar-active-fg-soft: #ffffff;
+  }
+}
+
+/* The focus ring: the dotted frame of Windows 3.11, 2px and always visible, in the text colour of the element. */
+:root[data-style='win311'] :focus-visible {
+  outline: 2px dotted currentColor;
+  outline-offset: 2px;
+}
+
+:root[data-style='win311'] ::selection {
+  background: #000080;
+  color: #ffffff;
+}
+
+/* Sharp corners and no transitions, whatever a component sets. */
+:root[data-style='win311'] *,
+:root[data-style='win311'] *::before,
+:root[data-style='win311'] *::after {
+  border-radius: 0 !important;
+  transition: none !important;
+}
+
+/* A phone shows the system's own font. */
+@media (max-width: 767px) {
+  :root[data-style='win311'] {
+    --font-display: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+}

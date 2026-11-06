@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { routes, TaskDetail } from '@projectman/shared';
+import { routes, TASK_COMMENT_MAX, TaskDetail } from '@projectman/shared';
 import {
   addHumanAndLogin,
   createAppHarness,
@@ -161,7 +161,7 @@ describe('task comments API', () => {
     { text: '' },
     { text: '   ' },
     { text: 1 },
-    { text: 'x'.repeat(10001) },
+    { text: 'x'.repeat(TASK_COMMENT_MAX + 1) },
     { text: 'Valid', importedAuthor: 'x'.repeat(81) },
     { text: 'Valid', importedAuthor: ' ' },
     { text: 'Valid', importedAt: 'yesterday' },
@@ -171,7 +171,7 @@ describe('task comments API', () => {
   });
 
   it('accepts the maximum comment length', async () => {
-    expect((await comment({ text: 'x'.repeat(10000) })).statusCode).toBe(201);
+    expect((await comment({ text: 'x'.repeat(TASK_COMMENT_MAX) })).statusCode).toBe(201);
   });
 
   it.each([

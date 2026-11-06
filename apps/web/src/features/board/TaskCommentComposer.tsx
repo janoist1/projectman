@@ -1,3 +1,4 @@
+import { TASK_COMMENT_MAX } from '@projectman/shared';
 import clsx from 'clsx';
 import { useId, useRef, useState } from 'react';
 import { useCreateTaskComment } from '../../api/queries';
@@ -47,7 +48,7 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
     // Replace the rest of a token too when editing a mention in the middle of the text.
     const suffix = /^[a-z0-9-]*/i.exec(text.slice(mention.end))![0].length;
     const next = text.slice(0, mention.start) + insertion + text.slice(mention.end + suffix);
-    if (next.length > 10000) return;
+    if (next.length > TASK_COMMENT_MAX) return;
     setText(next);
     setMention(null);
     requestAnimationFrame(() => {
@@ -83,7 +84,7 @@ export function TaskCommentComposer({ taskKey, members }: { taskKey: string; mem
               : t('task.comments.hint')
         }
         rows={open ? 3 : 1}
-        maxLength={10000}
+        maxLength={TASK_COMMENT_MAX}
         value={text}
         disabled={mutation.isPending}
         aria-autocomplete="list"

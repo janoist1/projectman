@@ -140,5 +140,5 @@
 .pending {
   font-size: var(--text-xs);
   font-weight: 700;
-  color: var(--c-needs-text);
+  color: var(--c-ink-3);
 }

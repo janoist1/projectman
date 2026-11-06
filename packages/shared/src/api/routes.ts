@@ -96,6 +96,8 @@ export const routes = {
   me: () => '/api/me',
   /** PUT (a logged-in user, not an integrator key): saves the account's system language (`SetLanguageRequest`); 200 `Me` (PM-1177). */
   myLanguage: () => '/api/auth/language',
+  /** PUT: saves the signed-in user's interface style (`SetUiStyleRequest`, PM-363); 200 `Me`. */
+  meUiStyle: () => '/api/me/ui-style',
 
   projects: () => '/api/projects',
   board: (key: string) => `/api/projects/${key}/board`,

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router';
 import { isApiError, onUnauthorized } from '../api/client';
-import { useMe, useSetupStatus } from '../api/queries';
+import { useMe, useSetUiStyle, useSetupStatus } from '../api/queries';
 import { SocketProvider } from '../api/SocketProvider';
 import { ErrorState, LoadingState } from '../components/States';
 import { setCurrentLanguage } from '../i18n/language';
+import { DEFAULT_UI_STYLE, applyUiStyle, clearUiStylePending, pendingUiStyle } from '../lib/uiStyle';
 import { MeContext } from './contexts';
 import { loginPath } from './paths';
 import styles from './AuthGate.module.css';
@@ -27,6 +28,26 @@ export function AuthGate() {
   useEffect(() => {
     if (accountLanguage) setCurrentLanguage(accountLanguage);
   }, [accountLanguage]);
+
+  // The style saved on the account follows the user to every device (PM-363). A choice whose save failed stays on
+  // this device and is saved again now and whenever the connection returns.
+  const loaded = me.data !== undefined;
+  const savedStyle = me.data?.uiStyle ?? DEFAULT_UI_STYLE;
+  const { mutate: saveStyle } = useSetUiStyle();
+  useEffect(() => {
+    if (!loaded) return;
+    const pending = pendingUiStyle();
+    if (!pending || pending === savedStyle) {
+      clearUiStylePending(savedStyle);
+      applyUiStyle(savedStyle);
+      return;
+    }
+    applyUiStyle(pending);
+    const resave = () => saveStyle({ style: pending }, { onSuccess: () => clearUiStylePending(pending) });
+    resave();
+    window.addEventListener('online', resave);
+    return () => window.removeEventListener('online', resave);
+  }, [loaded, savedStyle, saveStyle]);
 
   // The hash stays: a notification opens a card at one comment (#timeline-…).
   const next = `${location.pathname}${location.search}${location.hash}`;

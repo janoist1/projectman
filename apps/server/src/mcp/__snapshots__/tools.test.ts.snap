@@ -5344,7 +5344,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
         },
         "note": {
           "description": "Note for the timeline: findings, decisions, what changed; with labels, their comment.",
-          "maxLength": 10000,
+          "maxLength": 50000,
           "minLength": 1,
           "type": "string",
         },

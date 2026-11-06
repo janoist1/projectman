@@ -48,7 +48,7 @@
   font-size: 13px;
 }
 .line[data-tone='needs'] {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .hint {
   margin: 0;
@@ -59,7 +59,7 @@
   margin: 0;
   padding: 10px 12px;
   border-radius: var(--radius-lg);
-  background: var(--c-needs-soft);
-  color: var(--c-needs-text);
+  background: var(--c-warn-soft);
+  color: var(--c-warn-text);
   font-size: 13.5px;
 }

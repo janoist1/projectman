@@ -480,7 +480,17 @@ export type PasswordResetRequest = z.infer<typeof PasswordResetRequest>;
 export const EmailLoginRateLimitedDetails = z.object({ retryAfterSeconds: z.number().int().positive() });
 export type EmailLoginRateLimitedDetails = z.infer<typeof EmailLoginRateLimitedDetails>;
 
+/** The visual style of a user's own interface (PM-363): `classic` is today's look, `win311` the retro-window style. */
+export const UiStyle = z.enum(['classic', 'win311']);
+export type UiStyle = z.infer<typeof UiStyle>;
+
+/** `PUT /api/me/ui-style`: the user's own style choice. */
+export const SetUiStyleRequest = z.object({ style: UiStyle });
+export type SetUiStyleRequest = z.infer<typeof SetUiStyleRequest>;
+
 export const Me = z.object({
+  /** The style the user chose; absent until they chose one (the interface shows `classic`). */
+  uiStyle: UiStyle.optional(),
   hostOwner: z.boolean().optional(),
   /** The user holds an active owner account (PM-1062): may create projects and engines of their own. */
   ownerAccount: z.boolean().optional(),
@@ -1257,8 +1267,11 @@ export const BoardMoveResult = z.object({
 });
 export type BoardMoveResult = z.infer<typeof BoardMoveResult>;
 
+/** The longest task comment (and the AI members' task note) in characters; the one place it is defined (PM-1274). */
+export const TASK_COMMENT_MAX = 50_000;
+
 export const CreateTaskCommentRequest = z.object({
-  text: z.string().trim().min(1).max(10000),
+  text: z.string().trim().min(1).max(TASK_COMMENT_MAX),
   importedAuthor: z.string().trim().min(1).max(80).optional(),
   importedAt: z.iso.datetime({ offset: true }).optional(),
 });

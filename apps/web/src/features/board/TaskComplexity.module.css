@@ -23,7 +23,7 @@
 .warning {
   font-size: var(--text-sm);
   font-weight: 700;
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .fields {

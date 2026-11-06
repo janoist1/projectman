@@ -68,7 +68,7 @@
 }
 
 .dotWaiting {
-  background: var(--c-needs);
+  background: var(--c-warn);
 }
 
 .dotIdle {
@@ -78,7 +78,7 @@
 .joiningMark {
   margin-left: auto;
   font-size: 12px;
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
   white-space: nowrap;
 }
 

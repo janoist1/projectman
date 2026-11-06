@@ -8,9 +8,9 @@ export function PriorityMark({ priority }: { priority: TaskPriority }) {
     <svg key={priority} className={styles.mark} width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
       {priority === 'urgent' ? (
         <>
-          <rect width="14" height="14" rx="3" fill="var(--c-needs)" />
-          <path d="M7 3.5v4" stroke="var(--c-on-needs)" strokeWidth="1.8" strokeLinecap="round" />
-          <circle cx="7" cy="10.5" r="1" fill="var(--c-on-needs)" />
+          <rect width="14" height="14" rx="3" fill="var(--c-warn)" />
+          <path d="M7 3.5v4" stroke="var(--c-on-warn)" strokeWidth="1.8" strokeLinecap="round" />
+          <circle cx="7" cy="10.5" r="1" fill="var(--c-on-warn)" />
         </>
       ) : (
         [0, 1, 2].map((bar) => (

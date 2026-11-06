@@ -22,9 +22,9 @@
 }
 
 .warning {
-  background: var(--c-needs-bg);
-  border-color: var(--c-needs-border);
-  color: var(--c-needs-strong);
+  background: var(--c-warn-bg);
+  border-color: var(--c-warn-border);
+  color: var(--c-warn-strong);
 }
 
 .danger {
@@ -52,7 +52,7 @@
 
 .unsaved {
   font-weight: 700;
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .hint {

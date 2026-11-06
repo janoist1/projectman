@@ -27,7 +27,7 @@ export function ProviderBadge({
           { provider: name },
         )}
       >
-        <Chip tone="needs">{label}</Chip>
+        <Chip tone="warn">{label}</Chip>
       </Tooltip>
     );
   }

@@ -55,7 +55,7 @@
 }
 
 .atLimit {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .note {

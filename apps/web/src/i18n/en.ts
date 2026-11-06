@@ -7624,6 +7624,15 @@ export const en = {
       name: 'Name',
       email: 'Email',
       handle: 'Your ID here',
+      appearance: {
+        title: 'Appearance',
+        classic: 'Classic',
+        classicSummary: "projectman's look today.",
+        win311: 'Win 3.11',
+        win311Summary: 'Retro windows and raised buttons, with today’s handling.',
+        saveFailed: "Couldn't save it, so it only applies on this device.",
+        retry: 'Try again',
+      },
     },
     edit: {
       description: 'Description',

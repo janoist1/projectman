@@ -129,7 +129,7 @@
   font-weight: 700;
 }
 .warn {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 .chevron {
   color: var(--c-ink-3);

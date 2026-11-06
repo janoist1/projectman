@@ -26,7 +26,7 @@
 }
 
 .value_high {
-  color: var(--c-needs-text);
+  color: var(--c-warn-text);
 }
 
 .value_critical {
@@ -58,7 +58,7 @@
 }
 
 .fill_high {
-  background: var(--c-needs);
+  background: var(--c-warn);
 }
 
 .fill_critical {

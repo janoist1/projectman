@@ -6,10 +6,53 @@ import {
   deviceLabelOf,
   isAllowedPushEndpoint,
   isPushableItem,
+  notePushTargets,
+  PushCategories,
   pushCategoryOf,
   QuietHours,
   quietWindowAt,
 } from './web-push';
+import type { NotePushInput } from './web-push';
+
+describe('note push targets', () => {
+  const base: NotePushInput = {
+    author: { kind: 'human', handle: 'dani' },
+    mentions: [],
+    creator: 'owner',
+    assignee: 'pm-human',
+    earlierAuthors: ['kata'],
+    humans: ['owner', 'pm-human', 'kata', 'dani', 'zoli'],
+  };
+  const handles = (input: NotePushInput) => notePushTargets(input).map((t) => t.handle);
+
+  it('reaches nobody for a system note', () =>
+    expect(handles({ ...base, author: { kind: 'system', handle: null }, mentions: ['zoli'] })).toEqual([]));
+  it('leaves the author out of their own note, whatever the letter case', () =>
+    expect(handles({ ...base, creator: 'Dani', mentions: ['DANI'] })).not.toContain('Dani'));
+  it('reaches only the mentioned people for an AI note', () =>
+    expect(
+      notePushTargets({ ...base, author: { kind: 'ai', handle: 'dev' }, mentions: ['zoli', 'dev'] }),
+    ).toEqual([{ handle: 'zoli', categories: ['mention'] }]));
+  it('reaches the opener, the assignee and earlier commenters for a human note', () =>
+    expect(handles(base)).toEqual(['owner', 'pm-human', 'kata']));
+  it('leaves AI members out', () =>
+    expect(handles({ ...base, mentions: ['dev'], earlierAuthors: ['dev'] })).not.toContain('dev'));
+  it('lists a mentioned follower once, the mention first', () =>
+    expect(notePushTargets({ ...base, mentions: ['kata'] }).find((t) => t.handle === 'kata')).toEqual({
+      handle: 'kata',
+      categories: ['mention', 'comment'],
+    }));
+  it('reads a stored row without the new categories as on', () =>
+    expect(
+      PushCategories.parse({
+        question: true,
+        decision: true,
+        approval: true,
+        permission: true,
+        release: true,
+      }),
+    ).toMatchObject({ comment: true, mention: true }));
+});
 
 const item: InboxItem = {
   id: 'one',

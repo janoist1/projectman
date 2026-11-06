@@ -1,3 +1,4 @@
+import { DEFAULT_PUSH_SETTINGS } from '@projectman/shared';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
@@ -385,22 +386,44 @@ describe('devices', () => {
 });
 
 describe('kinds', () => {
-  it('saves a kind at once with the other settings kept', async () => {
+  it.each(['decision', 'comment', 'mention'] as const)(
+    'saves the %s kind at once with the other settings kept',
+    async (kind) => {
+      const project = renderPage();
+      const toggle = await screen.findByRole('switch', {
+        name: new RegExp(t(`notifications.kinds.${kind}`)),
+      });
+      fireEvent.click(toggle);
+      expect(await screen.findByText(t('notifications.kinds.saved'))).toBeTruthy();
+      expect(project.backend.push.settings.categories).toEqual({
+        ...DEFAULT_PUSH_SETTINGS.categories,
+        [kind]: false,
+      });
+      expect(project.backend.push.settings.quietHours.enabled).toBe(false);
+    },
+  );
+
+  it('keeps the focus on the switch while the save runs and ignores another change meanwhile', async () => {
     const project = renderPage();
-    const decision = await screen.findByRole('switch', {
-      name: new RegExp(t('notifications.kinds.decision')),
-    });
-    fireEvent.click(decision);
+    const reachable = createMockFetch(project.backend, project.requests);
+    let finish: () => void = () => {};
+    setFetchImplementation(
+      (input, init) =>
+        new Promise<Response>((resolve) => {
+          if (init?.method !== 'PUT') return void resolve(reachable(String(input), init));
+          finish = () => resolve(reachable(String(input), init));
+        }),
+    );
+    const comment = await screen.findByRole('switch', { name: new RegExp(t('notifications.kinds.comment')) });
+    const mention = screen.getByRole('switch', { name: new RegExp(t('notifications.kinds.mention')) });
+    comment.focus();
+    fireEvent.click(comment);
+    await waitFor(() => expect(comment.getAttribute('aria-disabled')).toBe('true'));
+    expect(document.activeElement).toBe(comment);
+    fireEvent.click(mention);
+    finish();
     expect(await screen.findByText(t('notifications.kinds.saved'))).toBeTruthy();
-    expect(project.backend.push.settings.categories).toEqual({
-      question: true,
-      decision: false,
-      approval: true,
-      permission: true,
-      release: true,
-      host_request: true,
-    });
-    expect(project.backend.push.settings.quietHours.enabled).toBe(false);
+    expect(project.backend.push.settings.categories).toMatchObject({ comment: false, mention: true });
   });
 
   it('puts the switch back and says so when the save fails', async () => {

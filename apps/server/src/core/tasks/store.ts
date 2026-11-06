@@ -428,8 +428,7 @@ export class TaskStore {
       type: 'task_note',
       data: { text, mentions, ...imported },
     });
-    if (!isImported && mentions.length)
-      effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions }));
+    if (!isImported) effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions, task }));
     return event;
   }
 }

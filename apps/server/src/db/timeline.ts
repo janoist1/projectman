@@ -129,6 +129,11 @@ export function createTimelineRepository(db: Db) {
          AND json_extract(data, '$.importedAuthor') IS NULL AND json_extract(data, '$.importedAt') IS NULL
        ORDER BY seq DESC LIMIT ?`,
     ),
+    humanNoteAuthors: db.prepare(
+      `SELECT DISTINCT actor_handle FROM timeline_events WHERE project_key = ? AND task_key = ?
+         AND type = 'task_note' AND actor_kind = 'human' AND actor_handle IS NOT NULL
+         AND json_extract(data, '$.importedAuthor') IS NULL AND json_extract(data, '$.importedAt') IS NULL`,
+    ),
   };
   return {
     /** Structured detector evidence in a fixed time window, independent of unrelated project traffic. */
@@ -237,6 +242,12 @@ export function createTimelineRepository(db: Db) {
     talkSince(projectKey: string, taskKey: string, since: string, limit = 1000): TimelineEvent[] {
       const rows = statements.talkSince.all(projectKey, taskKey, since, limit) as TimelineRow[];
       return rows.reverse().map(toEvent);
+    },
+    /** The handles of the people who wrote a (not imported) note on a card. */
+    humanNoteAuthors(projectKey: string, taskKey: string): string[] {
+      return (statements.humanNoteAuthors.all(projectKey, taskKey) as Array<{ actor_handle: string }>).map(
+        (row) => row.actor_handle,
+      );
     },
     /** All stage, label, full-test and fix-limit sources of a card in database sequence order. */
     roundEvents(projectKey: string, taskKey: string): TimelineEvent[] {

@@ -2141,6 +2141,13 @@ export function createDomain(opts: DomainOptions) {
   // Labels that notify the assignee and @mentions reach members as team messages.
   events.on('task_labels_notice', (notice) => messaging.labelNotice(notice));
   events.on('task_note_added', (note) => messaging.mentionNotice(note));
+  if (!opts.standby)
+    events.on('task_note_added', (note) => {
+      background.run(
+        () => webPush.onNote(note.event, note.mentions, note.task),
+        () => opts.logger.warn('web push note processing failed'),
+      );
+    });
   // A changed description reaches the sessions working the card; a reviewer restarts on it (PM-184).
   events.on('task_description_changed', (change) => sessionMessages.descriptionNotice(change));
   // New relations on a card that is being worked on reach its workers and, when they may change the work, its analyst (PM-421).

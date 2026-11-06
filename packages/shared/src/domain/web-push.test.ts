@@ -22,6 +22,7 @@ describe('note push targets', () => {
     assignee: 'pm-human',
     earlierAuthors: ['kata'],
     humans: ['owner', 'pm-human', 'kata', 'dani', 'zoli'],
+    replyToAuthor: null,
   };
   const handles = (input: NotePushInput) => notePushTargets(input).map((t) => t.handle);
 
@@ -33,6 +34,18 @@ describe('note push targets', () => {
     expect(
       notePushTargets({ ...base, author: { kind: 'ai', handle: 'dev' }, mentions: ['zoli', 'dev'] }),
     ).toEqual([{ handle: 'zoli', categories: ['mention'] }]));
+  it('reaches the author of the answered comment for an AI reply, after a mention (PM-1275)', () =>
+    expect(
+      notePushTargets({
+        ...base,
+        author: { kind: 'ai', handle: 'dev' },
+        mentions: ['zoli'],
+        replyToAuthor: 'kata',
+      }),
+    ).toEqual([
+      { handle: 'zoli', categories: ['mention'] },
+      { handle: 'kata', categories: ['comment'] },
+    ]));
   it('reaches the opener, the assignee and earlier commenters for a human note', () =>
     expect(handles(base)).toEqual(['owner', 'pm-human', 'kata']));
   it('leaves AI members out', () =>

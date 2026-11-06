@@ -1,4 +1,4 @@
-import type { TimelineEvent, TimelineEventType } from '@projectman/shared';
+import { isCardComment, type TimelineEvent, type TimelineEventType } from '@projectman/shared';
 import { numberedRef } from './links';
 import { MESSAGE_DROP_REASONS } from './message-notices';
 import { relationPhrase } from './relations';
@@ -164,8 +164,13 @@ export function describeEvent(
       return text('phase') === 'alerted'
         ? `told the owners that ${list('parts').join(', ')} stayed in the first stage after ${text('member') ?? '?'}'s reminder`
         : `reminded ${text('member') ?? '?'} that ${list('parts').join(', ')} are left in the first stage`;
-    case 'task_note':
-      return `note: ${text('text') ?? ''}`.trimEnd();
+    case 'task_note': {
+      if (!isCardComment(event)) return `note: ${text('text') ?? ''}`.trimEnd();
+      // A comment carries its id, so an AI member can answer it with reply_to (PM-1275).
+      const replyTo = text('replyTo');
+      const head = replyTo ? `reply ${event.id} to comment ${replyTo}` : `comment ${event.id}`;
+      return `${head}${importedOrigin(data)}: ${text('text') ?? ''}`.trimEnd();
+    }
     case 'attachment_added':
       return `attached the file ${text('fileName') ?? '?'}`;
     case 'attachment_deleted':
@@ -327,6 +332,20 @@ function obligationStep(kind: string | null): string {
     default:
       return 'step';
   }
+}
+
+/**
+ * ` (imported: written by "Dani" on 2026-03-02 09:15 UTC)` for a comment imported from another
+ * tool, or an empty string. The author's name is outside data, so it is put on one short line.
+ */
+function importedOrigin(data: Record<string, unknown>): string {
+  const author =
+    typeof data.importedAuthor === 'string' && data.importedAuthor.trim() ? data.importedAuthor : null;
+  const at = typeof data.importedAt === 'string' && data.importedAt ? data.importedAt : null;
+  if (!author && !at) return '';
+  const by = author ? ` written by "${oneLine(author, FIELD_LIMIT)}"` : '';
+  const on = at ? ` on ${formatTimestamp(at)}` : '';
+  return ` (imported:${by}${on})`;
 }
 
 /** A repository named in an event, or "none" when the task had or has none. */

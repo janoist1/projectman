@@ -118,6 +118,13 @@ describe('task comments API', () => {
     expect(
       TaskDetail.parse(response.json()).timeline.find((event) => event.type === 'task_note'),
     ).toMatchObject({ actor: { kind: 'human', handle: 'robin' }, data: { text: 'Looks good' } });
+    // The response is the card as the client's own GET shows it (PM-1275).
+    const read = await h.app.inject({
+      method: 'GET',
+      url: routes.task('AR', 'AR-1'),
+      headers: { cookie: developer },
+    });
+    expect(response.json()).toEqual(read.json());
   });
 
   it('keeps a client mention of a non-contact in the comment without a notification', async () => {
@@ -301,12 +308,64 @@ describe('task comments API', () => {
       }
     });
 
-    it('imports a reply only for owners and wakes nobody', async () => {
-      const top = await post({ text: 'Question' });
-      const body = { text: '@robin @cr old answer', replyTo: top, importedAuthor: 'Morgan' };
-      expect((await comment(body, developer)).statusCode).toBe(403);
-      await post(body);
+    it('runs the import call sequence: owners only, ids from the response, one thread, no repeat, no notice (PM-1275)', async () => {
+      const raised: string[] = [];
+      h.app.projectman.domain.ctx.events.on('task_note_added', (note) => {
+        raised.push(note.event.id);
+      });
+      /** Posts one imported item as the import script does and finds its id by its clientRequestId. */
+      const importItem = async (body: Record<string, unknown>) => {
+        const response = await comment(body);
+        expect(response.statusCode).toBe(201);
+        return TaskDetail.parse(response.json()).timeline.find(
+          (event) => event.data.clientRequestId === body.clientRequestId,
+        )!.id;
+      };
+      const imported = (minute: number, clientRequestId: string) => ({
+        importedAuthor: 'Morgan',
+        importedAt: `2024-01-02T03:0${minute}:00Z`,
+        clientRequestId,
+      });
+      const question = {
+        text: '@robin @cr old question',
+        ...imported(1, '6f1c2d4e-8a3b-4c5d-9e7f-0a1b2c3d4e51'),
+      };
+      expect((await comment(question, developer)).statusCode).toBe(403);
+      const top = await importItem(question);
+      const answer = {
+        text: 'Old answer',
+        replyTo: top,
+        ...imported(2, '6f1c2d4e-8a3b-4c5d-9e7f-0a1b2c3d4e52'),
+      };
+      const reply = await importItem(answer);
+      // A ClickUp reply to a reply names its direct target; the server lands it on the top comment.
+      const followUp = {
+        text: 'Old follow-up',
+        replyTo: reply,
+        ...imported(3, '6f1c2d4e-8a3b-4c5d-9e7f-0a1b2c3d4e53'),
+      };
+      const deeper = await importItem(followUp);
+      // A run started again after an interruption posts the same items.
+      expect([await importItem(question), await importItem(answer), await importItem(followUp)]).toEqual([
+        top,
+        reply,
+        deeper,
+      ]);
+      expect(notes()).toHaveLength(3);
+      const { threads } = (await page()).json();
+      expect(threads).toHaveLength(1);
+      expect(threads[0].comment.id).toBe(top);
+      expect(
+        threads[0].replies.map((event: { id: string; data: { replyTo: string } }) => [
+          event.id,
+          event.data.replyTo,
+        ]),
+      ).toEqual([
+        [reply, top],
+        [deeper, top],
+      ]);
       await flush();
+      expect(raised).toEqual([]);
       expect(h.app.projectman.domain.messages.list('AR')).toHaveLength(0);
       expect(h.runner.started).toHaveLength(0);
     });

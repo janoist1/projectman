@@ -140,7 +140,9 @@ describe('path-read tests', () => {
 
   it('lists every test that reads its sources with import.meta.glob', () => {
     const unlisted = tracked.filter(
-      (path) => readFileSync(`${root}${path}`, 'utf8').includes('import.meta.glob(') && !listed(path),
+      (path) =>
+        readFileSync(`${root}${path}`, 'utf8').includes(['import', 'meta', 'glob('].join('.')) &&
+        !listed(path),
     );
     expect(unlisted, 'add the test to PATH_READ_TESTS in scripts/merge-test/handover.ts').toEqual([]);
   });

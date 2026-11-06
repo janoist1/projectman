@@ -4351,7 +4351,7 @@ export const en = {
       markRecent: 'Mentioned most recently',
       markOtherTasks: 'Other cards',
       markHint: 'The card only marks the message: it goes to the same conversation.',
-      readOnly: 'As a viewer you can’t send messages.',
+      readOnly: 'You can’t send messages in this project.',
       failed: 'The message didn’t go out.',
     },
     all: {

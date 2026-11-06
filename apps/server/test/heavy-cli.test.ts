@@ -315,6 +315,18 @@ describe('the heavy CLI', () => {
     expect(ran).toEqual({ code: 0, stdout: `${outer.ticket}\n`, stderr: '' });
   });
 
+  it('does not reserve a place of its own for a nested --places 1 run', async () => {
+    const outer = await acquireHeavyLock({ dir, label: 'the outer run', places: { min: 2, max: 2 } });
+    locks.push(outer);
+    const ran = await heavy(['--places', '1', ...queueReader()], {
+      PROJECTMAN_HEAVY_LOCK_HELD: outer.ticket,
+    });
+    const seen = JSON.parse(ran.stdout) as Seen;
+    expect(ran.code).toBe(0);
+    expect(seen.holders.map((holder) => holder.label)).toEqual(['the outer run']);
+    expect(seen.held).toBe(outer.ticket);
+  });
+
   it('does not take a hand-set 1 as a hold when no older holder lives', async () => {
     const other = await acquireHeavyLock({ dir, label: 'someone else', places: { min: 1, max: 1 } });
     locks.push(other);

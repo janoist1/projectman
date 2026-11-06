@@ -122,6 +122,9 @@ export function pushCategoryOf(item: InboxItem): PushCategory | null {
   switch (item.kind) {
     case 'alert':
       return null;
+    // The push of a mention comes from the note (`onNote`, PM-1271); the item sends none (PM-1307).
+    case 'mention':
+      return null;
     case 'decision':
       return gateRequestOf(item) ? 'approval' : 'decision';
     case 'hand_on':

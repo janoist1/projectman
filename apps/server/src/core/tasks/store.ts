@@ -9,6 +9,7 @@ import {
   isTheme,
   LIVE_SESSION_STATES,
   memberOf,
+  mentionItemTargets,
   pageCommentThreads,
   replyParentOf,
   repoOf,
@@ -39,8 +40,9 @@ import type { TaskPatch } from '../../db';
 import { mergeState, mergedState } from '../../db';
 import type { DomainContext } from '../base';
 import { requireHuman } from '../members';
-import { forbidden, invalid, notFound } from '../../kernel';
+import { DomainError, forbidden, invalid, notFound } from '../../kernel';
 import { assertIntegratorAccess, assertOwnApproval } from '../../kernel';
+import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
 
@@ -71,6 +73,7 @@ export class TaskStore {
   readonly timeline: TimelineService;
   readonly projects: ProjectService;
   private readonly startWaiting: StartWaitingReader;
+  private readonly mentions: Pick<InboxService, 'openMentions' | 'closeMentionsByReply'>;
   private readonly outageOf?: (task: Task) => WorkOutage | undefined;
   private readonly readyHold?: (task: Task) => TaskReadyHold | undefined;
   private readonly startOffer?: (task: Task) => TaskStartOffer | undefined;
@@ -89,6 +92,8 @@ export class TaskStore {
     timeline: TimelineService;
     projects: ProjectService;
     startWaiting: StartWaitingReader;
+    /** Where the mention items of a note are opened and closed (PM-1307). */
+    mentions: Pick<InboxService, 'openMentions' | 'closeMentionsByReply'>;
     outageOf?: (task: Task) => WorkOutage | undefined;
     readyHold?: (task: Task) => TaskReadyHold | undefined;
     /** The open offer to start the ready card (PM-804). */
@@ -100,6 +105,7 @@ export class TaskStore {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.startWaiting = deps.startWaiting;
+    this.mentions = deps.mentions;
     this.outageOf = deps.outageOf;
     this.readyHold = deps.readyHold;
     this.startOffer = deps.startOffer;
@@ -423,37 +429,108 @@ export class TaskStore {
     place: NotePlace,
     extra: NoteExtra = {},
   ): TimelineEvent {
-    const { clientRequestId, replyTo, ...imported } = extra;
-    if (clientRequestId !== undefined) {
-      const first = this.timeline.noteByClientRequest(task.projectKey, task.key, actor, clientRequestId);
-      if (first) return first;
-    }
-    const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
-    if (isImported) assertOwnApproval(actor);
-    // One level of replies: an answer to a reply lands on the reply's parent.
-    const parent = replyTo === undefined ? undefined : this.replyParent(task, replyTo);
-    const mentions = commentMentions(
-      text,
-      config.team.members.map((member) => member.handle),
-      actor.handle,
-    );
-    const event = this.timeline.append({
-      projectKey: task.projectKey,
-      taskKey: task.key,
-      sessionId,
-      actor,
-      type: 'task_note',
-      data: {
+    return this.ctx.unitOfWork(() => {
+      const { clientRequestId, replyTo, attachmentIds, ...imported } = extra;
+      if (clientRequestId !== undefined) {
+        const first = this.timeline.noteByClientRequest(task.projectKey, task.key, actor, clientRequestId);
+        if (first) return first;
+      }
+      const coverBefore = attachmentIds?.length ? this.cover(task) : null;
+      const files = (attachmentIds ?? []).map((id) => {
+        const file = this.ctx.repos.attachments.get(id);
+        if (
+          !file ||
+          file.projectKey !== task.projectKey ||
+          file.taskKey !== task.key ||
+          file.state !== 'ready' ||
+          !file.commentUpload ||
+          file.commentEventId !== null ||
+          file.uploadedBy.kind !== actor.kind ||
+          file.uploadedBy.handle !== actor.handle
+        ) {
+          throw new DomainError('comment_attachment_unavailable', 'comment file is unavailable', {
+            status: 409,
+            details: { id },
+          });
+        }
+        return {
+          id,
+          fileName: file.fileName,
+          size: file.size,
+          mediaType: file.mediaType,
+          preview: file.preview,
+        };
+      });
+      const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
+      if (isImported) assertOwnApproval(actor);
+      // One level of replies: an answer to a reply lands on the reply's parent.
+      const parent = replyTo === undefined ? undefined : this.replyParent(task, replyTo);
+      const mentions = commentMentions(
         text,
-        mentions,
-        ...imported,
-        comment: place === 'comment' || parent !== undefined,
-        ...(parent !== undefined ? { replyTo: parent } : {}),
-        ...(clientRequestId !== undefined ? { clientRequestId } : {}),
-      },
+        config.team.members.map((member) => member.handle),
+        actor.handle,
+      );
+      const event = this.timeline.append({
+        projectKey: task.projectKey,
+        taskKey: task.key,
+        sessionId,
+        actor,
+        type: 'task_note',
+        data: {
+          text,
+          mentions,
+          ...(files.length ? { attachments: files } : {}),
+          ...imported,
+          comment: place === 'comment' || parent !== undefined,
+          ...(parent !== undefined ? { replyTo: parent } : {}),
+          ...(clientRequestId !== undefined ? { clientRequestId } : {}),
+        },
+      });
+      if (files.length) {
+        for (const file of files) {
+          if (this.ctx.repos.attachments.bindToComment(file.id, event.id) !== 1)
+            throw new DomainError('comment_attachment_unavailable', 'comment file is unavailable', {
+              status: 409,
+              details: { id: file.id },
+            });
+        }
+        this.ctx.bus.publish({
+          type: 'task_attachments_changed',
+          projectKey: task.projectKey,
+          taskKey: task.key,
+        });
+        if (this.cover(task) !== coverBefore) this.publish(task);
+      }
+      if (isImported) return event;
+      // A comment starts its own thread; a reply belongs to its parent's; a process note has none.
+      const threadId = parent ?? (place === 'comment' ? event.id : null);
+      const targets = mentionItemTargets({ config, author: actor, mentions, imported: false });
+      if (targets.length > 0)
+        this.mentions.openMentions({
+          projectKey: task.projectKey,
+          taskKey: task.key,
+          taskTitle: task.title,
+          source: actor.handle!,
+          sessionId,
+          text,
+          targets,
+          payload: {
+            eventId: event.id,
+            place: parent !== undefined ? 'reply' : place === 'comment' ? 'comment' : 'note',
+            threadId,
+          },
+        });
+      if (parent !== undefined && actor.kind === 'human')
+        this.mentions.closeMentionsByReply({
+          projectKey: task.projectKey,
+          taskKey: task.key,
+          author: actor,
+          threadId: parent,
+          at: event.createdAt,
+        });
+      effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions, task }));
+      return event;
     });
-    if (!isImported) effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions, task }));
-    return event;
   }
 
   /** The comment a reply to `target` lands on; 400 `reply_target_invalid` unless it is a comment of this card. */
@@ -480,7 +557,7 @@ export type NotePlace = 'comment' | 'process';
 export type NoteExtra = Pick<
   CreateTaskCommentRequest,
   'importedAuthor' | 'importedAt' | 'replyTo' | 'clientRequestId'
->;
+> & { attachmentIds?: readonly string[] };
 
 /** The stage with this id, or 400 unknown_stage. */
 export function requireStage(config: ProjectConfig, stageId: string): Stage {

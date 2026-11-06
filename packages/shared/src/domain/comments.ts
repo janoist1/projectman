@@ -1,4 +1,26 @@
 import type { TimelineEvent } from './event';
+import { canUploadAttachment } from './attachment';
+import type { AttachmentViewer, CommentAttachmentRef } from './attachment';
+import { canCommentOnTask } from '../config/communication';
+
+export function canAttachToComment(viewer: AttachmentViewer): boolean {
+  return canUploadAttachment(viewer) && canCommentOnTask(viewer.access);
+}
+
+/** Deleted state is projected on read; the stored timeline remains append-only. */
+export function withGoneCommentFiles(
+  events: readonly TimelineEvent[],
+  live: ReadonlySet<string>,
+): TimelineEvent[] {
+  return events.map((event) => {
+    if (event.type !== 'task_note' || !Array.isArray(event.data.attachments)) return event;
+    const attachments = (event.data.attachments as CommentAttachmentRef[]).map((file) => {
+      const { gone: _, ...ref } = file;
+      return live.has(file.id) ? ref : { ...ref, gone: true as const };
+    });
+    return { ...event, data: { ...event.data, attachments } };
+  });
+}
 
 /**
  * Whether a timeline event is a comment on the card (PM-1290): the Comments column, as opposed to a

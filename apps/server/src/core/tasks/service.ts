@@ -1,6 +1,7 @@
 export function createTaskService(deps: ConstructorParameters<typeof TaskService>[0]): TaskService {
   return new TaskService(deps);
 }
+import { withGoneCommentFiles } from '@projectman/shared';
 
 import type {
   AcceptanceChange,
@@ -232,7 +233,7 @@ export class TaskService implements TaskSchedulingReader {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.handoff = deps.handoff;
-    this.store = new TaskStore(deps);
+    this.store = new TaskStore({ ...deps, mentions: deps.inbox });
     this.labels = new TaskLabels(this.store);
     this.order = new BoardOrder(this.store);
     this.moves = new TaskMoves({
@@ -336,7 +337,11 @@ export class TaskService implements TaskSchedulingReader {
       parent: task.parentKey ? this.find(projectKey, task.parentKey) : null,
       subtasks: this.ctx.repos.tasks.children(projectKey, taskKey).map((child) => this.store.view(child)),
       pullRequests: this.pullRequests.forTask(task),
-      timeline: this.timeline.list(projectKey, { taskKey, limit: timelineLimit }),
+      timeline: this.commentFileState(
+        projectKey,
+        taskKey,
+        this.timeline.list(projectKey, { taskKey, limit: timelineLimit }),
+      ),
       sessions: this.ctx.repos.sessions.list(projectKey, { taskKey }),
     };
   }
@@ -1265,7 +1270,33 @@ export class TaskService implements TaskSchedulingReader {
 
   /** One page of the card's comment threads (PM-1290), every reply with its comment. */
   commentThreads(projectKey: string, taskKey: string, query: TaskCommentsQuery): CommentThreadsPage {
-    return this.store.commentThreads(projectKey, taskKey, query);
+    const page = this.store.commentThreads(projectKey, taskKey, query);
+    const events = this.commentFileState(
+      projectKey,
+      taskKey,
+      page.threads.flatMap((thread) => [thread.comment, ...thread.replies]),
+    );
+    const byId = new Map(events.map((event) => [event.id, event]));
+    return {
+      ...page,
+      threads: page.threads.map((thread) => ({
+        comment: byId.get(thread.comment.id)!,
+        replies: thread.replies.map((reply) => byId.get(reply.id)!),
+      })),
+    };
+  }
+
+  commentFileState(projectKey: string, taskKey: string, events: readonly TimelineEvent[]): TimelineEvent[] {
+    if (
+      !events.some(
+        (event) =>
+          event.type === 'task_note' &&
+          Array.isArray(event.data.attachments) &&
+          event.data.attachments.length > 0,
+      )
+    )
+      return [...events];
+    return withGoneCommentFiles(events, this.ctx.repos.attachments.liveCommentFileIds(projectKey, taskKey));
   }
 
   assign(

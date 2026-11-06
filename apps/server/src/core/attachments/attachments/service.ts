@@ -5,6 +5,9 @@ import {
   canDeleteAttachment,
   canSetTaskCover,
   canUploadAttachment,
+  canAttachToComment,
+  MAX_UNSENT_COMMENT_ATTACHMENTS,
+  UNSENT_COMMENT_ATTACHMENT_TTL_MS,
   coverAttachmentId,
   memberOf,
 } from '@projectman/shared';
@@ -43,6 +46,7 @@ const toDto = (r: AttachmentRecord): Attachment => ({
   preview: r.preview,
   uploadedBy: r.uploadedBy,
   createdAt: r.createdAt,
+  ...(r.commentUpload ? { comment: { eventId: r.commentEventId } } : {}),
 });
 
 /**
@@ -97,15 +101,22 @@ export class AttachmentService implements AttachmentOperations {
     return this.ctx.repos.attachments.listReady(projectKey, taskKey).map(toDto);
   }
 
-  async assertCanUpload(projectKey: string, taskKey: string, actor: Actor): Promise<void> {
-    await this.authorize(projectKey, taskKey, actor, 'upload');
+  async assertCanUpload(
+    projectKey: string,
+    taskKey: string,
+    actor: Actor,
+    options: { forComment?: true } = {},
+  ): Promise<void> {
+    await this.authorize(projectKey, taskKey, actor, options.forComment ? 'comment' : 'upload');
+    if (options.forComment) this.checkUnsentLimit(projectKey, actor);
   }
 
   async upload(input: AttachmentUploadInput): Promise<Attachment> {
     const { projectKey, taskKey, actor } = input;
-    await this.authorize(projectKey, taskKey, actor, 'upload');
+    await this.assertCanUpload(projectKey, taskKey, actor, input);
 
     const { repos } = this.ctx;
+    if (input.forComment) this.checkUnsentLimit(projectKey, actor);
     const ref: AttachmentRef = { projectKey, taskKey, id: newId('att') };
     repos.attachments.insertPending({
       id: ref.id,
@@ -114,6 +125,7 @@ export class AttachmentService implements AttachmentOperations {
       fileName: sanitizeFileName(input.fileName),
       uploadedBy: actor,
       createdAt: isoNow(this.ctx),
+      commentUpload: input.forComment === true,
     });
     let writer: AttachmentWriter | undefined;
     let published = false;
@@ -121,7 +133,9 @@ export class AttachmentService implements AttachmentOperations {
       writer = await this.createWriter(ref);
       const { size, head } = await this.receive(input.content, writer.stream);
       // The access may have changed while the bytes arrived (membership).
-      await this.authorize(projectKey, taskKey, actor, 'upload');
+      await this.authorize(projectKey, taskKey, actor, input.forComment ? 'comment' : 'upload');
+      // The reserved pending row is included: exactly twenty uploads may finish.
+      if (input.forComment) this.checkUnsentLimit(projectKey, actor, true);
       await input.beforeCommit?.();
       await writer.publish().catch((err: unknown) => {
         this.ctx.logger.error({ err, attachment: ref.id }, 'attachment could not be published');
@@ -134,6 +148,7 @@ export class AttachmentService implements AttachmentOperations {
         const stored = { size, mediaType, preview: attachmentPreviewOf(mediaType) };
         if (!repos.attachments.markReady(ref.id, stored)) throw new Error('attachment row vanished');
         const record = repos.attachments.get(ref.id)!;
+        if (input.forComment) return toDto(record);
         this.timeline.append({
           projectKey,
           taskKey,
@@ -153,7 +168,7 @@ export class AttachmentService implements AttachmentOperations {
 
   async open(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<AttachmentContent> {
     await this.authorize(projectKey, taskKey, actor);
-    const record = this.find(projectKey, taskKey, id, ['ready']);
+    const record = this.find(projectKey, taskKey, id, ['ready'], actor);
     let stream: Readable;
     try {
       stream = await this.storage.openRead({ projectKey, taskKey, id }, record.size);
@@ -171,7 +186,7 @@ export class AttachmentService implements AttachmentOperations {
     actor: Actor,
   ): Promise<AttachmentThumbnail> {
     await this.authorize(projectKey, taskKey, actor);
-    const record = this.find(projectKey, taskKey, id, ['ready']);
+    const record = this.find(projectKey, taskKey, id, ['ready'], actor);
     // Only an image proven from its content; never a PDF, never SVG.
     if (record.preview !== 'image') throw notFound('attachment thumbnail', id);
     const ref: AttachmentRef = { projectKey, taskKey, id };
@@ -200,7 +215,7 @@ export class AttachmentService implements AttachmentOperations {
 
   async locate(projectKey: string, taskKey: string, id: string, actor: Actor): Promise<LocatedAttachment> {
     await this.authorize(projectKey, taskKey, actor);
-    const record = this.find(projectKey, taskKey, id, ['ready']);
+    const record = this.find(projectKey, taskKey, id, ['ready'], actor);
     try {
       const path = await this.storage.locate({ projectKey, taskKey, id }, record.size, record.mediaType);
       return { attachment: toDto(record), path };
@@ -224,6 +239,7 @@ export class AttachmentService implements AttachmentOperations {
         record.projectKey !== projectKey ||
         record.taskKey !== taskKey ||
         record.state !== 'ready' ||
+        (record.commentUpload && record.commentEventId === null) ||
         record.preview !== 'image'
       ) {
         throw new DomainError('cover_not_an_image', 'the cover must be a ready image attached to this card', {
@@ -243,9 +259,9 @@ export class AttachmentService implements AttachmentOperations {
       { kind: 'remove', resource: 'attachment', id },
       actor,
     );
-    const { viewer, task } = await this.authorize(projectKey, taskKey, actor);
+    const { viewer } = await this.authorize(projectKey, taskKey, actor);
     await this.deletions.run(id, async () => {
-      const record = this.find(projectKey, taskKey, id, ['ready', 'deleting']);
+      const record = this.find(projectKey, taskKey, id, ['ready', 'deleting'], actor);
       if (!canDeleteAttachment(viewer, record)) {
         throw forbidden('insufficient_access', 'only the uploader, an owner or an admin may delete this');
       }
@@ -323,12 +339,52 @@ export class AttachmentService implements AttachmentOperations {
     }
   }
 
+  private checkUnsentLimit(projectKey: string, actor: Actor, reserved = false): void {
+    const count = this.ctx.repos.attachments.unsentCommentCount(projectKey, actor);
+    if (count >= MAX_UNSENT_COMMENT_ATTACHMENTS + (reserved ? 1 : 0)) {
+      throw new DomainError('comment_attachment_limit', 'too many unsent comment files', {
+        status: 409,
+        details: { max: MAX_UNSENT_COMMENT_ATTACHMENTS },
+      });
+    }
+  }
+
+  async sweepUnsentComments(): Promise<number> {
+    const cutoff = new Date(this.ctx.now().getTime() - UNSENT_COMMENT_ATTACHMENT_TTL_MS).toISOString();
+    let swept = 0;
+    for (const record of this.ctx.repos.attachments.unsentCommentsBefore(cutoff)) {
+      try {
+        await this.deletions.run(record.id, async () => {
+          const current = this.ctx.repos.attachments.get(record.id);
+          if (current?.state !== 'ready' || !current.commentUpload || current.commentEventId !== null) return;
+          if (!this.ctx.repos.attachments.markDeleting(current.id, SYSTEM_ACTOR, isoNow(this.ctx))) return;
+          await this.finishDeletion({ ...current, state: 'deleting', deletedBy: SYSTEM_ACTOR });
+          swept += 1;
+        });
+      } catch (err) {
+        this.ctx.logger.warn({ err, attachment: record.id }, 'could not sweep an unsent comment attachment');
+      }
+    }
+    return swept;
+  }
+
+  startSweeping(): () => void {
+    const run = () =>
+      void this.sweepUnsentComments().catch((err: unknown) =>
+        this.ctx.logger.warn({ err }, 'comment attachment sweep failed'),
+      );
+    run();
+    const timer = setInterval(run, 60 * 60_000);
+    timer.unref();
+    return () => clearInterval(timer);
+  }
+
   /** The acting member's current standing on the task; 404 for an unknown task. */
   private async authorize(
     projectKey: string,
     taskKey: string,
     actor: Actor,
-    need: 'read' | 'upload' | 'cover' = 'read',
+    need: 'read' | 'upload' | 'cover' | 'comment' = 'read',
   ): Promise<{ viewer: AttachmentViewer; task: Task }> {
     if (!this.projects.has(projectKey)) throw notFound('project', projectKey);
     const member =
@@ -345,6 +401,9 @@ export class AttachmentService implements AttachmentOperations {
     if (need === 'upload' && !canUploadAttachment(viewer)) {
       throw forbidden('insufficient_access', 'read-only members cannot attach files');
     }
+    if (need === 'comment' && !canAttachToComment(viewer)) {
+      throw forbidden('insufficient_access', 'read-only members cannot attach to comments');
+    }
     if (need === 'cover' && !canSetTaskCover(viewer)) {
       throw forbidden('insufficient_access', 'only the team chooses the cover');
     }
@@ -357,13 +416,17 @@ export class AttachmentService implements AttachmentOperations {
     taskKey: string,
     id: string,
     states: AttachmentRecord['state'][],
+    actor: Actor,
   ): AttachmentRecord {
     const record = this.ctx.repos.attachments.get(id);
     if (
       !record ||
       record.projectKey !== projectKey ||
       record.taskKey !== taskKey ||
-      !states.includes(record.state)
+      !states.includes(record.state) ||
+      (record.commentUpload &&
+        record.commentEventId === null &&
+        (record.uploadedBy.kind !== actor.kind || record.uploadedBy.handle !== actor.handle))
     ) {
       throw notFound('attachment', id);
     }
@@ -413,6 +476,7 @@ export class AttachmentService implements AttachmentOperations {
     this.ctx.unitOfWork(() => {
       // Gone already: another call or a recovery finished it, with its own event.
       if (!this.ctx.repos.attachments.remove(record.id)) return;
+      if (record.commentUpload && record.commentEventId === null) return;
       this.ctx.repos.taskCovers.clearPinned(record.taskKey, record.id);
       this.onDeleted?.({ projectKey: record.projectKey, id: record.id });
       this.timeline.append({

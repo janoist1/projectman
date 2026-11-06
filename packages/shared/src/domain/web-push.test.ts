@@ -93,6 +93,7 @@ describe('push eligibility', () => {
     ['hand_on', 'decision'],
     ['merge_request', 'decision'],
     ['alert', null],
+    ['mention', null],
   ] as const)('maps %s to %s', (kind, category) => expect(pushCategoryOf({ ...item, kind })).toBe(category));
   it('maps a gate approval decision to approval', () =>
     expect(

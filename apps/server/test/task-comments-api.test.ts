@@ -10,6 +10,7 @@ import {
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER_ACTOR } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { fileBody, pngBytes } from './helpers/attachments';
 
 describe('task comments API', () => {
   let h: AppHarness;
@@ -37,16 +38,15 @@ describe('task comments API', () => {
     expect(response.statusCode).toBe(201);
     const event = TaskDetail.parse(response.json()).timeline.find((event) => event.type === 'task_note')!;
     expect(event).toMatchObject({ actor: OWNER_ACTOR, data: { text, mentions: ['robin', 'dev-1'] } });
-    const messages = h.app.projectman.domain.messages.list('AR', { unreadFor: 'robin' });
+    // A human is told by a mention item in Rád vár (PM-1307), only an AI member by a team message.
+    const { domain } = h.app.projectman;
+    expect(domain.messages.list('AR', { unreadFor: 'robin' })).toEqual([]);
+    expect(domain.inbox.list('AR', { kind: 'mention' })).toMatchObject([
+      { assignees: ['robin'], body: text },
+    ]);
+    const messages = domain.messages.list('AR', { unreadFor: 'dev-1' });
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatchObject({
-      from: 'owner',
-      taskKey: 'AR-1',
-      body: text,
-      receipts: expect.arrayContaining([
-        expect.objectContaining({ handle: 'robin', kind: 'human', readAt: null }),
-      ]),
-    });
+    expect(messages[0]).toMatchObject({ from: 'owner', taskKey: 'AR-1', body: text, to: ['dev-1'] });
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     await flush();
     expect(h.runner.lastStarted().initialMessage).toContain('[team message from owner about AR-1]');
@@ -70,7 +70,7 @@ describe('task comments API', () => {
     expect(h.app.projectman.repos.messages.pending('AR', 'cr')).toHaveLength(1);
   });
 
-  it('AI update_task notes notify humans and AI with the AI author', async () => {
+  it('AI update_task notes message the AI mentions and open an item for the human, with the AI author', async () => {
     const { domain } = h.app.projectman;
     const { session } = await domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: 'AR-1' });
     const text = '@OWNER @cr @dev-1 please review';
@@ -79,9 +79,13 @@ describe('task comments API', () => {
       { taskKey: 'AR-1', note: text },
     );
     await flush();
-    expect(domain.messages.list('AR', { unreadFor: 'owner' })[0]).toMatchObject({
+    expect(domain.messages.list('AR', { unreadFor: 'owner' })).toEqual([]);
+    expect(domain.inbox.list('AR', { kind: 'mention' })).toMatchObject([
+      { assignees: ['owner'], source: 'dev-1', body: text },
+    ]);
+    expect(domain.messages.list('AR', { unreadFor: 'cr' })[0]).toMatchObject({
       from: 'dev-1',
-      to: ['owner', 'cr'],
+      to: ['cr'],
       body: text,
     });
     expect(domain.timeline.list('AR').find((event) => event.type === 'task_note')).toMatchObject({
@@ -107,6 +111,36 @@ describe('task comments API', () => {
   it('refuses a viewer', async () => {
     await setRobin('viewer');
     const response = await comment({ text: 'Comment' }, developer);
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe('insufficient_access');
+  });
+
+  it('lets a client upload and send a file-only comment', async () => {
+    await setRobin('client');
+    const body = fileBody(pngBytes());
+    const uploaded = await h.app.inject({
+      method: 'POST',
+      url: routes.taskCommentAttachments('AR', 'AR-1'),
+      headers: { ...body.headers, cookie: developer },
+      payload: body.payload,
+    });
+    expect(uploaded.statusCode).toBe(201);
+    const file = uploaded.json().attachment;
+    expect(file.comment).toEqual({ eventId: null });
+    const response = await comment({ attachmentIds: [file.id] }, developer);
+    expect(response.statusCode).toBe(201);
+    expect(
+      TaskDetail.parse(response.json()).timeline.find((event) => event.type === 'task_note'),
+    ).toMatchObject({ data: { text: '', attachments: [{ id: file.id }] } });
+  });
+
+  it('refuses a viewer before reading comment upload bytes', async () => {
+    await setRobin('viewer');
+    const response = await h.app.inject({
+      method: 'POST',
+      url: routes.taskCommentAttachments('AR', 'AR-1'),
+      headers: { cookie: developer },
+    });
     expect(response.statusCode).toBe(403);
     expect(response.json().error.code).toBe('insufficient_access');
   });

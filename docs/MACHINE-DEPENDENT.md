@@ -1641,7 +1641,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `scripts/heavy/{cli,run,messages,vitest-places}`, `packages/shared/src/config/test-workers.ts` and the workspace
   `vitest.config.ts` files (PM-332, PM-336, PM-1278 A / PM-1313). The machine has one pool of places
   (`machinePlaces`: from the executing host's cores and memory, 2 to 16); a heavy run takes `all`, or 2 to 4
-  for a workspace vitest and `handover-check`, and its worker count comes from the places it was granted
+  for a workspace vitest and `handover-check`, 2 for the root typecheck and the members' `npm ci`, 3 for
+  screenshots, 1 for a workspace typecheck or build (PM-1316, PM-1278 C; a run inside a holder asks for
+  none), and its worker count comes from the places it was granted
   (`placeWorkers`), not from a config. The pool is files in the per-user lock directory below; an older
   build's entry without `places` counts as all of them. **Remote engine:** the pool, its capacity and the
   workers belong to the machine that runs the command, so each engine has its own in its own
@@ -1681,6 +1683,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Idle closure asks that engine through `EngineHost.heavyRunSessions` / `host.heavy_run_sessions`
   (PM-569). PID and heartbeat checks run on the engine; only its own running session ids cross
   to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
+  Since PM-1315, `runtime/sessions/sessions.ts` calls `EngineHost.endSessionRuns` when the CLI
+  has ended. `full-test/heavy-lock.ts` signals that session's queue and holder PIDs with SIGTERM,
+  then SIGKILL after 10 seconds if the same ticket and PID still have a heartbeat newer than
+  30 seconds. Stale entries and other sessions receive no signal. This assumes the engine's
+  local PID namespace and queue filesystem; the CLI child guard and vitest stop their children.
+  **Remote engine:** `host.end_session_runs` (an open engine-link method) carries only the
+  session id and returns the number of runs sent SIGTERM. Listing, heartbeat checks, the timer
+  and both signals run on the engine, never in the cloud's PID namespace.
   The queue does not apply in GitHub mode (`FullTestSpec.githubActions`, PM-900): the machine does not run the tests.
   **Module:** `full-test`
 - **Memory pressure of the machine** — `full-test/machine-pressure.ts`, started by `engine-app.ts` (engine
@@ -1802,6 +1812,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   **Module:** `engine-host`
 
 - **Card attachments (PM-644)** — `core/attachments/attachments/{service,storage,thumbnail}.ts`
+  Comment files (PM-1309) use the same server storage and authenticated transfer to remote engines; unsent visibility, binding and cleanup stay on the server without a new engine boundary.
   (through `core/attachments/index.ts`) and `contracts/attachments.ts`. Records and the private
   `<PROJECTMAN_HOME>/attachments` store belong to the server; local storage uses 0700 directories,
   0600 files and no-follow opens, and `sharp`/libvips generates thumbnails there.

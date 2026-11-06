@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.dev.config.ts",
-    "build": "vite build",
-    "typecheck": "tsc -p tsconfig.json",
+    "build": "node --import tsx ../../scripts/heavy/cli.ts --places 1 vite build",
+    "typecheck": "node --import tsx ../../scripts/heavy/cli.ts --places 1 tsc -p tsconfig.json",
     "test": "vitest run --configLoader runner --passWithNoTests"
   },
   "dependencies": {

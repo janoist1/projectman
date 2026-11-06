@@ -412,13 +412,19 @@ export function createWebPushService(opts: WebPushOptions) {
         const category = target.categories.find((c) => settings.categories[c]);
         if (!category || opts.presence.isViewing(user.email)) continue;
         if (quietWindowAt(settings.quietHours, now()).quiet) continue;
+        const count = Array.isArray(event.data.attachments) ? event.data.attachments.length : 0;
+        const files = textFor(user.id).files;
+        const body =
+          !event.data.text && count > 0
+            ? `${task.key} · ${count === 1 ? files.one : files.many.replace('{n}', String(count))}`
+            : task.key;
         await sendAll(
           user.id,
           {
             v: 1,
             kind: 'item',
             title: textFor(user.id).title[category],
-            body: task.key,
+            body,
             tag: `note-${task.projectKey}-${task.key}`,
             url: `/p/${encodeURIComponent(task.projectKey)}/tasks/${encodeURIComponent(task.key)}#timeline-${encodeURIComponent(event.id)}`,
             projectKey: task.projectKey,

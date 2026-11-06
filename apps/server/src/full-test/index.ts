@@ -45,7 +45,13 @@ export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } fro
 export type { WorkspaceDependencyInstallerOptions } from './workspace-dependencies';
 
 export { failedFiles, failureReport, outputTail, stripAnsi } from './output';
-export { acquireHeavyLock, HeavyLockError, readHeavyQueue, readHeavyRunSessions } from './heavy-lock';
+export {
+  acquireHeavyLock,
+  HeavyLockError,
+  readHeavyQueue,
+  readHeavyRunSessions,
+  endHeavySessionRuns,
+} from './heavy-lock';
 export { defaultHeavyLockDir } from './heavy-lock-dir';
 export type { HeavyLock, HeavyLockEntry, HeavyLockOptions } from './heavy-lock';
 export { startPressureMeter } from './machine-pressure';

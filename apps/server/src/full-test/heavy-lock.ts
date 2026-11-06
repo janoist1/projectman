@@ -312,6 +312,50 @@ export async function readHeavyRunSessions(
   }
 }
 
+/** Fresh entries of a session, including the full-grant holder used by older builds. */
+async function sessionRuns(dir: string, sessionId: string): Promise<Waiter[]> {
+  const entries = [...(await listTickets(layout(dir).queue)), ...(await listHolders(dir, 1))];
+  const now = Date.now();
+  return entries.filter(
+    ({ entry, mtimeMs }) =>
+      entry.sessionId === sessionId &&
+      Number.isInteger(entry.pid) &&
+      entry.pid > 1 &&
+      now - mtimeMs < DEFAULT_STALE_MS,
+  );
+}
+
+/** Stop this session's leftover runs on their engine; never signal a stale or replaced entry. */
+export async function endHeavySessionRuns(
+  dir: string,
+  sessionId: string,
+  kill: (pid: number, signal: 'SIGTERM' | 'SIGKILL') => unknown = process.kill,
+): Promise<number> {
+  const stopped = new Map<string, HeavyLockEntry>();
+  const signal = (entry: HeavyLockEntry, value: 'SIGTERM' | 'SIGKILL'): boolean => {
+    try {
+      kill(entry.pid, value);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (const { entry } of await sessionRuns(dir, sessionId)) {
+    if (!stopped.has(entry.ticket) && signal(entry, 'SIGTERM')) stopped.set(entry.ticket, entry);
+  }
+  if (stopped.size > 0)
+    setTimeout(() => {
+      void sessionRuns(dir, sessionId)
+        .then((entries) => {
+          for (const { entry } of entries) {
+            if (stopped.get(entry.ticket)?.pid === entry.pid) signal(entry, 'SIGKILL');
+          }
+        })
+        .catch(() => undefined);
+    }, 10_000).unref();
+  return stopped.size;
+}
+
 /**
  * Waits for the lock in queue order. Waiters and the holder write a heartbeat (the modification time of
  * their file); a ticket or a holder whose heartbeat stopped, or whose process is gone, is removed by the

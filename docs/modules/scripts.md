@@ -14,12 +14,17 @@ A place is one process's share of the machine: a run of `n` places has one main 
 
 - **Capacity.** `machinePlaces({ cpus, memoryBytes })` (`packages/shared/src/config/test-workers.ts`):
   `clamp(min(cpus, floor((GiB − 4) / 2)), 2, 16)`. Two GiB per place, four GiB for the machine itself.
-- **Requests.** A run asks for `{ min, max }` places or `'all'`. The root `npm test`, `npm run typecheck`, `npm run shots`,
-  the server's full test and the merge-test ask for `all`; a workspace vitest asks for 2 to 4
+- **Requests.** A run asks for `{ min, max }` places or `'all'`. The root `npm test`, the server's full test and
+  `npm run merge-test` (through the heavy CLI; the server's merge check runs it under its ticket and takes
+  none again) ask for `all`; the root `npm run typecheck` asks for 2, `npm run shots` and `take_screenshots`
+  (`SCREENSHOT_PLACES`) for 3, the members' `npm ci` (`DEPENDENCY_PLACES`) for 2, and a workspace `typecheck`
+  or `build` script for 1 (`--places 1`; under a holder's ticket it takes nothing). A workspace vitest asks for 2 to 4
   and gives back what it cannot use once it knows its files (`1 + min(workers, files)`); `npm run
 handover-check` asks for 2 to 4 once, through the heavy CLI, and its steps run under that ticket. Only the
   head of the queue allocates, and the order is strict FIFO: a small request never overtakes a request for
-  more places ahead of it. A grant can be reduced (`lock.reduce`), never grown.
+  more places ahead of it. A grant can be reduced (`lock.reduce`), never grown. A `vitest related` run that
+  selects more than `TARGETED_TEST_FILES_MAX` files (PM-1317) is a full run in effect: its reporter says so,
+  releases its places and queues again for `'all'`; a `vitest run <files>` is not subject to the threshold.
 - **The pool** (`apps/server/src/full-test/heavy-lock.ts`, with an Effect core in
   `full-test/heavy-lock-core.ts`). The CLI imports the facade directly; `full-test/index.ts` also
   loads the sandbox runtime. macOS has no `flock` or `lockf`, so the pool is a
@@ -56,7 +61,9 @@ handover-check` asks for 2 to 4 once, through the heavy CLI, and its steps run u
   commands are covered; grace is in memory and does not survive a server restart.
 - **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] [--places all|<n>|<min>-<max>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn (`--places` defaults to `all`); the root `npm test`,
-  `npm run typecheck`, `npm run shots` and `npm run handover-check` (`--places 2-4`) go through it. It says on
+  `npm run typecheck` (`--places 2`), `npm run shots` (`--places 3`), `npm run merge-test` and `npm run
+handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` script (`--places 1`) go through it. The
+  GitHub merge-check workflow runs `scripts/merge-test/cli.ts` directly: its runner has no pool. It says on
   stderr who it waits for; `--max-wait` ends with exit status 75, a second run of the same command in the same
   session with 79.
   The command runs under `scripts/lib/child-guard.mjs` (PM-863) as the leader of its own process group

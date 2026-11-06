@@ -1706,7 +1706,13 @@ export function createDomain(opts: DomainOptions) {
   // What frees a place, a limit or a hold for a deferred start does so for a queued one too (PM-925).
   if (!opts.standby) admission.useQueueRetry(() => memberQueueDriver.retryWaiting());
   const retryDeferredStarts = () => admission.requestRetry();
-  const leaveRelease = new LeaveRelease({ tasks, refinement, retry: retryDeferredStarts });
+  const leaveRelease = new LeaveRelease({
+    tasks,
+    refinement,
+    retry: retryDeferredStarts,
+    background,
+    logger: ctx.logger,
+  });
   const usageWake = new UsageWake({
     projects,
     ctx,

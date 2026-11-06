@@ -97,7 +97,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   sessions stop (their conversations stay, so a call-back resumes them), it is not picked or named
   as an assignee, a stage hand-over goes to another owner, and the messages for it wait. Sending
   it on leave also takes it off what it carried (PM-1300, `LeaveRelease` in `runtime/admission`):
-  its open cards lose it as assignee (`task_assigned` with reason `on_leave`), its open refinement
+  its open cards lose it as assignee (`task_assigned` with reason `on_leave`; the handoff falls back
+  at once and its summary waits for the card's next assignee), its open refinement
   turns close (`refinement_turn` with reason `on_leave`) and go to another setter by the usual pick,
   and the deferred starts are retried, so a start that waited in its queue moves to the member the
   pick chooses now. Nothing is handed to anyone by name, whoever set the leave arranges the

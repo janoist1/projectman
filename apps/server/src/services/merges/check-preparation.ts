@@ -14,7 +14,9 @@ export const GITHUB_RUNNER_NEEDS_REPO =
 /** Whether the card engine has a ready sandbox; a lost link means no fallback. */
 export async function engineCheckAvailable(engine: EngineHost): Promise<boolean> {
   try {
-    return (await engine.fullTestExecutor?.available())?.ok === true;
+    const executor = engine.fullTestExecutor;
+    if (!executor) return false;
+    return executor.sandboxReady ? await executor.sandboxReady() : (await executor.available()).ok === true;
   } catch (err) {
     if (err instanceof EngineLinkLostError) return false;
     throw err;

@@ -22,6 +22,7 @@ import {
 import { MAX_CHANGED_ITEMS, MAX_CHANGED_PATHS, MAX_LISTED_PATHS } from '../contracts';
 import type {
   FullTestResult,
+  FullTestExecutor,
   FullTestSpec,
   BranchMerger,
   MachineSnapshot,
@@ -283,6 +284,7 @@ type ContractResults = {
   'usage.plan': PlanUsageProvider['get'];
   'provider.status': NonNullable<SessionRunner['providerStatus']>;
   'github.is_available': MachineGithubService['isAvailable'];
+  'full_test.available': FullTestExecutor['available'];
   'github.get_pull_request': MachineGithubService['getPullRequest'];
   'github.find_pull_requests_for_branch': MachineGithubService['findPullRequestsForBranch'];
   'github.publish_release': MachineGithubService['publishRelease'];
@@ -628,6 +630,13 @@ export const methods = {
     done,
   ),
   'github.unwatch': method(z.strictObject({ watchId: text }), done),
+  'full_test.available': method(
+    empty,
+    z.union([
+      z.strictObject({ ok: z.literal(true) }),
+      z.strictObject({ ok: z.literal(false), reason: text.max(500) }),
+    ]),
+  ),
   'full_test.run': method(z.strictObject({ spec: fullSpec }), fullResult),
   'full_test.attach': method(z.strictObject({ runId: text }), fullAttachResult),
   'full_test.report': method(z.strictObject({ runId: text }), fullReportResult),

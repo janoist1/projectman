@@ -8,6 +8,21 @@ function engine(available: FullTestExecutor['available']) {
 }
 
 describe('merge check runner selection', () => {
+  it('keeps GitHub when the connected remote engine has no ready sandbox', async () => {
+    const available = vi.fn(async () => ({ ok: true as const }));
+    const host = engine(available);
+    host.fullTestExecutor!.sandboxReady = vi.fn(async () => false);
+    expect(
+      await chooseMergeCheckRunner(host, {
+        configured: 'github_actions',
+        requested: 'engine',
+        githubOutage: true,
+      }),
+    ).toMatchObject({ ok: true, runner: 'github_actions', fallback: false });
+    expect(available).not.toHaveBeenCalled();
+    expect(host.fullTestExecutor!.sandboxReady).toHaveBeenCalledTimes(1);
+  });
+
   it.each([{ requested: 'engine' as const, githubOutage: false }, { githubOutage: true }])(
     'uses the ready sandbox for %o',
     async (input) => {

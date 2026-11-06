@@ -63,7 +63,9 @@ older engine refuse the descriptor with `github_unavailable`, a run that stopped
 available after a GitHub fault. `check-retry.ts` owns the rule. A repository circuit breaker
 opens for 30 minutes after its latest completed GitHub check reports `runner_not_acquired`
 or `service_unreachable`; it directs checks to an available engine sandbox. `verdict_missing`
-does not open it. Without a sandbox checks continue on GitHub.
+does not open it. Without a sandbox checks continue on GitHub. The remote executor's
+`sandboxReady()` probes the engine through `full_test.available`; an older engine or a failed
+probe has no fallback. Ordinary `available()` retains its existing link-only meaning there.
 The merge stays `queued` with durable `retry.at`, keeping its queue rank and priority;
 other cards can use the slot. A single scoped timer wakes the earliest retry and is rebuilt
 at startup. Train members return to the queue with the greatest member attempt count.

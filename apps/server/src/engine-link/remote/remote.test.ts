@@ -1685,6 +1685,36 @@ describe('cloud mode remote parts', () => {
       await expect(run).resolves.toMatchObject({ aborted: true });
     });
 
+    it.each([true, false])(
+      'probes the engine sandbox readiness separately from link availability (%s)',
+      async (ok) => {
+        const engine = await online();
+        engine.answer('full_test.available', () =>
+          ok ? { ok: true as const } : { ok: false as const, reason: 'sandbox_unavailable' },
+        );
+        const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+        await expect(executor.available()).resolves.toEqual({ ok: true });
+        await expect(executor.sandboxReady!()).resolves.toBe(ok);
+        expect(engine.requests.filter((request) => request.method === 'full_test.available')).toHaveLength(1);
+      },
+    );
+
+    it('keeps sandbox fallback unavailable on an older engine', async () => {
+      await online();
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      await expect(executor.available()).resolves.toEqual({ ok: true });
+      await expect(executor.sandboxReady!()).resolves.toBe(false);
+    });
+
+    it('does not probe a disconnected engine for sandbox readiness', async () => {
+      const engine = await online();
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      engine.disconnect();
+      await vi.waitFor(() => expect(remote.hub.link('eng_a' as never)).toBeNull());
+      await expect(executor.sandboxReady!()).resolves.toBe(false);
+      expect(engine.requests.filter((request) => request.method === 'full_test.available')).toHaveLength(0);
+    });
+
     it('reports a full test started by the engine, once, and only for its own run', async () => {
       const engine = await online();
       let finish: (value: FullTestResult) => void = () => {};

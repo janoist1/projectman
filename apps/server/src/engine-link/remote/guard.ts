@@ -77,6 +77,7 @@ const SCOPES: Scopes = {
       (spec.npmCi ?? spec.regenerate ?? spec.githubActions ?? spec.githubJob)?.ref.projectKey,
   },
   'full_test.attach': 'open',
+  'full_test.available': 'open',
   'full_test.report': 'open',
   'full_test.cancel': 'open',
   'screenshots.run': 'open',

@@ -3,7 +3,7 @@ import { planRelations, relationRefusal } from './relations';
 import type { RelationCard } from './relations';
 import { isTheme, subtaskParentRefusal } from './task';
 import type { Task } from './task';
-import { themeCards, themeProgress, themeRefusal } from './theme';
+import { compareThemes, themeCards, themeProgress, themeRefusal } from './theme';
 
 /** Cards for the rules: AR-1 is a theme, AR-9 a closed one, the others are plain cards. */
 function card(key: string, extra: Partial<Task> = {}): Task {
@@ -66,6 +66,34 @@ describe('themeRefusal', () => {
 
   it('judges the card before the theme: a subtask is refused whatever theme is meant', () => {
     expect(themeRefusal(undefined, card('AR-2', { parentKey: 'AR-3' }))).toBe('theme_on_subtask');
+  });
+
+  it('refuses an archived theme, and takes it again once it is restored (PM-1283)', () => {
+    expect(themeRefusal(theme('AR-1', { archivedAt: '2026-11-06T10:00:00.000Z' }), card('AR-2'))).toBe(
+      'theme_archived',
+    );
+    expect(themeRefusal(theme('AR-1', { archivedAt: null }), card('AR-2'))).toBeNull();
+  });
+});
+
+describe('compareThemes (PM-1283)', () => {
+  it('puts the most important first and orders a level by the number of the theme', () => {
+    const themes = [
+      theme('AR-1'),
+      theme('AR-12', { priority: 'low' }),
+      theme('AR-10', { priority: 'urgent' }),
+      theme('AR-3', { priority: 'normal' }),
+      theme('AR-11', { priority: 'urgent' }),
+      theme('AR-2', { priority: 'high' }),
+    ];
+    expect(themes.sort(compareThemes).map((entry) => entry.key)).toEqual([
+      'AR-10',
+      'AR-11',
+      'AR-2',
+      'AR-3',
+      'AR-12',
+      'AR-1',
+    ]);
   });
 });
 

@@ -11,6 +11,7 @@ const THEME_REFUSALS: Record<ThemeRefusal, string> = {
   theme_project: 'the theme must belong to the same project',
   theme_not_a_theme: 'the card is not a theme',
   theme_closed: 'the theme is closed: reopen it, or choose another',
+  theme_archived: 'the theme is archived: restore it, or choose another',
 };
 
 /** What a theme shows: the cards that belong to it, and how far it is. */

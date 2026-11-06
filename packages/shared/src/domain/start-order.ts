@@ -18,19 +18,19 @@ export const PRIORITY_RANK = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
 
 /**
  * The highest of the card's, its parent's and its theme's priority; a closed parent or theme does not
- * count. A subtask's theme is its parent's. `tasks` holds the parents and themes (and may hold more);
- * one that is not in it counts for nothing. `null`: none of them has a priority.
+ * count, nor does an archived theme (PM-1283). A subtask's theme is its parent's. `tasks` holds the parents
+ * and themes (and may hold more); one that is not in it counts for nothing. `null`: none of them has a priority.
  */
 export function effectivePriority(
   task: Pick<Task, 'priority' | 'parentKey' | 'themeKey'>,
-  tasks: readonly Pick<Task, 'key' | 'priority' | 'themeKey' | 'status'>[],
+  tasks: readonly Pick<Task, 'key' | 'priority' | 'themeKey' | 'status' | 'archivedAt'>[],
 ): TaskPriority | null {
   const parent = task.parentKey ? tasks.find((card) => card.key === task.parentKey) : undefined;
   const themeKey = task.themeKey ?? parent?.themeKey;
   const theme = themeKey ? tasks.find((card) => card.key === themeKey) : undefined;
   let best = task.priority;
   for (const other of [parent, theme]) {
-    if (!other?.priority || !isOpenTask(other)) continue;
+    if (!other?.priority || !isOpenTask(other) || other.archivedAt) continue;
     if (!best || PRIORITY_RANK[other.priority] < PRIORITY_RANK[best]) best = other.priority;
   }
   return best;
@@ -42,7 +42,7 @@ export function effectivePriority(
  */
 export function startClass(
   task: Task | null,
-  tasks?: readonly Pick<Task, 'key' | 'priority' | 'themeKey' | 'status'>[],
+  tasks?: readonly Pick<Task, 'key' | 'priority' | 'themeKey' | 'status' | 'archivedAt'>[],
 ): StartClass {
   if (!task || !isOpenTask(task)) return { kind: 'other' };
   const priority = tasks ? effectivePriority(task, tasks) : task.priority;

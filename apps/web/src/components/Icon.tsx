@@ -336,6 +336,13 @@ const icons = {
       <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" />
     </>
   ),
+  archive: (
+    <>
+      <rect x="3.5" y="5" width="17" height="4" rx="1" />
+      <path d="M5 9v9a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 18V9" />
+      <path d="M10 13h4" />
+    </>
+  ),
   play: <path d="M8 5.5v13l10.5-6.5z" />,
   pause: <path d="M9 6v12M15 6v12" />,
   stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" />,

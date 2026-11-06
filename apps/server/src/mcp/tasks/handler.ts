@@ -138,6 +138,7 @@ export class TaskTools implements TaskToolsHandler {
       repo?: string | null;
       relations?: RelationsChange;
       themeKey?: string | null;
+      archived?: boolean;
       priority?: TaskPriority | null;
       complexity?: ComplexityRequest;
       despitePrerequisites?: boolean;
@@ -327,6 +328,7 @@ export class TaskTools implements TaskToolsHandler {
           repo: args.repo,
           ...(args.relations ? { relations: args.relations } : {}),
           ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
+          ...(args.archived !== undefined ? { archived: args.archived } : {}),
           ...(args.priority !== undefined ? { priority: args.priority } : {}),
           ...(args.complexity ? { complexity: args.complexity } : {}),
           ...(args.despitePrerequisites ? { despitePrerequisites: true } : {}),

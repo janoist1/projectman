@@ -18,6 +18,26 @@
   font-weight: 800;
 }
 
+.archivedState {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--c-muted);
+  border: 1px solid var(--c-line);
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
+
+.archivedHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+}
+
 .progressHead {
   display: flex;
   align-items: baseline;

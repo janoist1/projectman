@@ -278,6 +278,11 @@ export const Task = z.object({
   /** Absent: `task`. */
   kind: TaskKind.optional(),
   /**
+   * When the theme was archived (PM-1283): it leaves the top theme filter and takes no new card, its cards
+   * keep it. Only a theme has it; absent or null: not archived (every card stored before it existed).
+   */
+  archivedAt: z.string().nullable().optional(),
+  /**
    * The theme the card belongs to, as it is read: a subtask has its parent's theme (never its own, so
    * the parent changing theme writes nothing to its subtasks); other cards have the theme they were
    * given. Absent or null: none. A theme has none.

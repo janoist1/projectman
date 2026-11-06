@@ -94,6 +94,12 @@ describe('effectivePriority (PM-1136)', () => {
       null,
     ],
     [
+      'nothing for an archived theme (PM-1283)',
+      card('AC-1', { themeKey: 'AC-100' }),
+      [theme({ priority: 'urgent', archivedAt: '2026-11-06T10:00:00.000Z' })],
+      null,
+    ],
+    [
       'nothing for a closed parent',
       card('AC-1', { parentKey: 'AC-2' }),
       [card('AC-2', { priority: 'urgent', status: 'cancelled' })],

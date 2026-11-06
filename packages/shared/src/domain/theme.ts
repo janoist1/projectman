@@ -1,3 +1,4 @@
+import { PRIORITY_RANK } from './start-order';
 import { isOpenTask, isTheme, taskSeq } from './task';
 import type { Task, TaskKey } from './task';
 
@@ -16,16 +17,22 @@ export type ThemeRefusal =
   | 'theme_not_found'
   | 'theme_project'
   | 'theme_not_a_theme'
-  | 'theme_closed';
+  | 'theme_closed'
+  | 'theme_archived';
+
+/** Whether the theme is archived (PM-1283): out of the top theme filter, takes no new card. */
+export function isArchivedTheme(theme: Pick<Task, 'archivedAt'>): boolean {
+  return Boolean(theme.archivedAt);
+}
 
 /**
  * Why `card` may not be put into the theme stored under `themeKey`, or null when it may:
  * - the card is not a theme and not a subtask (a subtask gets its parent's theme, never its own);
- * - the theme exists, in the same project, is a theme, and is open (a closed theme takes no new card;
- *   what already belongs to it stays). `theme` is the card stored under `themeKey`.
+ * - the theme exists, in the same project, is a theme, and is open and not archived (a closed or archived
+ *   theme takes no new card; what already belongs to it stays). `theme` is the card stored under `themeKey`.
  */
 export function themeRefusal(
-  theme: Pick<Task, 'projectKey' | 'kind' | 'status'> | null | undefined,
+  theme: Pick<Task, 'projectKey' | 'kind' | 'status' | 'archivedAt'> | null | undefined,
   card: Pick<Task, 'projectKey' | 'kind' | 'parentKey'>,
 ): ThemeRefusal | null {
   if (isTheme(card)) return 'theme_on_theme';
@@ -34,7 +41,18 @@ export function themeRefusal(
   if (theme.projectKey !== card.projectKey) return 'theme_project';
   if (!isTheme(theme)) return 'theme_not_a_theme';
   if (!isOpenTask(theme)) return 'theme_closed';
+  if (isArchivedTheme(theme)) return 'theme_archived';
   return null;
+}
+
+/**
+ * The order of the themes in the top theme filter and the new-card theme picker (PM-1283): by priority
+ * (urgent, high, normal, low, none: the most important first), within a level by the theme's number. The
+ * rank is the one of the start order ({@link PRIORITY_RANK}).
+ */
+export function compareThemes(a: Pick<Task, 'key' | 'priority'>, b: Pick<Task, 'key' | 'priority'>): number {
+  const rank = (theme: Pick<Task, 'priority'>) => (theme.priority ? PRIORITY_RANK[theme.priority] : 4);
+  return rank(a) - rank(b) || taskSeq(a.key) - taskSeq(b.key);
 }
 
 /** What a theme lists of a card. */

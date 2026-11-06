@@ -35,6 +35,7 @@ interface TaskRow {
   stage_entered_at: string | null;
   updated_at: string;
   closed_at: string | null;
+  archived_at: string | null;
   complexity: string | null;
 }
 
@@ -73,6 +74,7 @@ export type TaskPatch = Partial<
     | 'stageEnteredAt'
     | 'updatedAt'
     | 'closedAt'
+    | 'archivedAt'
     | 'parentKey'
     /** The theme to store: a card's own (null removes it), never a subtask's. */
     | 'themeKey'
@@ -92,6 +94,7 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
   stageEnteredAt: 'stage_entered_at',
   updatedAt: 'updated_at',
   closedAt: 'closed_at',
+  archivedAt: 'archived_at',
   parentKey: 'parent_key',
   themeKey: 'theme_key',
   complexity: 'complexity',
@@ -153,6 +156,7 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
   return {
     // Only what is not the default is present, so a plain card reads as it did before themes.
     ...(r.kind === 'theme' ? { kind: 'theme' as const } : {}),
+    ...(r.archived_at ? { archivedAt: r.archived_at } : {}),
     ...(r.effective_theme ? { themeKey: r.effective_theme } : {}),
     ...(complexity.success ? { complexity: complexity.data } : {}),
     parentKey: r.parent_key,

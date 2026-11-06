@@ -98,7 +98,7 @@ export function defaultTaskHandlers(backend: MockBackend): HttpHandler[] {
     handler('get', `${path}:taskKey`, z.undefined(), TaskDetail, ({ taskKey }) => detail(taskKey)),
     handler('patch', `${path}:taskKey`, UpdateTaskRequest, UpdateTaskResponse, ({ taskKey, body }) => {
       if (!backend.findTask(taskKey)) return apiFailure(404, 'not_found');
-      const { relations, despitePrerequisites, complexity, acceptance, ...patch } = body;
+      const { relations, despitePrerequisites, complexity, acceptance, archived, ...patch } = body;
       if (relations !== undefined || despitePrerequisites !== undefined)
         throw new Error('relations/despitePrerequisites: give the answer with onTaskUpdate');
       if (acceptance !== undefined) {
@@ -108,6 +108,10 @@ export function defaultTaskHandlers(backend: MockBackend): HttpHandler[] {
       if (complexity !== undefined) {
         const result = backend.setTaskComplexity(taskKey, complexity);
         if (result.status !== 200) return result as ApiFailure;
+      }
+      if (archived !== undefined) {
+        const refused = backend.setThemeArchived(taskKey, archived);
+        if (refused) return refused as ApiFailure;
       }
       return backend.updateTask(taskKey, {
         ...patch,

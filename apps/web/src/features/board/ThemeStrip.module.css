@@ -45,6 +45,15 @@
   opacity: 0.72;
 }
 
+.heading {
+  flex: none;
+  align-self: center;
+  color: var(--c-ink-3);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .main {
   flex: 1 1 0;
   min-width: 0;

@@ -30,6 +30,10 @@ export const FullTestErrorReason = z.enum([
 ]);
 export type FullTestErrorReason = z.infer<typeof FullTestErrorReason>;
 
+/** Why a check could not run for a reason of the runner's infrastructure, never of the checked code (PM-1292). */
+export const CheckInfraCause = z.enum(['runner_not_acquired', 'verdict_missing', 'service_unreachable']);
+export type CheckInfraCause = z.infer<typeof CheckInfraCause>;
+
 export const FullTestCancelReason = z.enum([
   'repinned',
   'stage_left',

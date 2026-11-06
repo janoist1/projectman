@@ -17,12 +17,15 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   acquireHeavyLock,
+  endHeavySessionRuns,
   defaultHeavyLockDir,
+  heavyHeldBy,
   HeavyLockError,
   readHeavyQueue,
   readHeavyRunSessions,
 } from './heavy-lock';
-import type { HeavyLock, HeavyLockEntry } from './heavy-lock';
+import type { HeavyLock, HeavyLockEntry, HeavyWait } from './heavy-lock';
+import { writePressure } from './machine-pressure';
 import { waitFor } from '../../test/helpers/wait';
 
 const FIXTURE = fileURLToPath(new URL('../../test/fixtures/heavy-holder.ts', import.meta.url));
@@ -35,6 +38,66 @@ it('lets a holder process exit naturally after release', async () => {
 });
 
 describe('heavy-run sessions', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('terminates fresh queue, partial and full holders, then kills them after ten seconds', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    writeHolder({ sessionId: 'ended', pid: 101 });
+    writeTicket('waiting', { sessionId: 'ended', pid: 102 });
+    const partial = writeTicket('partial', { sessionId: 'ended', pid: 103 });
+    mkdirSync(path.join(dir, 'holders'), { recursive: true });
+    writeFileSync(path.join(dir, 'holders', 'partial.json'), readFileSync(partial));
+    rmSync(partial);
+    const kill = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(3);
+    expect(kill.mock.calls).toEqual([
+      [102, 'SIGTERM'],
+      [101, 'SIGTERM'],
+      [103, 'SIGTERM'],
+    ]);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(kill).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(kill).toHaveBeenCalledTimes(6));
+    expect(kill.mock.calls.slice(3)).toEqual([
+      [102, 'SIGKILL'],
+      [101, 'SIGKILL'],
+      [103, 'SIGKILL'],
+    ]);
+  });
+
+  it('does not signal stale entries, including the thirty-second boundary', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    writeHolder({ sessionId: 'ended' }, 60_000);
+    writeTicket('stale', { sessionId: 'ended' }, 30_000);
+    const kill = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(0);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it('leaves other sessions and anonymous runs alone', async () => {
+    writeHolder({ sessionId: 'other' });
+    writeTicket('anonymous', {});
+    const kill = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(0);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it('does not escalate removed, replaced or stale entries', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    const removed = writeTicket('removed', { sessionId: 'ended', pid: 101 });
+    writeTicket('replaced', { sessionId: 'ended', pid: 102 });
+    writeTicket('aging', { sessionId: 'ended', pid: 103 }, 25_000);
+    writeTicket('fresh', { sessionId: 'ended', pid: 105 });
+    const kill = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(4);
+    rmSync(removed);
+    writeTicket('replaced', { sessionId: 'ended', pid: 104 });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.waitFor(() => expect(kill).toHaveBeenCalledTimes(5));
+    expect(kill.mock.calls.filter(([, signal]) => signal === 'SIGKILL')).toEqual([[105, 'SIGKILL']]);
+  });
+
   it('includes live holders and waiters once and does not remove stale entries', async () => {
     writeHolder({ sessionId: 'holder' });
     writeTicket('fresh', { sessionId: 'waiter' });
@@ -198,7 +261,7 @@ describe('the heavy-run lock', () => {
     const waits: { holder: HeavyLockEntry | null; ahead: number; waitedMs: number }[] = [];
     const second = acquire('second', { onWait: (wait) => waits.push(wait), notifyMs: 60 });
     await waitFor(() => waits.length >= 3, 'three notices');
-    expect(waits[0]).toMatchObject({ holder: { label: 'the holder' }, ahead: 0 });
+    expect(waits[0]).toMatchObject({ holder: { label: 'the holder' }, ahead: 0, free: 0 });
     expect(waits[2]!.waitedMs).toBeGreaterThan(waits[0]!.waitedMs);
     await first.release();
     await (await second).release();
@@ -341,5 +404,180 @@ describe('the heavy-run lock', () => {
         code: 'heavy_lock_unavailable',
       });
     });
+  });
+});
+
+/** The pool of places: four of them, whatever the machine is. */
+describe('the pool of places', () => {
+  const POOL = { capacity: 4 };
+  const some = (min: number, max = min) => ({ ...POOL, places: { min, max } });
+
+  /** A holder of `holders/` as a process of another build or session wrote it. */
+  function writePartial(name: string, entry: Partial<HeavyLockEntry>, ageMs = 0): string {
+    mkdirSync(path.join(dir, 'holders'), { recursive: true });
+    const file = path.join(dir, 'holders', `${name}.json`);
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ticket: name,
+        pid: process.pid,
+        label: name,
+        cwd: '/x',
+        queuedAt: new Date().toISOString(),
+        granted: 1,
+        ...entry,
+      }),
+    );
+    const when = new Date(Date.now() - ageMs);
+    utimesSync(file, when, when);
+    return file;
+  }
+
+  /** A process that lives until the test ends: another pid for the duplicate rule. */
+  function otherProcess(): number {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    children.push(child);
+    return child.pid!;
+  }
+
+  it('grants what is free up to the maximum, so two requests share the pool', async () => {
+    const first = await acquire('first', some(1, 3));
+    const second = await acquire('second', some(1, 3));
+    expect([first.granted, second.granted]).toEqual([3, 1]);
+    const queue = await readHeavyQueue(dir, POOL);
+    expect(queue.holders.map((h) => [h.label, h.granted])).toEqual([
+      ['first', 3],
+      ['second', 1],
+    ]);
+    // A part of the pool is not the older builds' `holder/`.
+    expect(existsSync(path.join(dir, 'holder'))).toBe(false);
+    await first.release();
+    await second.release();
+    expect(readdirSync(path.join(dir, 'holders'))).toEqual([]);
+  });
+
+  it('takes the older builds’ holder with a grant of all the places, and gives it back', async () => {
+    const lock = await acquire('everything', { ...POOL, places: 'all' });
+    expect(lock.granted).toBe(4);
+    const owner = JSON.parse(readFileSync(path.join(dir, 'holder', 'owner.json'), 'utf8')) as HeavyLockEntry;
+    expect(owner).toMatchObject({ ticket: lock.ticket, granted: 4 });
+    await lock.release();
+    expect(existsSync(path.join(dir, 'holder'))).toBe(false);
+  });
+
+  it('waits for a request that does not fit, and starts it when places come back', async () => {
+    const first = await acquire('first', some(3));
+    const waits: number[] = [];
+    const second = acquire('second', { ...some(2), onWait: (wait) => waits.push(wait.free) });
+    await waitFor(() => waits.length > 0, 'the wait notice');
+    expect(waits[0]).toBe(1);
+    await first.release();
+    expect((await second).granted).toBe(2);
+  });
+
+  it('hands out nothing under a fresh critical memory pressure, and says so (PM-1314)', async () => {
+    await writePressure(dir, { level: 'critical', source: 'sysctl' });
+    const waits: HeavyWait[] = [];
+    const waiting = acquire('waiting', { ...some(1), onWait: (wait) => waits.push(wait) });
+    await waitFor(() => waits.length > 0, 'the wait notice');
+    expect(waits[0]).toMatchObject({ free: 4, pressure: 'critical' });
+    await writePressure(dir, { level: 'normal', source: 'sysctl' });
+    expect((await waiting).granted).toBe(1);
+  });
+
+  it.each([
+    [
+      'a stale critical reading',
+      () => writePressure(dir, { level: 'critical', source: 'psi' }, Date.now() - 31_000),
+    ],
+    ['no reading', async () => undefined],
+  ])('holds nothing back with %s', async (_name, prepare) => {
+    await prepare();
+    expect((await acquire('free', { ...some(1), maxWaitMs: 1_000 })).granted).toBe(1);
+  });
+
+  it('lets nobody overtake a request for all the places, however small', async () => {
+    const first = await acquire('first', some(1));
+    const everything = acquire('everything', { ...POOL, places: 'all' });
+    await waitFor(async () => (await readHeavyQueue(dir, POOL)).waiting.length === 1, 'its ticket');
+    await expect(acquire('small', { ...some(1), maxWaitMs: 250 })).rejects.toMatchObject({
+      code: 'heavy_lock_timeout',
+    });
+    await first.release();
+    expect((await everything).granted).toBe(4);
+  });
+
+  it('gives places back down to a smaller number, never more', async () => {
+    const first = await acquire('first', some(3));
+    const second = acquire('second', some(2));
+    await waitFor(async () => (await readHeavyQueue(dir, POOL)).waiting.length === 1, 'its ticket');
+    await first.reduce(5);
+    expect(first.granted).toBe(3);
+    await first.reduce(1);
+    expect(first.granted).toBe(1);
+    expect((await second).granted).toBe(2);
+    const written = JSON.parse(readFileSync(path.join(dir, 'holders', `${first.ticket}.json`), 'utf8'));
+    expect(written.granted).toBe(1);
+  });
+
+  it('frees the places of holders whose heartbeat stopped or whose process is gone', async () => {
+    writePartial('stopped', { granted: 2 }, 5000);
+    writePartial('gone', { granted: 2, pid: await deadPid() });
+    const lock = await acquire('me', { ...POOL, places: 'all' });
+    expect(lock.granted).toBe(4);
+    expect(existsSync(path.join(dir, 'holders', 'stopped.json'))).toBe(false);
+    expect(existsSync(path.join(dir, 'holders', 'gone.json'))).toBe(false);
+  });
+
+  it('counts a holder of an older build, which records no places, as holding all of them', async () => {
+    writeHolder({});
+    await expect(acquire('small', { ...some(1), maxWaitMs: 250 })).rejects.toMatchObject({
+      code: 'heavy_lock_timeout',
+    });
+    expect((await readHeavyQueue(dir, POOL)).holder).toMatchObject({ label: 'old holder' });
+  });
+
+  it('refuses the same command of the same session while the first one lives', async () => {
+    const pid = otherProcess();
+    writePartial('first', { sessionId: 'ses_1', command: '/repo npm test', pid });
+    const error = await acquire('again', { ...some(1), sessionId: 'ses_1', command: '/repo npm test' }).catch(
+      (err: unknown) => err,
+    );
+    expect(error).toBeInstanceOf(HeavyLockError);
+    expect(error).toMatchObject({ code: 'heavy_lock_duplicate', running: { pid } });
+    expect(ticketFiles()).toEqual([]);
+  });
+
+  it.each([
+    ['another command', { sessionId: 'ses_1', command: '/repo npm run typecheck' }],
+    ['another session', { sessionId: 'ses_2', command: '/repo npm test' }],
+    ['no session', { command: '/repo npm test' }],
+  ])('does not refuse %s', async (_name, extra) => {
+    writePartial('first', { sessionId: 'ses_1', command: '/repo npm test', pid: otherProcess() });
+    const lock = await acquire('again', { ...some(1), ...extra });
+    expect(lock.granted).toBe(1);
+  });
+
+  it('lets a nested run go on only under the ticket of a live holder', async () => {
+    const lock = await acquire('outer', some(2));
+    expect(await heavyHeldBy(dir, lock.ticket)).toBe(true);
+    expect(await heavyHeldBy(dir, 'not-a-ticket')).toBe(false);
+    expect(await heavyHeldBy(dir, undefined)).toBe(false);
+    await lock.release();
+    expect(await heavyHeldBy(dir, lock.ticket)).toBe(false);
+  });
+
+  it('takes a bare 1 as a hold only while a holder of the older kind lives', async () => {
+    const part = await acquire('part', some(2));
+    expect(await heavyHeldBy(dir, '1')).toBe(false);
+    await part.release();
+    const everything = await acquire('everything', { ...POOL, places: 'all' });
+    expect(await heavyHeldBy(dir, '1')).toBe(true);
+    await everything.release();
+  });
+
+  it('shows the sessions of the holders of the pool to the idle guard (PM-569)', async () => {
+    writePartial('part', { sessionId: 'ses_part' });
+    expect(await readHeavyRunSessions(dir)).toEqual(['ses_part']);
   });
 });

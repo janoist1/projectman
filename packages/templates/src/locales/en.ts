@@ -31,6 +31,7 @@ export const en: TemplateLocale = {
     },
   },
   webPush: {
+    files: { one: '1 attached file', many: '{n} attached files' },
     title: {
       question: 'A new question awaits you',
       decision: 'A new decision awaits you',

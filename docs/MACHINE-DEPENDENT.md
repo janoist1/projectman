@@ -34,7 +34,7 @@ Entries in the order they appear below (search for the bold name).
   deployment and backup · Connected Claude credentials
 - **Providers and sessions:** Codex project layer check · NanoGPT Codex home and key delivery · Gemini (agy) CLI,
   conversation directories and keychain login · NanoGPT secret store · Session process liveness · Fake CLI pause
-  test gates · Dependency clones and refreshes · Heavy-run queue and worker limits · Server and engine log files ·
+  test gates · Dependency clones and refreshes · Machine places · Server and engine log files ·
   Session output folders · Card attachments · Message attachments · Message file in the session folder · Browser
   installation and screenshots · Machine display and orphan processes · Instance identity for process attribution ·
   Session process termination · Conversation transcripts and resume · Hooks and team MCP over loopback · Private
@@ -1637,9 +1637,19 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
   **Module:** `worktree`
-- **Heavy-run queue and worker limits** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
-  `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
-  `vitest.config.ts` files (PM-332, PM-336). Prompt descriptions of commands, unavailable exit status
+- **Machine places** — `full-test/{heavy-lock,heavy-lock-core,heavy-lock-dir}.ts`,
+  `scripts/heavy/{cli,run,messages,vitest-places}`, `packages/shared/src/config/test-workers.ts` and the workspace
+  `vitest.config.ts` files (PM-332, PM-336, PM-1278 A / PM-1313). The machine has one pool of places
+  (`machinePlaces`: from the executing host's cores and memory, 2 to 16); a heavy run takes `all`, or 2 to 4
+  for a workspace vitest and `handover-check`, 2 for the root typecheck and the members' `npm ci`, 3 for
+  screenshots, 1 for a workspace typecheck or build (PM-1316, PM-1278 C; a run inside a holder asks for
+  none), and its worker count comes from the places it was granted
+  (`placeWorkers`), not from a config. The pool is files in the per-user lock directory below; an older
+  build's entry without `places` counts as all of them. **Remote engine:** the pool, its capacity and the
+  workers belong to the machine that runs the command, so each engine has its own in its own
+  `/tmp/projectman-<uid>/heavy`; part A adds nothing that crosses the server/engine boundary (the ticket and
+  the directory reach a full test's sandbox through its environment, on the engine). The server's view of
+  who holds places (PM-569) already comes from the engine. Prompt descriptions of commands, unavailable exit status
   and PTY skips are opt-in repository `heavyChecks` settings (`context/system-prompt.ts`,
   `runtime/permissions/unattended-commands.ts`, PM-1112); engine environment variables and queue
   execution are unchanged. These descriptions are rendered on the server for local and remote engines.
@@ -1673,7 +1683,36 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   Idle closure asks that engine through `EngineHost.heavyRunSessions` / `host.heavy_run_sessions`
   (PM-569). PID and heartbeat checks run on the engine; only its own running session ids cross
   to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
+  Since PM-1315, `runtime/sessions/sessions.ts` calls `EngineHost.endSessionRuns` when the CLI
+  has ended. `full-test/heavy-lock.ts` signals that session's queue and holder PIDs with SIGTERM,
+  then SIGKILL after 10 seconds if the same ticket and PID still have a heartbeat newer than
+  30 seconds. Stale entries and other sessions receive no signal. This assumes the engine's
+  local PID namespace and queue filesystem; the CLI child guard and vitest stop their children.
+  **Remote engine:** `host.end_session_runs` (an open engine-link method) carries only the
+  session id and returns the number of runs sent SIGTERM. Listing, heartbeat checks, the timer
+  and both signals run on the engine, never in the cloud's PID namespace.
   The queue does not apply in GitHub mode (`FullTestSpec.githubActions`, PM-900): the machine does not run the tests.
+  **Module:** `full-test`
+- **Memory pressure of the machine** — `full-test/machine-pressure.ts`, started by `engine-app.ts` (engine
+  mode) and `app.ts` (single mode, which is its own engine; not in cloud mode), read in
+  `full-test/heavy-lock.ts` (PM-1278 B1 / PM-1314). The places count only what starts through the pool;
+  a dev server, Docker, a hand-opened browser or the owner's own programs show up only in the machine's
+  memory pressure. The engine process measures it every 10 s: on macOS
+  `sysctl -n kern.memorystatus_vm_pressure_level` (1 normal, 2 warn, 4 critical), on Linux
+  `/proc/pressure/memory` (`full avg10 ≥ 5` critical, `some avg10 ≥ 10` warn); on any other system, or
+  when nothing can be read, there is no reading. A reading is written atomically (temporary file and
+  rename, mode 0600) to `pressure.json` in the pool's folder (`<heavyLockDir>/pressure.json`, by default
+  `/tmp/projectman-<uid>/heavy/pressure.json`) as `{ level, at, source }`; a round without a reading
+  writes nothing, so the file goes stale. The file exists because the members' sandboxes may not run
+  `sysctl`. The head of the queue reads it every round: while it is `critical` and at most 30 s old no
+  places are handed out, and the waiting line of the heavy CLI and the vitest places plugin says so
+  (`HeavyWait.pressure`); a stale, missing or broken file holds nothing back. Assumes the engine process
+  may run `sysctl` (macOS) or read PSI (Linux, kernel 4.20+ with PSI on; a container without it gets
+  no reading) and shares `/tmp` and the user id with the members' heavy runs. Two engines on one
+  machine (the live one and a dev instance) write the same file with the same kind of reading.
+  **Remote engine:** the measurement runs on the engine's machine and the file is in that machine's
+  pool folder; nothing crosses the server/engine boundary. Without an engine (CI, a lone developer)
+  there is no file and only the places count.
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `start.ts` (`loggerOptions`)
   (PM-444), exposed through `logging/index.ts` to `start.ts` and
@@ -1773,6 +1812,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   **Module:** `engine-host`
 
 - **Card attachments (PM-644)** — `core/attachments/attachments/{service,storage,thumbnail}.ts`
+  Comment files (PM-1309) use the same server storage and authenticated transfer to remote engines; unsent visibility, binding and cleanup stay on the server without a new engine boundary.
   (through `core/attachments/index.ts`) and `contracts/attachments.ts`. Records and the private
   `<PROJECTMAN_HOME>/attachments` store belong to the server; local storage uses 0700 directories,
   0600 files and no-follow opens, and `sharp`/libvips generates thumbnails there.
@@ -2540,6 +2580,18 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   `full_test.run` request and receives the result (the run page in `externalUrl`); nothing else crosses.
   PM-1059 does not touch this check: it keeps running on the engine the card's merge already uses, and the
   engine-side `gh` client keeps its project-less `MachineGithubService` contract.
+  **Infrastructure faults (PM-1292):** the same executor tells a GitHub infrastructure fault from a fault of the
+  checked code and marks the errored `FullTestResult` with `infra` (`CheckInfraCause`: `runner_not_acquired`
+  when every unsuccessful job got no machine — no runner id or name, no step started —, `verdict_missing`
+  when a job ended without its finished `merge-test` step, `service_unreachable` when a temporary GitHub
+  failure outlasted the tries or the run never appeared). A job that failed in the `merge-test` step always
+  wins: the result is `failed`, whatever happened to the other shards, and a job that started but failed
+  earlier (`npm ci`) is never marked. The detection runs where `gh` runs, on the card's engine, and reads
+  only the jobs the existing client lists (`runner_id`, `runner_name`); **Remote engine:** only the bounded
+  `infra` value crosses the boundary, in the existing `full_test.run`/`attach` result (an optional field of the
+  strict result schema, the protocol version unchanged), so no new machine assumption arises. Install the hub
+  before the engine: an older engine sends no `infra` and keeps the former behavior. The hub records it in
+  `merge_check_runs.infra` and `list_merge_checks` shows it; the local executor never sets it.
   **Compute jobs (PM-1147):** a `full_test.run` that carries `githubJob` (`FullTestSpec.githubJob`, exclusive
   with `githubActions`) runs one job of the general `projectman-job.yml` workflow (PM-1144) instead: no check
   branch is pushed; the workflow is dispatched on the owner's merge branch (`base`) with the inputs `job`,

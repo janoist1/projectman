@@ -1,4 +1,4 @@
-import { MergeTestReport } from '@projectman/shared';
+import { CheckInfraCause, MergeTestReport } from '@projectman/shared';
 import type { MergeCheckRun, MergeCheckRunKind, MergeCheckRunStatus } from '@projectman/shared';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
@@ -13,6 +13,7 @@ interface RunRow {
   base: string | null;
   status: MergeCheckRunStatus;
   reason: string | null;
+  infra: MergeCheckRun['infra'];
   max_workers: number;
   requested_at: string;
   started_at: string | null;
@@ -42,6 +43,7 @@ export type MergeCheckRunStart = Pick<
 interface MergeCheckRunEnd {
   status: Exclude<MergeCheckRunStatus, 'running'>;
   reason: string | null;
+  infra: MergeCheckRun['infra'];
   durationMs: number | null;
   report: MergeCheckRun['report'];
   /** The GitHub Actions run page; null on the engine. */
@@ -69,6 +71,12 @@ function readReport(text: string | null): MergeCheckRun['report'] {
   return parsed.success ? parsed.data : null;
 }
 
+/** A cause this build does not know is unknown (null), like a report: a newer build may have written it. */
+function readInfra(value: string | null): MergeCheckRun['infra'] {
+  const parsed = CheckInfraCause.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 /** The merge checks (PM-876): the hub's record of every full-test run of a merge, a train and a diagnosis. */
 export function createMergeCheckRunRepository(db: Db) {
   const insert = db.prepare(
@@ -82,7 +90,7 @@ export function createMergeCheckRunRepository(db: Db) {
     'UPDATE merge_check_runs SET started_at = ? WHERE id = ? AND started_at IS NULL',
   );
   const markEnded = db.prepare(
-    `UPDATE merge_check_runs SET status = @status, reason = @reason, duration_ms = @durationMs,
+    `UPDATE merge_check_runs SET status = @status, reason = @reason, infra = @infra, duration_ms = @durationMs,
        report_json = @report, url = @url, finished_at = @finishedAt WHERE id = @id`,
   );
   const interrupt = db.prepare(
@@ -115,6 +123,7 @@ export function createMergeCheckRunRepository(db: Db) {
     base: row.base,
     status: row.status,
     reason: row.reason,
+    infra: readInfra(row.infra),
     maxWorkers: row.max_workers,
     requestedAt: row.requested_at,
     startedAt: row.started_at,
@@ -141,6 +150,7 @@ export function createMergeCheckRunRepository(db: Db) {
         id,
         status: end.status,
         reason: end.reason,
+        infra: end.infra,
         durationMs: end.durationMs,
         report: end.report === null ? null : toJson(end.report),
         url: end.url,

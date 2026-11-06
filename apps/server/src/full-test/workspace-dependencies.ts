@@ -39,6 +39,8 @@ import {
 import type { RunPaths } from './sandbox';
 
 export const WORKSPACE_DEPENDENCY_RETRY_MS = 600_000;
+/** The places an `npm ci` takes from the machine's pool (PM-1278). */
+const DEPENDENCY_PLACES = { min: 2, max: 2 };
 let sandboxRuntime: Promise<typeof import('@anthropic-ai/sandbox-runtime')> | undefined;
 const MEMOIZED = new Set<WorkspaceDependencyFailure>([
   'invalid_inputs',
@@ -314,6 +316,7 @@ export function createWorkspaceDependencyInstaller(
             ? `workspace-deps ${request.project}/${request.repo} (checkout)`
             : `workspace-deps ${request.project}/${request.member}/${request.repo}`,
           cwd: request.repoPath,
+          places: DEPENDENCY_PLACES,
           maxWaitMs: 1_800_000,
           signal,
         }).catch((err: unknown) => {
@@ -410,7 +413,11 @@ export function createWorkspaceDependencyInstaller(
         : err instanceof WorkspaceDependencyError
           ? err
           : err instanceof HeavyLockError
-            ? new WorkspaceDependencyError(err.code, key)
+            ? // The duplicate rule needs a command, which this lock does not give.
+              new WorkspaceDependencyError(
+                err.code === 'heavy_lock_duplicate' ? 'install_failed' : err.code,
+                key,
+              )
             : new WorkspaceDependencyError(
                 err instanceof DependencyPreparationError ? 'invalid_inputs' : 'install_failed',
                 key,

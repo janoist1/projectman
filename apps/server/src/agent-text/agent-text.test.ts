@@ -107,6 +107,34 @@ describe('links', () => {
 
 describe('describeEvent', () => {
   it.each([
+    { text: 'With text', comment: false },
+    { text: 'With text', comment: true },
+    { text: '', comment: true },
+    { text: 'Reply', comment: true, replyTo: 'evt_top' },
+    {
+      text: 'Imported',
+      comment: true,
+      replyTo: 'evt_top',
+      importedAuthor: 'Dani',
+      importedAt: '2026-03-02T09:15:00.000Z',
+    },
+  ])('keeps comment framing with files for %j', (data) => {
+    const note = event('task_note', {
+      ...data,
+      attachments: [
+        { id: 'att_commentfile1', fileName: 'a.png' },
+        { id: 'att_commentfile2', fileName: 'b.pdf', gone: true },
+      ],
+    });
+    const out = describeEvent(note, 280);
+    expect(out).toContain('files: att_commentfile1 "a.png", att_commentfile2 "b.pdf" (deleted)');
+    if (data.comment) expect(out).toContain(note.id);
+    else expect(out).toMatch(/^note:/);
+    if (data.replyTo) expect(out).toContain(`to comment ${data.replyTo}`);
+    if (data.importedAuthor) expect(out).toContain(data.importedAuthor);
+    expect(out.includes(' · files:')).toBe(data.text.length > 0);
+  });
+  it.each([
     [{ points: 5, reason: 'two modules', previous: null }, ['5', 'two modules']],
     [{ points: null, reason: null, previous: { points: 8, reason: null } }, ['removed', '8']],
   ])('describes a complexity change: %j', (data, required) => {
@@ -347,6 +375,29 @@ describe('describeEvent', () => {
     expect(describeRepo({ name: null, choiceNeeded: true }, named)).toBe(
       'none chosen yet (the project has several repositories; ask a human which one if you need to know)',
     );
+  });
+
+  it.each([
+    ['a Process note', { text: 'Done', comment: false }, 'note: Done'],
+    ['a comment', { text: 'Why?', comment: true }, 'comment {id}: Why?'],
+    [
+      'a reply',
+      { text: 'Because', comment: true, replyTo: 'evt_top' },
+      'reply {id} to comment evt_top: Because',
+    ],
+    [
+      'an imported reply',
+      {
+        text: 'Ok',
+        replyTo: 'evt_top',
+        importedAuthor: 'Dani\nK',
+        importedAt: '2026-03-02T09:15:00.000Z',
+      },
+      'reply {id} to comment evt_top (imported: written by "Dani K" on 2026-03-02 09:15 UTC): Ok',
+    ],
+  ])('names the id and the parent of %s by the comment rule (PM-1275)', (_, data, expected) => {
+    const note = event('task_note', data);
+    expect(describeEvent(note, 100)).toBe(expected.replace('{id}', note.id));
   });
 
   it('shortens free text to the limit', () => {

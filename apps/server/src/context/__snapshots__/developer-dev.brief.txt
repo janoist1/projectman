@@ -28,3 +28,6 @@ None.
 - 2026-09-28 08:00 UTC · `owner`: created the task "Fix the booking confirmation email"
 - 2026-09-28 08:05 UTC · `owner`: assigned it to `fe-1`
 - 2026-09-28 08:06 UTC · `fe-1`: moved it from Ready to Development
+- 2026-09-28 08:10 UTC · `fe-1`: note: Reproduced locally
+- 2026-09-28 08:20 UTC · `owner`: comment evt_comment (imported: written by "Morgan" on 2026-09-01 07:00 UTC): The mail lacks the date
+- 2026-09-28 08:30 UTC · `fe-1`: reply evt_reply to comment evt_comment: Fixed in the template

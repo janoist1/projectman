@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "PROJECTMAN_HOME=\"${PROJECTMAN_HOME:-$HOME/.projectman-dev}\" tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "node scripts/build.mjs",
+    "build": "node --import tsx ../../scripts/heavy/cli.ts --places 1 node scripts/build.mjs",
     "prepare:history-model": "node scripts/prepare-history-model.mjs",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node --import tsx ../../scripts/heavy/cli.ts --places 1 tsc -p tsconfig.json",
     "test": "vitest run --configLoader runner --passWithNoTests"
   },
   "dependencies": {

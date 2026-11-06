@@ -120,6 +120,9 @@ export interface WorkflowJobInfo {
   conclusion: string | null;
   startedAt: string | null;
   completedAt: string | null;
+  /** The runner that took the job (PM-1292); null or 0 with an empty name while none did. */
+  runnerId: number | null;
+  runnerName: string | null;
   steps: WorkflowStepInfo[];
 }
 

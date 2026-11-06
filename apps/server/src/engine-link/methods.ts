@@ -5,6 +5,7 @@ import {
   COMPUTE_JOB_COMMAND_MAX,
   COMPUTE_JOB_NODE_VERSION,
   ComputeJobOutputPath,
+  CheckInfraCause,
   FullTestErrorReason,
   GITHUB_REPO_PATTERN,
   GithubJobRunner,
@@ -126,6 +127,8 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
 const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outcome: z.enum(['passed', 'failed', 'error']),
   reason: FullTestErrorReason.optional(),
+  // Only a GitHub Actions error can have one (PM-1292); an older engine never sends it.
+  infra: CheckInfraCause.optional(),
   exitCode: z.number().int().nullable(),
   durationMs: int,
   failedFiles: texts,
@@ -288,6 +291,7 @@ type ContractResults = {
   'machine.signal': MachineProbe['signal'];
   'host.free_disk': EngineHost['freeDiskBytes'];
   'host.heavy_run_sessions': EngineHost['heavyRunSessions'];
+  'host.end_session_runs': EngineHost['endSessionRuns'];
   'host.is_directory': (path: string) => Promise<boolean>;
   'host.resolve_git_dir': EngineHost['resolveGitDir'];
   'host.realpath': EngineHost['realpath'];
@@ -320,6 +324,7 @@ type ContractResults = {
 type ContractParams = {
   'host.free_disk': Record<string, never>;
   'host.heavy_run_sessions': Record<string, never>;
+  'host.end_session_runs': { sessionId: string };
   'host.is_directory': { path: string };
   'host.resolve_git_dir': { repoPath: Parameters<EngineHost['resolveGitDir']>[0] };
   'host.realpath': { path: Parameters<EngineHost['realpath']>[0] };
@@ -633,6 +638,7 @@ export const methods = {
   'screenshots.cancel': method(z.strictObject({ runId: text }), done),
   'host.free_disk': method(empty, z.number().nonnegative().nullable()),
   'host.heavy_run_sessions': method(empty, texts),
+  'host.end_session_runs': method(z.object({ sessionId: text }), z.number().int().nonnegative()),
   'host.is_directory': method(z.strictObject({ path: text }), z.boolean()),
   'host.resolve_git_dir': method(z.strictObject({ repoPath: text }), text.nullable()),
   'host.realpath': method(z.strictObject({ path: text }), text.nullable()),

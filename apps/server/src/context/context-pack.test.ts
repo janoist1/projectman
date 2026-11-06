@@ -1035,7 +1035,30 @@ describe('context pack snapshots', () => {
           stageId: 'dev',
           links: [{ kind: 'prerequisite', ref: 'AR-19', title: 'Update mail templates', state: 'done' }],
         }),
-        timeline: timeline.slice(0, 4),
+        // A Process note, an imported comment and a reply to it (PM-1275).
+        timeline: [
+          ...timeline.slice(0, 4),
+          event('2026-09-28T08:10:00.000Z', 'fe-1', 'task_note', {
+            text: 'Reproduced locally',
+            comment: false,
+          }),
+          {
+            ...event('2026-09-28T08:20:00.000Z', 'owner', 'task_note', {
+              text: 'The mail lacks the date',
+              importedAuthor: 'Morgan',
+              importedAt: '2026-09-01T07:00:00.000Z',
+            }),
+            id: 'evt_comment',
+          },
+          {
+            ...event('2026-09-28T08:30:00.000Z', 'fe-1', 'task_note', {
+              text: 'Fixed in the template',
+              comment: true,
+              replyTo: 'evt_comment',
+            }),
+            id: 'evt_reply',
+          },
+        ],
       }),
     );
     // The 300 B are the acceptance items' two labels and gates (PM-1135), the 300 B the rule lines (PM-1137).

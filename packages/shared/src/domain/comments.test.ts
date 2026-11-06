@@ -1,9 +1,50 @@
 import { describe, expect, it } from 'vitest';
-import { isCardComment, isProcessTimelineEvent, pageCommentThreads, replyParentOf } from './comments';
+import {
+  canAttachToComment,
+  isCardComment,
+  isProcessTimelineEvent,
+  pageCommentThreads,
+  replyParentOf,
+  withGoneCommentFiles,
+} from './comments';
+import { CreateTaskCommentRequest } from '../api/dto';
 import type { TimelineEvent } from './event';
 
 const human = { kind: 'human', handle: 'owner' } as const;
 const ai = { kind: 'ai', handle: 'dev' } as const;
+
+describe('comment attachments', () => {
+  const id = 'att_commentfile1';
+  it('accepts files without text and keeps legacy text requests', () => {
+    expect(CreateTaskCommentRequest.parse({ attachmentIds: [id] }).text).toBe('');
+    expect(CreateTaskCommentRequest.parse({ text: '  Hello  ' })).toEqual({ text: 'Hello' });
+  });
+  it.each([
+    {},
+    { text: '  ' },
+    { attachmentIds: [] },
+    { attachmentIds: [id, id] },
+    { attachmentIds: Array.from({ length: 11 }, (_, i) => `att_commentfile${i}`) },
+  ])('rejects an empty or invalid file submission %j', (body) => {
+    expect(CreateTaskCommentRequest.safeParse(body).success).toBe(false);
+  });
+  it.each([
+    ['client', true],
+    ['viewer', false],
+    ['ai', true],
+  ] as const)('judges %s upload access', (access, expected) => {
+    expect(canAttachToComment({ access, handle: 'author' })).toBe(expected);
+  });
+  it('projects deleted files without changing the stored event or legacy notes', () => {
+    const file = { id, fileName: 'a.pdf', size: 3, mediaType: 'application/pdf', preview: 'pdf' };
+    const stored = note('files', { attachments: [file, { ...file, id: 'att_commentfile2' }] });
+    const old = note('old');
+    const projected = withGoneCommentFiles([stored, old], new Set([id]));
+    expect(projected[0]!.data.attachments).toEqual([file, { ...file, id: 'att_commentfile2', gone: true }]);
+    expect(stored.data.attachments).toEqual([file, { ...file, id: 'att_commentfile2' }]);
+    expect(projected[1]).toBe(old);
+  });
+});
 
 function note(
   id: string,

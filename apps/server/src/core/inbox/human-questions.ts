@@ -434,7 +434,12 @@ export class HumanQuestions implements HumanQuestionsPort {
     const found: QuestionAttachment[] = [];
     for (const id of wanted) {
       const row = this.ctx.repos.attachments.get(id);
-      if (!row || row.projectKey !== projectKey || row.state !== 'ready')
+      if (
+        !row ||
+        row.projectKey !== projectKey ||
+        row.state !== 'ready' ||
+        (row.commentUpload && row.commentEventId === null)
+      )
         throw missing(`attachment_unknown: ${id} is not a file of ${scope}; list_attachments gives the ids.`);
       if (!allowed.some((card) => card.key === row.taskKey))
         throw refuse(

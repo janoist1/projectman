@@ -40,6 +40,7 @@ export const hu: TemplateLocale = {
     },
   },
   webPush: {
+    files: { one: '1 csatolt fájl', many: '{n} csatolt fájl' },
     title: {
       question: 'Új kérdés vár rád',
       decision: 'Új döntés vár rád',

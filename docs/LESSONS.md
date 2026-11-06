@@ -21,6 +21,8 @@ twice. Anyone may propose a lesson; the project manager adds it.
 
 **A new column broke an old-database test.** PM-1006 added a column to an existing table. The merge test failed in `history-index.test.ts`, whose fixture rolls the database back to version 83 by dropping the newer columns: the new one was missing from that list ("duplicate column name"). _Lesson:_ a migration that adds a column to an existing table also updates that rollback fixture, and the developer runs the test before hand-over. (PM-1006)
 
+**A migration test behind the db facade was not selected.** PM-1312 added the `retry_json` column to `task_merges`. The merge test failed twice, once in a train with PM-1317 and once alone, in `apps/server/test/merge-trains-migration.test.ts`, which did not expect the new column. `handover-check` had not selected it: the test imports `migrations` through the `../src/db` facade, while the other `*-migration` tests import `src/db/migrations` directly. _Lesson:_ import-based selection misses tests that reach a hub file through a facade. A change to `db/migrations.ts` selects every `apps/server/test/*-migration.test.ts` by path rule (PM-1324), not by a new line in the hand-over list. (PM-1312, PM-1324)
+
 **Changing the web fake without its own tests.** PM-1008 changed `apps/web/src/mocks/backend.ts` and ran the UI tests that use it, but not the fake's own tests; the merge failed in `backend.test.ts`. _Lesson:_ after changing the fake backend, run the whole `src/mocks` group. (PM-1008)
 
 ## 2026-10-25: a new merge check without its local command

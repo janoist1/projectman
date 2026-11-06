@@ -200,6 +200,7 @@ export function fullTestEnv(
   maxWorkers: number,
   base: NodeJS.ProcessEnv = process.env,
   passedKeysFile?: string,
+  held?: { ticket: string; dir: string },
 ): Record<string, string> {
   const env: Record<string, string> = {
     PATH: base.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin',
@@ -215,8 +216,10 @@ export function fullTestEnv(
     VITEST_MAX_THREADS: String(maxWorkers),
     NO_COLOR: '1',
     FORCE_COLOR: '0',
-    // The server holds the machine's heavy-run lock for the run: the npm scripts inside do not queue again.
-    PROJECTMAN_HEAVY_LOCK_HELD: '1',
+    // The server holds all of the machine's heavy-run places for the run (its ticket): the npm scripts inside
+    // do not queue again. A bare 1 is for a run without the queue, which nothing can vouch for.
+    PROJECTMAN_HEAVY_LOCK_HELD: held?.ticket ?? '1',
+    ...(held ? { PROJECTMAN_HEAVY_LOCK_DIR: held.dir } : {}),
     PROJECTMAN_FULL_TEST_SANDBOX: '1',
   };
   if (passedKeysFile) env.PROJECTMAN_MERGE_TEST_PASSED_KEYS = passedKeysFile;

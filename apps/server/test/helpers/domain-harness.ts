@@ -137,6 +137,7 @@ export async function createDomainHarness(
     /** The free disk bytes (PM-243); absent: not measured, so no start is refused for disk space. */
     freeDiskBytes?: () => Promise<number | null>;
     heavyRunSessions?: () => Promise<string[]>;
+    endSessionRuns?: (sessionId: string) => Promise<number>;
     /** The history's embedding (PM-767), usually a fake port; absent, the history search uses the words only. */
     historySemantic?: HistorySemanticPort;
     /** The outgoing e-mail channel (PM-941); absent: the channel is not configured. */
@@ -264,6 +265,7 @@ export async function createDomainHarness(
                   workspacePath: () => workspace,
                   fullTestExecutor: opts.fullTestExecutor,
                   heavyRunSessions: opts.heavyRunSessions,
+                  endSessionRuns: opts.endSessionRuns,
                   claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
                 },
                 log.logger,
@@ -346,6 +348,7 @@ export async function createDomainHarness(
     ...(opts.integratorTodoAccess ? { integratorTodoAccess: opts.integratorTodoAccess } : {}),
     freeDiskBytes: opts.freeDiskBytes,
     heavyRunSessions: opts.heavyRunSessions,
+    endSessionRuns: opts.endSessionRuns,
     closedWorktreeKeepMs: opts.closedWorktreeKeepMs,
   });
   await domain.start();

@@ -318,6 +318,26 @@ describe('selection rules', () => {
     expect(files.filter((path) => path.includes('/operator-'))).toEqual([]);
   });
 
+  it('selects every migration test, also one that imports the db facade, when db/migrations.ts changes (PM-1324)', () => {
+    const tree = [
+      file('apps/server/src/db/migrations.ts', 'export const migrations = [];'),
+      file('apps/server/src/db/index.ts', "export { migrations } from './migrations';"),
+      file('apps/server/test/merge-trains-migration.test.ts', "import { migrations } from '../src/db';"),
+      file('apps/server/test/a-new-migration.test.ts'),
+      file('apps/server/test/db.test.ts'),
+      file('apps/server/test/other.test.ts'),
+    ];
+    const files = select(tree, ['apps/server/src/db/migrations.ts']).tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'apps/server/test/merge-trains-migration.test.ts',
+        'apps/server/test/a-new-migration.test.ts',
+        'apps/server/test/db.test.ts',
+      ]),
+    );
+    expect(files).not.toContain('apps/server/test/other.test.ts');
+  });
+
   it('names the rule tests the cap left out', () => {
     const operators = Array.from({ length: TARGETED_TEST_FILES_MAX + 2 }, (_, i) =>
       file(`apps/server/test/operator-t${String(i).padStart(2, '0')}.test.ts`),

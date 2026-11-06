@@ -354,8 +354,9 @@ describe('formatTaskDetail', () => {
         taskKeys: ['AR-21', 'AR-22'],
         commit: 'a'.repeat(40),
         base: null,
-        status: 'failed',
-        reason: null,
+        status: 'error',
+        reason: 'github_unavailable',
+        infra: 'runner_not_acquired',
         maxWorkers: 4,
         requestedAt: '2026-10-20T10:00:00.000Z',
         startedAt: null,
@@ -372,6 +373,7 @@ describe('formatTaskDetail', () => {
     expect(text).toContain('workers 4 (seen unknown)');
     expect(text).toContain('steps: unknown');
     expect(text).toContain('runner: github_actions');
+    expect(text).toContain('infra: runner_not_acquired');
     expect(text).toContain('url: https://github.com/o/r/actions/runs/1');
   });
   it('shows the open handoff of the card, else the latest one that ended (PM-342)', () => {
@@ -708,6 +710,38 @@ describe('formatTaskDetail', () => {
     expect(out).toContain(`evt_note_5`);
     expect(out).toContain(`characters, shown whole:\n${text}`);
     expect(out).not.toContain('Timeline (oldest first)');
+  });
+
+  it('shows comment files in both the event view and the attachment list', () => {
+    const detail = sampleTaskDetail();
+    const file = {
+      id: 'att_commentfile1',
+      fileName: 'a.pdf',
+      size: 4,
+      mediaType: 'application/pdf',
+      preview: 'pdf' as const,
+    };
+    const event = note(5, 'With file');
+    event.data.attachments = [{ ...file, gone: true }];
+    expect(formatTaskDetail({ ...detail, event })).toContain(`${file.id} "a.pdf" (deleted)`);
+    const listed = formatTaskDetail({
+      ...detail,
+      attachments: {
+        total: 1,
+        offset: 0,
+        attachments: [
+          {
+            ...file,
+            projectKey: 'AR',
+            taskKey: detail.task.key,
+            uploadedBy: event.actor,
+            createdAt: event.createdAt,
+            comment: { eventId: event.id },
+          },
+        ],
+      },
+    });
+    expect(listed).toContain(`in comment ${event.id}`);
   });
 
   it('shows a longer description in parts and says what is missing and how to read it', () => {

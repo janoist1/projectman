@@ -184,11 +184,15 @@ export class SessionContextInput {
       task,
       stage,
       timeline: task
-        ? this.deps.timeline.list(projectKey, {
-            taskKey: task.key,
-            limit: BRIEF_TIMELINE_LIMIT,
-            excludeTypes: QUIET_TIMELINE_EVENTS,
-          })
+        ? this.deps.tasks.commentFileState(
+            projectKey,
+            task.key,
+            this.deps.timeline.list(projectKey, {
+              taskKey: task.key,
+              limit: BRIEF_TIMELINE_LIMIT,
+              excludeTypes: QUIET_TIMELINE_EVENTS,
+            }),
+          )
         : [],
       timelineTotal: task
         ? this.deps.timeline.count(projectKey, { taskKey: task.key, excludeTypes: QUIET_TIMELINE_EVENTS })

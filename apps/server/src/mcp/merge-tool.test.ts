@@ -109,6 +109,7 @@ describe('list_merge_checks (PM-876)', () => {
     base: 'b'.repeat(40),
     status: 'passed',
     reason: null,
+    infra: null,
     maxWorkers: 4,
     requestedAt: '2026-10-20T10:00:00.000Z',
     startedAt: '2026-10-20T10:00:30.000Z',

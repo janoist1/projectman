@@ -400,6 +400,23 @@ describe('engine handlers', () => {
       });
     });
 
+    it('keeps the infrastructure cause of an errored run in the run and attach answers, and answers one without it (PM-1292)', async () => {
+      const errored = { ...passed, outcome: 'error' as const, reason: 'github_unavailable' as const };
+      const result = { ...errored, infra: 'runner_not_acquired' as const };
+      const marked = fullTestHarness(async () => result);
+      await expect(marked.call('full_test.run', { spec: githubSpec('infra', 'mrg_1') })).resolves.toEqual(
+        result,
+      );
+      await expect(marked.call('full_test.attach', { runId: 'infra' })).resolves.toEqual({
+        state: 'ended',
+        result,
+      });
+      const older = fullTestHarness(async () => errored);
+      const answered = await older.call('full_test.run', { spec: githubSpec('older', 'mrg_1') });
+      expect(answered).toEqual(errored);
+      expect(answered).not.toHaveProperty('infra');
+    });
+
     it('answers full_test.report with a null report for a run that measured nothing, unknown for a missing run', async () => {
       const { call } = fullTestHarness();
       await call('full_test.run', { spec: fullSpec('plain') });
@@ -767,7 +784,7 @@ describe('engine handlers', () => {
     });
   });
 
-  it('reports only heavy runs belonging to this runner and validates the reply', async () => {
+  function heavyRunHandlers() {
     const handlers = new Map<string, (params: unknown, context: unknown) => Promise<unknown>>();
     const rpc = {
       handle: (name: string, handler: never) => {
@@ -778,10 +795,13 @@ describe('engine handlers', () => {
     createEngineHandlers({
       limit: { check: async (_method: string, params: unknown) => params } as never,
       audit: { record: () => undefined } as never,
-      runner: { list: () => [{ sessionId: 'own' }] } as never,
+      runner: { list: () => [{ sessionId: 'own' }], isRunning: (id: string) => id === 'own' } as never,
       transcripts: {} as never,
       planUsageFor: (() => ({})) as never,
-      engine: { heavyRunSessions: async () => ['own', 'other'] } as never,
+      engine: {
+        heavyRunSessions: async () => ['own', 'other'],
+        endSessionRuns: async (id: string) => (id === 'ended' ? 2 : 0),
+      } as never,
       github: {} as never,
       probe: {} as never,
       transfers: {} as never,
@@ -790,8 +810,21 @@ describe('engine handlers', () => {
       terminals: new Set(),
       exportDir: '/nonexistent',
     }).register(rpc);
+    return handlers;
+  }
+
+  it('reports only heavy runs belonging to this runner and validates the reply', async () => {
+    const handlers = heavyRunHandlers();
     const result = await handlers.get('host.heavy_run_sessions')!({}, { id: 'heavy' });
     expect(result).toEqual(['own']);
     expect(methods['host.heavy_run_sessions'].result.parse(result)).toEqual(['own']);
+  });
+
+  it.each([
+    ['ended', 2],
+    ['own', 0],
+  ])('ends runs only after the CLI exits: %s', async (sessionId, count) => {
+    const handlers = heavyRunHandlers();
+    expect(await handlers.get('host.end_session_runs')!({ sessionId }, { id: 'end' })).toBe(count);
   });
 });

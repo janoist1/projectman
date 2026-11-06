@@ -2946,4 +2946,19 @@ migrations.push({
     CREATE UNIQUE INDEX team_messages_client_request ON team_messages(project_key, from_handle, client_request_id)
       WHERE client_request_id IS NOT NULL;`,
 });
+migrations.push({
+  version: 147,
+  name: 'merge check infrastructure cause',
+  // PM-1292: why an errored check could not run for a reason of the runner's infrastructure (a CheckInfraCause).
+  // NULL on every row stored before and on every check whose cause is the checked code or unknown.
+  sql: `ALTER TABLE merge_check_runs ADD COLUMN infra TEXT;`,
+});
+migrations.push({
+  version: 148,
+  name: 'comment attachments',
+  sql: `ALTER TABLE attachments ADD COLUMN comment_upload INTEGER NOT NULL DEFAULT 0 CHECK (comment_upload IN (0, 1));
+    ALTER TABLE attachments ADD COLUMN comment_event_id TEXT;
+    CREATE INDEX attachments_unsent_comment ON attachments(project_key, uploaded_by_kind, uploaded_by_handle, created_at)
+      WHERE comment_upload = 1 AND comment_event_id IS NULL;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

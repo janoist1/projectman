@@ -60,7 +60,7 @@ jobs:
           node --version
           mkdir -p "$RUNNER_TEMP/h" "$RUNNER_TEMP/t"
           if [ "$MERGE_TEST_ALL" = "true" ]; then
-            HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" npm run merge-test -- --no-cache --shard "$SHARD" --all
+            HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" node --import tsx scripts/merge-test/cli.ts --no-cache --shard "$SHARD" --all
           else
-            HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" npm run merge-test -- --no-cache --shard "$SHARD" --files-from-env
+            HOME="$RUNNER_TEMP/h" TMPDIR="$RUNNER_TEMP/t" node --import tsx scripts/merge-test/cli.ts --no-cache --shard "$SHARD" --files-from-env
           fi

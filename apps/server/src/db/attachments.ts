@@ -6,6 +6,8 @@ type AttachmentState = 'pending' | 'ready' | 'deleting';
 
 /** An attachment row: the web's DTO plus the durable operation state. */
 export interface AttachmentRecord extends Attachment {
+  commentUpload: boolean;
+  commentEventId: string | null;
   state: AttachmentState;
   /** Who asked to delete it, once the intent is recorded (state `deleting`). */
   deletedBy: Actor | null;
@@ -13,6 +15,8 @@ export interface AttachmentRecord extends Attachment {
 }
 
 interface AttachmentRow {
+  comment_upload: number;
+  comment_event_id: string | null;
   id: string;
   project_key: string;
   task_key: string;
@@ -32,6 +36,9 @@ interface AttachmentRow {
 const toActor = (kind: string, handle: string | null): Actor => ({ kind: kind as Actor['kind'], handle });
 
 const toRecord = (r: AttachmentRow): AttachmentRecord => ({
+  commentUpload: r.comment_upload === 1,
+  commentEventId: r.comment_event_id,
+  ...(r.comment_upload === 1 ? { comment: { eventId: r.comment_event_id } } : {}),
   id: r.id,
   projectKey: r.project_key,
   taskKey: r.task_key,
@@ -57,8 +64,8 @@ export function createAttachmentRepository(db: Db) {
   const statements = {
     insert: db.prepare(
       `INSERT INTO attachments (id, project_key, task_key, file_name, size, media_type, preview,
-         uploaded_by_kind, uploaded_by_handle, created_at, state)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+         uploaded_by_kind, uploaded_by_handle, created_at, comment_upload, state)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     ),
     get: db.prepare('SELECT * FROM attachments WHERE id = ?'),
     ready: db.prepare(
@@ -71,20 +78,31 @@ export function createAttachmentRepository(db: Db) {
     ),
     remove: db.prepare('DELETE FROM attachments WHERE id = ?'),
     listReady: db.prepare(
-      `SELECT * FROM attachments WHERE project_key = ? AND task_key = ? AND state = 'ready' ORDER BY seq`,
+      `SELECT * FROM attachments WHERE project_key = ? AND task_key = ? AND state = 'ready'
+       AND (comment_upload = 0 OR comment_event_id IS NOT NULL) ORDER BY seq`,
     ),
     readyImagesOf: db.prepare(
       `SELECT id, task_key FROM attachments
-       WHERE state = 'ready' AND preview = 'image' AND task_key IN (SELECT value FROM json_each(?)) ORDER BY seq`,
+       WHERE state = 'ready' AND preview = 'image' AND (comment_upload = 0 OR comment_event_id IS NOT NULL)
+       AND task_key IN (SELECT value FROM json_each(?)) ORDER BY seq`,
     ),
     inState: db.prepare('SELECT * FROM attachments WHERE state = ? ORDER BY seq'),
     all: db.prepare('SELECT id FROM attachments'),
+    unsentCount: db.prepare(`SELECT COUNT(*) AS n FROM attachments WHERE project_key = ?
+      AND uploaded_by_kind = ? AND uploaded_by_handle IS ? AND comment_upload = 1 AND comment_event_id IS NULL
+      AND state IN ('pending', 'ready')`),
+    bind: db.prepare(`UPDATE attachments SET comment_event_id = ? WHERE id = ?
+      AND comment_upload = 1 AND comment_event_id IS NULL AND state = 'ready'`),
+    live: db.prepare(`SELECT id FROM attachments WHERE project_key = ? AND task_key = ?
+      AND state = 'ready' AND comment_event_id IS NOT NULL`),
+    stale: db.prepare(`SELECT * FROM attachments WHERE comment_upload = 1
+      AND comment_event_id IS NULL AND created_at < ?`),
   };
   const first = (row: unknown): AttachmentRecord | null => (row ? toRecord(row as AttachmentRow) : null);
 
   return {
     /** A new row in state `pending`: the upload is about to be written. */
-    insertPending(a: Omit<Attachment, 'size' | 'mediaType' | 'preview'>): void {
+    insertPending(a: Omit<Attachment, 'size' | 'mediaType' | 'preview'> & { commentUpload?: boolean }): void {
       statements.insert.run(
         a.id,
         a.projectKey,
@@ -96,10 +114,23 @@ export function createAttachmentRepository(db: Db) {
         a.uploadedBy.kind,
         a.uploadedBy.handle,
         a.createdAt,
+        a.commentUpload ? 1 : 0,
       );
     },
     get(id: string): AttachmentRecord | null {
       return first(statements.get.get(id));
+    },
+    unsentCommentCount(projectKey: string, actor: Actor): number {
+      return (statements.unsentCount.get(projectKey, actor.kind, actor.handle) as { n: number }).n;
+    },
+    bindToComment(id: string, eventId: string): number {
+      return statements.bind.run(eventId, id).changes;
+    },
+    liveCommentFileIds(projectKey: string, taskKey: string): Set<string> {
+      return new Set((statements.live.all(projectKey, taskKey) as { id: string }[]).map((row) => row.id));
+    },
+    unsentCommentsBefore(cutoff: string): AttachmentRecord[] {
+      return (statements.stale.all(cutoff) as AttachmentRow[]).map(toRecord);
     },
     /** `pending` to `ready` with what the stored file turned out to be; false when it was not pending. */
     markReady(id: string, stored: StoredAttachment): boolean {

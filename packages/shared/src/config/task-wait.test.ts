@@ -201,6 +201,14 @@ it('ignores legacy refinement completion notices while retaining actionable aler
   }
 });
 
+it('is not held by a mention item (PM-1307)', () => {
+  const mention = item({ kind: 'mention', payload: { eventId: 'e1', place: 'comment', threadId: 'e1' } });
+  const task = card({ stageId: 'ready', labels: ['scope-ok'] });
+  for (const viewer of ['owner', 'dev-1', null]) {
+    expect(wait(task, { openItems: [mention], viewer })).toEqual(wait(task));
+  }
+});
+
 const gateItem = (assignees: string[], over: Partial<InboxItem> = {}) =>
   item({
     kind: 'decision',

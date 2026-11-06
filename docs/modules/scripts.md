@@ -19,7 +19,9 @@ A place is one process's share of the machine: a run of `n` places has one main 
   and gives back what it cannot use once it knows its files (`1 + min(workers, files)`); `npm run
 handover-check` asks for 2 to 4 once, through the heavy CLI, and its steps run under that ticket. Only the
   head of the queue allocates, and the order is strict FIFO: a small request never overtakes a request for
-  more places ahead of it. A grant can be reduced (`lock.reduce`), never grown.
+  more places ahead of it. A grant can be reduced (`lock.reduce`), never grown. A `vitest related` run that
+  selects more than `TARGETED_TEST_FILES_MAX` files (PM-1317) is a full run in effect: its reporter says so,
+  releases its places and queues again for `'all'`; a `vitest run <files>` is not subject to the threshold.
 - **The pool** (`apps/server/src/full-test/heavy-lock.ts`, with an Effect core in
   `full-test/heavy-lock-core.ts`). The CLI imports the facade directly; `full-test/index.ts` also
   loads the sandbox runtime. macOS has no `flock` or `lockf`, so the pool is a

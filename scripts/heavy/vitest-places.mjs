@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { machinePlaces as capacityOf, placeWorkers } from '@projectman/shared';
+import { machinePlaces as capacityOf, placeWorkers, TARGETED_TEST_FILES_MAX } from '@projectman/shared';
 import {
   acquireHeavyLock,
   defaultHeavyLockDir,
@@ -26,6 +26,9 @@ const HELD_VARIABLE = 'PROJECTMAN_HEAVY_LOCK_HELD';
 /** One claim per process: with `extends: true` projects the hook runs for each of them. */
 const STATE = Symbol.for('projectman.machinePlaces');
 
+/** `vitest related <files>` sets `config.related` to the changed files. */
+const isRelated = (config) => Array.isArray(config.related) && config.related.length > 0;
+
 /** A worker limit the caller set (the holder CLI, the server's full test): it wins over the places. */
 function callerWorkers(env) {
   for (const name of ['VITEST_MAX_THREADS', 'VITEST_MAX_FORKS']) {
@@ -36,7 +39,7 @@ function callerWorkers(env) {
 }
 
 /** The workers a run may use, and the places to give back once the files are known. */
-async function claim(cwd, env) {
+async function claim(cwd, env, places = REQUEST) {
   const host = machineHost();
   const lockDir = env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir();
   const fixed = callerWorkers(env);
@@ -51,7 +54,7 @@ async function claim(cwd, env) {
       label: `${basename(cwd)}: vitest ${process.argv.slice(2).join(' ')}`.slice(0, 120),
       cwd,
       command: heavyCommandKey(cwd, process.argv.slice(2)),
-      places: REQUEST,
+      places,
       ...(env.PROJECTMAN_SESSION_ID ? { sessionId: env.PROJECTMAN_SESSION_ID } : {}),
       onWait: (wait) => {
         waited = true;
@@ -85,17 +88,20 @@ function applyWorkers(config, workers) {
   };
 }
 
+/** Gives the claim's lock back when the process exits or the run closes. */
+function releaseWith(vitest, lock) {
+  if (!lock) return;
+  process.once('exit', () => lock.releaseSync());
+  vitest.onClose(() => lock.release());
+}
+
 /** Vitest plugin: the run takes its places from the machine's pool before it selects and runs files. */
 export function machinePlaces() {
   return {
     name: 'projectman-machine-places',
     async configureVitest({ vitest }) {
       const claimed = (globalThis[STATE] ??= claim(process.cwd(), process.env).then((result) => {
-        const { lock } = result;
-        if (lock) {
-          process.once('exit', () => lock.releaseSync());
-          vitest.onClose(() => lock.release());
-        }
+        releaseWith(vitest, result.lock);
         return result;
       }));
       const { workers, lock } = await claimed;
@@ -108,6 +114,18 @@ export function machinePlaces() {
         {
           async onTestRunStart(specs) {
             const files = new Set(specs.map((spec) => spec.moduleId)).size;
+            // A related run of a central file selects most of the suite: it is a full run, so it queues as one.
+            if (lock && isRelated(vitest.config) && files > TARGETED_TEST_FILES_MAX) {
+              process.stderr.write(
+                `heavy: this related run selected ${files} test files, so it runs as a full run, alone, at its turn. ` +
+                  "For a central file run the changed behaviour's test files instead, or npm run handover-check (CLAUDE.md Commands).\n",
+              );
+              await lock.release();
+              const full = await claim(process.cwd(), process.env, 'all');
+              releaseWith(vitest, full.lock);
+              applyWorkers(vitest.config, full.workers);
+              return;
+            }
             const used = Math.max(1, Math.min(workers, files));
             applyWorkers(vitest.config, used);
             if (lock) await lock.reduce(1 + used);

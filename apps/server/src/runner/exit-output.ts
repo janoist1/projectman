@@ -1,5 +1,5 @@
 /** Longest line, line count and total length kept from a CLI's last output (it ends up in the session's activity). */
-const MAX_LINE = 160;
+const MAX_LINE = 400;
 const MAX_LINES = 8;
 const MAX_TOTAL = 480;
 
@@ -61,9 +61,35 @@ export function redactOutput(text: string): string {
     .replace(LONG_RUN, (run) => (looksRandom(run) ? '[redacted]' : run));
 }
 
+const MAX_CONFIG_REASON = 200;
+/** Codex: "failed to load configuration: invalid transport in `mcp_servers.team`" (PM-1279). */
+const MCP_CONFIG_FAILURE = /invalid transport in\s+[`'"]?mcp_servers\.([A-Za-z0-9_-]+)/i;
+const CONFIG_FAILURE = /failed to load configuration:\s*(.{1,200})/i;
+/** Codex's TUI bootstrap: "thread/start failed during TUI bootstrap: … error creating thread: <reason>". */
+const THREAD_FAILURE = /error creating thread:\s*(.{1,200})/i;
+
+/**
+ * Why a CLI refused its own configuration, named before the output is cut line by line: a long
+ * line is cut at `MAX_LINE`, which used to hide this very reason (`failed to l…`). Null when the
+ * output holds no such message.
+ */
+function configFailure(screenText: string): string | null {
+  const flat = screenText.replace(/\s+/g, ' ');
+  const mcp = MCP_CONFIG_FAILURE.exec(flat);
+  if (mcp) return `MCP server configuration is invalid (mcp_servers.${mcp[1]}: invalid transport)`;
+  const other = CONFIG_FAILURE.exec(flat);
+  if (other)
+    return `configuration could not be loaded (${redactOutput(other[1]!).slice(0, MAX_CONFIG_REASON).trim()})`;
+  const thread = THREAD_FAILURE.exec(flat);
+  return thread
+    ? `the session thread could not be created (${redactOutput(thread[1]!).slice(0, MAX_CONFIG_REASON).trim()})`
+    : null;
+}
+
 /**
  * The last lines of what a CLI printed, redacted and bounded, as one line of text: the reason a
- * CLI that exited before it was ready would otherwise take with it. Empty when nothing is on screen.
+ * CLI that exited before it was ready would otherwise take with it. A configuration refusal it
+ * names comes first, whole. Empty when nothing is on screen.
  */
 export function exitOutputTail(screenText: string): string {
   const lines = screenText
@@ -73,5 +99,7 @@ export function exitOutputTail(screenText: string): string {
     .slice(-MAX_LINES)
     .map((line) => redactOutput(line).slice(0, MAX_LINE));
   const joined = lines.join(' | ');
-  return joined.length > MAX_TOTAL ? `…${joined.slice(-MAX_TOTAL)}` : joined;
+  const tail = joined.length > MAX_TOTAL ? `…${joined.slice(-MAX_TOTAL)}` : joined;
+  const reason = configFailure(screenText);
+  return reason ? `${reason} | ${tail}` : tail;
 }

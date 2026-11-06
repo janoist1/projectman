@@ -45,9 +45,17 @@ export { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } fro
 export type { WorkspaceDependencyInstallerOptions } from './workspace-dependencies';
 
 export { failedFiles, failureReport, outputTail, stripAnsi } from './output';
-export { acquireHeavyLock, HeavyLockError, readHeavyQueue, readHeavyRunSessions } from './heavy-lock';
+export {
+  acquireHeavyLock,
+  HeavyLockError,
+  readHeavyQueue,
+  readHeavyRunSessions,
+  endHeavySessionRuns,
+} from './heavy-lock';
 export { defaultHeavyLockDir } from './heavy-lock-dir';
 export type { HeavyLock, HeavyLockEntry, HeavyLockOptions } from './heavy-lock';
+export { startPressureMeter } from './machine-pressure';
+export type { PressureMeter, PressureReading } from './machine-pressure';
 export { runSandboxed, srtCli } from './run-sandboxed';
 export type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
 export { createScreenshotExecutor, screenshotEnv, screenshotSettings } from './screenshots';
@@ -113,10 +121,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     signal: AbortSignal,
     settings = paths.settings,
     passedKeysFile?: string,
+    held?: { ticket: string; dir: string },
   ): Promise<SandboxedEnd> =>
     runSandboxed({
       cwd: spec.cwd,
-      env: fullTestEnv(paths, spec.maxWorkers, baseEnv, passedKeysFile),
+      env: fullTestEnv(paths, spec.maxWorkers, baseEnv, passedKeysFile, held),
       settings,
       command,
       timeoutMs,
@@ -225,7 +234,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       try {
         // The run's turn has come (or it needs none): a run stopped while it waited never starts.
         if (!signal.aborted) onStarted?.();
-        return await runLocked(spec, signal);
+        return await runLocked(
+          spec,
+          signal,
+          lock && options.heavyLockDir ? { ticket: lock.ticket, dir: options.heavyLockDir } : undefined,
+        );
       } finally {
         await lock?.release();
       }
@@ -233,7 +246,11 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
   };
 
   /** One run, with the machine's lock held (or without the queue). */
-  async function runLocked(spec: FullTestSpec, signal: AbortSignal): Promise<FullTestResult> {
+  async function runLocked(
+    spec: FullTestSpec,
+    signal: AbortSignal,
+    held?: { ticket: string; dir: string },
+  ): Promise<FullTestResult> {
     const started = Date.now();
     let paths: RunPaths;
     try {
@@ -336,6 +353,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         signal,
         paths.settings,
         cache?.passedKeysFile,
+        held,
       );
       const commandMs = Date.now() - commandStarted;
       await cache?.record(ended.output);

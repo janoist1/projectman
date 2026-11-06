@@ -136,26 +136,32 @@ folder to the YAML as well (`structure-map.test.ts` checks it).
 
 ```
 npm install          # once per checkout / worktree
-npm run typecheck    # all workspaces; waits its turn in the machine's heavy-run queue
+npm run typecheck    # all workspaces; takes 2 machine places, at its turn
 npm test             # all workspaces; waits its turn in the machine's heavy-run queue
 npm run dev          # server (4700) + web (5173)
-npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); queues too
-npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>)
-npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all)
-npm run handover-check      # before hand-over and in fix rounds: dead-code, type check and the nearest tests selected from your diff in every workspace (-- --dry-run lists them; no queue)
+npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); takes 3 places
+npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>, --places all|<n>|<min>-<max>)
+npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all); takes all places, none again when the server runs it
+npm run handover-check      # before hand-over and in fix rounds: dead-code, type check and the nearest tests selected from your diff in every workspace (-- --dry-run lists them); takes 2-4 machine places once
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
-npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
+npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (takes 2-4 machine places)
 npx vitest run src/i18n/i18n.test.ts --configLoader runner  # in apps/web: after changing locale keys or their usage
 npx vitest run test/web-get-contracts.test.ts --configLoader runner  # in apps/server after changing web GET responses or hot-read query costs
 npx vitest related test/helpers/app-harness.ts --run --configLoader runner  # in apps/server after changing the app harness, covering every harness consumer
 npx vitest run test/merge-test-watchdog.test.ts --configLoader runner  # in apps/server after changing merge-test execution or reporting
 npx vitest run test/start-offer.test.ts test/golden-path-small-team.test.ts --configLoader runner  # in apps/server after changing admission wake-ups or start timing
-npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
+npm run typecheck -w <workspace>  # type check only the workspaces you touched (1 place; none again under a holder's ticket)
 ```
 
-One heavy run goes at a time on the machine (PM-332, `docs/modules/scripts.md` "Heavy-run
-queue"): the root `npm test`, `typecheck` and `shots` wait behind the other members' and the
-server's full test, and print who they wait for. Only Claude Code members run them in the
+The machine has one pool of places (PM-332, PM-1278, `docs/modules/scripts.md` "Machine places"):
+every heavy command takes its places from it. The root `npm test`, the server's full test and
+`merge-test` take all of them; the root `typecheck` and the `npm ci` of the members' dependencies take
+two, `shots` three, a workspace `typecheck` or `build` one, a workspace `vitest` run and `handover-check`
+two to four, so a few of them run side by side and a full run waits for them (first come, first served,
+nobody overtakes). A run inside a holder (the root `typecheck`, `handover-check`, the server's merge
+check) carries its ticket and takes no place again. They print who they wait for. The same
+command from the same session while the first one lives exits 79 ("already running"): wait for the
+running one, and do not restart a backgrounded run. Only Claude Code members run them in the
 background: Claude Code sends a completion notification. Codex, Gemini (agy) and NanoGPT
 members run them in the foreground and keep waiting until completion, including when the
 shell tool returns a running command id; follow the provider-specific waiting instructions
@@ -163,7 +169,11 @@ in the context pack. Gemini's native `command_status` follows a running command;
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
-before hand-over and in fix rounds. When removing a capability, also search tests for its
+before hand-over and in fix rounds. A change in a **central file** (`packages/shared/src/**`,
+`apps/server/src/contracts/**`, `apps/server/src/kernel/**`, `apps/server/src/db/migrations.ts`,
+`apps/server/src/assembly.ts`, `apps/server/test/helpers/**`, the web `i18n/{hu,en}.ts` and `mocks/**`)
+makes `related` select a large share of the suite; run the test files of the behaviour you changed and
+`npm run handover-check` instead. When removing a capability, also search tests for its
 retired tool names, inbox kinds and route or file paths, then run the matching boundary tests:
 HTTP calls and string fixtures are not covered by import-based related selection.
 When changing the shared `ErrorCode` union, update
@@ -173,7 +183,7 @@ Before hand-over and in fix rounds run `npm run handover-check` from the reposit
 selects the nearest tests of your diff in every workspace (a shared schema, the architecture and
 other path-reading tests and the tool snapshot included; at most 60 files, and it says how many
 the merge-test runs on top), runs them with the type check of the affected workspaces and
-`dead-code`, and does not queue. Fix new `dead-code` findings rather than extending the baseline.
+`dead-code`; it takes two to four machine places once, and its steps run under that ticket. Fix new `dead-code` findings rather than extending the baseline.
 It does not replace the merge-test. A test that no import reaches (it reads the repository by path, or
 uses the code over HTTP) gets a rule in `SELECTION_RULES` (`scripts/merge-test/handover.ts`) and a file that starts programs into
 `RUNTIME_ENTRIES`, not into a new line of this list. They never run the full suite. The merger (`team.merger`,
@@ -186,8 +196,8 @@ When a merge fails a check the developer could have run locally, the merger name
 command in the send-back note; if `handover-check` did not select it, propose widening its
 selection (not adding a line to the list) and send the lesson to the project manager for
 `docs/LESSONS.md`.
-Shared code or configuration changes require the whole suite; workspace checks do not queue
-(decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
+Shared code or configuration changes require the whole suite; every heavy command gets its places from
+the machine's pool (decision 40, PM-380, PM-386, PM-1278). If a heavy command says its queue cannot be used
 (exit status 78), or the sandbox refuses a test (a local port, a pseudo-terminal), it did not
 run: note on your card what did not run and why, and hand over; the merge test runs it.
 Never run it another way, and do not ask anyone to run it outside your sandbox (PM-346, PM-656).

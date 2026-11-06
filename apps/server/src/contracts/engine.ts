@@ -388,6 +388,8 @@ export interface EngineHost {
   freeDiskBytes(): Promise<number | null>;
   /** Session ids holding or waiting for this engine's heavy-run queue; unavailable gives [], never rejects (PM-569). */
   heavyRunSessions(): Promise<string[]>;
+  /** Stop fresh heavy-run entries after this session's CLI exits, on this engine (PM-1315). */
+  endSessionRuns(sessionId: string): Promise<number>;
   processExists(pid: number): boolean;
   /** The project's working directory on this engine; null: the engine does not hold the project. */
   workspacePath(projectKey: string): string | null;

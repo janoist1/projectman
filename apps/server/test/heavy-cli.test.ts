@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EXIT_QUEUE_UNAVAILABLE, parseHeavyArgs } from '../../../scripts/heavy/run';
+import { machinePlaces, placeWorkers } from '@projectman/shared';
+import { EXIT_ALREADY_RUNNING, EXIT_QUEUE_UNAVAILABLE, parseHeavyArgs } from '../../../scripts/heavy/run';
 import { guardWorkerParent } from '../../../scripts/lib/worker-parent-guard.mjs';
-import { acquireHeavyLock, readHeavyQueue } from '../src/full-test/heavy-lock';
+import { acquireHeavyLock, heavyCommandKey, machineHost, readHeavyQueue } from '../src/full-test/heavy-lock';
 import type { HeavyLock } from '../src/full-test/heavy-lock';
+import { writePressure } from '../src/full-test/machine-pressure';
 import { waitFor } from './helpers/wait';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -51,6 +53,8 @@ function heavy(
         PROJECTMAN_HEAVY_LOCK_DIR: dir,
         PROJECTMAN_HEAVY_LOCK_HELD: undefined,
         PROJECTMAN_SESSION_ID: undefined,
+        VITEST_MAX_FORKS: undefined,
+        VITEST_MAX_THREADS: undefined,
         ...env,
       },
     });
@@ -68,7 +72,7 @@ function heavy(
 
 const node = (script: string): string[] => ['node', '-e', script];
 
-/** A command that prints the queue as it sees it: who holds the lock, and the variable. */
+/** A command that prints the queue as it sees it: who holds the places, the variable and the workers. */
 const queueReader = (): string[] => [
   process.execPath,
   '--import',
@@ -77,8 +81,16 @@ const queueReader = (): string[] => [
   '-e',
   `const { readHeavyQueue } = await import(${JSON.stringify(LOCK_MODULE)});
    const queue = await readHeavyQueue(${JSON.stringify(dir)});
-   console.log(JSON.stringify({ holder: queue.holder, held: process.env.PROJECTMAN_HEAVY_LOCK_HELD }));`,
+   console.log(JSON.stringify({ holder: queue.holder, holders: queue.holders, held: process.env.PROJECTMAN_HEAVY_LOCK_HELD, forks: process.env.VITEST_MAX_FORKS, threads: process.env.VITEST_MAX_THREADS }));`,
 ];
+
+interface Seen {
+  holder: { label: string; sessionId?: string; ticket: string } | null;
+  holders: { label: string; ticket: string; granted?: number }[];
+  held: string;
+  forks: string;
+  threads: string;
+}
 
 describe('the arguments of the heavy CLI', () => {
   it('takes the options up to the first other argument, and everything after as the command', () => {
@@ -89,6 +101,20 @@ describe('the arguments of the heavy CLI', () => {
     });
     expect(parseHeavyArgs(['--', 'npm', '--version'])).toEqual({ command: ['npm', '--version'] });
     expect(parseHeavyArgs(['npm', 'run', 'x'])).toEqual({ command: ['npm', 'run', 'x'] });
+  });
+
+  it.each([
+    ['all', 'all'],
+    ['3', { min: 3, max: 3 }],
+    ['2-4', { min: 2, max: 4 }],
+  ])('reads --places %s', (value, places) => {
+    expect(parseHeavyArgs(['--places', value, 'x'])).toEqual({ places, command: ['x'] });
+  });
+
+  it('refuses places that are not all, a number or a range', () => {
+    for (const value of ['0', '4-2', 'many', '2-']) {
+      expect(parseHeavyArgs(['--places', value, 'x'])).toMatchObject({ error: expect.any(String) });
+    }
   });
 
   it('refuses a missing command, an unknown option and a bad number', () => {
@@ -142,10 +168,70 @@ describe('the heavy CLI', () => {
       PROJECTMAN_SESSION_ID: 'ses_7',
     });
     expect(ran.stderr).toBe('');
-    const seen = JSON.parse(ran.stdout) as { holder: { label: string; sessionId: string }; held: string };
+    const seen = JSON.parse(ran.stdout) as Seen;
     expect(seen.holder).toMatchObject({ label: 'my run', sessionId: 'ses_7' });
-    expect(seen.held).toBe('1');
+    // What a nested run carries: the holder's ticket.
+    expect(seen.held).toBe(seen.holder?.ticket);
     expect((await readHeavyQueue(dir)).holder).toBeNull();
+  });
+
+  it('holds some of the places for the command and gives its workers from them', async () => {
+    const ran = await heavy(['--places', '2-4', ...queueReader()]);
+    const seen = JSON.parse(ran.stdout) as Seen;
+    expect(seen.holders).toHaveLength(1);
+    const granted = seen.holders[0]!.granted!;
+    expect(granted).toBeGreaterThanOrEqual(2);
+    expect(granted).toBeLessThanOrEqual(4);
+    expect(seen.held).toBe(seen.holders[0]!.ticket);
+    const workers = String(placeWorkers(granted, machineHost()));
+    expect([seen.forks, seen.threads]).toEqual([workers, workers]);
+    expect((await readHeavyQueue(dir)).holders).toEqual([]);
+  });
+
+  it('runs two commands at once on one folder, within the places of the machine', async () => {
+    // Each waits until it sees both holders: it can only do so when the pool lets both hold at once. Then
+    // it keeps its places until the other has seen them too, so a slow start of one cannot fail the other.
+    const seen = path.join(root, 'seen');
+    const pair = [
+      process.execPath,
+      '--import',
+      'tsx',
+      '--input-type=module',
+      '-e',
+      `const { readHeavyQueue } = await import(${JSON.stringify(LOCK_MODULE)});
+       const fs = await import('node:fs');
+       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+       const until = Date.now() + 90000;
+       let queue;
+       do {
+         queue = await readHeavyQueue(${JSON.stringify(dir)});
+         if (queue.holders.length >= 2) break;
+         await sleep(50);
+       } while (Date.now() < until);
+       fs.mkdirSync(${JSON.stringify(seen)}, { recursive: true });
+       fs.writeFileSync(${JSON.stringify(seen)} + '/' + process.pid, '');
+       while (fs.readdirSync(${JSON.stringify(seen)}).length < 2 && Date.now() < until) await sleep(50);
+       console.log(JSON.stringify(queue.holders.map((holder) => holder.granted)));`,
+    ];
+    const [one, two] = await Promise.all([
+      heavy(['--places', '1', ...pair]),
+      heavy(['--places', '1', ...pair]),
+    ]);
+    expect([one.code, two.code]).toEqual([0, 0]);
+    for (const ran of [one, two]) {
+      const granted = JSON.parse(ran.stdout) as number[];
+      expect(granted).toHaveLength(2);
+      expect(granted.reduce((sum, places) => sum + places, 0)).toBeLessThanOrEqual(
+        machinePlaces(machineHost()),
+      );
+    }
+    // Two real processes start slowly on a busy machine.
+  }, 120_000);
+
+  it('keeps the worker limit the caller set', async () => {
+    const ran = await heavy(['--places', '2-4', ...queueReader()], { VITEST_MAX_FORKS: '7' });
+    const seen = JSON.parse(ran.stdout) as Seen;
+    expect(seen.forks).toBe('7');
   });
 
   it('labels the run by the folder and the command, at most 120 characters', async () => {
@@ -163,10 +249,40 @@ describe('the heavy CLI', () => {
       if (stderr.includes('waiting')) void holder.release();
     });
     expect(ran.code).toBe(5);
+    // Who holds the places, how many are free, and how many are ahead.
     expect(ran.stderr).toMatch(
-      /heavy: waiting for the machine's heavy-run queue: "the long test" since \d\d:\d\d:\d\d, 0 ahead of you \(waited 0m00s\)\n/,
+      /heavy: waiting for the machine's heavy-run queue \(0 of \d+ places free\): "the long test" since \d\d:\d\d:\d\d \(\d+ of \d+ places\), 0 ahead of you \(waited 0m00s\)\n/,
     );
     expect(ran.stderr).toMatch(/heavy: started after 0m0\ds\n/);
+  });
+
+  it("says it waits for the machine's critical memory pressure, and starts when it eases (PM-1314)", async () => {
+    await writePressure(dir, { level: 'critical', source: 'sysctl' });
+    const ran = await heavy(node('process.exit(0)'), {}, (stderr) => {
+      if (stderr.includes('memory pressure is critical'))
+        void writePressure(dir, { level: 'normal', source: 'sysctl' });
+    });
+    expect(ran.code).toBe(0);
+    expect(ran.stderr).toContain('memory pressure is critical');
+  });
+
+  it('exits with 79 at once when the same command of the session is already running', async () => {
+    const command = node('process.exit(0)');
+    const first = await acquireHeavyLock({
+      dir,
+      label: 'first',
+      sessionId: 'ses_9',
+      // The CLI runs in the repository folder, without the trailing slash `ROOT` has.
+      command: heavyCommandKey(path.resolve(ROOT), command),
+      places: { min: 1, max: 1 },
+    });
+    locks.push(first);
+    const ran = await heavy(command, { PROJECTMAN_SESSION_ID: 'ses_9' });
+    expect(ran.code).toBe(EXIT_ALREADY_RUNNING);
+    expect(EXIT_ALREADY_RUNNING).toBe(79);
+    // It names the run that is still going, and it did not queue.
+    expect(ran.stderr).toContain(`pid ${process.pid}`);
+    expect((await readHeavyQueue(dir)).waiting).toEqual([]);
   });
 
   it('exits with 75 when --max-wait runs out, and leaves the queue', async () => {
@@ -188,6 +304,37 @@ describe('the heavy CLI', () => {
     });
     expect(ran).toEqual({ code: 0, stdout: '1\n', stderr: '' });
     expect((await readHeavyQueue(dir)).holder?.label).toBe('the outer run');
+  });
+
+  it('does not queue inside a run that holds some of the places, by its ticket', async () => {
+    const outer = await acquireHeavyLock({ dir, label: 'the outer run', places: { min: 2, max: 2 } });
+    locks.push(outer);
+    const ran = await heavy(node('console.log(process.env.PROJECTMAN_HEAVY_LOCK_HELD)'), {
+      PROJECTMAN_HEAVY_LOCK_HELD: outer.ticket,
+    });
+    expect(ran).toEqual({ code: 0, stdout: `${outer.ticket}\n`, stderr: '' });
+  });
+
+  it('does not reserve a place of its own for a nested --places 1 run', async () => {
+    const outer = await acquireHeavyLock({ dir, label: 'the outer run', places: { min: 2, max: 2 } });
+    locks.push(outer);
+    const ran = await heavy(['--places', '1', ...queueReader()], {
+      PROJECTMAN_HEAVY_LOCK_HELD: outer.ticket,
+    });
+    const seen = JSON.parse(ran.stdout) as Seen;
+    expect(ran.code).toBe(0);
+    expect(seen.holders.map((holder) => holder.label)).toEqual(['the outer run']);
+    expect(seen.held).toBe(outer.ticket);
+  });
+
+  it('does not take a hand-set 1 as a hold when no older holder lives', async () => {
+    const other = await acquireHeavyLock({ dir, label: 'someone else', places: { min: 1, max: 1 } });
+    locks.push(other);
+    const ran = await heavy(['--places', '1', ...queueReader()], { PROJECTMAN_HEAVY_LOCK_HELD: '1' });
+    const seen = JSON.parse(ran.stdout) as Seen;
+    // It asked for a place of its own, behind the pool's rules.
+    expect(seen.holders.map((holder) => holder.label)).toContain('someone else');
+    expect(seen.held).toBe(seen.holders.find((holder) => holder.label !== 'someone else')?.ticket);
   });
 
   it('does not run the command, and says so, when the folder is unusable (PM-346)', async () => {

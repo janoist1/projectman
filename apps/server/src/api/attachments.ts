@@ -71,12 +71,19 @@ export function registerAttachmentRoutes(
       },
     );
 
-    scope.post<TaskParams>(routes.taskAttachments(':key', ':taskKey'), async (request, reply) => {
+    scope.post<TaskParams>(routes.taskAttachments(':key', ':taskKey'), (request, reply) =>
+      upload(request, reply),
+    );
+    scope.post<TaskParams>(routes.taskCommentAttachments(':key', ':taskKey'), (request, reply) =>
+      upload(request, reply, true),
+    );
+
+    async function upload(request: FastifyRequest<TaskParams>, reply: FastifyReply, forComment?: true) {
       const { key, taskKey } = request.params;
       try {
         const access = await requireAccess(domain, request, key);
         const actor = actorOf(access);
-        await domain.attachments.assertCanUpload(key, taskKey, actor);
+        await domain.attachments.assertCanUpload(key, taskKey, actor, forComment ? { forComment } : {});
         if (!request.isMultipart()) {
           throw new DomainError('unsupported_media_type', 'a file is uploaded as multipart/form-data', {
             status: 415,
@@ -89,6 +96,7 @@ export function registerAttachmentRoutes(
         const part = await request.file();
         if (!part) throw invalid('invalid_request', 'the request carries no file');
         const attachment = await domain.attachments.upload({
+          ...(forComment ? { forComment } : {}),
           projectKey: key,
           taskKey,
           actor,
@@ -107,7 +115,7 @@ export function registerAttachmentRoutes(
         reply.header('connection', 'close');
         throw err;
       }
-    });
+    }
 
     scope.get<AttachmentParams>(routes.attachmentContent(':key', ':taskKey', ':id'), (request, reply) =>
       sendContent(request, reply, false),

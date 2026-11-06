@@ -327,6 +327,7 @@ describe('engine-owned member dependency preparation', () => {
         expect((await readHeavyQueue(path.join(root, 'heavy'))).waiting).toHaveLength(1),
       );
       expect(installs()).toHaveLength(0);
+      expect((await readHeavyQueue(path.join(root, 'heavy'))).waiting[0]?.places).toEqual({ min: 2, max: 2 });
       await installer.close();
       await pending;
     } finally {

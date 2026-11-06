@@ -193,6 +193,8 @@ export const ERROR_CODES = [
   // Attachments
   'attachment_too_large',
   'attachment_storage_failed',
+  'comment_attachment_unavailable',
+  'comment_attachment_limit',
   // A file of a team message (PM-515): not usable for this send (409, `{ id }`), or too many unsent (409, `{ max }`)
   'message_attachment_unavailable',
   'message_attachment_limit',

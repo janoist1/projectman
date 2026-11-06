@@ -127,6 +127,7 @@ export * from './domain/schedule';
 export * from './schedule/cron';
 export * from './domain/provider-model';
 export * from './domain/mentions';
+export * from './domain/mention-items';
 export * from './deploy/instance-role';
 export * from './deploy/canonical-json';
 export * from './config/card-mover';

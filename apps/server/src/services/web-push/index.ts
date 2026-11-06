@@ -125,6 +125,15 @@ export function createWebPushService(opts: WebPushOptions) {
   /** The push and phone texts in the recipient's system language (PM-1177). */
   const textFor = (userId: string) =>
     getLocale(opts.repos.users.get(userId)?.language ?? DEFAULT_UI_LANGUAGE).webPush;
+  /** The author of the comment a reply answers, when a person wrote it here and it is not imported (PM-1275). */
+  const replyToAuthor = (event: TimelineEvent, projectKey: string): string | null => {
+    const replyTo = event.data.replyTo;
+    if (typeof replyTo !== 'string' || !replyTo) return null;
+    const parent = opts.repos.timeline.get(projectKey, replyTo);
+    if (!parent || parent.actor.kind !== 'human' || parent.data.importedAuthor || parent.data.importedAt)
+      return null;
+    return parent.actor.handle;
+  };
   /** A user is reachable through a browser device or the phone channel (ntfy, PM-901). */
   const reachable = (userId: string) => active(userId).length > 0 || !!opts.phone?.active(userId);
   const sendAll = (userId: string, payload: PushPayload, phone: PhoneMessage, createdBefore?: string) =>
@@ -389,6 +398,7 @@ export function createWebPushService(opts: WebPushOptions) {
         assignee: task.assignee,
         earlierAuthors: opts.repos.timeline.humanNoteAuthors(task.projectKey, task.key),
         humans: members.filter((m) => m.kind === 'human').map((m) => m.handle),
+        replyToAuthor: replyToAuthor(event, task.projectKey),
       });
       const seen = new Set<string>();
       for (const target of targets) {
@@ -402,13 +412,19 @@ export function createWebPushService(opts: WebPushOptions) {
         const category = target.categories.find((c) => settings.categories[c]);
         if (!category || opts.presence.isViewing(user.email)) continue;
         if (quietWindowAt(settings.quietHours, now()).quiet) continue;
+        const count = Array.isArray(event.data.attachments) ? event.data.attachments.length : 0;
+        const files = textFor(user.id).files;
+        const body =
+          !event.data.text && count > 0
+            ? `${task.key} · ${count === 1 ? files.one : files.many.replace('{n}', String(count))}`
+            : task.key;
         await sendAll(
           user.id,
           {
             v: 1,
             kind: 'item',
             title: textFor(user.id).title[category],
-            body: task.key,
+            body,
             tag: `note-${task.projectKey}-${task.key}`,
             url: `/p/${encodeURIComponent(task.projectKey)}/tasks/${encodeURIComponent(task.key)}#timeline-${encodeURIComponent(event.id)}`,
             projectKey: task.projectKey,

@@ -1776,6 +1776,8 @@ export const hu = {
       merge_fix_engine_mismatch: 'A javító munkafának a kártya motorján kell lennie.',
       task_not_merged: 'A jóváhagyott commit még nincs a fő ágban.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
+      comment_attachment_unavailable: 'Egy hozzászólásfájl már nem érhető el: vedd ki, és csatold újra.',
+      comment_attachment_limit: 'Projektenként legfeljebb 20 el nem küldött hozzászólásfájlod lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
       document_not_found: 'Nincs ilyen dokumentum vagy változat.',
       document_conflict:
@@ -4804,6 +4806,7 @@ export const hu = {
       approval: 'Jóváhagyás',
       alert: 'Figyelmeztetés',
       release: 'Kiadás',
+      mention: 'Említés',
       // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
       todo: 'Teendő',
     },
@@ -4816,6 +4819,7 @@ export const hu = {
       approval: 'jóváhagyás',
       alert: 'figyelmeztetés',
       release: 'kiadás',
+      mention: 'említés',
       todo: 'teendő',
     },
     options: {
@@ -5220,6 +5224,7 @@ export const hu = {
       group_withdrawn: 'Minden kérdező visszavonta',
       obligation_closed: 'A lépés közben elkészült vagy megszűnt',
       signal_resolved: 'A jelzés magától lezárult',
+      mention_replied: 'Válaszoltál az említésre',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',

@@ -16,6 +16,9 @@ import {
 } from './sandbox';
 import type { RunPaths } from './sandbox';
 
+/** The places a screenshot run takes from the machine's pool (PM-1278). */
+const SCREENSHOT_PLACES = { min: 3, max: 3 };
+
 /**
  * The `srt` settings of a screenshot run: as the full test's (`srtSettings`) with the session's own
  * limits. It reads what the session's sandbox reads, and writes what it writes (its session folder
@@ -43,6 +46,7 @@ export function screenshotEnv(
   spec: ScreenshotRunSpec,
   paths: RunPaths,
   base: NodeJS.ProcessEnv = process.env,
+  held?: { ticket: string; dir: string },
 ): Record<string, string> {
   const env: Record<string, string> = {
     PATH: base.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin',
@@ -56,8 +60,10 @@ export function screenshotEnv(
     NO_COLOR: '1',
     FORCE_COLOR: '0',
     PROJECTMAN_SESSION_DIR: spec.sessionDir,
-    // The server holds the machine's heavy-run lock for the run: `npm run shots` does not queue again.
-    PROJECTMAN_HEAVY_LOCK_HELD: '1',
+    // The server holds the machine's heavy-run places for the run (its ticket): `npm run shots` does not
+    // queue again. A bare 1 is for a run without the queue, which nothing can vouch for.
+    PROJECTMAN_HEAVY_LOCK_HELD: held?.ticket ?? '1',
+    ...(held ? { PROJECTMAN_HEAVY_LOCK_DIR: held.dir } : {}),
   };
   if (spec.browsersDir) env.PLAYWRIGHT_BROWSERS_PATH = spec.browsersDir;
   for (const name of ['LANG', 'LC_ALL'] as const) {
@@ -97,7 +103,12 @@ export function createScreenshotExecutor(options: FullTestExecutorOptions): Scre
       let lock: HeavyLock | undefined;
       if (options.heavyLockDir) {
         try {
-          lock = await acquireHeavyLock({ dir: options.heavyLockDir, label: spec.label, signal });
+          lock = await acquireHeavyLock({
+            dir: options.heavyLockDir,
+            label: spec.label,
+            places: SCREENSHOT_PLACES,
+            signal,
+          });
         } catch (err) {
           if (signal.aborted) return ended({ aborted: true });
           // Nothing is held back because of the lock: without it the run goes on.
@@ -107,7 +118,12 @@ export function createScreenshotExecutor(options: FullTestExecutorOptions): Scre
         }
       }
       try {
-        return await runLocked(spec, signal, onStarted);
+        return await runLocked(
+          spec,
+          signal,
+          onStarted,
+          lock && options.heavyLockDir ? { ticket: lock.ticket, dir: options.heavyLockDir } : undefined,
+        );
       } finally {
         await lock?.release();
       }
@@ -118,6 +134,7 @@ export function createScreenshotExecutor(options: FullTestExecutorOptions): Scre
     spec: ScreenshotRunSpec,
     signal: AbortSignal,
     onStarted: () => void,
+    held?: { ticket: string; dir: string },
   ): Promise<ScreenshotRunEnded> {
     if (signal.aborted) return ended({ aborted: true });
     let paths: RunPaths;
@@ -148,7 +165,7 @@ export function createScreenshotExecutor(options: FullTestExecutorOptions): Scre
     try {
       const run = runSandboxed({
         cwd: spec.cwd,
-        env: screenshotEnv(spec, paths, baseEnv),
+        env: screenshotEnv(spec, paths, baseEnv, held),
         settings: paths.settings,
         command: screenshotCommand(spec.args),
         timeoutMs: spec.timeoutMs,

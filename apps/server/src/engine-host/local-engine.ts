@@ -37,6 +37,7 @@ export interface LocalEngineOptions {
   screenshotExecutor?: ScreenshotExecutor;
   freeDiskBytes?: () => Promise<number | null>;
   heavyRunSessions?: () => Promise<string[]>;
+  endSessionRuns?: (sessionId: string) => Promise<number>;
   processExists?: ProcessProbe;
   /** The project's working directory; null: the project is not known (not loaded). */
   workspacePath: (projectKey: string) => string | null;
@@ -131,6 +132,9 @@ export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseL
       }
     },
     processExists: alive,
+    async endSessionRuns(sessionId) {
+      return (await opts.endSessionRuns?.(sessionId)) ?? 0;
+    },
     workspacePath: opts.workspacePath,
   };
 }

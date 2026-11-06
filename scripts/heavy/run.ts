@@ -2,29 +2,54 @@ import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
 import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { placeWorkers } from '@projectman/shared';
 import {
   acquireHeavyLock,
   defaultHeavyLockDir,
+  heavyCommandKey,
+  heavyHeldBy,
   HeavyLockError,
+  machineHost,
 } from '../../apps/server/src/full-test/heavy-lock';
-import type { HeavyLock, HeavyLockEntry } from '../../apps/server/src/full-test/heavy-lock';
+import type { HeavyLock, PlacesRequest } from '../../apps/server/src/full-test/heavy-lock';
+import {
+  EXIT_ALREADY_RUNNING,
+  EXIT_QUEUE_TIMEOUT,
+  EXIT_QUEUE_UNAVAILABLE,
+  formatDuration,
+  unavailableMessage,
+  waitingLine,
+} from './messages';
 
-/** Exit status of a `--max-wait` that ran out (EX_TEMPFAIL). */
-const EXIT_QUEUE_TIMEOUT = 75;
-/** Exit status of a command that did not run because the queue folder cannot be used (EX_CONFIG, PM-346). */
-export const EXIT_QUEUE_UNAVAILABLE = 78;
+export { EXIT_ALREADY_RUNNING, EXIT_QUEUE_UNAVAILABLE };
+
 const EXIT_USAGE = 2;
 const LABEL_MAX = 120;
 const CHILD_GUARD = fileURLToPath(new URL('../lib/child-guard.mjs', import.meta.url));
-/** Set for everything the CLI runs: a nested call, and the server's full test, run without the lock. */
+/**
+ * Set for everything the CLI runs: the holder's ticket. A nested call, and the server's full test, run
+ * without asking for places while that holder lives (`heavyHeldBy`).
+ */
 const HELD_VARIABLE = 'PROJECTMAN_HEAVY_LOCK_HELD';
 
-const USAGE = 'usage: npm run heavy -- [--label <text>] [--max-wait <seconds>] [--] <command> [args...]\n';
+const USAGE =
+  'usage: npm run heavy -- [--label <text>] [--max-wait <seconds>] [--places all|<n>|<min>-<max>] [--] <command> [args...]\n';
 
 interface HeavyArgs {
   label?: string;
   maxWaitSeconds?: number;
+  places?: PlacesRequest;
   command: string[];
+}
+
+/** `all`, `3` (exactly 3) or `2-4`. */
+function parsePlaces(value: string): PlacesRequest | undefined {
+  if (value === 'all') return 'all';
+  const match = /^(\d+)(?:-(\d+))?$/.exec(value);
+  if (!match) return undefined;
+  const min = Number(match[1]);
+  const max = match[2] === undefined ? min : Number(match[2]);
+  return min >= 1 && max >= min ? { min, max } : undefined;
 }
 
 /** The options up to the first argument that is not one; everything from there on is the command. */
@@ -37,11 +62,15 @@ export function parseHeavyArgs(argv: readonly string[]): HeavyArgs | { error: st
       index += 1;
       break;
     }
-    if (arg === '--label' || arg === '--max-wait') {
+    if (arg === '--label' || arg === '--max-wait' || arg === '--places') {
       const value = argv[index + 1];
       if (value === undefined) return { error: `${arg} needs a value` };
       if (arg === '--label') args.label = value;
-      else {
+      else if (arg === '--places') {
+        const places = parsePlaces(value);
+        if (!places) return { error: `--places needs all, a number or min-max, not "${value}"` };
+        args.places = places;
+      } else {
         const seconds = Number(value);
         if (value.trim() === '' || !Number.isFinite(seconds) || seconds < 0)
           return { error: `--max-wait needs a number of seconds, not "${value}"` };
@@ -56,26 +85,6 @@ export function parseHeavyArgs(argv: readonly string[]): HeavyArgs | { error: st
   args.command = argv.slice(index);
   if (args.command.length === 0) return { error: 'no command' };
   return args;
-}
-
-/** `3m05s`. */
-function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(total / 60)}m${String(total % 60).padStart(2, '0')}s`;
-}
-
-function clock(iso: string | undefined): string {
-  const date = iso ? new Date(iso) : undefined;
-  if (!date || Number.isNaN(date.getTime())) return '?';
-  const two = (n: number) => String(n).padStart(2, '0');
-  return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
-}
-
-function waitingLine(wait: { holder: HeavyLockEntry | null; ahead: number; waitedMs: number }): string {
-  const who = wait.holder
-    ? `"${wait.holder.label}" since ${clock(wait.holder.since ?? wait.holder.queuedAt)}`
-    : 'someone';
-  return `heavy: waiting for the machine's heavy-run queue: ${who}, ${wait.ahead} ahead of you (waited ${formatDuration(wait.waitedMs)})\n`;
 }
 
 interface HeavyRun {
@@ -93,7 +102,7 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
     return EXIT_USAGE;
   }
   const [file, ...rest] = parsed.command as [string, ...string[]];
-  const childEnv = { ...run.env, [HELD_VARIABLE]: '1' };
+  const lockDir = run.env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir();
   const label = (parsed.label ?? `${basename(run.cwd)}: ${parsed.command.join(' ')}`).slice(0, LABEL_MAX);
 
   // A signal while waiting ends the wait; once the command runs it is passed on to the guard, which
@@ -116,13 +125,16 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
 
   let lock: HeavyLock | undefined;
   let waited = false;
+  let childEnv: NodeJS.ProcessEnv = run.env;
   try {
-    if (run.env[HELD_VARIABLE] !== '1') {
+    if (!(await heavyHeldBy(lockDir, run.env[HELD_VARIABLE]))) {
       try {
         lock = await acquireHeavyLock({
-          dir: run.env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir(),
+          dir: lockDir,
           label,
           cwd: run.cwd,
+          command: heavyCommandKey(run.cwd, parsed.command),
+          ...(parsed.places ? { places: parsed.places } : {}),
           ...(run.env.PROJECTMAN_SESSION_ID ? { sessionId: run.env.PROJECTMAN_SESSION_ID } : {}),
           ...(parsed.maxWaitSeconds !== undefined ? { maxWaitMs: parsed.maxWaitSeconds * 1000 } : {}),
           signal: abort.signal,
@@ -132,8 +144,21 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
           },
         });
         if (waited) run.stderr(`heavy: started after ${formatDuration(lock.waitedMs)}\n`);
+        // What the command runs under: the holder's ticket, and the workers its places allow (a caller's
+        // own limit stays).
+        const workers = String(placeWorkers(lock.granted, machineHost()));
+        childEnv = {
+          ...run.env,
+          [HELD_VARIABLE]: lock.ticket,
+          VITEST_MAX_FORKS: run.env.VITEST_MAX_FORKS || workers,
+          VITEST_MAX_THREADS: run.env.VITEST_MAX_THREADS || workers,
+        };
       } catch (err) {
         if (received) return signalStatus(received);
+        if (err instanceof HeavyLockError && err.code === 'heavy_lock_duplicate') {
+          run.stderr(`heavy: ${err.message}\n`);
+          return EXIT_ALREADY_RUNNING;
+        }
         if (err instanceof HeavyLockError && err.code === 'heavy_lock_timeout') {
           run.stderr(`heavy: ${err.message}\n`);
           return EXIT_QUEUE_TIMEOUT;
@@ -141,12 +166,7 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
         // A queue that cannot be used stops the command (owner's decision, PM-346): without it a member's
         // full test would run beside the others and overload the machine.
         if (!(err instanceof HeavyLockError)) throw err;
-        run.stderr(
-          `heavy: the machine's heavy-run queue cannot be used, so this did not run: ${label}\n` +
-            `heavy: ${err.message}\n` +
-            'heavy: running it without the queue would overload the machine; do not run it another way.\n' +
-            'heavy: note on your task that this did not run and why, and hand over; do not ask for it to run outside your sandbox: the full test runs on the server.\n',
-        );
+        run.stderr(unavailableMessage(label, err.message));
         return EXIT_QUEUE_UNAVAILABLE;
       }
     }

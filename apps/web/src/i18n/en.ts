@@ -396,6 +396,8 @@ export const en = {
       merge_fix_engine_mismatch: 'The fixing worktree must be on the card’s engine.',
       task_not_merged: 'The approved commit isn’t on the main branch yet.',
       attachment_too_large: 'An attachment can be at most 25 MB.',
+      comment_attachment_unavailable: 'A comment file is no longer available: remove it and attach it again.',
+      comment_attachment_limit: 'You can have at most 20 unsent comment files per project.',
       attachment_storage_failed: 'The attachment couldn’t be stored or read; try again later.',
       document_not_found: 'There is no such document or version.',
       document_conflict:
@@ -4655,6 +4657,7 @@ export const en = {
       approval: 'Approval',
       alert: 'Alert',
       release: 'Release',
+      mention: 'Mention',
       // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
       todo: 'To-do',
     },
@@ -4667,6 +4670,7 @@ export const en = {
       approval: 'approval',
       alert: 'alert',
       release: 'release',
+      mention: 'mention',
       todo: 'to-do',
     },
     options: {
@@ -5073,6 +5077,7 @@ export const en = {
       group_withdrawn: 'Every asker withdrew it',
       obligation_closed: 'The step was finished or dropped in the meantime',
       signal_resolved: 'The alert closed by itself',
+      mention_replied: 'You replied to the mention',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count|# automatic decision|# automatic decisions}',

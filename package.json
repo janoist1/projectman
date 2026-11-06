@@ -15,10 +15,10 @@
   "scripts": {
     "projectman": "node scripts/projectman/bin.mjs",
     "demo": "node scripts/demo.mjs",
-    "shots": "node --import tsx scripts/heavy/cli.ts node scripts/shots.mjs",
+    "shots": "node --import tsx scripts/heavy/cli.ts --places 3 node scripts/shots.mjs",
     "heavy": "node --import tsx scripts/heavy/cli.ts",
-    "merge-test": "node --import tsx scripts/merge-test/cli.ts",
-    "handover-check": "node --import tsx scripts/merge-test/handover-cli.ts",
+    "merge-test": "node --import tsx scripts/heavy/cli.ts --places all --label merge-test node --import tsx scripts/merge-test/cli.ts",
+    "handover-check": "node --import tsx scripts/heavy/cli.ts --places 2-4 --label handover-check node --import tsx scripts/merge-test/handover-cli.ts",
     "dead-code": "node --import tsx scripts/merge-test/dead-code-cli.ts",
     "knip": "knip --config knip.json --no-progress --no-config-hints --reporter json --no-exit-code",
     "dead-code:update": "node --import tsx scripts/merge-test/dead-code-cli.ts --update-baseline",
@@ -36,7 +36,7 @@
     "live": "node --import tsx scripts/live/cli.ts",
     "cloud": "node --import tsx scripts/cloud/cli.ts",
     "start": "npm run start -w @projectman/server",
-    "typecheck": "node --import tsx scripts/heavy/cli.ts npm run typecheck --workspaces --if-present",
+    "typecheck": "node --import tsx scripts/heavy/cli.ts --places 2 npm run typecheck --workspaces --if-present",
     "test": "node --import tsx scripts/heavy/cli.ts npm run test --workspaces --if-present",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

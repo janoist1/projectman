@@ -555,6 +555,9 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           return [];
         }
       },
+      async endSessionRuns(sessionId) {
+        return await call('host.end_session_runs', { sessionId });
+      },
       processExists(pid) {
         const mirror = hub.mirror(id);
         // Without a link nothing can be said, and a process that may still run counts as running.

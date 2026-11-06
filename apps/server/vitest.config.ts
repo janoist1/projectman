@@ -1,9 +1,8 @@
-import os from 'node:os';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from '@lydell/node-pty';
-import { defaultTestWorkers } from '@projectman/shared';
 import { configDefaults, defineConfig } from 'vitest/config';
+import { machinePlaces } from '../../scripts/heavy/vitest-places.mjs';
 import { PARENT_GUARD_SETUP } from '../../scripts/lib/vitest-parent-guard.mjs';
 import { PTY_TESTS, pooledTests } from './test/isolation';
 
@@ -51,16 +50,12 @@ const root = dirname(fileURLToPath(import.meta.url));
 const rootExclude = [...configDefaults.exclude, ...(skip ? PTY_TESTS : [])];
 // The files that share one module graph per worker (`test/isolation.ts`); everything else is isolated.
 const pooled = pooledTests(root);
-const workers = defaultTestWorkers({ cpus: os.availableParallelism(), memoryBytes: os.totalmem() });
-// VITEST_MAX_FORKS used to cap every worker, and the `pooled` project's are threads: it caps those
-// too, VITEST_MAX_THREADS (which vitest also applies itself) first.
-const cap = (name: string) => {
-  const value = Number.parseInt(process.env[name] ?? '', 10);
-  return Number.isInteger(value) && value > 0 ? value : undefined;
-};
-const threadsMax = cap('VITEST_MAX_THREADS') ?? cap('VITEST_MAX_FORKS') ?? workers;
 
 export default defineConfig({
+  // The run takes its places, and so its workers, from the machine's pool (PM-1278): the plugin sets
+  // `maxWorkers`, `minWorkers` and the pools' worker counts (VITEST_MAX_FORKS/THREADS, which the
+  // holder sets, first). The `pooled` project's workers are threads and the `isolated` project's forks.
+  plugins: [machinePlaces()],
   test: {
     // Two projects (PM-865). `isolated` is the plain vitest behaviour: a fresh module graph per file.
     // `pooled` runs the files `pooledTests` picks without isolation: the modules, the process and
@@ -96,18 +91,12 @@ export default defineConfig({
     // the test, 1-2.5 s alone.
     testTimeout: 20_000,
     hookTimeout: 20_000,
-    // A worker is about 150 MB and the default is every core: three runs at once took the load to 80
-    // (PM-332). VITEST_MAX_FORKS/THREADS, which the server's full test sets, still win over this.
-    maxWorkers: workers,
-    minWorkers: 1,
     // The pool, not the project, decides whether a worker is recycled after each file (a project's
     // own `isolate` only resets its modules), so the `threads` pool (the `pooled` project's) is set to
     // share its workers here, while the `forks` pool (the `isolated` project's) keeps its default: a
-    // new process for each file. The threads' minimum is their maximum: with fewer, tinypool ends an
-    // idle worker thread before it has finished a file when `isolate` is off, and the run dies with
-    // "Terminating worker thread".
+    // new process for each file.
     poolOptions: {
-      threads: { isolate: false, maxThreads: threadsMax, minThreads: threadsMax },
+      threads: { isolate: false },
     },
   },
 });

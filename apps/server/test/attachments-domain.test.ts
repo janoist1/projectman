@@ -100,9 +100,11 @@ describe('attachments service', () => {
     opts: {
       actor?: Parameters<DomainHarness['domain']['attachments']['upload']>[0]['actor'];
       taskKey?: string;
+      forComment?: true;
     } = {},
   ): Promise<Attachment> =>
     h.domain.attachments.upload({
+      ...(opts.forComment ? { forComment: opts.forComment } : {}),
       projectKey: 'AR',
       taskKey: opts.taskKey ?? 'AR-1',
       actor: opts.actor ?? OWNER_ACTOR,
@@ -143,6 +145,196 @@ describe('attachments service', () => {
     );
 
   describe('uploading', () => {
+    it('keeps unsent comment files out of lists, covers, events and browser changes', async () => {
+      const h = await harness();
+      const events = record(h);
+      const file = await put(h, pngBytes(), { forComment: true });
+      expect(file.comment).toEqual({ eventId: null });
+      expect(await h.domain.attachments.list('AR', 'AR-1', OWNER_ACTOR)).toEqual([]);
+      expect(h.domain.tasks.get('AR', 'AR-1').coverAttachmentId).toBeUndefined();
+      expect(h.repos.attachments.readyImagesOf(['AR-1']).size).toBe(0);
+      expect(attachmentEvents(h)).toEqual([]);
+      expect(changes(events)).toEqual([]);
+      const own = await h.domain.attachments.open('AR', 'AR-1', file.id, OWNER_ACTOR);
+      own.stream.destroy();
+    });
+
+    it.each(['open', 'thumbnail', 'locate', 'delete'] as const)(
+      'hides unsent files from another actor using %s',
+      async (operation) => {
+        const h = await harness();
+        const file = await put(h, pngBytes(), { forComment: true });
+        await expect(
+          h.domain.attachments[operation]('AR', 'AR-1', file.id, aiActor('dev-1')),
+        ).rejects.toMatchObject({ code: 'not_found', status: 404 });
+      },
+    );
+
+    it('limits unsent files per actor and project, counting pending uploads', async () => {
+      const h = await harness();
+      for (let i = 0; i < 19; i++) await put(h, pngBytes(), { forComment: true });
+      h.repos.attachments.insertPending({
+        id: 'att_pendingfile1',
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        fileName: 'pending.png',
+        uploadedBy: OWNER_ACTOR,
+        createdAt: new Date().toISOString(),
+        commentUpload: true,
+      });
+      await expect(put(h, pngBytes(), { forComment: true })).rejects.toMatchObject({
+        code: 'comment_attachment_limit',
+        status: 409,
+        details: { max: 20 },
+      });
+      expect(h.repos.attachments.unsentCommentCount('AR', OWNER_ACTOR)).toBe(20);
+      await expect(put(h, pngBytes(), { forComment: true, actor: aiActor('dev-1') })).resolves.toBeDefined();
+    });
+
+    it('silently deletes an unsent file owned by its uploader', async () => {
+      const h = await harness();
+      const file = await put(h, pngBytes(), { forComment: true });
+      const events = record(h);
+      await h.domain.attachments.delete('AR', 'AR-1', file.id, OWNER_ACTOR);
+      expect(h.repos.attachments.get(file.id)).toBeNull();
+      expect(attachmentEvents(h)).toEqual([]);
+      expect(changes(events)).toEqual([]);
+    });
+
+    it('recovers interrupted deletion of an unsent file without an event', async () => {
+      const h = await harness();
+      const file = await put(h, pngBytes(), { forComment: true });
+      h.repos.attachments.markDeleting(file.id, OWNER_ACTOR, new Date().toISOString());
+      const events = record(h);
+      await h.domain.attachments.recover();
+      expect(h.repos.attachments.get(file.id)).toBeNull();
+      expect(filesOf(h)).toEqual([]);
+      expect(attachmentEvents(h)).toEqual([]);
+      expect(changes(events)).toEqual([]);
+    });
+
+    it('sweeps expired unsent files silently and keeps recent and sent files', async () => {
+      let time = new Date('2026-11-01T00:00:00Z');
+      const h = await harness({ now: () => time });
+      const stale = await put(h, pngBytes(), { forComment: true });
+      const sent = await put(h, pngBytes(), { forComment: true });
+      await h.domain.tasks.addNote('AR', 'AR-1', '', OWNER_ACTOR, null, { attachmentIds: [sent.id] });
+      time = new Date('2026-11-02T00:00:01Z');
+      const recent = await put(h, pngBytes(), { forComment: true });
+      const events = record(h);
+      expect(await h.domain.attachments.sweepUnsentComments()).toBe(1);
+      expect(h.repos.attachments.get(stale.id)).toBeNull();
+      expect(h.repos.attachments.get(sent.id)).not.toBeNull();
+      expect(h.repos.attachments.get(recent.id)).not.toBeNull();
+      expect(attachmentEvents(h)).toEqual([]);
+      expect(changes(events)).toEqual([]);
+    });
+
+    it('binds files atomically, publishes their cover and snapshots metadata in submission order', async () => {
+      const h = await harness();
+      const first = await put(h, pngBytes(), { forComment: true });
+      const second = await put(h, Buffer.from('document'), { forComment: true });
+      const events = record(h);
+      const note = await h.domain.tasks.addNote('AR', 'AR-1', '', OWNER_ACTOR, null, {
+        attachmentIds: [second.id, first.id],
+      });
+      expect(note.data.attachments).toMatchObject([{ id: second.id }, { id: first.id }]);
+      expect(await h.domain.attachments.list('AR', 'AR-1', OWNER_ACTOR)).toMatchObject([
+        { id: first.id, comment: { eventId: note.id } },
+        { id: second.id, comment: { eventId: note.id } },
+      ]);
+      expect(h.domain.tasks.get('AR', 'AR-1').coverAttachmentId).toBe(first.id);
+      expect(changes(events)).toHaveLength(1);
+      expect(events.some((e) => e.type === 'task_upserted')).toBe(true);
+      expect(attachmentEvents(h)).toEqual([]);
+      await expect(
+        h.domain.attachments.locate('AR', 'AR-1', first.id, aiActor('dev-1')),
+      ).resolves.toMatchObject({ attachment: { id: first.id } });
+    });
+
+    it.each(['other author', 'other card', 'card upload', 'already sent', 'missing'] as const)(
+      'refuses %s without writing any event or binding',
+      async (invalid) => {
+        const h = await harness();
+        await h.domain.tasks.create('AR', { title: 'Other card' }, OWNER_ACTOR);
+        const own = await put(h, pngBytes(), { forComment: true });
+        const file = await put(h, pngBytes(), {
+          ...(invalid === 'card upload' ? {} : { forComment: true as const }),
+          ...(invalid === 'other author' ? { actor: aiActor('dev-1') } : {}),
+          ...(invalid === 'other card' ? { taskKey: 'AR-2' } : {}),
+        });
+        if (invalid === 'already sent')
+          await h.domain.tasks.addNote('AR', 'AR-1', 'sent', OWNER_ACTOR, null, { attachmentIds: [file.id] });
+        if (invalid === 'missing') await h.domain.attachments.delete('AR', 'AR-1', file.id, OWNER_ACTOR);
+        const before = h.repos.timeline.list('AR');
+        await expect(
+          h.domain.tasks.addNote('AR', 'AR-1', 'refused', OWNER_ACTOR, null, {
+            attachmentIds: [own.id, file.id],
+          }),
+        ).rejects.toMatchObject({
+          code: 'comment_attachment_unavailable',
+          status: 409,
+          details: { id: file.id },
+        });
+        expect(h.repos.timeline.list('AR')).toEqual(before);
+        expect(h.repos.attachments.get(own.id)?.commentEventId).toBeNull();
+      },
+    );
+
+    it('rolls back the timeline and earlier bindings if a bind fails', async () => {
+      const h = await harness();
+      const first = await put(h, pngBytes(), { forComment: true });
+      const second = await put(h, pngBytes(), { forComment: true });
+      const bind = h.repos.attachments.bindToComment.bind(h.repos.attachments);
+      const failure = vi
+        .spyOn(h.repos.attachments, 'bindToComment')
+        .mockImplementation((id, eventId) => (id === second.id ? 0 : bind(id, eventId)));
+      const before = h.repos.timeline.list('AR');
+      const events = record(h);
+      await expect(
+        h.domain.tasks.addNote('AR', 'AR-1', 'refused', OWNER_ACTOR, null, {
+          attachmentIds: [first.id, second.id],
+        }),
+      ).rejects.toMatchObject({ code: 'comment_attachment_unavailable' });
+      failure.mockRestore();
+      expect(h.repos.timeline.list('AR')).toEqual(before);
+      expect(h.repos.attachments.get(first.id)?.commentEventId).toBeNull();
+      expect(events).toEqual([]);
+    });
+
+    it('does not bind a fresh file on a repeated client request', async () => {
+      const h = await harness();
+      const first = await put(h, pngBytes(), { forComment: true });
+      const extra = { clientRequestId: '1e3b9ced-f682-40aa-af0d-7547fb439aa1', attachmentIds: [first.id] };
+      const note = await h.domain.tasks.addNote('AR', 'AR-1', '', OWNER_ACTOR, null, extra);
+      const second = await put(h, pngBytes(), { forComment: true });
+      expect(
+        await h.domain.tasks.addNote('AR', 'AR-1', '', OWNER_ACTOR, null, {
+          ...extra,
+          attachmentIds: [second.id],
+        }),
+      ).toEqual(note);
+      expect(h.repos.attachments.get(second.id)?.commentEventId).toBeNull();
+    });
+
+    it('projects deleted files in detail and comment pages without mutating stored notes', async () => {
+      const h = await harness();
+      const file = await put(h, pngBytes(), { forComment: true });
+      const note = await h.domain.tasks.addNote('AR', 'AR-1', 'Keep this', OWNER_ACTOR, null, {
+        attachmentIds: [file.id],
+      });
+      await h.domain.attachments.delete('AR', 'AR-1', file.id, OWNER_ACTOR);
+      const projected = {
+        data: { text: 'Keep this', attachments: [expect.objectContaining({ id: file.id, gone: true })] },
+      };
+      expect(
+        h.domain.tasks.detail('AR', 'AR-1').timeline.find((event) => event.id === note.id),
+      ).toMatchObject(projected);
+      expect(h.domain.tasks.commentThreads('AR', 'AR-1', { limit: 20 }).threads[0]?.comment).toMatchObject(
+        projected,
+      );
+      expect(h.repos.timeline.get('AR', note.id)!.data.attachments).toEqual(note.data.attachments);
+    });
     it('takes exactly the maximum, however the bytes are chunked, and refuses one more', async () => {
       const h = await harness();
       const exact = await put(h, chunks(25, 1_000_000));

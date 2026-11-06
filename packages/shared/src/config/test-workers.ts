@@ -12,3 +12,24 @@ export const TARGETED_TEST_FILES_MAX = 60;
 export function defaultTestWorkers(host: { cpus: number; memoryBytes: number }): number {
   return Math.max(1, Math.min(4, Math.floor(host.cpus / 2), Math.floor(host.memoryBytes / 2 ** 32)));
 }
+
+/**
+ * The places of the machine's heavy-run pool (PM-1278): one place is one heavy node process (a vitest main
+ * process or worker, a type check, a build, a browser). The cores bound it, and so does the memory: 4 GiB
+ * stay for the system, the engine and the members' sessions, and a place takes about 2 GiB. Between 2 and
+ * 16: 8 GiB gives 2, 16 GiB gives 6 (with 6 cores), 32 GiB gives 14. Every participant on the machine
+ * calls this with the same input and gets the same capacity.
+ */
+export function machinePlaces(host: { cpus: number; memoryBytes: number }): number {
+  const byMemory = Math.floor((host.memoryBytes / 2 ** 30 - 4) / 2);
+  return Math.max(2, Math.min(16, host.cpus, byMemory));
+}
+
+/**
+ * The workers of one test run that holds `granted` places (PM-1278): the main process takes one place, the
+ * workers the rest, never more than the per-run cap of `defaultTestWorkers`. The only place a worker count
+ * is decided; the vitest configs take it from the places plugin.
+ */
+export function placeWorkers(granted: number, host: { cpus: number; memoryBytes: number }): number {
+  return Math.max(1, Math.min(defaultTestWorkers(host), Math.floor(granted) - 1));
+}

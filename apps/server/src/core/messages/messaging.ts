@@ -682,7 +682,10 @@ export class Messaging {
     );
   }
 
-  /** The members a task comment mentions get it as a message from its author. */
+  /**
+   * The AI members a task comment mentions get it as a message from its author. A mentioned person gets a
+   * `mention` item in Rád vár instead (PM-1307).
+   */
   async mentionNotice(note: DomainEventMap['task_note_added']): Promise<void> {
     const { event } = note;
     if (note.mentions.length === 0) return;
@@ -690,7 +693,9 @@ export class Messaging {
     // The comment keeps every mention; the notice goes only to those the author may write to now (PM-985).
     const config = await this.projects.config(event.projectKey);
     const refused = new Set(teamMessageRecipientRefusal(config, author, note.mentions)?.recipients);
-    const mentions = note.mentions.filter((handle) => !refused.has(handle));
+    const mentions = note.mentions.filter(
+      (handle) => !refused.has(handle) && memberOf(config, handle)?.kind === 'ai',
+    );
     if (mentions.length === 0) return;
     try {
       await this.send(

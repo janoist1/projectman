@@ -60,7 +60,7 @@ import { createDomain } from './assembly';
 import { createEventBus } from './core/base';
 import { freeBytesOf, resolveWorkRoots } from './engine-host';
 import { createHistorySemanticPort } from './history-semantic';
-import { readHeavyRunSessions } from './full-test';
+import { endHeavySessionRuns, readHeavyRunSessions, startPressureMeter } from './full-test';
 import type { Domain } from './assembly';
 import type { ScheduleTimer } from './services/schedules';
 import type { TemplateRegistry } from './core/base';
@@ -666,6 +666,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       doneTurnLimitMs: options.doneTurnLimitMs,
       freeDiskBytes: options.freeDiskBytes ?? (() => freeBytesOf(home)),
       heavyRunSessions: options.heavyLockDir ? () => readHeavyRunSessions(options.heavyLockDir!) : undefined,
+      endSessionRuns: options.heavyLockDir
+        ? (sessionId) => endHeavySessionRuns(options.heavyLockDir!, sessionId)
+        : undefined,
     });
     const mcpModule = (modules.createMcpModule ?? createMcpModule)({
       handler: domain.teamTools,
@@ -808,8 +811,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         });
       }
     });
+    // Single mode is its own engine: it measures the machine's memory pressure for the pool (PM-1314).
+    const pressureMeter =
+      options.heavyLockDir && options.engineMode !== 'cloud'
+        ? startPressureMeter({
+            dir: options.heavyLockDir,
+            onError: (err) => log.warn({ err }, 'the memory pressure cannot be measured'),
+          })
+        : undefined;
     const db = repos.db;
     app.addHook('onClose', async () => {
+      await pressureMeter?.close();
       await controlSocket?.close();
       // The team is paused over the links that are up; none waits for an engine that is not.
       remote?.stopWaiting();

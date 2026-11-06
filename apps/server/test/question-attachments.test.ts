@@ -81,6 +81,21 @@ describe('files on an ask_human question', () => {
   };
 
   describe('asking', () => {
+    it('refuses an unsent comment file without exposing its metadata or creating a question', async () => {
+      const file = await h.domain.attachments.upload({
+        projectKey: 'AR',
+        taskKey: 'AR-2',
+        actor: OWNER_ACTOR,
+        fileName: 'private-draft.png',
+        content: Readable.from([pngBytes()]),
+        forComment: true,
+      });
+      const error = await refusal(ask([file.id]));
+      expect(error.code).toBe('not_found');
+      expect(error.message).toContain('attachment_unknown');
+      expect(error.message).not.toContain(file.fileName);
+      nothingLeft();
+    });
     it('stores a snapshot of a file of the card and of its parent, in order, without repeats', async () => {
       const shot = await upload('AR-2', 'shot.png');
       const spec = await upload('AR-1', 'spec.pdf', pdfBytes());

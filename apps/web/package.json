@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node --import tsx ../../scripts/heavy/cli.ts --places 1 vite build",
     "preview": "vite preview",
     "icons": "node scripts/generate-pwa-icons.mjs",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node --import tsx ../../scripts/heavy/cli.ts --places 1 tsc -p tsconfig.json",
     "test": "vitest run --configLoader runner --passWithNoTests"
   },
   "dependencies": {

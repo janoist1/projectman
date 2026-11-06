@@ -18,7 +18,7 @@
     "shots": "node --import tsx scripts/heavy/cli.ts node scripts/shots.mjs",
     "heavy": "node --import tsx scripts/heavy/cli.ts",
     "merge-test": "node --import tsx scripts/merge-test/cli.ts",
-    "handover-check": "node --import tsx scripts/merge-test/handover-cli.ts",
+    "handover-check": "node --import tsx scripts/heavy/cli.ts --places 2-4 --label handover-check node --import tsx scripts/merge-test/handover-cli.ts",
     "dead-code": "node --import tsx scripts/merge-test/dead-code-cli.ts",
     "knip": "knip --config knip.json --no-progress --no-config-hints --reporter json --no-exit-code",
     "dead-code:update": "node --import tsx scripts/merge-test/dead-code-cli.ts --update-baseline",

@@ -1,6 +1,5 @@
-import os from 'node:os';
-import { defaultTestWorkers } from '@projectman/shared';
 import { defineConfig } from 'vitest/config';
+import { machinePlaces } from '../../scripts/heavy/vitest-places.mjs';
 import { PARENT_GUARD_SETUP } from '../../scripts/lib/vitest-parent-guard.mjs';
 
 /**
@@ -8,6 +7,8 @@ import { PARENT_GUARD_SETUP } from '../../scripts/lib/vitest-parent-guard.mjs';
  * (as in apps/web). esbuild handles JSX here.
  */
 export default defineConfig({
+  // The run takes its places, and so its workers, from the machine's pool (PM-1278).
+  plugins: [machinePlaces()],
   esbuild: { jsx: 'automatic', jsxImportSource: 'preact' },
   test: {
     environment: 'happy-dom',
@@ -15,7 +16,5 @@ export default defineConfig({
     // A worker leaves when its parent is gone (PM-869).
     setupFiles: [PARENT_GUARD_SETUP],
     restoreMocks: true,
-    maxWorkers: defaultTestWorkers({ cpus: os.availableParallelism(), memoryBytes: os.totalmem() }),
-    minWorkers: 1,
   },
 });

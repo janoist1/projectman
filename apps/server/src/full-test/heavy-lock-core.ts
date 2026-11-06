@@ -1,8 +1,15 @@
 import { Cause, Clock, Data, Effect, Exit } from 'effect';
 import type { HeavyLockEntry } from './heavy-lock';
 
-export type TurnResult =
-  { acquired: true } | { acquired: false; holder: HeavyLockEntry | null; ahead: number };
+/** What a waiter is told: the live holders (the first is `holder`), the places free now and the pool's size. */
+export interface HeavyWait {
+  holder: HeavyLockEntry | null;
+  holders: HeavyLockEntry[];
+  ahead: number;
+  free: number;
+  capacity: number;
+}
+export type TurnResult = { acquired: true } | ({ acquired: false } & HeavyWait);
 export interface LockWaitDeps {
   /** One complete filesystem round; cooperative abort never cuts it in half. May reject. */
   takeTurn: () => Promise<TurnResult>;
@@ -10,7 +17,7 @@ export interface LockWaitDeps {
   remakeQueue: () => Promise<void>;
   touchTicket: () => Promise<void>;
   removeTicket: () => Promise<void>;
-  onWait?: (wait: { holder: HeavyLockEntry | null; ahead: number; waitedMs: number }) => void;
+  onWait?: (wait: HeavyWait & { waitedMs: number }) => void;
   signal?: AbortSignal;
   /** Wall-clock time when the ticket was made. */
   queuedAt: number;
@@ -61,7 +68,8 @@ export const waitForLock = (
         if (result && (lastNotice === undefined || now - lastNotice >= deps.notifyMs)) {
           lastNotice = now;
           try {
-            deps.onWait?.({ holder: result.holder, ahead: result.ahead, waitedMs });
+            const { acquired: _acquired, ...wait } = result;
+            deps.onWait?.({ ...wait, waitedMs });
           } catch {
             /* A broken display never stops the wait. */
           }

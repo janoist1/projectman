@@ -112,11 +112,19 @@ export interface HandoverSelection {
   reached: number;
   cap: number;
   omitted: number;
-  /** The tests a selection rule chose that the cap left out. */
-  omittedRuleTests: string[];
+  /** The tests the cap left out, by how near they are to the change. */
+  omittedByProximity: Record<Proximity, string[]>;
   /** Changed files no check of this command maps to a test. */
   unmapped: string[];
 }
+
+/**
+ * How near a test is to the change, nearest first: `direct` (a changed test, or one that imports a
+ * changed file), `rule` (chosen by a `SELECTION_RULES` entry), `name` (uses a changed name without
+ * importing the file it is in), `graph` (reached through further imports).
+ */
+export const PROXIMITIES = ['direct', 'rule', 'name', 'graph'] as const;
+export type Proximity = (typeof PROXIMITIES)[number];
 
 const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({
   kind,
@@ -126,9 +134,81 @@ const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({
   reached: 0,
   cap: TARGETED_TEST_FILES_MAX,
   omitted: 0,
-  omittedRuleTests: [],
+  omittedByProximity: { direct: [], rule: [], name: [], graph: [] },
   unmapped: [],
 });
+
+const EXPORTED_NAME =
+  /^[\t ]*export\s+(?:declare\s+)?(?:default\s+)?(?:async\s+)?(?:abstract\s+)?(?:const|let|var|function\*?|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm;
+/** A compound identifier (`onLeave`, `TeamToolInput`): short or one-word names match too much. */
+const COMPOUND_NAME = /\b[A-Za-z_$][\w$]*[a-z][A-Z][\w$]*\b/g;
+/** A name the code declares as a property, a parameter or a typed variable (`onLeave: true`). */
+const DECLARED_NAME = /[\s{,(;]([A-Za-z_$][\w$]*)\s*\??:(?!:)/g;
+
+/**
+ * The names a change touched: exported names declared on, and compound identifiers used on, the lines
+ * that differ between the base and the working tree of a changed non-test code file.
+ */
+function changedSymbols(
+  changed: readonly string[],
+  before: readonly MergeTestFile[],
+  after: readonly MergeTestFile[],
+): string[] {
+  const beforeSource = new Map(before.map((file) => [file.path, file.source]));
+  const afterSource = new Map(after.map((file) => [file.path, file.source]));
+  const symbols = new Set<string>();
+  const compound = new Set<string>();
+  const texts: string[] = [];
+  for (const path of changed) {
+    if (!isCode(path) || isServerTest(path) || isTestSupport(path)) continue;
+    const was = (beforeSource.get(path) ?? '').split('\n');
+    const is = (afterSource.get(path) ?? '').split('\n');
+    const wasSet = new Set(was);
+    const isSet = new Set(is);
+    const differing = [...is.filter((line) => !wasSet.has(line)), ...was.filter((line) => !isSet.has(line))];
+    // Comments name things without using them.
+    const text = differing
+      .filter((line) => !/^\s*(?:\/\/|\/?\*)/.test(line))
+      .map((line) => line.replace(/\s\/\/.*$/, ''))
+      .join('\n');
+    texts.push(text);
+    for (const match of text.matchAll(EXPORTED_NAME)) if (match[1]!.length >= 5) symbols.add(match[1]!);
+    for (const match of text.matchAll(COMPOUND_NAME)) compound.add(match[0]);
+  }
+  // A compound name counts only when the code declares it (a property, a variable): not `localeCompare`.
+  if (compound.size)
+    for (const source of [...texts, ...after.filter((file) => isCode(file.path)).map((file) => file.source)])
+      for (const match of source.matchAll(DECLARED_NAME)) if (compound.has(match[1]!)) symbols.add(match[1]!);
+  return [...symbols];
+}
+
+/** A name used by more than this share of the candidate tests (`toEqual`, `readFileSync`) tells nothing. */
+const COMMON_NAME_SHARE = 0.25;
+
+/**
+ * The candidate tests that use a changed name, nearest first: those in a workspace the change touched,
+ * then those that use more, and rarer, changed names (a name only a few tests use says the most),
+ * then by path. A name nearly every test uses is ignored.
+ */
+function nameUsers(
+  symbols: readonly string[],
+  candidates: readonly MergeTestFile[],
+  changedWorkspaces: ReadonlySet<MergeTestWorkspace>,
+): string[] {
+  const wanted = new Set(symbols);
+  const users = new Map<string, string[]>();
+  for (const { path, source } of candidates)
+    for (const name of new Set(source.match(/[\w$]+/g) ?? []))
+      if (wanted.has(name)) users.set(name, [...(users.get(name) ?? []), path]);
+  const score = new Map<string, number>();
+  for (const paths of users.values())
+    if (paths.length <= candidates.length * COMMON_NAME_SHARE)
+      for (const path of paths) score.set(path, (score.get(path) ?? 0) + 1 / paths.length);
+  const here = (path: string) => Number(changedWorkspaces.has(workspaceOf(path)!));
+  return [...score.keys()].sort(
+    (a, b) => here(b) - here(a) || score.get(b)! - score.get(a)! || a.localeCompare(b),
+  );
+}
 
 /** The workspace whose checks cover a path: the scripts belong to the server's. */
 const checkedBy = (path: string): MergeTestWorkspace | undefined =>
@@ -193,6 +273,7 @@ export function handoverSelection(
       for (const target of targets) reverse.set(target, (reverse.get(target) ?? new Set()).add(from));
 
   const seeds = new Set<string>();
+  const changedFiles: string[] = [];
   const snapshotOwners = new Set<string>();
   const unmapped: string[] = [];
   const typecheck = new Set<MergeTestWorkspace>();
@@ -212,6 +293,7 @@ export function handoverSelection(
     if (!mapped && !reverse.has(file) && file !== STRUCTURE_MAP) unmapped.push(file);
     if (isCode(file) && workspace) typecheck.add(workspace);
     seeds.add(file);
+    changedFiles.push(file);
   }
 
   // The packages other workspaces import by name: only a value import carries a change into their tests.
@@ -267,16 +349,38 @@ export function handoverSelection(
   ];
   const reachedTests = [...distance.keys()].filter(isTest).filter((path) => mergeRuns(merge, path));
   const byDistance = (a: string, b: string) => distance.get(a)! - distance.get(b)! || a.localeCompare(b);
-  // Nearest first: the change's own tests, the rule tests, the snapshot tests, then by distance.
-  const ordered = [
-    ...new Set([
+  const bySnapshotThenDistance = (a: string, b: string) =>
+    Number(hasSnapshot(b)) - Number(hasSnapshot(a)) || byDistance(a, b);
+  // The names a test may use without importing a changed file (a setting, a method of an injected object).
+  const nameTests = nameUsers(
+    changedSymbols(changed, input.before, input.after),
+    input.after.filter((file) => isTest(file.path) && mergeRuns(merge, file.path)),
+    new Set(changed.map(checkedBy).filter((workspace) => workspace !== undefined)),
+  );
+  // The tests that import a changed file themselves; a consumer of a changed package export is not one.
+  const importers = new Set(
+    changedFiles
+      .flatMap((file) => [...(reverse.get(file) ?? [])])
+      .filter((path) => reachedTests.includes(path)),
+  );
+
+  // Nearest first. Alphabetical order only decides between tests of the same proximity.
+  const tiers: Record<Proximity, string[]> = {
+    // The change's own tests, then the tests that import a changed file themselves.
+    direct: [
       ...[...snapshotOwners, ...changed.filter(isTest)].sort(),
-      ...ruleTests,
-      ...reachedTests.filter(hasSnapshot).sort(byDistance),
-      ...reachedTests.sort(byDistance),
-    ]),
-  ];
+      ...[...importers].sort(bySnapshotThenDistance),
+    ],
+    rule: ruleTests,
+    name: nameTests,
+    graph: reachedTests.sort(bySnapshotThenDistance),
+  };
+  const proximityOf = new Map<string, Proximity>();
+  for (const proximity of PROXIMITIES)
+    for (const path of tiers[proximity]) if (!proximityOf.has(path)) proximityOf.set(path, proximity);
+  const ordered = [...proximityOf.keys()];
   const run = ordered.slice(0, TARGETED_TEST_FILES_MAX);
+  const left = ordered.slice(TARGETED_TEST_FILES_MAX);
   return {
     kind: 'targeted',
     typecheck: MERGE_TEST_WORKSPACES.filter((workspace) => typecheck.has(workspace)),
@@ -288,7 +392,9 @@ export function handoverSelection(
     reached: ordered.length,
     cap: TARGETED_TEST_FILES_MAX,
     omitted: Math.max(0, ordered.length - TARGETED_TEST_FILES_MAX),
-    omittedRuleTests: ruleTests.filter((path) => !run.includes(path)),
+    omittedByProximity: Object.fromEntries(
+      PROXIMITIES.map((proximity) => [proximity, left.filter((path) => proximityOf.get(path) === proximity)]),
+    ) as Record<Proximity, string[]>,
     unmapped,
   };
 }

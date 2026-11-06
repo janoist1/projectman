@@ -31,6 +31,7 @@ export async function recordMergeCheck(
       runs.finish(start.id, {
         status: 'error',
         reason: null,
+        infra: null,
         durationMs: null,
         report: null,
         url: null,
@@ -43,6 +44,7 @@ export async function recordMergeCheck(
     runs.finish(start.id, {
       status: result.outcome,
       reason: result.reason ?? null,
+      infra: result.infra ?? null,
       durationMs: result.durationMs,
       report: result.report ?? null,
       url: result.externalUrl ?? null,

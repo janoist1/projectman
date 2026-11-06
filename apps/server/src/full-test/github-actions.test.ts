@@ -87,7 +87,18 @@ const job = (
   conclusion,
   startedAt: null,
   completedAt: null,
+  runnerId: id,
+  runnerName: `GitHub Actions ${id}`,
   steps,
+});
+/** A job GitHub gave no machine to: no runner, and every step still pending. */
+const unacquiredJob = (id = 13): WorkflowJobInfo => ({
+  ...job(id, 'cancelled', [
+    { name: 'checkout', status: 'pending', conclusion: null, startedAt: null, completedAt: null },
+    { name: 'merge-test', status: 'pending', conclusion: null, startedAt: null, completedAt: null },
+  ]),
+  runnerId: 0,
+  runnerName: '',
 });
 const greenJob = (id = 11) =>
   job(id, 'success', [step('checkout', 'success'), step('merge-test', 'success')]);
@@ -479,6 +490,137 @@ describe('withGithubActions', () => {
     });
     await expect(runIt(s)).resolves.toMatchObject({ outcome: 'passed' });
     expect(s.logger.warn).toHaveBeenCalled();
+  });
+
+  describe('the infrastructure cause of an error (PM-1292)', () => {
+    const unreachable = new GithubError('unreachable', 'offline');
+    const rows: [string, Partial<Setup['actions']>, Partial<Setup['branches']>, object][] = [
+      [
+        'a job got no machine, next to green shards',
+        {
+          getRun: vi.fn(async () => completed('cancelled')),
+          listJobs: vi.fn(async () => [greenJob(), unacquiredJob()]),
+        },
+        {},
+        { reason: 'github_unavailable', infra: 'runner_not_acquired' },
+      ],
+      [
+        'the test step never shows up',
+        { listJobs: vi.fn(async () => [job(11, 'success', [])]) },
+        {},
+        { reason: 'github_unavailable', infra: 'verdict_missing' },
+      ],
+      [
+        'a temporary dispatch failure outlasts the tries',
+        { dispatchWorkflow: vi.fn().mockRejectedValue(unreachable) },
+        {},
+        { reason: 'github_unavailable', infra: 'service_unreachable' },
+      ],
+      [
+        'the dispatched run never appears',
+        { findDispatchedRun: vi.fn(async () => null) },
+        {},
+        { reason: 'github_unavailable', infra: 'service_unreachable' },
+      ],
+      [
+        'GitHub cannot be reached until the time limit',
+        { getRun: vi.fn().mockRejectedValue(unreachable), findDispatchedRun: vi.fn(async () => run()) },
+        {},
+        { reason: 'github_unavailable', infra: 'service_unreachable' },
+      ],
+      [
+        'the jobs cannot be read for a temporary reason',
+        { listJobs: vi.fn().mockRejectedValue(unreachable) },
+        {},
+        { reason: 'github_unavailable', infra: 'service_unreachable' },
+      ],
+    ];
+    it.each(rows)('is marked when %s', async (_name, actionsOver, branchesOver, expected) => {
+      const s = setup(actionsOver, branchesOver);
+      const result = await runIt(s, { spec: spec({ timeoutMs: 120_000 }) });
+      expect(result).toMatchObject({ outcome: 'error', ...expected });
+    });
+
+    const unmarked: [string, Partial<Setup['actions']>, Partial<Setup['branches']>][] = [
+      [
+        'a permanent dispatch failure',
+        { dispatchWorkflow: vi.fn().mockRejectedValue(new GithubError('not_authenticated', 'log in')) },
+        {},
+      ],
+      [
+        'the run cannot be looked up for a permanent reason',
+        { findDispatchedRun: vi.fn().mockRejectedValue(new GithubError('not_found', 'gone')) },
+        {},
+      ],
+      [
+        'the jobs cannot be found',
+        { listJobs: vi.fn().mockRejectedValue(new GithubError('not_found', 'gone')) },
+        {},
+      ],
+      ['the upstream remote is another repository', {}, { upstreamRepo: vi.fn(async () => 'other/repo') }],
+      [
+        'the push is refused',
+        {},
+        { push: vi.fn(async () => ({ ok: false, reason: 'rejected', message: 'denied' }) as const) },
+      ],
+      [
+        'the run checked another commit',
+        { getRun: vi.fn(async () => completed('success', { headSha: 'd'.repeat(40) })) },
+        {},
+      ],
+      ['the run has no jobs', { listJobs: vi.fn(async () => []) }, {}],
+      [
+        'a job timed out on GitHub',
+        {
+          getRun: vi.fn(async () => completed('failure')),
+          listJobs: vi.fn(async () => [job(11, 'timed_out', [step('merge-test', 'cancelled')])]),
+        },
+        {},
+      ],
+      [
+        'a started job failed before the test step',
+        {
+          getRun: vi.fn(async () => completed('failure')),
+          listJobs: vi.fn(async () => [
+            job(11, 'failure', [
+              step('checkout', 'success'),
+              step('npm ci', 'failure'),
+              step('merge-test', 'skipped'),
+            ]),
+            greenJob(12),
+          ]),
+        },
+        {},
+      ],
+    ];
+    it.each(unmarked)('is not marked when %s', async (_name, actionsOver, branchesOver) => {
+      const s = setup(actionsOver, branchesOver);
+      const result = await runIt(s);
+      expect(result.outcome).toBe('error');
+      expect(result).not.toHaveProperty('infra');
+    });
+
+    it('is not marked when the check is stopped or a request cannot be a check', async () => {
+      const controller = new AbortController();
+      const stopped = await runIt(
+        setup({ getRun: vi.fn(async () => run()) }, {}, () => controller.abort()),
+        {
+          signal: controller.signal,
+        },
+      );
+      expect(stopped).toMatchObject({ reason: 'killed' });
+      expect(stopped).not.toHaveProperty('infra');
+      const refused = await runIt(setup(), { spec: spec({}, check({ workflow: 'other.yml' })) });
+      expect(refused).not.toHaveProperty('infra');
+    });
+
+    it('lets a real test failure win over a shard that got no machine', async () => {
+      const s = setup({
+        getRun: vi.fn(async () => completed('failure')),
+        listJobs: vi.fn(async () => [redJob(12), unacquiredJob(13)]),
+      });
+      await expect(runIt(s)).resolves.toMatchObject({ outcome: 'failed', exitCode: 1 });
+    });
   });
 
   it('refuses a request that cannot be a check before it calls anything', async () => {

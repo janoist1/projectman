@@ -400,6 +400,23 @@ describe('engine handlers', () => {
       });
     });
 
+    it('keeps the infrastructure cause of an errored run in the run and attach answers, and answers one without it (PM-1292)', async () => {
+      const errored = { ...passed, outcome: 'error' as const, reason: 'github_unavailable' as const };
+      const result = { ...errored, infra: 'runner_not_acquired' as const };
+      const marked = fullTestHarness(async () => result);
+      await expect(marked.call('full_test.run', { spec: githubSpec('infra', 'mrg_1') })).resolves.toEqual(
+        result,
+      );
+      await expect(marked.call('full_test.attach', { runId: 'infra' })).resolves.toEqual({
+        state: 'ended',
+        result,
+      });
+      const older = fullTestHarness(async () => errored);
+      const answered = await older.call('full_test.run', { spec: githubSpec('older', 'mrg_1') });
+      expect(answered).toEqual(errored);
+      expect(answered).not.toHaveProperty('infra');
+    });
+
     it('answers full_test.report with a null report for a run that measured nothing, unknown for a missing run', async () => {
       const { call } = fullTestHarness();
       await call('full_test.run', { spec: fullSpec('plain') });

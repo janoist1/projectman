@@ -1383,6 +1383,17 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   session's engine; the engine refuses with its relative file names and key names only, never values.
   **Module:** `runner`
 
+- **Codex CLI start by its real file** — `runner/cli.ts` (`resolveCommand`, `resolveCliPath`),
+  `runner/providers/codex/index.ts` and `nanogpt/index.ts` (`launch`), `runner/providers/codex/args.ts`
+  (`codexCliReadRoot`) (PM-1295). The CLI is installed as a link chain (`~/.local/bin/codex` →
+  `~/.codex/packages/standalone/current/…` → `releases/<version>`), and the session's sandbox denies the home.
+  Codex's fs sandbox helper starts the CLI again under `sandbox-exec` by the path it was started by, so a start
+  by the PATH name made it fail on the link in the denied `~/.local/bin` (`failed to load AGENTS.md
+instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/start failed` at the TUI
+  bootstrap). The runner now starts the CLI by the real path (`resolveCliPath`, links resolved), which the
+  profile reads through the standalone root. **Remote engine:** the engine resolves and starts its own CLI;
+  nothing crosses the server/engine boundary. **Module:** `runner`
+
 - **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`,
   `runner/env.ts`, `app.ts`, `start.ts`
   (PM-329). The engine runs Codex >= 0.159.1 with a dedicated 0700 home under

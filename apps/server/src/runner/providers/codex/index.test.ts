@@ -124,6 +124,12 @@ describe('Codex launch workspace check (PM-357)', () => {
     await writeFile(file, 'model = "gpt-test"');
     const launch = await adapter.launch(input);
     expect(args).toHaveBeenCalledOnce();
+    expect(launch.file).toBe('codex');
+    // The CLI starts by its real file, not by the PATH name (PM-1295): Codex's fs sandbox helper starts the
+    // path it was started by again, and a link in the denied home cannot be run there.
+    const realCli = path.join(await dirs.make(), 'codex');
+    const again = await adapter.launch({ ...input, sessionConfigDir: await dirs.make(), cliPath: realCli });
+    expect(again.file).toBe(realCli);
     expect(launch.cliArgs.join('\n')).not.toContain(`"${homedir()}"="deny"`);
     // The hooks name the private file that holds the target, never its URL (PM-156).
     const hookConfigPath = path.join(sessionConfigDir, 'hook.curl');

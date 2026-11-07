@@ -128,6 +128,9 @@ export function canSeeProjectEvent(
   if (event.type === 'documents_changed') return canReadDocuments(viewer);
   if (event.type === 'team_message' || event.type === 'team_message_updated')
     return canSeeTeamMessage(viewer, event.message);
+  // The processing of a message is the sender's to follow (PM-1290), and the owner's and the admin's.
+  if (event.type === 'message_processing_changed')
+    return canSeeAllTeamMessages(viewer) || event.from === viewer.handle;
   // The Operator's sessions and the PM's conversations with others are the owner's and the admin's to see
   // (PM-475, PM-1080).
   if (!canSeeOperatorSessions(viewer) && isRestrictedSession) {

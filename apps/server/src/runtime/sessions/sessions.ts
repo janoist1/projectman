@@ -1830,6 +1830,7 @@ export class SessionOrchestrator {
           if (updated.state === 'idle' && session.state !== 'idle') {
             void this.ctx.events.emit('session_idle', updated);
           }
+          if (updated.state !== session.state) void this.ctx.events.emit('session_state_changed', updated);
           if (updated.state === 'idle') this.turns.ended(updated.id);
           if (updated.state === 'idle') this.restartForMergeFix(updated);
           if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);

@@ -54,6 +54,7 @@ import { createInboxRepository } from './inbox';
 import { createMemberHandleRepository } from './member-handles';
 import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
+import { createMessageTurnRepository } from './message-turns';
 import { createMemberQueueRepository } from './member-queue';
 export type {
   MemberQueueSourceKey,
@@ -95,6 +96,7 @@ export { openAuxiliaryDatabase, openDatabase, migrate, schemaVersion, statementC
 export type { Db } from './database';
 export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord } from './attachments';
+export type { MessageTurn, MessageTurnEnd } from './message-turns';
 export type { DeferredStartRecord } from './deferred-starts';
 export type { StoredSuperAudit } from './super-audit';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
@@ -166,6 +168,7 @@ export function createRepositories(db: Db) {
     memberWorkspaces: createMemberWorkspaceRepository(db),
     sessionCleanups: createSessionCleanupRepository(db),
     messages: createMessageRepository(db),
+    messageTurns: createMessageTurnRepository(db),
     memberQueue: createMemberQueueRepository(db),
     inbox: createInboxRepository(db),
     memberState: createMemberStateRepository(db),

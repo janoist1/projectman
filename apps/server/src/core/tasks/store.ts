@@ -430,7 +430,7 @@ export class TaskStore {
     extra: NoteExtra = {},
   ): TimelineEvent {
     return this.ctx.unitOfWork(() => {
-      const { clientRequestId, replyTo, attachmentIds, ...imported } = extra;
+      const { clientRequestId, replyTo, attachmentIds, relayedFrom, ...imported } = extra;
       if (clientRequestId !== undefined) {
         const first = this.timeline.noteByClientRequest(task.projectKey, task.key, actor, clientRequestId);
         if (first) return first;
@@ -484,6 +484,7 @@ export class TaskStore {
           comment: place === 'comment' || parent !== undefined,
           ...(parent !== undefined ? { replyTo: parent } : {}),
           ...(clientRequestId !== undefined ? { clientRequestId } : {}),
+          ...(relayedFrom !== undefined ? { relayedFrom } : {}),
         },
       });
       if (files.length) {
@@ -557,7 +558,11 @@ export type NotePlace = 'comment' | 'process';
 export type NoteExtra = Pick<
   CreateTaskCommentRequest,
   'importedAuthor' | 'importedAt' | 'replyTo' | 'clientRequestId'
-> & { attachmentIds?: readonly string[] };
+> & {
+  attachmentIds?: readonly string[];
+  /** The session whose closing text the reply relay recorded as this comment (PM-1290). */
+  relayedFrom?: string;
+};
 
 /** The stage with this id, or 400 unknown_stage. */
 export function requireStage(config: ProjectConfig, stageId: string): Stage {

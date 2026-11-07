@@ -274,7 +274,7 @@ describe('message delivery under the TestClock', () => {
         control.typeInto = 'ok';
         yield* advance(10_000);
         expect(typeInto).toHaveBeenCalledTimes(2);
-        expect(markRecipientDelivered).toHaveBeenCalledWith('m1', 'dev');
+        expect(markRecipientDelivered).toHaveBeenCalledWith('m1', 'dev', 'ses_1');
 
         // A new message that is not taken either: the first pause is the short one again.
         control.typeInto = 'fail';
@@ -323,7 +323,7 @@ describe('message delivery under the TestClock', () => {
         expect(typeInto).not.toHaveBeenCalled();
         yield* advance(1);
         expect(typeInto).toHaveBeenCalledTimes(1);
-        expect(markRecipientDelivered).toHaveBeenCalledWith('m1', 'dev');
+        expect(markRecipientDelivered).toHaveBeenCalledWith('m1', 'dev', 'ses_1');
       }),
     );
   });
@@ -335,7 +335,7 @@ describe('message delivery under the TestClock', () => {
       Effect.gen(function* () {
         yield* delivery.deliverWithFirstInput('dev', [messageOf('m1')], Promise.resolve(true), session);
         yield* settled;
-        expect(markRecipientDelivered).toHaveBeenCalledWith('m1', 'dev');
+        expect(markRecipientDelivered).toHaveBeenCalledWith('m1', 'dev', 'ses_1');
         yield* advance(3_600_000);
         expect(typeInto).not.toHaveBeenCalled();
       }),

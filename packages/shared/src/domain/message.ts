@@ -3,6 +3,7 @@ import { Actor } from './event';
 import { MessageOrigin } from './involvement';
 import { MemberHandle } from './member';
 import { MessageAttachmentRef } from './message-attachment';
+import { MessageProcessing } from './message-processing';
 import { StageId } from './pipeline';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
@@ -113,8 +114,28 @@ export const TeamMessage = z.object({
   location: UiLocation.optional(),
   /** The places the project manager offers under the message as "go there" buttons (PM-1071). */
   places: z.array(UiPlace).max(MAX_MESSAGE_PLACES).optional(),
+  /** What became of the message for each recipient (PM-1290); only in a list response, only for the sender and the owner/admin. */
+  processing: z.array(MessageProcessing).optional(),
 });
 export type TeamMessage = z.infer<typeof TeamMessage>;
+
+/**
+ * The processing the viewer may see: the author's own and, for an owner or an admin, everyone's. A client
+ * gets no waiting reason. Nobody else sees any.
+ */
+export function visibleProcessing(
+  viewer: TaskViewer,
+  author: string,
+  items: readonly MessageProcessing[] | undefined,
+): MessageProcessing[] | undefined {
+  if (!items || (viewer.handle !== author && !canSeeAllTeamMessages(viewer))) return undefined;
+  if (viewer.access !== 'client') return [...items];
+  return items.map((item) => {
+    if (item.state !== 'waiting' || item.reason === undefined) return item;
+    const { reason: _reason, ...rest } = item;
+    return rest;
+  });
+}
 
 /** Classify at write time, using the project's configured member kinds. */
 export function messageConversationOf(message: {

@@ -162,7 +162,7 @@ import { InvitationService, OwnerInvitationService } from './core/members';
 import { MemberProfiles } from './core/members';
 import { MessageService, RelationNotices } from './core/messages';
 import { MemberQueue } from './core/member-queue';
-import { MessageDelivery, MessageRouter, SessionMessages } from './runtime/delivery';
+import { MessageDelivery, MessageProcessingReader, MessageRouter, SessionMessages } from './runtime/delivery';
 import {
   MemberQueueWorker,
   decisionLane,
@@ -837,9 +837,15 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_ended', (session) => operatorRequests.closeForSession(session.id));
   events.on('session_idle', (session) => coordinationRequests.closeForSession(session.id));
   events.on('session_ended', (session) => coordinationRequests.closeForSession(session.id));
+  // The messages typed into a turn are processed when it ends; a state change shows on the open ones (PM-1290).
+  events.on('session_idle', (session) => messages.closeTurns(session, 'idle'));
+  events.on('session_ended', (session) =>
+    messages.closeTurns(session, session.state === 'failed' ? 'failed' : 'exited'),
+  );
+  events.on('session_state_changed', (session) => messages.sessionStateChanged(session));
   const decisionCandidates = new DecisionCandidates({ ctx });
   const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
-  const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
+  const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, tasks, projects, background });
   events.on('session_idle', (session) => pmReplyRelay.finish(session));
   events.on('session_ended', (session) => pmReplyRelay.finish(session));
   providerKeys?.onChange(() => {
@@ -886,6 +892,13 @@ export function createDomain(opts: DomainOptions) {
     sessions,
     delivery,
     refinement,
+    engines,
+  });
+  const messageProcessing = new MessageProcessingReader({
+    ctx,
+    projects,
+    tasks,
+    router: messageRouter,
     engines,
   });
   const messaging = createMessaging({
@@ -2151,6 +2164,7 @@ export function createDomain(opts: DomainOptions) {
   // Labels that notify the assignee and @mentions reach members as team messages.
   events.on('task_labels_notice', (notice) => messaging.labelNotice(notice));
   events.on('task_note_added', (note) => messaging.mentionNotice(note));
+  events.on('task_note_added', (note) => messages.commentReplied(note.event));
   if (!opts.standby)
     events.on('task_note_added', (note) => {
       background.run(
@@ -2282,6 +2296,7 @@ export function createDomain(opts: DomainOptions) {
     messages,
     memberQueue,
     messaging,
+    messageProcessing,
     sessionMessages,
     messageRouter,
     sessionCloser,

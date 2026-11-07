@@ -325,9 +325,9 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
             Effect.tapError(() => Effect.sync(() => restoreHeld(session, kept))),
           );
           typedOk(session);
-          for (const id of messageIds) messages.markRecipientDelivered(id, session.member);
+          for (const id of messageIds) messages.markRecipientDelivered(id, session.member, session.id);
           asWritten.delete(claim);
-          messages.markRecipientDelivered(message.id, session.member);
+          messages.markRecipientDelivered(message.id, session.member, session.id);
         }).pipe(
           catchFailure((cause) =>
             Effect.andThen(
@@ -362,7 +362,8 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         for (const claim of batchClaims) claims.add(claim);
         const typedFirst = Effect.gen(function* () {
           if (yield* Effect.promise(() => firstInput)) {
-            for (const message of batchMessages) messages.markRecipientDelivered(message.id, handle);
+            for (const message of batchMessages)
+              messages.markRecipientDelivered(message.id, handle, session?.id);
             return;
           }
           // The input may not have been taken by a session that lives on (PM-571): type the messages again.
@@ -506,9 +507,10 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
           const remaining = (held.get(fresh.id) ?? []).slice(taken);
           if (remaining.length) held.set(fresh.id, remaining);
           else held.delete(fresh.id);
-          for (const message of batch.messages) messages.markRecipientDelivered(message.id, current.member);
+          for (const message of batch.messages)
+            messages.markRecipientDelivered(message.id, current.member, fresh.id);
           for (const notice of heldNotices.slice(0, taken))
-            if (notice.messageId) messages.markRecipientDelivered(notice.messageId, current.member);
+            if (notice.messageId) messages.markRecipientDelivered(notice.messageId, current.member, fresh.id);
           return true;
         }).pipe(
           Effect.ensuring(
@@ -560,7 +562,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         yield* typeInto(session, typed, messageIds).pipe(
           Effect.tapError(() => Effect.sync(() => restoreHeld(session, kept))),
         );
-        for (const id of messageIds) messages.markRecipientDelivered(id, session.member);
+        for (const id of messageIds) messages.markRecipientDelivered(id, session.member, session.id);
         return true;
       }).pipe(
         catchFailure((cause) =>

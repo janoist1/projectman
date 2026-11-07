@@ -216,6 +216,8 @@ export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   history_semantic_dirty: 'derived vector index queue (PM-767), not project state',
   history_semantic_sources: 'derived vector index state (PM-767), not project state',
   history_semantic_state: 'derived vector index backfill checkpoint (PM-767), not project state',
+  message_turns:
+    'the turn a message was typed into (PM-1303); a processing state read from it, announced through message_processing_changed, not a project reader view of its own',
   instance_meta: 'the journal generation itself',
   integrator_key_audit: 'key audit, not project state',
   integrator_keys: 'credentials, not project state',

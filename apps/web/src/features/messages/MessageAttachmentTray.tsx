@@ -60,13 +60,14 @@ export function MessageAttachmentTray({
             <button
               type="button"
               className={styles.remove}
-              disabled={disabled}
+              aria-disabled={disabled || undefined}
               ref={(node) => {
                 if (node) buttons.current.set(item.id, node);
                 else buttons.current.delete(item.id);
               }}
               aria-label={t('messageAttachments.remove', { fileName: item.name })}
               onClick={() => {
+                if (disabled) return;
                 const next = items[index + 1]?.id;
                 void onRemove(item.id).then((removed) => {
                   if (!removed) return;
@@ -87,7 +88,13 @@ export function MessageAttachmentTray({
         .map((item) => (
           <div key={item.id} className={errorClass} role="alert">
             {t('messageAttachments.uploadFailed', { fileName: item.name })}
-            <button type="button" disabled={disabled} onClick={() => onRetry(item.id)}>
+            <button
+              type="button"
+              aria-disabled={disabled || undefined}
+              onClick={() => {
+                if (!disabled) onRetry(item.id);
+              }}
+            >
               {t('attachments.retry')}
             </button>
           </div>

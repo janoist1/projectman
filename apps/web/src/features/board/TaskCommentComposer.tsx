@@ -318,12 +318,14 @@ export function TaskCommentComposer({
             variant="secondary"
             icon="paperclip"
             className={styles.attach}
-            disabled={sending}
+            aria-disabled={sending || undefined}
             title={t('task.comments.attachTitle')}
             aria-label={t('messageAttachments.add')}
             // A mouse press keeps the focus in the field, so the buttons do not vanish before the click lands.
             onPointerDown={(event) => event.preventDefault()}
-            onClick={() => picker.current?.click()}
+            onClick={() => {
+              if (!sending) picker.current?.click();
+            }}
           >
             <span className={styles.attachText}>{t('messageAttachments.add')}</span>
           </Button>

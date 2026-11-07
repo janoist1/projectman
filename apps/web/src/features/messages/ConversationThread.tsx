@@ -23,7 +23,7 @@ import { useToast } from '../../components/toastContext';
 import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
-import { inboxHeading, optionLabel } from '../../lib/inbox';
+import { choiceLabel, inboxHeading } from '../../lib/inbox';
 import { isOwnActor, recordActor, nameOf, namesOf, roleLabel } from '../../lib/members';
 import { useIsMobile } from '../../lib/hooks';
 import { messageText } from '../../lib/systemNotice';
@@ -489,7 +489,7 @@ function answeredText(item: InboxItem): string {
   const note = resolution.note?.trim();
   if (note) return note;
   const option = item.options.find((candidate) => candidate.id === resolution.optionId);
-  return option ? optionLabel(option) : resolution.optionId;
+  return option ? choiceLabel(item, option) : resolution.optionId;
 }
 
 function MessageBubble({

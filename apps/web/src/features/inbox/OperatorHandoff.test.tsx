@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { OperatorHandoff, SuperOperation } from '@projectman/shared';
+import type { OperatorHandoff, SuperOperation, SuperOperationQuestionPayload } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { api } from '../../api/endpoints';
 import { t } from '../../i18n/t';
@@ -123,8 +123,9 @@ it('cannot approve unseen command details and preserves literal shell syntax aft
       }),
   );
   f.show();
-  expect(screen.getByRole('button', { name: 'Yes' }).hasAttribute('disabled')).toBe(true);
-  fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+  const loadingYes = screen.getByRole('button', { name: t('inbox.superOperation.yes') });
+  expect(loadingYes.hasAttribute('disabled')).toBe(true);
+  fireEvent.click(loadingYes);
   expect(f.onResolve).not.toHaveBeenCalled();
   release({ operation: f.operation, result: null });
   const yes = await screen.findByRole('button', { name: t('ownerCommand.yes') });
@@ -145,11 +146,89 @@ it('keeps rejection available when command loading fails and retries the read', 
     .mockResolvedValue({ operation: f.operation, result: null });
   f.show();
   expect(await screen.findByText(t('ownerCommand.error'))).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Yes' }).hasAttribute('disabled')).toBe(true);
-  fireEvent.click(screen.getByRole('button', { name: 'No' }));
+  expect(screen.getByRole('button', { name: t('inbox.superOperation.yes') }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: t('inbox.superOperation.no') }));
   expect(f.onResolve).toHaveBeenCalledWith(f.entry, { optionId: 'no' });
   fireEvent.click(screen.getByRole('button', { name: t('app.retry') }));
   await screen.findByRole('button', { name: t('ownerCommand.yes') });
+});
+
+/** The owner's question about retiring a member; `summary` is absent on one made before it was carried. */
+function retireFixture(summary?: SuperOperationQuestionPayload['summary']) {
+  const project = mockProject();
+  const at = new Date().toISOString();
+  const operation: SuperOperation = {
+    id: 'sop_secret',
+    projectKey: 'AC',
+    taskKey: null,
+    handoffId: null,
+    state: 'waiting_owner',
+    requestId: '00000000-0000-4000-8000-000000000000',
+    ownerQuestionId: 'question',
+    errorCode: null,
+    createdAt: at,
+    updatedAt: at,
+    command: { kind: 'operate', operation: { op: 'member_retire', handle: 'dev-2' } },
+  };
+  project.backend.superOperations = [operation];
+  const entry = plainLanguageQuestion({
+    id: 'question',
+    source: 'claude',
+    title: 'Super operation: operate:member_retire',
+    payload: {
+      question: 'Super operation: operate:member_retire',
+      details: 'Super operation sop_secret (operate); owner-reserved: deletion',
+      superOperation: {
+        operationId: operation.id,
+        commandHash: 'hash_secret',
+        expectedConfigVersion: null,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        ...(summary ? { summary } : {}),
+      },
+    },
+    options: [
+      { id: 'yes', label: 'yes', style: 'primary' },
+      { id: 'no', label: 'no', style: 'danger' },
+    ],
+  });
+  const onResolve = vi.fn();
+  project.render(<InboxCard item={entry} members={new Map()} myHandle="owner" onResolve={onResolve} />);
+  return { project, entry, onResolve };
+}
+
+it('asks about retiring a member in a sentence with localized Yes and No', async () => {
+  const f = retireFixture({
+    kind: 'member_retire',
+    params: { handle: 'dev-2' },
+    effects: ['deletion'],
+    ownerOnly: [],
+  });
+  const heading = screen.getByRole('heading', { name: /dev-2/ });
+  expect(heading.textContent).not.toMatch(/sop_|operate:|hash_secret/);
+  expect(screen.getByText(t('inbox.superOperation.effects.deletion'), { exact: false })).toBeTruthy();
+  expect(screen.getByText(t('inbox.superOperation.requestedBy', { who: 'claude' }))).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(/sop_|hash_secret|owner-reserved/);
+  const yes = await screen.findByRole('button', { name: t('inbox.superOperation.yes') });
+  await waitFor(() => expect(yes.hasAttribute('disabled')).toBe(false));
+  fireEvent.click(yes);
+  expect(f.onResolve).toHaveBeenCalledWith(f.entry, { optionId: 'yes' });
+  fireEvent.click(screen.getByRole('button', { name: t('inbox.superOperation.no') }));
+  expect(f.onResolve).toHaveBeenLastCalledWith(f.entry, { optionId: 'no' });
+});
+
+it('shows a question made before the summary existed in a general sentence with Yes and No', async () => {
+  const f = retireFixture();
+  expect(
+    screen.getByRole('heading', {
+      name: t('inbox.superOperation.heading.generic', { project: f.project.backend.config.project.name }),
+    }),
+  ).toBeTruthy();
+  expect(screen.getByText(t('inbox.superOperation.whyNone'))).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(/sop_|operate:|hash_secret|owner-reserved/);
+  await screen.findByRole('button', { name: t('inbox.superOperation.yes') });
+  expect(screen.getByRole('button', { name: t('inbox.superOperation.no') })).toBeTruthy();
 });
 
 it('hides decision controls for a credential login', async () => {

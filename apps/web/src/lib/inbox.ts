@@ -21,6 +21,7 @@ import type {
   LabelView,
   ObligationRef,
   QuestionScreening,
+  SuperOperationQuestionPayload,
   Task,
   TaskStartWaiting,
   WorkItemRef,
@@ -117,8 +118,58 @@ export function inboxHeading(item: InboxItem): string {
       key: obligation.taskKey,
       step: tDynamic(`task.steps.kinds.obligation.${obligation.ref.kind}`, t('task.steps.kinds.other')),
     });
+  if (superOperationOf(item)) return superOperationHeading(item);
   if (item.kind === 'question') return splitQuestion(item.title).title ?? t('inbox.question.untitled');
   return item.title;
+}
+
+/** The owner's question about a super operation (PM-1327), or null for any other item. */
+function superOperationOf(item: InboxItem): SuperOperationQuestionPayload | null {
+  return item.kind === 'question' ? (questionPayloadOf(item)?.superOperation ?? null) : null;
+}
+
+/** What names the people and the project in a super operation's sentence; without it handles and the key show. */
+interface SuperOperationNames {
+  members?: MemberIndex;
+  projectName?: string;
+}
+
+/**
+ * The sentence of the owner's question about a super operation, in the UI language, built from the payload's
+ * summary. A question made before the summary existed, or of a kind this app has no sentence for, gets the
+ * general sentence. The operation id and the hash are never part of it.
+ */
+export function superOperationHeading(item: InboxItem, names: SuperOperationNames = {}): string {
+  const summary = superOperationOf(item)?.summary;
+  const name = (handle: string) => (names.members ? nameOf(handle, names.members, null) : handle);
+  const project = names.projectName ?? item.projectKey;
+  const generic = t('inbox.superOperation.heading.generic', { project });
+  if (!summary) return generic;
+  return tDynamic(`inbox.superOperation.heading.${summary.kind}`, generic, {
+    project,
+    member: name(summary.params.handle ?? ''),
+    to: joinNames((summary.params.to ?? '').split(', ').filter(Boolean).map(name)),
+    task: summary.params.taskKey ?? '',
+  });
+}
+
+/** Why the owner's yes is needed, as a sentence; says only the general reason when the payload has no summary. */
+export function superOperationWhy(item: InboxItem): string {
+  const summary = superOperationOf(item)?.summary;
+  const reasons = [
+    ...(summary?.effects.map((effect) => tDynamic(`inbox.superOperation.effects.${effect}`, '')) ?? []),
+    ...(summary?.ownerOnly.map((change) => tDynamic(`inbox.superOperation.ownerOnly.${change}`, '')) ?? []),
+  ].filter(Boolean);
+  return reasons.length > 0
+    ? t('inbox.superOperation.why', { reasons: joinNames(reasons) })
+    : t('inbox.superOperation.whyNone');
+}
+
+/** The localized Yes/No of the owner's question about a super operation; the option ids stay `yes` and `no`. */
+export function choiceLabel(item: InboxItem, option: InboxOption): string {
+  if (superOperationOf(item) && (option.id === 'yes' || option.id === 'no'))
+    return t(option.id === 'yes' ? 'inbox.superOperation.yes' : 'inbox.superOperation.no');
+  return optionLabel(option);
 }
 
 /**
@@ -750,7 +801,9 @@ export function resolutionLabel(item: InboxItem): string {
     return t(`inbox.resolutions.automatic_${optionId}`);
   if (isBuiltIn(optionId)) return t(`inbox.resolutions.${optionId}`);
   const option = item.options.find((entry) => entry.id === optionId);
-  return option ? t('inbox.resolutions.option', { label: option.label }) : t('inbox.resolutions.answer');
+  return option
+    ? t('inbox.resolutions.option', { label: choiceLabel(item, option) })
+    : t('inbox.resolutions.answer');
 }
 
 /** A taken-on card in the list of decisions (PM-461): "Továbbvitted: Átnézés" / "Kata továbbvitte: Átnézés". */

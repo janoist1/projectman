@@ -7,6 +7,7 @@ import {
   SuperDiagnosticsRequest,
   SuperOperateArgs,
   SuperOperateRequest,
+  superCommandParams,
   superOperationName,
 } from './super-operate';
 
@@ -102,5 +103,18 @@ describe('the super-mode operation contract (PM-764)', () => {
     expect(
       superOperationName({ kind: 'administration', request: { kind: 'deploy', releaseId: 'rel_1' } }),
     ).toBe('administration');
+  });
+
+  it('names only the handles and card keys a command mentions for the owner`s question (PM-1327)', () => {
+    expect(
+      superCommandParams({
+        kind: 'operate',
+        operation: { op: 'member_rename', handle: 'dev-1', to: 'dev-9' },
+      }),
+    ).toEqual({ kind: 'member_rename', params: { handle: 'dev-1', to: 'dev-9' } });
+    expect(superCommandParams({ kind: 'operate', operation: { op: 'project_resume' } })).toEqual({
+      kind: 'project_resume',
+      params: {},
+    });
   });
 });

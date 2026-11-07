@@ -119,6 +119,20 @@ export function superOperationName(command: SuperCommand): string {
 }
 
 /**
+ * What the owner's question names of a command (PM-1327): the kind (the operation of an `operate` command)
+ * and the handles and card keys the question's sentence mentions. Nothing machine-made: no id, hash or path.
+ */
+export function superCommandParams(command: SuperCommand): { kind: string; params: Record<string, string> } {
+  const target = command.kind === 'operate' ? command.operation : command;
+  const kind = command.kind === 'operate' ? command.operation.op : command.kind;
+  const params: Record<string, string> = {};
+  if ('handle' in target) params.handle = target.handle;
+  if ('to' in target) params.to = [target.to].flat().join(', ');
+  if ('taskKey' in target && target.taskKey) params.taskKey = target.taskKey;
+  return { kind, params };
+}
+
+/**
  * The argument shapes of the MCP tools that will return these answers (the output binding is a later card):
  * the same fields as the routes, in the tools' snake_case. No tool is registered by this card.
  */

@@ -1008,12 +1008,26 @@ export function visibleQuestionItem(
 export const QuestionResponsePurpose = z.enum(['information', 'owner_decision']);
 export type QuestionResponsePurpose = z.infer<typeof QuestionResponsePurpose>;
 
+/**
+ * What the owner's question about a super operation says, as data (PM-1327): the web builds the visible
+ * sentence from it in the UI language. `kind` is the operation of an `operate` command, else the command's
+ * kind; `params` hold the handles and card keys the sentence names; `effects` and `ownerOnly` are why it
+ * needs the owner's yes. Questions made before this field existed have none.
+ */
+const SuperOperationSummary = z.strictObject({
+  kind: z.string(),
+  params: z.record(z.string(), z.string()),
+  effects: z.array(z.string()),
+  ownerOnly: z.array(z.string()),
+});
+
 /** What the owner's question about a super operation carries, so the answer binds exactly one operation and version. */
 export const SuperOperationQuestionPayload = z.strictObject({
   operationId: z.string(),
   commandHash: z.string(),
   expectedConfigVersion: z.string().nullable(),
   expiresAt: z.iso.datetime(),
+  summary: SuperOperationSummary.optional(),
 });
 export type SuperOperationQuestionPayload = z.infer<typeof SuperOperationQuestionPayload>;
 

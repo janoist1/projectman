@@ -239,6 +239,28 @@ describe('super-mode operations (PM-762, PM-764)', () => {
       expect(bound.expectedConfigVersion).toBe((await h.domain.projects.load('AR')).version);
     });
 
+    it('carries the question as structured data, with no machine text in what shows (PM-1327)', async () => {
+      await boot();
+      const { operation } = await waiting();
+      const question = h.domain.inbox.get('AR', operation.ownerQuestionId!);
+      const payload = question.payload as {
+        question: string;
+        details?: string;
+        superOperation: { summary: unknown; commandHash: string };
+      };
+      expect(payload.superOperation.summary).toEqual({
+        kind: 'member_retire',
+        params: { handle: 'dev-1' },
+        effects: ['deletion'],
+        ownerOnly: [],
+      });
+      expect(question.options.map((option) => option.id)).toEqual(['yes', 'no']);
+      const visible = [question.title, payload.question, payload.details ?? ''].join(' ');
+      expect(visible).not.toContain(operation.id);
+      expect(visible).not.toContain(payload.superOperation.commandHash);
+      expect(visible).not.toMatch(/operate:|owner-reserved/);
+    });
+
     describe('a change of who holds an approval (PM-1010)', () => {
       // The test template's `code-review-ok` is set by the code review duty.
       const GIVE_DEVELOPERS_REVIEW: NewSuperCommand = {
@@ -287,7 +309,10 @@ describe('super-mode operations (PM-762, PM-764)', () => {
         expect(operation).toMatchObject({ state: 'waiting_owner' });
         expect(calls).toHaveLength(0);
         const question = h.domain.inbox.get('AR', operation.ownerQuestionId!);
-        expect((question.payload as { details: string }).details).toContain('project_manager_authority');
+        expect(
+          (question.payload as { superOperation: { summary: { ownerOnly: string[] } } }).superOperation
+            .summary.ownerOnly,
+        ).toContain('project_manager_authority');
       });
 
       it('runs a team setting that is not owner-only', async () => {

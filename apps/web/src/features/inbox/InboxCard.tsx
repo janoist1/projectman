@@ -29,6 +29,7 @@ import {
   FREE_ANSWER_OPTION_ID,
   alertText,
   askerStartNote,
+  choiceLabel,
   closedReasonOf,
   delegationNote,
   displayKindOf,
@@ -49,6 +50,8 @@ import {
   permissionTool,
   questionExtras,
   splitQuestion,
+  superOperationHeading,
+  superOperationWhy,
   obligationTodoMeta,
   todoRows,
   withConsequences,
@@ -360,9 +363,12 @@ export function InboxCard({
   const code = payloadCode(item);
   const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline, labels) : null;
   const questionTitle = grouped ? group.combinedQuestion : item.title;
+  const projectName = project?.me.projects.find((entry) => entry.key === item.projectKey)?.name;
   const heading = ownerCommand
     ? t('ownerCommand.title')
-    : (handoff?.action ?? gateMove ?? inboxHeading({ ...item, title: questionTitle }));
+    : operationPayload
+      ? superOperationHeading(item, { members, ...(projectName ? { projectName } : {}) })
+      : (handoff?.action ?? gateMove ?? inboxHeading({ ...item, title: questionTitle }));
   // An approval a merge follows says that one click is enough (PM-484).
   const thenMerge = gateMove ? gateThenMergeText(item, pipeline, members, myHandle) : null;
   // What follows the short heading of a long question.
@@ -719,6 +725,14 @@ export function InboxCard({
           retry={() => void operation.refetch()}
         />
       ) : null}
+      {operationPayload && !ownerCommand ? (
+        <>
+          <p className={styles.body}>{superOperationWhy(item)}</p>
+          <p className={styles.meta}>
+            {t('inbox.superOperation.requestedBy', { who: nameOf(item.source, members, myHandle) })}
+          </p>
+        </>
+      ) : null}
       {handoff ? <OperatorHandoff handoff={handoff} cardHref={cardHref} /> : null}
       {questionBody && !handoff && !ownerCommand ? (
         <QuestionBody text={questionBody} mobile={mobile} />
@@ -762,7 +776,7 @@ export function InboxCard({
           <p className={styles.body}>{item.body}</p>
         )
       ) : null}
-      {extras.details ? <QuestionDetails text={extras.details} /> : null}
+      {extras.details && !operationPayload ? <QuestionDetails text={extras.details} /> : null}
       <QuestionAttachments item={item} projectKey={item.projectKey} />
       {steps.length > 0 ? (
         <section className={styles.steps} aria-labelledby={`${answerId}-steps`}>
@@ -1041,7 +1055,7 @@ export function InboxCard({
                     ? t('inbox.handedOff.cannot')
                     : ownerCommand
                       ? t(option.id === 'yes' ? 'ownerCommand.yes' : 'ownerCommand.no')
-                      : optionLabel(option)}
+                      : choiceLabel(item, option)}
                 </Button>
               ))}
             </>

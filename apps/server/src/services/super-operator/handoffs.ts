@@ -17,7 +17,7 @@ import {
   questionPayloadOf,
   superCommandEffects,
   superCommandMutations,
-  superOperationName,
+  superCommandParams,
   hasConnectedOrigin,
   withApprovedBy,
 } from '@projectman/shared';
@@ -58,6 +58,9 @@ import { isAppOperation } from './app';
 
 /** How long the owner has to answer the question about a reserved effect. */
 const SUPER_OWNER_QUESTION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** The stored title of the owner's question; the web shows a sentence it builds from the payload's summary (PM-1327). */
+const OWNER_QUESTION_TITLE = 'Owner approval needed';
 
 /** The owner's two answers to the question about a super operation. */
 export const SUPER_OWNER_YES = 'yes';
@@ -116,7 +119,6 @@ interface Subject {
   projectKey: string;
   taskKey: string | null;
   command: SuperCommand;
-  reason: string;
 }
 
 /** What the authorizer of the mutations lets through while an operation runs: the effects the owner agreed to. */
@@ -292,7 +294,6 @@ export class SuperHandoffService {
       projectKey,
       taskKey,
       command: input.command,
-      reason: `Super operation: ${superOperationName(input.command)}`,
     };
     const existing = this.ctx.repos.superHandoffs.operationByRequest(projectKey, keyId, input.requestId);
     if (existing) {
@@ -713,10 +714,10 @@ export class SuperHandoffService {
       assignees,
       source: asker,
       taskKey: subject.taskKey,
-      title: subject.reason,
+      // A plain fallback for what shows only the stored title; the web builds the owner's sentence from `summary`.
+      title: OWNER_QUESTION_TITLE,
       payload: {
-        question: subject.reason,
-        details: `Super operation ${operation.id} (${subject.command.kind}); owner-reserved: ${effects.join(', ')}${ownerOnly.length ? `; owner-only: ${ownerOnly.join(', ')}` : ''}`,
+        question: OWNER_QUESTION_TITLE,
         options: [SUPER_OWNER_YES, SUPER_OWNER_NO],
         // Only the owner's own login answers it; the server forces this whatever the asker says.
         responsePurpose: 'owner_decision',
@@ -725,6 +726,11 @@ export class SuperHandoffService {
           commandHash: operation.commandHash,
           expectedConfigVersion: operation.expectedConfigVersion,
           expiresAt: operation.expiresAt!,
+          summary: {
+            ...superCommandParams(subject.command),
+            effects: [...effects],
+            ownerOnly: [...ownerOnly],
+          },
         },
       },
       options: [

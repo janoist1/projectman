@@ -26,6 +26,7 @@ function setup(options: { peerBusy?: (projectKey: string, repo: string) => boole
     ({ id, projectKey: 'PM', repo, taskKey: `PM-${id}`, landed: null, ...extra }) as MergeRecord;
   const deps: MergeQueueDeps = {
     ctx: {
+      now: () => new Date(),
       repos: { taskMerges: { list: () => rows.filter((r) => !started.includes(r.id)) } },
       logger: { warn: (...args: unknown[]) => warnings.push(args) },
     } as unknown as MergeQueueDeps['ctx'],
@@ -56,6 +57,57 @@ function setup(options: { peerBusy?: (projectKey: string, repo: string) => boole
 describe('merge queue', () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('skips a future retry and wakes it at its durable deadline after a fresh queue starts', async () => {
+    vi.useFakeTimers();
+    const t = setup();
+    t.rows.push(
+      t.row('1', 'web', {
+        retry: {
+          attempt: 2,
+          cause: 'verdict_missing',
+          runner: 'github_actions',
+          lastRunId: 'run',
+          at: new Date(Date.now() + 1000).toISOString(),
+        },
+      }),
+      t.row('2', 'web'),
+    );
+    t.pump();
+    expect(t.started).toEqual(['2']);
+    t.held.get('2')!.open();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(t.started).toEqual(['2']);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(t.started).toEqual(['2', '1']);
+    t.state.stopped = true;
+    t.held.get('1')!.open();
+    await runPromise(Scope.close(t.scope, Exit.void));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('replaces its single wake timer and cancels it with the queue scope', async () => {
+    vi.useFakeTimers();
+    const t = setup();
+    t.rows.push(
+      t.row('1', 'web', {
+        retry: {
+          attempt: 2,
+          cause: 'verdict_missing',
+          runner: 'github_actions',
+          lastRunId: 'run',
+          at: new Date(Date.now() + 1000).toISOString(),
+        },
+      }),
+    );
+    t.pump();
+    t.pump();
+    expect(vi.getTimerCount()).toBe(1);
+    t.state.stopped = true;
+    await runPromise(Scope.close(t.scope, Exit.void));
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('runs one merge per repository and the next one when it settled', async () => {
@@ -183,6 +235,7 @@ describe('merge queue', () => {
       Scope.provide(
         makeMergeQueue({
           ctx: {
+            now: () => new Date(),
             repos: { taskMerges: { list: () => t.rows.filter((r) => !t.started.includes(r.id)) } },
             logger: { warn: (...args: unknown[]) => t.warnings.push(args) },
           } as unknown as MergeQueueDeps['ctx'],

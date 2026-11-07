@@ -38,8 +38,8 @@ export function isCardComment(event: Pick<TimelineEvent, 'type' | 'data' | 'acto
 
 /**
  * Whether a timeline event belongs in the card's Process story (PM-1290): not a comment (the Comments
- * column has it) and not a person's direct message (their conversation, not the card's). The server,
- * the web and the web's test fake all use this one rule.
+ * column has it) and not a person's direct message (their conversation, not the card's). The web's
+ * Process story filters the card's timeline with this one rule.
  */
 export function isProcessTimelineEvent(event: Pick<TimelineEvent, 'type' | 'data' | 'actor'>): boolean {
   if (isCardComment(event)) return false;

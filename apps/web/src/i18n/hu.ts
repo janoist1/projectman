@@ -3097,6 +3097,8 @@ export const hu = {
             'A gépen a {base} ágban el nem mentett változás van, amit a beolvasztás felülírna. Mentsd el vagy dobd el, és próbáld újra.',
           local_checkout_remote:
             'A GitHubra felkerült, de a gépen a {base} ágat nem lehetett előreléptetni: el nem mentett változás van benne. Mentsd el vagy dobd el, és próbáld újra.',
+          check_infra:
+            'Az ellenőrzés futtatója az automatikus újrapróbálások után sem volt elérhető. Jelezd a projektmenedzsernek, és próbáld újra, ha a futtató elérhető.',
           check_error:
             'Az ellenőrzés ({check}) nem futott végig: hibával leállt, nem bukott el. Nézd meg a részleteket, és próbáld újra.',
           check_unavailable:

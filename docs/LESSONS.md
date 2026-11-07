@@ -23,6 +23,8 @@ twice. Anyone may propose a lesson; the project manager adds it.
 
 **A migration test behind the db facade was not selected.** PM-1312 added the `retry_json` column to `task_merges`. The merge test failed twice, once in a train with PM-1317 and once alone, in `apps/server/test/merge-trains-migration.test.ts`, which did not expect the new column. `handover-check` had not selected it: the test imports `migrations` through the `../src/db` facade, while the other `*-migration` tests import `src/db/migrations` directly. _Lesson:_ import-based selection misses tests that reach a hub file through a facade. A change to `db/migrations.ts` selects every `apps/server/test/*-migration.test.ts` by path rule (PM-1324), not by a new line in the hand-over list. (PM-1312, PM-1324)
 
+**A new table missing from the schema registries.** PM-1303 added the `message_turns` table. The merge test failed in `project-change-journal.test.ts` and `member-handles-columns.test.ts`, which read the migrated schema: the table had no entry in `apps/server/src/db/change-triggers.ts` (a trigger, or `UNJOURNALED_TABLES` with a reason), and its `handle` column was not classified in `member-handles.ts`. _Lesson:_ a new table or handle column also gets its entry in these two registries. The `db/migrations.ts` path rule selects both tests (PM-1325). (PM-1303, PM-1325)
+
 **Changing the web fake without its own tests.** PM-1008 changed `apps/web/src/mocks/backend.ts` and ran the UI tests that use it, but not the fake's own tests; the merge failed in `backend.test.ts`. _Lesson:_ after changing the fake backend, run the whole `src/mocks` group. (PM-1008)
 
 ## 2026-10-25: a new merge check without its local command

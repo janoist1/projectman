@@ -7,6 +7,7 @@ import { MergeTrainId } from './merge-trains';
 const diagnostic = z.strictObject({ parentTrainId: MergeTrainId, maxCards: z.number().int().min(1).max(8) });
 
 export interface MergeRecord extends Omit<TaskMergeState, 'state'> {
+  retry?: NonNullable<TaskMergeState['retry']> & { lastRunId: string; lastUrl?: string };
   projectKey: string;
   taskKey: string;
   fromStageId: string;
@@ -58,6 +59,7 @@ const columns = {
   finishedAt: 'finished_at',
   trainId: 'train_id',
   diagnostic: 'diagnostic_json',
+  retry: 'retry_json',
 } as const;
 const json = new Set([
   'check',
@@ -68,6 +70,7 @@ const json = new Set([
   'fix',
   'resolution',
   'diagnostic',
+  'retry',
 ]);
 function record(row: Record<string, unknown>): MergeRecord {
   return Object.fromEntries(
@@ -101,6 +104,16 @@ export function mergeState(row: MergeRecord): TaskMergeState | undefined {
     ...(row.mergeCommit ? { mergeCommit: row.mergeCommit } : {}),
     ...(row.check ? { check: row.check } : {}),
     ...(row.block ? { block: row.block } : {}),
+    ...(row.retry
+      ? {
+          retry: {
+            attempt: row.retry.attempt,
+            cause: row.retry.cause,
+            at: row.retry.at,
+            runner: row.retry.runner,
+          },
+        }
+      : {}),
   };
 }
 export function mergedState(row: MergeRecord): TaskMerged | undefined {
@@ -253,7 +266,9 @@ export function createTaskMergeRepository(db: Db) {
           )
           .get(row.id) as
           { state: MergeRecord['state']; queueRank: number | null; prioritizedAt: string | null } | undefined;
-        if (row.state === 'queued' && previous?.state !== 'queued') {
+        if (['merged', 'failed', 'blocked', 'cancelled'].includes(row.state))
+          row = { ...row, retry: undefined };
+        if (row.state === 'queued' && previous?.state !== 'queued' && !row.retry) {
           const rank = db
             .prepare(
               "SELECT MAX(queue_rank) AS rank FROM task_merges WHERE project_key = ? AND repo = ? AND state = 'queued'",

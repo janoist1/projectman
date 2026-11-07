@@ -73,9 +73,11 @@ export async function notifyMerge(
         ? `The full check (\`${row.failure!.command ?? 'the full test'}\`) failed on the merge result of ${row.taskKey} onto ${row.base}; the default branch did not move.\n${failureDetail}\nIf the card caused it, send the card back to its work stage with update_task (a fix round) and name the failing tests or checks; do not fix it yourself. If the developer could have run the failing check locally, name its local command in the send-back note (for example, npm run dead-code for unused files or exports). If it was missing from the developer hand-over checklist, propose adding it and send the lesson to the project manager for the project's lessons document (docs/LESSONS.md when present). If it is not the card's fault (it fails on the default branch too, a flaky test, the sandbox), retry once with merge_task; if it fails again, ask_human.`
         : row.state === 'failed'
           ? `Merge ${row.taskKey} failed (${row.failure!.reason}).\n${failureDetail}\nFor a simple mechanical conflict, call merge_task with fix_conflict: true; otherwise send the card back with update_task and explain the failure. Submit the committed fix with merge_task and resolution. For other failures, retry with merge_task when ready.`
-          : row.state === 'blocked'
-            ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}.${row.block!.reason === 'check_error' && row.block!.detail ? `\n${row.block!.detail}\n` : ''} Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
-            : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
+          : row.state === 'blocked' && row.block?.reason === 'check_infra'
+            ? `Merge ${row.taskKey} blocked (check_infra): ${row.block.message}. This is an infrastructure fault, not a card failure: do not send the card back. The system exhausted its bounded attempts, using the card engine's sandbox as fallback when available. Tell the project manager. Retry with merge_task when the runner is available again.`
+            : row.state === 'blocked'
+              ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}.${row.block!.reason === 'check_error' && row.block!.detail ? `\n${row.block!.detail}\n` : ''} Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
+              : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
   if (
     event &&
     deps.ctx.repos.messages.hasEventNote(row.projectKey, row.taskKey, {

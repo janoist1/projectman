@@ -2963,6 +2963,11 @@ migrations.push({
 });
 migrations.push({
   version: 149,
+  name: 'merge check retries',
+  sql: `ALTER TABLE task_merges ADD COLUMN retry_json TEXT;`,
+});
+migrations.push({
+  version: 150,
   name: 'message turns',
   // PM-1290/PM-1303: the turn a message was typed into, per recipient. It ties a message to the session that
   // processes it, so a later state of that session cannot rewrite an older message's feedback. `ended_at` is

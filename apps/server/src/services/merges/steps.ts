@@ -30,11 +30,19 @@ import type { MergeDeps, MergeRun } from './deps';
 import { recordMergeCheck } from './check-runs';
 import {
   GITHUB_RUNNER_NEEDS_REPO,
-  mergeCheckExecutor,
-  mergeCheckRunner,
+  chooseMergeCheckRunner,
+  engineCheckAvailable,
   prepareMergeCheck,
 } from './check-preparation';
 import { flakyCheckFiles, flakyCheckNote } from './flaky';
+import {
+  nextCheckAttempt,
+  githubRunnerOutage,
+  checkRetryNote,
+  checkInfraMessage,
+  checkFallbackNote,
+} from './check-retry';
+import type { MergeCheckRetry } from './check-retry';
 import { regenerateConflict } from './regenerate';
 import type { RegenerateResult } from './regenerate';
 import { notifyMerge } from './notify';
@@ -282,6 +290,10 @@ export class MergeSteps {
   }
   save(row: MergeRecord, patch: Partial<MergeRecord>): void {
     Object.assign(row, patch, { updatedAt: isoNow(this.deps.ctx) });
+    if (['merged', 'failed', 'blocked', 'cancelled'].includes(row.state)) {
+      row.retry = undefined;
+      row.prioritizedAt = undefined;
+    }
     this.deps.ctx.repos.taskMerges.save(row);
     const task = this.deps.tasks.find(row.projectKey, row.taskKey);
     if (task) this.deps.tasks.publish(task);
@@ -366,7 +378,7 @@ export class MergeSteps {
       return this.block(running, 'merge_error', 'the merge has no source commit');
     const commit = row.commit,
       branch = row.branch;
-    this.save(row, { state: 'running', step: 'merging', block: undefined, prioritizedAt: undefined });
+    this.save(row, { state: 'running', step: 'merging', block: undefined });
     const ref = this.ref(row);
     // Member workspaces: the approved commit reaches the repository before anything reads it, on
     // a restart or a recovery as well. A refusal blocks this attempt (the merge row says why).
@@ -524,16 +536,22 @@ export class MergeSteps {
           });
         } else {
           const { reviewTest } = repo;
-          const runner = mergeCheckRunner(reviewTest);
-          if (runner === 'github_actions' && !repo.github)
-            return this.block(running, 'check_unavailable', GITHUB_RUNNER_NEEDS_REPO);
-          const available = await mergeCheckExecutor(engine, runner);
+          const latestGithub = ctx.repos.mergeCheckRuns.latestGithub(row.projectKey, row.repo);
+          const available = await chooseMergeCheckRunner(engine, {
+            configured: reviewTest.runner ?? 'engine',
+            requested: row.retry?.runner,
+            githubOutage: githubRunnerOutage(latestGithub, ctx.now()),
+          });
           if (!available.ok)
             return this.block(running, 'check_unavailable', 'no full test executor is available');
-          const { executor } = available;
+          const { executor, runner } = available;
+          if (runner === 'github_actions' && !repo.github)
+            return this.block(running, 'check_unavailable', GITHUB_RUNNER_NEEDS_REPO);
           if (!this.continue(running)) return;
           let result;
           const runId = newId('mergecheck');
+          if (available.fallback && latestGithub && row.retry?.runner !== 'engine')
+            this.note(row, checkFallbackNote(runId, row.repo, latestGithub));
           let checkStep: 'check_waiting' | 'checking' = 'check_waiting';
           try {
             const depsFrom = await this.depsFrom(engine, config, repo, task);
@@ -598,7 +616,31 @@ export class MergeSteps {
           if (!this.continue(running)) return;
           if (result.outcome === 'error' && result.reason === 'engine_offline')
             throw new EngineLinkLostError('the merge check lost the card engine', true);
+          const next = nextCheckAttempt({
+            previous: row.retry,
+            result,
+            ranOn: runner,
+            runId,
+            url: result.externalUrl,
+            fallback:
+              result.outcome === 'error' &&
+              !!result.infra &&
+              runner === 'github_actions' &&
+              (await engineCheckAvailable(engine)),
+            now: ctx.now(),
+          });
+          if (!this.continue(running)) return;
+          if (next && row.landed === 'nowhere' && !running.pushing) {
+            if (next.kind === 'retry') return this.requeueForRetry(running, next.retry);
+            return this.block(
+              running,
+              'check_infra',
+              checkInfraMessage(next.attempts, next.cause, result.externalUrl ?? runId),
+              result.outputTail.slice(0, 8000),
+            );
+          }
           this.save(row, {
+            retry: undefined,
             check: {
               command: repo.reviewTest.command,
               runId,
@@ -680,6 +722,34 @@ export class MergeSteps {
       if (!advance.ok) return this.block(running, 'local_checkout', advance.message);
       return this.finish(row, latest);
     }
+  }
+
+  private note(row: MergeRecord, text: string): void {
+    this.deps.timeline.append({
+      projectKey: row.projectKey,
+      taskKey: row.taskKey,
+      actor: SYSTEM_ACTOR,
+      type: 'task_note',
+      data: { text, mentions: [], comment: false },
+    });
+  }
+
+  private requeueForRetry(running: MergeRun, retry: MergeCheckRetry): void {
+    const { row } = running;
+    this.deps.ctx.unitOfWork(() => {
+      this.save(row, {
+        state: 'queued',
+        step: 'queued',
+        retry,
+        mergeCommit: undefined,
+        check: undefined,
+        block: undefined,
+        failure: undefined,
+        finishedAt: undefined,
+      });
+      this.clearAlert(row);
+      this.note(row, checkRetryNote(retry));
+    });
   }
 
   /** `found`: the work was already in the default branch; that is a system event, not the starter's merge. */

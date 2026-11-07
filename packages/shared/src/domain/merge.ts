@@ -23,6 +23,7 @@ export const MergeBlockReason = z.enum([
   'pull_request',
   'local_checkout',
   'check_error',
+  'check_infra',
   'check_unavailable',
   'engine_unavailable',
   'gate_changed',
@@ -69,6 +70,14 @@ export const TaskMergeState = z.object({
   startedAt: z.string().optional(),
   mergeCommit: z.string().optional(),
   check: MergeCheck.optional(),
+  retry: z
+    .object({
+      attempt: z.number().int().min(2).max(4),
+      cause: CheckInfraCause,
+      at: z.string(),
+      runner: MergeCheckRunner,
+    })
+    .optional(),
   landed: z.enum(['nowhere', 'remote']),
   failure: MergeFailure.optional(),
   fix: z

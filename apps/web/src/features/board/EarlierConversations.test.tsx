@@ -168,6 +168,15 @@ describe('the links into the earlier conversations (PM-1290)', () => {
     await waitFor(() => expect(row('msg_04')?.hasAttribute('data-flash')).toBe(true));
   });
 
+  it('lets the reader close the block that an old link opened', async () => {
+    const project = mockProject();
+    project.render(card, '/p/AC/tasks/AC-21/steps?message=msg_04');
+    const button = await toggle(cardMessages(project, 'AC-21').length);
+    await waitFor(() => expect(row('msg_04')?.hasAttribute('data-flash')).toBe(true));
+    fireEvent.click(button);
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('keeps the linked message in the middle while the page settles, until the reader scrolls', async () => {
     const project = mockProject();
     const scrolls: unknown[] = [];

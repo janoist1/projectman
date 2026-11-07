@@ -23,9 +23,8 @@ import { t } from '../../i18n/t';
 import { layoutThread, threadItems } from '../messages/conversations';
 import type { ThreadEntry } from '../messages/conversations';
 import { READ_AFTER_MS, STICK_PX, useDocumentVisible } from '../messages/ConversationThread';
-import { receiptsOf } from '../messages/receipts';
+import { ProcessingLines } from '../messages/ProcessingLines';
 import { TaskChip } from '../messages/TaskChip';
-import { operatorSentText, operatorWaitOf } from './operatorChannel';
 import { OperatorPlaces } from './OperatorPlaces';
 import { OperatorSignalCard } from './OperatorSignalCard';
 import { OperatorSignalList } from './OperatorSignalList';
@@ -40,6 +39,8 @@ export interface FailedOperatorMessage {
   attachments?: MessageAttachmentRef[];
   /** Where the writer was when they sent it: a retry says the same, not where they are now. */
   location?: UiLocation;
+  /** The id the first attempt was sent with: a retry reuses it, so the server keeps one message (PM-1305). */
+  clientRequestId?: string;
 }
 
 type OperatorEntry =
@@ -118,17 +119,20 @@ export function OperatorThread({
   handle,
   channel,
   failed,
+  retrying = false,
   onRetry,
   onExample,
 }: {
   handle: string;
   channel: ProjectManagerCorner;
   failed: FailedOperatorMessage | null;
+  /** The failed message is being sent again. */
+  retrying?: boolean;
   onRetry: () => void;
   /** An example of the introduction was picked: it goes into the message box. */
   onExample: (text: string) => void;
 }) {
-  const { key, myHandle } = useProject();
+  const { key, myHandle, operatorScroll } = useProject();
   const isMobile = useIsMobile();
   const { members } = useProjectIndexes(key);
   const board = useBoard(key);
@@ -143,7 +147,6 @@ export function OperatorThread({
     [board.data],
   );
   const messages = useMemo(() => conversation.data?.messages ?? [], [conversation.data]);
-  const wait = operatorWaitOf(channel);
   const anchors = useMemo(() => stepAnchors(channel.requests, messages), [channel.requests, messages]);
   const signalByMessage = useMemo(() => {
     const map = new Map<string, OperatorSignal[]>();
@@ -177,15 +180,30 @@ export function OperatorThread({
   // The thread opens at its end and follows new messages while the reader is near the bottom.
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  // The panel is drawn again whenever it opens (a phone closes it with every page change): the place the reader
+  // had scrolled to is kept above it and found again once, when the messages are there (PM-1305).
+  const restored = useRef(false);
   const measureStick = useCallback(() => {
     const box = scroller.current;
-    if (box) stick.current = box.scrollHeight - box.scrollTop - box.clientHeight < STICK_PX;
-  }, []);
+    if (!box) return;
+    stick.current = box.scrollHeight - box.scrollTop - box.clientHeight < STICK_PX;
+    operatorScroll.current = { top: box.scrollTop, stick: stick.current };
+  }, [operatorScroll]);
   const ready = Boolean(conversation.data);
   useLayoutEffect(() => {
     const box = scroller.current;
-    if (box && ready && stick.current) box.scrollTop = box.scrollHeight;
-  }, [entries.length, ready, failed, channel.state, channel.requests, channel.signals]);
+    if (!box || !ready) return;
+    if (!restored.current) {
+      restored.current = true;
+      const saved = operatorScroll.current;
+      if (saved && !saved.stick) {
+        stick.current = false;
+        box.scrollTop = saved.top;
+        return;
+      }
+    }
+    if (stick.current) box.scrollTop = box.scrollHeight;
+  }, [entries.length, ready, failed, channel.state, channel.requests, channel.signals, operatorScroll]);
 
   if (conversation.isPending) {
     return (
@@ -261,10 +279,16 @@ export function OperatorThread({
               <div className={styles.meta}>
                 {message.relayed ? <span>{t('pm.relayed')}</span> : null}
                 <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
-                {mine ? (
-                  <span className={styles.sent}>{sentLine(message, handle, wait, members)}</span>
-                ) : null}
               </div>
+              {/* The panel is the talk with this member: a forwarded message's other recipients are not shown here. */}
+              {mine && message.processing?.some((item) => item.handle === handle) ? (
+                <ProcessingLines
+                  items={message.processing.filter((item) => item.handle === handle)}
+                  members={members}
+                  myHandle={myHandle}
+                  className={styles.processing}
+                />
+              ) : null}
             </div>
           </div>
         )}
@@ -383,8 +407,8 @@ export function OperatorThread({
                 <span className={styles.failedText} role="alert">
                   {t('operator.sent.failed')}
                 </span>
-                <Button size="sm" variant="ghost" onClick={onRetry}>
-                  {t('operator.sent.retry')}
+                <Button size="sm" variant="ghost" loading={retrying} onClick={onRetry}>
+                  {t(retrying ? 'operator.sent.retrying' : 'operator.sent.retry')}
                 </Button>
               </div>
             </div>
@@ -393,16 +417,4 @@ export function OperatorThread({
       ) : null}
     </div>
   );
-}
-
-/** "Elküldve", or what the message still waits for while the Operator has not taken it. */
-function sentLine(
-  message: TeamMessage,
-  handle: string,
-  wait: ReturnType<typeof operatorWaitOf>,
-  members: ReturnType<typeof useProjectIndexes>['members'],
-): string {
-  const receipt = receiptsOf(message, members).find((r) => r.handle === handle);
-  if (receipt?.deliveredAt) return t('operator.sent.plain');
-  return operatorSentText(wait ?? 'queued');
 }

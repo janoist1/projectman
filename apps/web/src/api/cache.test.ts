@@ -214,6 +214,31 @@ describe('applyServerEvent', () => {
       expect(client.getQueryState(key)!.isInvalidated).toBe(true);
   });
 
+  it('reads the status lines again when a message changes its processing, the comments only for a card (PM-1305)', () => {
+    const client = seed();
+    client.setQueryData(queryKeys.messages(KEY), { messages: [], unreadCount: 0 });
+    client.setQueryData(queryKeys.taskComments(KEY, 'AC-20'), { threads: [] });
+    client.setQueryData(queryKeys.taskComments(KEY, 'AC-21'), { threads: [] });
+    applyServerEvent(client, {
+      type: 'message_processing_changed',
+      projectKey: KEY,
+      messageId: 'msg_1',
+      taskKey: null,
+      from: 'owner',
+    });
+    expect(client.getQueryState(queryKeys.messages(KEY))!.isInvalidated).toBe(true);
+    expect(client.getQueryState(queryKeys.taskComments(KEY, 'AC-20'))!.isInvalidated).toBe(false);
+    applyServerEvent(client, {
+      type: 'message_processing_changed',
+      projectKey: KEY,
+      messageId: 'msg_2',
+      taskKey: 'AC-20',
+      from: 'owner',
+    });
+    expect(client.getQueryState(queryKeys.taskComments(KEY, 'AC-20'))!.isInvalidated).toBe(true);
+    expect(client.getQueryState(queryKeys.taskComments(KEY, 'AC-21'))!.isInvalidated).toBe(false);
+  });
+
   it('leaves the project manager corner alone for the ticks and messages of other members (PM-1109)', () => {
     const client = seed();
     const corner = queryKeys.projectManager(KEY);

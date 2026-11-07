@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { MAX_COMMENT_ATTACHMENTS, routes } from '@projectman/shared';
 import { api } from '../../api/endpoints';
 import { t } from '../../i18n/t';
@@ -27,6 +27,15 @@ export function useCommentAttachmentUploads(
   draft: ReturnType<typeof useCardCommentDraft>,
 ) {
   const place = `${projectKey}:${taskKey}:${slot}`;
+  // A stored file of the draft as a tray row; after a reload the picture is the server's thumbnail.
+  const restoredRow = (file: DraftFile) => ({
+    file: null,
+    name: file.fileName,
+    size: file.size,
+    src: file.preview === 'image' ? routes.attachmentThumbnail(projectKey, taskKey, file.id) : undefined,
+    status: 'ready' as const,
+    attachment: file,
+  });
   const uploads = useAttachmentUploads<DraftFile>({
     upload: (file, signal) =>
       api.uploadCommentAttachment(projectKey, taskKey, file, signal).then(({ attachment }) => ({
@@ -40,15 +49,7 @@ export function useCommentAttachmentUploads(
     max: MAX_COMMENT_ATTACHMENTS,
     tooManyText: t('task.comments.tooManyFiles', { max: MAX_COMMENT_ATTACHMENTS }),
     initial: () => {
-      const restored = draft.attachments.map((file) => ({
-        file: null,
-        name: file.fileName,
-        size: file.size,
-        // After a reload the picture is the server's thumbnail; any other file is its icon.
-        src: file.preview === 'image' ? routes.attachmentThumbnail(projectKey, taskKey, file.id) : undefined,
-        status: 'ready' as const,
-        attachment: file,
-      }));
+      const restored = draft.attachments.map(restoredRow);
       const waiting = parked.get(place) ?? [];
       parked.delete(place);
       return [...restored, ...waiting];
@@ -59,11 +60,24 @@ export function useCommentAttachmentUploads(
   });
   const { items } = uploads;
   const { attachments, setAttachments } = draft;
+  // The files this tray has held: a file of the draft it has never held came from outside (moved here from the
+  // project manager's panel, PM-1305) and joins the tray; one it held and dropped is on its way out of the draft.
+  const held = useRef(new Set<string>());
+  for (const item of items) if (item.attachment) held.current.add(item.attachment.id);
+  const { restore } = uploads;
   useEffect(() => {
+    const arrived = attachments.filter((file) => !held.current.has(file.id));
+    if (arrived.length) {
+      for (const file of arrived) held.current.add(file.id);
+      restore(arrived.map(restoredRow));
+      return;
+    }
     const ready = items.flatMap((item) =>
       item.status === 'ready' && item.attachment ? [item.attachment] : [],
     );
     if (!sameFiles(ready, attachments)) setAttachments(ready);
-  }, [items, attachments, setAttachments]);
+    // `restoredRow` only reads the stable keys.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, attachments, setAttachments, restore]);
   return uploads;
 }

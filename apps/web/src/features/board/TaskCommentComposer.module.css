@@ -121,3 +121,13 @@
 .options span {
   color: var(--c-ink-3);
 }
+/* The notice after a transfer: the text came from elsewhere and is read before it is posted. */
+.notice {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--c-warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
+  font-size: var(--text-sm, 13px);
+}

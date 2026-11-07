@@ -173,15 +173,18 @@ describe('Operator message attachments', () => {
     choose([file()]);
     await ready();
     const original = createMockFetch(project.backend, project.requests);
-    setFetchImplementation((path, init) =>
-      path === routes.sendTeamMessage('AC') && init?.method === 'POST'
+    const failedBodies: string[] = [];
+    setFetchImplementation((path, init) => {
+      if (path === routes.sendTeamMessage('AC') && init?.method === 'POST')
+        failedBodies.push(String(init.body));
+      return path === routes.sendTeamMessage('AC') && init?.method === 'POST'
         ? Promise.resolve(
             new Response(JSON.stringify({ error: { code: 'internal_error', message: 'Send failed' } }), {
               status: 500,
             }),
           )
-        : original(path, init),
-    );
+        : original(path, init);
+    });
     fireEvent.click(send());
     expect(await screen.findByText(t('operator.sent.failed'))).toBeTruthy();
     expect(
@@ -193,6 +196,15 @@ describe('Operator message attachments', () => {
     expect(project.backend.messages.at(-1)!.attachments![0]!.id).toBe(
       project.backend.messageAttachments[0]!.id,
     );
+    // Sent again with the id of the first attempt, so a message that did arrive is not stored twice (PM-1305).
+    const delivered = project.requests.filter(
+      (request) => request.method === 'POST' && request.path === routes.sendTeamMessage('AC'),
+    );
+    expect(failedBodies).toHaveLength(1);
+    expect(delivered).toHaveLength(1);
+    const idOf = (body: unknown) => (body as { clientRequestId?: string }).clientRequestId;
+    expect(idOf(JSON.parse(failedBodies[0]!))).toBeTruthy();
+    expect(idOf(delivered[0]!.body)).toBe(idOf(JSON.parse(failedBodies[0]!)));
     expect(
       project.requests.filter(
         (request) => request.method === 'POST' && request.path === routes.messageAttachments('AC'),

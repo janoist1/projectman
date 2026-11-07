@@ -48,14 +48,12 @@ const PAGE_ROUTES: readonly {
 /**
  * Where the writer is, as the typed marker that goes with a message (PM-1071). A path of an unknown
  * shape, or a part that does not parse, is `other` (or left out): the marker never carries free text.
- * `dismissedCard` is a card the writer took off the message: only the page is sent then.
  */
-export function uiLocationOf(pathname: string, dismissedCard: string | null = null): UiLocation {
+export function uiLocationOf(pathname: string): UiLocation {
   for (const route of CARD_ROUTES) {
     const match = matchPath({ path: route.pattern }, pathname);
     if (!match) continue;
     const taskKey = match.params.taskKey;
-    if (taskKey === dismissedCard) return { page: route.page };
     const view = CardView.safeParse(match.params['*']?.split('/')[0] || 'card');
     const parsed = UiLocation.safeParse({
       page: route.page,
@@ -78,9 +76,9 @@ export function uiLocationOf(pathname: string, dismissedCard: string | null = nu
 }
 
 /** The writer's place, as it is now. */
-export function useUiLocation(dismissedCard: string | null): UiLocation {
+export function useUiLocation(): UiLocation {
   const { pathname } = useLocation();
-  return useMemo(() => uiLocationOf(pathname, dismissedCard), [pathname, dismissedCard]);
+  return useMemo(() => uiLocationOf(pathname), [pathname]);
 }
 
 /** The address of the place, from the place the writer is at now (a card opens over the page it is on). */

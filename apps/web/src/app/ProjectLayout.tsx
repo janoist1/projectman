@@ -11,6 +11,7 @@ import type { BoardFilters } from '../features/board/boardFilters';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
 import { ProjectPauseBar } from '../features/pause/PauseBanner';
 import { OperatorPanel } from '../features/operator/OperatorPanel';
+import { OperatorUploadsProvider } from '../features/operator/operatorUploads';
 import { PauseConfirmDialog } from '../features/pause/PauseConfirmDialog';
 import { t } from '../i18n/t';
 import { useIsMobile, writeStorage } from '../lib/hooks';
@@ -59,6 +60,7 @@ export function ProjectLayout() {
   const [operatorPrefill, setOperatorPrefill] = useState<{ text: string; id: number } | null>(null);
   const operatorTrigger = useRef<HTMLElement | null>(null);
   const operatorDraft = useRef('');
+  const operatorScroll = useRef<{ top: number; stick: boolean } | null>(null);
   // The pause this viewer asked for: its details open by themselves.
   const [requestedPauseId, setRequestedPauseId] = useState<string | null>(null);
   const [themeFilter, setThemeFilter] = useState<string | null>(null);
@@ -92,6 +94,7 @@ export function ProjectLayout() {
     setOperatorPrefill(null);
     setOperatorChecklistRequest(null);
     operatorDraft.current = '';
+    operatorScroll.current = null;
   }, [projectKey]);
 
   // The work queues' way back (PM-1297): the panel opens again where the person left it.
@@ -142,6 +145,7 @@ export function ProjectLayout() {
         setOperatorChecklistRequest(null);
       },
       operatorDraft,
+      operatorScroll,
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
       setThemeFilter,
@@ -177,7 +181,7 @@ export function ProjectLayout() {
     <ProjectContext.Provider value={value}>
       {/* Above the board and the open card: a file dropped on a card goes on when the card is opened. */}
       <AttachmentUploadsProvider key={projectKey}>
-        <>
+        <OperatorUploadsProvider key={projectKey} projectKey={projectKey}>
           <div className={clsx(styles.shell, fixedBoard && styles.boardShell)}>
             <a href="#main" className={styles.skip}>
               {t('app.skipToContent')}
@@ -216,7 +220,7 @@ export function ProjectLayout() {
             onClose={() => setPauseOpen(false)}
             onRequested={setRequestedPauseId}
           />
-        </>
+        </OperatorUploadsProvider>
       </AttachmentUploadsProvider>
     </ProjectContext.Provider>
   );

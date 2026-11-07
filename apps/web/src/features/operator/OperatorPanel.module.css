@@ -205,6 +205,51 @@
   white-space: nowrap;
 }
 
+/* The chip, its hint and the move-to-card action sit in one block above the message box (PM-1305). */
+.contextBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin: 0 12px 6px;
+}
+
+.contextBlock .context {
+  align-self: stretch;
+  margin: 0;
+}
+
+.contextOpen {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+}
+
+.contextHint,
+.contextError {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.contextError {
+  color: var(--c-warn-text);
+}
+
+.writeOnCard {
+  align-self: flex-start;
+}
+
+@media (pointer: coarse), (max-width: 767px) {
+  .contextOpen {
+    min-height: 44px;
+  }
+}
+
 .composer {
   flex-shrink: 0;
   padding: 0 12px calc(12px + env(safe-area-inset-bottom));

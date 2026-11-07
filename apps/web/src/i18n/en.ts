@@ -1719,8 +1719,6 @@ export const en = {
       imported: 'Imported',
       importedTitle: 'Imported: {time}',
       visibility: 'Everyone who can read the card sees the comment.',
-      visibilityAsk:
-        'Everyone who can read the card sees the comment. To ask someone for an answer, mention @{handle}.',
       empty: 'No comments yet.',
       loadFailed: 'Could not load the comments.',
       refreshFailed: 'The refresh failed. You see the comments loaded earlier.',
@@ -1744,6 +1742,12 @@ export const en = {
       fileVisibility: 'The file is also added to the card’s attachments; everyone who sees the card sees it.',
       tooManyFiles: 'A comment can have at most {max} files.',
       readOnly: 'As a viewer you can only read the comments.',
+      tip: 'To request a response, mention someone: @{handle}.',
+      tipDismiss: 'Dismiss tip',
+      draftMoved:
+        'Your draft moved to the card. Anyone with card access can read the comment; review it before posting.',
+      draftMerged:
+        'The card already had a draft. We appended the text and attachments; review before posting.',
     },
     earlier: {
       title: 'Earlier conversations ({count})',
@@ -4391,6 +4395,51 @@ export const en = {
     },
   },
 
+  processing: {
+    label: {
+      stored: 'Waiting to be delivered',
+      held: 'Waiting',
+      starting: 'Starting…',
+      delivered: 'Delivered',
+      read: 'Read',
+      handed_off: 'Handed over to @{to}',
+      working: 'Processing',
+      waiting: 'Waiting',
+      stale: 'Stalled',
+      turn_ended: 'No reply',
+      replied: 'Replied',
+      not_sent: 'Could not deliver',
+    },
+    hold: {
+      engine: 'Waiting for the engine to connect.',
+      handoff: 'Waiting for the work to be handed over.',
+      refinement_turn: 'Waiting for the next preparation step.',
+      fix_limit: 'Waiting for a decision after the revision rounds.',
+      full_test: 'Waiting for the full check.',
+    },
+    wait: {
+      permission: 'Waiting for permission.',
+      input: 'Waiting for a reply.',
+      paused: 'Paused.',
+      quota: 'Waiting for the plan allowance.',
+      unknown: 'Waiting to continue.',
+    },
+    stale: {
+      engine_offline: 'The engine is disconnected. Last update: {time}.',
+      no_report: 'Status is not updating. Last update: {time}.',
+    },
+    detail: {
+      starting: 'The work strip above shows the start.',
+      delivered: 'For an AI member, Delivered does not mean Read.',
+      turn_ended: 'The processing turn has ended; no reply has been linked to this message yet.',
+      not_sent: 'The comment was posted, but this mention sent no notification.',
+    },
+    list: 'Processing status',
+    details: 'Status details',
+    openReply: 'Open reply',
+    replyUnavailable: 'The reply is not available.',
+  },
+
   messages: {
     new: 'New message',
     recipients: 'To',
@@ -5469,10 +5518,19 @@ export const en = {
       },
     },
     context: {
-      label: 'About: {key} {title}',
-      remove: 'Detach the card from the message',
+      label: 'Context: {key}',
+      title: '{key} {title}',
+      remove: 'Remove context',
+      hint: 'Your message stays in this conversation.',
+      open: 'Open {key}',
     },
-    /** The "go there" buttons under a project manager’s message (PM-1071). */
+    /** Moves the unsent text of the panel to the card's own comment box (PM-1305). */
+    writeOnCard: {
+      action: 'Write on the card',
+      title: 'Move the text and attachments to the card’s comment box without sending',
+      failed: 'Could not move the attachments. The text and attachments stayed here.',
+    },
+    /** The “go there” buttons under a project manager’s message (PM-1071). */
     place: {
       go: 'Go to {place}',
       here: 'You are here: {place}',
@@ -5499,12 +5557,9 @@ export const en = {
       working: 'Working on it…',
     },
     sent: {
-      plain: 'Sent',
-      quota: 'Sent · waiting for the plan',
-      paused: 'Sent · waiting for the resume',
-      queued: 'Sent · queued',
-      failed: 'It didn’t go out.',
-      retry: 'Try again',
+      failed: 'Could not send. Your text and attachments have been kept.',
+      retry: 'Resend',
+      retrying: 'Resending…',
     },
     loadFailed: 'Couldn’t load the conversation.',
     missing: {

@@ -15,7 +15,12 @@ import { codeMessage } from '../../lib/errors';
 import { useIsMobile } from '../../lib/hooks';
 import { distinctMembers } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
-import { MAIN_DRAFT, useCardCommentDraft } from './useCardCommentDraft';
+import {
+  MAIN_DRAFT,
+  useCardCommentDraft,
+  useCardDraftFocus,
+  useCardDraftNotice,
+} from './useCardCommentDraft';
 import { useCommentAttachmentUploads } from './useCommentAttachmentUploads';
 import { useFileDrop } from './useFileDrop';
 import styles from './TaskCommentComposer.module.css';
@@ -69,6 +74,8 @@ export function TaskCommentComposer({
   const uploads = useCommentAttachmentUploads(key, taskKey, slot, draft);
   const files = uploads.items;
   const text = draft.text;
+  const { notice, dismiss: dismissNotice } = useCardDraftNotice(key, taskKey);
+  const showNotice = slot === MAIN_DRAFT ? notice : null;
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null);
   const [selected, setSelected] = useState(0);
   // One line until the reader focuses it; the hint and the Send button follow, and stay while there is a draft.
@@ -105,16 +112,26 @@ export function TaskCommentComposer({
     if (autoFocus) textarea.current?.focus();
   }, [autoFocus]);
 
+  // A draft just moved here from the project manager's panel: the box takes the focus (nothing is sent).
+  const { wanted: focusWanted, done: focusDone } = useCardDraftFocus(key, taskKey);
+  useEffect(() => {
+    if (slot !== MAIN_DRAFT || !focusWanted) return;
+    textarea.current?.focus();
+    focusDone();
+  }, [slot, focusWanted, focusDone]);
+
   const edit = (value: string) => {
     // New words are a new submission.
     attempt.current = null;
     if (mutation.isError) mutation.reset();
+    dismissNotice();
     draft.setText(value);
   };
   // New or removed files are a new submission too, as new words are.
   const changed = () => {
     attempt.current = null;
     if (mutation.isError) mutation.reset();
+    dismissNotice();
   };
   const addFiles = (added: readonly File[]) => {
     if (sending || !added.length) return;
@@ -167,6 +184,7 @@ export function TaskCommentComposer({
       .then(
         () => {
           attempt.current = null;
+          dismissNotice();
           uploads.clear();
           draft.clear();
           setMention(null);
@@ -285,6 +303,11 @@ export function TaskCommentComposer({
           }
         }}
       />
+      {showNotice ? (
+        <p className={styles.notice} role="status">
+          {t(showNotice === 'merged' ? 'task.comments.draftMerged' : 'task.comments.draftMoved')}
+        </p>
+      ) : null}
       {options.length ? (
         <ul id={listId} role="listbox" aria-label={t('task.comments.members')} className={styles.options}>
           {options.map((member, index) => (

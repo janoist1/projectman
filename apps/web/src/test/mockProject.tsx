@@ -6,6 +6,7 @@ import { ProjectContext } from '../app/contexts';
 import type { ProjectContextValue } from '../app/contexts';
 import { AttachmentUploadsProvider } from '../features/board/attachmentUploads';
 import { noBoardFilters } from '../features/board/boardFilters';
+import { OperatorUploadsProvider } from '../features/operator/operatorUploads';
 import { MockBackend } from '../mocks/backend';
 import { renderUi } from './render';
 import type { RenderRoute } from './render';
@@ -89,6 +90,7 @@ export function mockProject(backend = new MockBackend()) {
     openOperator: () => {},
     closeOperator: () => {},
     operatorDraft: { current: '' },
+    operatorScroll: { current: null },
     openNewTask: () => {},
     themeFilter: null,
     setThemeFilter: () => {},
@@ -127,7 +129,7 @@ function StatefulProject({ value, children }: { value: ProjectContextValue; chil
   const [boardFilters, setBoardFilters] = useState(value.boardFilters);
   return (
     <ProjectContext.Provider value={{ ...value, themeFilter, setThemeFilter, boardFilters, setBoardFilters }}>
-      {children}
+      <OperatorUploadsProvider projectKey={value.key}>{children}</OperatorUploadsProvider>
     </ProjectContext.Provider>
   );
 }

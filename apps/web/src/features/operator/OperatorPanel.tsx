@@ -9,6 +9,7 @@ import {
   workQueueScopeOf,
 } from '@projectman/shared';
 import type { UiLocation } from '@projectman/shared';
+import { api } from '../../api/endpoints';
 import { useBoard, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -18,7 +19,8 @@ import { ErrorState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useIsMobile } from '../../lib/hooks';
 import { dragHasFiles, droppedFiles } from '../../lib/attachmentInput';
-import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
+import { transferToCardDraft } from '../board/useCardCommentDraft';
+import type { DraftFile } from '../board/useCardCommentDraft';
 import { Composer } from '../session/Composer';
 import { OperatorThread } from './OperatorThread';
 import { OperatorChecklist } from './OperatorChecklist';
@@ -28,12 +30,15 @@ import type { FailedOperatorMessage } from './OperatorThread';
 import { OperatorWaitBanner } from './OperatorWaitBanner';
 import { OperatorWeeklyView } from './OperatorWeeklyView';
 import { operatorStatusText } from './operatorChannel';
-import { useUiLocation } from './places';
+import { useOperatorUploads } from './operatorUploads';
+import { placePath, useUiLocation } from './places';
 import { useOperator } from './useOperator';
 import styles from './OperatorPanel.module.css';
 
 /** The panel's width on a desktop screen (the same as in OperatorPanel.module.css): an open card makes room for it. */
 const PANEL_WIDTH = 440;
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * The project manager's conversation (PM-429, PM-447, PM-1042): a panel that slides in from the right (a sheet from
@@ -51,7 +56,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const board = useBoard(key);
   const { channel, state, handle, member } = useOperator();
   const send = useSendTeamMessage(key);
-  const uploads = useMessageAttachmentUploads(key);
+  const uploads = useOperatorUploads();
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const panel = useRef<HTMLElement>(null);
@@ -62,9 +67,11 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const weeklyButton = useRef<HTMLButtonElement>(null);
   const [weeklyLeft, setWeeklyLeft] = useState(0);
   // The message being written outlives the subviews that replace the composer for a while, and the panel itself.
+  const [hasText, setHasText] = useState(() => operatorDraft.current.trim() !== '');
   const keepDraft = useCallback(
     (text: string) => {
       operatorDraft.current = text;
+      setHasText(text.trim() !== '');
     },
     [operatorDraft],
   );
@@ -100,16 +107,18 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const readOnly = state?.readOnly ?? false;
 
   // The open card is what the message is about, unless the writer takes it off; then only the page goes along.
+  // Only the card's key stops going along; the place the message was written at stays what it is (PM-1305).
   const [dismissedCard, setDismissedCard] = useState<string | null>(null);
-  const location = useUiLocation(dismissedCard);
-  const contextCard = location.taskKey ?? null;
+  const location = useUiLocation();
+  const openCard = location.taskKey ?? null;
+  const contextCard = openCard !== null && openCard !== dismissedCard ? openCard : null;
   const contextTitle = useMemo(
-    () => board.data?.tasks.find((task) => task.key === contextCard)?.title ?? '',
-    [board.data, contextCard],
+    () => board.data?.tasks.find((task) => task.key === openCard)?.title ?? '',
+    [board.data, openCard],
   );
 
   // An example from the introduction goes into the box to be edited and sent.
-  const [prefill, setPrefill] = useState<{ text: string; id: number } | null>(null);
+  const [prefill, setPrefill] = useState<{ text: string; id: number; quiet?: boolean } | null>(null);
   useEffect(() => {
     if (!operatorPrefill) return;
     setKnowledgeOpen(false);
@@ -123,9 +132,12 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
     taskKey: string | null,
     attachments: NonNullable<FailedOperatorMessage['attachments']> = [],
     sentFrom: UiLocation = location,
+    // A new message gets a new id; sending a failed one again keeps its id, so the server keeps one message.
+    clientRequestId: string = crypto.randomUUID(),
   ) =>
     send
       .mutateAsync({
+        clientRequestId,
         to: [handle!],
         text,
         ...(taskKey ? { taskKey } : {}),
@@ -133,12 +145,58 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
         location: sentFrom,
       })
       .then(() => setFailed(null))
-      .catch(() => setFailed({ text, taskKey, attachments, location: sentFrom }));
+      .catch(() => setFailed({ text, taskKey, attachments, location: sentFrom, clientRequestId }));
+
+  // "Írás a kártyára": the unsent text and files go to the open card's comment box, and nothing is sent. The files
+  // are uploaded again as the card's own (the panel's belong to a message), then the panel's copies are dropped.
+  const [moving, setMoving] = useState(false);
+  // Set once a draft moved to the card: the focus is the card's box's then, not the button that opened the panel.
+  const movedToCard = useRef(false);
+  const [moveFailed, setMoveFailed] = useState(false);
+  const writeOnCard = async () => {
+    if (!openCard || moving) return;
+    setMoving(true);
+    setMoveFailed(false);
+    const moved: DraftFile[] = [];
+    try {
+      for (const item of uploads.items) {
+        if (!item.file) continue;
+        // As an unsent comment file: that is the only kind a comment can be sent with.
+        const { attachment } = await api.uploadCommentAttachment(key, openCard, item.file);
+        moved.push({
+          id: attachment.id,
+          fileName: attachment.fileName,
+          size: attachment.size,
+          mediaType: attachment.mediaType,
+          preview: attachment.preview,
+        });
+      }
+    } catch {
+      await Promise.allSettled(moved.map((file) => api.deleteAttachment(key, openCard, file.id)));
+      setMoveFailed(true);
+      setMoving(false);
+      return;
+    }
+    transferToCardDraft(key, openCard, { text: operatorDraft.current, attachments: moved });
+    await Promise.allSettled(uploads.items.map((item) => uploads.remove(item.id)));
+    uploads.clear();
+    operatorDraft.current = '';
+    setHasText(false);
+    // The focus goes to the card's box, so the emptied field does not take it.
+    setPrefill((previous) => ({ text: '', id: (previous?.id ?? 0) + 1, quiet: true }));
+    setMoving(false);
+    movedToCard.current = isMobile;
+    // The panel stays beside a desktop page; on a phone the sheet covers the card, so it closes (the draft stays).
+    void navigate(placePath(key, { page: 'card', taskKey: openCard, view: 'thread' }, location));
+    if (isMobile) closeOperator();
+  };
 
   // The focus goes into the panel on open and back to the button on close.
   useEffect(() => {
     const target = returnFocusTo.current;
-    return () => target?.focus();
+    return () => {
+      if (!movedToCard.current) target?.focus();
+    };
   }, [returnFocusTo]);
 
   // Beside the panel an open card moves left and under the top bar, so the two do not overlap.
@@ -164,6 +222,23 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
       event.stopPropagation();
       closeOperator();
     }
+    // On a phone the sheet covers the page and is modal: Tab goes round inside it, never to the card beneath.
+    if (event.key === 'Tab' && isMobile && panel.current) {
+      const focusable = [...panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (element) => element.offsetParent !== null || element === document.activeElement,
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !panel.current.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !panel.current.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
   };
 
   const name = state?.member?.displayName ?? t('operator.name');
@@ -176,7 +251,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
       id="operator-panel"
       className={styles.panel}
       role="dialog"
-      aria-modal="false"
+      aria-modal={isMobile}
       aria-labelledby={titleId}
       onKeyDown={onKeyDown}
       onDragEnter={(event) => {
@@ -359,27 +434,64 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             handle={handle}
             channel={state}
             failed={failed}
+            retrying={send.isPending}
             onRetry={() =>
               failed &&
               !send.isPending &&
-              void post(failed.text, failed.taskKey, failed.attachments, failed.location)
+              void post(
+                failed.text,
+                failed.taskKey,
+                failed.attachments,
+                failed.location,
+                failed.clientRequestId,
+              )
             }
             onExample={(text) => setPrefill({ text, id: (prefill?.id ?? 0) + 1 })}
           />
           <OperatorWaitBanner channel={state} />
-          {contextCard ? (
-            <div className={styles.context}>
-              <span className={styles.contextText}>
-                {t('operator.context.label', { key: contextCard, title: contextTitle }).trim()}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                iconOnly
-                icon="close"
-                aria-label={t('operator.context.remove')}
-                onClick={() => setDismissedCard(contextCard)}
-              />
+          {openCard ? (
+            <div className={styles.contextBlock}>
+              {contextCard ? (
+                <>
+                  <div className={styles.context}>
+                    <span
+                      className={styles.contextText}
+                      title={t('operator.context.title', { key: contextCard, title: contextTitle }).trim()}
+                    >
+                      {t('operator.context.label', { key: contextCard })}
+                    </span>
+                    <Link className={styles.contextOpen} to={`/p/${key}/tasks/${contextCard}`}>
+                      {t('operator.context.open', { key: contextCard })}
+                    </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      icon="close"
+                      aria-label={t('operator.context.remove')}
+                      onClick={() => setDismissedCard(contextCard)}
+                    />
+                  </div>
+                </>
+              ) : null}
+              <p className={styles.contextHint}>{t('operator.context.hint')}</p>
+              {hasText || uploads.items.length > 0 ? (
+                <Button
+                  className={styles.writeOnCard}
+                  variant="secondary"
+                  size="sm"
+                  loading={moving}
+                  title={t('operator.writeOnCard.title')}
+                  onClick={() => void writeOnCard()}
+                >
+                  {t('operator.writeOnCard.action')}
+                </Button>
+              ) : null}
+              {moveFailed ? (
+                <p className={styles.contextError} role="alert">
+                  {t('operator.writeOnCard.failed')}
+                </p>
+              ) : null}
             </div>
           ) : null}
           <div className={styles.composer}>

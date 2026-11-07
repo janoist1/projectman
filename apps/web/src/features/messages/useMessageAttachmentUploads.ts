@@ -210,6 +210,9 @@ export function useAttachmentUploads<A extends { id: string }>(options: Attachme
     add,
     remove,
     clear,
+    /** Files that are already stored (a draft changed from outside, e.g. moved here from another box) join the tray. */
+    restore: (entries: Omit<AttachmentUpload<A>, 'id'>[]) =>
+      update([...current.current, ...entries.map((entry) => ({ ...entry, id: nextId.current++ }))]),
     retry: (id: number) => {
       const item = current.current.find((entry) => entry.id === id);
       if (!item || item.status !== 'failed') return;

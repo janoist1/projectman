@@ -138,6 +138,7 @@ export type AlertRouteClass =
 
 export const ALERT_ROUTE_CLASS: Record<AlertKind, AlertRouteClass | 'retired'> = {
   disk_low: 'integrator_queue',
+  machine_busy: 'integrator_queue',
   worktree_kept: 'integrator_queue',
   session_input: 'integrator_queue',
   work_outage: 'pm',

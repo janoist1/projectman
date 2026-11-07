@@ -58,6 +58,7 @@ import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { PushNudge } from '../notifications/PushNudge';
 import { DrawerBaseContext } from '../board/drawerBase';
+import { hasCommentDraft } from '../board/useCardCommentDraft';
 import type { DrawerBase } from '../board/drawerBase';
 import { moveErrorText } from '../board/moveTask';
 import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
@@ -287,10 +288,26 @@ export function InboxPage() {
   // `closed`: it closed by itself; `refused`: the viewer's own answer was refused because it had closed.
   const [lingering, setLingering] = useState<ReadonlyMap<string, 'closed' | 'refused'>>(new Map());
   const shownOpen = useRef<Set<string>>(new Set());
+  // The mentions the viewer closed or answered here: they leave at once, with no notice for their draft.
+  const closedHere = useRef<Set<string>>(new Set());
+  // The mentions whose reply is on its way: the server closes them by the reply, and this is no one else's close.
+  const replying = useRef<Set<string>>(new Set());
   useEffect(() => {
+    // A mention closed elsewhere (another window, or the server's rule on a reply) keeps its place only while
+    // the viewer has a draft in it (PM-1276); with no draft it just leaves.
+    const goneMention = (item: InboxItem) =>
+      item.kind === 'mention' &&
+      item.state !== 'open' &&
+      item.taskKey !== null &&
+      !closedHere.current.has(item.id) &&
+      !replying.current.has(item.id) &&
+      hasCommentDraft(item.projectKey, item.taskKey, item.id);
     const gone = (items ?? []).filter(
       (item) =>
-        item.kind === 'question' && shownOpen.current.has(item.id) && closedBySomeoneElse(item, myHandle),
+        shownOpen.current.has(item.id) &&
+        (item.kind === 'mention'
+          ? goneMention(item)
+          : item.kind === 'question' && closedBySomeoneElse(item, myHandle)),
     );
     if (gone.length > 0)
       setLingering((current) => {
@@ -308,9 +325,19 @@ export function InboxPage() {
         .map((item) => item.id),
     );
   }, [items, mine, myHandle, isOwner]);
-  const dismissGone = (id: string) => {
-    // The focus goes on to the title of the next card (the previous one when it was the last), so it does not
-    // fall to the page. A notice that goes away on its own, with the focus elsewhere, leaves the focus alone.
+  // The list is empty after the last card went: the focus then goes to the empty state's title.
+  const focusEmptyTitle = useRef(false);
+  const focusEmpty = () => {
+    if (!focusEmptyTitle.current) return;
+    const title = document.querySelector<HTMLElement>('[data-empty-title]');
+    if (!title) return;
+    focusEmptyTitle.current = false;
+    title.focus();
+  };
+  // The cards next to a card, read while it is still in the page: the server's answer can take the card out of the
+  // list before the code that moves the focus runs.
+  const neighbourCards = useRef(new Map<string, string | undefined>());
+  const rememberNeighbours = (id: string) => {
     const notice = document.getElementById(inboxItemDomId(id));
     const titles = Array.from(document.querySelectorAll<HTMLElement>('[data-inbox-title]')).filter(
       (title) => !notice?.contains(title),
@@ -321,22 +348,61 @@ export function InboxPage() {
     const previous = titles.findLast(
       (title) => notice && notice.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_PRECEDING,
     );
+    // The cards may be built again when the groups go (the heading element is a new one): keep its card's id.
+    neighbourCards.current.set(id, (next ?? previous)?.closest('article')?.id);
+  };
+  const movedOn = (id: string) => {
+    // The focus goes on to the title of the next card (the previous one when it was the last), so it does not
+    // fall to the page. A notice that goes away on its own, with the focus elsewhere, leaves the focus alone.
+    const notice = document.getElementById(inboxItemDomId(id));
+    if (notice) rememberNeighbours(id);
+    const targetId = neighbourCards.current.get(id);
+    neighbourCards.current.delete(id);
     const hadFocus =
       !document.activeElement ||
       document.activeElement === document.body ||
       notice?.contains(document.activeElement);
+    if (hadFocus && targetId)
+      window.requestAnimationFrame(() =>
+        document.getElementById(targetId)?.querySelector<HTMLElement>('[data-inbox-title]')?.focus(),
+      );
+    else if (hadFocus) {
+      // The list may be empty already (the refresh came before the answer's callback), and then no later render
+      // looks at the flag: try now, and leave the flag for the render that empties it.
+      focusEmptyTitle.current = true;
+      window.requestAnimationFrame(focusEmpty);
+    }
+  };
+  const dismissGone = (id: string) => {
+    movedOn(id);
     setLingering((current) => {
       const nextMap = new Map(current);
       nextMap.delete(id);
       return nextMap;
     });
-    // The cards may be built again when the groups go (the heading element is a new one): look it up by its card.
-    const targetId = (next ?? previous)?.closest('article')?.id;
-    if (hadFocus && targetId)
-      window.requestAnimationFrame(() =>
-        document.getElementById(targetId)?.querySelector<HTMLElement>('[data-inbox-title]')?.focus(),
-      );
   };
+  // A mention the viewer closed here (Láttam, or a reply) is gone from the list as the server's answer comes.
+  const mentionClosedHere = (id: string) => {
+    closedHere.current.add(id);
+    shownOpen.current.delete(id);
+    movedOn(id);
+  };
+  const [replyOpenId, setReplyOpenId] = useState<string | null>(null);
+  // A reply box with a draft in it opens again with the page (the draft survives a reload), one at a time.
+  const restoredReply = useRef(false);
+  useEffect(() => {
+    if (restoredReply.current || !items) return;
+    restoredReply.current = true;
+    const withDraft = items.find(
+      (item) =>
+        item.kind === 'mention' &&
+        item.state === 'open' &&
+        item.taskKey !== null &&
+        hasCommentDraft(item.projectKey, item.taskKey, item.id),
+    );
+    if (withDraft) setReplyOpenId(withDraft.id);
+  }, [items]);
+  useEffect(focusEmpty, [items]);
 
   // A card's drawer opens over the page (the nested route) and closes back here (PM-501).
   const drawerBase = useMemo<DrawerBase>(
@@ -425,6 +491,20 @@ export function InboxPage() {
       pending={resolve.isPending && resolve.variables?.item.id === item.id}
       closedWhileOpen={displayedLingering.get(item.id) ?? null}
       onDismissGone={() => dismissGone(item.id)}
+      replyOpen={replyOpenId === item.id}
+      onReplyOpenChange={(open) => setReplyOpenId(open ? item.id : null)}
+      onReplied={(target) => {
+        setReplyOpenId(null);
+        mentionClosedHere(target.id);
+      }}
+      onReplySending={(itemId, sending) => {
+        if (!sending) {
+          replying.current.delete(itemId);
+          return;
+        }
+        replying.current.add(itemId);
+        rememberNeighbours(itemId);
+      }}
       error={
         // A refused "Tovább" says why on its card (the gate), not in a toast.
         item.kind === 'hand_on' && resolve.isError && resolve.variables?.item.id === item.id
@@ -442,12 +522,15 @@ export function InboxPage() {
           : // A refused release decision (the integrator's key is no approval) says why on its card.
             item.kind === 'release' && resolve.isError && resolve.variables?.item.id === item.id
             ? errorMessage(resolve.error)
-            : fixLimitDecisionOf(item) && resolveFailedFor(item) && !lingering.has(item.id)
-              ? t('inbox.fixLimit.error')
-              : // A todo's "Nem tudom megcsinálni" without a reason is refused by the server too.
-                displayKindOf(item) === 'todo' && resolveFailedFor(item) && !lingering.has(item.id)
-                ? errorMessage(resolveFailedFor(item))
-                : null
+            : // A mention's "Láttam" that failed leaves it open and says so on the card (PM-1276).
+              item.kind === 'mention' && resolveFailedFor(item)
+              ? t('inbox.mention.closeFailed')
+              : fixLimitDecisionOf(item) && resolveFailedFor(item) && !lingering.has(item.id)
+                ? t('inbox.fixLimit.error')
+                : // A todo's "Nem tudom megcsinálni" without a reason is refused by the server too.
+                  displayKindOf(item) === 'todo' && resolveFailedFor(item) && !lingering.has(item.id)
+                  ? errorMessage(resolveFailedFor(item))
+                  : null
       }
       stale={
         // A stale Operator approval says so on its card, not in a toast.
@@ -456,7 +539,8 @@ export function InboxPage() {
         resolve.variables?.item.id === item.id &&
         isStaleError(resolve.error)
       }
-      onResolve={(target, body) =>
+      onResolve={(target, body) => {
+        if (target.kind === 'mention') rememberNeighbours(target.id);
         resolve.mutate(
           { item: target, body },
           {
@@ -478,6 +562,12 @@ export function InboxPage() {
                     ? handOnToast(target, pipeline)
                     : ((target.askerStart ? askerStartToast(target, members, myHandle) : null) ??
                       decisionToast(target, body.optionId, myHandle));
+              if (target.kind === 'mention') {
+                // Success only after the server's answer (PM-1276): the card goes, the focus moves on.
+                toast.show(t('inbox.mention.closed'), 'ok');
+                mentionClosedHere(target.id);
+                return;
+              }
               if (text) toast.show(text, 'ok');
             },
             onError: (error) => {
@@ -489,6 +579,7 @@ export function InboxPage() {
               if (
                 target.kind !== 'hand_on' &&
                 target.kind !== 'release' &&
+                target.kind !== 'mention' &&
                 !fixLimitDecisionOf(target) &&
                 displayKindOf(target) !== 'todo' &&
                 !isStaleError(error)
@@ -496,8 +587,8 @@ export function InboxPage() {
                 toast.show(t('inbox.resolveFailed'), 'error');
             },
           },
-        )
-      }
+        );
+      }}
     />
   );
 
@@ -562,13 +653,17 @@ export function InboxPage() {
             <EmptyState
               tone="ok"
               icon="check"
+              titleFocusable
               title={
                 filter === 'all'
                   ? t('inbox.allDoneEverywhere')
                   : filter === 'todo'
                     ? t('inbox.todo.emptyFilter')
-                    : t('inbox.allDone')
+                    : filter === 'mention'
+                      ? t('inbox.mention.emptyFilter')
+                      : t('inbox.allDone')
               }
+              body={filter === 'mention' ? t('inbox.mention.emptyFilterBody') : undefined}
             />
           ) : null}
         </div>

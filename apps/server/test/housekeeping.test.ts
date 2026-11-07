@@ -7,9 +7,9 @@ import { WorktreeSweep } from '../src/runtime/watchers';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
-import type { MemberWorkspaceManager } from '../src/contracts';
+import type { MachineLoad, MemberWorkspaceManager } from '../src/contracts';
 
-/** Housekeeping (PM-243): the worktrees of closed cards, and the free disk space. */
+/** Housekeeping (PM-243): the worktrees of closed cards, and the free disk space. PM-1278 B2: the memory pressure. */
 
 const GB = 1024 ** 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -480,5 +480,106 @@ describe('free disk space', () => {
 
   it('measures the free bytes of a real directory', async () => {
     expect(await freeBytesOf(tmpdir())).toBeGreaterThan(0);
+  });
+});
+
+describe('memory pressure of the machine', () => {
+  let h: DomainHarness;
+  let now: Date;
+  let pressure: MachineLoad['pressure'] | 'unmeasurable';
+  afterEach(() => h.cleanup());
+
+  const MINUTE_MS = 60_000;
+  const alerts = (): InboxItem[] => alertTodos(h, 'machine_busy');
+  const startCard = () =>
+    h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
+  /** One periodic check per minute for `minutes` minutes. */
+  async function checkEveryMinute(minutes: number) {
+    for (let n = 0; n < minutes; n++) {
+      await h.domain.machineGuard.check();
+      now = new Date(now.getTime() + MINUTE_MS);
+    }
+  }
+
+  async function setup(first: typeof pressure) {
+    now = new Date('2026-10-01T12:00:00.000Z');
+    pressure = first;
+    h = await createDomainHarness({
+      now: () => now,
+      machineLoad: async () =>
+        pressure === 'unmeasurable' ? null : { pressure, places: { capacity: 4, used: 0, waiting: 0 } },
+    });
+    await h.domain.tasks.create('AR', { title: 'Fictional login', repo: 'web' }, OWNER_ACTOR);
+  }
+
+  it('refuses a new session under critical pressure and asks nobody at once', async () => {
+    await setup('critical');
+    await expect(startCard()).rejects.toMatchObject({ code: 'machine_busy', status: 409 });
+    expect(h.runner.started).toEqual([]);
+    expect(alerts()).toEqual([]);
+  });
+
+  it.each(['normal', 'warn', 'unmeasurable'] as const)('starts a session at %s pressure', async (level) => {
+    await setup(level);
+    await startCard();
+    expect(h.runner.started).toHaveLength(1);
+  });
+
+  it('opens one todo after ten minutes of critical pressure, and withdraws it when the pressure eases', async () => {
+    await setup('critical');
+    await checkEveryMinute(9);
+    expect(alerts()).toEqual([]);
+
+    await checkEveryMinute(4);
+    const [item, ...more] = alerts();
+    expect(more).toEqual([]);
+    expect(item).toMatchObject({
+      kind: 'question',
+      state: 'open',
+      payload: { systemAlert: { alert: 'machine_busy', key: '' } },
+    });
+
+    pressure = 'warn';
+    await h.domain.machineGuard.check();
+    expect(alerts()[0]).toMatchObject({ state: 'cancelled' });
+  });
+
+  it('does not count readings far apart as one spell', async () => {
+    await setup('critical');
+    await h.domain.machineGuard.check();
+    now = new Date(now.getTime() + 11 * MINUTE_MS);
+    await h.domain.machineGuard.check();
+    expect(alerts()).toEqual([]);
+  });
+
+  it('keeps the todo while a reading cannot be taken', async () => {
+    await setup('critical');
+    await checkEveryMinute(11);
+    pressure = 'unmeasurable';
+    await h.domain.machineGuard.check();
+    expect(alerts()[0]).toMatchObject({ state: 'open' });
+  });
+
+  it('lets a running session finish its step', async () => {
+    await setup('normal');
+    await startCard();
+    const [started] = h.runner.started;
+    pressure = 'critical';
+    await h.domain.machineGuard.check();
+    expect(h.runner.isRunning(started!.sessionId)).toBe(true);
+  });
+
+  it('measures once for a round of starts, and again after ten seconds', async () => {
+    await setup('normal');
+    const config = await h.domain.projects.config('AR');
+    await h.domain.machineGuard.assertRoom(config, 'local');
+    pressure = 'critical';
+    await expect(h.domain.machineGuard.assertRoom(config, 'local')).resolves.toBeUndefined();
+    // Older than the cache: the old reading answers at once while the next one is taken behind it.
+    now = new Date(now.getTime() + 11_000);
+    await expect(h.domain.machineGuard.assertRoom(config, 'local')).resolves.toBeUndefined();
+    await expect(h.domain.machineGuard.assertRoom(config, 'local')).rejects.toMatchObject({
+      code: 'machine_busy',
+    });
   });
 });

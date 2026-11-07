@@ -84,6 +84,7 @@ const START_WAITING_CLASS: Record<TaskStartWaiting['reason'], StartClass> = {
   plan_usage_paused: { via: 'hold', code: 'limit' },
   provider_rate_limited: { via: 'hold', code: 'limit' },
   disk_low: { via: 'hold', code: 'limit' },
+  machine_busy: { via: 'hold', code: 'limit' },
   member_at_capacity: { via: 'hold', code: 'capacity' },
   no_free_member: { via: 'hold', code: 'capacity' },
   senior_busy: { via: 'hold', code: 'capacity' },

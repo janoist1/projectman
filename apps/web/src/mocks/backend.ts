@@ -139,6 +139,8 @@ import {
   isUnreadBy,
   threadPeersOf,
   canUploadAttachment,
+  canAttachToComment,
+  withGoneCommentFiles,
   contactHandles,
   recipientRefusalForAccess,
   accessOfHandle,
@@ -896,6 +898,7 @@ export class MockBackend {
     taskKey: string,
     file: { name: string; size: number; type: string },
     uploadedBy: Actor = this.viewerActor(),
+    forComment = false,
   ): Attachment {
     const mediaType = file.type in INLINE_MEDIA_TYPES ? file.type : OCTET_STREAM;
     const attachment: Attachment = {
@@ -908,8 +911,11 @@ export class MockBackend {
       preview: attachmentPreviewOf(mediaType),
       uploadedBy,
       createdAt: nowIso(),
+      ...(forComment ? { comment: { eventId: null } } : {}),
     };
     this.attachments.push(attachment);
+    // An unsent comment file is the uploader's alone: no event and no notice until a comment binds it.
+    if (forComment) return attachment;
     this.addTimeline(taskKey, uploadedBy.handle, 'attachment_added', {
       attachmentId: attachment.id,
       fileName: attachment.fileName,
@@ -929,7 +935,7 @@ export class MockBackend {
     const task = this.findTask(taskKey);
     if (!task) return;
     const cover = coverAttachmentId(
-      this.attachments.filter((entry) => entry.taskKey === taskKey),
+      this.attachments.filter((entry) => entry.taskKey === taskKey && entry.comment?.eventId !== null),
       this.covers.get(taskKey),
     );
     if ((task.coverAttachmentId ?? null) === cover) return;
@@ -943,6 +949,7 @@ export class MockBackend {
     const attachment = this.attachments.find((entry) => entry.id === id);
     if (!attachment) return;
     this.attachments = this.attachments.filter((entry) => entry.id !== id);
+    if (attachment.comment?.eventId === null) return;
     const choice = this.covers.get(attachment.taskKey);
     if (choice?.mode === 'pinned' && choice.attachmentId === id) this.covers.delete(attachment.taskKey);
     this.addTimeline(attachment.taskKey, who, 'attachment_deleted', {
@@ -3032,6 +3039,9 @@ export class MockBackend {
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/attachments(?:\/(att_[a-z0-9]+))?$/.exec(rest))) {
       return this.handleAttachments(method, m[1]!, m[2], body);
     }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/comment-attachments$/.exec(rest)) && method === 'POST') {
+      return this.handleAttachments(method, m[1]!, undefined, body, true);
+    }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/cover$/.exec(rest)) && method === 'PUT') {
       return this.handleCover(m[1]!, body);
     }
@@ -4237,26 +4247,40 @@ export class MockBackend {
     taskKey: string,
     id: string | undefined,
     body: unknown,
+    forComment = false,
   ): MockResponse {
     const viewer = this.taskViewer();
     const task = this.findTask(taskKey);
     if (!task) return error(404, 'not_found', 'Unknown task');
     if (!id && method === 'GET') {
-      return ok({ attachments: clone(this.attachments.filter((entry) => entry.taskKey === taskKey)) });
+      return ok({
+        attachments: clone(
+          this.attachments.filter(
+            (entry) =>
+              entry.taskKey === taskKey &&
+              (entry.comment?.eventId !== null || entry.uploadedBy.handle === viewer.handle),
+          ),
+        ),
+      });
     }
     if (!id && method === 'POST') {
-      if (!canUploadAttachment(viewer))
+      if (forComment ? !canAttachToComment(viewer) : !canUploadAttachment(viewer))
         return error(403, 'insufficient_access', 'Viewers cannot attach files');
       const file = body instanceof FormData ? body.get('file') : null;
       if (!(file instanceof File)) return error(400, 'invalid_request', 'The request carries no file');
       if (file.size > MAX_ATTACHMENT_BYTES) {
         return error(413, 'attachment_too_large', 'Too large', { maxBytes: MAX_ATTACHMENT_BYTES });
       }
-      return { status: 201, body: { attachment: clone(this.addAttachment(taskKey, file)) } };
+      const added = this.addAttachment(taskKey, file, this.viewerActor(), forComment);
+      return { status: 201, body: { attachment: clone(added) } };
     }
     if (id && method === 'DELETE') {
       const attachment = this.attachments.find((entry) => entry.id === id && entry.taskKey === taskKey);
-      if (!attachment) return error(404, 'not_found', 'Unknown attachment');
+      if (
+        !attachment ||
+        (attachment.comment?.eventId === null && attachment.uploadedBy.handle !== viewer.handle)
+      )
+        return error(404, 'not_found', 'Unknown attachment');
       if (!canDeleteAttachment(viewer, attachment))
         return error(403, 'insufficient_access', 'Only the uploader, an owner or an admin may delete this');
       this.removeAttachment(id);
@@ -4324,7 +4348,7 @@ export class MockBackend {
    * parent, any other target is refused, and a repeated `clientRequestId` adds nothing. Null when it was added.
    */
   addTaskComment(taskKey: string, body: CreateTaskCommentRequest): MockResponse | null {
-    const { text, replyTo, clientRequestId, ...imported } = body;
+    const { text, replyTo, clientRequestId, attachmentIds = [], ...imported } = body;
     const own = (event: TimelineEvent) =>
       event.taskKey === taskKey && event.actor.handle === this.viewerHandle && event.type === 'task_note';
     if (
@@ -4339,6 +4363,19 @@ export class MockBackend {
       if (!resolved) return error(400, 'reply_target_invalid', 'Not a comment of this card');
       parent = resolved;
     }
+    // The binding rule of the server: the viewer's own, unsent, comment upload of this card.
+    const files: Attachment[] = [];
+    for (const id of attachmentIds) {
+      const file = this.attachments.find((entry) => entry.id === id);
+      if (
+        !file ||
+        file.taskKey !== taskKey ||
+        file.comment?.eventId !== null ||
+        file.uploadedBy.handle !== this.viewerHandle
+      )
+        return error(409, 'comment_attachment_unavailable', 'The file is no longer available', { id });
+      files.push(file);
+    }
     const mentions = commentMentions(
       text,
       this.config.team.members.map((member) => member.handle),
@@ -4350,8 +4387,24 @@ export class MockBackend {
       comment: true,
       ...(parent ? { replyTo: parent } : {}),
       ...(clientRequestId ? { clientRequestId } : {}),
+      ...(files.length
+        ? {
+            attachments: files.map(({ id, fileName, size, mediaType, preview }) => ({
+              id,
+              fileName,
+              size,
+              mediaType,
+              preview,
+            })),
+          }
+        : {}),
       ...imported,
     });
+    if (files.length) {
+      for (const file of files) file.comment = { eventId: event.id };
+      this.emit({ type: 'task_attachments_changed', projectKey: fixtures.PROJECT_KEY, taskKey });
+      this.syncCover(taskKey);
+    }
     const isImported = imported.importedAuthor !== undefined || imported.importedAt !== undefined;
     if (!isImported)
       this.syncMentionItems(event, text, mentions, parent ? 'reply' : 'comment', parent ?? event.id);
@@ -4414,17 +4467,20 @@ export class MockBackend {
   /** One page of the card's comment threads (PM-1290); null when `before` or `around` names no comment. */
   taskComments(taskKey: string, query: TaskCommentsQuery): TaskCommentsPage | null {
     const page = pageCommentThreads(
-      clone(
-        this.timeline.filter(
-          (event) =>
-            event.taskKey === taskKey &&
-            event.type === 'task_note' &&
-            canSeeTimelineEvent(
-              this.taskViewer(),
-              event,
-              (id) => this.messages.find((m) => m.id === id) ?? null,
-            ),
+      withGoneCommentFiles(
+        clone(
+          this.timeline.filter(
+            (event) =>
+              event.taskKey === taskKey &&
+              event.type === 'task_note' &&
+              canSeeTimelineEvent(
+                this.taskViewer(),
+                event,
+                (id) => this.messages.find((m) => m.id === id) ?? null,
+              ),
+          ),
         ),
+        this.liveAttachmentIds(),
       ),
       query,
     );
@@ -4514,6 +4570,11 @@ export class MockBackend {
     });
   }
 
+  /** The files that still exist: a comment shows the others as gone (the stored ref stays). */
+  private liveAttachmentIds(): Set<string> {
+    return new Set(this.attachments.map((entry) => entry.id));
+  }
+
   taskDetail(task: Task): TaskDetail {
     const wait = this.taskWaitOf(task);
     return {
@@ -4523,16 +4584,19 @@ export class MockBackend {
       parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
       subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
       pullRequests: this.taskPullRequests(task),
-      timeline: clone(
-        this.timeline.filter(
-          (event) =>
-            event.taskKey === task.key &&
-            canSeeTimelineEvent(
-              this.taskViewer(),
-              event,
-              (id) => this.messages.find((m) => m.id === id) ?? null,
-            ),
+      timeline: withGoneCommentFiles(
+        clone(
+          this.timeline.filter(
+            (event) =>
+              event.taskKey === task.key &&
+              canSeeTimelineEvent(
+                this.taskViewer(),
+                event,
+                (id) => this.messages.find((m) => m.id === id) ?? null,
+              ),
+          ),
         ),
+        this.liveAttachmentIds(),
       ),
       sessions: clone(this.taskSessions(task.key)),
       rounds: this.cardRounds(task.key),

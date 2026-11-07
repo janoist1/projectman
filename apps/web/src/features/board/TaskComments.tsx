@@ -1,16 +1,19 @@
-import { mentionTokens, projectManagerAmong } from '@projectman/shared';
-import type { TimelineEvent } from '@projectman/shared';
+import { canDeleteAttachment, mentionTokens, projectManagerAmong } from '@projectman/shared';
+import type { CommentAttachmentRef, TimelineEvent } from '@projectman/shared';
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
+import { useDeleteAttachment } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { formatDate, formatStamp, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { commentFiles } from '../../lib/commentFiles';
 import { readStorage, writeStorage } from '../../lib/hooks';
 import { actorByline, isOwnActor } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
+import { AttachmentFiles } from '../messages/AttachmentFiles';
 import { ProcessingLines } from '../messages/ProcessingLines';
 import { useContacts } from '../messages/useContacts';
 import { TaskCommentComposer } from './TaskCommentComposer';
@@ -55,6 +58,34 @@ function MentionedText({ value, members }: { value: string; members: MemberIndex
   );
 }
 
+/** A comment's files, under its text; deleting one is the uploader's (or an owner's or admin's) and leaves a "deleted" tile. */
+function CommentFiles({
+  event,
+  taskKey,
+  files,
+}: {
+  event: TimelineEvent;
+  taskKey: string;
+  files: readonly CommentAttachmentRef[];
+}) {
+  const { key, me, myHandle } = useProject();
+  const access = me.projects.find((project) => project.key === key)?.access;
+  const remove = useDeleteAttachment(key, taskKey);
+  return (
+    <AttachmentFiles
+      files={files.map((file) => ({ ...file, gone: Boolean(file.gone) }))}
+      projectKey={key}
+      taskKey={taskKey}
+      canDelete={Boolean(
+        access && myHandle && canDeleteAttachment({ access, handle: myHandle }, { uploadedBy: event.actor }),
+      )}
+      onDelete={(id) => remove.mutateAsync(id)}
+      deleteConfirmKey="messageAttachments.commentDeleteConfirm"
+      focusFallback={() => document.querySelector<HTMLElement>('[data-comment-composer] textarea')}
+    />
+  );
+}
+
 interface ReplyBox {
   /** The entry whose "Válasz" button opened the box (focus returns to it). */
   entryId: string;
@@ -67,6 +98,7 @@ interface ReplyBox {
 
 function CommentEntry({
   event,
+  taskKey,
   members,
   myHandle,
   posted,
@@ -75,6 +107,7 @@ function CommentEntry({
   status,
 }: {
   event: TimelineEvent;
+  taskKey: string;
   members: MemberIndex;
   myHandle: string | null;
   /** The comment was sent from this view since it opened. */
@@ -89,6 +122,7 @@ function CommentEntry({
   const imported = importedAuthor !== '' || importedAt !== '';
   const at = importedAt || event.createdAt;
   const { name: author, own } = commentAuthor(event, members, myHandle);
+  const files = commentFiles(event);
   return (
     <div className={clsx(styles.entry, own && styles.own)}>
       <p className={styles.head}>
@@ -106,9 +140,16 @@ function CommentEntry({
           </span>
         ) : null}
       </p>
-      <p className={styles.body}>
-        <MentionedText value={text(event.data.text)} members={members} />
-      </p>
+      {text(event.data.text) !== '' ? (
+        <p className={styles.body}>
+          <MentionedText value={text(event.data.text)} members={members} />
+        </p>
+      ) : null}
+      {files.length ? (
+        <div className={styles.files}>
+          <CommentFiles event={event} taskKey={taskKey} files={files} />
+        </div>
+      ) : null}
       {posted ? (
         <p className={styles.posted} aria-live="polite">
           {t('task.comments.posted')}
@@ -256,6 +297,7 @@ export function TaskComments({
 
   const entryProps = (event: TimelineEvent, parentId: string) => ({
     event,
+    taskKey,
     members,
     myHandle,
     posted: posted.has(text(event.data.clientRequestId)),

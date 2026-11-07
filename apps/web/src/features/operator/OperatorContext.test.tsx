@@ -93,6 +93,27 @@ describe('writing the unsent message on the card (PM-1305)', () => {
     expect(project.backend.messageAttachments).toHaveLength(0);
   });
 
+  it('puts the moved files into the tray of the box that is already open, and sends them with the comment', async () => {
+    const project = setup('/p/AC/tasks/AC-20/thread');
+    const box = await cardBox();
+    fireEvent.change(await panelBox(), { target: { value: 'Fájllal' } });
+    choose([file('log.txt')]);
+    await waitFor(() => expect(project.backend.messageAttachments).toHaveLength(1));
+    fireEvent.click(await writeOnCard());
+    await waitFor(() => expect(box.value).toBe('Fájllal'));
+    const tray = await screen.findByRole('list', { name: t('task.comments.trayLabel') });
+    expect(within(tray).getAllByRole('listitem')).toHaveLength(1);
+
+    const drawer = screen.getByRole('complementary', { name: t('task.drawerLabel') });
+    fireEvent.click(within(drawer).getByRole('button', { name: t('common.send') }));
+    await waitFor(() =>
+      expect(posted(project, '/api/projects/AC/tasks/AC-20/comments')[0]?.body).toMatchObject({
+        text: 'Fájllal',
+        attachmentIds: [expect.any(String)],
+      }),
+    );
+  });
+
   it('appends to a draft the card already has, and says so', async () => {
     setup();
     fireEvent.change(await panelBox(), { target: { value: 'Első' } });

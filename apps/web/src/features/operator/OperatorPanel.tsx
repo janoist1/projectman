@@ -20,6 +20,7 @@ import { t } from '../../i18n/t';
 import { useIsMobile } from '../../lib/hooks';
 import { dragHasFiles, droppedFiles } from '../../lib/attachmentInput';
 import { transferToCardDraft } from '../board/useCardCommentDraft';
+import type { DraftFile } from '../board/useCardCommentDraft';
 import { Composer } from '../session/Composer';
 import { OperatorThread } from './OperatorThread';
 import { OperatorChecklist } from './OperatorChecklist';
@@ -156,14 +157,22 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
     if (!openCard || moving) return;
     setMoving(true);
     setMoveFailed(false);
-    const moved: string[] = [];
+    const moved: DraftFile[] = [];
     try {
       for (const item of uploads.items) {
-        const { attachment } = await api.uploadAttachment(key, openCard, item.file);
-        moved.push(attachment.id);
+        if (!item.file) continue;
+        // As an unsent comment file: that is the only kind a comment can be sent with.
+        const { attachment } = await api.uploadCommentAttachment(key, openCard, item.file);
+        moved.push({
+          id: attachment.id,
+          fileName: attachment.fileName,
+          size: attachment.size,
+          mediaType: attachment.mediaType,
+          preview: attachment.preview,
+        });
       }
     } catch {
-      await Promise.allSettled(moved.map((id) => api.deleteAttachment(key, openCard, id)));
+      await Promise.allSettled(moved.map((file) => api.deleteAttachment(key, openCard, file.id)));
       setMoveFailed(true);
       setMoving(false);
       return;

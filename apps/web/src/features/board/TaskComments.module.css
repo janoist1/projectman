@@ -97,6 +97,13 @@
   white-space: pre-wrap;
 }
 
+/* A comment's files: under the text, left-aligned like it, no bubble; a file-only comment has them right after the head. */
+.files {
+  margin: 4px 0 0;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .mention {
   font-weight: 700;
   color: var(--c-accent-text);

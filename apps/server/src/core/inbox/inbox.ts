@@ -125,6 +125,7 @@ import {
   alertMarkerPayload,
   alertTodoOf,
   isMachineAlert,
+  isProjectAlert,
 } from './alert-todo';
 import { conflict, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
@@ -2108,10 +2109,10 @@ export class InboxService {
    */
   settleAlert(
     projectKey: string,
-    alert: 'disk_low' | 'worktree_kept' | 'session_input',
+    alert: 'disk_low' | 'machine_busy' | 'worktree_kept' | 'session_input',
     scope: { taskKey?: string | null; sessionId?: string | null } = {},
   ): number {
-    const key = alert === 'disk_low' ? '' : (scope.taskKey ?? scope.sessionId ?? null);
+    const key = isProjectAlert(alert) ? '' : (scope.taskKey ?? scope.sessionId ?? null);
     const todos = this.ctx.repos.inbox
       .list(projectKey, { state: 'open', kind: 'question' })
       .filter((item) => {

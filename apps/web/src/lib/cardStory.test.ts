@@ -8,6 +8,7 @@ import {
   storyWeight,
   STORY_ROW_LIMIT,
 } from './cardStory';
+import { t } from '../i18n/t';
 import { indexPipeline } from './pipeline';
 import type { TimelineContext } from './timeline';
 
@@ -168,6 +169,27 @@ describe('what a round amounts to', () => {
     expect(
       summary([event('task_note', 5, { text: 'First' }), event('task_note', 6, { text: 'Last\nline' })]),
     ).toBe('Last');
+  });
+
+  it('names the file of a comment that has no text, and counts several (PM-1310)', () => {
+    const ref = (id: string, fileName: string) => ({
+      id,
+      fileName,
+      size: 5,
+      mediaType: 'text/plain',
+      preview: 'none',
+    });
+    expect(
+      summary([event('task_note', 5, { text: '', attachments: [ref('att_report0001', 'report.pdf')] })]),
+    ).toBe('report.pdf');
+    expect(
+      summary([
+        event('task_note', 5, {
+          text: '',
+          attachments: [ref('att_first00001', 'a.txt'), ref('att_second0002', 'b.txt')],
+        }),
+      ]),
+    ).toBe(t('messageAttachments.previewMany', { count: 2 }));
   });
 
   it('takes a failed or handed-over step before other events, and any essence after that', () => {

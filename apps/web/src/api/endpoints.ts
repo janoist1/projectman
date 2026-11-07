@@ -326,6 +326,17 @@ export const api = {
       signal,
     });
   },
+  /** A comment's file: stored unsent on the card, bound to the comment when it is sent. */
+  uploadCommentAttachment: (key: string, taskKey: string, file: File, signal?: AbortSignal) => {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    return apiRequest(routes.taskCommentAttachments(key, taskKey), {
+      method: 'POST',
+      body,
+      schema: UploadAttachmentResponse,
+      signal,
+    });
+  },
   setTaskCover: (key: string, taskKey: string, body: TaskCoverRequest) =>
     apiRequest(routes.taskCover(key, taskKey), { method: 'PUT', body, schema: TaskCoverResponse }),
   deleteAttachment: (key: string, taskKey: string, id: string) =>

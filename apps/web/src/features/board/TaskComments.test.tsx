@@ -1,7 +1,7 @@
 import type { Actor } from '@projectman/shared';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { applyServerEvent } from '../../api/cache';
@@ -427,5 +427,187 @@ describe('the Comments view (PM-1304)', () => {
     expect(screen.getByText(t('task.comments.readOnly'))).toBeTruthy();
     expect(screen.queryByRole('textbox', { name: t('task.comments.label') })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Válasz/ })).toBeNull();
+  });
+});
+
+describe('the files of a comment (PM-1310)', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static override createObjectURL = vi.fn(() => 'blob:preview');
+        static override revokeObjectURL = vi.fn();
+      },
+    );
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const FILE_UPLOADS = '/api/projects/AC/tasks/AC-20/comment-attachments';
+  const file = (name = 'notes.txt', type = 'text/plain') => new File(['bytes'], name, { type });
+  const pick = (form: HTMLElement, ...files: File[]) =>
+    fireEvent.change(within(form).getByLabelText(t('task.comments.inputLabel')), { target: { files } });
+  const send = (form: HTMLElement) =>
+    within(form).getByRole('button', { name: t('common.send') }) as HTMLButtonElement;
+  const mainForm = async () => (await box()).closest('form')!;
+  const fileUploads = (project: Project) =>
+    project.requests.filter((request) => request.method === 'POST' && request.path === FILE_UPLOADS);
+  /** A comment of the viewer that carries an uploaded file, as the server stores it. */
+  const commentWithFile = (project: Project, name = 'notes.txt', who = 'owner') => {
+    const actor = { kind: 'human', handle: who } as const;
+    const stored = project.backend.addAttachment('AC-20', { name, size: 5, type: 'text/plain' }, actor, true);
+    const previous = project.backend.viewerHandle;
+    project.backend.viewerHandle = who;
+    project.backend.addTaskComment('AC-20', { text: '', attachmentIds: [stored.id] });
+    project.backend.viewerHandle = previous;
+    return stored;
+  };
+
+  it('sends a comment that has only files and shows them under it', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const form = await mainForm();
+    pick(form, file());
+    await waitFor(() => expect(send(form).disabled).toBe(false));
+    fireEvent.click(send(form));
+    await waitFor(() => expect(comments(project)).toHaveLength(1));
+    const stored = project.backend.attachments.find((entry) => entry.fileName === 'notes.txt')!;
+    expect(comments(project)[0]!.body).toMatchObject({ attachmentIds: [stored.id] });
+    const group = await screen.findByRole('group', { name: t('messageAttachments.groupLabel') });
+    expect(within(group).getByText('notes.txt')).toBeTruthy();
+    expect(stored.comment?.eventId).toEqual(expect.any(String));
+  });
+
+  it('names the paperclip for the comment and states why Send waits between the buttons', async () => {
+    const project = mockProject();
+    const answer = createMockFetch(project.backend, project.requests);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    setFetchImplementation(async (input, init) => {
+      if (init?.method === 'POST' && input === FILE_UPLOADS) await held;
+      return answer(input, init);
+    });
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const form = await mainForm();
+    pick(form, file());
+    const clip = await within(form).findByRole('button', { name: t('task.comments.attachLabel') });
+    // While the file uploads, the reason sits in the actions row, next to the buttons.
+    const reason = within(form).getByText(t('messageAttachments.waitUpload'));
+    expect(reason.parentElement).toBe(clip.parentElement);
+    release();
+    await waitFor(() => expect(send(form).disabled).toBe(false));
+  });
+
+  it('takes at most ten files into one comment', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const form = await mainForm();
+    pick(form, ...Array.from({ length: 11 }, (_, index) => file(`file-${index}.txt`)));
+    expect(await screen.findByText(t('task.comments.tooManyFiles', { max: 10 }))).toBeTruthy();
+    expect(within(form).getAllByRole('listitem')).toHaveLength(10);
+  });
+
+  it('marks a file that did not upload and sends it again on retry', async () => {
+    const project = mockProject();
+    const answer = createMockFetch(project.backend, project.requests);
+    let first = true;
+    setFetchImplementation(async (input, init) => {
+      if (first && init?.method === 'POST' && input === FILE_UPLOADS) {
+        first = false;
+        return new Response(JSON.stringify({ error: { code: 'internal_error', message: 'Failed' } }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return answer(input, init);
+    });
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const form = await mainForm();
+    pick(form, file());
+    const alert = await within(form).findByRole('alert');
+    expect(send(form).disabled).toBe(true);
+    fireEvent.click(within(alert).getByRole('button', { name: t('attachments.retry') }));
+    await waitFor(() => expect(send(form).disabled).toBe(false));
+    // The refused try never reached the backend, so the one request it records is the retry.
+    expect(fileUploads(project)).toHaveLength(1);
+  });
+
+  it('marks a file the server no longer has, keeps the text and offers no retry for it', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const input = await box();
+    const form = input.closest('form')!;
+    fireEvent.change(input, { target: { value: 'With a file' } });
+    pick(form, file());
+    await waitFor(() => expect(send(form).disabled).toBe(false));
+    // The file vanished after the upload (deleted elsewhere).
+    project.backend.removeAttachment(project.backend.attachments[0]!.id);
+    fireEvent.click(send(form));
+    // One message only: the tray row says it; no error bar above and no repeat in the block reason.
+    const alert = await within(form).findByRole('alert');
+    expect(alert.textContent).toBe(t('messageAttachments.unavailable', { fileName: 'notes.txt' }));
+    expect(within(form).getAllByRole('alert')).toHaveLength(1);
+    expect(within(form).getByText(t('messageAttachments.removeGone'))).toBeTruthy();
+    expect(within(form).queryByRole('button', { name: t('attachments.retry') })).toBeNull();
+    expect(within(form).queryByRole('button', { name: t('task.comments.retry') })).toBeNull();
+    expect(send(form).disabled).toBe(true);
+    expect(input.value).toBe('With a file');
+  });
+
+  it('keeps the files of an answer that is cancelled, with the rest of the draft', async () => {
+    const project = mockProject();
+    comment(project, 'be-1', 'The question');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const openReply = async () => {
+      fireEvent.click(await screen.findByRole('button', { name: /^Válasz/ }));
+      return (await screen.findByRole('textbox', { name: /^Válasz/ })).closest('form')!;
+    };
+    const reply = await openReply();
+    pick(reply, file());
+    await waitFor(() => expect(send(reply).disabled).toBe(false));
+    fireEvent.click(within(reply).getByRole('button', { name: t('common.cancel') }));
+    const again = await openReply();
+    expect(within(again).getByRole('list', { name: t('task.comments.trayLabel') })).toBeTruthy();
+    expect(send(again).disabled).toBe(false);
+  });
+
+  it('puts a pasted screenshot into the comment, not into the card', async () => {
+    const project = mockProject();
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const input = await box();
+    const image = file('shot.png', 'image/png');
+    fireEvent.paste(input, {
+      clipboardData: { types: ['Files'], files: [image], items: [], getData: () => '' },
+    });
+    await waitFor(() => expect(fileUploads(project)).toHaveLength(1));
+    expect(
+      project.requests.filter(
+        (request) => request.method === 'POST' && request.path.endsWith('/attachments'),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('shows a deleted file as a tile that stays, and lets only its owner confirm the deletion', async () => {
+    const project = mockProject();
+    const kept = commentWithFile(project, 'kept.txt');
+    commentWithFile(project, 'removed.txt');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('attachments.deleteLabel', { fileName: 'removed.txt' }) }),
+    );
+    expect(
+      screen.getByText(t('messageAttachments.commentDeleteConfirm', { fileName: 'removed.txt' })),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('attachments.deleteYes') }));
+    expect(
+      await screen.findByText(t('messageAttachments.goneLabel', { fileName: 'removed.txt' })),
+    ).toBeTruthy();
+    expect(project.backend.attachments.map((entry) => entry.id)).toEqual([kept.id]);
+    // The other file is untouched: it can still be deleted.
+    expect(
+      screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'kept.txt' }) }),
+    ).toBeTruthy();
   });
 });

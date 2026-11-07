@@ -62,6 +62,7 @@ import type { PipelineIndex } from '../../lib/pipeline';
 import { OperatorApprovalActions, OperatorApprovalBody } from '../operator/OperatorApproval';
 import { OperatorKnowledgeBody, OperatorKnowledgeActions } from '../operator/OperatorKnowledgeApproval';
 import styles from './InboxCard.module.css';
+import { MentionInbox } from './MentionInbox';
 import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
 import { EmailApprovalBody, EmailParkedBody, emailApprovalWords } from './EmailInbox';
@@ -125,7 +126,16 @@ export interface InboxCardProps {
    */
   closedWhileOpen?: 'closed' | 'refused' | null;
   onDismissGone?: () => void;
+  /** A mention's reply box (PM-1276): open or not, as the list keeps one open at a time. */
+  replyOpen?: boolean;
+  onReplyOpenChange?: (open: boolean) => void;
+  /** The mention's reply went out and closed it. */
+  onReplied?: (item: InboxItem) => void;
+  /** The mention's reply is on its way (true) or stopped. */
+  onReplySending?: (itemId: string, sending: boolean) => void;
 }
+
+const noop = () => {};
 
 /** The card row: the key (mono, bold) and the title, two lines at most; a link when the card can be opened. */
 function TaskRow({ taskKey, title, href }: { taskKey: string; title: string | null; href: string | null }) {
@@ -209,6 +219,10 @@ export function InboxCard({
   taskHref,
   closedWhileOpen = null,
   onDismissGone,
+  replyOpen = false,
+  onReplyOpenChange,
+  onReplied,
+  onReplySending,
 }: InboxCardProps) {
   const operatorApproval = operatorApprovalOf(item);
   const operatorKnowledge = operatorKnowledgeApprovalOf(item);
@@ -312,7 +326,8 @@ export function InboxCard({
   };
   const hasDraft = answer.trim() !== '' || uploads.items.length > 0;
   useEffect(() => {
-    if (closedWhileOpen !== 'closed') return;
+    // A mention lingers only while it holds a draft (PM-1276), so its notice is never taken away on its own.
+    if (closedWhileOpen !== 'closed' || item.kind === 'mention') return;
     const focused = cardRef.current?.contains(document.activeElement) ?? false;
     if (!hasDraft && !focused) onDismissGone?.();
     // Decided once, at the moment the question closes.
@@ -484,6 +499,31 @@ export function InboxCard({
       </time>
     </div>
   );
+
+  // A mention (PM-1276) has its own body and actions; the header and the card row are the shared ones.
+  if (item.kind === 'mention') {
+    return (
+      <MentionInbox
+        item={item}
+        members={members}
+        myHandle={myHandle}
+        head={headRow}
+        taskRow={taskRow}
+        Heading={Heading}
+        mobile={mobile}
+        compact={compact}
+        pending={pending}
+        error={error}
+        closedWhileOpen={closedWhileOpen}
+        replyOpen={replyOpen}
+        onReplyOpenChange={onReplyOpenChange ?? noop}
+        onReplied={onReplied ?? noop}
+        onReplySending={onReplySending ?? noop}
+        onResolve={onResolve}
+        onDismissGone={onDismissGone ?? noop}
+      />
+    );
+  }
 
   // The question closed while the viewer had it open (PM-556): the card says so and keeps the place until "Rendben".
   if (closedWhileOpen) {

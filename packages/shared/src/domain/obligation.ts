@@ -206,6 +206,7 @@ export const PAUSING_REFUSALS: readonly string[] = [
   'provider_rate_limited',
   'ai_limit_reached',
   'disk_low',
+  'machine_busy',
   'engine_offline',
   'member_on_leave',
 ] satisfies readonly ErrorCode[];

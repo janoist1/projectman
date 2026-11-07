@@ -147,11 +147,13 @@ export function writeTaskDetail(client: QueryClient, key: string, detail: TaskDe
 
 /**
  * A task's attachments changed: read the list again, and the task detail too, because the
- * change is on the timeline (which a client sees as well).
+ * change is on the timeline (which a client sees as well). The comments too: a comment's file
+ * shows as deleted there once it is gone.
  */
 export function invalidateAttachments(client: QueryClient, key: string, taskKey: string): void {
   void client.invalidateQueries({ queryKey: queryKeys.attachments(key, taskKey) });
   void client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) });
+  void client.invalidateQueries({ queryKey: queryKeys.taskComments(key, taskKey) });
 }
 
 /**

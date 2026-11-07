@@ -170,6 +170,16 @@ describe('Válasz', () => {
     expect(await screen.findByText(new RegExp(t('inbox.mention.historyReplied')))).toBeTruthy();
   });
 
+  it('offers text only: no paperclip in the reply box', async () => {
+    const { project } = mentionedProject();
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const card = await cardOf(title());
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.mention.reply') }));
+    await draftBox();
+    expect(within(card).queryByRole('button', { name: t('task.comments.attachLabel') })).toBeNull();
+    expect(within(card).queryByLabelText(t('task.comments.inputLabel'))).toBeNull();
+  });
+
   it('moves the focus to the next card after a reply, which leaves no draft behind', async () => {
     const { project, backend, taskKey } = mentionedProject();
     backend.viewerHandle = 'owner';

@@ -1,9 +1,13 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import type { CommentAttachmentRef } from '@projectman/shared';
 
-/** What is typed in one comment box of a card: the text and the files attached to it (their attachment ids). */
+/** A ready, not yet sent file of a draft: enough to show it and to send its id after a reload. */
+export type DraftFile = Omit<CommentAttachmentRef, 'gone'>;
+
+/** What is typed in one comment box of a card: the text and the files attached to it (uploaded, not sent). */
 export interface CommentDraft {
   text: string;
-  attachments: string[];
+  attachments: DraftFile[];
 }
 
 const EMPTY: CommentDraft = { text: '', attachments: [] };
@@ -17,6 +21,12 @@ const listeners = new Set<() => void>();
 
 const storageKey = (projectKey: string, taskKey: string) => `${STORAGE_PREFIX}${projectKey}:${taskKey}`;
 
+const isDraftFile = (value: unknown): value is DraftFile =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as DraftFile).id === 'string' &&
+  typeof (value as DraftFile).fileName === 'string';
+
 function read(projectKey: string, taskKey: string): Record<string, CommentDraft> {
   const key = storageKey(projectKey, taskKey);
   const cached = cache.get(key);
@@ -24,7 +34,18 @@ function read(projectKey: string, taskKey: string): Record<string, CommentDraft>
   let drafts: Record<string, CommentDraft> = {};
   try {
     const raw = window.sessionStorage.getItem(key);
-    if (raw) drafts = JSON.parse(raw) as Record<string, CommentDraft>;
+    if (raw) {
+      const stored = JSON.parse(raw) as Record<string, Partial<CommentDraft>>;
+      drafts = Object.fromEntries(
+        Object.entries(stored).map(([slot, draft]) => [
+          slot,
+          {
+            text: typeof draft.text === 'string' ? draft.text : '',
+            attachments: Array.isArray(draft.attachments) ? draft.attachments.filter(isDraftFile) : [],
+          },
+        ]),
+      );
+    }
   } catch {
     // An unreadable draft is no draft; the box starts empty.
   }
@@ -71,6 +92,7 @@ export function resetCommentDrafts(): void {
  * The draft of one comment box of a card (PM-1290), kept per card in the session's storage: it survives a
  * change of the view, a background refresh and a reload, and is emptied by a successful send. Every box
  * reading the same card and slot sees the same draft, so a later action that writes on the card writes here.
+ * The files are the uploaded ones only: a half-finished upload does not come back after a reload.
  */
 export function useCardCommentDraft(projectKey: string, taskKey: string, slot: string = MAIN_DRAFT) {
   const draft = useSyncExternalStore(
@@ -92,7 +114,7 @@ export function useCardCommentDraft(projectKey: string, taskKey: string, slot: s
     text: draft.text,
     attachments: draft.attachments,
     setText: useCallback((text: string) => update({ text }), [update]),
-    setAttachments: useCallback((attachments: string[]) => update({ attachments }), [update]),
+    setAttachments: useCallback((attachments: DraftFile[]) => update({ attachments }), [update]),
     clear: useCallback(() => update({ text: '', attachments: [] }), [update]),
   };
 }

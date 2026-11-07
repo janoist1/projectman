@@ -1129,6 +1129,8 @@ export function useCreateTaskComment(key: string) {
     onSuccess: async (detail) => {
       writeTaskDetail(client, key, detail);
       void client.invalidateQueries({ queryKey: queryKeys.taskComments(key, detail.task.key) });
+      // The comment's files are bound to it now: the card's file list links to the comment.
+      void client.invalidateQueries({ queryKey: queryKeys.attachments(key, detail.task.key) });
       // A reply closes the writer's own mention items of its thread (PM-1276).
       void client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
       void client.invalidateQueries({ queryKey: queryKeys.inboxHistory(key) });

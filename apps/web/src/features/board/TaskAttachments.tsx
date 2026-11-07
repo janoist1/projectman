@@ -10,6 +10,7 @@ import {
 } from '@projectman/shared';
 import type { Attachment, AttachmentViewer, Task, TaskCoverChoice } from '@projectman/shared';
 import { isApiError } from '../../api/client';
+import { Link } from 'react-router';
 import { useAttachments, useDeleteAttachment, useSetTaskCover } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -103,6 +104,7 @@ function AttachmentRow({
   task,
   members,
   canDelete,
+  commentLink,
   isCover,
   canSetCover,
   settingCover,
@@ -116,6 +118,8 @@ function AttachmentRow({
   task: Task;
   members: MemberIndex;
   canDelete: boolean;
+  /** The comment this file was sent with, in the Comments view; null for a file of the card itself. */
+  commentLink: string | null;
   /** The card shows this image as its cover. */
   isCover: boolean;
   /** Whoever may attach files may also choose or hide the cover (the shared upload rule). */
@@ -168,13 +172,32 @@ function AttachmentRow({
             when: formatStamp(attachment.createdAt),
           })}
         </span>
+        {commentLink ? (
+          <Link
+            className={styles.commentLink}
+            to={commentLink}
+            aria-label={t('attachments.inCommentLabel', { fileName })}
+          >
+            <Icon name="messages" size={13} />
+            {t('attachments.inComment')}
+          </Link>
+        ) : null}
         {confirming ? (
           <div
             className={styles.confirm}
             role="group"
             aria-label={t('attachments.deleteLabel', { fileName })}
           >
-            <span>{t('attachments.deleteConfirm', { fileName })}</span>
+            <span>
+              {t(
+                attachment.comment?.eventId
+                  ? 'attachments.deleteCommentConfirm'
+                  : 'attachments.deleteConfirm',
+                {
+                  fileName,
+                },
+              )}
+            </span>
             <div className={styles.actions}>
               <Button
                 size="sm"
@@ -273,9 +296,12 @@ export function TaskAttachments({
   task,
   members,
   onPasted,
+  commentHref = null,
 }: {
   task: Task;
   members: MemberIndex;
+  /** Where a comment is in the Comments view; a comment's file links to it. */
+  commentHref?: ((eventId: string) => string) | null;
   /** Images were pasted from the clipboard: the drawer shows this section then (PM-487). */
   onPasted?: () => void;
 }) {
@@ -313,7 +339,8 @@ export function TaskAttachments({
     const onPaste = (event: ClipboardEvent) => {
       if (
         event.defaultPrevented ||
-        (event.target instanceof Element && event.target.closest('[data-message-composer]'))
+        (event.target instanceof Element &&
+          event.target.closest('[data-message-composer], [data-comment-composer]'))
       )
         return;
       const images = pastedImages(event.clipboardData);
@@ -403,6 +430,9 @@ export function TaskAttachments({
                 task={task}
                 members={members}
                 canDelete={canDeleteAttachment(viewer, attachment)}
+                commentLink={
+                  commentHref && attachment.comment?.eventId ? commentHref(attachment.comment.eventId) : null
+                }
                 isCover={attachment.id === task.coverAttachmentId}
                 canSetCover={canCover}
                 settingCover={

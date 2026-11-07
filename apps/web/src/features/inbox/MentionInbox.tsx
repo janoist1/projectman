@@ -172,6 +172,8 @@ export function MentionInbox({
         submitLabel={t('inbox.mention.replySend')}
         failureText={t('inbox.mention.replyFailed')}
         holdReason={hold}
+        // The plan gives the Rád vár reply no files: text only.
+        withFiles={false}
         autoFocus={!hold}
         onSendingChange={sendingChanged}
         onPosted={() => {

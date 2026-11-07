@@ -107,6 +107,27 @@
   overflow-wrap: anywhere;
 }
 
+/* The comment a file was sent with: a text link, 44px to touch. */
+.commentLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  min-height: 28px;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-accent-text);
+  text-decoration: none;
+}
+.commentLink:hover {
+  text-decoration: underline;
+}
+@media (pointer: coarse), (max-width: 767px) {
+  .commentLink {
+    min-height: 44px;
+  }
+}
+
 /* The image the card shows as its cover. */
 .coverChip {
   display: inline-flex;

@@ -1,5 +1,6 @@
 import { cardStepOutcome } from '@projectman/shared';
 import type { BoardColumnColor, Stage, Task, TimelineEvent } from '@projectman/shared';
+import { commentFiles, commentFilesExcerpt } from './commentFiles';
 import { labelName } from './labels';
 import { describeEvent } from './timeline';
 import type { TimelineContext } from './timeline';
@@ -138,9 +139,15 @@ function summaryOf(events: readonly TimelineEvent[], closing: TimelineEvent | nu
   if (closingNote) return closingNote;
   const note = lastWhere(
     (event) =>
-      (event.type === 'task_note' && text(event.data.text).trim() !== '') || Boolean(event.data.noteExcerpt),
+      (event.type === 'task_note' &&
+        (text(event.data.text).trim() !== '' || commentFiles(event).length > 0)) ||
+      Boolean(event.data.noteExcerpt),
   );
-  if (note) return firstLine(text(note.type === 'task_note' ? note.data.text : note.data.noteExcerpt));
+  if (note) {
+    if (note.type !== 'task_note') return firstLine(text(note.data.noteExcerpt));
+    // A comment of files only reads as its files.
+    return firstLine(text(note.data.text)) || commentFilesExcerpt(commentFiles(note));
+  }
   const step = lastWhere((event) => {
     const outcome = cardStepOutcome(event);
     return outcome === 'failed' || outcome === 'handed_over';

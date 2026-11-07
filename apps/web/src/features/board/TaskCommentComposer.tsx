@@ -8,10 +8,16 @@ import { Button } from '../../components/Button';
 import { TextAreaField } from '../../components/Field';
 import { t } from '../../i18n/t';
 import { useContacts } from '../messages/useContacts';
+import { MessageAttachmentTray } from '../messages/MessageAttachmentTray';
+import attachmentStyles from '../messages/MessageAttachments.module.css';
+import { pasteHasText, pastedImages } from '../../lib/attachmentInput';
 import { codeMessage } from '../../lib/errors';
+import { useIsMobile } from '../../lib/hooks';
 import { distinctMembers } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { MAIN_DRAFT, useCardCommentDraft } from './useCardCommentDraft';
+import { useCommentAttachmentUploads } from './useCommentAttachmentUploads';
+import { useFileDrop } from './useFileDrop';
 import styles from './TaskCommentComposer.module.css';
 
 export interface TaskCommentComposerProps {
@@ -37,6 +43,8 @@ export interface TaskCommentComposerProps {
   holdReason?: string;
   /** The box is sending (true) or stopped; a host disables its other actions meanwhile. */
   onSendingChange?: (sending: boolean) => void;
+  /** Files can be attached (the 📎 button, the tray, paste and drop); a host box without them says false. */
+  withFiles?: boolean;
 }
 
 export function TaskCommentComposer({
@@ -53,23 +61,34 @@ export function TaskCommentComposer({
   failureText,
   holdReason,
   onSendingChange,
+  withFiles = true,
 }: TaskCommentComposerProps) {
   const { key } = useProject();
   const mutation = useCreateTaskComment(key);
   const draft = useCardCommentDraft(key, taskKey, slot);
+  const uploads = useCommentAttachmentUploads(key, taskKey, slot, draft);
+  const files = uploads.items;
   const text = draft.text;
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null);
   const [selected, setSelected] = useState(0);
   // One line until the reader focuses it; the hint and the Send button follow, and stay while there is a draft.
   const [focused, setFocused] = useState(false);
-  const open = focused || text !== '' || replyTo !== undefined;
+  const open = focused || text !== '' || replyTo !== undefined || files.length > 0;
   const textarea = useRef<HTMLTextAreaElement>(null);
-  // One id per submission: a retry of the same text reuses it, so the server keeps one comment.
+  const picker = useRef<HTMLInputElement>(null);
+  // One id per submission: a retry of the same text and files reuses it, so the server keeps one comment.
   const attempt = useRef<string | null>(null);
   const listId = useId();
   const contacts = useContacts();
   const sending = mutation.isPending;
   useEffect(() => onSendingChange?.(sending), [sending, onSendingChange]);
+  const isMobile = useIsMobile();
+  const fileDrop = useFileDrop({
+    allowed: !sending && !isMobile && withFiles,
+    onFiles: (dropped) => addFiles(dropped),
+    isolate: true,
+  });
+  const hasContent = text.trim() !== '' || files.length > 0;
   // A member who writes only to the contacts mentions only them (PM-985); the others get no notice anyway.
   const mentionable = distinctMembers(members).filter((member) => contacts.canWriteTo(member.handle));
   const noContacts = contacts.restricted && contacts.ready && mentionable.length === 0;
@@ -91,6 +110,21 @@ export function TaskCommentComposer({
     attempt.current = null;
     if (mutation.isError) mutation.reset();
     draft.setText(value);
+  };
+  // New or removed files are a new submission too, as new words are.
+  const changed = () => {
+    attempt.current = null;
+    if (mutation.isError) mutation.reset();
+  };
+  const addFiles = (added: readonly File[]) => {
+    if (sending || !added.length) return;
+    changed();
+    uploads.add(added);
+  };
+  const removeFile = async (id: number) => {
+    const removed = await uploads.remove(id);
+    if (removed) changed();
+    return removed;
   };
   const updateMention = (value: string, caret: number) => {
     const match = /(?:^|[^\p{L}\p{N}_@.+-])@([\p{L}\p{N}-]*)$/u.exec(value.slice(0, caret));
@@ -115,37 +149,81 @@ export function TaskCommentComposer({
   };
   const submit = () => {
     const body = text.trim();
-    if (!body || sending || holdReason) return;
+    if (!hasContent || uploads.blockedReason || sending || holdReason) return;
+    const attachmentIds = files.flatMap((item) => (item.attachment ? [item.attachment.id] : []));
     const clientRequestId = (attempt.current ??= crypto.randomUUID());
     // The promise, not the mutate callbacks: the host may drop this box while the server answers (the item the
     // box stands in can leave its list), and the callbacks of a box that is gone would never run.
     mutation
-      .mutateAsync({ taskKey, body: { text: body, clientRequestId, ...(replyTo ? { replyTo } : {}) } })
+      .mutateAsync({
+        taskKey,
+        body: {
+          text: body,
+          clientRequestId,
+          ...(attachmentIds.length ? { attachmentIds } : {}),
+          ...(replyTo ? { replyTo } : {}),
+        },
+      })
       .then(
         () => {
           attempt.current = null;
+          uploads.clear();
           draft.clear();
           setMention(null);
           onPosted?.(clientRequestId);
           onCancel?.();
         },
-        // The failure shows in the box (`mutation.isError`).
-        () => undefined,
+        // The failure shows in the box (`mutation.isError`). A file the server no longer has is marked here: the
+        // text and the other files stay.
+        (error: unknown) => {
+          if (isApiError(error) && error.code === 'comment_attachment_unavailable') {
+            const id = (error.details as { id?: unknown } | undefined)?.id;
+            if (typeof id === 'string') uploads.markGone(id);
+          }
+        },
       );
   };
   const failure = mutation.isError
     ? isApiError(mutation.error) && codeMessage(mutation.error.code)
       ? codeMessage(mutation.error.code)
-      : (failureText ?? t('task.comments.sendFailed'))
+      : (failureText ?? t(files.length ? 'task.comments.sendFailedFiles' : 'task.comments.sendFailed'))
     : null;
+  // The tray row of the missing file says it, so the bar above (and its Retry, which would fail again) stays out.
+  const fileGone =
+    mutation.isError &&
+    isApiError(mutation.error) &&
+    mutation.error.code === 'comment_attachment_unavailable';
+  // The host's hold and the files' block reason each stop Send.
+  const sendBlocked = sending ? false : !hasContent || Boolean(uploads.blockedReason) || Boolean(holdReason);
   return (
     <form
       className={clsx(styles.composer, !open && styles.closed, replyTo !== undefined && styles.reply)}
+      data-comment-composer
+      {...fileDrop.props}
+      // The box stays open while the focus is anywhere in it (the field, then the 📎 button).
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+      }}
+      onPaste={(event) => {
+        // Pictures pasted into the box (its field or its buttons) are its files; pasted text stays text.
+        if (!withFiles || pasteHasText(event.clipboardData)) return;
+        const images = pastedImages(event.clipboardData);
+        if (!images.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        addFiles(images);
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         submit();
       }}
     >
+      {fileDrop.state && !isMobile ? (
+        <div className={attachmentStyles.drop} role="status">
+          {t('attachments.dropActive')}
+        </div>
+      ) : null}
       <TextAreaField
         ref={textarea}
         label={label ?? t('task.comments.label')}
@@ -174,11 +252,7 @@ export function TaskCommentComposer({
           if (document.activeElement === event.currentTarget)
             updateMention(event.currentTarget.value, event.currentTarget.selectionStart);
         }}
-        onFocus={() => setFocused(true)}
-        onBlur={() => {
-          setMention(null);
-          setFocused(false);
-        }}
+        onBlur={() => setMention(null)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing) return;
           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !options.length) {
@@ -227,7 +301,7 @@ export function TaskCommentComposer({
           ))}
         </ul>
       ) : null}
-      {failure ? (
+      {failure && !fileGone ? (
         <div role="alert" className={styles.failure}>
           <p>{failure}</p>
           <Button type="button" size="sm" variant="secondary" onClick={submit}>
@@ -235,9 +309,39 @@ export function TaskCommentComposer({
           </Button>
         </div>
       ) : null}
+      {withFiles ? (
+        <MessageAttachmentTray
+          comment
+          label={t('task.comments.trayLabel')}
+          items={files}
+          onRemove={removeFile}
+          onRetry={uploads.retry}
+          focusInput={() => textarea.current?.focus()}
+          disabled={sending}
+        />
+      ) : null}
+      {files.length ? <p className={styles.fileNote}>{t('task.comments.fileVisibility')}</p> : null}
+      {uploads.error ? (
+        <p className={styles.fileNote} role="alert">
+          {uploads.error}
+        </p>
+      ) : null}
       <p className={styles.live} aria-live="polite">
         {sending ? t('task.comments.sending') : ''}
       </p>
+      {withFiles ? (
+        <input
+          type="file"
+          multiple
+          hidden
+          ref={picker}
+          aria-label={t('task.comments.inputLabel')}
+          onChange={(event) => {
+            addFiles(Array.from(event.target.files ?? []));
+            event.target.value = '';
+          }}
+        />
+      ) : null}
       {holdReason ? (
         <p role="status" className={styles.live}>
           {holdReason}
@@ -245,11 +349,31 @@ export function TaskCommentComposer({
       ) : null}
       {open ? (
         <div className={styles.actions}>
+          {withFiles ? (
+            <Button
+              type="button"
+              variant="secondary"
+              icon="paperclip"
+              className={styles.attach}
+              aria-disabled={sending || undefined}
+              title={t('task.comments.attachTitle')}
+              aria-label={t('task.comments.attachLabel')}
+              // A mouse press keeps the focus in the field, so the buttons do not vanish before the click lands.
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => {
+                if (!sending) picker.current?.click();
+              }}
+            >
+              <span className={styles.attachText}>{t('messageAttachments.add')}</span>
+            </Button>
+          ) : null}
+          {/* Why Send waits sits between the buttons, in reach of the eye, not above the field. */}
+          {uploads.blockedReason ? <p className={styles.status}>{uploads.blockedReason}</p> : null}
           <Button
             type="submit"
             // aria-disabled, not disabled: a second click is ignored without the button leaving the focus order.
             aria-disabled={sending || undefined}
-            disabled={!sending && (!text.trim() || !!holdReason)}
+            disabled={sendBlocked}
             loading={sending}
           >
             {submitLabel ?? t('common.send')}

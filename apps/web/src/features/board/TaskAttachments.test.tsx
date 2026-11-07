@@ -1,10 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useEffect } from 'react';
 import { Link, Route, Routes } from 'react-router';
 import { MAX_ATTACHMENT_BYTES, routes } from '@projectman/shared';
 import type { HumanAccess } from '@projectman/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { applyServerEvent } from '../../api/cache';
 import { setFetchImplementation } from '../../api/client';
 import { formatBytes } from '../../i18n/format';
@@ -14,7 +14,11 @@ import { openStory, openTab } from '../../test/cardStory';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
 
-afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  setFetchImplementation((input, init) => globalThis.fetch(input, init));
+});
 
 type Project = ReturnType<typeof mockProject>;
 
@@ -513,24 +517,25 @@ describe('attachments: paste', () => {
   });
 
   it('does not take a paste that carries text into a field being edited', async () => {
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static override createObjectURL = vi.fn(() => 'blob:preview');
+        static override revokeObjectURL = vi.fn();
+      },
+    );
     const project = mockProject();
-    // The comment field is on the Comments view: the paste there must still land in the list of attachments.
+    // The comment field is on the Comments view: it takes a screenshot into its own tray (PM-1310), not into the card.
     project.render(drawerFor(project), '/p/AC/tasks/AC-20/thread');
     const field = (await screen.findAllByRole('textbox')).find((node) => node.tagName === 'TEXTAREA')!;
     const image = makeFile('image.png', 'image/png');
     // A page copied with its pictures: the text is for the field.
     expect(fireEvent.paste(field, { clipboardData: clipboard([image], 'Some copied text') })).toBe(true);
     expect(uploads(project)).toHaveLength(0);
-    // A screenshot has no text: a text field cannot take it, so it is attached.
+    // A screenshot has no text: the comment takes it, and the card's own list does not hear of it.
     expect(fireEvent.paste(field, { clipboardData: clipboard([image]) })).toBe(false);
-    // The drawer shows the Attachments view then, so the upload is in sight (PM-487).
-    expect(
-      await screen.findByRole('button', {
-        name: new RegExp(`^${t('task.view.attachments')}`),
-        pressed: true,
-      }),
-    ).toBeTruthy();
-    await findAddedRow('image.png');
+    expect(await screen.findByRole('list', { name: t('task.comments.trayLabel') })).toBeTruthy();
+    expect(uploads(project)).toHaveLength(0);
   });
 
   it('ignores a paste while a dialog is open', async () => {
@@ -650,6 +655,48 @@ describe('attachments: who may do what', () => {
     ).toBeNull();
     choose(makeFile('shot.png', 'image/png'));
     await waitFor(() => expect(uploads(project)).toHaveLength(1));
+  });
+
+  it('links a comment file to its comment and lets a client delete only their own (PM-1310)', async () => {
+    const project = mockProject();
+    const bring = (handle: string, name: string) => {
+      const actor = { kind: 'human', handle } as const;
+      const stored = project.backend.addAttachment(
+        'AC-20',
+        { name, size: 10, type: 'text/plain' },
+        actor,
+        true,
+      );
+      project.backend.viewerHandle = handle;
+      project.backend.addTaskComment('AC-20', { text: '', attachmentIds: [stored.id] });
+      return stored;
+    };
+    bring('owner', 'team.txt');
+    bring('bence', 'mine.txt');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', actAs(project, 'bence', 'client'));
+    await fromList();
+    const link = screen.getByRole('link', {
+      name: t('attachments.inCommentLabel', { fileName: 'mine.txt' }),
+    });
+    expect(link.getAttribute('href')).toMatch(/\/thread#timeline-/);
+    expect(
+      screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'mine.txt' }) }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('button', { name: t('attachments.deleteLabel', { fileName: 'team.txt' }) }),
+    ).toBeNull();
+    // A file waiting for its comment is not in the card's list for anyone else.
+    project.backend.addAttachment(
+      'AC-20',
+      { name: 'unsent.txt', size: 10, type: 'text/plain' },
+      { kind: 'human', handle: 'owner' },
+      true,
+    );
+    expect(
+      project.backend.handle('GET', routes.taskAttachments('AC', 'AC-20'), undefined).body,
+    ).toMatchObject({
+      attachments: expect.not.arrayContaining([expect.objectContaining({ fileName: 'unsent.txt' })]),
+    });
   });
 
   it.each(['viewer'] as const)(

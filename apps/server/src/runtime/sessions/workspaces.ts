@@ -207,7 +207,17 @@ export class MemberWorkspaces {
             : await this.prepareReview(config, member, key, task, record, previous, base);
         const installed = await this.manager.prepareDependencies(key);
         // A work start may land on a branch left in the middle of a merge or rebase: tell the session.
-        const left = kind === 'work' ? await this.manager.status(key) : null;
+        // Only a hint: a status that cannot be read never stops the start.
+        const left =
+          kind === 'work'
+            ? await this.manager.status(key).catch((err: unknown) => {
+                this.ctx.logger.warn(
+                  { err, taskKey: task.key, member: member.handle },
+                  'could not read the unfinished git operation of the workspace',
+                );
+                return null;
+              })
+            : null;
         const now = isoNow(this.ctx);
         const binding: TaskWorkspaceBinding = {
           ...prepared.binding,

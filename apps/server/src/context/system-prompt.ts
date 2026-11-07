@@ -629,6 +629,10 @@ function gitOperationLines({ unfinishedGitOperation: left }: ContextPackInput): 
   const files = left.conflicts.length
     ? ` Files in conflict: ${codeList(left.conflicts)}.`
     : ' No file is in conflict (git status shows what is left).';
+  if (left.operation === 'index-lock' || left.operation === 'head-lock')
+    return [
+      `This workspace holds a git lock file (${left.operation}), left by an interrupted git command. If no git process runs, delete the lock file before other work.`,
+    ];
   return [
     `This workspace was left in the middle of a git operation (${left.operation}).${files} Settle it first, before other work: resolve it and finish it (commit, or --continue), or stop it with --abort; do not leave it half-done when you end.`,
   ];

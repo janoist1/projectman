@@ -384,6 +384,20 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(await branchOf(dev1)).toBe(own);
   });
 
+  it('starts the member even when the workspace status cannot be read (PM-1326)', async () => {
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        status: async () => {
+          throw new Error('fixture: status unreadable');
+        },
+      }),
+    });
+    await startTask('AR-1', 'dev-1');
+    expect(h.runner.lastStarted()).toMatchObject({ member: 'dev-1' });
+    expect(h.contextBuilder.inputs.at(-1)?.unfinishedGitOperation).toBeUndefined();
+  });
+
   it('resumes a task on its own branch with its uncommitted work, in the same conversation', async () => {
     await setup();
     await startTask('AR-1', 'dev-1');

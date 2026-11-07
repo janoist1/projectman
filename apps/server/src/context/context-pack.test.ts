@@ -4180,6 +4180,12 @@ describe('member workspaces (PM-138)', () => {
       expect(text).toContain('docs/b.md');
     });
 
+    it('treats a leftover lock file as a lock, not as an operation to continue', () => {
+      const text = promptFor({ operation: 'index-lock', conflicts: [] });
+      expect(text).toContain('(index-lock)');
+      expect(text).not.toContain('--continue');
+    });
+
     it('says nothing when the workspace is settled', () => {
       expect(promptFor()).not.toContain('middle of a git operation');
     });

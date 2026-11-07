@@ -29,6 +29,14 @@ export interface TaskCommentComposerProps {
   onCancel?: () => void;
   /** The comment was posted; `clientRequestId` is the one it was sent with. */
   onPosted?: (clientRequestId: string) => void;
+  /** Texts a host box (the reply of a mention in Rád vár, PM-1276) says in its own words. */
+  hint?: string;
+  submitLabel?: string;
+  failureText?: string;
+  /** Sending is held back (the text and the box stay), the reason shown above the buttons; a role=status line. */
+  holdReason?: string;
+  /** The box is sending (true) or stopped; a host disables its other actions meanwhile. */
+  onSendingChange?: (sending: boolean) => void;
 }
 
 export function TaskCommentComposer({
@@ -40,6 +48,11 @@ export function TaskCommentComposer({
   autoFocus,
   onCancel,
   onPosted,
+  hint,
+  submitLabel,
+  failureText,
+  holdReason,
+  onSendingChange,
 }: TaskCommentComposerProps) {
   const { key } = useProject();
   const mutation = useCreateTaskComment(key);
@@ -56,6 +69,7 @@ export function TaskCommentComposer({
   const listId = useId();
   const contacts = useContacts();
   const sending = mutation.isPending;
+  useEffect(() => onSendingChange?.(sending), [sending, onSendingChange]);
   // A member who writes only to the contacts mentions only them (PM-985); the others get no notice anyway.
   const mentionable = distinctMembers(members).filter((member) => contacts.canWriteTo(member.handle));
   const noContacts = contacts.restricted && contacts.ready && mentionable.length === 0;
@@ -101,25 +115,28 @@ export function TaskCommentComposer({
   };
   const submit = () => {
     const body = text.trim();
-    if (!body || sending) return;
+    if (!body || sending || holdReason) return;
     const clientRequestId = (attempt.current ??= crypto.randomUUID());
-    mutation.mutate(
-      { taskKey, body: { text: body, clientRequestId, ...(replyTo ? { replyTo } : {}) } },
-      {
-        onSuccess: () => {
+    // The promise, not the mutate callbacks: the host may drop this box while the server answers (the item the
+    // box stands in can leave its list), and the callbacks of a box that is gone would never run.
+    mutation
+      .mutateAsync({ taskKey, body: { text: body, clientRequestId, ...(replyTo ? { replyTo } : {}) } })
+      .then(
+        () => {
           attempt.current = null;
           draft.clear();
           setMention(null);
           onPosted?.(clientRequestId);
           onCancel?.();
         },
-      },
-    );
+        // The failure shows in the box (`mutation.isError`).
+        () => undefined,
+      );
   };
   const failure = mutation.isError
     ? isApiError(mutation.error) && codeMessage(mutation.error.code)
       ? codeMessage(mutation.error.code)
-      : t('task.comments.sendFailed')
+      : (failureText ?? t('task.comments.sendFailed'))
     : null;
   return (
     <form
@@ -135,9 +152,11 @@ export function TaskCommentComposer({
         hint={
           !open
             ? undefined
-            : contacts.restricted
-              ? t(noContacts ? 'task.comments.contactsHintNone' : 'task.comments.contactsHint')
-              : t('task.comments.hint')
+            : hint
+              ? hint
+              : contacts.restricted
+                ? t(noContacts ? 'task.comments.contactsHintNone' : 'task.comments.contactsHint')
+                : t('task.comments.hint')
         }
         rows={open ? 3 : 1}
         maxLength={TASK_COMMENT_MAX}
@@ -219,16 +238,21 @@ export function TaskCommentComposer({
       <p className={styles.live} aria-live="polite">
         {sending ? t('task.comments.sending') : ''}
       </p>
+      {holdReason ? (
+        <p role="status" className={styles.live}>
+          {holdReason}
+        </p>
+      ) : null}
       {open ? (
         <div className={styles.actions}>
           <Button
             type="submit"
             // aria-disabled, not disabled: a second click is ignored without the button leaving the focus order.
             aria-disabled={sending || undefined}
-            disabled={!sending && !text.trim()}
+            disabled={!sending && (!text.trim() || !!holdReason)}
             loading={sending}
           >
-            {t('common.send')}
+            {submitLabel ?? t('common.send')}
           </Button>
           {onCancel ? (
             <Button type="button" variant="ghost" onClick={onCancel}>

@@ -73,6 +73,7 @@ export function EmptyState({
   action,
   tone = 'neutral',
   titleAs: Title = 'span',
+  titleFocusable,
   className,
 }: {
   icon?: IconName;
@@ -82,6 +83,8 @@ export function EmptyState({
   tone?: 'neutral' | 'ok';
   /** Use a heading when the empty state is the whole page. */
   titleAs?: 'span' | 'h1' | 'h2';
+  /** The title can take the focus from code (a list that has just emptied). */
+  titleFocusable?: boolean;
   className?: string;
 }) {
   return (
@@ -90,7 +93,12 @@ export function EmptyState({
         <Icon name={icon} size={22} strokeWidth={2.4} />
       </span>
       <div className={styles.emptyText}>
-        <Title className={styles.emptyTitle}>{title}</Title>
+        <Title
+          className={styles.emptyTitle}
+          {...(titleFocusable ? { tabIndex: -1, 'data-empty-title': '' } : {})}
+        >
+          {title}
+        </Title>
         {body ? <span className={styles.emptyBody}>{body}</span> : null}
       </div>
       {action}

@@ -1,0 +1,53 @@
+/* The card of a mention in Rád vár (PM-1276). The shared card styles come from InboxCard.module.css. */
+
+.excerpt {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.toggle {
+  align-self: flex-start;
+  min-height: 44px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.jump {
+  text-decoration: none;
+}
+
+.notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--c-muted);
+  font-size: var(--text-md);
+  color: var(--c-ink-2);
+}
+
+.reply {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.replyTitle {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+/* Phone: "Láttam" and "Válasz" side by side, the jump full width below them. */
+.mobile .actions > * {
+  flex: 1 1 calc(50% - 4px);
+  min-height: 44px;
+}
+
+.mobile .actions > .jump {
+  flex-basis: 100%;
+}

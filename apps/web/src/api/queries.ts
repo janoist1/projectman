@@ -921,7 +921,8 @@ export function useResolveInbox(key: string, myHandle: string | null) {
       await client.cancelQueries({ queryKey: queryKeys.inbox(key) });
       const previous = client.getQueryData<InboxView>(queryKeys.inbox(key));
       // Knowledge approval must remain pending until the server records the agreement.
-      if (item.payload.operatorKnowledge) return { previous };
+      // A mention closes only after the server's answer (PM-1276): the card says "Lezárás…" meanwhile.
+      if (item.payload.operatorKnowledge || item.kind === 'mention') return { previous };
       const resolved: InboxItem = {
         ...item,
         state: 'resolved',
@@ -1128,6 +1129,9 @@ export function useCreateTaskComment(key: string) {
     onSuccess: async (detail) => {
       writeTaskDetail(client, key, detail);
       void client.invalidateQueries({ queryKey: queryKeys.taskComments(key, detail.task.key) });
+      // A reply closes the writer's own mention items of its thread (PM-1276).
+      void client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
+      void client.invalidateQueries({ queryKey: queryKeys.inboxHistory(key) });
       // Mentions message the mentioned members.
       await client.invalidateQueries({ queryKey: queryKeys.messages(key) });
     },

@@ -725,6 +725,13 @@ export function resolutionLabel(item: InboxItem): string {
   if (closed.success) return t(`inbox.resolutions.${closed.data}`);
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
+  // A mention closes by "Láttam" or by the viewer's reply in its thread (PM-1276).
+  if (item.kind === 'mention')
+    return t(
+      item.resolution?.rule === 'mention_replied'
+        ? 'inbox.mention.historyReplied'
+        : 'inbox.mention.historySeen',
+    );
   if (item.resolution?.rule === 'outage_ended') return t('inbox.resolutions.outage_ended');
   if (item.resolution?.rule === 'loop_ended') return t('inbox.resolutions.loop_ended');
   if (item.resolution?.rule === 'fix_limit_ended') return t('inbox.resolutions.fix_limit_ended');
@@ -804,7 +811,8 @@ export function resolverName(item: InboxItem, members: MemberIndex, myHandle: st
       return t('inbox.closedBySystem');
     return nameOf(resolution?.by ?? null, members, myHandle);
   }
-  if (resolution?.rule) return t(`inbox.resolutionRules.${resolution.rule}`);
+  // The mention's own history line already says what happened; the resolver is the person.
+  if (resolution?.rule && item.kind !== 'mention') return t(`inbox.resolutionRules.${resolution.rule}`);
   return nameOf(resolution && resolution.by !== 'system' ? resolution.by : null, members, myHandle);
 }
 

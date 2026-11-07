@@ -54,6 +54,8 @@ export interface WorkspacePlacement {
   newGeneration: boolean;
   /** The engine installed nothing and the clone lacks usable `node_modules` (PM-1203). */
   dependencies?: WorkspaceDependencyShortfall;
+  /** The branch was left in the middle of a git operation (PM-1326): the member settles it first. */
+  gitOperation?: { operation: string; conflicts: string[] };
 }
 
 interface MemberWorkspacesDeps {
@@ -204,6 +206,8 @@ export class MemberWorkspaces {
             ? await this.prepareWork(config, member, key, task, record, previous, base)
             : await this.prepareReview(config, member, key, task, record, previous, base);
         const installed = await this.manager.prepareDependencies(key);
+        // A work start may land on a branch left in the middle of a merge or rebase: tell the session.
+        const left = kind === 'work' ? await this.manager.status(key) : null;
         const now = isoNow(this.ctx);
         const binding: TaskWorkspaceBinding = {
           ...prepared.binding,
@@ -225,6 +229,9 @@ export class MemberWorkspaces {
           newGeneration: previous !== null && previous.generation !== record.generation,
           ...(installed.status === 'skipped' && installed.dependencies
             ? { dependencies: installed.dependencies }
+            : {}),
+          ...(left?.operation
+            ? { gitOperation: { operation: left.operation, conflicts: left.conflicts } }
             : {}),
         };
       } catch (err) {

@@ -2197,6 +2197,13 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   Its local branches remain intact. `REVIEW_DUTIES`, stage hand-over pins and the RPC contracts
   stay unchanged. The design review runs on the engine beside the other member workspaces;
   no path is read on the hub and no new machine assumption is introduced.
+  **An unfinished git operation (PM-1326):** `MemberWorkspaceManager.checkoutTaskBranch` returns at
+  once when the task's own branch is already checked out (also detached inside a rebase), so a merge,
+  rebase, cherry-pick or uncommitted work left by a pause or an engine switch no longer blocks the
+  member's restart; a clean workspace is needed only to switch branches. `workspace.status` (RPC,
+  additive `conflicts` field, read on the engine with `git diff --diff-filter=U`) gives the
+  operation and the conflicting files to the hub, which puts them in the session context. Everything
+  runs on the engine beside the workspace; no new machine assumption.
   **A fresh base at every start (PM-740):** a member workspace has no remote, so its default
   branch goes stale unless the server fetches it. `MemberWorkspaces.prepare` calls
   `MemberWorkspaceManager.fetchBase` (RPC `workspace.fetchBase`, unchanged) once per session

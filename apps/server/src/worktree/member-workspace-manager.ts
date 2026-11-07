@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { lstat, writeFile } from 'node:fs/promises';
+import { lstat, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   MemberWorkspaceErrorCode,
@@ -51,6 +51,9 @@ const OPERATION_MARKERS: Array<[string, string]> = [
   ['index.lock', 'index-lock'],
   ['HEAD.lock', 'head-lock'],
 ];
+
+/** The conflicting files a session's context names; more are left to `git status`. */
+const MAX_CONFLICT_FILES = 20;
 
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const HANDLE = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -302,17 +305,34 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     return null;
   }
 
+  /** The branch an unfinished rebase works on: HEAD is detached while it runs. */
+  async function rebasingBranch(gitDir: string): Promise<string | null> {
+    for (const dir of ['rebase-merge', 'rebase-apply']) {
+      const name = await readFile(path.join(gitDir, dir, 'head-name'), 'utf8').catch(() => null);
+      const ref = name?.trim() ?? '';
+      if (ref.startsWith('refs/heads/')) return ref.slice('refs/heads/'.length);
+    }
+    return null;
+  }
+
   async function inspect(info: MemberWorkspaceInfo) {
     const operation = await operationIn(info.gitDir);
     const porcelain = await gitIn(info.path, ['status', '--porcelain', '--untracked-files=normal']);
     return { dirty: porcelain.trim().length > 0, operation, checkout: await checkoutOf(info.path) };
   }
 
+  /** The paths with unresolved conflicts (unmerged index entries), at most `MAX_CONFLICT_FILES`. */
+  async function conflictsIn(info: MemberWorkspaceInfo): Promise<string[]> {
+    const out = await gitIn(info.path, ['diff', '--name-only', '--diff-filter=U', '-z']).catch(() => '');
+    return out.split('\0').filter(Boolean).sort().slice(0, MAX_CONFLICT_FILES);
+  }
+
   async function status(key: MemberWorkspaceKey) {
     const { dir, info } = await locate(key);
     return withLock(dir, async () => {
       await assertWorkspace(info);
-      return inspect(info);
+      const state = await inspect(info);
+      return { ...state, conflicts: state.dirty ? await conflictsIn(info) : [] };
     });
   }
 
@@ -754,9 +774,13 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
       await assertWorkspace(info);
       await assertDependenciesIdle(key, info);
       await assertBranchName(target.branch);
-      // Already there (a resumed task): its own unfinished work stays as it is.
+      // Already there (a resumed task): its own unfinished work, a half-done merge or rebase included,
+      // stays as it is, so the member can finish or abort it (PM-1326). A clean workspace is needed
+      // only to switch branches.
       const before = await checkoutOf(info.path);
-      if (before?.branch === target.branch && !(await operationIn(info.gitDir))) return before;
+      if (before?.branch === target.branch) return before;
+      if (before?.branch === null && (await rebasingBranch(info.gitDir)) === target.branch)
+        return { branch: target.branch, head: before.head };
       await assertClean(info);
       const ref = `refs/heads/${target.branch}`;
       const present = await refExists(info.path, ref);

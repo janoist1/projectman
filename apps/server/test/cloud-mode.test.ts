@@ -104,6 +104,7 @@ describe('the cloud composition with a fake engine', () => {
       'workspace.status': () => ({
         dirty: false,
         operation: null,
+        conflicts: [],
         checkout: { branch: 'main', head: 'c0ffee' },
       }),
       'workspace.sourceHead': () => null,

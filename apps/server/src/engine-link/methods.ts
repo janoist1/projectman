@@ -511,7 +511,12 @@ const workspaces = {
   ensure: method(z.tuple([key]), workspaceInfo.extend({ created: z.boolean() })),
   status: method(
     z.tuple([key]),
-    z.strictObject({ dirty: z.boolean(), operation: text.nullable(), checkout: checkout.nullable() }),
+    z.strictObject({
+      dirty: z.boolean(),
+      operation: text.nullable(),
+      conflicts: z.array(text).max(100),
+      checkout: checkout.nullable(),
+    }),
   ),
   sourceHead: method(z.tuple([key, text]), head.nullable()),
   fetchBase: method(z.tuple([key]), z.strictObject({ branch: text, commit: text })),

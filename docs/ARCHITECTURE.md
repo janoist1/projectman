@@ -287,7 +287,9 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   when its member has no open queue item on that card and a queued item needs another card (PM-927).
   Otherwise the start waits
   (`workspace_busy`). A branch switch needs a clean workspace with no unfinished git operation
-  (`workspace_dirty`); nothing is stashed, reset, cleaned or removed, and done or cancelled tasks
+  (`workspace_dirty`); the member's own task branch that is already checked out starts as it is,
+  also in the middle of a merge, rebase or cherry-pick, and the session context names the
+  operation and the conflicting files (PM-1326); nothing is stashed, reset, cleaned or removed, and done or cancelled tasks
   leave the workspace, its branches and dependencies in place. A conversation of an older
   generation of the workspace (made again or moved) is not resumed. Memory stays per project and
   member (`memory/<KEY>/<handle>.md`). The merger resolves conflicts in the card engine's

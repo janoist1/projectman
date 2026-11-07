@@ -1,4 +1,5 @@
 import {
+  answersMessage,
   coordinationMemberOf,
   hasGuestConversations,
   hasBoundOrigin,
@@ -21,8 +22,10 @@ import type {
   InboxItem,
   MessageAttachmentRef,
   ProjectConfig,
+  Session,
   TeamMessage,
   TeamMessageAnswer,
+  TimelineEvent,
   TeamThread,
   WorkItemRef,
 } from '@projectman/shared';
@@ -32,8 +35,13 @@ import type { DomainContext } from '../../core/base';
 import type { MessageRequests } from './ports';
 import type { TimelineService } from '../../core/timeline';
 import type { ProjectService } from '../../core/projects';
+import type { MessageTurnEnd } from '../../db';
+import { MessageTurns } from './turns';
 import { forbidden, notFound } from '../../kernel';
 import { excerpt, newId, SYSTEM_ACTOR } from '../../kernel';
+
+/** How far back a new message looks for the messages it may answer. */
+const ANSWER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 interface RecordMessageInput {
   clientRequestId?: string;
@@ -85,6 +93,7 @@ export class MessageService {
   private readonly projects: ProjectService;
 
   private readonly coordinationRequests: MessageRequests;
+  private readonly turns: MessageTurns;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -96,6 +105,7 @@ export class MessageService {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.coordinationRequests = deps.coordinationRequests;
+    this.turns = new MessageTurns({ ctx: deps.ctx });
   }
 
   get(id: string): TeamMessage | null {
@@ -154,6 +164,7 @@ export class MessageService {
     return this.ctx.unitOfWork(() => {
       this.ctx.repos.messages.insert(message, input.clientRequestId);
       this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+      this.turns.announce(this.answeredBy(message));
       this.timeline.append({
         projectKey: message.projectKey,
         taskKey: message.taskKey,
@@ -212,13 +223,58 @@ export class MessageService {
     return message;
   }
 
-  markRecipientDelivered(id: string, handle: string): TeamMessage | null {
+  /**
+   * `sessionId` is the session the message was typed into: its turn is written with the receipt (PM-1290), once
+   * per message and recipient however often the message is typed.
+   */
+  markRecipientDelivered(id: string, handle: string, sessionId?: string): TeamMessage | null {
     // Receipt and authorization must commit together: a crash cannot consume a continuation
     // without opening its request, nor open a request for a receipt that rolled back.
-    return this.ctx.unitOfWork(() => this.markRecipientDeliveredLocked(id, handle));
+    return this.ctx.unitOfWork(() => this.markRecipientDeliveredLocked(id, handle, sessionId));
   }
 
-  private markRecipientDeliveredLocked(id: string, handle: string): TeamMessage | null {
+  /** The session's turn ended (it went idle, or it ended): the messages typed into it before that are processed. */
+  closeTurns(session: Session, endState: MessageTurnEnd): void {
+    const at = (endState === 'idle' ? session.stateSince : session.endedAt) ?? session.lastActivityAt;
+    this.ctx.unitOfWork(() => this.turns.close(session, at, endState));
+  }
+
+  /** The session's state changed: the messages of its open turns show it. */
+  sessionStateChanged(session: Session): void {
+    this.turns.stateChanged(session);
+  }
+
+  /** A comment answering another was recorded: the notices of that comment to its author are read again. */
+  commentReplied(event: TimelineEvent): void {
+    const thread = event.data.replyTo;
+    const handle = event.actor.handle;
+    if (typeof thread !== 'string' || !handle || !event.taskKey) return;
+    // The answer closes the thread: the notices of its first comment and of every reply in it are read again.
+    const comments = [
+      thread,
+      ...this.ctx.repos.timeline
+        .notesOfCard(event.projectKey, event.taskKey)
+        .filter((note) => note.data.replyTo === thread)
+        .map((note) => note.id),
+    ];
+    this.turns.announce(
+      this.ctx.repos.messages.noticesOfNotes(comments).filter((m) => m.to.includes(handle)),
+    );
+  }
+
+  /**
+   * The messages this one may answer for its sender (PM-1290): a message from one of its recipients to the sender,
+   * delivered already, that `answersMessage` says it answers. Their processing is read again.
+   */
+  private answeredBy(message: TeamMessage): TeamMessage[] {
+    const since = new Date(this.ctx.now().getTime() - ANSWER_WINDOW_MS).toISOString();
+    return this.ctx.repos.messages.sentSince(message.projectKey, message.to, since).filter((candidate) => {
+      const deliveredAt = candidate.receipts?.find((receipt) => receipt.handle === message.from)?.deliveredAt;
+      return !!deliveredAt && answersMessage(candidate, message, deliveredAt);
+    });
+  }
+
+  private markRecipientDeliveredLocked(id: string, handle: string, sessionId?: string): TeamMessage | null {
     const before = this.ctx.repos.messages.get(id);
     if (!before) return null;
     const at = isoNow(this.ctx);
@@ -235,6 +291,7 @@ export class MessageService {
     const message = this.ctx.repos.messages.updateReceipts(id, receipts, deliveredAt);
     if (message) {
       this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+      if (sessionId) this.turns.open(message, handle, sessionId, at);
       const first = !(before.receipts
         ? before.receipts.find((r) => r.handle === handle)?.deliveredAt
         : before.deliveredAt);

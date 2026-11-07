@@ -1296,6 +1296,11 @@ Below `team.limits.minFreeDiskGb` (default 10, 0 turns it off) the integrator ge
 there is room again, and `Admission.check` refuses a new AI session with `disk_low` (deferrable: the start waits).
 Running sessions finish their step. A measurement that fails never blocks anything.
 
+`MachineGuard` (PM-1278 B2) does the same for the engine machine's memory: `Admission.check` asks it before the disk, and
+a `critical` pressure reading (`EngineHost.machineLoad`, from the engine's `pressure.json`) refuses a new AI session with
+`machine_busy` (deferrable). `warn`, no reading and the running sessions are left alone. Critical for more than ten
+minutes becomes one `machine_busy` todo for the integrator, withdrawn when the pressure eases.
+
 ### Loop watch
 
 `LoopWatch` (`runtime/watchers`, PM-261; it replaced the message storm alert of PM-186 and

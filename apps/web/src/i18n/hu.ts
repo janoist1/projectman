@@ -778,6 +778,7 @@ export const hu = {
       plan_usage_paused: 'A szolgáltató előfizetésének használata túl magas.',
       provider_rate_limited: 'A szolgáltató korlátja miatt a munkamenet később próbálkozik újra.',
       disk_low: 'Kevés a szabad lemezhely, ezért új munkamenet most nem indul.',
+      machine_busy: 'A gép memóriája túlterhelt, ezért új munkamenet most nem indul.',
       ai_disabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
       team_paused: 'A csapat szünetelt.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
@@ -1934,6 +1935,7 @@ export const hu = {
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
       provider_rate_limited: 'NanoGPT: korlát. Az újrapróba automatikusan indul a várakozás után.',
       disk_low: 'Kevés a szabad lemezhely, ezért új AI-munka most nem indul.',
+      machine_busy: 'A gép memóriája túlterhelt, ezért új AI-munka most nem indul.',
       ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
       team_paused: 'A csapat szünetel: amíg tart, új munka nem indul.',
       instance_standby:
@@ -2361,6 +2363,7 @@ export const hu = {
       provider_rate_limited: '{provider}: korlát, újrapróba {until}',
       provider_rate_limited_unknown: 'NanoGPT: korlát, a keret állapotára vár',
       disk_low: 'Indulásra vár: kevés a szabad lemezhely',
+      machine_busy: 'Indulásra vár: a gép memóriája túlterhelt',
       ai_disabled: 'Indulásra vár: az AI-munka ki van kapcsolva',
       team_paused: 'Indulásra vár: a csapat szünetel',
       member_at_capacity: 'Indulásra vár: {name} tele van',
@@ -2417,6 +2420,8 @@ export const hu = {
         'Várj a keret megújulására, vagy emeld a szüneteltetési küszöböt a Beállítások → Keretek alatt.',
       disk_low:
         'Szabadíts fel lemezhelyet (például töröld a régi munkafákat és buildeket), vagy csökkentsd a határt a Beállítások → Keretek alatt.',
+      machine_busy:
+        'Várj, amíg a gép memóriája kicsit megpihen; érdemes leállítani a felesleges programokat (fejlesztői szerver, Docker, böngésző).',
       ai_disabled: 'Kapcsold be a Beállítások → Keretek alatt.',
       team_paused: 'A munka magától elindul, amikor a csapat folytatja.',
       member_at_capacity: 'Szabadíts fel egy tagot: fejezd be vagy add át a többi kártyáját.',
@@ -2491,6 +2496,7 @@ export const hu = {
         plan_usage_paused: 'a {provider}-keret {percent}% fölött szünetel',
         provider_rate_limited: 'a {provider} korlátot jelzett',
         disk_low: 'kevés a szabad lemezhely',
+        machine_busy: 'a gép memóriája túlterhelt',
         ai_disabled: 'az AI-munka ki van kapcsolva',
         team_paused: 'a csapat szünetel',
         member_at_capacity: 'mással foglalkozik, utána sorra kerül',
@@ -5024,6 +5030,10 @@ export const hu = {
         heading: 'Fogy a lemezhely',
         body: 'Már csak {free} szabad hely van a lemezen; a határ {threshold}. Amíg nincs elég hely, új AI-munkamenet nem indul, a futók befejezhetik a lépésüket. Szabadíts fel helyet (régi munkafák, buildek), vagy állítsd a határt a Beállítások → Keretek alatt. Ha újra van elég hely, a figyelmeztetés magától megszűnik.',
       },
+      machine_busy: {
+        heading: 'A gép memóriája régóta túlterhelt',
+        body: 'A motorgép memóriája {minutes} perce kritikus nyomás alatt van. Amíg így marad, új AI-munkamenet nem indul, a futók befejezhetik a lépésüket. Állítsd le, ami felesleges (fejlesztői szerverek, Docker, böngésző). Ha a nyomás enyhül, a figyelmeztetés magától megszűnik.',
+      },
       /** A provider or an engine that cannot work (PM-468): what broke, what to do, what waits for it. */
       work_outage: {
         headings: {
@@ -5267,6 +5277,37 @@ export const hu = {
       resultPlaceholder: 'Mi lett? Pl. a kimenet vége…',
       reasonRequired: 'Írd meg röviden, miért nem.',
       emptyFilter: 'Ebben nincs teendőd.',
+    },
+    /** The card of a mention in Rád vár (PM-1276). */
+    mention: {
+      title: {
+        comment: 'Megemlített egy hozzászólásban',
+        reply: 'Megemlített egy válaszban',
+        note: 'Megemlített egy jegyzetben',
+      },
+      expand: 'Teljes kivonat',
+      collapse: 'Rövidebben',
+      seen: 'Láttam',
+      closing: 'Lezárás…',
+      reply: 'Válasz',
+      jump: 'Ugrás a hozzászóláshoz',
+      jumpNote: 'Ugrás a jegyzethez',
+      replyTitle: 'Válasz {name} hozzászólására',
+      replyLabel: 'Válasz szövege',
+      replyHint: 'A válasz az eredeti hozzászólás alá kerül. Küldés után az említés lezárul.',
+      replySend: 'Válasz küldése',
+      replyFailed: 'Nem sikerült elküldeni a választ. A szöveged megmaradt. Próbáld újra.',
+      replied: 'Válasz elküldve. Az említés lezárult.',
+      closed: 'Az említés lezárult.',
+      closeFailed: 'Nem sikerült lezárni az említést. Próbáld újra.',
+      goneReplied: 'Már válaszoltál ebben a szálban; az említés lezárult. A piszkozatod megmaradt.',
+      goneClosed: 'Az említés közben lezárult. A piszkozatod megmaradt.',
+      missing: 'A hozzászólás nem érhető el.',
+      missingHint: 'Az említést a Láttam gombbal lezárhatod.',
+      emptyFilter: 'Ebben nincs teendőd.',
+      emptyFilterBody: 'Ha megemlítenek egy hozzászólásban, itt találod.',
+      historySeen: 'Láttad az említést.',
+      historyReplied: 'Válaszoltál az említésre.',
     },
     /** What the Operator said about a question that came to the viewer (PM-556). */
     operatorNote: 'Csatlakoztatott Claude:',

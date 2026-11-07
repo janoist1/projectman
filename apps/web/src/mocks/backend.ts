@@ -125,8 +125,15 @@ import {
   visibleQuestionItem,
   isPendingQuestion,
   questionGroupLiveItemIds,
+  canSeeAllTeamMessages,
   canSeeTeamMessage,
   canSeeTimelineEvent,
+  commentMentionFacts,
+  commentReplyOf,
+  mentionPayloadOf,
+  messageProcessingOf,
+  messageReplyOf,
+  visibleProcessing,
   messageConversationOf,
   isCardMessage,
   isUnreadBy,
@@ -3171,8 +3178,17 @@ export class MockBackend {
         .filter((message) => !taskKey || message.taskKey === taskKey)
         .filter((message) => !taskKey || query.get('place') !== 'card' || isCardMessage(message))
         .filter((message) => query.get('unreadOnly') !== 'true' || isUnreadBy(message, this.viewerHandle));
+      const viewer = this.taskViewer();
       return ok({
-        messages: clone(listed.slice(-limit)),
+        messages: clone(
+          listed.slice(-limit).map((message) => {
+            const items =
+              message.from === this.viewerHandle || canSeeAllTeamMessages(viewer)
+                ? visibleProcessing(viewer, message.from, this.processingOfMessage(message))
+                : undefined;
+            return items ? { ...message, processing: items } : message;
+          }),
+        ),
         unreadCount: this.messages.filter((message) => isUnreadBy(message, this.viewerHandle)).length,
       });
     }
@@ -4450,7 +4466,7 @@ export class MockBackend {
 
   /** One page of the card's comment threads (PM-1290); null when `before` or `around` names no comment. */
   taskComments(taskKey: string, query: TaskCommentsQuery): TaskCommentsPage | null {
-    return pageCommentThreads(
+    const page = pageCommentThreads(
       withGoneCommentFiles(
         clone(
           this.timeline.filter(
@@ -4468,6 +4484,90 @@ export class MockBackend {
       ),
       query,
     );
+    if (!page) return page;
+    const viewer = this.taskViewer();
+    return {
+      ...page,
+      threads: page.threads.map((thread) => {
+        const author = thread.comment.actor.handle ?? '';
+        const mentions = Array.isArray(thread.comment.data.mentions)
+          ? (thread.comment.data.mentions as string[]).filter((handle) => handle !== author)
+          : [];
+        const notes = this.timeline.filter(
+          (event) => event.taskKey === taskKey && event.type === 'task_note',
+        );
+        const items = visibleProcessing(
+          viewer,
+          author,
+          mentions.map((handle) => {
+            // The notice message of the mention, else (a person) its Rád vár item, by the server's shared rule.
+            const notice = this.messages.find(
+              (message) =>
+                message.origin?.kind === 'note' &&
+                message.origin.eventId === thread.comment.id &&
+                message.to.includes(handle),
+            );
+            const item = this.inbox.find(
+              (candidate) =>
+                mentionPayloadOf(candidate)?.eventId === thread.comment.id &&
+                candidate.assignees.includes(handle),
+            );
+            const facts = commentMentionFacts({
+              hasNotice: !!notice,
+              notice: this.receiptFacts(notice, handle),
+              itemCreatedAt: item?.createdAt,
+            });
+            const reply = facts.deliveredAt
+              ? commentReplyOf({
+                  comment: thread.comment,
+                  taskKey,
+                  handle,
+                  deliveredAt: facts.deliveredAt,
+                  notes,
+                  sent: this.messages.filter((message) => message.from === handle),
+                })
+              : null;
+            return messageProcessingOf({ handle, now: Date.now(), ...facts, reply });
+          }),
+        );
+        return items ? { ...thread, processing: items } : thread;
+      }),
+    };
+  }
+
+  /** The receipt facts of a message for a recipient, as the projection reads them. */
+  private receiptFacts(message: TeamMessage | undefined, handle: string) {
+    const receipt = message?.receipts?.find((candidate) => candidate.handle === handle);
+    return {
+      deliveredAt: receipt?.deliveredAt ?? null,
+      readAt: receipt?.readAt ?? null,
+      handedOffTo: receipt?.handedOffTo ?? null,
+    };
+  }
+
+  /**
+   * What became of a message for its recipients, with the rule the server uses (`messageProcessingOf`). The fake
+   * has no sessions, so it shows the receipts and the recipient's answer.
+   */
+  private processingOfMessage(message: TeamMessage) {
+    return message.to.map((handle) => {
+      const facts = this.receiptFacts(message, handle);
+      const notes = message.taskKey
+        ? this.timeline.filter((event) => event.taskKey === message.taskKey && event.type === 'task_note')
+        : [];
+      const eventId = message.origin?.kind === 'note' ? message.origin.eventId : null;
+      const reply = facts.deliveredAt
+        ? messageReplyOf({
+            message,
+            handle,
+            deliveredAt: facts.deliveredAt,
+            origin: notes.find((note) => note.id === eventId) ?? null,
+            notes,
+            sent: this.messages.filter((candidate) => candidate.from === handle),
+          })
+        : null;
+      return messageProcessingOf({ handle, now: Date.now(), ...facts, reply });
+    });
   }
 
   /** The files that still exist: a comment shows the others as gone (the stored ref stays). */

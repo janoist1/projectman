@@ -49,6 +49,7 @@ import {
   defaultHeavyLockDir,
   endHeavySessionRuns,
   readHeavyRunSessions,
+  readMachineLoad,
   startPressureMeter,
   withGithubRuns,
 } from './full-test';
@@ -516,6 +517,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
         roots.workRoot
           ? Math.min(await freeBytesOf(home), await freeBytesOf(roots.worktrees))
           : freeBytesOf(home),
+      machineLoad: () => readMachineLoad(heavyLockDir),
       heavyRunSessions: () => readHeavyRunSessions(heavyLockDir),
       endSessionRuns: (sessionId) => endHeavySessionRuns(heavyLockDir, sessionId),
       workspacePath: (projectKey) =>

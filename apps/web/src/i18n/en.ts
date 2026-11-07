@@ -550,6 +550,7 @@ export const en = {
       plan_usage_paused: 'The provider plan is high, so new AI work doesn’t start now.',
       provider_rate_limited: 'NanoGPT: rate limit. The retry starts automatically after the wait.',
       disk_low: 'There’s little free disk space, so new AI work doesn’t start now.',
+      machine_busy: 'The machine is short of memory, so new AI work doesn’t start now.',
       ai_disabled: 'AI work is switched off in this project (Settings → Limits).',
       team_paused: 'The team is paused: new work doesn’t start while it lasts.',
       instance_standby:
@@ -1210,6 +1211,7 @@ export const en = {
       provider_rate_limited: '{provider}: rate limited, retry at {until}',
       provider_rate_limited_unknown: 'NanoGPT: rate limited, waiting for plan status',
       disk_low: 'Waiting to start: low disk space',
+      machine_busy: 'Waiting to start: the machine is short of memory',
       ai_disabled: 'Waiting to start: AI work is off',
       team_paused: 'Waiting to start: team paused',
       member_at_capacity: 'Waiting to start: {name} is at capacity',
@@ -1264,6 +1266,8 @@ export const en = {
       plan_usage_paused: 'Wait for the plan to reset, or raise the pause threshold in Settings → Limits.',
       disk_low:
         'Free disk space (for example, remove old worktrees and builds), or lower the threshold in Settings → Limits.',
+      machine_busy:
+        'Wait for the machine’s memory to ease; it helps to stop programs that aren’t needed (dev servers, Docker, browsers).',
       ai_disabled: 'Turn it on in Settings → Limits.',
       team_paused: 'Work starts automatically when the team resumes.',
       member_at_capacity: 'Free a member by finishing or handing off their other cards.',
@@ -1327,6 +1331,7 @@ export const en = {
         plan_usage_paused: '{provider} plan paused above {percent}%',
         provider_rate_limited: '{provider} reported a rate limit',
         disk_low: 'low disk space',
+        machine_busy: 'the machine is short of memory',
         ai_disabled: 'AI work is off',
         team_paused: 'team paused',
         member_at_capacity: 'busy with other work, then this card is next',
@@ -4879,6 +4884,10 @@ export const en = {
         heading: 'Running out of disk space',
         body: 'Only {free} of disk space is left; the limit is {threshold}. Until there is enough, no new AI session starts; running ones can finish their step. Free up space (old worktrees, builds) or change the limit under Settings → Limits. When there is enough space again, the alert goes away by itself.',
       },
+      machine_busy: {
+        heading: 'The machine has been short of memory for a while',
+        body: 'The engine machine’s memory has been under critical pressure for {minutes} min. Until it eases, no new AI session starts; running ones can finish their step. Stop what isn’t needed (dev servers, Docker, browsers). When the pressure eases, the alert goes away by itself.',
+      },
       /** A provider or an engine that cannot work (PM-468): what broke, what to do, what waits for it. */
       work_outage: {
         headings: {
@@ -5119,6 +5128,37 @@ export const en = {
       resultPlaceholder: 'What happened? E.g. the end of the output…',
       reasonRequired: 'Briefly say why not.',
       emptyFilter: 'You have no to-dos in this.',
+    },
+    /** The card of a mention in Waiting for you (PM-1276). */
+    mention: {
+      title: {
+        comment: 'Mentioned you in a comment',
+        reply: 'Mentioned you in a reply',
+        note: 'Mentioned you in a note',
+      },
+      expand: 'Show full excerpt',
+      collapse: 'Show less',
+      seen: 'Seen',
+      closing: 'Closing…',
+      reply: 'Reply',
+      jump: 'Go to comment',
+      jumpNote: 'Go to note',
+      replyTitle: 'Reply to {name}’s comment',
+      replyLabel: 'Reply text',
+      replyHint: 'The reply goes under the original comment. Once sent, the mention is closed.',
+      replySend: 'Send reply',
+      replyFailed: 'The reply could not be sent. Your text is kept. Try again.',
+      replied: 'Reply sent. The mention is closed.',
+      closed: 'The mention is closed.',
+      closeFailed: 'The mention could not be closed. Try again.',
+      goneReplied: 'You already replied in this thread; the mention is closed. Your draft is kept.',
+      goneClosed: 'The mention was closed meanwhile. Your draft is kept.',
+      missing: 'The comment is not available.',
+      missingHint: 'You can close the mention with Seen.',
+      emptyFilter: 'Nothing to do in this.',
+      emptyFilterBody: 'When someone mentions you in a comment, you will find it here.',
+      historySeen: 'You marked the mention as seen.',
+      historyReplied: 'You replied to the mention.',
     },
     /** What the Operator said about a question that came to the viewer (PM-556). */
     operatorNote: 'Connected Claude:',
@@ -6372,6 +6412,7 @@ export const en = {
       plan_usage_paused: 'The provider’s plan usage is too high.',
       provider_rate_limited: 'The provider’s limit means the session will try again later.',
       disk_low: 'Free disk space is low, so no new session starts right now.',
+      machine_busy: 'The machine is short of memory, so no new session starts right now.',
       ai_disabled: 'AI work is switched off in this project.',
       team_paused: 'The team was paused.',
       provider_not_logged_in: 'There is no active login at the provider.',

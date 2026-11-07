@@ -83,6 +83,7 @@ const SCOPES: Scopes = {
   'screenshots.run': 'open',
   'screenshots.cancel': 'open',
   'host.free_disk': 'open',
+  'host.machine_load': 'open',
   'host.heavy_run_sessions': 'open',
   'host.end_session_runs': 'open',
   'host.is_directory': 'open',

@@ -13,6 +13,8 @@ const HOT_READ_SQL = {
     'SELECT ended_at FROM task_loops WHERE task_key = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 1',
   ofProjectType: 'SELECT * FROM timeline_events WHERE project_key = ? AND type = ? ORDER BY seq DESC LIMIT ?',
   listInStates: 'SELECT * FROM sessions WHERE state IN (?, ?) ORDER BY started_at',
+  sentSince: `SELECT * FROM team_messages WHERE project_key = ? AND from_handle IN (SELECT value FROM json_each(?))
+       AND created_at >= ? ORDER BY created_at, seq`,
 };
 
 describe('hot read indexes (PM-834)', () => {
@@ -29,6 +31,7 @@ describe('hot read indexes (PM-834)', () => {
       const repos = createRepositories(db);
       repos.taskMerges.latestMerged('PM', 'PM-1');
       repos.sessions.listInStates(['working', 'idle']);
+      repos.messages.sentSince('PM', ['pm'], '2026-11-06T00:00:00.000Z');
 
       for (const sql of Object.values(HOT_READ_SQL)) {
         expect(prepared).toContain(sql);
@@ -46,6 +49,9 @@ describe('hot read indexes (PM-834)', () => {
       expect(plan(HOT_READ_SQL.lastEnded, 'PM-1')).toContain('task_loops_task_key');
       expect(plan(HOT_READ_SQL.ofProjectType, 'PM', 'focus_changed', 1)).toContain('timeline_project_type');
       expect(plan(HOT_READ_SQL.listInStates, 'working', 'idle')).toContain('sessions_state');
+      expect(plan(HOT_READ_SQL.sentSince, 'PM', '["pm"]', '2026-11-06T00:00:00.000Z')).toContain(
+        'team_messages_from',
+      );
     } finally {
       db.close();
     }

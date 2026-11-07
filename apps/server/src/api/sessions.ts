@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  canSeeAllTeamMessages,
   canSeeOperatorSessions,
   MemberHandle,
   ReadTeamMessagesRequest,
@@ -12,6 +13,7 @@ import {
   TaskKey,
   UpdateSessionRequest,
   StopSessionRequest,
+  visibleProcessing,
 } from '@projectman/shared';
 import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
 import { notFound } from '../kernel';
@@ -152,15 +154,24 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
     const query = parseBody(MessagesQuery, request.query);
+    const messages = domain.messages.list(key, {
+      taskKey: query.taskKey,
+      place: query.place,
+      member: query.member,
+      participant: teamMessageParticipant(access),
+      between: query.threadWith ? [access.handle, query.threadWith] : undefined,
+      limit: query.limit,
+      unreadFor: query.unreadOnly === 'true' ? access.handle : undefined,
+    });
+    // What became of a message is the sender's to see (an owner or an admin sees all), read in one batch.
+    const mine = messages.filter(
+      (message) => message.from === access.handle || canSeeAllTeamMessages(access),
+    );
+    const processing = domain.messageProcessing.ofMessages(mine);
     return {
-      messages: domain.messages.list(key, {
-        taskKey: query.taskKey,
-        place: query.place,
-        member: query.member,
-        participant: teamMessageParticipant(access),
-        between: query.threadWith ? [access.handle, query.threadWith] : undefined,
-        limit: query.limit,
-        unreadFor: query.unreadOnly === 'true' ? access.handle : undefined,
+      messages: messages.map((message) => {
+        const items = visibleProcessing(access, message.from, processing.get(message.id));
+        return items ? { ...message, processing: items } : message;
       }),
       unreadCount: domain.messages.countUnread(key, access.handle),
     };

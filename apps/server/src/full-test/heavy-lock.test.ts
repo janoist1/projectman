@@ -23,6 +23,7 @@ import {
   HeavyLockError,
   readHeavyQueue,
   readHeavyRunSessions,
+  readMachineLoad,
 } from './heavy-lock';
 import type { HeavyLock, HeavyLockEntry, HeavyWait } from './heavy-lock';
 import { writePressure } from './machine-pressure';
@@ -574,6 +575,20 @@ describe('the pool of places', () => {
     const everything = await acquire('everything', { ...POOL, places: 'all' });
     expect(await heavyHeldBy(dir, '1')).toBe(true);
     await everything.release();
+  });
+
+  it('reports the places in use and waiting with the fresh pressure reading (PM-1278)', async () => {
+    expect(await readMachineLoad(dir, POOL)).toEqual({
+      pressure: null,
+      places: { capacity: 4, used: 0, waiting: 0 },
+    });
+    writePartial('part', { granted: 3 });
+    writeTicket('waiting', {});
+    await writePressure(dir, { level: 'critical', source: 'sysctl' });
+    expect(await readMachineLoad(dir, POOL)).toEqual({
+      pressure: 'critical',
+      places: { capacity: 4, used: 3, waiting: 1 },
+    });
   });
 
   it('shows the sessions of the holders of the pool to the idle guard (PM-569)', async () => {

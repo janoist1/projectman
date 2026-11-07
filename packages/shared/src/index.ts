@@ -42,6 +42,7 @@ export * from './domain/attachment';
 export * from './domain/document';
 export * from './domain/message';
 export * from './domain/message-attachment';
+export * from './domain/message-processing';
 export * from './domain/message-wake';
 export * from './domain/member-queue';
 export * from './domain/work-queues';

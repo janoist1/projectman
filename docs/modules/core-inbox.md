@@ -103,7 +103,7 @@ an issuer without machine access sends it to the technical decider (PM-1139), an
 (`issuer_without_machine_access`). Nothing is ever opened for the owners as a fallback. The route is stored on the item
 (`InboxItem.route`, column `route`) and written to the timeline as `item_routed`. `screen_question.todo.recipient` is
 optional and does not decide; **alerts** go through one entry point, `InboxService.raiseAlert` (PM-1250), which
-applies `ALERT_ROUTE_CLASS` and never lets its creator choose the class of the recipient. `disk_low`, `worktree_kept` and
+applies `ALERT_ROUTE_CLASS` and never lets its creator choose the class of the recipient. `disk_low`, `machine_busy`, `worktree_kept` and
 `session_input` become an integrator todo (a `question` item with Done and Cannot, marked `payload.systemAlert =
 {alert, key}`; one open per kind and card, `settleAlert` cancels it when the cause is gone); `work_outage` and
 `relation_check` become a signal of the project manager through the `AlertPmSignals` port (registered by

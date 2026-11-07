@@ -73,6 +73,7 @@ export const REWRITTEN_HANDLE_COLUMNS: readonly HandleTable[] = [
   { table: 'inbox_items', columns: ['source'] },
   { table: 'pauses', columns: ['requested_by', 'resumed_by'] },
   { table: 'team_messages', columns: ['from_handle'] },
+  { table: 'message_turns', columns: ['handle'] },
   { table: 'host_requests', columns: ['opened_by'] },
 ];
 

@@ -161,6 +161,7 @@ const START_REASONS: Record<TaskStartWaiting['reason'], WorkQueueReason> = {
   codex_setup_incomplete: 'human',
   workspace_codex_config: 'human',
   disk_low: 'machine',
+  machine_busy: 'machine',
   workspace_dirty: 'machine',
   workspace_fetch_failed: 'machine',
   workspace_dependencies_pending: 'machine',

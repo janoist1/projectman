@@ -77,6 +77,12 @@ export function replyDraftSlots(projectKey: string, taskKey: string): string[] {
   return Object.keys(read(projectKey, taskKey)).filter((slot) => slot !== MAIN_DRAFT);
 }
 
+/** Whether one box of the card holds a draft (the text or a file), read without a hook. */
+export function hasCommentDraft(projectKey: string, taskKey: string, slot: string): boolean {
+  const draft = read(projectKey, taskKey)[slot];
+  return draft !== undefined && (draft.text.trim() !== '' || draft.attachments.length > 0);
+}
+
 /** Forgets the drafts held in memory (a test starts from a clean store; the storage is the caller's to clear). */
 export function resetCommentDrafts(): void {
   cache.clear();

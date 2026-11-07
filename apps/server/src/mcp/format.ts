@@ -82,6 +82,7 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
   plan_usage_paused: 'Provider plan usage exceeds the admission threshold.',
   provider_rate_limited: 'The provider quota cooldown has not ended.',
   disk_low: 'There is too little free disk space.',
+  machine_busy: 'The machine is short of memory.',
   ai_disabled: 'AI work is disabled.',
   team_paused: 'The team is paused.',
   member_at_capacity: 'The member has no free capacity.',

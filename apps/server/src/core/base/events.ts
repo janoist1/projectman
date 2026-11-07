@@ -82,6 +82,8 @@ export interface DomainEventMap {
   session_ended: Session & { previousState?: SessionState };
   /** A running session's turn ended: it idles, and its member may have capacity again (PM-119). */
   session_idle: Session;
+  /** A live session's state changed (PM-1290): the messages typed into its open turns show it. */
+  session_state_changed: Session;
   /**
    * A running session no longer waits for its restart into a new permission mode (PM-170) without
    * having restarted: the mode went back, or it cannot restart now (AI work off, the member on

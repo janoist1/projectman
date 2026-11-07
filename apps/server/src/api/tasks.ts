@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   BoardMoveRequest,
   canCommentOnTask,
+  canSeeAllTeamMessages,
   canCreateTasks,
   ChangeTaskLabelsRequest,
   MAX_CLOSED_CARDS_DAYS,
@@ -17,6 +18,7 @@ import {
   taskCreateAccessOf,
   TaskCommentsQuery,
   UpdateTaskRequest,
+  visibleProcessing,
 } from '@projectman/shared';
 import type {
   BoardMoveResult,
@@ -124,11 +126,24 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
     const page = domain.tasks.commentThreads(key, taskKey, query);
     const visible = (event: TimelineEvent) =>
       visibleTimelineEvent(access, event, (id) => domain.messages.get(id));
+    // What became of a comment's mentions is its author's to see (an owner or an admin sees all).
+    const mine = page.threads.filter(
+      ({ comment }) => comment.actor.handle === access.handle || canSeeAllTeamMessages(access),
+    );
+    const processing = domain.messageProcessing.ofComments(
+      key,
+      taskKey,
+      mine.map(({ comment }) => comment),
+    );
     return {
-      threads: page.threads.map(({ comment, replies }) => ({
-        comment: visible(comment),
-        replies: replies.map(visible),
-      })),
+      threads: page.threads.map(({ comment, replies }) => {
+        const items = visibleProcessing(access, comment.actor.handle ?? '', processing.get(comment.id));
+        return {
+          comment: visible(comment),
+          replies: replies.map(visible),
+          ...(items ? { processing: items } : {}),
+        };
+      }),
       nextBefore: page.nextBefore,
     };
   });

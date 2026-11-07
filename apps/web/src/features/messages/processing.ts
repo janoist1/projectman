@@ -2,7 +2,8 @@ import type { MessageProcessing } from '@projectman/shared';
 import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 
-type ProcessingTone = 'neutral' | 'progress' | 'ok' | 'warn' | 'danger';
+/** Only a state that needs the reader's attention (`warn`) is coloured as a warning. */
+type ProcessingTone = 'neutral' | 'progress' | 'ok' | 'warn';
 
 export interface ProcessingView {
   /** The state's name, as the label table words it. */
@@ -56,21 +57,21 @@ export function processingView(item: MessageProcessing): ProcessingView {
         ...base,
         label: t('processing.label.waiting'),
         detail: t(`processing.wait.${item.reason ?? 'unknown'}`),
-        tone: 'warn',
+        tone: 'neutral',
       };
     case 'stale':
       return {
         ...base,
         label: t('processing.label.stale'),
         detail: t(`processing.stale.${item.cause}`, { time: formatTime(item.lastSeenAt) }),
-        tone: 'danger',
+        tone: 'warn',
       };
     case 'turn_ended':
       return {
         ...base,
         label: t('processing.label.turn_ended'),
         detail: t('processing.detail.turn_ended'),
-        tone: 'warn',
+        tone: 'neutral',
       };
     case 'replied':
       return { ...base, label: t('processing.label.replied'), tone: 'ok', reply: item.reply };
@@ -79,7 +80,7 @@ export function processingView(item: MessageProcessing): ProcessingView {
         ...base,
         label: t('processing.label.not_sent'),
         detail: t('processing.detail.not_sent'),
-        tone: 'danger',
+        tone: 'warn',
       };
   }
 }

@@ -4416,6 +4416,7 @@ export const en = {
       not_sent: 'The comment was posted, but this mention sent no notification.',
     },
     list: 'Processing status',
+    details: 'Status details',
     openReply: 'Open reply',
     replyUnavailable: 'The reply is not available.',
   },

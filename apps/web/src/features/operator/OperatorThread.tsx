@@ -280,9 +280,10 @@ export function OperatorThread({
                 {message.relayed ? <span>{t('pm.relayed')}</span> : null}
                 <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
               </div>
-              {mine && message.processing?.length ? (
+              {/* The panel is the talk with this member: a forwarded message's other recipients are not shown here. */}
+              {mine && message.processing?.some((item) => item.handle === handle) ? (
                 <ProcessingLines
-                  items={message.processing}
+                  items={message.processing.filter((item) => item.handle === handle)}
                   members={members}
                   myHandle={myHandle}
                   className={styles.processing}

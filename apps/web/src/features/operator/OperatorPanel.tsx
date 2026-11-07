@@ -36,6 +36,8 @@ import styles from './OperatorPanel.module.css';
 
 /** The panel's width on a desktop screen (the same as in OperatorPanel.module.css): an open card makes room for it. */
 const PANEL_WIDTH = 440;
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * The project manager's conversation (PM-429, PM-447, PM-1042): a panel that slides in from the right (a sheet from
@@ -115,7 +117,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   );
 
   // An example from the introduction goes into the box to be edited and sent.
-  const [prefill, setPrefill] = useState<{ text: string; id: number } | null>(null);
+  const [prefill, setPrefill] = useState<{ text: string; id: number; quiet?: boolean } | null>(null);
   useEffect(() => {
     if (!operatorPrefill) return;
     setKnowledgeOpen(false);
@@ -147,6 +149,8 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   // "Írás a kártyára": the unsent text and files go to the open card's comment box, and nothing is sent. The files
   // are uploaded again as the card's own (the panel's belong to a message), then the panel's copies are dropped.
   const [moving, setMoving] = useState(false);
+  // Set once a draft moved to the card: the focus is the card's box's then, not the button that opened the panel.
+  const movedToCard = useRef(false);
   const [moveFailed, setMoveFailed] = useState(false);
   const writeOnCard = async () => {
     if (!openCard || moving) return;
@@ -169,8 +173,10 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
     uploads.clear();
     operatorDraft.current = '';
     setHasText(false);
-    setPrefill((previous) => ({ text: '', id: (previous?.id ?? 0) + 1 }));
+    // The focus goes to the card's box, so the emptied field does not take it.
+    setPrefill((previous) => ({ text: '', id: (previous?.id ?? 0) + 1, quiet: true }));
     setMoving(false);
+    movedToCard.current = isMobile;
     // The panel stays beside a desktop page; on a phone the sheet covers the card, so it closes (the draft stays).
     void navigate(placePath(key, { page: 'card', taskKey: openCard, view: 'thread' }, location));
     if (isMobile) closeOperator();
@@ -179,7 +185,9 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   // The focus goes into the panel on open and back to the button on close.
   useEffect(() => {
     const target = returnFocusTo.current;
-    return () => target?.focus();
+    return () => {
+      if (!movedToCard.current) target?.focus();
+    };
   }, [returnFocusTo]);
 
   // Beside the panel an open card moves left and under the top bar, so the two do not overlap.
@@ -205,6 +213,23 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
       event.stopPropagation();
       closeOperator();
     }
+    // On a phone the sheet covers the page and is modal: Tab goes round inside it, never to the card beneath.
+    if (event.key === 'Tab' && isMobile && panel.current) {
+      const focusable = [...panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (element) => element.offsetParent !== null || element === document.activeElement,
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !panel.current.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !panel.current.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
   };
 
   const name = state?.member?.displayName ?? t('operator.name');
@@ -217,7 +242,7 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
       id="operator-panel"
       className={styles.panel}
       role="dialog"
-      aria-modal="false"
+      aria-modal={isMobile}
       aria-labelledby={titleId}
       onKeyDown={onKeyDown}
       onDragEnter={(event) => {
@@ -438,9 +463,9 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
                       onClick={() => setDismissedCard(contextCard)}
                     />
                   </div>
-                  <p className={styles.contextHint}>{t('operator.context.hint')}</p>
                 </>
               ) : null}
+              <p className={styles.contextHint}>{t('operator.context.hint')}</p>
               {hasText || uploads.items.length > 0 ? (
                 <Button
                   className={styles.writeOnCard}

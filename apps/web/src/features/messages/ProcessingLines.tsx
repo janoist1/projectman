@@ -27,7 +27,7 @@ export function ProcessingLines({
 }) {
   if (items.length === 0) return null;
   return (
-    <ul className={`${styles.list} ${className ?? ''}`} aria-label={t('processing.list')}>
+    <ul className={`${styles.list} ${className ?? ''}`} aria-label={t('processing.list')} aria-live="polite">
       {items.map((item) => {
         const view = processingView(item);
         return (
@@ -35,7 +35,12 @@ export function ProcessingLines({
             <span className={styles.who}>{nameOf(item.handle, members, myHandle)}</span>
             <span className={styles.dot} aria-hidden="true" />
             <span className={styles.label}>{view.label}</span>
-            {view.detail ? <span className={styles.detail}>{view.detail}</span> : null}
+            {view.detail ? (
+              <details className={styles.details}>
+                <summary>{t('processing.details')}</summary>
+                <span className={styles.detail}>{view.detail}</span>
+              </details>
+            ) : null}
             {view.reply && reply ? (
               <span className={styles.reply}>{reply(view.reply, item.handle)}</span>
             ) : null}

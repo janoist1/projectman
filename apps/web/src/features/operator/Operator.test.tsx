@@ -346,6 +346,24 @@ describe('the Operator panel', () => {
     );
   });
 
+  it('keeps the context hint after the chip is taken off, and shows only the pm’s own row of a message', async () => {
+    const project = mockProject();
+    project.backend.sendTeamMessage('owner', ['pm', 'be-1'], null, 'Kettőnek szól');
+    renderLayout(project, '/p/AC/tasks/AC-20');
+    fireEvent.click(await button());
+    const panel = await screen.findByRole('dialog');
+    const lines = await within(panel).findAllByRole('list', { name: t('processing.list') });
+    expect(lines).toHaveLength(1);
+    const names = within(lines[0]!)
+      .getAllByRole('listitem')
+      .map((row) => row.textContent);
+    expect(names).toHaveLength(1);
+    expect(names[0]).not.toContain(project.backend.findMember('be-1')!.displayName);
+
+    fireEvent.click(await within(panel).findByRole('button', { name: t('operator.context.remove') }));
+    expect(within(panel).getByText(t('operator.context.hint'))).toBeTruthy();
+  });
+
   describe('the places the Operator offers (PM-1071)', () => {
     const offer = (project: Project, places: UiPlace[]) =>
       project.backend.sendTeamMessage(

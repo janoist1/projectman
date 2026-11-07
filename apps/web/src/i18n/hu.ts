@@ -6811,6 +6811,7 @@ export const hu = {
       not_sent: 'A hozzászólás megmaradt, de ez a megszólítás nem küldött értesítést.',
     },
     list: 'Feldolgozás állapota',
+    details: 'Állapot részletei',
     openReply: 'Válasz megnyitása',
     replyUnavailable: 'A válasz nem érhető el.',
   },

@@ -82,6 +82,8 @@ describe('writing the unsent message on the card (PM-1305)', () => {
     await waitFor(() => expect(box.value).toBe('Ezt a kártyára írom'));
     expect((await screen.findAllByText('log.txt')).length).toBeGreaterThan(0);
     expect(screen.getByText(t('task.comments.draftMoved'))).toBeTruthy();
+    // The writer continues in the card's box, not in the panel's.
+    await waitFor(() => expect(document.activeElement).toBe(box));
     // Nothing was sent: not as a message, not as a comment.
     expect(posted(project, routes.sendTeamMessage('AC'))).toHaveLength(0);
     expect(posted(project, '/api/projects/AC/tasks/AC-20/comments')).toHaveLength(0);
@@ -163,7 +165,7 @@ describe('the panel on a phone (PM-1305)', () => {
     );
   }
 
-  it('finds the draft, the files and the scroll position again after the sheet was closed', async () => {
+  const phone = () =>
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
       matches: true,
       media: query,
@@ -174,6 +176,31 @@ describe('the panel on a phone (PM-1305)', () => {
       removeListener() {},
       dispatchEvent: () => false,
     }));
+
+  it('is a modal sheet whose Tab goes round inside it, and not modal beside the card on a desktop', async () => {
+    setup();
+    expect((await screen.findByRole('dialog')).getAttribute('aria-modal')).toBe('false');
+    cleanup();
+
+    phone();
+    // jsdom has no layout: every element counts as drawn.
+    vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockImplementation(() => document.body);
+    const project = mockProject();
+    project.render(<OperatorPanel returnFocusTo={{ current: null }} />, '/p/AC');
+    const sheet = await screen.findByRole('dialog');
+    expect(sheet.getAttribute('aria-modal')).toBe('true');
+    const focusable = [...sheet.querySelectorAll<HTMLElement>('button:not([disabled]), textarea')];
+    const first = focusable[0]!;
+    const last = focusable[focusable.length - 1]!;
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+  });
+
+  it('finds the draft, the files and the scroll position again after the sheet was closed', async () => {
+    phone();
     // jsdom has no layout: the thread is 1000 tall in a 200 tall box, and its scroll position is remembered.
     const tops = new WeakMap<object, number>();
     vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(1000);

@@ -15,7 +15,7 @@ import { ProcessingLines } from '../messages/ProcessingLines';
 import { useContacts } from '../messages/useContacts';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import type { TaskCommentsState } from './useTaskComments';
-import { replyDraftSlots } from './useCardCommentDraft';
+import { replyDraftSlots, useCardCommentDraft, useCardDraftNotice } from './useCardCommentDraft';
 import styles from './TaskComments.module.css';
 
 /** How long the comment a link led to stays highlighted. */
@@ -388,6 +388,11 @@ export function TaskComments({
   // The first-use tip at the box is dismissed once per account.
   const tipKey = `commentTip.dismissed.${myHandle ?? ''}`;
   const [tipDismissed, setTipDismissed] = useState(() => readStorage(tipKey) === '1');
+  // It shows only over a box nobody has touched: not with text, a file or a moved-draft notice in it (the CSS
+  // hides it while the box has focus), so a phone keeps its room for the comments.
+  const mainDraft = useCardCommentDraft(projectKey, taskKey);
+  const { notice: draftNotice } = useCardDraftNotice(projectKey, taskKey);
+  const boxUntouched = mainDraft.text === '' && mainDraft.attachments.length === 0 && !draftNotice;
 
   return (
     <div className={styles.panel}>
@@ -398,7 +403,7 @@ export function TaskComments({
       <div className={styles.composer}>
         {canComment && myHandle ? (
           <div className={styles.composerColumn}>
-            {ask && !tipDismissed ? (
+            {ask && !tipDismissed && boxUntouched ? (
               <p className={styles.tip}>
                 <span>{t('task.comments.tip', { handle: ask })}</span>
                 <button

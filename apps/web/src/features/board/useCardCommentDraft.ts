@@ -16,6 +16,8 @@ const cache = new Map<string, Record<string, CommentDraft>>();
 const listeners = new Set<() => void>();
 /** The transfer notices, per card: they are read by the main box and gone once it is edited or sent. */
 const notices = new Map<string, 'moved' | 'merged'>();
+/** The cards whose main box was asked to take the focus after a transfer (it may not be drawn yet). */
+const focusRequests = new Set<string>();
 
 const storageKey = (projectKey: string, taskKey: string) => `${STORAGE_PREFIX}${projectKey}:${taskKey}`;
 
@@ -62,6 +64,7 @@ export function replyDraftSlots(projectKey: string, taskKey: string): string[] {
 export function resetCommentDrafts(): void {
   cache.clear();
   notices.clear();
+  focusRequests.clear();
 }
 
 /** The most files one comment carries (the server's limit). */
@@ -91,8 +94,26 @@ export function transferToCardDraft(
   drafts[MAIN_DRAFT] = { text, attachments };
   const outcome: DraftTransfer = had ? 'merged' : 'moved';
   notices.set(storageKey(projectKey, taskKey), outcome);
+  focusRequests.add(storageKey(projectKey, taskKey));
   write(projectKey, taskKey, drafts);
   return outcome;
+}
+
+/**
+ * Whether the main box of the card is asked to take the focus (a transfer just put a draft in it), and the way to
+ * say it did. The box may not be drawn yet when the transfer happens, so the request waits for it.
+ */
+export function useCardDraftFocus(projectKey: string, taskKey: string) {
+  const id = storageKey(projectKey, taskKey);
+  const wanted = useSyncExternalStore(
+    subscribe,
+    () => focusRequests.has(id),
+    () => false,
+  );
+  const done = useCallback(() => {
+    if (focusRequests.delete(id)) for (const listener of listeners) listener();
+  }, [id]);
+  return { wanted, done };
 }
 
 /** The notice of the last transfer into the main box of the card, and the way to dismiss it. */

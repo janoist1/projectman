@@ -11,7 +11,12 @@ import { useContacts } from '../messages/useContacts';
 import { codeMessage } from '../../lib/errors';
 import { distinctMembers } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
-import { MAIN_DRAFT, useCardCommentDraft, useCardDraftNotice } from './useCardCommentDraft';
+import {
+  MAIN_DRAFT,
+  useCardCommentDraft,
+  useCardDraftFocus,
+  useCardDraftNotice,
+} from './useCardCommentDraft';
 import styles from './TaskCommentComposer.module.css';
 
 export interface TaskCommentComposerProps {
@@ -77,6 +82,14 @@ export function TaskCommentComposer({
   useEffect(() => {
     if (autoFocus) textarea.current?.focus();
   }, [autoFocus]);
+
+  // A draft just moved here from the project manager's panel: the box takes the focus (nothing is sent).
+  const { wanted: focusWanted, done: focusDone } = useCardDraftFocus(key, taskKey);
+  useEffect(() => {
+    if (slot !== MAIN_DRAFT || !focusWanted) return;
+    textarea.current?.focus();
+    focusDone();
+  }, [slot, focusWanted, focusDone]);
 
   const edit = (value: string) => {
     // New words are a new submission.

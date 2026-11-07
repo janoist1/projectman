@@ -335,6 +335,18 @@ describe('the Comments view (PM-1304)', () => {
       expect(row[0]!.textContent).toContain(project.backend.findMember('be-1')!.displayName);
     });
 
+    it('keeps the longer explanation folded under the row until it is asked for', async () => {
+      const project = mockProject();
+      const { notice } = mentioning(project);
+      notice.receipts![0]!.deliveredAt = ago(20);
+      project.render(drawer, '/p/AC/tasks/AC-20/thread');
+      const lines = await screen.findByRole('list', { name: t('processing.list') });
+      const folded = lines.querySelector('details');
+      expect(folded).toBeTruthy();
+      expect(folded!.open).toBe(false);
+      expect(within(folded!).getByText(t('processing.details'))).toBeTruthy();
+    });
+
     it('opens the answer of the member through the comment link once they replied', async () => {
       const project = mockProject();
       const { event, notice } = mentioning(project);
@@ -391,6 +403,17 @@ describe('the Comments view (PM-1304)', () => {
       project.render(drawer, '/p/AC/tasks/AC-20/thread');
       await box();
       expect(screen.queryByRole('button', { name: t('task.comments.tipDismiss') })).toBeNull();
+    });
+
+    it('is not shown while the box holds text, so the box does not grow on a phone', async () => {
+      // The dismissal above is remembered for the account; this reader has not dismissed it.
+      window.localStorage.clear();
+      const project = mockProject();
+      project.render(drawer, '/p/AC/tasks/AC-20/thread');
+      fireEvent.change(await box(), { target: { value: 'Már írok' } });
+      expect(screen.queryByRole('button', { name: t('task.comments.tipDismiss') })).toBeNull();
+      fireEvent.change(await box(), { target: { value: '' } });
+      expect(await screen.findByRole('button', { name: t('task.comments.tipDismiss') })).toBeTruthy();
     });
   });
 

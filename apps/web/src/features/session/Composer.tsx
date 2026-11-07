@@ -24,7 +24,7 @@ interface ComposerProps {
   /** Why the session rests and that a message continues it (PM-296); never together with `pauseNote`. */
   closedNote?: string;
   /** Text to put into the box and focus it (an example to edit and send); a new `id` puts it again. */
-  prefill?: { text: string; id: number } | null;
+  prefill?: { text: string; id: number; quiet?: boolean } | null;
   /** The text the box starts with, and each change of it: a draft kept while the box is away (PM-1192). */
   initialText?: string;
   onTextChange?: (text: string) => void;
@@ -79,15 +79,18 @@ export function Composer({
 
   const prefillId = prefill?.id;
   const prefillText = prefill?.text;
+  const prefillQuiet = prefill?.quiet === true;
   useEffect(() => {
     if (prefillId === undefined || prefillText === undefined) return;
     setText(prefillText);
+    // A quiet prefill only sets the text: the focus is somewhere else on purpose.
+    if (prefillQuiet) return;
     ref.current?.focus();
     const frame = requestAnimationFrame(() => {
       ref.current?.setSelectionRange(prefillText.length, prefillText.length);
     });
     return () => cancelAnimationFrame(frame);
-  }, [prefillId, prefillText]);
+  }, [prefillId, prefillText, prefillQuiet]);
 
   useEffect(() => {
     const element = ref.current;

@@ -170,6 +170,38 @@ describe('Válasz', () => {
     expect(await screen.findByText(new RegExp(t('inbox.mention.historyReplied')))).toBeTruthy();
   });
 
+  it('moves the focus to the next card after a reply, which leaves no draft behind', async () => {
+    const { project, backend, taskKey } = mentionedProject();
+    backend.viewerHandle = 'owner';
+    expect(backend.addTaskComment(taskKey, { text: '@kata and one more thing' })).toBeNull();
+    backend.viewerHandle = 'kata';
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const [first] = await screen.findAllByRole('heading', { name: title() });
+    const card = first!.closest('article')!;
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.mention.reply') }));
+    fireEvent.change(await draftBox(), { target: { value: 'On it.' } });
+    fireEvent.click(within(card).getByRole('button', { name: t('inbox.mention.replySend') }));
+    await waitFor(() => expect(screen.getAllByRole('heading', { name: title() })).toHaveLength(1));
+    expect(screen.queryByText(t('inbox.mention.goneReplied'))).toBeNull();
+    expect(screen.queryByRole('textbox', { name: t('inbox.mention.replyLabel') })).toBeNull();
+    expect(window.sessionStorage.length).toBe(0);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: title() })));
+  });
+
+  it('moves the focus to the next card after Láttam', async () => {
+    const { project, backend, taskKey } = mentionedProject();
+    backend.viewerHandle = 'owner';
+    expect(backend.addTaskComment(taskKey, { text: '@kata and one more thing' })).toBeNull();
+    backend.viewerHandle = 'kata';
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const [first] = await screen.findAllByRole('heading', { name: title() });
+    fireEvent.click(
+      within(first!.closest('article')!).getByRole('button', { name: t('inbox.mention.seen') }),
+    );
+    await waitFor(() => expect(screen.getAllByRole('heading', { name: title() })).toHaveLength(1));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: title() })));
+  });
+
   it('keeps the text and the item when the send fails', async () => {
     const { project } = mentionedProject();
     server.use(

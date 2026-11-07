@@ -290,6 +290,8 @@ export function InboxPage() {
   const shownOpen = useRef<Set<string>>(new Set());
   // The mentions the viewer closed or answered here: they leave at once, with no notice for their draft.
   const closedHere = useRef<Set<string>>(new Set());
+  // The mentions whose reply is on its way: the server closes them by the reply, and this is no one else's close.
+  const replying = useRef<Set<string>>(new Set());
   useEffect(() => {
     // A mention closed elsewhere (another window, or the server's rule on a reply) keeps its place only while
     // the viewer has a draft in it (PM-1276); with no draft it just leaves.
@@ -298,6 +300,7 @@ export function InboxPage() {
       item.state !== 'open' &&
       item.taskKey !== null &&
       !closedHere.current.has(item.id) &&
+      !replying.current.has(item.id) &&
       hasCommentDraft(item.projectKey, item.taskKey, item.id);
     const gone = (items ?? []).filter(
       (item) =>
@@ -324,9 +327,10 @@ export function InboxPage() {
   }, [items, mine, myHandle, isOwner]);
   // The list is empty after the last card went: the focus then goes to the empty state's title.
   const focusEmptyTitle = useRef(false);
-  const movedOn = (id: string) => {
-    // The focus goes on to the title of the next card (the previous one when it was the last), so it does not
-    // fall to the page. A notice that goes away on its own, with the focus elsewhere, leaves the focus alone.
+  // The cards next to a card, read while it is still in the page: the server's answer can take the card out of the
+  // list before the code that moves the focus runs.
+  const neighbourCards = useRef(new Map<string, string | undefined>());
+  const rememberNeighbours = (id: string) => {
     const notice = document.getElementById(inboxItemDomId(id));
     const titles = Array.from(document.querySelectorAll<HTMLElement>('[data-inbox-title]')).filter(
       (title) => !notice?.contains(title),
@@ -337,12 +341,20 @@ export function InboxPage() {
     const previous = titles.findLast(
       (title) => notice && notice.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_PRECEDING,
     );
+    // The cards may be built again when the groups go (the heading element is a new one): keep its card's id.
+    neighbourCards.current.set(id, (next ?? previous)?.closest('article')?.id);
+  };
+  const movedOn = (id: string) => {
+    // The focus goes on to the title of the next card (the previous one when it was the last), so it does not
+    // fall to the page. A notice that goes away on its own, with the focus elsewhere, leaves the focus alone.
+    const notice = document.getElementById(inboxItemDomId(id));
+    if (notice) rememberNeighbours(id);
+    const targetId = neighbourCards.current.get(id);
+    neighbourCards.current.delete(id);
     const hadFocus =
       !document.activeElement ||
       document.activeElement === document.body ||
       notice?.contains(document.activeElement);
-    // The cards may be built again when the groups go (the heading element is a new one): look it up by its card.
-    const targetId = (next ?? previous)?.closest('article')?.id;
     if (hadFocus && targetId)
       window.requestAnimationFrame(() =>
         document.getElementById(targetId)?.querySelector<HTMLElement>('[data-inbox-title]')?.focus(),
@@ -479,6 +491,14 @@ export function InboxPage() {
         setReplyOpenId(null);
         mentionClosedHere(target.id);
       }}
+      onReplySending={(itemId, sending) => {
+        if (!sending) {
+          replying.current.delete(itemId);
+          return;
+        }
+        replying.current.add(itemId);
+        rememberNeighbours(itemId);
+      }}
       error={
         // A refused "Tovább" says why on its card (the gate), not in a toast.
         item.kind === 'hand_on' && resolve.isError && resolve.variables?.item.id === item.id
@@ -513,7 +533,8 @@ export function InboxPage() {
         resolve.variables?.item.id === item.id &&
         isStaleError(resolve.error)
       }
-      onResolve={(target, body) =>
+      onResolve={(target, body) => {
+        if (target.kind === 'mention') rememberNeighbours(target.id);
         resolve.mutate(
           { item: target, body },
           {
@@ -560,8 +581,8 @@ export function InboxPage() {
                 toast.show(t('inbox.resolveFailed'), 'error');
             },
           },
-        )
-      }
+        );
+      }}
     />
   );
 

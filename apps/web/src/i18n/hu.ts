@@ -5266,6 +5266,7 @@ export const hu = {
       closing: 'Lezárás…',
       reply: 'Válasz',
       jump: 'Ugrás a hozzászóláshoz',
+      jumpNote: 'Ugrás a jegyzethez',
       replyTitle: 'Válasz {name} hozzászólására',
       replyLabel: 'Válasz szövege',
       replyHint: 'A válasz az eredeti hozzászólás alá kerül. Küldés után az említés lezárul.',

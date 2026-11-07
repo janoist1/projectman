@@ -131,6 +131,8 @@ export interface InboxCardProps {
   onReplyOpenChange?: (open: boolean) => void;
   /** The mention's reply went out and closed it. */
   onReplied?: (item: InboxItem) => void;
+  /** The mention's reply is on its way (true) or stopped. */
+  onReplySending?: (itemId: string, sending: boolean) => void;
 }
 
 const noop = () => {};
@@ -220,6 +222,7 @@ export function InboxCard({
   replyOpen = false,
   onReplyOpenChange,
   onReplied,
+  onReplySending,
 }: InboxCardProps) {
   const operatorApproval = operatorApprovalOf(item);
   const operatorKnowledge = operatorKnowledgeApprovalOf(item);
@@ -515,6 +518,7 @@ export function InboxCard({
         replyOpen={replyOpen}
         onReplyOpenChange={onReplyOpenChange ?? noop}
         onReplied={onReplied ?? noop}
+        onReplySending={onReplySending ?? noop}
         onResolve={onResolve}
         onDismissGone={onDismissGone ?? noop}
       />

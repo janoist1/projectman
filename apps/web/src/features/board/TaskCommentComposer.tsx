@@ -117,18 +117,21 @@ export function TaskCommentComposer({
     const body = text.trim();
     if (!body || sending || holdReason) return;
     const clientRequestId = (attempt.current ??= crypto.randomUUID());
-    mutation.mutate(
-      { taskKey, body: { text: body, clientRequestId, ...(replyTo ? { replyTo } : {}) } },
-      {
-        onSuccess: () => {
+    // The promise, not the mutate callbacks: the host may drop this box while the server answers (the item the
+    // box stands in can leave its list), and the callbacks of a box that is gone would never run.
+    mutation
+      .mutateAsync({ taskKey, body: { text: body, clientRequestId, ...(replyTo ? { replyTo } : {}) } })
+      .then(
+        () => {
           attempt.current = null;
           draft.clear();
           setMention(null);
           onPosted?.(clientRequestId);
           onCancel?.();
         },
-      },
-    );
+        // The failure shows in the box (`mutation.isError`).
+        () => undefined,
+      );
   };
   const failure = mutation.isError
     ? isApiError(mutation.error) && codeMessage(mutation.error.code)

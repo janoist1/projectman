@@ -50,6 +50,8 @@ export interface MentionInboxProps {
   onReplyOpenChange: (open: boolean) => void;
   /** The reply went out and the server closed the item. */
   onReplied: (item: InboxItem) => void;
+  /** The reply is on its way to the server (true) or stopped: the list does not take the item for closed elsewhere. */
+  onReplySending: (itemId: string, sending: boolean) => void;
   onResolve: (item: InboxItem, body: ResolveInboxRequest) => void;
   onDismissGone: () => void;
 }
@@ -74,6 +76,7 @@ export function MentionInbox({
   replyOpen,
   onReplyOpenChange,
   onReplied,
+  onReplySending,
   onResolve,
   onDismissGone,
 }: MentionInboxProps) {
@@ -120,6 +123,14 @@ export function MentionInbox({
   const size = mobile ? 'xl' : 'lg';
   const busy = pending || sending;
 
+  const sendingChanged = useCallback(
+    (value: boolean) => {
+      setSending(value);
+      onReplySending(item.id, value);
+    },
+    [item.id, onReplySending],
+  );
+
   const closeReply = useCallback(() => {
     onReplyOpenChange(false);
     // A reply that went out leaves the item; the list moves the focus on. A cancelled one returns to its button.
@@ -162,7 +173,7 @@ export function MentionInbox({
         failureText={t('inbox.mention.replyFailed')}
         holdReason={hold}
         autoFocus={!hold}
-        onSendingChange={setSending}
+        onSendingChange={sendingChanged}
         onPosted={() => {
           posted.current = true;
           toast.show(t('inbox.mention.replied'), 'ok');
@@ -250,7 +261,7 @@ export function MentionInbox({
             aria-disabled={busy || undefined}
             data-inbox-card-link=""
           >
-            {t('inbox.mention.jump')}
+            {t(place === 'note' ? 'inbox.mention.jumpNote' : 'inbox.mention.jump')}
           </ButtonLink>
         ) : null}
       </div>

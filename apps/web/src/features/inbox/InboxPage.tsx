@@ -327,6 +327,13 @@ export function InboxPage() {
   }, [items, mine, myHandle, isOwner]);
   // The list is empty after the last card went: the focus then goes to the empty state's title.
   const focusEmptyTitle = useRef(false);
+  const focusEmpty = () => {
+    if (!focusEmptyTitle.current) return;
+    const title = document.querySelector<HTMLElement>('[data-empty-title]');
+    if (!title) return;
+    focusEmptyTitle.current = false;
+    title.focus();
+  };
   // The cards next to a card, read while it is still in the page: the server's answer can take the card out of the
   // list before the code that moves the focus runs.
   const neighbourCards = useRef(new Map<string, string | undefined>());
@@ -359,7 +366,12 @@ export function InboxPage() {
       window.requestAnimationFrame(() =>
         document.getElementById(targetId)?.querySelector<HTMLElement>('[data-inbox-title]')?.focus(),
       );
-    else if (hadFocus) focusEmptyTitle.current = true;
+    else if (hadFocus) {
+      // The list may be empty already (the refresh came before the answer's callback), and then no later render
+      // looks at the flag: try now, and leave the flag for the render that empties it.
+      focusEmptyTitle.current = true;
+      window.requestAnimationFrame(focusEmpty);
+    }
   };
   const dismissGone = (id: string) => {
     movedOn(id);
@@ -390,13 +402,7 @@ export function InboxPage() {
     );
     if (withDraft) setReplyOpenId(withDraft.id);
   }, [items]);
-  useEffect(() => {
-    if (!focusEmptyTitle.current) return;
-    const title = document.querySelector<HTMLElement>('[data-empty-title]');
-    if (!title) return;
-    focusEmptyTitle.current = false;
-    title.focus();
-  }, [items]);
+  useEffect(focusEmpty, [items]);
 
   // A card's drawer opens over the page (the nested route) and closes back here (PM-501).
   const drawerBase = useMemo<DrawerBase>(

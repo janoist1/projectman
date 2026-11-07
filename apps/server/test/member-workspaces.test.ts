@@ -357,6 +357,47 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     expect(await branchOf(dev1)).toBe('AR-1-login-page');
   });
 
+  it('gives the member back its branch in the middle of a merge, with the conflicts named (PM-1326)', async () => {
+    await setup();
+    await startTask('AR-1', 'dev-1');
+    const first = h.runner.lastStarted();
+    const dev1 = await workspaceOf('dev-1');
+    const own = await branchOf(dev1);
+    await commitFile(dev1, 'clash.txt', 'mine\n');
+    await git(dev1, 'switch', '--quiet', '-c', 'side', 'HEAD~1');
+    await commitFile(dev1, 'clash.txt', 'theirs\n');
+    await git(dev1, 'switch', '--quiet', own);
+    await expect(git(dev1, 'merge', '--no-edit', 'side')).rejects.toThrow();
+    // A pause or an engine switch ends the session in the middle of the merge.
+    await h.domain.sessions.stop('AR', first.sessionId);
+
+    await ensure('dev-1', 'AR-1', 'Settle the merge');
+    expect(h.runner.started.filter((s) => s.member === 'dev-1')).toHaveLength(2);
+    expect(h.runner.lastStarted()).toMatchObject({ cwd: dev1 });
+    expect(h.contextBuilder.inputs.at(-1)).toMatchObject({
+      unfinishedGitOperation: { operation: 'merge', conflicts: ['clash.txt'] },
+    });
+    expect(await readFile(path.join(dev1, 'clash.txt'), 'utf8')).toContain('<<<<<<<');
+    // Another task still waits for a settled workspace, and the merge is not touched.
+    await h.domain.sessions.stop('AR', h.runner.lastStarted().sessionId);
+    await expect(startTask('AR-2', 'dev-1')).rejects.toMatchObject({ code: 'workspace_dirty' });
+    expect(await branchOf(dev1)).toBe(own);
+  });
+
+  it('starts the member even when the workspace status cannot be read (PM-1326)', async () => {
+    await setup({
+      wrapMemberWorkspaces: (inner) => ({
+        ...inner,
+        status: async () => {
+          throw new Error('fixture: status unreadable');
+        },
+      }),
+    });
+    await startTask('AR-1', 'dev-1');
+    expect(h.runner.lastStarted()).toMatchObject({ member: 'dev-1' });
+    expect(h.contextBuilder.inputs.at(-1)?.unfinishedGitOperation).toBeUndefined();
+  });
+
   it('resumes a task on its own branch with its uncommitted work, in the same conversation', async () => {
     await setup();
     await startTask('AR-1', 'dev-1');

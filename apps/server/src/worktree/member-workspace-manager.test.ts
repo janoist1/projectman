@@ -1,5 +1,16 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -408,10 +419,94 @@ describe('member workspaces', { timeout: 30_000 }, () => {
     expect(err.details.operation).toBe('index-lock');
     await rm(path.join(ws.gitDir, 'index.lock'));
     await writeFile(path.join(ws.gitDir, 'MERGE_HEAD'), `${baseCommit}\n`);
+    await git('-C', ws.path, 'branch', 'AR-2-second', baseCommit);
     expect(
-      (await refusal(manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'AR-1-first' })))
+      (await refusal(manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'AR-2-second' })))
         .details.operation,
     ).toBe('merge');
+  });
+
+  describe('an unfinished git operation on the checked-out task branch (PM-1326)', () => {
+    /** Commits `file` on the default branch and on the task branch with different content. */
+    async function diverge(ws: { path: string }, file: string) {
+      const base = await startTask('dev', 'AR-1-first');
+      await commitFile(ws.path, file, 'mine\n', 'Task side');
+      await git('-C', ws.path, 'branch', 'side', base);
+      await git('-C', ws.path, 'switch', '--quiet', 'side');
+      await commitFile(ws.path, file, 'theirs\n', 'Other side');
+      await git('-C', ws.path, 'switch', '--quiet', 'AR-1-first');
+    }
+
+    it('lets the task branch start in the middle of a merge, names the conflicts, and still refuses to switch', async () => {
+      const ws = await manager.ensure(key('dev'));
+      await diverge(ws, 'clash.txt');
+      await expect(git('-C', ws.path, 'merge', '--no-edit', 'side')).rejects.toThrow();
+
+      const back = await manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'AR-1-first' });
+      expect(back.branch).toBe('AR-1-first');
+      expect(await manager.status(key('dev'))).toMatchObject({
+        dirty: true,
+        operation: 'merge',
+        conflicts: ['clash.txt'],
+      });
+      // Nothing was reset: the conflict markers are still there.
+      expect(await readFile(path.join(ws.path, 'clash.txt'), 'utf8')).toContain('<<<<<<<');
+
+      const other = await refusal(
+        manager.checkoutTaskBranch(key('dev'), {
+          mode: 'create',
+          branch: 'AR-2-second',
+          startPoint: back.head,
+        }),
+      );
+      expect(other.code).toBe('workspace_dirty');
+      expect(other.details.operation).toBe('merge');
+
+      // The member aborts it: the workspace is clean again.
+      await git('-C', ws.path, 'merge', '--abort');
+      expect(await manager.status(key('dev'))).toMatchObject({
+        dirty: false,
+        operation: null,
+        conflicts: [],
+      });
+    });
+
+    it('lets the task branch start in the middle of a rebase, where HEAD is detached', async () => {
+      const ws = await manager.ensure(key('dev'));
+      await diverge(ws, 'clash.txt');
+      await expect(git('-C', ws.path, 'rebase', 'side')).rejects.toThrow();
+      expect((await manager.status(key('dev'))).checkout?.branch).toBeNull();
+
+      const back = await manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'AR-1-first' });
+      expect(back.branch).toBe('AR-1-first');
+      expect(await manager.status(key('dev'))).toMatchObject({
+        operation: 'rebase',
+        conflicts: ['clash.txt'],
+      });
+      // Another branch's task cannot take a workspace held in a rebase.
+      const other = await refusal(
+        manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'side' }),
+      );
+      expect(other.code).toBe('workspace_dirty');
+    });
+
+    it('lets the task branch start with uncommitted changes and in a cherry-pick', async () => {
+      const ws = await manager.ensure(key('dev'));
+      await diverge(ws, 'clash.txt');
+      const theirs = await git('-C', ws.path, 'rev-parse', 'side');
+      await expect(git('-C', ws.path, 'cherry-pick', theirs)).rejects.toThrow();
+      expect(
+        (await manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'AR-1-first' })).branch,
+      ).toBe('AR-1-first');
+      expect((await manager.status(key('dev'))).operation).toBe('cherry-pick');
+      await git('-C', ws.path, 'cherry-pick', '--abort');
+
+      await writeFile(path.join(ws.path, 'wip.txt'), 'half done\n');
+      expect(
+        (await manager.checkoutTaskBranch(key('dev'), { mode: 'continue', branch: 'AR-1-first' })).branch,
+      ).toBe('AR-1-first');
+      expect(await manager.status(key('dev'))).toMatchObject({ dirty: true, operation: null, conflicts: [] });
+    });
   });
 
   it('keeps every task branch and its commits; continuing a task returns to its branch without a reset', async () => {

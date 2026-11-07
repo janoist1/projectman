@@ -511,7 +511,13 @@ const workspaces = {
   ensure: method(z.tuple([key]), workspaceInfo.extend({ created: z.boolean() })),
   status: method(
     z.tuple([key]),
-    z.strictObject({ dirty: z.boolean(), operation: text.nullable(), checkout: checkout.nullable() }),
+    z.strictObject({
+      dirty: z.boolean(),
+      operation: text.nullable(),
+      // An engine older than the hub does not send it: the start then only lacks the conflict list.
+      conflicts: z.array(text).max(100).default([]),
+      checkout: checkout.nullable(),
+    }),
   ),
   sourceHead: method(z.tuple([key, text]), head.nullable()),
   fetchBase: method(z.tuple([key]), z.strictObject({ branch: text, commit: text })),

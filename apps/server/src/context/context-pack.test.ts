@@ -4153,6 +4153,44 @@ describe('member workspaces (PM-138)', () => {
       }
     });
   });
+  describe('a git operation left unfinished in the workspace (PM-1326)', () => {
+    const promptFor = (unfinishedGitOperation?: { operation: string; conflicts: string[] }) => {
+      const source = input({ handle: 'fe-1' });
+      source.sessionPolicy = buildSessionPolicy({
+        config: source.project,
+        role: 'developer',
+        task: source.task!,
+        placement: {
+          kind: 'task_worktree',
+          path: '/work/task',
+          workspace: { branch: 'AR-21', baseCommit: null },
+        },
+      });
+      return section(
+        builder.build({ ...source, ...(unfinishedGitOperation ? { unfinishedGitOperation } : {}) })
+          .appendSystemPrompt,
+        '# Session policy',
+      );
+    };
+
+    it('names the operation and the conflicting files', () => {
+      const text = promptFor({ operation: 'merge', conflicts: ['src/a.ts', 'docs/b.md'] });
+      expect(text).toContain('(merge)');
+      expect(text).toContain('src/a.ts');
+      expect(text).toContain('docs/b.md');
+    });
+
+    it('treats a leftover lock file as a lock, not as an operation to continue', () => {
+      const text = promptFor({ operation: 'index-lock', conflicts: [] });
+      expect(text).toContain('(index-lock)');
+      expect(text).not.toContain('--continue');
+    });
+
+    it('says nothing when the workspace is settled', () => {
+      expect(promptFor()).not.toContain('middle of a git operation');
+    });
+  });
+
   it('tells a developer which branch of its own workspace it works on, and that switching needs committed work', () => {
     const project = buildLocalOnlyProject('.');
     const task = makeTask({ stageId: 'dev', repo: 'app' });

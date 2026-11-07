@@ -51,6 +51,12 @@ export interface ContextPackInput {
    */
   workspaceDependencies?: WorkspaceDependencyShortfall;
   /**
+   * The member's own workspace was left in the middle of a git operation (PM-1326): which one
+   * (`merge`, `rebase`, `cherry-pick`, ...) and the files in conflict. The member settles it first.
+   * Omitted when there is none.
+   */
+  unfinishedGitOperation?: { operation: string; conflicts: string[] };
+  /**
    * The CLI's own sandbox the session's shell commands run in (PM-167), as the runner gets it;
    * absent when they are not sandboxed. A Claude member is told its boundary instead of the
    * server's command forms.
@@ -530,10 +536,14 @@ export interface MemberWorkspaceManager {
    * hardlinks or alternates); `created` tells whether it was made now.
    */
   ensure(key: MemberWorkspaceKey): Promise<MemberWorkspaceInfo & { created: boolean }>;
-  /** Uncommitted work or an unfinished git operation, and what is checked out. */
+  /**
+   * Uncommitted work or an unfinished git operation, and what is checked out; `conflicts` names the
+   * files of an unresolved merge, rebase or cherry-pick (a few at most).
+   */
   status(key: MemberWorkspaceKey): Promise<{
     dirty: boolean;
     operation: string | null;
+    conflicts: string[];
     checkout: WorkspaceCheckout | null;
   }>;
   /**

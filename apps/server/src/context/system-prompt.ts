@@ -620,6 +620,24 @@ function dependenciesLines({
   ];
 }
 
+/**
+ * A git operation the previous session (or a pause, an engine switch) left unfinished in this branch's
+ * workspace (PM-1326): the member settles it before anything else. Nothing is discarded for them.
+ */
+function gitOperationLines({ unfinishedGitOperation: left }: ContextPackInput): string[] {
+  if (!left) return [];
+  const files = left.conflicts.length
+    ? ` Files in conflict: ${codeList(left.conflicts)}.`
+    : ' No file is in conflict (git status shows what is left).';
+  if (left.operation === 'index-lock' || left.operation === 'head-lock')
+    return [
+      `This workspace holds a git lock file (${left.operation}), left by an interrupted git command. If no git process runs, delete the lock file before other work.`,
+    ];
+  return [
+    `This workspace was left in the middle of a git operation (${left.operation}).${files} Settle it first, before other work: resolve it and finish it (commit, or --continue), or stop it with --abort; do not leave it half-done when you end.`,
+  ];
+}
+
 function sessionPolicySection(input: ContextPackInput): string {
   const { sessionPolicy: policy, member } = input;
   if (!policy) return '';
@@ -627,6 +645,7 @@ function sessionPolicySection(input: ContextPackInput): string {
     '# Session policy',
     `Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
     ...dependenciesLines(input),
+    ...gitOperationLines(input),
     ...(policy.access === 'review_copy' ? [`Review copy mode: ${policy.reviewCopyMode ?? 'inherit'}.`] : []),
     `Readable roots for automatic command decisions: ${codeList(policy.filesystem.readableRoots)}.`,
     `Writable workspace roots: ${codeList(policy.filesystem.writableRoots)}.`,

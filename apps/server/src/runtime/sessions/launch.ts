@@ -555,6 +555,7 @@ export class SessionLauncher {
       ...input,
       sessionPolicy: startPolicy,
       ...(ws?.dependencies ? { workspaceDependencies: ws.dependencies } : {}),
+      ...(ws?.gitOperation ? { unfinishedGitOperation: ws.gitOperation } : {}),
       ...(sandbox ? { sandbox } : {}),
       ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
       ...(previousConversation && task ? { previousConversation } : {}),

@@ -653,6 +653,7 @@ export function TaskDrawer() {
           task={task}
           members={members}
           onPasted={showAttachments}
+          commentHref={commentHref}
         />
       </div>
     );

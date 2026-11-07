@@ -1,9 +1,28 @@
 .composer {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-top: 12px;
   min-width: 0;
+}
+/* The file-attach button sits first in the row, then Send and Mégse. */
+.attach {
+  min-height: 44px;
+}
+.fileNote {
+  margin: 0;
+  font-size: var(--text-sm, 13px);
+  color: var(--c-ink-3);
+}
+/* Narrow screens: the paperclip alone, a 44px touch target. */
+@media (max-width: 479px) {
+  .attach {
+    min-width: 44px;
+  }
+  .attachText {
+    display: none;
+  }
 }
 /* Closed: one line (the field's own minimum is three), still a 44px touch target. */
 .closed textarea {

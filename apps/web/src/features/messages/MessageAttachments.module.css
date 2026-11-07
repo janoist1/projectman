@@ -219,6 +219,19 @@
     overflow-x: auto;
   }
 }
+/* A comment's tray: at most two rows of 64px files, then it scrolls, so the sticky field never hides the list. */
+.trayComment {
+  max-height: calc(2 * (64px + 8px + 8px) + 12px);
+  flex-wrap: wrap;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.trayComment .failed {
+  border-color: var(--c-warn-border);
+}
+.uploadErrorComment {
+  color: var(--c-warn-text);
+}
 .uploadError button {
   border: 0;
   background: transparent;

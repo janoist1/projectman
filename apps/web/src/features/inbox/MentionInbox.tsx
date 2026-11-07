@@ -22,7 +22,7 @@ import mentionStyles from './MentionInbox.module.css';
 const SHORT_EXCERPT = 240;
 
 /** The short excerpt: the start of the text, or (when the mention is further in) the part around the mention. */
-export function shortExcerpt(text: string, handle: string | null): string {
+function shortExcerpt(text: string, handle: string | null): string {
   if (text.length <= SHORT_EXCERPT) return text;
   const at = handle ? text.toLowerCase().indexOf(`@${handle.toLowerCase()}`) : -1;
   const start = at > SHORT_EXCERPT - 80 ? Math.max(0, at - 60) : 0;

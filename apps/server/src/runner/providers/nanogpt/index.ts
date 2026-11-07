@@ -180,7 +180,7 @@ export function createNanogptAdapter(opts: {
         disabledMcpServers: userMcp.names,
       });
       return {
-        ...resolveCommand(opts.bin, command.args),
+        ...resolveCommand(opts.bin, command.args, input.cliPath),
         cliArgs: command.args,
         initialMessageSent: command.initialMessageSent,
         env: { CODEX_HOME: opts.codexHome, NANOGPT_API_KEY: key },

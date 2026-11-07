@@ -215,7 +215,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
         cliPath,
         disabledMcpServers: userMcp.names,
       });
-      return { ...resolveCommand(opts.bin, args), cliArgs: args, initialMessageSent };
+      return { ...resolveCommand(opts.bin, args, cliPath), cliArgs: args, initialMessageSent };
     },
 
     parseHook(body): HookPayload | null {

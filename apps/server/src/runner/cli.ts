@@ -13,10 +13,19 @@ const SCRIPT_RE = /\.(?:mjs|cjs|js)$/;
 /**
  * How to spawn the CLI: a JavaScript file (the fake CLI in tests) runs with the current
  * Node binary, so neither the executable bit nor PATH matters.
+ *
+ * `realPath` (the `resolveCliPath` result) makes a program start by its real file instead of the
+ * name found on PATH (PM-1295): a CLI that starts itself again (Codex's fs sandbox helper does,
+ * under `sandbox-exec`) uses the path it was started by, and a symbolic link in a home folder the
+ * session's sandbox denies cannot be executed there.
  */
-export function resolveCommand(bin: string, args: string[]): { file: string; args: string[] } {
+export function resolveCommand(
+  bin: string,
+  args: string[],
+  realPath?: string | null,
+): { file: string; args: string[] } {
   if (SCRIPT_RE.test(bin)) return { file: process.execPath, args: [bin, ...args] };
-  return { file: bin, args };
+  return { file: realPath ?? bin, args };
 }
 
 /**

@@ -227,9 +227,12 @@ export function useAttachmentUploads<A extends { id: string }>(options: Attachme
     },
     blockedReason: items.some((item) => item.status === 'uploading')
       ? t('messageAttachments.waitUpload')
-      : items.some((item) => item.status === 'failed' || item.status === 'gone')
+      : items.some((item) => item.status === 'failed')
         ? t('messageAttachments.fixFailed')
-        : null,
+        : // The tray row of a missing file already says so; here only what to do.
+          items.some((item) => item.status === 'gone')
+          ? t('messageAttachments.removeGone')
+          : null,
   };
 }
 

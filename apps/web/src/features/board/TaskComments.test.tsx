@@ -364,6 +364,26 @@ describe('the files of a comment (PM-1310)', () => {
     expect(stored.comment?.eventId).toEqual(expect.any(String));
   });
 
+  it('names the paperclip for the comment and states why Send waits between the buttons', async () => {
+    const project = mockProject();
+    const answer = createMockFetch(project.backend, project.requests);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    setFetchImplementation(async (input, init) => {
+      if (init?.method === 'POST' && input === FILE_UPLOADS) await held;
+      return answer(input, init);
+    });
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const form = await mainForm();
+    pick(form, file());
+    const clip = await within(form).findByRole('button', { name: t('task.comments.attachLabel') });
+    // While the file uploads, the reason sits in the actions row, next to the buttons.
+    const reason = within(form).getByText(t('messageAttachments.waitUpload'));
+    expect(reason.parentElement).toBe(clip.parentElement);
+    release();
+    await waitFor(() => expect(send(form).disabled).toBe(false));
+  });
+
   it('takes at most ten files into one comment', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20/thread');
@@ -409,14 +429,13 @@ describe('the files of a comment (PM-1310)', () => {
     // The file vanished after the upload (deleted elsewhere).
     project.backend.removeAttachment(project.backend.attachments[0]!.id);
     fireEvent.click(send(form));
-    await waitFor(() =>
-      expect(
-        within(form)
-          .getAllByRole('alert')
-          .map((node) => node.textContent),
-      ).toContain(t('messageAttachments.unavailable', { fileName: 'notes.txt' })),
-    );
+    // One message only: the tray row says it; no error bar above and no repeat in the block reason.
+    const alert = await within(form).findByRole('alert');
+    expect(alert.textContent).toBe(t('messageAttachments.unavailable', { fileName: 'notes.txt' }));
+    expect(within(form).getAllByRole('alert')).toHaveLength(1);
+    expect(within(form).getByText(t('messageAttachments.removeGone'))).toBeTruthy();
     expect(within(form).queryByRole('button', { name: t('attachments.retry') })).toBeNull();
+    expect(within(form).queryByRole('button', { name: t('task.comments.retry') })).toBeNull();
     expect(send(form).disabled).toBe(true);
     expect(input.value).toBe('With a file');
   });

@@ -169,6 +169,11 @@ export function TaskCommentComposer({
       ? codeMessage(mutation.error.code)
       : t(files.length ? 'task.comments.sendFailedFiles' : 'task.comments.sendFailed')
     : null;
+  // The tray row of the missing file says it, so the bar above (and its Retry, which would fail again) stays out.
+  const fileGone =
+    mutation.isError &&
+    isApiError(mutation.error) &&
+    mutation.error.code === 'comment_attachment_unavailable';
   const sendBlocked = sending ? false : !hasContent || Boolean(uploads.blockedReason);
   return (
     <form
@@ -274,7 +279,7 @@ export function TaskCommentComposer({
           ))}
         </ul>
       ) : null}
-      {failure ? (
+      {failure && !fileGone ? (
         <div role="alert" className={styles.failure}>
           <p>{failure}</p>
           <Button type="button" size="sm" variant="secondary" onClick={submit}>
@@ -292,9 +297,9 @@ export function TaskCommentComposer({
         disabled={sending}
       />
       {files.length ? <p className={styles.fileNote}>{t('task.comments.fileVisibility')}</p> : null}
-      {uploads.error || (uploads.blockedReason && open) ? (
-        <p className={styles.fileNote} role={uploads.error ? 'alert' : undefined}>
-          {uploads.error ?? uploads.blockedReason}
+      {uploads.error ? (
+        <p className={styles.fileNote} role="alert">
+          {uploads.error}
         </p>
       ) : null}
       <p className={styles.live} aria-live="polite">
@@ -320,7 +325,7 @@ export function TaskCommentComposer({
             className={styles.attach}
             aria-disabled={sending || undefined}
             title={t('task.comments.attachTitle')}
-            aria-label={t('messageAttachments.add')}
+            aria-label={t('task.comments.attachLabel')}
             // A mouse press keeps the focus in the field, so the buttons do not vanish before the click lands.
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => {
@@ -329,6 +334,8 @@ export function TaskCommentComposer({
           >
             <span className={styles.attachText}>{t('messageAttachments.add')}</span>
           </Button>
+          {/* Why Send waits sits between the buttons, in reach of the eye, not above the field. */}
+          {uploads.blockedReason ? <p className={styles.status}>{uploads.blockedReason}</p> : null}
           <Button
             type="submit"
             // aria-disabled, not disabled: a second click is ignored without the button leaving the focus order.

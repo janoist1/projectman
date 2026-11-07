@@ -514,7 +514,8 @@ const workspaces = {
     z.strictObject({
       dirty: z.boolean(),
       operation: text.nullable(),
-      conflicts: z.array(text).max(100),
+      // An engine older than the hub does not send it: the start then only lacks the conflict list.
+      conflicts: z.array(text).max(100).default([]),
       checkout: checkout.nullable(),
     }),
   ),

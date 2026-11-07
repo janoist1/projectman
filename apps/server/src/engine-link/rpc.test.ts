@@ -399,6 +399,12 @@ describe('engine RPC', () => {
     ).toBe(false);
   });
 
+  it('accepts a workspace status from an engine that does not send the conflicts yet (PM-1326)', () => {
+    const { result } = methods['workspace.status'];
+    const parsed = result.parse({ dirty: true, operation: 'merge', checkout: null });
+    expect(parsed.conflicts).toEqual([]);
+  });
+
   describe('workspace.publishTaskBranch over the wire (PM-739)', () => {
     const key = {
       project: testConfig({ workspacePath: '/cloud/path' }),

@@ -2,7 +2,7 @@ import { TASK_COMMENT_MAX } from '@projectman/shared';
 import clsx from 'clsx';
 import { useEffect, useId, useRef, useState } from 'react';
 import { isApiError } from '../../api/client';
-import { useCreateTaskComment } from '../../api/queries';
+import { useAttachments, useCreateTaskComment, useDeleteAttachment } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { TextAreaField } from '../../components/Field';
@@ -11,7 +11,7 @@ import { useContacts } from '../messages/useContacts';
 import { codeMessage } from '../../lib/errors';
 import { distinctMembers } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
-import { MAIN_DRAFT, useCardCommentDraft } from './useCardCommentDraft';
+import { MAIN_DRAFT, useCardCommentDraft, useCardDraftNotice } from './useCardCommentDraft';
 import styles from './TaskCommentComposer.module.css';
 
 export interface TaskCommentComposerProps {
@@ -45,11 +45,17 @@ export function TaskCommentComposer({
   const mutation = useCreateTaskComment(key);
   const draft = useCardCommentDraft(key, taskKey, slot);
   const text = draft.text;
+  const files = draft.attachments;
+  // Files moved here from the project manager's panel (PM-1305) are named from the card's own list.
+  const attachmentList = useAttachments(key, taskKey, files.length > 0);
+  const deleteFile = useDeleteAttachment(key, taskKey);
+  const { notice, dismiss: dismissNotice } = useCardDraftNotice(key, taskKey);
+  const showNotice = slot === MAIN_DRAFT ? notice : null;
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null);
   const [selected, setSelected] = useState(0);
   // One line until the reader focuses it; the hint and the Send button follow, and stay while there is a draft.
   const [focused, setFocused] = useState(false);
-  const open = focused || text !== '' || replyTo !== undefined;
+  const open = focused || text !== '' || files.length > 0 || replyTo !== undefined;
   const textarea = useRef<HTMLTextAreaElement>(null);
   // One id per submission: a retry of the same text reuses it, so the server keeps one comment.
   const attempt = useRef<string | null>(null);
@@ -76,7 +82,14 @@ export function TaskCommentComposer({
     // New words are a new submission.
     attempt.current = null;
     if (mutation.isError) mutation.reset();
+    dismissNotice();
     draft.setText(value);
+  };
+  // A file taken off the draft is deleted from the card, too: it was only ever there for this comment.
+  const removeFile = (id: string) => {
+    attempt.current = null;
+    draft.setAttachments(files.filter((entry) => entry !== id));
+    deleteFile.mutate(id);
   };
   const updateMention = (value: string, caret: number) => {
     const match = /(?:^|[^\p{L}\p{N}_@.+-])@([\p{L}\p{N}-]*)$/u.exec(value.slice(0, caret));
@@ -104,10 +117,19 @@ export function TaskCommentComposer({
     if (!body || sending) return;
     const clientRequestId = (attempt.current ??= crypto.randomUUID());
     mutation.mutate(
-      { taskKey, body: { text: body, clientRequestId, ...(replyTo ? { replyTo } : {}) } },
+      {
+        taskKey,
+        body: {
+          text: body,
+          clientRequestId,
+          ...(replyTo ? { replyTo } : {}),
+          ...(files.length ? { attachmentIds: files } : {}),
+        },
+      },
       {
         onSuccess: () => {
           attempt.current = null;
+          dismissNotice();
           draft.clear();
           setMention(null);
           onPosted?.(clientRequestId);
@@ -192,6 +214,32 @@ export function TaskCommentComposer({
           }
         }}
       />
+      {files.length ? (
+        <ul className={styles.files}>
+          {files.map((id) => {
+            const name = attachmentList.data?.attachments.find((entry) => entry.id === id)?.fileName ?? id;
+            return (
+              <li key={id} className={styles.file}>
+                <span className={styles.fileName}>{name}</span>
+                <button
+                  type="button"
+                  className={styles.fileRemove}
+                  aria-label={t('task.comments.attachRemove', { name })}
+                  disabled={sending}
+                  onClick={() => removeFile(id)}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {showNotice ? (
+        <p className={styles.notice} role="status">
+          {t(showNotice === 'merged' ? 'task.comments.draftMerged' : 'task.comments.draftMoved')}
+        </p>
+      ) : null}
       {options.length ? (
         <ul id={listId} role="listbox" aria-label={t('task.comments.members')} className={styles.options}>
           {options.map((member, index) => (

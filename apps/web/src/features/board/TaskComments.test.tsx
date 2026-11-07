@@ -2,6 +2,9 @@ import type { Actor } from '@projectman/shared';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
+import { applyServerEvent } from '../../api/cache';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { openTab } from '../../test/cardStory';
@@ -299,6 +302,96 @@ describe('the Comments view (PM-1304)', () => {
     fireEvent.click(within(list.getByText('Theirs').closest('li')!).getByRole('button', { name: /^Válasz/ }));
     const reply = await screen.findByRole('textbox', { name: /^Válasz/ });
     await waitFor(() => expect(reached.some((element) => element.contains(reply))).toBe(true));
+  });
+
+  describe('the status line under a comment (PM-1305)', () => {
+    /** The comment of the owner that mentions `be-1`, and the notice message the server sent for it. */
+    const mentioning = (project: Project) => {
+      const event = comment(project, 'owner', '@be-1 nézd meg', { mentions: ['be-1'] }, 30);
+      const notice = project.backend.sendTeamMessage(
+        'owner',
+        ['be-1'],
+        'AC-20',
+        'nézd meg',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { origin: { kind: 'note', eventId: event.id } },
+      );
+      return { event, notice };
+    };
+
+    it('says what became of the comment for each mentioned member, and nothing under a comment that mentions no one', async () => {
+      const project = mockProject();
+      comment(project, 'owner', 'Just a thought', {}, 40);
+      mentioning(project);
+      project.render(drawer, '/p/AC/tasks/AC-20/thread');
+      const lines = await screen.findAllByRole('list', { name: t('processing.list') });
+      expect(lines).toHaveLength(1);
+      const row = within(lines[0]!).getAllByRole('listitem');
+      expect(row).toHaveLength(1);
+      expect(row[0]!.getAttribute('data-state')).toBe('stored');
+      expect(row[0]!.textContent).toContain(project.backend.findMember('be-1')!.displayName);
+    });
+
+    it('opens the answer of the member through the comment link once they replied', async () => {
+      const project = mockProject();
+      const { event, notice } = mentioning(project);
+      notice.receipts![0]!.deliveredAt = ago(20);
+      const answer = comment(project, 'be-1', 'Kész', { replyTo: event.id }, 5);
+      project.render(drawer, '/p/AC/tasks/AC-20/thread');
+      const open = await screen.findByRole('link', { name: t('processing.openReply') });
+      expect(open.getAttribute('href')).toContain(`#timeline-${answer.id}`);
+    });
+
+    it('reads the comments again when the processing of a message changed, with no polling', async () => {
+      const project = mockProject();
+      const { notice } = mentioning(project);
+      let client!: QueryClient;
+      const Grab = () => {
+        client = useQueryClient();
+        return null;
+      };
+      project.render(
+        <>
+          {drawer}
+          <Grab />
+        </>,
+        '/p/AC/tasks/AC-20/thread',
+      );
+      const before = await screen.findByRole('list', { name: t('processing.list') });
+      expect(within(before).getByRole('listitem').getAttribute('data-state')).toBe('stored');
+      notice.receipts![0]!.deliveredAt = ago(1);
+      applyServerEvent(client, {
+        type: 'message_processing_changed',
+        projectKey: 'AC',
+        messageId: notice.id,
+        taskKey: 'AC-20',
+        from: 'owner',
+      });
+      await waitFor(() =>
+        expect(
+          within(screen.getByRole('list', { name: t('processing.list') }))
+            .getByRole('listitem')
+            .getAttribute('data-state'),
+        ).toBe('delivered'),
+      );
+    });
+  });
+
+  describe('the first-use tip at the box (PM-1305)', () => {
+    it('is dismissed once and stays away for the account', async () => {
+      const project = mockProject();
+      const view = project.render(drawer, '/p/AC/tasks/AC-20/thread');
+      await box();
+      fireEvent.click(await screen.findByRole('button', { name: t('task.comments.tipDismiss') }));
+      expect(screen.queryByRole('button', { name: t('task.comments.tipDismiss') })).toBeNull();
+      view.unmount();
+      project.render(drawer, '/p/AC/tasks/AC-20/thread');
+      await box();
+      expect(screen.queryByRole('button', { name: t('task.comments.tipDismiss') })).toBeNull();
+    });
   });
 
   it('lets a viewer read the comments without a form', async () => {

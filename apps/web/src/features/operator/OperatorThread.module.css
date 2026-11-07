@@ -80,9 +80,14 @@
   color: var(--c-ink-4);
 }
 
-.sent::before {
-  content: '·';
-  margin-right: 8px;
+/* The recipient's status (PM-1305) sits under the bubble, on the side of the sender. */
+.processing {
+  margin: 2px 0 0;
+}
+
+.out .processing {
+  align-items: flex-end;
+  text-align: right;
 }
 
 .failedBubble {

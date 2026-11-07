@@ -14,6 +14,8 @@ export const MAIN_DRAFT = 'main';
 
 const cache = new Map<string, Record<string, CommentDraft>>();
 const listeners = new Set<() => void>();
+/** The transfer notices, per card: they are read by the main box and gone once it is edited or sent. */
+const notices = new Map<string, 'moved' | 'merged'>();
 
 const storageKey = (projectKey: string, taskKey: string) => `${STORAGE_PREFIX}${projectKey}:${taskKey}`;
 
@@ -59,6 +61,53 @@ export function replyDraftSlots(projectKey: string, taskKey: string): string[] {
 /** Forgets the drafts held in memory (a test starts from a clean store; the storage is the caller's to clear). */
 export function resetCommentDrafts(): void {
   cache.clear();
+  notices.clear();
+}
+
+/** The most files one comment carries (the server's limit). */
+const MAX_DRAFT_ATTACHMENTS = 10;
+
+/** What "Írás a kártyára" did to the main box: it was empty (`moved`), or it already held a draft (`merged`). */
+export type DraftTransfer = 'moved' | 'merged';
+
+/**
+ * Puts text and attachments typed elsewhere (the project manager's panel) into the main box of the card, without
+ * sending (PM-1305). A box that already holds a draft keeps it: the new text follows it and the files join its
+ * files. The notice stays until the writer edits or sends the box.
+ */
+export function transferToCardDraft(
+  projectKey: string,
+  taskKey: string,
+  moved: { text: string; attachments: string[] },
+): DraftTransfer {
+  const drafts = { ...read(projectKey, taskKey) };
+  const existing = drafts[MAIN_DRAFT];
+  const had = existing !== undefined && (existing.text !== '' || existing.attachments.length > 0);
+  const text = [existing?.text ?? '', moved.text].filter((part) => part.trim() !== '').join('\n\n');
+  const attachments = [...new Set([...(existing?.attachments ?? []), ...moved.attachments])].slice(
+    0,
+    MAX_DRAFT_ATTACHMENTS,
+  );
+  drafts[MAIN_DRAFT] = { text, attachments };
+  const outcome: DraftTransfer = had ? 'merged' : 'moved';
+  notices.set(storageKey(projectKey, taskKey), outcome);
+  write(projectKey, taskKey, drafts);
+  return outcome;
+}
+
+/** The notice of the last transfer into the main box of the card, and the way to dismiss it. */
+export function useCardDraftNotice(projectKey: string, taskKey: string) {
+  const id = storageKey(projectKey, taskKey);
+  const notice = useSyncExternalStore(
+    subscribe,
+    () => notices.get(id) ?? null,
+    () => null,
+  );
+  const dismiss = useCallback(() => {
+    if (!notices.delete(id)) return;
+    for (const listener of listeners) listener();
+  }, [id]);
+  return { notice, dismiss };
 }
 
 /**

@@ -369,6 +369,12 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       invalidate(queryKeys.operatorPreferences(event.projectKey));
       return;
     }
+    case 'message_processing_changed': {
+      // What became of a message for a recipient changed (PM-1290): the status lines read again, no polling.
+      invalidate(queryKeys.messages(event.projectKey));
+      if (event.taskKey) invalidate(queryKeys.taskComments(event.projectKey, event.taskKey));
+      return;
+    }
     case 'feedback_changed': {
       // A mark came, was answered or decided: the list, the badge, the open mark and the cards' rows read again.
       invalidate(queryKeys.feedback(event.projectKey));

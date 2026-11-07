@@ -809,6 +809,7 @@ export function TaskDrawer() {
                   active={thread}
                   target={commentTarget}
                   canComment={can.comment}
+                  eventHref={commentHref}
                 />
               </div>
             ) : null,

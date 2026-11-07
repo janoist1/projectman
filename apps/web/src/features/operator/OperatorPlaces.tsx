@@ -18,7 +18,7 @@ export function OperatorPlaces({ places }: { places: readonly UiPlace[] }) {
   const { key, me } = useProject();
   const board = useBoard(key);
   const { members } = useProjectIndexes(key);
-  const from = useUiLocation(null);
+  const from = useUiLocation();
   const access = me.projects.find((project) => project.key === key)?.access;
   const known = useMemo(
     () => ({

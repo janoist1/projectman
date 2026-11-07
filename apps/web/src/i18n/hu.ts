@@ -2920,10 +2920,8 @@ export const hu = {
       members: 'Megemlíthető csapattagok',
       imported: 'Importált',
       importedTitle: 'Importálva: {time}',
-      /** The line above the list: who reads a comment, and (when the project has one) whom to mention for an answer. */
+      /** The line above the list: who reads a comment. */
       visibility: 'A hozzászólást a kártyát olvasók látják.',
-      visibilityAsk:
-        'A hozzászólást a kártyát olvasók látják. Ha választ kérsz valakitől, említsd meg: @{handle}.',
       empty: 'Még nincs hozzászólás.',
       loadFailed: 'Nem sikerült betölteni a hozzászólásokat.',
       refreshFailed: 'A frissítés nem sikerült. A korábban betöltött hozzászólásokat látod.',
@@ -2940,6 +2938,15 @@ export const hu = {
       posted: 'Közzétéve',
       sendFailed: 'Nem sikerült közzétenni. A szöveged megmaradt.',
       readOnly: 'Betekintőként csak olvashatod a hozzászólásokat.',
+      /** The first-use tip at the comment box (PM-1305). */
+      tip: 'Ha választ kérsz valakitől, említsd meg: @{handle}.',
+      tipDismiss: 'Tipp elrejtése',
+      /** After "Írás a kártyára" from the project manager's panel. */
+      draftMoved:
+        'A piszkozatot átvittük a kártyára. A hozzászólást a kártyát olvasók látják; nézd át küldés előtt.',
+      draftMerged:
+        'A kártyán már volt piszkozat. Hozzáfűztük a szöveget és a csatolmányokat; nézd át küldés előtt.',
+      attachRemove: '{name} eltávolítása',
     },
     /** The Process view's closed block of the card's old conversations (PM-1290): read-only, no new message. */
     earlier: {
@@ -4041,8 +4048,17 @@ export const hu = {
       },
     },
     context: {
-      label: 'Ehhez: {key} {title}',
-      remove: 'A kártya leválasztása az üzenetről',
+      label: 'Kontextus: {key}',
+      title: '{key} {title}',
+      remove: 'Kontextus eltávolítása',
+      hint: 'Az üzenet ebben a beszélgetésben marad.',
+      open: '{key} megnyitása',
+    },
+    /** Moves the unsent text of the panel to the card's own comment box (PM-1305). */
+    writeOnCard: {
+      action: 'Írás a kártyára',
+      title: 'A szöveg és a csatolmányok átvitele a kártya hozzászólás-mezőjébe, küldés nélkül',
+      failed: 'A csatolmányokat nem sikerült átvinni. A szöveg és a csatolmányok megmaradtak itt.',
     },
     /** The "go there" buttons under a project manager's message (PM-1071). */
     place: {
@@ -4069,12 +4085,9 @@ export const hu = {
       working: 'Dolgozik rajta…',
     },
     sent: {
-      plain: 'Elküldve',
-      quota: 'Elküldve · a keretre vár',
-      paused: 'Elküldve · a folytatásra vár',
-      queued: 'Elküldve · sorban áll',
-      failed: 'Nem ment el.',
-      retry: 'Újra',
+      failed: 'Nem sikerült elküldeni. A szöveged és a csatolmányok megmaradtak.',
+      retry: 'Újraküldés',
+      retrying: 'Újraküldés…',
     },
     loadFailed: 'Nem sikerült betölteni a beszélgetést.',
     missing: {
@@ -6755,6 +6768,51 @@ export const hu = {
       done: 'Törölted a jelölést.',
       gone: 'Ezt a jelölést már törölték.',
     },
+  },
+
+  /** What became of a message for one recipient (PM-1290/PM-1305): the one wording of the card and the PM panel. */
+  processing: {
+    label: {
+      stored: 'Kézbesítésre vár',
+      held: 'Várakozik',
+      starting: 'Indul…',
+      delivered: 'Kézbesítve',
+      read: 'Olvasva',
+      handed_off: 'Továbbadva @{to} részére',
+      working: 'Feldolgozás alatt',
+      waiting: 'Várakozik',
+      stale: 'Elakadt',
+      turn_ended: 'Nem válaszolt',
+      replied: 'Válaszolt',
+      not_sent: 'Nem kézbesíthető',
+    },
+    hold: {
+      engine: 'A motor kapcsolódására vár.',
+      handoff: 'A munka átadására vár.',
+      refinement_turn: 'Az előkészítés következő lépésére vár.',
+      fix_limit: 'A javítási körök utáni döntésre vár.',
+      full_test: 'A teljes ellenőrzésre vár.',
+    },
+    wait: {
+      permission: 'Engedélyre vár.',
+      input: 'Válaszra vár.',
+      paused: 'Szünetel.',
+      quota: 'Az előfizetési keretre vár.',
+      unknown: 'A folytatásra vár.',
+    },
+    stale: {
+      engine_offline: 'A motor nem kapcsolódik. Utolsó jelzés: {time}.',
+      no_report: 'Az állapot nem frissül. Utolsó jelzés: {time}.',
+    },
+    detail: {
+      starting: 'Az indulást a felső munkasáv mutatja.',
+      delivered: 'AI-tagnál a kézbesítés nem jelent elolvasást.',
+      turn_ended: 'A feldolgozási kör véget ért; ehhez az üzenethez még nincs összerendelt válasz.',
+      not_sent: 'A hozzászólás megmaradt, de ez a megszólítás nem küldött értesítést.',
+    },
+    list: 'Feldolgozás állapota',
+    openReply: 'Válasz megnyitása',
+    replyUnavailable: 'A válasz nem érhető el.',
   },
 
   messages: {

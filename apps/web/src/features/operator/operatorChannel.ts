@@ -90,17 +90,3 @@ export function operatorStripOf(channel: ProjectManagerCorner | undefined): Oper
   }
   return { kind: 'starting' };
 }
-
-/** The line under an own message that the project manager has not taken yet. */
-export function operatorSentText(wait: OperatorWait | null): string {
-  switch (wait) {
-    case 'quota':
-      return t('operator.sent.quota');
-    case 'paused':
-      return t('operator.sent.paused');
-    case 'queued':
-      return t('operator.sent.queued');
-    case null:
-      return t('operator.sent.plain');
-  }
-}

@@ -1,0 +1,65 @@
+/* A message's status per recipient (PM-1305): a small line under the message, never a second "starting" strip. */
+.list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.who {
+  font-weight: 700;
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-ink-3);
+  align-self: center;
+}
+
+.row[data-tone='progress'] .dot {
+  background: var(--c-accent);
+}
+
+.row[data-tone='ok'] .dot {
+  background: var(--c-ok);
+}
+
+.row[data-tone='warn'] .dot {
+  background: var(--c-warn);
+}
+
+.row[data-tone='danger'] .dot {
+  background: var(--c-danger);
+}
+
+.row[data-tone='warn'] .label {
+  color: var(--c-warn-text);
+}
+
+.row[data-tone='danger'] .label {
+  color: var(--c-danger);
+}
+
+.detail {
+  flex-basis: 100%;
+}
+
+.reply {
+  margin-left: auto;
+}

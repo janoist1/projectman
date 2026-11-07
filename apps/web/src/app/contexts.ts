@@ -54,6 +54,8 @@ export interface ProjectContextValue {
    * with the project, so leaving for the work queues and coming back finds it.
    */
   operatorDraft: { current: string };
+  /** Where the panel's conversation was scrolled to when it closed (PM-1305), so reopening finds the same place. */
+  operatorScroll: { current: { top: number; stick: boolean } | null };
   /** Opens the new-card dialog; `kind: 'theme'` opens it for a theme (PM-192). */
   openNewTask: (options?: { kind?: 'theme' }) => void;
   /** The theme the board is filtered to (PM-192), kept here so the board, a theme's card and the new-card dialog agree. */

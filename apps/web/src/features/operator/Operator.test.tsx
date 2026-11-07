@@ -289,6 +289,7 @@ describe('the Operator panel', () => {
     fireEvent.keyDown(composer, { key: 'Enter' });
     await waitFor(() =>
       expect(posted(project, '/messages')[0]?.body).toEqual({
+        clientRequestId: expect.any(String),
         to: ['pm'],
         text: 'Mi az állás?',
         location: { page: 'board' },
@@ -304,13 +305,19 @@ describe('the Operator panel', () => {
     fireEvent.click(await button());
     const panel = await screen.findByRole('dialog');
     const title = project.backend.tasks.find((task) => task.key === 'AC-20')!.title;
-    expect(await within(panel).findByText(t('operator.context.label', { key: 'AC-20', title }))).toBeTruthy();
+    const chip = await within(panel).findByText(t('operator.context.label', { key: 'AC-20' }));
+    expect(chip.getAttribute('title')).toBe(t('operator.context.title', { key: 'AC-20', title }));
+    expect(within(panel).getByText(t('operator.context.hint'))).toBeTruthy();
+    expect(
+      within(panel).getByRole('link', { name: t('operator.context.open', { key: 'AC-20' }) }),
+    ).toBeTruthy();
 
     const composer = within(panel).getByRole('textbox', { name: t('operator.composer.label') });
     fireEvent.change(composer, { target: { value: 'Nézd meg ezt' } });
     fireEvent.keyDown(composer, { key: 'Enter' });
     await waitFor(() =>
       expect(posted(project, '/messages')[0]?.body).toEqual({
+        clientRequestId: expect.any(String),
         to: ['pm'],
         text: 'Nézd meg ezt',
         taskKey: 'AC-20',
@@ -319,7 +326,7 @@ describe('the Operator panel', () => {
     );
   });
 
-  it('sends only the page once the card is taken off the message', async () => {
+  it('sends no card key once the chip is taken off, and the place stays what it is', async () => {
     const project = mockProject();
     renderLayout(project, '/p/AC/tasks/AC-20');
     fireEvent.click(await button());
@@ -331,9 +338,10 @@ describe('the Operator panel', () => {
     fireEvent.keyDown(composer, { key: 'Enter' });
     await waitFor(() =>
       expect(posted(project, '/messages')[0]?.body).toEqual({
+        clientRequestId: expect.any(String),
         to: ['pm'],
         text: 'Általában kérdezek',
-        location: { page: 'board' },
+        location: { page: 'board', taskKey: 'AC-20', view: 'card' },
       }),
     );
   });
@@ -742,7 +750,11 @@ describe('unanchored Operator signals', () => {
     expect(project.requests.filter((r) => r.path.endsWith('/project-manager')).length - refreshes).toBe(1);
     expect(document.activeElement).toBe(settled);
     fireEvent.click(settled);
-    expect(screen.getAllByRole('listitem')).toHaveLength(6);
+    // The owner's own question carries a delivery line (a list item of its own); the signals are the rest.
+    const signals = screen
+      .getAllByRole('listitem')
+      .filter((item) => item.closest('ul')?.getAttribute('aria-label') !== t('processing.list'));
+    expect(signals).toHaveLength(6);
   });
 
   it('limits bulk requests to four, disables decisions during progress, and retries only failures', async () => {

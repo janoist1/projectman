@@ -74,3 +74,62 @@
 .options span {
   color: var(--c-ink-3);
 }
+/* Files moved here from the project manager's panel (PM-1305): named chips with a remove button. */
+.files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.file {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 0 2px 0 8px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-sm);
+  background: var(--c-muted);
+  font-size: var(--text-sm, 13px);
+}
+.fileName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fileRemove {
+  flex: none;
+  min-width: 28px;
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--c-ink-3);
+  cursor: pointer;
+}
+.fileRemove:hover {
+  color: var(--c-ink);
+}
+.fileRemove:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+@media (pointer: coarse), (max-width: 767px) {
+  .fileRemove {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+/* The notice after a transfer: the text came from elsewhere and is read before it is posted. */
+.notice {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--c-warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--c-warn-bg);
+  color: var(--c-warn-text);
+  font-size: var(--text-sm, 13px);
+}

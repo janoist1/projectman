@@ -2,12 +2,16 @@ import { mentionTokens, projectManagerAmong } from '@projectman/shared';
 import type { TimelineEvent } from '@projectman/shared';
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Link } from 'react-router';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { formatDate, formatStamp, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { readStorage, writeStorage } from '../../lib/hooks';
 import { actorByline, isOwnActor } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
+import { ProcessingLines } from '../messages/ProcessingLines';
 import { useContacts } from '../messages/useContacts';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import type { TaskCommentsState } from './useTaskComments';
@@ -68,6 +72,7 @@ function CommentEntry({
   posted,
   onReply,
   registerReply,
+  status,
 }: {
   event: TimelineEvent;
   members: MemberIndex;
@@ -76,6 +81,8 @@ function CommentEntry({
   posted: boolean;
   onReply?: (name: string, own: boolean) => void;
   registerReply: (button: HTMLButtonElement | null) => void;
+  /** The recipients' processing status lines (PM-1305), under the text. */
+  status?: ReactNode;
 }) {
   const importedAuthor = text(event.data.importedAuthor);
   const importedAt = text(event.data.importedAt);
@@ -107,6 +114,7 @@ function CommentEntry({
           {t('task.comments.posted')}
         </p>
       ) : null}
+      {status}
       {onReply ? (
         <button
           type="button"
@@ -131,6 +139,7 @@ export function TaskComments({
   active,
   target,
   canComment,
+  eventHref,
 }: {
   projectKey: string;
   taskKey: string;
@@ -140,6 +149,8 @@ export function TaskComments({
   /** The comment (or reply) a link points at: the view opens around it and highlights it. */
   target: string | null;
   canComment: boolean;
+  /** Where a link to one comment of the card leads (the `around` jump of the view). */
+  eventHref?: ((eventId: string) => string) | null;
 }) {
   const { myHandle } = useProject();
   const contacts = useContacts();
@@ -291,9 +302,37 @@ export function TaskComments({
         <p className={styles.empty}>{t('task.comments.empty')}</p>
       ) : (
         <ol className={styles.list} aria-label={t('task.view.thread')}>
-          {threads.map(({ comment, replies }) => (
+          {threads.map(({ comment, replies, processing }) => (
             <li key={comment.id} id={`timeline-${comment.id}`} tabIndex={-1} className={styles.thread}>
-              <CommentEntry {...entryProps(comment, comment.id)} />
+              <CommentEntry
+                {...entryProps(comment, comment.id)}
+                status={
+                  processing && processing.length > 0 ? (
+                    <ProcessingLines
+                      items={processing}
+                      members={members}
+                      myHandle={myHandle}
+                      className={styles.status}
+                      reply={(view, handle) =>
+                        'eventId' in view ? (
+                          eventHref ? (
+                            <Link className={styles.replyLink} to={eventHref(view.eventId)}>
+                              {t('processing.openReply')}
+                            </Link>
+                          ) : null
+                        ) : isOwnActor(comment.actor, myHandle) ? (
+                          // A direct answer is a message to the author: their conversation with the recipient.
+                          <Link className={styles.replyLink} to={`/p/${projectKey}/messages/with/${handle}`}>
+                            {t('processing.openReply')}
+                          </Link>
+                        ) : (
+                          <span>{t('processing.replyUnavailable')}</span>
+                        )
+                      }
+                    />
+                  ) : undefined
+                }
+              />
               {replies.length > 0 || reply?.parentId === comment.id ? (
                 <ol className={styles.replies}>
                   {replies.map((entry) => (
@@ -346,17 +385,36 @@ export function TaskComments({
     </>
   );
 
+  // The first-use tip at the box is dismissed once per account.
+  const tipKey = `commentTip.dismissed.${myHandle ?? ''}`;
+  const [tipDismissed, setTipDismissed] = useState(() => readStorage(tipKey) === '1');
+
   return (
     <div className={styles.panel}>
-      <p className={styles.visibility}>
-        {ask ? t('task.comments.visibilityAsk', { handle: ask }) : t('task.comments.visibility')}
-      </p>
+      <p className={styles.visibility}>{t('task.comments.visibility')}</p>
       <div ref={log} className={styles.log}>
         {body}
       </div>
       <div className={styles.composer}>
         {canComment && myHandle ? (
           <div className={styles.composerColumn}>
+            {ask && !tipDismissed ? (
+              <p className={styles.tip}>
+                <span>{t('task.comments.tip', { handle: ask })}</span>
+                <button
+                  type="button"
+                  className={styles.tipDismiss}
+                  aria-label={t('task.comments.tipDismiss')}
+                  title={t('task.comments.tipDismiss')}
+                  onClick={() => {
+                    writeStorage(tipKey, '1');
+                    setTipDismissed(true);
+                  }}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </p>
+            ) : null}
             <TaskCommentComposer
               key={`comments:${taskKey}`}
               taskKey={taskKey}

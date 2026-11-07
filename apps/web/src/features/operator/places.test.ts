@@ -31,10 +31,6 @@ describe('where the writer is (PM-1071)', () => {
     });
     expect(uiLocationOf('/p/AC/no-such-page')).toEqual({ page: 'other' });
   });
-
-  it('leaves out a card the writer took off the message', () => {
-    expect(uiLocationOf('/p/AC/inbox/tasks/AC-20', 'AC-20')).toEqual({ page: 'inbox' });
-  });
 });
 
 describe('the address of an offered place', () => {

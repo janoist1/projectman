@@ -19,6 +19,7 @@ import type {
   BranchMerger,
   FullTestExecutor,
   HistorySemanticPort,
+  MachineLoad,
   ScreenshotExecutor,
   MemberWorkspaceManager,
 } from '../../src/contracts';
@@ -136,6 +137,8 @@ export async function createDomainHarness(
     inputStallMs?: number;
     /** The free disk bytes (PM-243); absent: not measured, so no start is refused for disk space. */
     freeDiskBytes?: () => Promise<number | null>;
+    /** The engine machine's memory pressure and places (PM-1278); absent: not measured, so no start is refused for memory. */
+    machineLoad?: () => Promise<MachineLoad | null>;
     heavyRunSessions?: () => Promise<string[]>;
     endSessionRuns?: (sessionId: string) => Promise<number>;
     /** The history's embedding (PM-767), usually a fake port; absent, the history search uses the words only. */
@@ -264,6 +267,7 @@ export async function createDomainHarness(
                   workspacesRootDir: memberWorkspaces ? workspacesDir : undefined,
                   workspacePath: () => workspace,
                   fullTestExecutor: opts.fullTestExecutor,
+                  machineLoad: opts.machineLoad,
                   heavyRunSessions: opts.heavyRunSessions,
                   endSessionRuns: opts.endSessionRuns,
                   claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
@@ -332,6 +336,7 @@ export async function createDomainHarness(
     loopWatchMs: 3_600_000,
     // Likewise the disk check and the worktree sweep: tests call `domain.disk` and `domain.worktreeSweep`.
     diskCheckMs: 3_600_000,
+    machinePressureCheckMs: 3_600_000,
     worktreeSweepMs: 3_600_000,
     // And the idle close sweep: tests call `domain.sessionCloser.sweep()`.
     idleCloseSweepMs: 3_600_000,
@@ -347,6 +352,7 @@ export async function createDomainHarness(
     retryDebounceMs: opts.retryDebounceMs ?? 0,
     ...(opts.integratorTodoAccess ? { integratorTodoAccess: opts.integratorTodoAccess } : {}),
     freeDiskBytes: opts.freeDiskBytes,
+    machineLoad: opts.machineLoad,
     heavyRunSessions: opts.heavyRunSessions,
     endSessionRuns: opts.endSessionRuns,
     closedWorktreeKeepMs: opts.closedWorktreeKeepMs,

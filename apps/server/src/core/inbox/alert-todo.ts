@@ -4,16 +4,29 @@ import type { AlertPayload, InboxItem, QuestionTodo } from '@projectman/shared';
 const GB = 1024 ** 3;
 
 /** The alert kinds that become a todo for the integrator (`ALERT_ROUTE_CLASS`: `integrator_queue`). */
-export type MachineAlert = Extract<AlertPayload, { alert: 'disk_low' | 'worktree_kept' | 'session_input' }>;
+export type MachineAlert = Extract<
+  AlertPayload,
+  { alert: 'disk_low' | 'machine_busy' | 'worktree_kept' | 'session_input' }
+>;
 
 export function isMachineAlert(alert: AlertPayload): alert is MachineAlert {
-  return alert.alert === 'disk_low' || alert.alert === 'worktree_kept' || alert.alert === 'session_input';
+  return (
+    alert.alert === 'disk_low' ||
+    alert.alert === 'machine_busy' ||
+    alert.alert === 'worktree_kept' ||
+    alert.alert === 'session_input'
+  );
 }
 
 /** What marks a todo as the one of an alert kind and card: at most one is open for each pair. */
 const AlertMarker = z.object({ alert: z.string(), key: z.string() });
 type AlertMarker = z.infer<typeof AlertMarker>;
 const MARKER = 'systemAlert';
+
+/** The machine alerts that belong to the project as a whole, not to a card or a session. */
+export function isProjectAlert(alert: string): boolean {
+  return alert === 'disk_low' || alert === 'machine_busy';
+}
 
 /** The marker an alert todo carries on its payload. `key` is the card, else the session, else empty (the project). */
 export function alertMarkerOf(
@@ -22,7 +35,7 @@ export function alertMarkerOf(
 ): AlertMarker {
   return {
     alert: alert.alert,
-    key: alert.alert === 'disk_low' ? '' : (scope.taskKey ?? scope.sessionId ?? ''),
+    key: isProjectAlert(alert.alert) ? '' : (scope.taskKey ?? scope.sessionId ?? ''),
   };
 }
 
@@ -51,6 +64,12 @@ export function alertTodoOf(
         what: `The free disk space is ${Math.floor(alert.freeBytes / GB)} GB, below the limit of ${alert.thresholdBytes / GB} GB, so no new AI session starts. Free space: remove what is not needed (caches, old worktrees, build output).`,
         where: 'The disk of the machine the engine runs on.',
         expected: 'The free space is above the limit again; say what was removed.',
+      };
+    case 'machine_busy':
+      return {
+        what: `The memory of the machine the engine runs on has been under critical pressure for ${alert.minutes} minutes, so no new AI session starts. Look at what uses the memory (dev servers, Docker, browsers, other programs) and stop what is not needed.`,
+        where: 'The machine the engine runs on.',
+        expected: 'The memory pressure is back to normal or warn; say what was stopped.',
       };
     case 'worktree_kept':
       return {

@@ -93,7 +93,7 @@ import type {
   WorktreeManager,
 } from './contracts';
 import type { Repositories, StoredMemberQueueItem } from './db';
-import type { DocWriteExternalRunner, EmailCodeMailer, ProcessProbe } from './contracts';
+import type { DocWriteExternalRunner, EmailCodeMailer, MachineLoad, ProcessProbe } from './contracts';
 import { createEmailLoginService } from './services/email-login';
 import { createHistoryDocumentSync, createHistoryService } from './services/history';
 import { HistoryDocumentReadSuperseded } from './contracts';
@@ -204,7 +204,7 @@ import {
 import { AgentQuestions } from './core/inbox';
 import { InputStallAlerts } from './runtime/watchers';
 import { UsageAlerts } from './runtime/usage';
-import { DiskGuard } from './runtime/watchers';
+import { DiskGuard, MachineGuard } from './runtime/watchers';
 import { WorkOutages } from './runtime/watchers';
 import { WorktreeSweep } from './runtime/watchers';
 import { CardMeasure } from './core/tasks';
@@ -389,10 +389,13 @@ export interface DomainOptions {
    * it nothing is measured, so no start is refused for disk space.
    */
   freeDiskBytes?: () => Promise<number | null>;
+  machineLoad?: () => Promise<MachineLoad | null>;
   heavyRunSessions?: () => Promise<string[]>;
   endSessionRuns?: (sessionId: string) => Promise<number>;
   /** How often the free disk space is checked (default 1 min). */
   diskCheckMs?: number;
+  /** How often the engine machine's memory pressure is checked for the todo (default 1 min). */
+  machinePressureCheckMs?: number;
   /** How often the owners' waiting digest is considered (default 10 min; it is sent at most once a day, PM-1250). */
   waitingDigestMs?: number;
   /** How often the worktrees of closed cards are swept, starting at startup (default 6 hours). */
@@ -569,6 +572,7 @@ export function createDomain(opts: DomainOptions) {
               : opts.fullTestExecutor,
           screenshotExecutor: opts.screenshotExecutor,
           freeDiskBytes: opts.freeDiskBytes,
+          machineLoad: opts.machineLoad,
           heavyRunSessions: opts.heavyRunSessions,
           endSessionRuns: opts.endSessionRuns,
           processExists: opts.processExists,
@@ -807,6 +811,7 @@ export function createDomain(opts: DomainOptions) {
   });
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, engines });
+  const machineGuard = new MachineGuard({ ctx, projects, inbox, engines });
   const worktreeSweep = new WorktreeSweep({
     mergeCards,
     ctx,
@@ -828,6 +833,7 @@ export function createDomain(opts: DomainOptions) {
     projects,
     deferred: deferredStarts,
     disk,
+    machine: machineGuard,
     engines,
     retryDebounceMs: opts.retryDebounceMs,
   });
@@ -2339,6 +2345,7 @@ export function createDomain(opts: DomainOptions) {
     autoAdvance,
     taskWaits,
     disk,
+    machineGuard,
     outages,
     worktreeSweep,
     teamTools,
@@ -2542,6 +2549,14 @@ export function createDomain(opts: DomainOptions) {
             atStart: true,
             run: () => disk.check(),
             onError: (err) => opts.logger.warn({ err }, 'free disk space check failed'),
+          },
+          // Memory pressure of the engine machine (PM-1278): the todo of a long critical spell opens and closes here.
+          {
+            name: 'machine-pressure',
+            everyMs: opts.machinePressureCheckMs ?? 60_000,
+            atStart: true,
+            run: () => machineGuard.check(),
+            onError: (err) => opts.logger.warn({ err }, 'memory pressure check failed'),
           },
           // The worktrees of closed cards (PM-243): at startup and then every few hours.
           {

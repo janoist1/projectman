@@ -256,6 +256,8 @@ export const ERROR_CODES = [
   'team_paused',
   // Too little free disk space (PM-243): no new session starts until there is room again.
   'disk_low',
+  // The machine's memory is under critical pressure (PM-1278): no new session starts until it eases.
+  'machine_busy',
   'member_at_capacity',
   'member_on_leave',
   'previous_run_live',

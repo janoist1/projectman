@@ -543,6 +543,16 @@ export const DiskLowAlert = z.object({
 export type DiskLowAlert = z.infer<typeof DiskLowAlert>;
 
 /**
+ * `machine_busy` (PM-1278): the machine's memory has been under critical pressure for `minutes` minutes, so no
+ * new AI session starts on it. One open alert per project.
+ */
+export const MachineBusyAlert = z.object({
+  alert: z.literal('machine_busy'),
+  minutes: z.number().int().nonnegative(),
+});
+export type MachineBusyAlert = z.infer<typeof MachineBusyAlert>;
+
+/**
  * `worktree_kept` (PM-243): the cleanup of the worktrees of closed cards left the worktree of card
  * `taskKey` (`changes` uncommitted files) in place, because removing it would lose that work. Raised
  * once per closing of the card.
@@ -680,6 +690,7 @@ export const AlertPayload = z.discriminatedUnion('alert', [
   MessageBurstAlert,
   SessionInputAlert,
   DiskLowAlert,
+  MachineBusyAlert,
   WorktreeKeptAlert,
   RefinementAlert,
   ProviderRateLimitAlert,

@@ -343,6 +343,7 @@ export function alertText(
       free: gigabytes(alert.freeBytes),
       threshold: gigabytes(alert.thresholdBytes),
     });
+  if (alert.alert === 'machine_busy') return t('inbox.alerts.machine_busy.body', { minutes: alert.minutes });
   if (alert.alert === 'worktree_kept')
     return t('inbox.alerts.worktree_kept.body', {
       key: alert.taskKey,

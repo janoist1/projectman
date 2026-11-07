@@ -50,6 +50,7 @@ export {
   HeavyLockError,
   readHeavyQueue,
   readHeavyRunSessions,
+  readMachineLoad,
   endHeavySessionRuns,
 } from './heavy-lock';
 export { defaultHeavyLockDir } from './heavy-lock-dir';

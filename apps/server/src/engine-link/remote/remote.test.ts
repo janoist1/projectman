@@ -485,6 +485,18 @@ describe('cloud mode remote parts', () => {
       expect(await host.heavyRunSessions()).toEqual([]);
     });
 
+    it('reads the machine load through an open method, null when it cannot be had', async () => {
+      const engine = await online();
+      const host = remote.directory.host('eng_a' as never)!;
+      // An older engine has no handler: its RPC responds unknown_method.
+      expect(await host.machineLoad()).toBeNull();
+      const load = { pressure: 'critical', places: { capacity: 4, used: 2, waiting: 1 } } as const;
+      engine.answer('host.machine_load', () => load);
+      expect(await host.machineLoad()).toEqual(load);
+      engine.disconnect();
+      expect(await host.machineLoad()).toBeNull();
+    });
+
     it('ends session runs on the remote engine through an open method', async () => {
       const engine = await online();
       const host = remote.directory.host('eng_a' as never)!;

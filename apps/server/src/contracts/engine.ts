@@ -371,6 +371,13 @@ export interface BranchMerger {
 /** What a project's working directory is on an engine (PM-1077). */
 export type WorkspaceState = 'directory' | 'missing' | 'not_held';
 
+/** The engine machine's load (PM-1278): its memory pressure and its pool of heavy-run places. */
+export interface MachineLoad {
+  /** null: not measured (no fresh reading). */
+  pressure: 'normal' | 'warn' | 'critical' | null;
+  places: { capacity: number; used: number; waiting: number };
+}
+
 export interface EngineHost {
   readonly id: EngineId;
   /** The engine's operating system when it is not this process's (a remote engine, PM-315); absent: this machine's. */
@@ -386,6 +393,8 @@ export interface EngineHost {
   readonly sessionFolders?: EngineSessionFolders;
   /** null: not measurable (no start is refused for disk space). */
   freeDiskBytes(): Promise<number | null>;
+  /** null: not measurable, nothing waits (no start is refused for memory pressure). Never rejects on the local engine. */
+  machineLoad(): Promise<MachineLoad | null>;
   /** Session ids holding or waiting for this engine's heavy-run queue; unavailable gives [], never rejects (PM-569). */
   heavyRunSessions(): Promise<string[]>;
   /** Stop fresh heavy-run entries after this session's CLI exits, on this engine (PM-1315). */

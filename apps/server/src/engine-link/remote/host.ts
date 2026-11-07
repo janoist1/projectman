@@ -547,6 +547,14 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           return null;
         }
       },
+      async machineLoad() {
+        if (!hub.link(id)) return null;
+        try {
+          return await call('host.machine_load', {});
+        } catch {
+          return null;
+        }
+      },
       async heavyRunSessions() {
         if (!hub.link(id)) return [];
         try {

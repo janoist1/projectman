@@ -6,6 +6,7 @@ import type {
   EngineHost,
   EnginePaths,
   FullTestExecutor,
+  MachineLoad,
   MemberWorkspaceManager,
   MergeRepoRef,
   ScreenshotExecutor,
@@ -36,6 +37,7 @@ export interface LocalEngineOptions {
   fullTestExecutor?: FullTestExecutor;
   screenshotExecutor?: ScreenshotExecutor;
   freeDiskBytes?: () => Promise<number | null>;
+  machineLoad?: () => Promise<MachineLoad | null>;
   heavyRunSessions?: () => Promise<string[]>;
   endSessionRuns?: (sessionId: string) => Promise<number>;
   processExists?: ProcessProbe;
@@ -124,6 +126,13 @@ export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseL
         }
       : {}),
     ...operations,
+    async machineLoad() {
+      try {
+        return (await opts.machineLoad?.()) ?? null;
+      } catch {
+        return null;
+      }
+    },
     async heavyRunSessions() {
       try {
         return (await opts.heavyRunSessions?.()) ?? [];

@@ -1,5 +1,6 @@
 import { machinePlaces } from '@projectman/shared';
 import { Effect, Exit, Scope } from 'effect';
+import type { MachineLoad } from '../contracts';
 import { runPromise } from '../kernel';
 import { holderHeartbeat, waitForLock } from './heavy-lock-core';
 import { readFreshPressure } from './machine-pressure';
@@ -284,6 +285,26 @@ export async function readHeavyQueue(
     .filter((w) => now - w.mtimeMs <= staleMs && pidAlive(w.entry.pid))
     .map((w) => w.entry);
   return { holder: holders[0] ?? null, holders, waiting };
+}
+
+/**
+ * The machine's load (PM-1278 B2): the fresh memory pressure reading (null when it is stale or missing) and the
+ * pool's places. Reads only; an unreadable queue counts as empty.
+ */
+export async function readMachineLoad(
+  dir: string,
+  options: { staleMs?: number; capacity?: number } = {},
+): Promise<MachineLoad> {
+  const capacity = options.capacity ?? machinePlaces(machineHost());
+  const [pressure, queue] = await Promise.all([
+    readFreshPressure(dir),
+    readHeavyQueue(dir, { ...options, capacity }).catch(() => null),
+  ]);
+  const used = (queue?.holders ?? []).reduce((sum, entry) => sum + placesOf(entry.granted, capacity), 0);
+  return {
+    pressure,
+    places: { capacity, used: Math.min(used, capacity), waiting: queue?.waiting.length ?? 0 },
+  };
 }
 
 /** Live holder and waiter session ids (PM-569). Reads only; an unreadable queue gives no sessions. */

@@ -2227,6 +2227,20 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   a measurement younger than five minutes answers while `host.free_disk` refreshes in the background;
   older or missing measurements wait for the engine. The disk monitor still measures afresh.
   **Module:** `runtime/watchers`
+- **Memory-pressure admission guard** — `runtime/watchers` (`MachineGuard`), `runtime/admission`
+  (`Admission`), engine `EngineHost.machineLoad` (`engine-host/local-engine.ts`, `full-test/heavy-lock.ts`
+  `readMachineLoad`) (PM-1278 B2 / PM-1318). Admission refuses a new AI session with `machine_busy` while the
+  target engine's memory pressure is `critical` (deferrable: the start waits); `warn` and a missing or stale
+  reading (`null`) hold nothing back, and running sessions are not touched. The pressure is what the engine's
+  meter wrote to `pressure.json` (see "Memory pressure of the machine" above); `machineLoad` also reports the
+  pool's `places` (`capacity`, `used`, `waiting`) from the same folder. When the critical pressure lasts more
+  than ten minutes the integrator gets one `machine_busy` todo, withdrawn when it has eased (the `machine-pressure`
+  watcher, every minute, `DomainOptions.machinePressureCheckMs`). **Remote engine:** `host.machine_load` (an
+  `'open'` method in `engine-link/remote/guard.ts`, like `host.free_disk`) is asked per engine and the target
+  engine's own reading decides; an engine that is offline, or an older one without the method, answers `null` and
+  blocks nothing. Admission shares and caches a reading for 10 s per engine (a younger-than-50-s one answers
+  while a fresh one is taken); the watcher measures afresh.
+  **Module:** `runtime/watchers`
 - **Control socket, pause and deployment** — `control/socket.ts`, `runtime/sessions` (`PauseService`),
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
   `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem

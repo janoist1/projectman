@@ -154,8 +154,8 @@ a manual install all take the same assets. It is registered like any dedicated j
 }
 ```
 
-After `publish_release`, the devops member starts it with `run_compute_job job=engine-release commit=<SHA40>`, where
-the commit is the one the tag points at. The workflow runs one fixed procedure (the `command` is only a marker it
+After `publish_release`, the owner's connected Claude starts it with `run_compute_job job=engine-release commit=<SHA40>`
+(a production step: the hub refuses it to every member, PM-1238), where the commit is the one the tag points at. The workflow runs one fixed procedure (the `command` is only a marker it
 checks) and fails unless: it runs from the default branch; the inputs are exactly the registered ones; the commit is
 on the default branch; exactly one tag of the `RELEASE_TAG_PATTERN` form points at it; and that tag has a GitHub
 release (otherwise `app_release_missing`). Then it checks the commit out with its full history and tags, so
@@ -231,25 +231,29 @@ repeat the rule).
 
 ### The release chain (PM-1193)
 
-The release chain runs on GitHub and is driven by the devops member (the deployment duty), with the owner's one yes.
-Every release still needs the owner's yes (decision 26): the chain only removes the manual steps after it.
+The release chain runs on GitHub and is driven by the owner's connected Claude on its endpoint (PM-1238, decision
+68: before live operation the connected Claude releases and the team's AI members do not). The devops member
+(the deployment duty) prepares: the preview, the non-production jobs and the status reading.
 
-**When it starts.** The hub raises an `unreleased` signal for a repository (`caseKey` `unreleased:<repo>:<base>`)
-when the oldest merge on its default branch since the previous release is at least `OPERATOR_UNRELEASED_HOURS`
-(24) hours old. The base is the commit of the last published release, else of the last live release; the signal ends
-when `publish_release` moves it. At any watch level, `report` included, the project manager may then start the
-deployment member once per 24 hours per case (`start_member`, with no count limit) unless that member still has an
-open question to a person. The step starts one question and changes nothing live. The owner may also ask for a
-release at any time.
+**The gate.** The hub refuses a production step to everyone but the owner in person and the owner's own connected
+Claude acting on the owner's direct instruction (`isOwnerReleaseActor`, `assertReleaseAuthority`): an AI member,
+the devops included, gets `release_owner_only` (403). The production steps are the `run_compute_job` jobs with a
+dedicated workflow (`cloud-deploy` and `engine-release`; `isProductionComputeJob`) and `publish_release` without
+`preview`. `cloud-image`, `engine-app` and the preview stay with the devops. A step the connected Claude takes on a
+queue item issued by an AI member runs with that member's rights, so it is refused as well; an item the system
+issued is taken in person and passes. Without a live authenticated execution there is no authority.
 
-**The chain**, run by the devops in one session:
+**When it starts.** The owner asks for a release, or the connected Claude decides to run the chain. The hub's
+`unreleased` signal (`caseKey` `unreleased:<repo>:<base>`, the oldest merge on the default branch since the
+previous release is at least `OPERATOR_UNRELEASED_HOURS` (24) hours old) may still start the devops, who then only
+prepares: it previews and reports the tag, commit and cards, and does not deploy.
 
-1. Proposal. Run `publish_release` with `preview: true`. If it names no cards, stop. Otherwise send exactly one
-   `ask_human` with `owner_topic: risk_acceptance` and `response_purpose: owner_decision`: the tag, the commit SHA,
-   the cards and the steps of this chain. The options are "Indulhat" (recommended) and "Most nem". After "Most nem"
-   the session ends; the signal may start it again after 24 hours, with a new preview.
-2. After the yes the answer arrives in the same session. From here on the chain runs on exactly the commit and tag
-   of the preview, never on the current head of the default branch (a later merge is the next release).
+**The chain**, run by the connected Claude on its endpoint (`publish_release` and `get_release_status` are
+bound there since PM-1238), reporting to the owner afterwards:
+
+1. Proposal. `publish_release` with `preview: true`. If it names no cards, stop.
+2. From here on the chain runs on exactly the commit and tag of the preview, never on the current head of the
+   default branch (a later merge is the next release).
 3. `run_compute_job job=cloud-image commit=<SHA>` builds the image bundle.
 4. `run_compute_job job=cloud-deploy commit=<SHA>` deploys it (PM-1197, see "Deploy from GitHub Actions").
 5. `get_release_status`: the hub shows the new version. It is read-only and gives the hub's version and, per engine,
@@ -262,8 +266,11 @@ release at any time.
    its old app versions (keeps the current and the previous), and the run artifacts expire after 7 days.
 
 **On failure** (a rollback of the deploy, a timeout, `env_missing`, `app_asset_conflict`, `compute_job_unknown`, or any
-other error), the devops stops, turns to the connected Claude with the error and the run link, and does not retry. A chain
-that stopped after step 6 is finished by the connected Claude from the failing step with the same commit and tag.
+other error), the connected Claude stops, reports the error and the run link to the owner and does not retry blindly.
+A chain that stopped after step 6 is finished from the failing step with the same commit and tag.
+
+A devops session that finds a production step refused with `release_owner_only` turns to the integrator with the
+error; it never works around the refusal.
 
 **One-time rollout**, by the connected Claude and only after the owner's yes:
 
@@ -296,7 +303,7 @@ project's human approval gates.
    GitHub with the `engine-app` job or on the release machine) and open it; it stages the packaged engine
    and switches the service itself (see "Engine menu bar app"). The engine runs the app's packaged server, not a
    checkout build. These steps run on the engine machine, including when it is remote from the hub.
-3. On request, a deployment duty holder calls `publish_release`, first with
+3. On request, the connected Claude calls `publish_release` (the owner's step; a member is refused, PM-1238), first with
    `preview: true`, then with the English release summary. This creates the annotated tag
    and public GitHub release; it does not deploy anything.
 4. Either on GitHub (PM-1198, no Mac and no Developer ID needed): `run_compute_job job=engine-release

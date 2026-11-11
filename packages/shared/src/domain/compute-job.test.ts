@@ -8,10 +8,20 @@ import {
   ComputeJobOutputPath,
   ComputeJobRunId,
   computeJobRunTitle,
+  isProductionComputeJob,
   parseComputeJobRunTitle,
 } from './compute-job';
 
 const COMMIT = 'a'.repeat(40);
+
+describe('production compute job (PM-1238)', () => {
+  it.each([
+    ['a dedicated workflow', { workflow: 'projectman-deploy.yml' }, true],
+    ['the general workflow', {}, false],
+  ])('treats %s as production: %s', (_name, def, production) => {
+    expect(isProductionComputeJob(def)).toBe(production);
+  });
+});
 
 describe('compute job run title', () => {
   it('round-trips through build and parse', () => {

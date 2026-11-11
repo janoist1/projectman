@@ -1317,9 +1317,14 @@ socket operation any more (`scripts/live/watch.ts` and `release-test` are gone).
 
 **Publication (`publish_release`).**
 
-- Only a member who holds the project's `deployment` duty may call it, and the duty is checked again
-  before the writes, not only at the tool's entrance. A `preview: true` call writes nothing and shows
-  the tag, the cards and the text.
+- The publication is a production step (PM-1238, decision 68): only the owner in person or the owner's
+  own connected Claude on the owner's direct instruction may publish (`assertReleaseAuthority`); any
+  other caller, every AI member and the devops included, gets `release_owner_only` (403). The authority
+  is checked at the entrance and again before the tag is pushed, so an owner right withdrawn in between
+  stops the publication before any write; `publishedBy` is the owner's handle. A `preview: true` call
+  writes nothing and shows the tag, the cards and the text; it stays open to an AI member who holds the
+  project's `deployment` duty. The tool is on the connected Claude's endpoint (`super` mode), together
+  with `get_release_status`.
 - The publication is serialized per repository (`KeyedMutex`), recorded in `release_publications` and
   resumable. It tags a merge commit that has landed on the default branch, pushes the tag through the
   repository's engine, and makes the public GitHub release through the GitHub engine
@@ -1340,9 +1345,13 @@ lifecycle scripts and build scripts at the deployed commit, so the deployed comm
 boundary. Its safeguard is the review and the merge test that run before a commit reaches the
 default branch, not a sandbox at deployment; `--ref` takes an exact commit, not a branch name. The
 compute image is built on a GitHub Actions workflow, with the trust chain of "Compute jobs on GitHub
-Actions (PM-1147)" below. A member session cannot start a deployment: the administration directory is
-denied to its sandbox, the control socket takes no deployment request, and
-`administration_unavailable` refuses the old commands.
+Actions (PM-1147)" below. A member session cannot run the by-hand deployment: the administration
+directory is denied to its sandbox, the control socket takes no deployment request, and
+`administration_unavailable` refuses the old commands. Since PM-1197 the `cloud-deploy` and
+`engine-release` compute jobs deploy and release from GitHub; they are production steps the hub refuses to
+every member (see "Compute jobs on GitHub Actions" below). **Residual risk:** the GitHub `cloud-production`
+environment has no required reviewer, so the hub's gate is the only approval in front of a deploy; whether to
+add one is the owner's later decision.
 
 ## Connected Claude
 
@@ -1435,6 +1444,17 @@ version and timeout; otherwise it is refused as `command_not_allowed`. The base 
 `mergeBranch`, the workflow the fixed one, and the request carries no checkout, installation or lock. Only the
 run id is free (a pattern). The engine dispatches nothing else, and owner-only configuration is the only place a
 command can be added.
+
+**Production jobs (PM-1238).** A job with a dedicated workflow (`workflow` set: `cloud-deploy`,
+`engine-release`) carries production rights: the AWS OIDC deploy role and the right to write the release.
+`ComputeJobService.start` therefore calls `assertReleaseAuthority` after it finds the job and before it
+records a run or calls the engine (`isProductionComputeJob` is the marker, so a dedicated workflow added later
+counts as production until decided otherwise). Only the owner in person or the owner's connected Claude on the
+owner's direct instruction passes; every AI member, the devops included, a step on a queue item issued by an AI
+member (it runs with the issuer's rights), the old coordinator super step and a non-owner human get
+`release_owner_only`. Members never hold the GitHub token and cannot dispatch a workflow themselves, so the hub
+is the gate. The general jobs (`cloud-image`, `engine-app`) only build and attest the reviewed main and stay
+with the `deployment` duty. The engine's own check (only a registered job runs) does not change.
 
 **The engine app job (PM-1156).** `npm run engine-app -- fetch` accepts an `engine-app` run on the same chain as
 `image-fetch` accepts `cloud-image` (`scripts/cloud/compute-job-run.ts`): the run is `projectman-job.yml`,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { PublishedRelease, PublishReleaseArgs, ReleaseStatus } from '../../contracts';
 import { defineTool, type TeamToolGroup } from '../kit';
 
 export const RELEASE_TOOL_GROUP: TeamToolGroup = {
@@ -14,14 +15,16 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
         'whether that differs from the hub and when it was last seen. Reads only. Use it in a release to check ' +
         'that the hub is on the new version and that every engine has followed.',
       input: {},
+      external: {
+        access: 'read',
+        modes: ['super', 'read'],
+        async run({ ctx, handler }) {
+          const status = await handler.getReleaseStatus(ctx);
+          return { structured: { status }, text: formatStatus(status) };
+        },
+      },
       async run({ ctx, handler }) {
-        const status = await handler.getReleaseStatus(ctx);
-        const engines = status.engines.map(
-          (engine) =>
-            `${engine.id} ${engine.name} connected=${engine.connected} version=${engine.version ?? 'unknown'} ` +
-            `versionMismatch=${engine.versionMismatch} lastSeenAt=${engine.lastSeenAt ?? 'never'}`,
-        );
-        return [`hub version=${status.hub.version}`, ...engines].join('\n');
+        return formatStatus(await handler.getReleaseStatus(ctx));
       },
     }),
     defineTool({
@@ -30,9 +33,9 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
       title: 'Publish a repository release',
       readOnly: false,
       description:
-        'Tag a merged commit and create its public GitHub release (your `summary` and the cards merged since ' +
-        'the previous release). Deploys nothing, needs no approval, cannot be taken back quietly: only when ' +
-        'someone asked for a release, first with `preview: true`. After release_publish_failed, call it again.',
+        'Tag a merged commit and create its public GitHub release (`summary`, the cards merged since the last ' +
+        'one). `preview: true` is open to the deployment duty; publishing is only the owner’s or their ' +
+        'connected Claude’s (release_owner_only). After release_publish_failed, call it again.',
       input: {
         summary: z
           .string()
@@ -68,19 +71,49 @@ export const RELEASE_TOOL_GROUP: TeamToolGroup = {
             'Only show the tag, the commit and the cards, to write the summary; record and send nothing (default false).',
           ),
       },
+      external: {
+        access: 'write',
+        modes: ['super'],
+        async run({ ctx, args, handler }) {
+          const result = await handler.publishRelease(ctx, publishArgs(args));
+          return { structured: { release: result }, text: formatPublished(result) };
+        },
+      },
       async run({ ctx, args, handler }) {
-        const result = await handler.publishRelease(ctx, {
-          summary: args.summary,
-          ...(args.repo ? { repo: args.repo } : {}),
-          ...(args.commit ? { commit: args.commit } : {}),
-          ...(args.tag ? { tag: args.tag } : {}),
-          preview: args.preview ?? false,
-        });
-        const cards = result.tasks.map((task) => `${task.key} ${task.title}`).join('\n');
-        const head = `repo=${result.repo} tag=${result.tag} commit=${result.commit} baseCommit=${result.baseCommit ?? 'none'}`;
-        if (!result.url) return `preview (nothing recorded)\n${head}\n${cards}`;
-        return `published tag=${result.tag} url=${result.url}\n${head}\n${cards}`;
+        return formatPublished(await handler.publishRelease(ctx, publishArgs(args)));
       },
     }),
   ],
 };
+
+function publishArgs(args: {
+  summary: string;
+  repo?: string | undefined;
+  commit?: string | undefined;
+  tag?: string | undefined;
+  preview?: boolean | undefined;
+}): PublishReleaseArgs {
+  return {
+    summary: args.summary,
+    ...(args.repo ? { repo: args.repo } : {}),
+    ...(args.commit ? { commit: args.commit } : {}),
+    ...(args.tag ? { tag: args.tag } : {}),
+    preview: args.preview ?? false,
+  };
+}
+
+function formatPublished(result: PublishedRelease): string {
+  const cards = result.tasks.map((task) => `${task.key} ${task.title}`).join('\n');
+  const head = `repo=${result.repo} tag=${result.tag} commit=${result.commit} baseCommit=${result.baseCommit ?? 'none'}`;
+  if (!result.url) return `preview (nothing recorded)\n${head}\n${cards}`;
+  return `published tag=${result.tag} url=${result.url}\n${head}\n${cards}`;
+}
+
+function formatStatus(status: ReleaseStatus): string {
+  const engines = status.engines.map(
+    (engine) =>
+      `${engine.id} ${engine.name} connected=${engine.connected} version=${engine.version ?? 'unknown'} ` +
+      `versionMismatch=${engine.versionMismatch} lastSeenAt=${engine.lastSeenAt ?? 'never'}`,
+  );
+  return [`hub version=${status.hub.version}`, ...engines].join('\n');
+}

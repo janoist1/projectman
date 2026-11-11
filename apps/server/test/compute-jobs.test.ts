@@ -6,6 +6,7 @@ import type { BranchMerger, FullTestExecutor, FullTestResult, FullTestSpec } fro
 import { COMPUTE_JOBS_MAX } from '../src/services/compute-jobs';
 import { OWNER_ACTOR, createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { connectedClaude, inIntegratorExecution } from './helpers/integrator-scope';
 
 const COMMIT = 'a'.repeat(40);
 const DEVOPS: Actor = { kind: 'ai', handle: 'devops' };
@@ -177,7 +178,7 @@ describe('compute jobs', () => {
   it('dispatches a registered dedicated workflow, and the general one when none is registered (PM-1196)', async () => {
     await setup();
 
-    await start({ job: 'cloud-deploy' });
+    await start({ job: 'cloud-deploy', by: OWNER_ACTOR });
     await start();
     await running();
 
@@ -282,6 +283,47 @@ describe('compute jobs', () => {
       code: 'insufficient_access',
     });
     expect(jobs.pending).toHaveLength(0);
+  });
+
+  describe('the production gate (PM-1238)', () => {
+    const refusedWithNoRun = () => {
+      expect(h.repos.computeJobRuns.list('AR', { limit: 10 })).toEqual([]);
+      expect(jobs.pending).toHaveLength(0);
+      expect(git.prepare).not.toHaveBeenCalled();
+    };
+
+    it.each([
+      ['the devops', DEVOPS],
+      ['the owner’s Claude on a queue item the devops issued', connectedClaude('owner', 'devops')],
+    ])('refuses %s a dedicated-workflow job, with no run and no engine call', async (_name, by) => {
+      await setup();
+
+      await expect(inIntegratorExecution(by, () => start({ job: 'cloud-deploy', by }))).rejects.toMatchObject(
+        {
+          code: 'release_owner_only',
+        },
+      );
+      refusedWithNoRun();
+    });
+
+    it('lets the owner’s connected Claude in person run it, the owner being the requester', async () => {
+      await setup();
+      const claude = connectedClaude();
+
+      const run = await inIntegratorExecution(claude, () => start({ job: 'cloud-deploy', by: claude }));
+
+      expect(run).toMatchObject({ job: 'cloud-deploy', requestedBy: 'owner' });
+      await running();
+    });
+
+    it('keeps a general job with the devops', async () => {
+      await setup();
+
+      await expect(start({ job: 'cloud-image', by: DEVOPS })).resolves.toMatchObject({
+        job: 'cloud-image',
+        requestedBy: 'devops',
+      });
+    });
   });
 
   it.each([

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { hasBoundOrigin, hasConnectedOrigin } from '@projectman/shared';
+import { hasBoundOrigin, hasConnectedOrigin, isOwnerReleaseActor } from '@projectman/shared';
 import type {
   Actor,
   BoundActor,
@@ -68,6 +68,20 @@ export function assertIntegratorAccess(
   }
   if (!scope.active) throw forbidden('insufficient_access', 'the authenticated execution has ended');
   return scope.assertAccess(config, operation, actor);
+}
+
+/**
+ * A production release step (PM-1238, decision 68): the owner in person or the owner's own connected Claude on
+ * the owner's direct instruction. A bound actor needs the live authenticated execution that lends the owner's
+ * authority; every AI member, the devops included, and a step on a member's queue item are refused.
+ */
+export function assertReleaseAuthority(config: ProjectConfig, actor: Actor): void {
+  const owner = assertIntegratorAccess(config, 'write', actor);
+  if (!isOwnerReleaseActor(config, actor) || (hasBoundOrigin(actor) && !(owner && delegatesOwnerAuthority())))
+    throw forbidden(
+      'release_owner_only',
+      'only an owner or the owner’s connected Claude may run a production release step',
+    );
 }
 
 /** Synchronous final check in the domain's unit of work, against the exact current state. */

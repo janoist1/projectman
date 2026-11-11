@@ -5,7 +5,7 @@ import {
   RELEASE_TAG_PATTERN,
   releaseTagName,
 } from '@projectman/shared';
-import type { EngineId, ProjectConfig, ServerVersionView, TaskKey } from '@projectman/shared';
+import type { Actor, EngineId, ProjectConfig, ServerVersionView, TaskKey } from '@projectman/shared';
 import { MergeError } from '../../contracts';
 import type {
   BranchMerger,
@@ -17,7 +17,7 @@ import type {
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import type { ProjectService } from '../../core/projects';
-import { conflict, forbidden, invalid, KeyedMutex, newId } from '../../kernel';
+import { assertReleaseAuthority, conflict, invalid, KeyedMutex, newId } from '../../kernel';
 import { landedBetween, landedCards, landedMerges, resolveLandedCommit } from './landed-cards';
 
 type RepoConfig = ProjectConfig['project']['repos'][number];
@@ -46,13 +46,14 @@ type Deps = {
   engines: EngineDirectory;
   /** The GitHub access of the machine that runs `gh` (on the cloud server: the default engine). */
   github: Pick<GithubService, 'publishRelease'>;
-  /** The engine that holds the repository for the member's work. */
-  engineId: (projectKey: string, member: string) => EngineId;
+  /** The engine that holds the project's repository. */
+  engineId: (projectKey: string) => EngineId;
 };
 
 /**
- * `publish_release` (PM-968): the member with the deployment duty tags a merged commit and makes its public
- * GitHub release. No approval and no deployment; deployment is an owner-requested cloud CLI operation.
+ * `publish_release` (PM-968): tags a merged commit and makes its public GitHub release. The publication is a
+ * production step (PM-1238, decision 68): only the owner or the owner's connected Claude does it; the member
+ * with the deployment duty may preview it. No deployment here; that is the `cloud-deploy` job.
  * The tag is made on the engine that holds the repository, the release on the engine of `gh`. A publication
  * is recorded when the tag is on the remote and completed when the release exists, so a call repeated after
  * an interruption goes on from where it stopped.
@@ -111,36 +112,43 @@ export class ReleasePublishService {
     }
   }
 
-  /** What `publish` would do, with nothing recorded and nothing sent. */
-  preview(projectKey: string, by: string, input: PublishReleaseInput): Promise<PublishedRelease> {
-    return this.run(projectKey, by, input, false);
+  /** What `publish` would do, with nothing recorded and nothing sent. The deployment duty may ask for it. */
+  preview(projectKey: string, actor: Actor, input: PublishReleaseInput): Promise<PublishedRelease> {
+    return this.run(projectKey, actor, input, false);
   }
 
-  publish(projectKey: string, by: string, input: PublishReleaseInput): Promise<PublishedRelease> {
-    return this.run(projectKey, by, input, true);
+  /** Publishing is a production step (PM-1238): the owner's or the owner's connected Claude's alone. */
+  publish(projectKey: string, actor: Actor, input: PublishReleaseInput): Promise<PublishedRelease> {
+    return this.run(projectKey, actor, input, true);
   }
 
   private async run(
     projectKey: string,
-    by: string,
+    actor: Actor,
     input: PublishReleaseInput,
     write: boolean,
   ): Promise<PublishedRelease> {
     if (input.tag !== undefined && !isReleaseTagName(input.tag))
       throw invalid('invalid_request', `"${input.tag}" is not a valid tag name`);
     const config = await this.deps.projects.config(projectKey);
-    this.requireDutyHolder(config, by);
+    this.requireAuthority(config, actor, write);
     const repo = this.repoOf(config, input.repo);
     if (!repo.github)
       throw conflict('release_no_github', `repository ${repo.name} has no GitHub repository configured`);
     return this.locks.run(`${projectKey}/${repo.name}`, () =>
-      this.runLocked({ projectKey, by, input, write, repo, github: repo.github! }),
+      this.runLocked({ projectKey, actor, input, write, repo, github: repo.github! }),
     );
   }
 
-  private requireDutyHolder(config: ProjectConfig, by: string): void {
-    if (!dutyMembers(config, 'deployment').some((member) => member.handle === by))
-      throw forbidden('insufficient_access', 'only a member with the deployment duty may publish a release');
+  /** A write needs the release authority; a preview also lets an AI member with the deployment duty read. */
+  private requireAuthority(config: ProjectConfig, actor: Actor, write: boolean): void {
+    if (
+      !write &&
+      actor.kind === 'ai' &&
+      dutyMembers(config, 'deployment').some((member) => member.handle === actor.handle)
+    )
+      return;
+    assertReleaseAuthority(config, actor);
   }
 
   private repoOf(config: ProjectConfig, name: string | undefined): RepoConfig {
@@ -154,8 +162,8 @@ export class ReleasePublishService {
     return repo;
   }
 
-  private merger(projectKey: string, by: string): BranchMerger {
-    const engine = this.deps.engines.get(this.deps.engineId(projectKey, by));
+  private merger(projectKey: string): BranchMerger {
+    const engine = this.deps.engines.get(this.deps.engineId(projectKey));
     if (!engine?.merger)
       throw conflict('engine_offline', 'the engine that holds the repository is not connected');
     return engine.merger;
@@ -177,17 +185,17 @@ export class ReleasePublishService {
 
   private async runLocked(input: {
     projectKey: string;
-    by: string;
+    actor: Actor;
     input: PublishReleaseInput;
     write: boolean;
     repo: RepoConfig;
     github: string;
   }): Promise<PublishedRelease> {
-    const { projectKey, by, repo, write } = input;
+    const { projectKey, actor, repo, write } = input;
     const { ctx } = this.deps;
     const publications = ctx.repos.releasePublications;
     const ref = { projectKey, repo: repo.name };
-    const merger = this.merger(projectKey, by);
+    const merger = this.merger(projectKey);
     const landed = landedMerges(ctx.repos.taskMerges.mergedOf(projectKey, repo.name));
     const commit = await resolveLandedCommit({
       merger,
@@ -214,7 +222,7 @@ export class ReleasePublishService {
     if (!write) return result;
 
     // The authority is checked again where the writes begin: the engine calls above take a while.
-    this.requireDutyHolder(await this.deps.projects.config(projectKey), by);
+    assertReleaseAuthority(await this.deps.projects.config(projectKey), actor);
     if (!remote.some((entry) => entry.name === tag)) {
       const pushed = await this.gitStep(() => merger.pushTag(ref, { base: repo.defaultBranch, tag, commit }));
       if (!pushed.ok)
@@ -235,7 +243,7 @@ export class ReleasePublishService {
         tag,
         tasks: keys,
         summary,
-        publishedBy: by,
+        publishedBy: actor.handle ?? 'system',
         taggedAt: isoNow(ctx),
         url: null,
         publishedAt: null,

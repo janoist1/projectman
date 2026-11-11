@@ -62,3 +62,18 @@ export function isConnectedOwnerActor(config: Pick<ProjectConfig, 'team'>, actor
   const holder = memberOf(config, actor.through.holder);
   return holder?.kind === 'human' && holder.access === 'owner';
 }
+
+/**
+ * Whether the actor may take a production release step (PM-1238, decision 68): the owner in person, or the
+ * owner's own connected Claude on the owner's direct instruction (the actor is the holder, who is an owner now).
+ * Every AI member, a step on a queue item issued by an AI member, the old coordinator super step and a human who
+ * is not an owner fail. It is a pure origin check; the server pairs it with the authenticated execution.
+ */
+export function isOwnerReleaseActor(config: Pick<ProjectConfig, 'team'>, actor: Actor): boolean {
+  if (actor.kind !== 'human' || !actor.handle) return false;
+  if (hasConnectedOrigin(actor))
+    return actor.handle === actor.through.holder && isConnectedOwnerActor(config, actor);
+  if (hasSuperOrigin(actor)) return false;
+  const member = memberOf(config, actor.handle);
+  return member?.kind === 'human' && member.access === 'owner';
+}

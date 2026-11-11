@@ -2293,7 +2293,9 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   `gh release view`, then `gh release create --verify-tag`, the owner's gh login; `engine-limit.ts` binds no
   repository for it, like the other `github.*` calls). Only the commit, the tag name, the notes and the URL cross the
   boundary; an engine from before PM-968 answers `unknown_method`, which the publication reports as
-  `release_publish_failed`. The engine of the call is `engines.engineFor(projectKey, member)`, local when there is none.
+  `release_publish_failed`. The engine of the call is the project engine (`engines.projectEngine(projectKey)`, PM-1332: no member is
+  involved, the caller is the owner or the owner's connected Claude), local when there is none. The owner gate
+  (`assertReleaseAuthority`) decides on the hub before any engine call, so it needs nothing on the engine.
   PM-1059: the GitHub release goes through the project-aware `GithubService.publishRelease(projectKey, ...)`,
   which the cloud sends to `projectEngine(projectKey)`; the `github.*` RPC and its parameters are unchanged.
   **Remote engine:** pauses and stops use `session.pause/force_pause/release/stop`

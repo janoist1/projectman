@@ -23,6 +23,7 @@ export {
   coordinatorSuperActorOf,
   isConnectedOwnerActor,
   isCoordinatorSuperActor,
+  isOwnerReleaseActor,
 } from './operator-member';
 
 /**

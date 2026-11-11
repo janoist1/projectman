@@ -3870,7 +3870,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Publish a repository release",
     },
-    "description": "Tag a merged commit and create its public GitHub release (your \`summary\` and the cards merged since the previous release). Deploys nothing, needs no approval, cannot be taken back quietly: only when someone asked for a release, first with \`preview: true\`. After release_publish_failed, call it again.",
+    "description": "Tag a merged commit and create its public GitHub release (\`summary\`, the cards merged since the last one). \`preview: true\` is open to the deployment duty; publishing is only the owner’s or their connected Claude’s (release_owner_only). After release_publish_failed, call it again.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -4296,7 +4296,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Run a compute job on GitHub Actions",
     },
-    "description": "Start a job of the repository settings (\`computeJobs\`) on GitHub Actions, on a commit on the remote default branch. Answers with the queued run; follow it with get_compute_job. A going or live-artifact run of the same commit is returned unless \`force\`. Costs GitHub minutes: only on request.",
+    "description": "Start a \`computeJobs\` job on GitHub Actions, on a commit on the remote default branch. Answers with the run; follow with get_compute_job. A going or live-artifact run of the same commit is returned unless \`force\`. Costs minutes. Cloud-deploy and engine-release are owner-only (release_owner_only).",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

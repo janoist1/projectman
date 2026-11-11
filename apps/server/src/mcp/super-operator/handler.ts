@@ -46,6 +46,7 @@ import type {
   OperatorKnowledgeStore,
   ProjectDocWrite,
   ReadDocumentArgs,
+  ReleaseStatus,
   TaskSummary,
   TaskToolDetail,
   WriteDocumentArgs,
@@ -69,7 +70,9 @@ import {
 } from '../../kernel';
 import type { HostRequestsService } from '../../services/host-requests';
 import type { ComputeJobService } from '../../services/compute-jobs';
+import type { ReleasePublishService } from '../../services/releases';
 import { asToolError } from '../compute-jobs';
+import { asReleaseToolError } from '../releases';
 import { documentToolError, readDocumentCall, writeDocumentCall } from '../documents';
 import type { Documents } from '../documents';
 import type { ProjectState, StructuralReviews } from '../../services/coordination';
@@ -121,6 +124,9 @@ interface ExternalToolsDeps {
   >;
   hostRequests: Pick<HostRequestsService, 'listForHost' | 'answer'>;
   computeJobs: Pick<ComputeJobService, 'start' | 'get' | 'list'>;
+  releasePublications: Pick<ReleasePublishService, 'preview' | 'publish'>;
+  /** The hub's version and the engines' view of it; reads only. */
+  releaseStatus: () => ReleaseStatus;
 }
 
 /**
@@ -543,6 +549,25 @@ export class ExternalTools implements ExternalToolsHandler {
     args: Parameters<ExternalToolsHandler['listComputeJobs']>[1],
   ) {
     return this.deps.computeJobs.list(ctx.projectKey, args);
+  }
+
+  /** The gate is the service's: the owner's connected Claude in person passes, any member is refused. */
+  async publishRelease(
+    ctx: ExternalToolContext,
+    args: Parameters<ExternalToolsHandler['publishRelease']>[1],
+  ) {
+    const input = { summary: args.summary, repo: args.repo, commit: args.commit, tag: args.tag };
+    try {
+      return args.preview
+        ? await this.deps.releasePublications.preview(ctx.projectKey, ctx.actor, input)
+        : await this.deps.releasePublications.publish(ctx.projectKey, ctx.actor, input);
+    } catch (err) {
+      throw asReleaseToolError(err);
+    }
+  }
+
+  async getReleaseStatus(_ctx: ExternalToolContext) {
+    return this.deps.releaseStatus();
   }
 
   async getSuperOperation(ctx: ExternalToolContext, operationId: string) {

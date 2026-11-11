@@ -503,6 +503,8 @@ export const en = {
       release_already_published: 'This commit has already been released.',
       release_tag_taken: 'This tag already points to another commit.',
       release_publish_failed: 'The tag or the GitHub release wasn’t created.',
+      release_owner_only:
+        'Only the owner or the owner’s connected Claude can run a production release step (cloud-deploy, engine-release, publishing a release).',
       compute_job_unknown: 'No such machine job is set up for the repo.',
       compute_job_busy: 'Two machine jobs are already running; wait until one finishes.',
       compute_job_commit_unpublished: 'The commit isn’t on GitHub’s base branch.',

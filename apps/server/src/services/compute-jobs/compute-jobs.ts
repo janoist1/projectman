@@ -1,4 +1,9 @@
-import { COMPUTE_JOB_WORKFLOW, dutyMembers } from '@projectman/shared';
+import {
+  COMPUTE_JOB_WORKFLOW,
+  dutyMembers,
+  isOwnerReleaseActor,
+  isProductionComputeJob,
+} from '@projectman/shared';
 import type {
   Actor,
   ComputeJobDefinition,
@@ -22,6 +27,7 @@ import type { TaskService } from '../../core/tasks';
 import type { TimelineService } from '../../core/timeline';
 import {
   assertIntegratorAccess,
+  assertReleaseAuthority,
   conflict,
   delegatesOwnerAuthority,
   forbidden,
@@ -109,6 +115,7 @@ export class ComputeJobService {
     const repo = this.repoOf(config, input.repo);
     const def = (repo.computeJobs ?? []).find((entry) => entry.id === input.job);
     if (!def) throw invalid('compute_job_unknown', `repository ${repo.name} has no compute job ${input.job}`);
+    if (isProductionComputeJob(def)) assertReleaseAuthority(config, actor);
     if (input.taskKey !== undefined && !tasks.find(projectKey, input.taskKey))
       throw notFound('task', input.taskKey);
     const github = repo.github;
@@ -171,6 +178,8 @@ export class ComputeJobService {
   private requireAccess(config: ProjectConfig, actor: Actor): void {
     const owner = assertIntegratorAccess(config, 'write', actor);
     if (owner && delegatesOwnerAuthority()) return;
+    // The owner in person: a production job is then decided by the release gate that follows.
+    if (isOwnerReleaseActor(config, actor)) return;
     if (!dutyMembers(config, 'deployment').some((member) => member.handle === actor.handle))
       throw forbidden('insufficient_access', 'only a member with the deployment duty may run a compute job');
   }

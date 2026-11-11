@@ -2,6 +2,8 @@ import {
   ApiError,
   ChangeTaskLabelsRequest,
   CreateTaskCommentRequest,
+  EditTaskCommentRequest,
+  EditTaskCommentResult,
   TaskCommentsPage,
   TaskCommentsQuery,
   TaskDetail,
@@ -147,6 +149,27 @@ export function defaultTaskHandlers(backend: MockBackend): HttpHandler[] {
       });
       if (body.comment) labelNote(taskKey, body.comment);
       return detail(taskKey);
+    }),
+    http.patch(`${path}:taskKey/comments/:eventId`, async ({ request, params }) => {
+      const where = `${request.method} ${new URL(request.url).pathname}`;
+      const taskKey = String(params.taskKey);
+      let body: EditTaskCommentRequest;
+      try {
+        body = checked(EditTaskCommentRequest, await request.json(), where);
+      } catch (error) {
+        recordViolation(`${where}: ${String(error)}`);
+        return response(ApiError, apiFailure(400, 'invalid_request').body, 400);
+      }
+      if (!backend.findTask(taskKey)) return response(ApiError, apiFailure(404, 'not_found').body, 404);
+      const refused = backend.editTaskComment(taskKey, String(params.eventId), body);
+      if (refused) return response(EditTaskCommentResult, refused as ApiFailure, 200);
+      const comment = backend
+        .taskComments(taskKey, { around: String(params.eventId), limit: 50 })
+        ?.threads.flatMap((thread) => [thread.comment, ...thread.replies])
+        .find((event) => event.id === params.eventId);
+      return comment
+        ? response(EditTaskCommentResult, { comment }, 200)
+        : response(ApiError, apiFailure(404, 'not_found').body, 404);
     }),
     http.get(`${path}:taskKey/comments`, ({ request, params }) => {
       const where = `${request.method} ${new URL(request.url).pathname}`;

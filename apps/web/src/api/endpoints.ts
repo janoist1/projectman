@@ -79,6 +79,7 @@ import {
   SchedulesView,
   SessionDetail,
   SetupStatus,
+  EditTaskCommentResult,
   TaskCommentsPage,
   TaskDetail,
   TaskHandoffRecord,
@@ -143,6 +144,7 @@ import type {
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
+  EditTaskCommentRequest,
   Task,
 } from '@projectman/shared';
 import { apiRequest } from './client';
@@ -281,6 +283,13 @@ export const api = {
   board: (key: string) => apiRequest(routes.board(key), { schema: BoardView }),
   createTaskComment: (key: string, taskKey: string, body: CreateTaskCommentRequest) =>
     apiRequest(routes.taskComments(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
+  /** Edits the text of a comment (PM-1277); a stale `baseRevision` is a 409 `comment_edit_conflict`. */
+  editTaskComment: (key: string, taskKey: string, eventId: string, body: EditTaskCommentRequest) =>
+    apiRequest(routes.taskComment(key, taskKey, eventId), {
+      method: 'PATCH',
+      body,
+      schema: EditTaskCommentResult,
+    }),
   /** One page of a card's comment threads (PM-1290), the newest unless `before` or `around` says otherwise. */
   taskComments: (
     key: string,

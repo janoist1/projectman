@@ -141,6 +141,12 @@ import {
   canUploadAttachment,
   canAttachToComment,
   withGoneCommentFiles,
+  withCommentEdits,
+  addedCommentMentions,
+  canEditComment,
+  isCardComment,
+  isImportedComment,
+  visibleTimelineEvent,
   contactHandles,
   recipientRefusalForAccess,
   accessOfHandle,
@@ -308,6 +314,7 @@ import type {
   Obligation,
   TaskDetail,
   CreateTaskCommentRequest,
+  EditTaskCommentRequest,
   TaskCommentsPage,
   TaskCommentsQuery,
   PartsClosed,
@@ -391,6 +398,7 @@ import {
 } from '@projectman/templates';
 import * as fixtures from './fixtures';
 import { t } from '../i18n/t';
+import { commentFiles } from '../lib/commentFiles';
 import { MockEmailLogin } from './email-login';
 import { MockEmail } from './email';
 import { MockDocuments } from './documents';
@@ -815,6 +823,9 @@ export class MockBackend {
       )
     )
       return;
+    // An edit's text reaches a reader through the comment only (PM-1277), as on the server's socket.
+    if (event.type === 'timeline_appended' && event.event.type === 'task_note_edited')
+      event = { ...event, event: visibleTimelineEvent(this.taskViewer(), event.event, () => null) };
     if (event.type === 'inbox_upserted' && !canSeeInboxItem(this.taskViewer(), event.item)) return;
     if (
       (event.type === 'team_message' || event.type === 'team_message_updated') &&
@@ -4412,8 +4423,73 @@ export class MockBackend {
   }
 
   /**
+   * Edits the text of a comment by the server's rules (PM-1277), the shared ones: who may (`canEditComment`),
+   * the stale base (409 with the current revision), the same text again (nothing written), and the mentions
+   * the edit adds (`addedCommentMentions`, none for an imported comment). Null when it was done.
+   */
+  editTaskComment(taskKey: string, eventId: string, body: EditTaskCommentRequest): MockResponse | null {
+    const note = this.timeline.find(
+      (event) => event.id === eventId && event.taskKey === taskKey && isCardComment(event),
+    );
+    if (!note) return error(404, 'not_found', 'No such comment');
+    if (!canEditComment(this.taskViewer(), note))
+      return error(403, 'insufficient_access', 'Not allowed to edit this comment');
+    const edits = this.timeline.filter(
+      (event) => event.type === 'task_note_edited' && event.data.noteId === eventId,
+    );
+    const head = edits.at(-1)?.id ?? note.id;
+    const current = String((edits.at(-1) ?? note).data.text ?? '');
+    if (body.text === current) return null;
+    if (body.baseRevision !== head)
+      return error(409, 'comment_edit_conflict', 'The comment changed meanwhile', { currentRevision: head });
+    const files = this.liveAttachmentIds();
+    const hasFile = commentFiles(note).some((file) => files.has(file.id));
+    if (body.text === '' && !hasFile) return error(400, 'invalid_request', 'The text is empty');
+    const handles = this.config.team.members.map((member) => member.handle);
+    const mentions = commentMentions(body.text, handles, this.viewerHandle);
+    const added = isImportedComment(note)
+      ? []
+      : addedCommentMentions({
+          text: body.text,
+          handles,
+          editor: this.viewerHandle,
+          earlier: [note, ...edits].map((event) =>
+            Array.isArray(event.data.mentions) ? (event.data.mentions as string[]) : [],
+          ),
+        });
+    const edit = this.addTimeline(taskKey, this.viewerHandle, 'task_note_edited', {
+      noteId: eventId,
+      text: body.text,
+      mentions,
+      base: head,
+      added,
+    });
+    // The item is opened for the comment (the jump goes there), by the editor, with the text as saved.
+    if (added.length)
+      this.syncMentionItems(
+        { ...edit, id: note.id },
+        body.text,
+        added,
+        note.data.replyTo ? 'reply' : 'comment',
+        String(note.data.replyTo ?? note.id),
+        false,
+      );
+    return null;
+  }
+
+  /** The comments as the viewer reads them (PM-1277): the latest text and the edit mark, the earlier versions only for who may. */
+  private readComments(events: TimelineEvent[]): TimelineEvent[] {
+    const viewer = this.taskViewer();
+    const edits = this.timeline.filter((event) => event.type === 'task_note_edited');
+    return withCommentEdits(events, clone(edits)).map((event) =>
+      visibleTimelineEvent(viewer, event, (id) => this.messages.find((m) => m.id === id) ?? null),
+    );
+  }
+
+  /**
    * The mention items a note opens for the mentioned humans, and the ones the author's reply closes, by the
    * server's shared rules (PM-1307). `threadId` is the thread a reply goes to; null for a process note.
+   * `closesMentions` false: no item is closed (an edit is not a reply).
    */
   private syncMentionItems(
     event: TimelineEvent,
@@ -4421,6 +4497,7 @@ export class MockBackend {
     mentions: readonly string[],
     place: MentionPayload['place'],
     threadId: string | null,
+    closesMentions = true,
   ): void {
     const author = event.actor;
     const task = event.taskKey ? this.findTask(event.taskKey) : undefined;
@@ -4443,7 +4520,14 @@ export class MockBackend {
         createdAt: event.createdAt,
       });
     }
-    if (place !== 'reply' || author.kind !== 'human' || !author.handle || threadId === null) return;
+    if (
+      !closesMentions ||
+      place !== 'reply' ||
+      author.kind !== 'human' ||
+      !author.handle ||
+      threadId === null
+    )
+      return;
     const closing = mentionsClosedByReply(this.inbox, {
       author: author.handle,
       taskKey: task.key,
@@ -4467,20 +4551,22 @@ export class MockBackend {
   /** One page of the card's comment threads (PM-1290); null when `before` or `around` names no comment. */
   taskComments(taskKey: string, query: TaskCommentsQuery): TaskCommentsPage | null {
     const page = pageCommentThreads(
-      withGoneCommentFiles(
-        clone(
-          this.timeline.filter(
-            (event) =>
-              event.taskKey === taskKey &&
-              event.type === 'task_note' &&
-              canSeeTimelineEvent(
-                this.taskViewer(),
-                event,
-                (id) => this.messages.find((m) => m.id === id) ?? null,
-              ),
+      this.readComments(
+        withGoneCommentFiles(
+          clone(
+            this.timeline.filter(
+              (event) =>
+                event.taskKey === taskKey &&
+                event.type === 'task_note' &&
+                canSeeTimelineEvent(
+                  this.taskViewer(),
+                  event,
+                  (id) => this.messages.find((m) => m.id === id) ?? null,
+                ),
+            ),
           ),
+          this.liveAttachmentIds(),
         ),
-        this.liveAttachmentIds(),
       ),
       query,
     );
@@ -4584,19 +4670,21 @@ export class MockBackend {
       parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
       subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
       pullRequests: this.taskPullRequests(task),
-      timeline: withGoneCommentFiles(
-        clone(
-          this.timeline.filter(
-            (event) =>
-              event.taskKey === task.key &&
-              canSeeTimelineEvent(
-                this.taskViewer(),
-                event,
-                (id) => this.messages.find((m) => m.id === id) ?? null,
-              ),
+      timeline: this.readComments(
+        withGoneCommentFiles(
+          clone(
+            this.timeline.filter(
+              (event) =>
+                event.taskKey === task.key &&
+                canSeeTimelineEvent(
+                  this.taskViewer(),
+                  event,
+                  (id) => this.messages.find((m) => m.id === id) ?? null,
+                ),
+            ),
           ),
+          this.liveAttachmentIds(),
         ),
-        this.liveAttachmentIds(),
       ),
       sessions: clone(this.taskSessions(task.key)),
       rounds: this.cardRounds(task.key),

@@ -76,9 +76,23 @@ const subscribe = (listener: () => void) => {
   };
 };
 
-/** The reply boxes of the card that hold a draft (the slots other than the main box). */
+const EDIT_PREFIX = 'edit:';
+
+/** The draft slot of the edit box of one comment (PM-1277). */
+export const editDraftSlot = (eventId: string) => `${EDIT_PREFIX}${eventId}`;
+
+/** The reply boxes of the card that hold a draft (the slots other than the main box and the edit boxes). */
 export function replyDraftSlots(projectKey: string, taskKey: string): string[] {
-  return Object.keys(read(projectKey, taskKey)).filter((slot) => slot !== MAIN_DRAFT);
+  return Object.keys(read(projectKey, taskKey)).filter(
+    (slot) => slot !== MAIN_DRAFT && !slot.startsWith(EDIT_PREFIX),
+  );
+}
+
+/** The ids of the comments of the card whose edit box holds a draft. */
+export function editDraftSlots(projectKey: string, taskKey: string): string[] {
+  return Object.keys(read(projectKey, taskKey))
+    .filter((slot) => slot.startsWith(EDIT_PREFIX))
+    .map((slot) => slot.slice(EDIT_PREFIX.length));
 }
 
 /** Whether one box of the card holds a draft (the text or a file), read without a hook. */

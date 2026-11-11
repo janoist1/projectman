@@ -222,43 +222,57 @@ describe('merge queue', () => {
     expect(t.released).toEqual(['1']);
   });
 
-  it('logs a merge program that failed, blocks its row, frees the slot and releases', async () => {
-    const t = setup();
-    t.rows.push(t.row('1', 'web'));
-    const abandoned: string[] = [];
-    const failing = vi.fn(async (run: MergeRun) => {
-      t.started.push(run.row.id);
-      throw new Error('boom');
-    });
-    const origin = Effect.runSync(Scope.make());
-    const queue = Effect.runSync(
-      Scope.provide(
-        makeMergeQueue({
-          ctx: {
-            now: () => new Date(),
-            repos: { taskMerges: { list: () => t.rows.filter((r) => !t.started.includes(r.id)) } },
-            logger: { warn: (...args: unknown[]) => t.warnings.push(args) },
-          } as unknown as MergeQueueDeps['ctx'],
-          tasks: { find: () => null, readSchedulingTasks: () => [] },
-          steps: {
-            run: failing,
-            release: async (r) => void t.released.push(r.id),
-            abandon: async (run) => void abandoned.push(run.row.id),
-            engine: () => null,
-          },
-          peer: () => null,
-          stopped: () => false,
-        }),
-        origin,
-      ),
-    );
-    runFork(queue.pump);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(failing).toHaveBeenCalled();
-    expect(t.warnings.length).toBeGreaterThan(0);
-    expect(abandoned).toEqual(['1']);
-    expect(t.released).toContain('1');
-  });
+  it.each([false, true])(
+    'settles a rejected merge before freeing its slot (interrupted=%s)',
+    async (interrupt) => {
+      const t = setup();
+      t.rows.push(t.row('1', 'web'));
+      const abandoned: string[] = [];
+      let reject!: (cause: Error) => void;
+      const result = new Promise<void>((_resolve, fail) => {
+        reject = fail;
+      });
+      const failing = vi.fn(async (run: MergeRun) => {
+        t.started.push(run.row.id);
+        return result;
+      });
+      const origin = Effect.runSync(Scope.make());
+      const queue = Effect.runSync(
+        Scope.provide(
+          makeMergeQueue({
+            ctx: {
+              now: () => new Date(),
+              repos: { taskMerges: { list: () => t.rows.filter((r) => !t.started.includes(r.id)) } },
+              logger: { warn: (...args: unknown[]) => t.warnings.push(args) },
+            } as unknown as MergeQueueDeps['ctx'],
+            tasks: { find: () => null, readSchedulingTasks: () => [] },
+            steps: {
+              run: failing,
+              release: async (r) => {
+                expect(abandoned).toEqual([r.id]);
+                t.released.push(r.id);
+              },
+              abandon: async (run) => void abandoned.push(run.row.id),
+              engine: () => null,
+            },
+            peer: () => null,
+            stopped: () => false,
+          }),
+          origin,
+        ),
+      );
+      runFork(queue.pump);
+      const interrupted = interrupt ? runPromise(queue.interrupt(queue.slot('PM', 'web')!)) : undefined;
+      reject(new Error('boom'));
+      await interrupted;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(failing).toHaveBeenCalled();
+      if (!interrupt) expect(t.warnings.length).toBeGreaterThan(0);
+      expect(abandoned).toEqual(['1']);
+      expect(t.released).toContain('1');
+      expect(queue.slot('PM', 'web')).toBeUndefined();
+    },
+  );
 
   it('leaves no timer behind', async () => {
     vi.useFakeTimers();

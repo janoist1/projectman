@@ -63,8 +63,9 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
       }
     };
 
-    const program = (run: MergeRun) =>
-      abortable(
+    const program = (run: MergeRun) => {
+      let cause: unknown = new Error('the merge run ended without settling its state');
+      return abortable(
         (signal) => {
           run.signal = signal;
           return deps.steps.run(run);
@@ -74,11 +75,20 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
         Effect.catchTag('MergeRunFailed', (failed) =>
           Effect.promise(async () => {
             deps.ctx.logger.warn({ err: failed.cause, mergeId: run.row.id }, 'the merge run failed');
-            await deps.steps.abandon(run, failed.cause);
+            cause = failed.cause;
           }),
         ),
-        Effect.ensuring(Effect.promise(() => cleanup(run))),
+        // An interruption drops the promise's rejection, bypassing catchTag. Always settle any
+        // remaining running row before freeing the slot, even when its error handler failed.
+        Effect.ensuring(
+          Effect.promise(async () => {
+            // Shutdown retains an in-flight publication for startup recovery.
+            if (!deps.stopped() || !run.pushing) await deps.steps.abandon(run, cause);
+            await cleanup(run);
+          }),
+        ),
       );
+    };
 
     const pump: Effect.Effect<void> = Effect.gen(function* () {
       if (deps.stopped()) return;

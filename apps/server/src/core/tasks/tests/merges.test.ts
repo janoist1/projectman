@@ -1307,6 +1307,34 @@ describe('member initiated merge', () => {
       repo.github = github;
     };
 
+    it('settles an individual GitHub run error and releases its slot for an explicit retry', async () => {
+      const executor = fakeExecutor();
+      vi.mocked(executor.run).mockResolvedValueOnce({
+        ...passed,
+        outcome: 'error',
+        reason: 'github_run_error',
+        outputTail: 'GitHub run ended without a verdict',
+      });
+      await setup({ executor, adjust: viaGithub('acme/web') });
+      await start();
+      await blocked('check_error');
+      await vi.waitFor(() => expect(h!.domain.merges.busy('AR', 'web')).toBe(false));
+      const id = row()!.id;
+      expect(row()?.check).toMatchObject({ status: 'error', runner: 'github_actions' });
+      expect(h!.repos.mergeCheckRuns.list({ projectKey: 'AR', limit: 10 }).runs[0]).toMatchObject({
+        status: 'error',
+        reason: 'github_run_error',
+      });
+      expect(merger.push).not.toHaveBeenCalled();
+      expect(merger.advance).not.toHaveBeenCalled();
+      expect(merger.releaseCheck).toHaveBeenCalled();
+      expect(events('task_merge_blocked')).toHaveLength(1);
+      await start();
+      await merged();
+      expect(task().merged?.mergeCommit).toBeDefined();
+      expect(h!.repos.taskMerges.get(id)?.state).toBe('merged');
+    });
+
     it('retries an infrastructure fault in the engine sandbox and records both runs', async () => {
       const executor = fakeExecutor();
       vi.mocked(executor.run).mockResolvedValueOnce({

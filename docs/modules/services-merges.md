@@ -75,6 +75,12 @@ signal names `check_infra` for the project manager. No card is blamed or split f
 Other operational errors still block with `check_error`; failed checks retain the existing
 failure/send-back path. Terminal states and non-infrastructure results clear retry state;
 an explicit retry of a blocked or failed merge starts a new series.
+The slot finalizer blocks any individual merge still marked `running`, including when an
+interruption discarded a rejection from its error handler (PM-1210). Normal cancellation and
+shutdown requeueing are retained. If `merge_task` finds a `running` row with neither its slot
+nor a running train, it blocks that orphan with `merge_error` and an explanation; the next
+explicit call retries under the same merge id. Candidate and publication evidence are retained.
+This recovery uses server state only and works unchanged with a remote engine.
 `endChecksIn` also stops a descriptor run by its `mergeId`, as the merge has no checkout path to match.
 A train groups only cards of the same runner (`train-selection.ts`). `merge_check_runs` records the
 `runner` and the `url` (migration 95); `list_merge_checks` shows both.

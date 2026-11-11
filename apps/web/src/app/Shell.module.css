@@ -365,6 +365,18 @@
   gap: 8px;
 }
 
+/* On the narrowest phones (360px) the controls need more than the line holds: the gaps and the project mark's padding give way, so the account avatar stays inside the page. */
+@media (max-width: 400px) {
+  .mobileHeader {
+    padding-left: 8px;
+    padding-right: 8px;
+    gap: 2px;
+  }
+  .mobileProject button {
+    padding: 0 5px;
+  }
+}
+
 .tabbar {
   position: fixed;
   left: 0;

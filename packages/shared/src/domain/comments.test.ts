@@ -320,6 +320,12 @@ describe('editing a comment (PM-1277)', () => {
         expect(see({ access: 'developer', handle: 'kata' }, projected).data.revisions).toBeDefined();
         expect(see({ access: 'owner', handle: 'owner' }, projected).data.revisions).toBeDefined();
       });
+      it('returns a note without revisions, even one without data, as it is', () => {
+        const plain = note('c2', { comment: true }, { kind: 'human', handle: 'kata' });
+        const bare = { ...plain, data: undefined } as unknown as TimelineEvent;
+        expect(see({ access: 'client', handle: 'ugyfel' }, plain)).toBe(plain);
+        expect(see({ access: 'client', handle: 'ugyfel' }, bare)).toBe(bare);
+      });
       it('narrows the raw edit event to its note id for everyone', () => {
         expect(see({ access: 'owner', handle: 'owner' }, e1).data).toEqual({ noteId: 'c1' });
       });

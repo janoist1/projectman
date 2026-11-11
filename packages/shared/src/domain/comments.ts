@@ -123,7 +123,7 @@ export function withoutCommentHistory(events: readonly TimelineEvent[]): Timelin
 
 /** One event without the earlier versions of its comment; any other event stays as it is (PM-1277). */
 export function withoutRevisions(event: TimelineEvent): TimelineEvent {
-  if (event.type !== 'task_note' || event.data.revisions === undefined) return event;
+  if (event.type !== 'task_note' || event.data?.revisions === undefined) return event;
   const { revisions: _revisions, ...data } = event.data;
   return { ...event, data };
 }

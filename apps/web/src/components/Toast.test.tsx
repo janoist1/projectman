@@ -179,6 +179,134 @@ describe('ToastProvider', () => {
     expect(screen.getByText('Saved')).toBeTruthy();
   });
 
+  function Burst() {
+    const toast = useToast();
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => toast.show('Deleted', 'ok', { action: { label: 'Undo it', run: () => {} } })}
+        >
+          delete
+        </button>
+        <button
+          type="button"
+          onClick={() => toast.show('Deleted again', 'ok', { action: { label: 'Undo it', run: () => {} } })}
+        >
+          delete again
+        </button>
+        <button type="button" onClick={() => toast.show('Saved')}>
+          save
+        </button>
+        <button type="button" onClick={() => toast.show('Failed', 'error')}>
+          fail
+        </button>
+      </>
+    );
+  }
+
+  const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }));
+
+  it('shows one plain toast at a time: the new one replaces the old one and its timer', () => {
+    render(
+      <ToastProvider>
+        <Burst />
+      </ToastProvider>,
+    );
+    click('save');
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    click('fail');
+    expect(screen.queryByText('Saved')).toBeNull();
+    expect(screen.getByText('Failed')).toBeTruthy();
+    // The error runs its own 7 s, not what is left of the replaced one.
+    act(() => {
+      vi.advanceTimersByTime(6900);
+    });
+    expect(screen.getByText('Failed')).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(screen.queryByText('Failed')).toBeNull();
+  });
+
+  it('keeps a toast with an action while plain toasts come and go below it', () => {
+    render(
+      <ToastProvider>
+        <Burst />
+      </ToastProvider>,
+    );
+    click('delete');
+    click('save');
+    click('save');
+    click('fail');
+    expect(screen.getByText('Deleted')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Undo it' })).toBeTruthy();
+    expect(screen.getByText('Failed')).toBeTruthy();
+    expect(screen.queryByText('Saved')).toBeNull();
+    const region = screen.getByRole('status');
+    expect(region.textContent?.indexOf('Deleted')).toBeLessThan(region.textContent?.indexOf('Failed') ?? 0);
+  });
+
+  it('shows the same toast once and restarts its time', () => {
+    render(
+      <ToastProvider>
+        <Burst />
+      </ToastProvider>,
+    );
+    click('save');
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    click('save');
+    expect(screen.getAllByText('Saved')).toHaveLength(1);
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(screen.getByText('Saved')).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('holds a plain toast under the pointer and lets the latest one in when it leaves', () => {
+    render(
+      <ToastProvider>
+        <Burst />
+      </ToastProvider>,
+    );
+    click('save');
+    const toast = screen.getByText('Saved').parentElement!;
+    fireEvent.mouseEnter(toast);
+    click('fail');
+    act(() => {
+      vi.advanceTimersByTime(20000);
+    });
+    expect(screen.getByText('Saved')).toBeTruthy();
+    expect(screen.queryByText('Failed')).toBeNull();
+    fireEvent.mouseLeave(toast);
+    expect(screen.queryByText('Saved')).toBeNull();
+    expect(screen.getByText('Failed')).toBeTruthy();
+  });
+
+  it('does not replace a toast while the focus is inside it', () => {
+    render(
+      <ToastProvider>
+        <Burst />
+      </ToastProvider>,
+    );
+    click('delete');
+    const undo = screen.getByRole('button', { name: 'Undo it' });
+    fireEvent.focus(undo);
+    click('delete again');
+    expect(screen.getByText('Deleted')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Undo it' })).toBe(undo);
+    fireEvent.blur(undo);
+    expect(screen.getByText('Deleted again')).toBeTruthy();
+  });
+
   it('renders listed items with router link when provided', () => {
     render(
       <MemoryRouter>

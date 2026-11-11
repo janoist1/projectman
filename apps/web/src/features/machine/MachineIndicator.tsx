@@ -36,7 +36,7 @@ function OwnerIndicator({ phone }: { phone: boolean }) {
   const query = useMachine({ panel: open });
   const now = useNow();
   const badge = useMediaQuery('(max-width: 1279px)');
-  const tight = useMediaQuery('(max-width: 1499px)');
+  const tight = useMediaQuery('(max-width: 1699px)');
   const step = phone ? 'phone' : badge ? 'badge' : tight ? 'tight' : 'full';
   const previousStep = useRef(step);
   const button = useRef<HTMLButtonElement>(null);

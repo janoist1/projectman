@@ -57,6 +57,12 @@ function mergeStepOf(job: WorkflowJobInfo): WorkflowStepInfo | undefined {
   return job.steps.find((step) => step.name === MERGE_TEST_STEP);
 }
 
+/**
+ * A job of a completed run that GitHub still lists as queued or running (PM-1260): the run's jobs view can lag
+ * minutes behind the run itself, so the job's verdict is not known yet, whatever the job really did.
+ */
+const unsettled = (job: WorkflowJobInfo): boolean => job.status !== 'completed' || job.conclusion === null;
+
 const succeeded = (job: WorkflowJobInfo): boolean =>
   job.conclusion === 'success' && mergeStepOf(job)?.conclusion === 'success';
 
@@ -92,6 +98,17 @@ export function judge(run: WorkflowRunInfo, commit: string, jobs: readonly Workf
   const skipped = jobs.find((job) => job.conclusion === 'skipped');
   if (skipped) return { kind: 'error', message: `The job "${skipped.name}" was skipped.` };
   const unsuccessful = jobs.filter((job) => !succeeded(job));
+  const pending = jobs.find(unsettled);
+  if (pending) {
+    // A real test failure is the card's, whatever happened to the other shards.
+    const failed = unsuccessful.filter(failedInMergeTest);
+    return failed.length > 0
+      ? { kind: 'failed', failed }
+      : {
+          kind: 'missing',
+          message: `The run ended as ${run.conclusion ?? 'unknown'}, but GitHub still lists the job "${pending.name}" as ${pending.status}, so the test verdict is missing on GitHub's side; try the check again.`,
+        };
+  }
   if (
     unsuccessful.some(notAcquired) &&
     unsuccessful.every((job) => notAcquired(job) || failedInMergeTest(job))

@@ -28,6 +28,7 @@ import { MachineIndicator } from '../features/machine/MachineIndicator';
 /*
  * The desktop top bar sheds width in steps, so nothing overlaps (the search field gives way first):
  *   >= 1600   the Szünet button shows, plan usages are compact (short item per provider, dropdown details)
+ *   <= 1699   the machine meter drops its Swap column (MachineIndicator.tsx), so the bar fits at 1500 and 1512 (PM-1211)
  *   1500-1599 the Szünet button is hidden (the account menu has it; CSS in Shell.module.css), plan usages per provider
  *   1181-1499 plan usages collapse into a single combined button ("AI-keret {percent} ˅") with a shared dropdown
  *             (COMBINED_PLAN_USAGE_QUERY); the machine meter's button turns into a badge below 1280 (PM-322)

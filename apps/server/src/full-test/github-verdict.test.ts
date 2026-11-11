@@ -106,6 +106,18 @@ describe('judge: a job that got no machine (PM-1292)', () => {
     expect(judge(run, COMMIT, [green(1), job(2, 'success', [])])).toMatchObject({ kind: 'missing' });
   });
 
+  it('is a missing verdict, not a run error, when a completed run still lists a job as running (PM-1260)', () => {
+    const running: WorkflowJobInfo = { ...job(3, null, [step('merge-test', null)]), status: 'in_progress' };
+    const succeededRun = { ...run, conclusion: 'success' };
+    expect(judge(succeededRun, COMMIT, [green(1), green(2), running, green(4)])).toMatchObject({
+      kind: 'missing',
+    });
+    expect(judge(run, COMMIT, [green(1), red(2), running])).toMatchObject({
+      kind: 'failed',
+      failed: [{ id: 2 }],
+    });
+  });
+
   it('leaves the other verdicts alone', () => {
     expect(judge(run, COMMIT, [green(1), green(2)])).toEqual({ kind: 'passed' });
     expect(judge(run, 'd'.repeat(40), [unacquired(1)])).toMatchObject({ kind: 'error' });

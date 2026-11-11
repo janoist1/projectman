@@ -2634,7 +2634,8 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   **Infrastructure faults (PM-1292):** the same executor tells a GitHub infrastructure fault from a fault of the
   checked code and marks the errored `FullTestResult` with `infra` (`CheckInfraCause`: `runner_not_acquired`
   when every unsuccessful job got no machine — no runner id or name, no step started —, `verdict_missing`
-  when a job ended without its finished `merge-test` step, `service_unreachable` when a temporary GitHub
+  when a job ended without its finished `merge-test` step or a completed run still lists a job as queued or
+  running after the wait (PM-1260), `service_unreachable` when a temporary GitHub
   failure outlasted the tries or the run never appeared). A job that failed in the `merge-test` step always
   wins: the result is `failed`, whatever happened to the other shards, and a job that started but failed
   earlier (`npm ci`) is never marked. The detection runs where `gh` runs, on the card's engine, and reads
@@ -2682,7 +2683,8 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   optional field; an engine older than PM-909 refuses it with `invalid_params`, shown as `github_unavailable`).
   The server side (`FullTestRuns`) needs only an engine with a full test executor, not a sandbox.
   After run completion the executor re-reads empty or nonterminal shard job states for
-  up to 120 seconds, bounded by the original deadline; cancellation stops the wait.
+  up to 300 seconds (PM-1260: GitHub listed a finished shard as running minutes after the run ended),
+  bounded by the original deadline; cancellation stops the wait.
   Boundary tests use APFS detection for clone support and bounded waits for process
   startup/reaping; no real agent or GitHub CLI runs in automated tests.
   Related tasks: PM-900, PM-907, PM-909, PM-1147, PM-1198.

@@ -336,11 +336,25 @@ describe('withGithubActions', () => {
     expect(s.actions.jobLog).not.toHaveBeenCalled();
   });
 
-  it('ends with a run error when a shard never finishes, after a bounded wait', async () => {
+  it('passes when a shard of a successful run is listed as running for minutes after the run ended (PM-1260)', async () => {
+    const running = { ...job(12, null, []), name: 'merge-test (3/4)', status: 'in_progress' };
+    const s = setup({
+      listJobs: vi.fn(async () =>
+        s.clock.now() - T0 < 10_000 + 150_000 ? [greenJob(), running] : [greenJob(), greenJob(12)],
+      ),
+    });
+    await expect(runIt(s)).resolves.toMatchObject({ outcome: 'passed' });
+  });
+
+  it('is GitHub data missing, not a run error, when a shard never finishes, after a bounded wait', async () => {
     const s = setup({
       listJobs: vi.fn(async () => [greenJob(), { ...job(12, null, []), status: 'in_progress' }]),
     });
-    await expect(runIt(s)).resolves.toMatchObject({ outcome: 'error', reason: 'github_run_error' });
+    await expect(runIt(s)).resolves.toMatchObject({
+      outcome: 'error',
+      reason: 'github_unavailable',
+      infra: 'verdict_missing',
+    });
     expect(s.clock.now() - T0).toBe(10_000 + JOB_WAIT_MAX_MS);
     expect(s.actions.jobLog).not.toHaveBeenCalled();
     expect(s.branches.remove).toHaveBeenCalled();

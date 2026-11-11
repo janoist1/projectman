@@ -3403,7 +3403,7 @@ describe('duty prompt composition', () => {
     const member = { ...aiMember(project, 'fe-1'), role: 'devops' };
     const prompt = builder.build(input({ project, member, handle: 'fe-1' })).appendSystemPrompt;
     expect(prompt).toContain(DUTIES.deployment.prompt);
-    for (const key of ['publish_release', 'preview: true', 'docs/DEPLOY.md', 'exactly the previewed commit'])
+    for (const key of ['publish_release', 'preview: true', 'docs/DEPLOY.md', 'release_owner_only'])
       expect(DUTIES.deployment.prompt).toContain(key);
   });
 

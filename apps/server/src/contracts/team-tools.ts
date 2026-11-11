@@ -1308,6 +1308,10 @@ export interface ExternalToolsHandler {
   runComputeJob(ctx: ExternalToolContext, args: RunComputeJobArgs): Promise<ComputeJobRunView>;
   getComputeJob(ctx: ExternalToolContext, args: { id: string }): Promise<ComputeJobRunView>;
   listComputeJobs(ctx: ExternalToolContext, args: ListComputeJobsArgs): Promise<ComputeJobRunView[]>;
+  /** publish_release (PM-1238): a preview or the publication, as the owner's connected Claude. */
+  publishRelease(ctx: ExternalToolContext, args: PublishReleaseArgs): Promise<PublishedRelease>;
+  /** get_release_status (PM-1201): the version of the hub and of the engines; reads only. */
+  getReleaseStatus(ctx: ExternalToolContext): Promise<ReleaseStatus>;
   querySuperDiagnostics(
     ctx: ExternalToolContext,
     request: SuperDiagnosticsRequest,

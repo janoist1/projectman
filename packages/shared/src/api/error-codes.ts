@@ -358,6 +358,9 @@ export const ERROR_CODES = [
   'release_already_published',
   'release_tag_taken',
   'release_publish_failed',
+  // A production release step (a dedicated-workflow compute job, a publication) is the owner's or the owner's
+  // connected Claude's alone (PM-1238, decision 68): any AI member, the devops included, is refused.
+  'release_owner_only',
   // The team tool `run_compute_job` (PM-1148): the repository has no such job, two jobs run already, the commit
   // is not on the repository's GitHub default branch.
   'compute_job_unknown',

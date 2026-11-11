@@ -20,6 +20,16 @@ export function isComputeJobWorkflow(workflow: string): boolean {
   return workflow === COMPUTE_JOB_WORKFLOW || DedicatedComputeJobWorkflow.safeParse(workflow).success;
 }
 
+/**
+ * Whether a job is a production step (PM-1238, decision 68): a job with a dedicated workflow runs with the
+ * production rights (the AWS deploy role, the right to write the release), the general workflow never does.
+ * The marker is the existing `workflow` field, so a dedicated workflow added later counts as production until
+ * someone decides otherwise: the rule fails closed.
+ */
+export function isProductionComputeJob(def: { readonly workflow?: string | undefined }): boolean {
+  return def.workflow !== undefined;
+}
+
 /** The limits of a job definition, shared by the hub's settings, the engine's registration and the wire. */
 export const COMPUTE_JOB_COMMAND_MAX = 2000;
 export const COMPUTE_JOB_TIMEOUT_MINUTES_MAX = 360;

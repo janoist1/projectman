@@ -1263,9 +1263,9 @@ export function createDomain(opts: DomainOptions) {
     projects,
     engines,
     github: opts.github,
-    // The repository is where the publishing member works.
-    engineId: (projectKey, member) => engines.engineFor(projectKey, member) ?? LOCAL_ENGINE_ID,
+    engineId: (projectKey) => engines.projectEngine(projectKey) ?? LOCAL_ENGINE_ID,
   });
+  const releaseStatus = () => releaseStatusOf(opts.appVersion ?? 'dev', opts.engineRegistry?.list() ?? []);
   const computeJobs = new ComputeJobService({ ctx, projects, tasks, timeline, engines });
 
   // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
@@ -1644,7 +1644,7 @@ export function createDomain(opts: DomainOptions) {
       releases: new ReleaseTools({
         calls: toolCaller,
         publications: releasePublications,
-        status: () => releaseStatusOf(opts.appVersion ?? 'dev', opts.engineRegistry?.list() ?? []),
+        status: releaseStatus,
       }),
       computeJobs: new ComputeJobTools({ calls: toolCaller, jobs: computeJobs }),
       documents: new DocumentTools({ calls: toolCaller, documents }),
@@ -2659,6 +2659,8 @@ export function createDomain(opts: DomainOptions) {
         operatorKnowledge: opts.operatorKnowledge,
         hostRequests,
         computeJobs,
+        releasePublications,
+        releaseStatus,
       }).backend();
     },
 

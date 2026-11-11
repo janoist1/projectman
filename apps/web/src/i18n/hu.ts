@@ -1889,6 +1889,8 @@ export const hu = {
       release_already_published: 'Ezt a commitot már kiadták.',
       release_tag_taken: 'Ez a címke már egy másik commitra mutat.',
       release_publish_failed: 'A címke vagy a GitHub-kiadás nem készült el.',
+      release_owner_only:
+        'Éles kiadási lépést (cloud-deploy, engine-release, kiadás közzététele) csak a tulajdonos vagy a csatlakoztatott Claude-ja indíthat.',
       compute_job_unknown: 'A repóhoz nincs ilyen gépi feladat beállítva.',
       compute_job_busy: 'Már fut két gépi feladat; várj, amíg valamelyik befejeződik.',
       compute_job_commit_unpublished: 'A commit nincs a GitHub alapágán.',

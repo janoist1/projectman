@@ -3,6 +3,7 @@ import {
   coordinatorSuperActorOf,
   isConnectedOwnerActor,
   isCoordinatorSuperActor,
+  isOwnerReleaseActor,
 } from '../config/operator-member';
 import {
   actorOriginMetaOf,
@@ -118,6 +119,22 @@ describe('connected Claude actor origin (decision 66)', () => {
     expect(isConnectedOwnerActor(config, pmSuperActor)).toBe(true);
     expect(isConnectedOwnerActor(config, superActor)).toBe(false);
   });
+
+  it.each([
+    ['the owner in person', { kind: 'human', handle: 'owner' }, true],
+    ['an admin who is no owner', { kind: 'human', handle: 'helper' }, false],
+    ['an AI member', { kind: 'ai', handle: 'pm' }, false],
+    ['the connected Claude of the owner, in person', holder, true],
+    ['the connected Claude on a queue item an AI member issued', issuerStep, false],
+    ['the connected Claude of a holder who is no owner', connectedActorOf('helper', credential), false],
+    ['the old coordinator super step', pmSuperActor, false],
+    ['the system', { kind: 'system', handle: null }, false],
+  ])(
+    'lets only the owner or the owner’s own connected Claude take a release step: %s',
+    (_name, actor, ok) => {
+      expect(isOwnerReleaseActor(humanConfig, actor as Actor)).toBe(ok);
+    },
+  );
 });
 
 describe('super-mode actor origin (PM-757)', () => {

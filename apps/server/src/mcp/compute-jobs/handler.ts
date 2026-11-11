@@ -14,7 +14,10 @@ import type { ToolCaller } from '../caller';
 export function asToolError(err: unknown): unknown {
   if (
     err instanceof DomainError &&
-    (err.code.startsWith('compute_job_') || err.code === 'engine_offline' || err.code === 'release_no_github')
+    (err.code.startsWith('compute_job_') ||
+      err.code === 'engine_offline' ||
+      err.code === 'release_no_github' ||
+      err.code === 'release_owner_only')
   )
     return new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
   return err;

@@ -12,8 +12,13 @@ The supported procedure is [DEPLOY.md](../DEPLOY.md#by-hand-the-fallback-pm-1113
 `npm run cloud -- deploy --ref <commit>`, the Mac engine rebuilt and reinstalled at the
 same commit, then `publish_release` on request after a preview.
 
-The devops drives the whole release as a chain, with the owner's one yes ([DEPLOY.md](../DEPLOY.md#the-release-chain-pm-1193),
-PM-1193). The module serves it with two read-only parts (PM-1201). `ReleasePublishService.unreleased(projectKey)` lists,
+The owner's connected Claude drives the release chain on its endpoint ([DEPLOY.md](../DEPLOY.md#the-release-chain-pm-1193),
+PM-1193, PM-1238); the devops only prepares it (the preview, the non-production jobs, the status reading). Publishing
+is a production step: `preview`/`publish` take the caller's `Actor`, and `publish` runs `assertReleaseAuthority` at the
+entrance and again before the tag is pushed (`release_owner_only` for everyone but the owner and the owner's connected
+Claude in person; `publishedBy` is that handle). A preview stays open to an AI member with the deployment duty. The
+tag is pushed through the project's engine (`engines.projectEngine`). The module serves the chain with two read-only
+parts (PM-1201). `ReleasePublishService.unreleased(projectKey)` lists,
 per repository with a known base, the cards merged after it (`repo`, `base`, `count`, `oldestAt`, `taskKeys`) from the
 recorded merges alone: no git, no write, `[]` on any error. The coordination module's board read turns an entry at
 least `OPERATOR_UNRELEASED_HOURS` old into an `unreleased` signal, which `publish_release` ends by moving the base.

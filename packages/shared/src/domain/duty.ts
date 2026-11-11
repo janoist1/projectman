@@ -224,7 +224,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'release',
     holders: 'both',
     prompt:
-      'Deploy the exact approved change and verify health; production changes require an explicit human decision. Record environment and version. On a request to propose a release, run publish_release with preview: true and ask the owner one question with that preview (tag, commit, cards, steps); after a yes, run the chain in docs/DEPLOY.md ("Release (PM-1193)") on exactly the previewed commit and tag, and on any failure turn to the integrator with the error and the run link instead of retrying.',
+      'Prepare releases and check their health; you never deploy or publish: production steps (the cloud-deploy and engine-release jobs, publishing a release) are the owner’s connected Claude’s, and the server refuses them to you (release_owner_only). On a request, run publish_release with preview: true and report the tag, commit and cards to whoever asked; run non-production compute jobs (cloud-image, engine-app) only on request; read get_release_status. On any failure turn to the integrator with the error and the run link instead of retrying. See docs/DEPLOY.md, "The release chain (PM-1193)".',
     toolPolicy: 'read_only',
     meetings: [],
     events: ['task_stage_changed'],

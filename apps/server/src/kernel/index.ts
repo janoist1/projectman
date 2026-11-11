@@ -40,6 +40,7 @@ export {
   integratorExecution,
   delegatesOwnerAuthority,
   assertIntegratorAccess,
+  assertReleaseAuthority,
   assertOwnApproval,
   assertOwnOrSuperApproval,
   assertSuperMutation,

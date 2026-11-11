@@ -54,9 +54,9 @@ export const COMPUTE_JOB_TOOL_GROUP: TeamToolGroup = {
       title: 'Run a compute job on GitHub Actions',
       readOnly: false,
       description:
-        'Start a job of the repository settings (`computeJobs`) on GitHub Actions, on a commit on the remote ' +
-        'default branch. Answers with the queued run; follow it with get_compute_job. A going or live-artifact ' +
-        'run of the same commit is returned unless `force`. Costs GitHub minutes: only on request.',
+        'Start a `computeJobs` job on GitHub Actions, on a commit on the remote default branch. Answers with ' +
+        'the run; follow with get_compute_job. A going or live-artifact run of the same commit is returned ' +
+        'unless `force`. Costs minutes. Cloud-deploy and engine-release are owner-only (release_owner_only).',
       input: {
         job: ComputeJobId.describe('The job name in the repository settings.'),
         commit: ComputeJobCommit.describe(

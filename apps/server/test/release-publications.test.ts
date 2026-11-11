@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LOCAL_ENGINE_ID, MemberConfig, RepoConfig } from '@projectman/shared';
-import type { EngineView, ProjectConfig } from '@projectman/shared';
+import type { Actor, EngineView, ProjectConfig } from '@projectman/shared';
 import { MergeError } from '../src/contracts';
 import type { BranchMerger, MergeBaseState } from '../src/contracts';
 import { LocalEngineDirectory } from '../src/runtime/sessions';
 import { releaseStatusOf } from '../src/services/releases';
 import { OWNER_ACTOR, createDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { connectedClaude, inIntegratorExecution } from './helpers/integrator-scope';
+
+const DEVOPS: Actor = { kind: 'ai', handle: 'devops' };
 
 /** A commit id as the repository would print it. */
 const sha = (n: number) => n.toString(16).padStart(40, '0');
@@ -122,8 +125,8 @@ describe('publish_release', () => {
     );
   }
 
-  const publish = (over: { commit?: string; tag?: string; by?: string } = {}) =>
-    h.domain.releasePublications.publish('AR', over.by ?? 'devops', {
+  const publish = (over: { commit?: string; tag?: string; by?: Actor } = {}) =>
+    h.domain.releasePublications.publish('AR', over.by ?? OWNER_ACTOR, {
       summary: '- Things changed',
       ...(over.commit ? { commit: over.commit } : {}),
       ...(over.tag ? { tag: over.tag } : {}),
@@ -154,7 +157,7 @@ describe('publish_release', () => {
   it('records and sends nothing in a preview', async () => {
     await setup();
 
-    const result = await h.domain.releasePublications.preview('AR', 'devops', { summary: 'x' });
+    const result = await h.domain.releasePublications.preview('AR', DEVOPS, { summary: 'x' });
 
     expect(result.url).toBeNull();
     expect(result.tasks).toHaveLength(3);
@@ -163,18 +166,79 @@ describe('publish_release', () => {
     expect(h.repos.releasePublications.byCommit('AR', 'web', sha(3))).toBeNull();
   });
 
-  it('refuses a member without the deployment duty', async () => {
-    await setup();
+  describe('the production gate (PM-1238)', () => {
+    const refusedWithNothingWritten = () => {
+      expect(git.merger.pushTag).not.toHaveBeenCalled();
+      expect(h.github.published).toEqual([]);
+      expect(h.repos.releasePublications.byCommit('AR', 'web', sha(3))).toBeNull();
+    };
 
-    await expect(publish({ by: 'nobody' })).rejects.toMatchObject({ code: 'insufficient_access' });
-    expect(git.merger.pushTag).not.toHaveBeenCalled();
+    it.each([
+      ['the devops', DEVOPS],
+      ['an AI member without the duty', { kind: 'ai', handle: 'nobody' } as Actor],
+    ])('refuses %s a publication', async (_name, by) => {
+      await setup();
+
+      await expect(publish({ by })).rejects.toMatchObject({ code: 'release_owner_only' });
+      refusedWithNothingWritten();
+    });
+
+    it('refuses a preview to an AI member without the deployment duty', async () => {
+      await setup();
+
+      await expect(
+        h.domain.releasePublications.preview('AR', { kind: 'ai', handle: 'nobody' }, { summary: 'x' }),
+      ).rejects.toMatchObject({ code: 'release_owner_only' });
+    });
+
+    it('refuses the connected Claude on a queue item an AI member issued', async () => {
+      await setup();
+
+      await expect(
+        inIntegratorExecution(connectedClaude('owner', 'devops'), () =>
+          publish({ by: connectedClaude('owner', 'devops') }),
+        ),
+      ).rejects.toMatchObject({ code: 'release_owner_only' });
+      refusedWithNothingWritten();
+    });
+
+    it('lets the connected Claude publish in person, the owner being the publisher', async () => {
+      await setup();
+      const claude = connectedClaude();
+
+      const result = await inIntegratorExecution(claude, () => publish({ by: claude }));
+
+      expect(result.url).toEqual(expect.any(String));
+      expect(h.repos.releasePublications.byCommit('AR', 'web', sha(3))).toMatchObject({
+        publishedBy: 'owner',
+      });
+    });
+
+    it('refuses a bound actor outside an authenticated execution', async () => {
+      await setup();
+
+      await expect(publish({ by: connectedClaude() })).rejects.toMatchObject({
+        code: 'insufficient_access',
+      });
+      refusedWithNothingWritten();
+    });
+
+    it('stops before the tag is pushed when the owner right is gone by the write', async () => {
+      await setup();
+      const claude = connectedClaude();
+
+      await expect(
+        inIntegratorExecution(claude, () => publish({ by: claude }), { accessChecks: 1 }),
+      ).rejects.toMatchObject({ code: 'insufficient_access' });
+      refusedWithNothingWritten();
+    });
   });
 
   it('refuses a repository without a GitHub repository', async () => {
     await setup({ extraRepo: true });
 
     await expect(
-      h.domain.releasePublications.publish('AR', 'devops', { summary: 'x', repo: 'notes' }),
+      h.domain.releasePublications.publish('AR', OWNER_ACTOR, { summary: 'x', repo: 'notes' }),
     ).rejects.toMatchObject({ code: 'release_no_github' });
   });
 
@@ -228,7 +292,7 @@ describe('publish_release', () => {
     await publish({ commit: sha(1) });
     vi.mocked(git.merger.isAncestor).mockClear();
 
-    const result = await h.domain.releasePublications.preview('AR', 'devops', { summary: 'x' });
+    const result = await h.domain.releasePublications.preview('AR', DEVOPS, { summary: 'x' });
 
     expect(result.tasks.map((task) => task.key)).toEqual(['AR-2', 'AR-3']);
     expect(git.merger.isAncestor).not.toHaveBeenCalled();
@@ -245,7 +309,7 @@ describe('publish_release', () => {
     });
     recordLiveRelease(sha(2));
 
-    const result = await h.domain.releasePublications.preview('AR', 'devops', { summary: 'x' });
+    const result = await h.domain.releasePublications.preview('AR', DEVOPS, { summary: 'x' });
 
     expect(result.tasks.map((task) => task.key)).toEqual(['AR-2', 'AR-3', 'AR-4']);
     expect(vi.mocked(git.merger.isAncestor).mock.calls.map(([, input]) => input)).toEqual([
@@ -290,11 +354,11 @@ describe('publish_release', () => {
     });
   });
 
-  it('uses the publishing member’s registered engine instead of the local engine', async () => {
+  it('uses the project’s registered engine instead of the local engine', async () => {
     await setup();
     const engineId = 'eng_aaaaaaaaaaaa';
     const get = LocalEngineDirectory.prototype.get;
-    vi.spyOn(LocalEngineDirectory.prototype, 'engineFor').mockReturnValue(engineId);
+    vi.spyOn(LocalEngineDirectory.prototype, 'projectEngine').mockReturnValue(engineId);
     vi.spyOn(LocalEngineDirectory.prototype, 'get').mockImplementation(function (
       this: LocalEngineDirectory,
       id: string,
@@ -302,10 +366,10 @@ describe('publish_release', () => {
       return id === engineId ? get.call(this, LOCAL_ENGINE_ID) : null;
     });
 
-    const result = await h.domain.releasePublications.preview('AR', 'devops', { summary: 'x' });
+    const result = await h.domain.releasePublications.preview('AR', DEVOPS, { summary: 'x' });
 
     expect(result.tasks).toHaveLength(3);
-    expect(LocalEngineDirectory.prototype.engineFor).toHaveBeenCalledWith('AR', 'devops');
+    expect(LocalEngineDirectory.prototype.projectEngine).toHaveBeenCalledWith('AR');
     expect(git.merger.prepare).toHaveBeenCalled();
   });
 

@@ -194,10 +194,13 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   the request time; `limit` is 1–100 (30). A check shows only when the caller may see all its cards. A check recorded
   without a step report (an older engine or merge-test script) shows its steps as unknown, never as zero. `get_task`
   adds the card's latest three checks. Handler method: `listMergeChecks(ctx, input)`.
-- `publish_release { summary, repo?, commit?, tag?, preview? }` is the deployment duty holder's tool: it tags
+- `publish_release { summary, repo?, commit?, tag?, preview? }` is the owner's and the connected Claude's tool
+  (PM-1238; bound to the super endpoint with `get_release_status`; a member may only `preview`, a publication is
+  refused to it with `release_owner_only`, which maps to `forbidden`; the handler methods `publishRelease` and
+  `getReleaseStatus` exist on `ExternalToolsHandler` too): it tags
   a merged merge commit (default: the head of the default branch; `tag` default `vYYYY.M.D`, `.N` suffix on a taken
   day) with an annotated tag and makes the public GitHub release, whose notes are the summary and the cards merged since
-  the previous publication. It runs on request only, with no owner approval. `preview: true` writes nothing. A repeat
+  the previous publication. It runs on request only. `preview: true` writes nothing. A repeat
   call finishes an interrupted publication; a commit that is published already, a taken tag, a repository without
   `github` and a caller without the duty are refused (`release_*` codes). Handler method: `publishRelease(ctx, args)`.
 - `run_compute_job { job, commit, repo?, force?, task_key? }`, `get_compute_job { id }` and
@@ -206,7 +209,9 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   GitHub Actions, through the project's engine, on a commit that is on the remote default branch, and answers with the
   queued run at once; the run row follows it, and `task_key` gets a note at its end. The same commit's live run or
   artifact is returned unless `force`; at most two runs go at a time (`compute_job_busy`); an unknown job and an
-  unpublished commit are refused (`compute_job_*` codes). Handler methods: `runComputeJob`, `getComputeJob`,
+  unpublished commit are refused (`compute_job_*` codes). A job with a dedicated workflow (`cloud-deploy`,
+  `engine-release`) is a production step: a member is refused with `release_owner_only` (`forbidden`; PM-1238).
+  Handler methods: `runComputeJob`, `getComputeJob`,
   `listComputeJobs` (members and the connected Claude).
 - `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
   are project manager tools for the decision log and the roadmap: the first reads the file at the fresh head of

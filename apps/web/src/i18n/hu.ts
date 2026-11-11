@@ -2742,6 +2742,13 @@ export const hu = {
   taskCard: {
     stageRows: 'Ellenőrzések',
     stageProgress: 'Haladás: {stage}, {index}. lépés a {total}-ból',
+    columnSteps: '{column} lépései',
+    stepState: {
+      done: 'kész',
+      current: 'itt tart',
+      todo: 'hátra van',
+      finished: 'kész',
+    },
   },
 
   editor: {

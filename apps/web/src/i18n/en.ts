@@ -1550,7 +1550,12 @@ export const en = {
       cancelled: 'Cancelled',
     },
   },
-  taskCard: { stageRows: 'Checks', stageProgress: 'Progress: {stage}, stage {index} of {total}' },
+  taskCard: {
+    stageRows: 'Checks',
+    stageProgress: 'Progress: {stage}, stage {index} of {total}',
+    columnSteps: 'Steps of {column}',
+    stepState: { done: 'done', current: 'in progress here', todo: 'to do', finished: 'done' },
+  },
   editor: {
     preview: 'Preview',
     toolbar: 'Format description',

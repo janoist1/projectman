@@ -33,8 +33,9 @@
   position: static;
 }
 
+/* As wide as its longest item (up to the max), not squeezed into the narrow row it hangs from. */
 .row {
-  width: auto;
+  width: max-content;
   max-width: 340px;
   right: 0;
 }

@@ -278,7 +278,11 @@ export class Merges {
         const holder = this.queue.slot(projectKey, row.repo);
         if (holder && runs(holder, row)) return task;
         if (row.trainId && this.deps.ctx.repos.mergeTrains.get(row.trainId)?.state === 'running') return task;
-        throw conflict('merge_queue_conflict', 'the merge is marked running but no run holds it');
+        await this.steps.abandon(
+          { row, pushing: row.landed === 'remote' },
+          new Error('the merge lost its run; retry with merge_task to resume safely'),
+        );
+        return tasks.get(projectKey, taskKey);
       }
       if (!row) throw conflict('merge_not_ready', 'the card has no work to merge', { reason: 'no_merge' });
       const approvedSource = await this.source(config, task);

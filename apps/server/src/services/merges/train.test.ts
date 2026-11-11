@@ -1178,13 +1178,26 @@ describe('merge train execution', () => {
     },
   );
 
-  it('refuses to start a merge that is marked running but holds no slot', async () => {
+  it('blocks an orphaned running merge and allows an explicit retry under the same id', async () => {
     await setup(1);
     h.repos.taskMerges.save({ ...row('AR-1')!, state: 'running', step: 'checking' });
-    await expect(h.domain.merges.start('AR', 'AR-1', aiActor('dev-1'))).rejects.toMatchObject({
-      code: 'merge_queue_conflict',
+    const id = row('AR-1')!.id;
+    await h.domain.merges.start('AR', 'AR-1', aiActor('dev-1'));
+    expect(row('AR-1')).toMatchObject({
+      id,
+      state: 'blocked',
+      block: { reason: 'merge_error' },
     });
-    expect(row('AR-1')?.state).toBe('running');
+    expect(row('AR-1')?.step).toBeUndefined();
+    expect(executor.run).not.toHaveBeenCalled();
+    expect(
+      h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((e) => e.type === 'task_merge_blocked'),
+    ).toHaveLength(1);
+    await h.domain.merges.start('AR', 'AR-1', aiActor('dev-1'));
+    expect(row('AR-1')).toMatchObject({ id, state: 'queued' });
+    pump();
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined());
+    await settled();
   });
 
   it('waits behind a failed prerequisite while unrelated cards merge', async () => {

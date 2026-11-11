@@ -823,7 +823,9 @@ describe('editing your own comment (PM-1277)', () => {
     const note = comment(project, 'owner', 'First text');
     editedElsewhere(project, note, 'Second text');
     project.render(drawer, '/p/AC/tasks/AC-20/thread');
-    const mark = await screen.findByRole('button', { name: t('task.comments.editedAria') });
+    const mark = await screen.findByRole('button', {
+      name: t('task.comments.editedAria', { label: t('task.comments.edited') }),
+    });
     expect(mark.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(mark);
     expect(mark.getAttribute('aria-expanded')).toBe('true');
@@ -843,7 +845,7 @@ describe('editing your own comment (PM-1277)', () => {
     project.render(drawer, '/p/AC/tasks/AC-20/thread');
     expect(await screen.findByText('Second text')).toBeTruthy();
     expect(screen.getByText(t('task.comments.edited'))).toBeTruthy();
-    expect(screen.queryByRole('button', { name: t('task.comments.editedAria') })).toBeNull();
+    expect(screen.queryByRole('button', { name: /korábbi változatok/ })).toBeNull();
     expect(screen.queryByText('First text')).toBeNull();
   });
 
@@ -879,6 +881,11 @@ describe('editing your own comment (PM-1277)', () => {
     editedElsewhere(project, note, 'Corrected');
     project.render(drawer, '/p/AC/tasks/AC-20/thread');
     expect(await screen.findByText('Corrected')).toBeTruthy();
-    expect(screen.getByText(t('task.comments.editedByMe'))).toBeTruthy();
+    // The button's name starts with the visible words, so a screen reader hears who edited.
+    expect(
+      screen.getByRole('button', {
+        name: t('task.comments.editedAria', { label: t('task.comments.editedByMe') }),
+      }),
+    ).toBeTruthy();
   });
 });

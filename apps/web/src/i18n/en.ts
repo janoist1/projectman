@@ -1754,7 +1754,7 @@ export const en = {
       editedBy: 'edited by {name}',
       editedByMe: 'edited by you',
       editedTitle: 'Last edited {time}',
-      editedAria: 'Edited, earlier versions',
+      editedAria: '{label}, earlier versions',
       history: 'Earlier versions',
       original: 'Original',
       editMentions: 'Newly mentioned people will be notified: {handles}.',

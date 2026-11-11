@@ -143,7 +143,7 @@ function EditedMark({
       type="button"
       className={styles.editedButton}
       title={title}
-      aria-label={t('task.comments.editedAria')}
+      aria-label={t('task.comments.editedAria', { label })}
       aria-expanded={open}
       aria-controls={historyId}
       onClick={onToggle}

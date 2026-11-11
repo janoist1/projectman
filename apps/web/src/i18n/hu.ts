@@ -2966,7 +2966,7 @@ export const hu = {
       editedBy: 'szerkesztette: {name}',
       editedByMe: 'szerkesztetted',
       editedTitle: 'Utoljára szerkesztve: {time}',
-      editedAria: 'Szerkesztve, korábbi változatok',
+      editedAria: '{label}, korábbi változatok',
       history: 'Korábbi változatok',
       original: 'Eredeti',
       editMentions: 'Értesítjük, akit most említesz meg: {handles}.',

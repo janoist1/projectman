@@ -337,6 +337,17 @@ describe('web push service', () => {
       expect(transport.calls).toHaveLength(0);
     });
 
+    it('tells only the mentions an edit added, with the mention title (PM-1277)', async () => {
+      subscribe();
+      await service.onCommentEdited(comment, [], task);
+      expect(transport.calls).toHaveLength(0);
+      await service.onCommentEdited(comment, ['owner'], task);
+      expect(transport.calls).toHaveLength(1);
+      expect(PushPayload.parse(JSON.parse(transport.calls[0]!.payload)).title).toBe(
+        getLocale('hu').webPush.title.mention,
+      );
+    });
+
     it('is not sent to a member who lost access to the project', async () => {
       subscribe();
       const changed = structuredClone(config);

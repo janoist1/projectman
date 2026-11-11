@@ -320,6 +320,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   link to the host's own first project. A comment or mention on a card (PM-1271, `onNote`) is pushed
   the same way, from the hub's `task_note_added` event (an AI member's `update_task` note reaches the
   hub through the engine relay) without an inbox item or claim; the payload carries only the card key.
+  A mention that a comment edit newly adds (PM-1277, `onCommentEdited`) is pushed the same way, in the
+  `mention` category only, from the hub's `task_note_edited` event.
   **Remote engine:** fully supported; nothing runs on the
   engine and no new data crosses the server/engine boundary.
 

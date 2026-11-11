@@ -202,6 +202,8 @@ export const ERROR_CODES = [
   'document_not_found',
   'document_conflict',
   'document_too_large',
+  // A comment edit based on an older version (PM-1277): 409, `{ currentRevision }`
+  'comment_edit_conflict',
   // Every document write needs its one-line reason (PM-1215): missing or blank (400)
   'document_message_required',
   // A cover must be a ready image of the card (PM-224)

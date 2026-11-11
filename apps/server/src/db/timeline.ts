@@ -134,6 +134,11 @@ export function createTimelineRepository(db: Db) {
     notesOfCard: db.prepare(
       "SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = 'task_note' ORDER BY seq",
     ),
+    // The edits of some notes in the order they were written (PM-1277); the partial index `timeline_note_edits` covers it.
+    editsOfNotes: db.prepare(
+      `SELECT * FROM timeline_events WHERE project_key = ? AND type = 'task_note_edited'
+         AND json_extract(data, '$.noteId') IN (SELECT value FROM json_each(?)) ORDER BY seq`,
+    ),
     // The note a client already submitted with this repeat id (PM-1290): the same author, card and id.
     noteByClientRequest: db.prepare(
       `SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = 'task_note'
@@ -257,6 +262,11 @@ export function createTimelineRepository(db: Db) {
     /** All the notes of a card, oldest first. */
     notesOfCard(projectKey: string, taskKey: string): TimelineEvent[] {
       return (statements.notesOfCard.all(projectKey, taskKey) as TimelineRow[]).map(toEvent);
+    },
+    /** The `task_note_edited` events of the given notes, oldest first (PM-1277). */
+    editsOfNotes(projectKey: string, noteIds: readonly string[]): TimelineEvent[] {
+      if (noteIds.length === 0) return [];
+      return (statements.editsOfNotes.all(projectKey, JSON.stringify(noteIds)) as TimelineRow[]).map(toEvent);
     },
     /** The note this author already submitted on the card with this client request id, or null. */
     noteByClientRequest(

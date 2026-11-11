@@ -109,6 +109,12 @@ export function hasConnectedOrigin(actor: Actor | null | undefined): actor is Co
   return !!actor && actor.through !== undefined && actorOriginIssue(actor) === null;
 }
 
+/** The viewer acted: their own handle, and no integrator origin unless it is the viewer's own connected Claude. */
+export function isOwnActor(actor: Actor, myHandle: string | null): boolean {
+  if (myHandle === null || actor.handle !== myHandle) return false;
+  return !actor.via || (hasConnectedOrigin(actor) && actor.through.holder === myHandle);
+}
+
 /** An actor bound from an authenticated key: the old super shape or the connected Claude's. */
 export type BoundActor = SuperActor | ConnectedActor;
 

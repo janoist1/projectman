@@ -1,3 +1,4 @@
+import { canSeeCommentHistory, withoutRevisions } from './comments';
 import type { TimelineEvent } from './event';
 import { canSeeAllTeamMessages, canSeeTeamMessage } from './message';
 import type { TaskViewer } from './task';
@@ -25,6 +26,12 @@ export function visibleTimelineEvent(
   event: TimelineEvent,
   messageParticipants: (id: string) => { from: string; to: string[] } | null,
 ): TimelineEvent {
+  if (event.type === 'task_note') {
+    if (event.data?.revisions === undefined) return event;
+    return canSeeCommentHistory(viewer, event) ? event : withoutRevisions(event);
+  }
+  // The edit's text is the earlier text's twin: readers get it through the projected comment only (PM-1277).
+  if (event.type === 'task_note_edited') return { ...event, data: { noteId: event.data?.noteId } };
   if (event.type !== 'session_started') return event;
   if (canSeeAllTeamMessages(viewer)) return event;
   const cause = event.data?.cause as { messageId?: string; quote?: string } | undefined;

@@ -101,11 +101,8 @@ export function actorParts(actor: Actor, index: MemberIndex, myHandle: string | 
   };
 }
 
-/** The viewer acted: their own handle, and no integrator origin unless it is the viewer's own connected Claude. */
-export function isOwnActor(actor: Actor, myHandle: string | null): boolean {
-  if (myHandle === null || actor.handle !== myHandle) return false;
-  return !actor.via || (hasConnectedOrigin(actor) && actor.through.holder === myHandle);
-}
+// One rule, one place: the shared `isOwnActor` (PM-1277); the web's callers keep importing it from here.
+export { isOwnActor } from '@projectman/shared';
 
 export function actorLabel(actor: Actor, index: MemberIndex, myHandle: string | null): string {
   const { name, connected } = actorParts(actor, index, myHandle);

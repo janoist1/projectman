@@ -395,9 +395,20 @@ describe('describeEvent', () => {
       },
       'reply {id} to comment evt_top (imported: written by "Dani K" on 2026-03-02 09:15 UTC): Ok',
     ],
+    [
+      'an edited comment',
+      { text: 'Why not?', comment: true, edited: { revisionId: 'evt_edit', count: 1 } },
+      'comment {id} (edited): Why not?',
+    ],
   ])('names the id and the parent of %s by the comment rule (PM-1275)', (_, data, expected) => {
     const note = event('task_note', data);
     expect(describeEvent(note, 100)).toBe(expected.replace('{id}', note.id));
+  });
+
+  it('names an edit event by its comment and leaves its text out (PM-1277)', () => {
+    expect(describeEvent(event('task_note_edited', { noteId: 'evt_top', text: 'Secret' }), 100)).toBe(
+      'edited comment evt_top',
+    );
   });
 
   it('shortens free text to the limit', () => {

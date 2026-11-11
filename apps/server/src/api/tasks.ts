@@ -12,6 +12,7 @@ import {
   CloseThemeRequest,
   CreateTaskRequest,
   createsInFirstStageOnly,
+  EditTaskCommentRequest,
   ReopenTaskRequest,
   routes,
   StartTaskRequest,
@@ -23,6 +24,7 @@ import {
 import type {
   BoardMoveResult,
   ClosedCardsMeasure,
+  EditTaskCommentResult,
   Task,
   TaskCommentsPage,
   TaskDetail,
@@ -160,6 +162,18 @@ export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): voi
     // The commenter gets the card as their GET shows it, a client's filter included (PM-1275).
     return reply.code(201).send(await detailFor(access, key, taskKey));
   });
+
+  /** Edits a comment's text (PM-1277); the answer is the comment as the viewer sees it (earlier versions only for those who may). */
+  app.patch<TaskParams & { Params: { eventId: string } }>(
+    routes.taskComment(':key', ':taskKey', ':eventId'),
+    async (request): Promise<EditTaskCommentResult> => {
+      const { key, taskKey, eventId } = request.params;
+      const access = await requireAccess(domain, request, key);
+      const body = parseBody(EditTaskCommentRequest, request.body);
+      const comment = await domain.tasks.editComment(key, taskKey, eventId, body, actorOf(access));
+      return { comment: visibleTimelineEvent(access, comment, (id) => domain.messages.get(id)) };
+    },
+  );
 
   app.post<TaskParams>(routes.taskLabels(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
     const { key, taskKey } = request.params;

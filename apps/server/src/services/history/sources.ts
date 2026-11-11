@@ -1,4 +1,5 @@
 import type { HistoryDocumentRow, Repositories } from '../../db';
+import { withCommentEdits, withoutRevisions } from '@projectman/shared';
 import type { HistoryRelated, HistorySourceState, HistorySourceType, Task } from '@projectman/shared';
 
 /** The repositories the history reads its sources through (the current project, never an index copy). */
@@ -42,7 +43,13 @@ export function loadHistorySource(
       const event = repos.timeline.get(projectKey, entityId);
       if (!event || event.type !== 'task_note' || event.taskKey === null) return null;
       const task = taskOfProject(repos, projectKey, event.taskKey);
-      return task ? { source: { type, task, event }, storedAt: event.createdAt } : null;
+      if (!task) return null;
+      // The comment as it reads now (PM-1277): the indexed body is its latest text, so a word of an
+      // earlier version no longer finds it. The earlier versions themselves stay out of the search.
+      const edits = repos.timeline.editsOfNotes(projectKey, [event.id]);
+      if (edits.length === 0) return { source: { type, task, event }, storedAt: event.createdAt };
+      const current = withoutRevisions(withCommentEdits([event], edits)[0]!);
+      return { source: { type, task, event: current }, storedAt: edits.at(-1)!.createdAt };
     }
     case 'question': {
       const item = repos.inbox.get(entityId);

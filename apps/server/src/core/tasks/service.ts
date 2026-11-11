@@ -337,7 +337,7 @@ export class TaskService implements TaskSchedulingReader {
       parent: task.parentKey ? this.find(projectKey, task.parentKey) : null,
       subtasks: this.ctx.repos.tasks.children(projectKey, taskKey).map((child) => this.store.view(child)),
       pullRequests: this.pullRequests.forTask(task),
-      timeline: this.commentFileState(
+      timeline: this.commentState(
         projectKey,
         taskKey,
         this.timeline.list(projectKey, { taskKey, limit: timelineLimit }),
@@ -1271,7 +1271,7 @@ export class TaskService implements TaskSchedulingReader {
   /** One page of the card's comment threads (PM-1290), every reply with its comment. */
   commentThreads(projectKey: string, taskKey: string, query: TaskCommentsQuery): CommentThreadsPage {
     const page = this.store.commentThreads(projectKey, taskKey, query);
-    const events = this.commentFileState(
+    const events = this.commentState(
       projectKey,
       taskKey,
       page.threads.flatMap((thread) => [thread.comment, ...thread.replies]),
@@ -1286,17 +1286,32 @@ export class TaskService implements TaskSchedulingReader {
     };
   }
 
-  commentFileState(projectKey: string, taskKey: string, events: readonly TimelineEvent[]): TimelineEvent[] {
-    if (
-      !events.some(
-        (event) =>
-          event.type === 'task_note' &&
-          Array.isArray(event.data.attachments) &&
-          event.data.attachments.length > 0,
-      )
+  /** Edits a comment's text (PM-1277) and returns it as it reads now, with its earlier versions (the route filters them). */
+  async editComment(
+    projectKey: string,
+    taskKey: string,
+    noteId: string,
+    input: { text: string; baseRevision: string },
+    actor: Actor,
+  ): Promise<TimelineEvent> {
+    const note = await this.store.editComment(projectKey, taskKey, noteId, input, actor);
+    return this.commentState(projectKey, taskKey, [note])[0]!;
+  }
+
+  /**
+   * The comment events as readers see them: the files that are gone marked, then the edits projected
+   * (PM-1277), so the text is the latest one. Every read path of comments goes through this.
+   */
+  commentState(projectKey: string, taskKey: string, events: readonly TimelineEvent[]): TimelineEvent[] {
+    const files = events.some(
+      (event) =>
+        event.type === 'task_note' &&
+        Array.isArray(event.data.attachments) &&
+        event.data.attachments.length > 0,
     )
-      return [...events];
-    return withGoneCommentFiles(events, this.ctx.repos.attachments.liveCommentFileIds(projectKey, taskKey));
+      ? withGoneCommentFiles(events, this.ctx.repos.attachments.liveCommentFileIds(projectKey, taskKey))
+      : [...events];
+    return this.timeline.withCommentEdits(projectKey, files);
   }
 
   assign(

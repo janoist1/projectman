@@ -560,6 +560,31 @@ describe('the bearer MCP endpoint (PM-760)', () => {
     expect(detail.content[0]!.text).toContain('Over MCP');
   });
 
+  it('gives an edited comment as it reads now, without its earlier versions (PM-1277)', async () => {
+    const { secret } = key('read');
+    const { domain } = h.app.projectman;
+    await domain.tasks.create('AR', { title: 'Login page' }, humanActor('owner'));
+    const posted = await h.app.inject({
+      method: 'POST',
+      url: routes.taskComments('AR', 'AR-1'),
+      headers: { cookie },
+      payload: { text: 'The quokka plan' },
+    });
+    expect(posted.statusCode).toBe(201);
+    const note = domain.timeline.list('AR').find((event) => event.type === 'task_note')!;
+    const edited = await h.app.inject({
+      method: 'PATCH',
+      url: routes.taskComment('AR', 'AR-1', note.id),
+      headers: { cookie },
+      payload: { text: 'The wombat plan', baseRevision: note.id },
+    });
+    expect(edited.statusCode).toBe(200);
+    const detail = await call(secret, 'get_task', { project_key: 'AR', task_key: 'AR-1', event_id: note.id });
+    const text = detail.content[0]!.text!;
+    expect(text).toContain('The wombat plan');
+    expect(text).not.toContain('quokka');
+  });
+
   it('refuses GET and DELETE with 405 and Allow: POST, and a missing or wrong credential with 401', async () => {
     const { secret } = key('super');
     for (const method of ['GET', 'DELETE'] as const) {

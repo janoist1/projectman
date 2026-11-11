@@ -70,6 +70,11 @@ export interface DomainEventMap {
   task_description_changed: { task: Task; actor: Actor };
   /** A task comment or note was recorded (not an imported one); `mentions` are the members it mentions (never its author). */
   task_note_added: { event: TimelineEvent; mentions: string[]; task: Task };
+  /**
+   * A comment was edited (PM-1277): `note` is the comment as it reads now, `edit` the event that was
+   * written, `added` the mentions no earlier version had (empty for an imported comment).
+   */
+  task_note_edited: { note: TimelineEvent; edit: TimelineEvent; added: string[]; task: Task };
   /** A team message or a note was recorded on a card (PM-186), imported comments included. */
   task_talk_recorded: { event: TimelineEvent };
   /** Work was recorded on a card (PM-431): a note, an attachment or a change of the description. */

@@ -688,21 +688,58 @@ export class Messaging {
    */
   async mentionNotice(note: DomainEventMap['task_note_added']): Promise<void> {
     const { event } = note;
-    if (note.mentions.length === 0) return;
-    const author = actorHandle(event.actor);
+    await this.noticeMentioned(note.mentions, {
+      actor: event.actor,
+      projectKey: event.projectKey,
+      taskKey: event.taskKey,
+      sessionId: event.sessionId,
+      text: event.data.text as string,
+      noteId: event.id,
+    });
+  }
+
+  /**
+   * The AI members a comment edit newly mentions (PM-1277) get the comment's new text, as a message from
+   * the editor that stands under the comment. Only the mentions no earlier version had come in `added`.
+   */
+  async commentEditNotice(edited: DomainEventMap['task_note_edited']): Promise<void> {
+    const { note, edit } = edited;
+    await this.noticeMentioned(edited.added, {
+      actor: edit.actor,
+      projectKey: note.projectKey,
+      taskKey: note.taskKey,
+      sessionId: null,
+      text: note.data.text as string,
+      noteId: note.id,
+    });
+  }
+
+  private async noticeMentioned(
+    mentioned: string[],
+    from: {
+      actor: Actor;
+      projectKey: string;
+      taskKey: string | null;
+      sessionId: string | null;
+      text: string;
+      noteId: string;
+    },
+  ): Promise<void> {
+    if (mentioned.length === 0) return;
+    const author = actorHandle(from.actor);
     // The comment keeps every mention; the notice goes only to those the author may write to now (PM-985).
-    const config = await this.projects.config(event.projectKey);
-    const refused = new Set(teamMessageRecipientRefusal(config, author, note.mentions)?.recipients);
-    const mentions = note.mentions.filter(
+    const config = await this.projects.config(from.projectKey);
+    const refused = new Set(teamMessageRecipientRefusal(config, author, mentioned)?.recipients);
+    const mentions = mentioned.filter(
       (handle) => !refused.has(handle) && memberOf(config, handle)?.kind === 'ai',
     );
     if (mentions.length === 0) return;
     try {
       await this.send(
-        event.projectKey,
+        from.projectKey,
         author,
-        { to: mentions, text: event.data.text as string, taskKey: event.taskKey },
-        { actor: event.actor, sessionId: event.sessionId, origin: { kind: 'note', eventId: event.id } },
+        { to: mentions, text: from.text, taskKey: from.taskKey },
+        { actor: from.actor, sessionId: from.sessionId, origin: { kind: 'note', eventId: from.noteId } },
       );
     } catch (err) {
       // The author's contacts changed while the notice was being prepared: no notice, the comment stands.

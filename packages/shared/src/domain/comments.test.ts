@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addedCommentMentions,
   canAttachToComment,
+  canEditComment,
+  canSeeCommentHistory,
   isCardComment,
+  isImportedComment,
   isProcessTimelineEvent,
   pageCommentThreads,
   replyParentOf,
+  withCommentEdits,
   withGoneCommentFiles,
+  withoutCommentHistory,
 } from './comments';
 import { CreateTaskCommentRequest } from '../api/dto';
 import type { TimelineEvent } from './event';
+import { visibleTimelineEvent } from './timeline-visibility';
 
 const human = { kind: 'human', handle: 'owner' } as const;
 const ai = { kind: 'ai', handle: 'dev' } as const;
@@ -159,5 +166,169 @@ describe('pageCommentThreads', () => {
   it('returns null for an unknown anchor', () => {
     expect(pageCommentThreads(notes, { before: 'nope', limit: 2 })).toBeNull();
     expect(pageCommentThreads(notes, { around: 'p1', limit: 2 })).toBeNull();
+  });
+});
+
+describe('editing a comment (PM-1277)', () => {
+  const connected = {
+    kind: 'human',
+    handle: 'kata',
+    via: 'integrator',
+    through: { holder: 'kata', credential: { id: 'key_1', prefix: 'pmk_1' } },
+  } as const;
+  const imported = { importedAuthor: 'Dani', importedAt: '2026-01-01T00:00:00.000Z' };
+  const own = note('c1', { comment: true }, { kind: 'human', handle: 'kata' });
+
+  it.each([
+    ['its author', { access: 'developer', handle: 'kata' }, own, true],
+    [
+      'its author through their own connected Claude',
+      { access: 'developer', handle: 'kata' },
+      note('c1', { comment: true }, connected),
+      true,
+    ],
+    ['another person', { access: 'developer', handle: 'bela' }, own, false],
+    ['the owner, for another person', { access: 'owner', handle: 'owner' }, own, false],
+    [
+      'an AI member, for its own comment',
+      { access: 'ai', handle: 'dev' },
+      note('c1', { comment: true }, ai),
+      false,
+    ],
+    ['a viewer, for their own comment', { access: 'viewer', handle: 'kata' }, own, false],
+    ['a client, for their own comment', { access: 'client', handle: 'kata' }, own, true],
+    [
+      'the author of an imported comment',
+      { access: 'developer', handle: 'kata' },
+      note('c1', { comment: true, ...imported }, { kind: 'human', handle: 'kata' }),
+      false,
+    ],
+    [
+      'the owner, for an imported comment',
+      { access: 'owner', handle: 'owner' },
+      note('c1', { comment: true, ...imported }, ai),
+      true,
+    ],
+    [
+      'an admin, for an imported comment',
+      { access: 'admin', handle: 'ada' },
+      note('c1', { comment: true, ...imported }),
+      true,
+    ],
+    [
+      'its author, for a process note',
+      { access: 'developer', handle: 'kata' },
+      note('p1', { comment: false }, { kind: 'human', handle: 'kata' }),
+      false,
+    ],
+  ] as const)('%s: canEditComment', (_who, editor, target, expected) => {
+    expect(canEditComment(editor, target)).toBe(expected);
+  });
+
+  it.each([
+    ['owner', { access: 'owner', handle: 'owner' }, own, true],
+    ['admin', { access: 'admin', handle: 'ada' }, own, true],
+    ['the author', { access: 'developer', handle: 'kata' }, own, true],
+    ['another developer', { access: 'developer', handle: 'bela' }, own, false],
+    ['an AI member', { access: 'ai', handle: 'kata' }, own, false],
+    [
+      'the author of an imported comment',
+      { access: 'developer', handle: 'kata' },
+      note('c1', imported, { kind: 'human', handle: 'kata' }),
+      false,
+    ],
+    ['the owner of an imported comment', { access: 'owner', handle: 'owner' }, note('c1', imported), true],
+  ] as const)('%s: canSeeCommentHistory', (_who, viewer, target, expected) => {
+    expect(canSeeCommentHistory(viewer, target)).toBe(expected);
+  });
+
+  it('knows an imported comment by its author or its time', () => {
+    expect(isImportedComment(note('c', { importedAuthor: 'Dani' }))).toBe(true);
+    expect(isImportedComment(note('c', { importedAt: '2026-01-01T00:00:00.000Z' }))).toBe(true);
+    expect(isImportedComment(note('c'))).toBe(false);
+  });
+
+  describe('addedCommentMentions', () => {
+    const base = { handles: ['ada', 'bela', 'cili'], editor: 'kata' };
+    it('keeps only the mentions no earlier version had', () => {
+      expect(addedCommentMentions({ ...base, text: '@ada @bela', earlier: [['ada']] })).toEqual(['bela']);
+    });
+    it('does not notify again a mention that was taken out and put back', () => {
+      // v1 had ada, v2 dropped her, v3 puts her back: the union of v1 and v2 still holds her.
+      expect(addedCommentMentions({ ...base, text: '@ada', earlier: [['ada'], []] })).toEqual([]);
+    });
+    it('never adds the editor themselves', () => {
+      expect(addedCommentMentions({ ...base, text: '@kata @cili', earlier: [[]] })).toEqual(['cili']);
+    });
+  });
+
+  describe('withCommentEdits', () => {
+    const original = note('c1', { comment: true, mentions: ['ada'] });
+    const edit = (id: string, text: string, mentions: string[], at: string): TimelineEvent => ({
+      id,
+      projectKey: 'PM',
+      taskKey: 'PM-1',
+      sessionId: null,
+      actor: { kind: 'human', handle: 'owner' },
+      type: 'task_note_edited',
+      data: { noteId: 'c1', text, mentions, base: 'c1', added: [] },
+      createdAt: at,
+    });
+    const e1 = edit('e1', 'second', ['bela'], '2026-11-07T10:00:00.000Z');
+    const e2 = edit('e2', 'third', [], '2026-11-08T10:00:00.000Z');
+
+    it('gives a comment the latest text and the earlier versions newest first, the original last', () => {
+      const [projected] = withCommentEdits([original], [e1, e2]);
+      expect(projected!.data).toMatchObject({
+        text: 'third',
+        mentions: [],
+        edited: { revisionId: 'e2', at: e2.createdAt, count: 2 },
+      });
+      expect((projected!.data.revisions as { id: string }[]).map((r) => r.id)).toEqual(['e1', 'c1']);
+      expect((projected!.data.revisions as { original?: true }[]).at(-1)!.original).toBe(true);
+    });
+    it('leaves a comment without edits and the stored note untouched', () => {
+      expect(withCommentEdits([original], [])[0]).toBe(original);
+      withCommentEdits([original], [e1]);
+      expect(original.data.text).toBe('c1');
+    });
+    it('shrinks an edit event to its note id', () => {
+      expect(withCommentEdits([e1], [e1])[0]!.data).toEqual({ noteId: 'c1' });
+    });
+    it('is not a Process line', () => {
+      expect(isProcessTimelineEvent(e1)).toBe(false);
+    });
+    it('drops the earlier versions for an AI reader and keeps the current text', () => {
+      const [stripped] = withoutCommentHistory(withCommentEdits([original], [e1]));
+      expect(stripped!.data.revisions).toBeUndefined();
+      expect(stripped!.data).toMatchObject({ text: 'second', edited: { count: 1 } });
+      expect(withoutCommentHistory([original])[0]).toBe(original);
+    });
+
+    describe('visibleTimelineEvent', () => {
+      const projected = withCommentEdits(
+        [note('c1', { comment: true }, { kind: 'human', handle: 'kata' })],
+        [e1],
+      )[0]!;
+      const see = (viewer: Parameters<typeof visibleTimelineEvent>[0], event: TimelineEvent) =>
+        visibleTimelineEvent(viewer, event, () => null);
+      it('hides the earlier versions from those who may not read them', () => {
+        expect(see({ access: 'developer', handle: 'bela' }, projected).data.revisions).toBeUndefined();
+        expect(see({ access: 'ai', handle: 'dev' }, projected).data.revisions).toBeUndefined();
+      });
+      it('keeps them for the author and the owner', () => {
+        expect(see({ access: 'developer', handle: 'kata' }, projected).data.revisions).toBeDefined();
+        expect(see({ access: 'owner', handle: 'owner' }, projected).data.revisions).toBeDefined();
+      });
+      it('returns a note without revisions, even one without data, as it is', () => {
+        const plain = note('c2', { comment: true }, { kind: 'human', handle: 'kata' });
+        const bare = { ...plain, data: undefined } as unknown as TimelineEvent;
+        expect(see({ access: 'client', handle: 'ugyfel' }, plain)).toBe(plain);
+        expect(see({ access: 'client', handle: 'ugyfel' }, bare)).toBe(bare);
+      });
+      it('narrows the raw edit event to its note id for everyone', () => {
+        expect(see({ access: 'owner', handle: 'owner' }, e1).data).toEqual({ noteId: 'c1' });
+      });
+    });
   });
 });

@@ -13,6 +13,7 @@ import {
   roleBundle,
   TaskKey,
   TaskStatus as TaskStatusSchema,
+  withoutCommentHistory,
 } from '@projectman/shared';
 import type { DocumentViewer, HostRequestState } from '@projectman/shared';
 import type {
@@ -99,7 +100,7 @@ interface ExternalToolsDeps {
   projects: Pick<ProjectService, 'has' | 'config' | 'load'>;
   tasks: Pick<
     TaskService,
-    'list' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create'
+    'list' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create' | 'commentState'
   >;
   timeline: Pick<TimelineService, 'get'>;
   taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
@@ -327,7 +328,9 @@ export class ExternalTools implements ExternalToolsHandler {
       const event = this.deps.timeline.get(projectKey, args.eventId);
       if (!event || event.taskKey !== taskKey)
         throw new TeamToolError('not_found', `${taskKey} has no timeline event ${args.eventId}.`);
-      return { ...detail, event };
+      // The comment as it reads now, without its earlier versions: the integrator is an AI reader (PM-1277).
+      const [current] = withoutCommentHistory(this.deps.tasks.commentState(projectKey, taskKey, [event]));
+      return { ...detail, event: current! };
     }
     const attachments = await this.deps.attachments.list(projectKey, taskKey, ctx.actor);
     const themeCard = detail.task.themeKey ? this.deps.tasks.find(projectKey, detail.task.themeKey) : null;

@@ -120,6 +120,9 @@ export const routes = {
     `/api/projects/${key}/tasks/${taskKey}/handoffs/${id}`,
   /** POST (`CreateTaskCommentRequest` -> `TaskDetail`) adds a comment; GET (`TaskCommentsQuery` -> `TaskCommentsPage`) lists them (PM-1290). */
   taskComments: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/comments`,
+  /** PATCH (`EditTaskCommentRequest` -> `EditTaskCommentResult`) edits the comment's text (PM-1277). */
+  taskComment: (key: string, taskKey: string, eventId: string) =>
+    `/api/projects/${key}/tasks/${taskKey}/comments/${eventId}`,
   taskLabels: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/labels`,
   startTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/start`,
   cancelTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/cancel`,

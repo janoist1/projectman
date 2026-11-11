@@ -6,6 +6,7 @@ import {
   hostOutsideOwners,
   memberStorageHandle,
   stageOf,
+  withoutCommentHistory,
 } from '@projectman/shared';
 import type {
   AgentProvider,
@@ -184,14 +185,16 @@ export class SessionContextInput {
       task,
       stage,
       timeline: task
-        ? this.deps.tasks.commentFileState(
-            projectKey,
-            task.key,
-            this.deps.timeline.list(projectKey, {
-              taskKey: task.key,
-              limit: BRIEF_TIMELINE_LIMIT,
-              excludeTypes: QUIET_TIMELINE_EVENTS,
-            }),
+        ? withoutCommentHistory(
+            this.deps.tasks.commentState(
+              projectKey,
+              task.key,
+              this.deps.timeline.list(projectKey, {
+                taskKey: task.key,
+                limit: BRIEF_TIMELINE_LIMIT,
+                excludeTypes: QUIET_TIMELINE_EVENTS,
+              }),
+            ),
           )
         : [],
       timelineTotal: task

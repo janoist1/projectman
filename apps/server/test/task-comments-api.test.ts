@@ -450,4 +450,198 @@ describe('task comments API', () => {
       expect((await page('?limit=51')).statusCode).toBe(400);
     });
   });
+
+  describe('editing (PM-1277)', () => {
+    const notes = () =>
+      h.app.projectman.domain.timeline.list('AR').filter((event) => event.type === 'task_note');
+    const edits = () =>
+      h.app.projectman.domain.timeline.list('AR').filter((event) => event.type === 'task_note_edited');
+    /** Posts a comment and returns the id of the note it recorded. */
+    const post = async (body: Record<string, unknown>, cookie = owner) => {
+      const response = await comment(body, cookie);
+      expect(response.statusCode).toBe(201);
+      return notes().at(-1)!.id;
+    };
+    const edit = (noteId: string, body: unknown, cookie = owner, taskKey = 'AR-1') =>
+      h.app.inject({
+        method: 'PATCH',
+        url: routes.taskComment('AR', taskKey, noteId),
+        headers: { cookie },
+        payload: body as object,
+      });
+    const listed = async (cookie = owner) => {
+      const response = await h.app.inject({
+        method: 'GET',
+        url: routes.taskComments('AR', 'AR-1'),
+        headers: { cookie },
+      });
+      return (
+        response.json().threads as Array<{ comment: { id: string; data: Record<string, unknown> } }>
+      ).map((thread) => thread.comment);
+    };
+    const setAccess = (access: 'viewer' | 'admin') =>
+      h.app.projectman.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER_LOGIN }, (draft) => {
+        const member = draft.team.members.find((member) => member.handle === 'robin')!;
+        if (member.kind === 'human') member.access = access;
+        return 'Change access';
+      });
+
+    it('shows the new text everywhere and the earlier versions only to the author and the owner', async () => {
+      const id = await post({ text: 'First' }, developer);
+      const response = await edit(id, { text: 'Second', baseRevision: id }, developer);
+      expect(response.statusCode).toBe(200);
+      expect(response.json().comment).toMatchObject({
+        id,
+        type: 'task_note',
+        data: { text: 'Second', edited: { count: 1 }, revisions: [{ text: 'First', original: true }] },
+      });
+      expect(notes().find((event) => event.id === id)?.data.text).toBe('First');
+      expect(edits()).toHaveLength(1);
+      const asOwner = (await listed(owner)).find((event) => event.id === id)!;
+      expect(asOwner.data).toMatchObject({ text: 'Second', revisions: [{ text: 'First' }] });
+      const other = await addHumanAndLogin(h.app, { handle: 'sam', name: 'Sam', roles: ['developer'] });
+      const asOther = (await listed(other)).find((event) => event.id === id)!;
+      expect(asOther.data).toMatchObject({ text: 'Second', edited: { count: 1 } });
+      expect(asOther.data.revisions).toBeUndefined();
+      // The edit event itself shrinks to the note it belongs to, in the detail's timeline.
+      const detail = TaskDetail.parse(
+        (
+          await h.app.inject({
+            method: 'GET',
+            url: routes.task('AR', 'AR-1'),
+            headers: { cookie: other },
+          })
+        ).json(),
+      );
+      expect(detail.timeline.find((event) => event.id === id)?.data.text).toBe('Second');
+      expect(detail.timeline.find((event) => event.type === 'task_note_edited')?.data).toEqual({
+        noteId: id,
+      });
+    });
+
+    it('refuses a stale base revision with the current one and records the same text once', async () => {
+      const id = await post({ text: 'First' });
+      expect((await edit(id, { text: 'Second', baseRevision: id })).statusCode).toBe(200);
+      const stale = await edit(id, { text: 'Third', baseRevision: id });
+      expect(stale.statusCode).toBe(409);
+      expect(stale.json().error).toMatchObject({
+        code: 'comment_edit_conflict',
+        details: { currentRevision: edits()[0]!.id },
+      });
+      expect((await edit(id, { text: 'Second', baseRevision: id })).statusCode).toBe(200);
+      expect(edits()).toHaveLength(1);
+      expect((await edit(id, { text: 'Third', baseRevision: edits()[0]!.id })).statusCode).toBe(200);
+      expect(edits()).toHaveLength(2);
+    });
+
+    it('lets only the human author edit, and the owner an imported comment', async () => {
+      const own = await post({ text: 'Mine' });
+      expect((await edit(own, { text: 'Changed', baseRevision: own }, developer)).statusCode).toBe(403);
+      const imported = await post({ text: 'History', importedAuthor: 'Morgan' });
+      expect((await edit(imported, { text: 'Changed', baseRevision: imported }, developer)).statusCode).toBe(
+        403,
+      );
+      await setAccess('admin');
+      expect((await edit(imported, { text: 'Changed', baseRevision: imported }, developer)).statusCode).toBe(
+        200,
+      );
+      expect((await edit(imported, { text: 'Again', baseRevision: edits()[0]!.id })).statusCode).toBe(200);
+      const mine = await post({ text: 'Robin’s' }, developer);
+      await setAccess('viewer');
+      const refused = await edit(mine, { text: 'Changed', baseRevision: mine }, developer);
+      expect(refused.statusCode).toBe(403);
+      expect(refused.json().error.code).toBe('insufficient_access');
+    });
+
+    it('does not find a process note, or a comment of another card', async () => {
+      const { domain } = h.app.projectman;
+      await domain.tasks.create('AR', { title: 'Another card' }, OWNER_ACTOR);
+      const { session } = await domain.sessions.ensureSession('AR', 'dev-1', {
+        type: 'task',
+        taskKey: 'AR-1',
+      });
+      await domain.teamTools.updateTask(
+        { projectKey: 'AR', taskKey: 'AR-1', member: 'dev-1', sessionId: session.id },
+        { taskKey: 'AR-1', note: 'Working on it' },
+      );
+      const process = notes()[0]!;
+      expect((await edit(process.id, { text: 'Changed', baseRevision: process.id })).statusCode).toBe(404);
+      const id = await post({ text: 'On the first card' });
+      expect((await edit(id, { text: 'Changed', baseRevision: id }, owner, 'AR-2')).statusCode).toBe(404);
+      expect((await edit('evt_missing', { text: 'Changed', baseRevision: 'evt_missing' })).statusCode).toBe(
+        404,
+      );
+      expect(edits()).toEqual([]);
+    });
+
+    it('refuses an emptied comment without files and a request without a base revision', async () => {
+      const id = await post({ text: 'Mine' });
+      expect((await edit(id, { text: '  ', baseRevision: id })).statusCode).toBe(400);
+      expect((await edit(id, { text: 'Changed' })).statusCode).toBe(400);
+      expect(edits()).toEqual([]);
+    });
+
+    it('notifies a new mention once: an item, a message that stands under the comment, and a push', async () => {
+      const { domain } = h.app.projectman;
+      const pushed: Array<{ added: string[] }> = [];
+      domain.ctx.events.on('task_note_edited', (edited) => {
+        pushed.push({ added: edited.added });
+      });
+      const id = await post({ text: 'Plain' });
+      expect((await edit(id, { text: '@robin @dev-1 now', baseRevision: id })).statusCode).toBe(200);
+      expect(domain.inbox.list('AR', { kind: 'mention' })).toMatchObject([
+        { assignees: ['robin'], body: '@robin @dev-1 now', payload: { eventId: id } },
+      ]);
+      const message = domain.messages.list('AR', { unreadFor: 'dev-1' });
+      expect(message).toMatchObject([
+        { from: 'owner', to: ['dev-1'], body: '@robin @dev-1 now', origin: { kind: 'note', eventId: id } },
+      ]);
+      // A mention that was already there, taken out and put back, notifies nobody again.
+      const head = edits()[0]!.id;
+      expect((await edit(id, { text: 'no one', baseRevision: head })).statusCode).toBe(200);
+      expect((await edit(id, { text: '@robin @dev-1 again', baseRevision: edits()[1]!.id })).statusCode).toBe(
+        200,
+      );
+      expect(domain.inbox.list('AR', { kind: 'mention' })).toHaveLength(1);
+      expect(domain.messages.list('AR', { unreadFor: 'dev-1' })).toHaveLength(1);
+      expect(pushed.map((event) => event.added)).toEqual([['robin', 'dev-1'], [], []]);
+    });
+
+    it('does not notify for an edit of an imported comment', async () => {
+      const { domain } = h.app.projectman;
+      const id = await post({ text: 'History', importedAuthor: 'Morgan' });
+      expect((await edit(id, { text: '@robin @dev-1 history', baseRevision: id })).statusCode).toBe(200);
+      expect(domain.inbox.list('AR', { kind: 'mention' })).toEqual([]);
+      expect(domain.messages.list('AR', { unreadFor: 'dev-1' })).toEqual([]);
+      expect(edits()[0]?.data.added).toEqual([]);
+    });
+
+    it('gives the current text to the member page and to the MCP event detail, and to search', async () => {
+      const { domain } = h.app.projectman;
+      const id = await post({ text: 'The quokka plan' });
+      expect((await edit(id, { text: 'The wombat plan', baseRevision: id })).statusCode).toBe(200);
+      const profile = await h.app.inject({
+        method: 'GET',
+        url: routes.memberProfile('AR', 'owner'),
+        headers: { cookie: owner },
+      });
+      expect(
+        (profile.json().timeline as Array<{ id: string; data: { text?: string } }>).find(
+          (event) => event.id === id,
+        )?.data.text,
+      ).toBe('The wombat plan');
+      const { session } = await domain.sessions.ensureSession('AR', 'dev-1', {
+        type: 'task',
+        taskKey: 'AR-1',
+      });
+      const ctx = { projectKey: 'AR', taskKey: 'AR-1', member: 'dev-1', sessionId: session.id };
+      const view = await domain.teamTools.getTask(ctx, { taskKey: 'AR-1', eventId: id });
+      expect(view.event?.data).toMatchObject({ text: 'The wombat plan', edited: { count: 1 } });
+      expect(view.event?.data.revisions).toBeUndefined();
+      const find = async (query: string) =>
+        (await domain.history.search('AR', { handle: 'owner', access: 'owner' }, { query })).matches;
+      await vi.waitFor(async () => expect(await find('wombat')).toHaveLength(1));
+      expect(await find('quokka')).toEqual([]);
+    });
+  });
 });

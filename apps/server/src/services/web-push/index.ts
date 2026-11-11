@@ -12,6 +12,7 @@ import {
 } from '@projectman/shared';
 import type {
   InboxItem,
+  NotePushTarget,
   ProjectConfig,
   PushPayload,
   PushSettings,
@@ -136,6 +137,47 @@ export function createWebPushService(opts: WebPushOptions) {
   };
   /** A user is reachable through a browser device or the phone channel (ntfy, PM-901). */
   const reachable = (userId: string) => active(userId).length > 0 || !!opts.phone?.active(userId);
+  /** The delivery loop of a card note's push (PM-1271), shared by a new note and an edit's new mentions (PM-1277). */
+  const pushNote = async (
+    config: ProjectConfig,
+    event: TimelineEvent,
+    task: Task,
+    targets: NotePushTarget[],
+  ): Promise<void> => {
+    const members = config.team.members;
+    const seen = new Set<string>();
+    for (const target of targets) {
+      const member = members.find((m) => m.handle.toLowerCase() === target.handle.toLowerCase());
+      if (!member || member.kind !== 'human' || !member.email) continue;
+      if (!projectAccessFor(config, member.email)) continue;
+      const user = opts.repos.users.findByEmail(member.email);
+      if (!user || seen.has(user.id) || !reachable(user.id)) continue;
+      seen.add(user.id);
+      const settings = repo.settings(user.id);
+      const category = target.categories.find((c) => settings.categories[c]);
+      if (!category || opts.presence.isViewing(user.email)) continue;
+      if (quietWindowAt(settings.quietHours, now()).quiet) continue;
+      const count = Array.isArray(event.data.attachments) ? event.data.attachments.length : 0;
+      const files = textFor(user.id).files;
+      const body =
+        !event.data.text && count > 0
+          ? `${task.key} · ${count === 1 ? files.one : files.many.replace('{n}', String(count))}`
+          : task.key;
+      await sendAll(
+        user.id,
+        {
+          v: 1,
+          kind: 'item',
+          title: textFor(user.id).title[category],
+          body,
+          tag: `note-${task.projectKey}-${task.key}`,
+          url: `/p/${encodeURIComponent(task.projectKey)}/tasks/${encodeURIComponent(task.key)}#timeline-${encodeURIComponent(event.id)}`,
+          projectKey: task.projectKey,
+        },
+        { ...textFor(user.id).ntfy.note, urgent: category === 'mention' },
+      );
+    }
+  };
   const sendAll = (userId: string, payload: PushPayload, phone: PhoneMessage, createdBefore?: string) =>
     Promise.all([
       ...active(userId)
@@ -400,38 +442,23 @@ export function createWebPushService(opts: WebPushOptions) {
         humans: members.filter((m) => m.kind === 'human').map((m) => m.handle),
         replyToAuthor: replyToAuthor(event, task.projectKey),
       });
-      const seen = new Set<string>();
-      for (const target of targets) {
-        const member = members.find((m) => m.handle.toLowerCase() === target.handle.toLowerCase());
-        if (!member || member.kind !== 'human' || !member.email) continue;
-        if (!projectAccessFor(config, member.email)) continue;
-        const user = opts.repos.users.findByEmail(member.email);
-        if (!user || seen.has(user.id) || !reachable(user.id)) continue;
-        seen.add(user.id);
-        const settings = repo.settings(user.id);
-        const category = target.categories.find((c) => settings.categories[c]);
-        if (!category || opts.presence.isViewing(user.email)) continue;
-        if (quietWindowAt(settings.quietHours, now()).quiet) continue;
-        const count = Array.isArray(event.data.attachments) ? event.data.attachments.length : 0;
-        const files = textFor(user.id).files;
-        const body =
-          !event.data.text && count > 0
-            ? `${task.key} · ${count === 1 ? files.one : files.many.replace('{n}', String(count))}`
-            : task.key;
-        await sendAll(
-          user.id,
-          {
-            v: 1,
-            kind: 'item',
-            title: textFor(user.id).title[category],
-            body,
-            tag: `note-${task.projectKey}-${task.key}`,
-            url: `/p/${encodeURIComponent(task.projectKey)}/tasks/${encodeURIComponent(task.key)}#timeline-${encodeURIComponent(event.id)}`,
-            projectKey: task.projectKey,
-          },
-          { ...textFor(user.id).ntfy.note, urgent: category === 'mention' },
-        );
-      }
+      await pushNote(config, event, task, targets);
+    },
+    /**
+     * Tells the people a comment edit newly mentions (PM-1277): `added` are the mentions no earlier version had.
+     * Only the `mention` category; the followers, the card's opener, its assignee and the answered author get
+     * nothing for an edit. The delivery is the note's own, so its checks and its payload (only the card key)
+     * are the same.
+     */
+    async onCommentEdited(note: TimelineEvent, added: string[], task: Task): Promise<void> {
+      if (!key || added.length === 0) return;
+      const config = await opts.config(task.projectKey);
+      await pushNote(
+        config,
+        note,
+        task,
+        added.map((handle) => ({ handle, categories: ['mention'] as Array<'mention' | 'comment'> })),
+      );
     },
     sweep(): Promise<void> {
       return (sweeping ??= sweepRound().finally(() => {

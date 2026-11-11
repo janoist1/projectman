@@ -1,4 +1,10 @@
-import { effectiveRepo, isTheme, needsRepoChoice, TaskStatus as TaskStatusSchema } from '@projectman/shared';
+import {
+  effectiveRepo,
+  isTheme,
+  needsRepoChoice,
+  TaskStatus as TaskStatusSchema,
+  withoutCommentHistory,
+} from '@projectman/shared';
 import type {
   OperatorAction,
   ProjectConfig,
@@ -42,15 +48,7 @@ export class TaskTools implements TaskToolsHandler {
   private readonly ctx: DomainContext;
   private readonly tasks: Pick<
     TaskService,
-    | 'listQuery'
-    | 'find'
-    | 'get'
-    | 'detail'
-    | 'relationsOf'
-    | 'themeOf'
-    | 'update'
-    | 'create'
-    | 'commentFileState'
+    'listQuery' | 'find' | 'get' | 'detail' | 'relationsOf' | 'themeOf' | 'update' | 'create' | 'commentState'
   >;
   private readonly timeline: Pick<TimelineService, 'get'>;
   private readonly attachments: Pick<AttachmentOperations, 'list'>;
@@ -71,7 +69,7 @@ export class TaskTools implements TaskToolsHandler {
       | 'themeOf'
       | 'update'
       | 'create'
-      | 'commentFileState'
+      | 'commentState'
     >;
     timeline: Pick<TimelineService, 'get'>;
     attachments: Pick<AttachmentOperations, 'list'>;
@@ -137,8 +135,17 @@ export class TaskTools implements TaskToolsHandler {
       const { config, guest } = await this.calls.callerWithRequest(ctx, 'get_task');
       const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
       const whole = await this.taskToolDetail(ctx, config, taskKey, args.eventId, guest);
-      return guest ? this.taskDetailForGuest(whole, guest.viewer) : whole;
+      return guest ? this.taskDetailForGuest(whole, guest.viewer) : this.withoutCommentHistory(whole);
     });
+  }
+
+  /** An AI member reads a comment as it stands now: the earlier versions are the author's and the owner's (PM-1277). */
+  private withoutCommentHistory(whole: TaskToolDetail): TaskToolDetail {
+    return {
+      ...whole,
+      timeline: withoutCommentHistory(whole.timeline),
+      ...(whole.event ? { event: withoutCommentHistory([whole.event])[0]! } : {}),
+    };
   }
 
   async updateTask(
@@ -256,7 +263,7 @@ export class TaskTools implements TaskToolsHandler {
       const event = this.timeline.get(ctx.projectKey, eventId);
       if (!event || event.taskKey !== taskKey)
         throw new TeamToolError('not_found', `${taskKey} has no timeline event ${eventId}.`);
-      return { ...detail, event: this.tasks.commentFileState(ctx.projectKey, taskKey, [event])[0]! };
+      return { ...detail, event: this.tasks.commentState(ctx.projectKey, taskKey, [event])[0]! };
     }
     const attachments = await this.attachments.list(
       ctx.projectKey,

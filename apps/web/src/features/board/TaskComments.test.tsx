@@ -773,7 +773,7 @@ describe('editing your own comment (PM-1277)', () => {
     await waitFor(() =>
       expect(screen.queryByRole('textbox', { name: t('task.comments.editLabel') })).toBeNull(),
     );
-    expect(screen.getByText('My version')).toBeTruthy();
+    expect(await screen.findByText('My version')).toBeTruthy();
   });
 
   it('turns the box read-only when the right to edit is gone', async () => {
@@ -815,7 +815,7 @@ describe('editing your own comment (PM-1277)', () => {
     await waitFor(() =>
       expect(screen.queryByRole('textbox', { name: t('task.comments.editLabel') })).toBeNull(),
     );
-    expect(screen.getByText('Mine, changed')).toBeTruthy();
+    expect(await screen.findByText('Mine, changed')).toBeTruthy();
   });
 
   it('opens the earlier versions from the mark, the original last', async () => {

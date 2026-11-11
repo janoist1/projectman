@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { FIX_ANOTHER_ROUND_OPTION, routes } from '@projectman/shared';
+import { FIX_ANOTHER_ROUND_OPTION, isOwnerReleaseActor, routes } from '@projectman/shared';
 import { ingressRules } from '../../../scripts/cloud/cloudflare';
 import type { CloudConfig } from '../../../scripts/cloud/config';
 import { DomainError, humanActor } from '../src/kernel';
@@ -932,6 +932,37 @@ describe('the bearer MCP endpoint (PM-760)', () => {
       const item = createItem('dev-1', ['owner'], 'dev-2');
       const result = await operate(key('super').secret, item.id);
       expect(result.structuredContent?.errorCode).toBe('issuer_without_machine_access');
+    });
+
+    it('lets the connected Claude step in person on a release_due todo, an actor the production gate accepts (PM-1333)', async () => {
+      const { secret, keyId, prefix } = key('super');
+      const { domain, repos } = h.app.projectman;
+      const todo = domain.inbox.raiseAlert({
+        projectKey: 'AR',
+        title: '2 merged card(s) in web wait for a release',
+        payload: {
+          alert: 'release_due',
+          repo: 'web',
+          base: 'a'.repeat(40),
+          count: 2,
+          oldestAt: now.toISOString(),
+        },
+      })!;
+      expect(todo.source).toBe('system');
+      const result = await operate(secret, todo.id);
+      expect(result.structuredContent?.operation.state).toBe('succeeded');
+      const sent = repos.messages
+        .list('AR')
+        .find((m) => m.to.includes('dev-2') && m.body.includes('Fictional'));
+      // No member issued the item, so the step is the holder's own: no issuer behind it.
+      expect(sent?.actor).toEqual({
+        kind: 'human',
+        handle: 'owner',
+        via: 'integrator',
+        through: { holder: 'owner', credential: { id: keyId, prefix } },
+      });
+      const config = await domain.projects.config('AR');
+      expect(isOwnerReleaseActor(config, sent!.actor!)).toBe(true);
     });
 
     describe('with an issuer that has machine access', () => {

@@ -4944,6 +4944,11 @@ export const en = {
         heading: 'The machine has been short of memory for a while',
         body: 'The engine machine’s memory has been under critical pressure for {minutes} min. Until it eases, no new AI session starts; running ones can finish their step. Stop what isn’t needed (dev servers, Docker, browsers). When the pressure eases, the alert goes away by itself.',
       },
+      /** Merged cards wait for a release (PM-1333): the integrator's todo, it closes when the release is published. */
+      release_due: {
+        heading: 'Merged cards waiting for a release',
+        body: '{count} merged card(s) in {repo} have been waiting for a release since {since}. The connected Claude decides: publish it, or give a reason it waits. When the release is published, the todo closes by itself.',
+      },
       /** A provider or an engine that cannot work (PM-468): what broke, what to do, what waits for it. */
       work_outage: {
         headings: {

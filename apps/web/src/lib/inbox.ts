@@ -395,6 +395,12 @@ export function alertText(
       threshold: gigabytes(alert.thresholdBytes),
     });
   if (alert.alert === 'machine_busy') return t('inbox.alerts.machine_busy.body', { minutes: alert.minutes });
+  if (alert.alert === 'release_due')
+    return t('inbox.alerts.release_due.body', {
+      count: alert.count,
+      repo: alert.repo,
+      since: formatStamp(alert.oldestAt),
+    });
   if (alert.alert === 'worktree_kept')
     return t('inbox.alerts.worktree_kept.body', {
       key: alert.taskKey,

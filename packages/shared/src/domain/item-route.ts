@@ -141,6 +141,7 @@ export const ALERT_ROUTE_CLASS: Record<AlertKind, AlertRouteClass | 'retired'> =
   machine_busy: 'integrator_queue',
   worktree_kept: 'integrator_queue',
   session_input: 'integrator_queue',
+  release_due: 'integrator_queue',
   work_outage: 'pm',
   relation_check: 'pm',
   session_tokens: 'owner_messages',

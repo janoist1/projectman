@@ -3,7 +3,6 @@ import {
   OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEP_KINDS,
-  OPERATOR_UNRELEASED_STEP_GAP_HOURS,
   OWNER_SILENT_SIGNAL_KINDS,
   operatorSignalBudget,
   ownerQuestionSignalRefusal,
@@ -28,7 +27,7 @@ describe('ownerQuestionSignalRefusal (PM-1243)', () => {
     expect(ownerQuestionSignalRefusal(kind)).toBe(silent ? 'signal_not_for_owner' : null);
   });
   it('tells the coordinator what to do instead', () => {
-    expect(ownerQuestionSignalRefusalMessage('unreleased')).toContain('start_member');
+    expect(ownerQuestionSignalRefusalMessage('unreleased')).toContain('release_due');
     expect(ownerQuestionSignalRefusalMessage('milestone_closed')).toContain('dismiss_signal');
   });
 });
@@ -92,43 +91,22 @@ describe('operatorSignalStepRefusal', () => {
     });
   });
 
-  describe('the unreleased step the owner granted (PM-1201)', () => {
-    const unreleased = { ...base, kind: 'unreleased', tool: 'start_member' } as const;
-    const allowed = { startTask: null, members: ['devops'], taskKey: null };
-    const target = { member: 'devops', taskKey: null };
-    const hoursAgo = (hours: number) => minutesAgo(hours * 60);
-
-    it.each(['report', 'unblock', 'drive'] as const)('lets the step through at level %s', (level) => {
-      expect(operatorSignalStepRefusal({ ...unreleased, level, target, allowed })).toBeNull();
+  it.each(['report', 'unblock', 'drive'] as const)(
+    'gives an unreleased signal no step at level %s (PM-1333: the release_due todo carries it)',
+    (level) => {
       expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('unreleased');
-    });
-
-    it('refuses start_task: the signal gives no card to start', () => {
       expect(
-        operatorSignalStepRefusal({ ...unreleased, level: 'report', tool: 'start_task', target, allowed }),
-      ).toEqual({
-        code: 'operator_no_request',
-        reason: 'tool',
-      });
-    });
-
-    it('allows one step a day with no limit on their number, and tells when the next one may come', () => {
-      const level = 'report';
-      const many = Array.from({ length: 5 }, (_, i) => hoursAgo(25 + i * 24));
-      expect(operatorSignalStepRefusal({ ...unreleased, level, target, allowed, stepsAt: many })).toBeNull();
-      const recent = hoursAgo(5);
-      expect(operatorSignalStepRefusal({ ...unreleased, level, target, allowed, stepsAt: [recent] })).toEqual(
-        {
-          code: 'operator_signal_budget',
-          reason: 'too_soon',
-          retryAt: new Date(
-            Date.parse(recent) + OPERATOR_UNRELEASED_STEP_GAP_HOURS * 3_600_000,
-          ).toISOString(),
-        },
-      );
-      expect(operatorSignalBudget(level, [recent], NOW, 'unreleased').left).toBe(1);
-    });
-  });
+        operatorSignalStepRefusal({
+          ...base,
+          level,
+          kind: 'unreleased',
+          tool: 'start_member',
+          target: { member: 'devops', taskKey: null },
+          allowed: { startTask: null, members: ['devops'], taskKey: null },
+        }),
+      ).toMatchObject({ code: 'operator_no_request' });
+    },
+  );
 
   it('binds answer_stalled to start_member at unblock and drive, with no task start', () => {
     for (const level of ['report', 'unblock', 'drive'] as const) {

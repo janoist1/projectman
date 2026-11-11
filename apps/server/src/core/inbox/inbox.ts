@@ -2068,7 +2068,7 @@ export class InboxService {
 
   /**
    * The todos of one machine alert kind and card that stop a new one: the open ones, or with `since` (the card's
-   * closing) the ones of any state created at or after it. A legacy alert item of the kind is not one.
+   * closing) the open ones and the ones of any state created at or after it. A legacy alert item of the kind is not one.
    */
   private alertTodos(
     projectKey: string,
@@ -2085,7 +2085,9 @@ export class InboxService {
       .filter((item) => {
         const found = alertMarkerOfItem(item);
         return (
-          found?.alert === marker.alert && found.key === marker.key && (!since || item.createdAt >= since)
+          found?.alert === marker.alert &&
+          found.key === marker.key &&
+          (!since || item.state === 'open' || item.createdAt >= since)
         );
       });
   }
@@ -2105,19 +2107,22 @@ export class InboxService {
   /**
    * The cause of a machine alert is gone (the disk has room again): its open todo and its open legacy alert
    * items close, and the next occurrence raises a new todo. `scope.taskKey` and `scope.sessionId` pick the card or
-   * session; with neither, every open item of the kind in the project closes.
+   * session; with neither, every open item of the kind in the project closes. `scope.keep` lists the marker keys
+   * that stay open (`release_due`: the repositories and bases that still wait for a release).
    */
   settleAlert(
     projectKey: string,
-    alert: 'disk_low' | 'machine_busy' | 'worktree_kept' | 'session_input',
-    scope: { taskKey?: string | null; sessionId?: string | null } = {},
+    alert: 'disk_low' | 'machine_busy' | 'worktree_kept' | 'session_input' | 'release_due',
+    scope: { taskKey?: string | null; sessionId?: string | null; keep?: readonly string[] } = {},
   ): number {
     const key = isProjectAlert(alert) ? '' : (scope.taskKey ?? scope.sessionId ?? null);
     const todos = this.ctx.repos.inbox
       .list(projectKey, { state: 'open', kind: 'question' })
       .filter((item) => {
         const found = alertMarkerOfItem(item);
-        return found?.alert === alert && (key === null || found.key === key);
+        return (
+          found?.alert === alert && (key === null || found.key === key) && !scope.keep?.includes(found.key)
+        );
       });
     const legacy = this.ctx.repos.inbox
       .list(projectKey, { state: 'open', kind: 'alert' })

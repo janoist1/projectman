@@ -237,16 +237,20 @@ so the next sweep resolves the signal. A project without a pm gets the old owner
 The project manager may use `dismiss_signal { signal_id, note }` without an owner request at every watch level
 (`team.operatorWatch`), for a delivered, unpresented, still valid `obligation_overdue`, `structural_pattern` or
 `milestone_closed` signal and outside guest conversations. It stores the reason in `decision_note` (outside the DTO)
-and publishes the decision to owners. Presented signals remain the owners' to decide. The `unreleased` signal is the
-one exception to the watch level: its step starts the deployment member, once per 24 hours; nothing live changes before
-the owner's yes.
+and publishes the decision to owners. Presented signals remain the owners' to decide.
+
+**Unreleased merges (PM-1333).** Merges waiting for a release no longer make a signal and start nobody: `releaseDue`
+in `signals.ts` (run by the sweep) opens one `release_due` integrator todo per repository and base from
+`unreleased(projectKey)` once its oldest merge is 24 hours old (`inbox.raiseAlert` with `onceSince`, so a todo closed
+by hand does not reopen within 24 hours) and settles it with `settleAlert(..., { keep })` when the base moved. The
+`unreleased` kind is in `RETIRED_KINDS`, so the sweep resolves old open rows; the project manager has no unreleased
+step and its prompt names none.
 
 **Owner-silent signals (PM-1243).** The owners get no question about an `unreleased`, `structural_pattern` or
 `milestone_closed` signal (`OWNER_SILENT_SIGNAL_KINDS`, `ownerQuestionSignalRefusal` in
 `packages/shared/src/config/operator-watch.ts`): the MCP `ask_human` with its `signal_id` answers
-`signal_not_for_owner` and makes no inbox item. An `unreleased` signal ends with the release, so the coordinator
-takes its step (`start_member` on the deployment duty's member, once per 24 hours); a machine step is an
-`open_integrator_todo`, and a signal meant for the coordinator alone is closed with `dismiss_signal`.
+`signal_not_for_owner` and makes no inbox item. `unreleased` stays in the list for old rows only; a signal meant for
+the coordinator alone is closed with `dismiss_signal`.
 
 ## Question screening
 

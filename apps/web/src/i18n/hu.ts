@@ -5055,6 +5055,11 @@ export const hu = {
         heading: 'A gép memóriája régóta túlterhelt',
         body: 'A motorgép memóriája {minutes} perce kritikus nyomás alatt van. Amíg így marad, új AI-munkamenet nem indul, a futók befejezhetik a lépésüket. Állítsd le, ami felesleges (fejlesztői szerverek, Docker, böngésző). Ha a nyomás enyhül, a figyelmeztetés magától megszűnik.',
       },
+      /** Merged cards wait for a release (PM-1333): the integrator's todo, it closes when the release is published. */
+      release_due: {
+        heading: 'Kiadásra váró összefésült kártyák',
+        body: '{count} összefésült kártya vár kiadásra a(z) {repo} tárolóban, a legrégebbi {since} óta. A csatlakoztatott Claude dönt: kiadja, vagy indokolja, miért vár. Ha a kiadás megtörtént, a teendő magától lezárul.',
+      },
       /** A provider or an engine that cannot work (PM-468): what broke, what to do, what waits for it. */
       work_outage: {
         headings: {

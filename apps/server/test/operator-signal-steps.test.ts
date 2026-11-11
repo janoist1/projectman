@@ -4,7 +4,6 @@ import {
   MemberConfig,
   OPERATOR_SIGNAL_ROUND_FROM,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
-  OPERATOR_UNRELEASED_STEP_GAP_HOURS,
 } from '@projectman/shared';
 import type { ObligationKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
 
@@ -325,9 +324,9 @@ describe('the unreleased signal (PM-1201)', () => {
       }),
     );
   };
+  /** Two cards landed two days after the last release, and an `unreleased` row an older build left is open. */
   const unreleased = async (level: OperatorWatch) => {
     await setup(level, { adjust: withDevops });
-    // Two cards landed two days after the last release: the board opens the case, the sweep delivers it.
     const day = 24 * 3_600_000;
     const at = (days: number) => new Date(now.getTime() - days * day).toISOString();
     await mergeCards(h, 'web', [
@@ -336,78 +335,42 @@ describe('the unreleased signal (PM-1201)', () => {
     ]);
     publishRelease(h, 'web', sha(1), at(3));
     expect(h.domain.releasePublications.unreleased('AR')).toMatchObject([{ repo: 'web', count: 1 }]);
+    h.repos.operatorSignals.insert({
+      id: 'ops_old_unreleased',
+      projectKey: 'AR',
+      caseKey: `unreleased:web:${sha(1)}`,
+      kind: 'unreleased',
+      state: 'open',
+      actionable: false,
+      taskKey: null,
+      subject: '1',
+      inboxItemId: null,
+      messageId: null,
+      raisedAt: at(1),
+      decidedBy: null,
+      decidedAt: null,
+      resolvedAt: null,
+      deliveredAt: null,
+      followUpAt: null,
+      decisionNote: null,
+      deliveredTo: null,
+    });
     await h.domain.operatorSignals.sweep('AR');
     await flush();
-    return h.repos.operatorSignals.list('AR').find((s) => s.kind === 'unreleased' && !s.resolvedAt)!;
   };
-  const startDevops = async (signal: { id: string }) =>
-    h.domain.teamTools.startMember(await operator(), {
-      member: 'devops',
-      text: 'Propose a release with the preview.',
-      signalId: signal.id,
-    });
 
   it.each(['report', 'unblock', 'drive'] as const)(
-    'starts the deployment member at level %s and plans the follow-up a day later',
+    'gives the coordinator no unreleased step at level %s: the old signal ends and the devops is not started',
     async (level) => {
-      const signal = await unreleased(level);
-      const result = await startDevops(signal);
-      expect(result.recipient.handle).toBe('devops');
-      expect(roundSteps()).toMatchObject([{ action: 'task_start', member: 'devops', signalId: signal.id }]);
-      expect(h.repos.operatorSignals.get(signal.id)!.followUpAt).toBe(
-        new Date(now.getTime() + OPERATOR_UNRELEASED_STEP_GAP_HOURS * 3_600_000).toISOString(),
-      );
+      await unreleased(level);
+      expect(h.repos.operatorSignals.get('ops_old_unreleased')).toMatchObject({ state: 'resolved' });
+      expect(
+        h.repos.operatorSignals.list('AR').filter((s) => s.kind === 'unreleased' && !s.resolvedAt),
+      ).toEqual([]);
+      expect(h.domain.sessions.list('AR', { member: 'devops' })).toEqual([]);
+      expect(roundSteps()).toEqual([]);
     },
   );
-
-  it('takes the next step only after a day, with no limit on the number of steps', async () => {
-    const signal = await unreleased('report');
-    await startDevops(signal);
-    later(OPERATOR_UNRELEASED_STEP_GAP_HOURS * 60 - 1);
-    await expect(startDevops(signal)).rejects.toThrow('operator_signal_budget');
-    for (let round = 0; round < 3; round += 1) {
-      later(round === 0 ? 1 : OPERATOR_UNRELEASED_STEP_GAP_HOURS * 60);
-      await expect(startDevops(signal)).resolves.toBeDefined();
-    }
-    expect(roundSteps()).toHaveLength(4);
-  });
-
-  it('refuses start_task and any member other than the deployment duty', async () => {
-    const signal = await unreleased('unblock');
-    await expect(
-      h.domain.teamTools.startMember(await operator(), {
-        member: 'dev-1',
-        text: 'Work',
-        signalId: signal.id,
-      }),
-    ).rejects.toThrow('operator_no_request');
-    await expect(
-      h.domain.teamTools.startTask(await operator(), { taskKey: 'AR-1', signalId: signal.id }),
-    ).rejects.toThrow(/operator_no_request|invalid_request|not_found/);
-    expect(roundSteps()).toEqual([]);
-  });
-
-  it('does not start a deployment member who still waits for a person’s answer', async () => {
-    const signal = await unreleased('report');
-    h.repos.inbox.insert({
-      id: 'inb_devops',
-      projectKey: 'AR',
-      kind: 'question',
-      assignees: ['owner'],
-      source: 'devops',
-      sessionId: null,
-      taskKey: null,
-      title: 'Release?',
-      body: null,
-      payload: {},
-      options: [],
-      state: 'open',
-      resolution: null,
-      createdAt: now.toISOString(),
-    });
-    await expect(startDevops(signal)).rejects.toThrow('operator_no_request');
-    expect(roundSteps()).toEqual([]);
-  });
 });
 
 describe('level drive', () => {

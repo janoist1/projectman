@@ -92,7 +92,8 @@ and of the engine link's `fullResult`; `merge_check_runs.infra`, migration 147; 
 unsuccessful job got no machine (`notAcquired`: not successful, no runner id or name, no step started) and every
 other unsuccessful job failed in its `merge-test` step; a real `merge-test` failure wins and the result is
 `failed`. A job that started and failed earlier (`npm ci`) is the card's own error, never infra. The causes are
-`runner_not_acquired` (`unacquired`), `verdict_missing` (the job ended without a finished `merge-test` step) and
+`runner_not_acquired` (`unacquired`), `verdict_missing` (the job ended without a finished `merge-test` step, or the completed run still lists a job as
+queued or running after the wait, PM-1260) and
 `service_unreachable` (a `TRANSIENT` dispatch, lookup or read failure that lasted, a run that did not appear,
 GitHub unreachable until the time limit). Permanent failures (`FATAL` codes, upstream mismatch, push,
 timeout, a descriptor the executor refuses) carry none, and the local executor never sets it. The hub

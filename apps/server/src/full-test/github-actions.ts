@@ -37,8 +37,11 @@ const RUN_APPEAR_POLL_MS = 5_000;
 export const RUN_APPEAR_MAX_MS = 120_000;
 /** How often a running workflow is looked at. */
 const RUN_POLL_MS = 10_000;
-/** GitHub may finish the run before its shard jobs expose their terminal states. */
-export const JOB_WAIT_MAX_MS = 120_000;
+/**
+ * GitHub may finish the run before its shard jobs expose their terminal states: in run 41877442494 a shard that
+ * had ended at 17:37 was still listed as running after the run completed at 17:45 and two more minutes (PM-1260).
+ */
+export const JOB_WAIT_MAX_MS = 300_000;
 /** During a GitHub incident the jobs API gives finished jobs no steps (or an unfinished test step); they may settle minutes later. */
 export const STEPS_WAIT_MAX_MS = 300_000;
 /** How long the logs of a finished run are waited for (GitHub has them a little later). */

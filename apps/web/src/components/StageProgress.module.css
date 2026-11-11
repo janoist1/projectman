@@ -83,3 +83,90 @@
 .segment[data-state='current'] {
   background: var(--column-fg);
 }
+
+.stepExpandable {
+  position: relative;
+  cursor: default;
+  border-radius: var(--radius-sm);
+}
+
+.stepExpandable:focus-visible {
+  outline: 2px solid var(--column-fg);
+  outline-offset: 3px;
+}
+
+.stepList {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  min-width: 100%;
+  width: max-content;
+  max-width: 260px;
+  margin: 4px 0 0;
+  padding: 6px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--c-surface, #fff);
+  border: 1px solid var(--c-line-soft);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 12%);
+}
+
+.stepItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  font-size: var(--text-2xs);
+  color: var(--c-ink-4);
+}
+
+.stepMark {
+  flex: 0 0 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-seg-todo);
+}
+
+.stepItemName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stepItemState {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.stepItem[data-state='done'] {
+  color: var(--c-ink-2);
+}
+
+.stepItem[data-state='done'] .stepMark {
+  background: var(--c-seg-done);
+}
+
+.stepItem[data-state='finished'] {
+  color: var(--c-ink-2);
+}
+
+.stepItem[data-state='finished'] .stepMark {
+  background: var(--c-ok);
+}
+
+.stepItem[data-state='current'] {
+  color: var(--column-fg);
+  font-weight: 800;
+  background: var(--column-bg, var(--c-line-soft));
+  border-radius: var(--radius-sm);
+}
+
+.stepItem[data-state='current'] .stepMark {
+  background: var(--column-fg);
+}

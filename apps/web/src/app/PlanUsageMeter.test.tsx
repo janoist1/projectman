@@ -6,12 +6,13 @@ import { renderUi } from '../test/render';
 import { CombinedPlanUsageMeter, PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 
 describe('phone plan usage badge', () => {
-  it('shows the highest usage across providers and windows, linking to the team page', () => {
+  it('shows the highest weekly usage across providers, linking to the team page', () => {
     renderUi(
       <PlanUsageBadge
         usages={[
-          { ...planUsage, fiveHourPercent: 12, weeklyPercent: 40 },
-          { ...planUsage, fiveHourPercent: 66, weeklyPercent: null },
+          { ...planUsage, weeklyPercent: 40 },
+          { ...planUsage, weeklyPercent: 66 },
+          { ...planUsage, weeklyPercent: null },
           null,
         ]}
         to="/p/AC/team"
@@ -22,22 +23,22 @@ describe('phone plan usage badge', () => {
     expect(link.textContent).toBe('66%');
   });
 
-  it('is absent while no usage is known', () => {
-    const { container } = renderUi(<PlanUsageBadge usages={[null, undefined]} to="/p/AC/team" />);
+  it('is absent while no weekly usage is known', () => {
+    const { container } = renderUi(
+      <PlanUsageBadge usages={[null, undefined, { ...planUsage, weeklyPercent: null }]} to="/p/AC/team" />,
+    );
     expect(container.querySelector('a')).toBeNull();
   });
 });
 
 const usage = {
   ...planUsage,
-  fiveHourPercent: 27,
   weeklyPercent: 60,
-  fiveHourResetsAt: '2030-01-01T10:00:00.000Z',
   weeklyResetsAt: '2030-01-01T11:00:00.000Z',
 };
 
 describe('provider plan usage meter, full', () => {
-  it('names the provider and shows both windows, without the old "Keret ·" prefix', () => {
+  it('names the provider and shows one weekly meter, an unknown one as n. a.', () => {
     render(
       <>
         <PlanUsageMeter provider="claude" usage={usage} />
@@ -48,41 +49,29 @@ describe('provider plan usage meter, full', () => {
     expect(screen.getByText(t('providers.codex'))).toBeTruthy();
     expect(screen.queryByText(/Keret ·/)).toBeNull();
     const meters = screen.getAllByRole('meter');
-    expect(meters).toHaveLength(4);
+    expect(meters).toHaveLength(2);
     expect(meters.map((meter) => meter.getAttribute('aria-label'))).toEqual([
-      t('planUsage.fiveHour'),
       t('planUsage.weekly'),
-      t('planUsage.fiveHour'),
       t('planUsage.weekly'),
     ]);
-    expect(meters[0]!.getAttribute('aria-valuenow')).toBe('27');
-    expect(meters[2]!.hasAttribute('aria-valuenow')).toBe(false);
-    expect(meters[2]!.getAttribute('aria-valuetext')).toBe(t('planUsage.unknown'));
-    expect(meters[0]!.getAttribute('aria-valuetext')).toMatch(/^27%, Visszaáll: /);
-    expect(screen.getAllByText(t('planUsage.unknown'))).toHaveLength(2);
+    expect(meters[0]!.getAttribute('aria-valuenow')).toBe('60');
+    expect(meters[1]!.hasAttribute('aria-valuenow')).toBe(false);
+    expect(meters[1]!.getAttribute('aria-valuetext')).toBe(t('planUsage.unknown'));
+    expect(meters[0]!.getAttribute('aria-valuetext')).toMatch(/^60%, Visszaáll: /);
+    expect(screen.getAllByText(t('planUsage.unknown'))).toHaveLength(1);
   });
 
   it('marks the level by the bar and by the value', () => {
-    const { container } = render(
-      <PlanUsageMeter usage={{ ...usage, fiveHourPercent: 85, weeklyPercent: 97 }} pauseAbove={80} />,
-    );
-    const fills = [...container.querySelectorAll('[role="meter"] > span')];
-    expect(fills[0]!.className).toMatch(/fill_high/);
-    expect(fills[1]!.className).toMatch(/fill_critical/);
-    expect(screen.getByText('85%').className).toMatch(/value_high/);
+    const { container } = render(<PlanUsageMeter usage={{ ...usage, weeklyPercent: 97 }} pauseAbove={80} />);
+    const fill = container.querySelector('[role="meter"] > span')!;
+    expect(fill.className).toMatch(/fill_critical/);
     expect(screen.getByText('97%').className).toMatch(/value_critical/);
   });
 });
 
 describe('NanoGPT full plan usage meter', () => {
   it('does not claim a threshold pause for measured NanoGPT weekly usage', () => {
-    render(
-      <PlanUsageMeter
-        provider="nanogpt"
-        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: 100 }}
-        pauseAbove={80}
-      />,
-    );
+    render(<PlanUsageMeter provider="nanogpt" usage={{ ...usage, weeklyPercent: 100 }} pauseAbove={80} />);
     expect(screen.getByRole('tooltip', { hidden: true }).textContent).not.toContain(
       t('planUsage.paused', { limit: 80 }),
     );
@@ -100,9 +89,7 @@ describe('plan usage tooltip', () => {
     const tip = screen.getByRole('tooltip', { hidden: true });
     expect(group.getAttribute('aria-describedby')).toBe(tip.id);
     expect(tip.getAttribute('data-open')).toBe('false');
-    expect(tip.textContent).toMatch(
-      /^Claude-előfizetés: 5 órás keret 27% \(visszaáll: .+\), heti keret 60% \(visszaáll: .+\)$/,
-    );
+    expect(tip.textContent).toMatch(/^Claude-előfizetés: heti keret 60% \(visszaáll: .+\)$/);
     act(() => group.focus());
     expect(tip.getAttribute('data-open')).toBe('true');
     fireEvent.keyDown(group, { key: 'Escape' });
@@ -153,24 +140,29 @@ describe('plan usage tooltip', () => {
     expect(codexTip!.getAttribute('data-open')).toBe('true');
   });
 
-  it('adds the pause sentence above the limit and says n. a. without the resets for an unknown window', () => {
+  it('adds the pause sentence strictly above the limit and says n. a. without the resets when unknown', () => {
     render(
       <>
-        <PlanUsageMeter provider="claude" usage={{ ...usage, fiveHourPercent: 85 }} pauseAbove={80} />
-        <PlanUsageMeter provider="codex" usage={{ ...usage, fiveHourPercent: null }} pauseAbove={80} />
+        <PlanUsageMeter provider="claude" usage={{ ...usage, weeklyPercent: 81 }} pauseAbove={80} />
+        <PlanUsageMeter provider="codex" usage={{ ...usage, weeklyPercent: 80 }} pauseAbove={80} />
+        <PlanUsageMeter
+          provider="claude"
+          usage={{ ...usage, weeklyPercent: null, weeklyResetsAt: null }}
+          pauseAbove={80}
+        />
       </>,
     );
-    const [claudeTip, codexTip] = screen.getAllByRole('tooltip', { hidden: true });
-    expect(claudeTip!.textContent).toMatch(/ · A keret 80% fölött van: új AI-munka nem indul\.$/);
-    expect(codexTip!.textContent).toMatch(
-      /^Codex-előfizetés: 5 órás keret n\. a\., heti keret 60% \(visszaáll/,
+    const [aboveTip, atLimitTip, unknownTip] = screen.getAllByRole('tooltip', { hidden: true });
+    expect(aboveTip!.textContent).toContain(t('planUsage.paused', { limit: 80 }));
+    expect(atLimitTip!.textContent).not.toContain(t('planUsage.paused', { limit: 80 }));
+    expect(unknownTip!.textContent).toBe(
+      t('planUsage.title', { provider: t('providers.claude'), weekly: t('planUsage.unknown') }),
     );
-    expect(codexTip!.textContent).not.toMatch(/A keret 80%/);
   });
 });
 
 describe('provider plan usage meter, compact', () => {
-  it('shows the provider name and higher of the two windows in a button trigger', () => {
+  it('shows the provider name and the weekly percent in a button trigger', () => {
     render(<PlanUsageMeter provider="claude" variant="compact" usage={usage} />);
     const button = screen.getByRole('button', {
       name: t('planUsage.compactLabel', { provider: t('providers.claude'), percent: '60%' }),
@@ -181,32 +173,16 @@ describe('provider plan usage meter, compact', () => {
     expect(button.hasAttribute('title')).toBe(false);
   });
 
-  it('omits the provider when usage is null or all windows are unknown', () => {
+  it('omits the provider when usage is null or the weekly value is unknown', () => {
     const { container: nullUsage } = render(
       <PlanUsageMeter provider="codex" variant="compact" usage={null} />,
     );
     expect(nullUsage.querySelector('button')).toBeNull();
 
     const { container: unknownUsage } = render(
-      <PlanUsageMeter
-        provider="codex"
-        variant="compact"
-        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: null }}
-      />,
+      <PlanUsageMeter provider="codex" variant="compact" usage={{ ...usage, weeklyPercent: null }} />,
     );
     expect(unknownUsage.querySelector('button')).toBeNull();
-  });
-
-  it('shows the known window when the other is unknown in compact variant', () => {
-    render(
-      <PlanUsageMeter
-        provider="claude"
-        variant="compact"
-        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: 42 }}
-      />,
-    );
-    const button = screen.getByRole('button');
-    expect(button.textContent).toContain('42%');
   });
 
   it('marks the level by the value style in compact variant', () => {
@@ -214,7 +190,7 @@ describe('provider plan usage meter, compact', () => {
       <PlanUsageMeter
         provider="claude"
         variant="compact"
-        usage={{ ...usage, fiveHourPercent: 85, weeklyPercent: 40 }}
+        usage={{ ...usage, weeklyPercent: 85 }}
         pauseAbove={80}
       />,
     );
@@ -224,19 +200,19 @@ describe('provider plan usage meter, compact', () => {
       <PlanUsageMeter
         provider="claude"
         variant="compact"
-        usage={{ ...usage, fiveHourPercent: 10, weeklyPercent: 96 }}
+        usage={{ ...usage, weeklyPercent: 96 }}
         pauseAbove={80}
       />,
     );
     expect(critContainer.querySelector('button span:nth-of-type(2)')!.className).toMatch(/value_critical/);
   });
 
-  it('opens dropdown on click showing both meters, reset times and pause warning', () => {
+  it('opens dropdown on click showing the weekly meter, reset time and pause warning', () => {
     render(
       <PlanUsageMeter
         provider="claude"
         variant="compact"
-        usage={{ ...usage, fiveHourPercent: 85, weeklyPercent: 40 }}
+        usage={{ ...usage, weeklyPercent: 85 }}
         pauseAbove={80}
       />,
     );
@@ -247,7 +223,7 @@ describe('provider plan usage meter, compact', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toBeTruthy();
     expect(screen.getByText(t('planUsage.dropdownTitle', { provider: t('providers.claude') }))).toBeTruthy();
-    expect(screen.getByText(t('planUsage.fiveHour'))).toBeTruthy();
+    expect(screen.getAllByRole('meter')).toHaveLength(1);
     expect(screen.getByText(t('planUsage.weekly'))).toBeTruthy();
     expect(screen.getByText(t('planUsage.paused', { limit: 80 }))).toBeTruthy();
 
@@ -276,7 +252,7 @@ describe('provider plan usage meter, compact', () => {
       <PlanUsageMeter
         provider="claude"
         variant="compact"
-        usage={{ ...usage, fiveHourPercent: 85, weeklyPercent: 40 }}
+        usage={{ ...usage, weeklyPercent: 85 }}
         pauseAbove={80}
       />,
     );
@@ -311,7 +287,7 @@ describe('provider plan usage meter, compact', () => {
       <PlanUsageMeter
         provider="nanogpt"
         variant="compact"
-        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: 88 }}
+        usage={{ ...usage, weeklyPercent: 88 }}
         pauseAbove={80}
       />,
     );
@@ -328,9 +304,9 @@ describe('provider plan usage meter, compact', () => {
 
 describe('combined provider plan usage meter (1181–1499 px)', () => {
   const usages = [
-    { provider: 'claude' as const, usage: { ...usage, fiveHourPercent: 27, weeklyPercent: 60 } },
-    { provider: 'codex' as const, usage: { ...usage, fiveHourPercent: 85, weeklyPercent: 40 } },
-    { provider: 'nanogpt' as const, usage: { ...usage, fiveHourPercent: null, weeklyPercent: 72 } },
+    { provider: 'claude' as const, usage: { ...usage, weeklyPercent: 60 } },
+    { provider: 'codex' as const, usage: { ...usage, weeklyPercent: 85 } },
+    { provider: 'nanogpt' as const, usage: { ...usage, weeklyPercent: 72 } },
   ];
 
   it('preserves the supplied provider order', () => {
@@ -362,7 +338,7 @@ describe('combined provider plan usage meter (1181–1499 px)', () => {
     }
   });
 
-  it('shows peak value across all providers and windows with accessible trigger label', () => {
+  it('shows the peak weekly value across all providers with accessible trigger label', () => {
     render(<CombinedPlanUsageMeter usages={usages} pauseAbove={80} />);
     const button = screen.getByRole('button');
     expect(button.textContent).toContain('AI-keret');
@@ -376,14 +352,14 @@ describe('combined provider plan usage meter (1181–1499 px)', () => {
       <CombinedPlanUsageMeter
         usages={[
           { provider: 'claude', usage: null },
-          { provider: 'codex', usage: { ...usage, fiveHourPercent: null, weeklyPercent: null } },
+          { provider: 'codex', usage: { ...usage, weeklyPercent: null } },
         ]}
       />,
     );
     expect(container.querySelector('button')).toBeNull();
   });
 
-  it('renders shared dropdown panel with all known providers in order, displaying 5h and weekly meters', () => {
+  it('renders shared dropdown panel with all known providers in order, one weekly meter each', () => {
     render(<CombinedPlanUsageMeter usages={usages} pauseAbove={80} />);
     const button = screen.getByRole('button');
     fireEvent.click(button);
@@ -397,11 +373,10 @@ describe('combined provider plan usage meter (1181–1499 px)', () => {
     expect(screen.getByText(t('providers.codex'))).toBeTruthy();
     expect(screen.getByText(t('providers.nanogpt'))).toBeTruthy();
 
-    // NanoGPT shows "n. a." for 5-hour
-    expect(screen.getAllByText(t('planUsage.unknown')).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('meter')).toHaveLength(3);
     expect(screen.getByText('72%')).toBeTruthy();
 
-    // Pause warning appears only for Codex (85% >= 80%, pausesOnPlanUsage is true), not NanoGPT
+    // Pause warning appears only for Codex (85% > 80%, pausesOnPlanUsage is true), not NanoGPT
     const pausedNotices = screen.getAllByText(t('planUsage.paused', { limit: 80 }));
     expect(pausedNotices).toHaveLength(1);
   });
@@ -410,9 +385,9 @@ describe('combined provider plan usage meter (1181–1499 px)', () => {
     render(
       <CombinedPlanUsageMeter
         usages={[
-          { provider: 'claude', usage: { ...usage, fiveHourPercent: 27, weeklyPercent: 60 } },
+          { provider: 'claude', usage: { ...usage, weeklyPercent: 60 } },
           { provider: 'codex', usage: null },
-          { provider: 'nanogpt', usage: { ...usage, fiveHourPercent: null, weeklyPercent: 72 } },
+          { provider: 'nanogpt', usage: { ...usage, weeklyPercent: 72 } },
         ]}
         pauseAbove={80}
       />,

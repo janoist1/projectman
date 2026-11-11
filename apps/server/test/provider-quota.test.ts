@@ -14,8 +14,6 @@ describe('NanoGPT provider quota recovery', () => {
   const reset = '2026-10-11T12:00:00.000Z';
   afterEach(() => h?.cleanup());
   const usage = (percent: number): PlanUsage => ({
-    fiveHourPercent: null,
-    fiveHourResetsAt: null,
     weeklyPercent: percent,
     weeklyResetsAt: reset,
     fetchedAt: now.toISOString(),

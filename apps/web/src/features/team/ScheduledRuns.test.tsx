@@ -10,7 +10,6 @@ function project() {
   const project = mockProject();
   project.backend.sessions = [];
   project.backend.tasks = [];
-  project.backend.planUsage.fiveHourPercent = 0;
   project.backend.planUsage.weeklyPercent = 0;
   const member = project.backend.config.team.members.find((m) => m.kind === 'ai')!;
   if (member.kind === 'ai')

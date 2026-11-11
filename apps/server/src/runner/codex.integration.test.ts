@@ -312,10 +312,7 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     expect(await runner.transcripts.read(transcript, { self: 'fe-1' })).toEqual(chatOf(s.sessionId));
 
     // The plan's rate limits come from the transcript, without any request.
-    expect(await runner.planUsageFor!('codex').get()).toMatchObject({
-      fiveHourPercent: 12.5,
-      weeklyPercent: 41,
-    });
+    expect(await runner.planUsageFor!('codex').get()).toMatchObject({ weeklyPercent: 41 });
   });
 
   it('launches codex with per-process config and a subscription-only environment', async () => {

@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe('toPlanUsage', () => {
-  it('maps the get_usage answer', () => {
+  it('maps the weekly window and drops the five-hour one', () => {
     const now = new Date('2026-09-29T12:00:00.000Z');
     expect(
       toPlanUsage(
@@ -23,12 +23,18 @@ describe('toPlanUsage', () => {
         now,
       ),
     ).toEqual({
-      fiveHourPercent: 12.5,
       weeklyPercent: 100,
-      fiveHourResetsAt: '2026-09-29T15:00:00.000Z',
       weeklyResetsAt: new Date(1790000000 * 1000).toISOString(),
       fetchedAt: '2026-09-29T12:00:00.000Z',
     });
+  });
+
+  it('is unknown when only the five-hour window is given', () => {
+    const answer = {
+      rate_limits_available: true,
+      rate_limits: { five_hour: { utilization: 50, resets_at: '2026-09-29T15:00:00Z' } },
+    };
+    expect(toPlanUsage(answer)).toBeNull();
   });
 
   it('returns null without plan limits (API key, signed out)', () => {
@@ -46,11 +52,7 @@ describe('createPlanUsageProvider', () => {
       minIntervalMs: 60_000,
     });
     const [a, b] = await Promise.all([provider.get(), provider.get()]);
-    expect(a).toMatchObject({
-      fiveHourPercent: 42,
-      weeklyPercent: 17.5,
-      fiveHourResetsAt: '2026-01-01T05:00:00.000Z',
-    });
+    expect(a).toMatchObject({ weeklyPercent: 17.5 });
     expect(b).toBe(a);
     expect(await provider.get()).toBe(a);
   });

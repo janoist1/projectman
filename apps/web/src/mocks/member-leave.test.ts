@@ -9,7 +9,6 @@ function setup() {
   const b = new MockBackend();
   b.sessions = [];
   b.messages = [];
-  b.planUsage.fiveHourPercent = 0;
   b.planUsage.weeklyPercent = 0;
   return b;
 }

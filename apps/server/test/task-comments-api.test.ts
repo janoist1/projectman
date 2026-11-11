@@ -58,9 +58,7 @@ describe('task comments API', () => {
 
   it('admits AI mentions and leaves refused work queued', async () => {
     h.runnerModule.planUsage.value = {
-      fiveHourPercent: 99,
-      weeklyPercent: null,
-      fiveHourResetsAt: null,
+      weeklyPercent: 99,
       weeklyResetsAt: null,
       fetchedAt: new Date().toISOString(),
     };

@@ -66,8 +66,6 @@ describe('member profiles', () => {
     member.effort = undefined;
     p.backend.providerStatus.nanogpt = { loggedIn: false, problem: 'no_key' };
     p.backend.providerPlanUsage.nanogpt = {
-      fiveHourPercent: null,
-      fiveHourResetsAt: null,
       weeklyPercent: 100,
       weeklyResetsAt: '2026-10-11T12:00:00Z',
       fetchedAt: new Date().toISOString(),
@@ -92,7 +90,7 @@ describe('member profiles', () => {
     p.backend.providerPlanUsage.codex = { ...p.backend.planUsage };
     p.render(page(), '/team/fe-1');
     const group = await screen.findByRole('group', { name: t('providers.codex') });
-    expect(within(group).getAllByRole('meter')).toHaveLength(2);
+    expect(within(group).getAllByRole('meter')).toHaveLength(1);
   });
   it('has one main button, the rest sits in the menu', async () => {
     const p = mockProject();
@@ -319,8 +317,7 @@ describe('member profiles', () => {
     const p = mockProject();
     p.render(page(), '/team/fe-1');
     const group = await screen.findByRole('group', { name: t('providers.claude') });
-    expect(within(group).getAllByRole('meter')).toHaveLength(2);
-    expect(within(group).getByText(t('planUsage.fiveHour'))).toBeTruthy();
+    expect(within(group).getAllByRole('meter')).toHaveLength(1);
     expect(within(group).getByText(t('planUsage.weekly'))).toBeTruthy();
     expect(screen.queryByText(/Keret ·/)).toBeNull();
   });
@@ -350,7 +347,6 @@ describe('member profiles', () => {
     const p = mockProject();
     p.backend.sessions = [];
     p.backend.tasks = [];
-    p.backend.planUsage.fiveHourPercent = 0;
     p.backend.planUsage.weeklyPercent = 0;
     const member = p.backend.config.team.members.find((m) => m.handle === 'fe-1')!;
     if (member.kind !== 'ai') throw new Error('Expected fictional AI member');

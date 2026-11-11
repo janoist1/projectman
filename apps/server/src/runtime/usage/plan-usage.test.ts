@@ -7,9 +7,7 @@ import type { ProjectService } from '../../core/projects';
 import { PlanUsageCache, PlanUsageMonitor } from './plan-usage';
 
 const usage: PlanUsage = {
-  fiveHourPercent: 20,
   weeklyPercent: 30,
-  fiveHourResetsAt: null,
   weeklyResetsAt: null,
   fetchedAt: '2026-10-14T06:00:00.000Z',
 };

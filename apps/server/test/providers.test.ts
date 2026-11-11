@@ -249,9 +249,7 @@ describe('agent providers', () => {
   it("pauses new work on the plan usage of the member's own provider", async () => {
     h = await createDomainHarness({ adjust: codexDev2 });
     const codexUsage: PlanUsage = {
-      fiveHourPercent: null,
       weeklyPercent: 95,
-      fiveHourResetsAt: null,
       weeklyResetsAt: '2026-01-07T00:00:00.000Z',
       fetchedAt: '2026-01-01T00:00:00.000Z',
     };

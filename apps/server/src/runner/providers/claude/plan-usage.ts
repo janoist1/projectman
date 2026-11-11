@@ -10,7 +10,7 @@ import { buildChildEnv } from '../../env';
 import { rec, type Json } from '../../transcript/json';
 
 /**
- * Plan usage (the 5-hour and weekly limits of the logged-in Claude account), the numbers
+ * Plan usage (the weekly limit of the logged-in Claude account), the numbers
  * Claude Code's /usage screen shows.
  *
  * Approach from agent-office (MIT, src/server/limits.ts): start `claude -p` with the
@@ -68,13 +68,11 @@ export function toPlanUsage(answer: unknown, now: Date = new Date()): PlanUsage 
   if (!a || a.rate_limits_available === false) return null;
   const limits = rec(a.rate_limits);
   if (!limits) return null;
-  const fiveHour = rec(limits.five_hour);
+  // The five-hour window (`five_hour`) is deliberately ignored: only the weekly limit counts.
   const weekly = rec(limits.seven_day);
-  if (!fiveHour && !weekly) return null;
+  if (!weekly) return null;
   return {
-    fiveHourPercent: percent(fiveHour),
     weeklyPercent: percent(weekly),
-    fiveHourResetsAt: resetsAt(fiveHour),
     weeklyResetsAt: resetsAt(weekly),
     fetchedAt: now.toISOString(),
   };

@@ -154,30 +154,27 @@ describe('permission modes per provider', () => {
     expect(hasPlanUsage('fictional' as never)).toBe(false);
   });
 
-  it('pauses a threshold provider only when the higher plan usage is strictly above the threshold (PM-1051)', () => {
-    const usage = (fiveHourPercent: number | null, weeklyPercent: number | null) => ({
-      fiveHourPercent,
+  it('pauses a threshold provider only when the known weekly usage is strictly above the threshold (PM-1051, PM-1293)', () => {
+    const usage = (weeklyPercent: number | null) => ({
       weeklyPercent,
-      fiveHourResetsAt: null,
       weeklyResetsAt: null,
       fetchedAt: '2026-10-27T10:00:00Z',
     });
-    expect(planUsagePause('claude', usage(20, 96), 95)).toEqual({
+    expect(planUsagePause('claude', usage(96), 95)).toEqual({
       provider: 'claude',
       percent: 96,
       threshold: 95,
     });
-    expect(planUsagePause('codex', usage(97, null), 95)).toMatchObject({ percent: 97 });
-    expect(planUsagePause('claude', usage(95, 90), 95)).toBeNull();
-    expect(planUsagePause('claude', usage(null, null), 95)).toBeNull();
+    expect(planUsagePause('codex', usage(97), 95)).toMatchObject({ percent: 97 });
+    expect(planUsagePause('claude', usage(80), 80)).toBeNull();
+    expect(planUsagePause('claude', usage(81), 80)).toMatchObject({ percent: 81 });
+    expect(planUsagePause('claude', usage(null), 95)).toBeNull();
     expect(planUsagePause('claude', null, 95)).toBeNull();
   });
 
   it('never pauses a provider without a plan usage threshold (PM-1051)', () => {
     const usage = {
-      fiveHourPercent: 100,
       weeklyPercent: 100,
-      fiveHourResetsAt: null,
       weeklyResetsAt: null,
       fetchedAt: '2026-10-27T10:00:00Z',
     };

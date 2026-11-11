@@ -100,7 +100,7 @@ export async function createDomainHarness(
     doneTurnLimitMs?: number;
     /** The database lives in a file, so that a restart can open it again. */
     persistent?: boolean;
-    /** Plan usage (percent of the five-hour window) the fake probe reports from the start (default: unknown). */
+    /** Plan usage (percent of the weekly limit) the fake probe reports from the start (default: unknown). */
     planUsagePercent?: number;
     /**
      * The directory of an earlier harness (database file, customization repository, workspace):

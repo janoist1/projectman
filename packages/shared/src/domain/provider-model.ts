@@ -66,20 +66,17 @@ export function pausesOnPlanUsage(provider: AgentProvider): boolean {
 
 /**
  * The one plan usage threshold rule (PM-1051): a provider that pauses on plan usage is on hold when the
- * highest known five-hour or weekly percent is strictly above the threshold. A percent equal to it, an
- * unknown measurement and a provider that does not pause on usage are not.
+ * known weekly percent is strictly above the threshold. A percent equal to it, an unknown measurement
+ * and a provider that does not pause on usage are not.
  */
 export function planUsagePause(
   provider: AgentProvider,
-  usage: Pick<PlanUsage, 'fiveHourPercent' | 'weeklyPercent'> | null,
+  usage: Pick<PlanUsage, 'weeklyPercent'> | null,
   threshold: number,
 ): { provider: AgentProvider; percent: number; threshold: number } | null {
   if (!usage || !pausesOnPlanUsage(provider)) return null;
-  const known = [usage.fiveHourPercent, usage.weeklyPercent].filter(
-    (value): value is number => typeof value === 'number',
-  );
-  if (known.length === 0) return null;
-  const percent = Math.max(...known);
+  const percent = usage.weeklyPercent;
+  if (typeof percent !== 'number') return null;
   return percent > threshold ? { provider, percent, threshold } : null;
 }
 

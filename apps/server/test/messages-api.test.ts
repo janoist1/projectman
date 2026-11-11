@@ -382,9 +382,7 @@ describe('human team messages and member profiles', () => {
       return 'Resume fictional work';
     });
     h.runnerModule.planUsage.value = {
-      fiveHourPercent: 99,
-      weeklyPercent: 0,
-      fiveHourResetsAt: null,
+      weeklyPercent: 99,
       weeklyResetsAt: null,
       fetchedAt: new Date().toISOString(),
     };

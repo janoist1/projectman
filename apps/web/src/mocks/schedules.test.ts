@@ -6,7 +6,6 @@ function scheduledBackend() {
   const backend = new MockBackend();
   backend.sessions = [];
   backend.tasks = [];
-  backend.planUsage.fiveHourPercent = 0;
   backend.planUsage.weeklyPercent = 0;
   const member = backend.config.team.members.find((m) => m.kind === 'ai')!;
   if (member.kind !== 'ai') throw new Error('Expected fictional AI member');

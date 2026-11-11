@@ -253,7 +253,7 @@ describe('phone header', () => {
     await waitFor(() =>
       expect(
         within(header)
-          .getByRole('link', { name: /Legmagasabb AI-keret/ })
+          .getByRole('link', { name: /Legmagasabb heti AI-keret/ })
           .getAttribute('href'),
       ).toBe('/p/AC/team'),
     );

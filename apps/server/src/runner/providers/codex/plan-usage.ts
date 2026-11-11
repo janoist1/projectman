@@ -54,16 +54,18 @@ const MAX_FILES = 8;
 const TAIL_BYTES = 1024 * 1024;
 /** Transcripts of live sessions remembered as candidates. */
 const MAX_NOTED = 50;
-/** Windows up to this long count as the short (five-hour) window. */
+/** A window no longer than this is not the weekly one, so it is dropped. */
 const SHORT_WINDOW_MAX_MINUTES = 6 * 60;
 
 function isoFromUnix(seconds: number | null): string | null {
   return seconds === null ? null : new Date(seconds * 1000).toISOString();
 }
 
-/** Maps Codex rate limits to the plan usage shape; windows that have reset since read as unknown. */
+/**
+ * Maps Codex rate limits to the plan usage shape: only the weekly (long) window is kept, the short one is
+ * dropped; a window that has reset since the record reads as unknown.
+ */
 export function toCodexPlanUsage(limits: CodexRateLimits, now: Date = new Date()): PlanUsage {
-  let short: CodexRateWindow | null = null;
   let long: CodexRateWindow | null = null;
   const place = (window: CodexRateWindow | null, fallback: 'short' | 'long') => {
     if (!window) return;
@@ -73,8 +75,7 @@ export function toCodexPlanUsage(limits: CodexRateLimits, now: Date = new Date()
         : window.windowMinutes <= SHORT_WINDOW_MAX_MINUTES
           ? 'short'
           : 'long';
-    if (slot === 'short') short ??= window;
-    else long ??= window;
+    if (slot === 'long') long ??= window;
   };
   place(limits.primary, 'short');
   place(limits.secondary, 'long');
@@ -88,12 +89,9 @@ export function toCodexPlanUsage(limits: CodexRateLimits, now: Date = new Date()
       resetsAt: isoFromUnix(window.resetsAt),
     };
   };
-  const five = current(short);
   const week = current(long);
   return {
-    fiveHourPercent: five.percent,
     weeklyPercent: week.percent,
-    fiveHourResetsAt: five.resetsAt,
     weeklyResetsAt: week.resetsAt,
     fetchedAt: limits.at,
   };

@@ -9,8 +9,6 @@ const at = new Date('2026-10-06T12:00:00Z');
 const reset = '2026-10-11T12:00:00.000Z';
 
 const usage = (percent: number): PlanUsage => ({
-  fiveHourPercent: null,
-  fiveHourResetsAt: null,
   weeklyPercent: percent,
   weeklyResetsAt: reset,
   fetchedAt: at.toISOString(),

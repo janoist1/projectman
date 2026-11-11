@@ -1,5 +1,5 @@
 import type { HistoryDocumentRow, Repositories } from '../../db';
-import { withCommentEdits } from '@projectman/shared';
+import { withCommentEdits, withoutRevisions } from '@projectman/shared';
 import type { HistoryRelated, HistorySourceState, HistorySourceType, Task } from '@projectman/shared';
 
 /** The repositories the history reads its sources through (the current project, never an index copy). */
@@ -48,8 +48,8 @@ export function loadHistorySource(
       // earlier version no longer finds it. The earlier versions themselves stay out of the search.
       const edits = repos.timeline.editsOfNotes(projectKey, [event.id]);
       if (edits.length === 0) return { source: { type, task, event }, storedAt: event.createdAt };
-      const { revisions: _revisions, ...data } = withCommentEdits([event], edits)[0]!.data;
-      return { source: { type, task, event: { ...event, data } }, storedAt: edits.at(-1)!.createdAt };
+      const current = withoutRevisions(withCommentEdits([event], edits)[0]!);
+      return { source: { type, task, event: current }, storedAt: edits.at(-1)!.createdAt };
     }
     case 'question': {
       const item = repos.inbox.get(entityId);

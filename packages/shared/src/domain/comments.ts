@@ -118,11 +118,14 @@ export function withCommentEdits(
  * context pack and tools) is the comment as it stands, never the text that was taken out.
  */
 export function withoutCommentHistory(events: readonly TimelineEvent[]): TimelineEvent[] {
-  return events.map((event) => {
-    if (event.type !== 'task_note' || event.data.revisions === undefined) return event;
-    const { revisions: _revisions, ...data } = event.data;
-    return { ...event, data };
-  });
+  return events.map(withoutRevisions);
+}
+
+/** One event without the earlier versions of its comment; any other event stays as it is (PM-1277). */
+export function withoutRevisions(event: TimelineEvent): TimelineEvent {
+  if (event.type !== 'task_note' || event.data.revisions === undefined) return event;
+  const { revisions: _revisions, ...data } = event.data;
+  return { ...event, data };
 }
 
 function revisionOf(edit: TimelineEvent): CommentRevision {

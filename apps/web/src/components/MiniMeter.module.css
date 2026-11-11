@@ -15,6 +15,11 @@
   font-size: 11px;
 }
 
+/* Win 3.11: reading text is at least 13px (--text-xs there). */
+:global([data-style='win311']) .row {
+  font-size: var(--text-xs);
+}
+
 .label {
   color: var(--c-ink-4);
 }

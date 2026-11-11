@@ -51,8 +51,8 @@ describe('provider plan usage meter, full', () => {
     const meters = screen.getAllByRole('meter');
     expect(meters).toHaveLength(2);
     expect(meters.map((meter) => meter.getAttribute('aria-label'))).toEqual([
-      t('planUsage.weekly'),
-      t('planUsage.weekly'),
+      t('planUsage.meterLabel', { provider: t('providers.claude') }),
+      t('planUsage.meterLabel', { provider: t('providers.codex') }),
     ]);
     expect(meters[0]!.getAttribute('aria-valuenow')).toBe('60');
     expect(meters[1]!.hasAttribute('aria-valuenow')).toBe(false);
@@ -373,7 +373,12 @@ describe('combined provider plan usage meter (1181–1499 px)', () => {
     expect(screen.getByText(t('providers.codex'))).toBeTruthy();
     expect(screen.getByText(t('providers.nanogpt'))).toBeTruthy();
 
-    expect(screen.getAllByRole('meter')).toHaveLength(3);
+    // Each meter's accessible name carries its provider, as the rows share one label
+    expect(screen.getAllByRole('meter').map((meter) => meter.getAttribute('aria-label'))).toEqual(
+      ['claude', 'codex', 'nanogpt'].map((provider) =>
+        t('planUsage.meterLabel', { provider: t(`providers.${provider as 'claude'}`) }),
+      ),
+    );
     expect(screen.getByText('72%')).toBeTruthy();
 
     // Pause warning appears only for Codex (85% > 80%, pausesOnPlanUsage is true), not NanoGPT

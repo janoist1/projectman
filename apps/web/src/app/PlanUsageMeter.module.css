@@ -16,10 +16,10 @@
   line-height: 14px;
 }
 
-/* The link is a 40px touch target; the pill inside is smaller. */
+/* The link is a 44px touch target; the pill inside is smaller. */
 .badge {
-  height: 40px;
-  min-width: 40px;
+  height: 44px;
+  min-width: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -251,6 +251,14 @@
   color: var(--c-ink-3);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* Win 3.11: reading text is at least 13px (--text-xs there). */
+:global([data-style='win311']) .name,
+:global([data-style='win311']) .resetText,
+:global([data-style='win311']) .pausedNotice,
+:global([data-style='win311']) .combinedProviderName {
+  font-size: var(--text-xs);
 }
 
 @media (prefers-reduced-motion: reduce) {

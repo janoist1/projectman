@@ -2332,6 +2332,7 @@ export const en = {
     badgeLabel: 'Highest weekly AI plan usage: {percent}. Details on the Team page.',
     compactLabel: '{provider} weekly usage: {percent}',
     dropdownTitle: '{provider} weekly usage',
+    meterLabel: '{provider} weekly usage',
     combinedPrefix: 'AI plan',
     combinedTriggerLabel: 'Weekly AI plans: highest usage {percent}. Open details.',
     combinedTitle: 'AI plans',

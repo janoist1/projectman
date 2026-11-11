@@ -1501,6 +1501,7 @@ export const hu = {
     badgeLabel: 'Legmagasabb heti AI-keret: {percent}. Részletek a Csapat oldalon.',
     compactLabel: '{provider} heti keret: {percent}',
     dropdownTitle: '{provider} heti keret',
+    meterLabel: '{provider} heti keret',
     combinedPrefix: 'AI-keret',
     combinedTriggerLabel: 'Heti AI-keretek: legmagasabb érték {percent}. Részletek megnyitása.',
     combinedTitle: 'AI-keretek',

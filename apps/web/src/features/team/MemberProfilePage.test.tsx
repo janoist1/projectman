@@ -52,7 +52,11 @@ describe('member profiles', () => {
     p.backend.providerStatus.gemini = { loggedIn: false, problem: 'not_logged_in' };
     p.render(page(), '/team/fe-1');
     await screen.findByText(t('profile.noPlanUsage.gemini'));
-    expect(screen.queryByRole('meter')).toBeNull();
+    const meter = screen.getByRole('meter', {
+      name: t('planUsage.meterLabel', { provider: t('providers.gemini') }),
+    });
+    expect(meter.hasAttribute('aria-valuenow')).toBe(false);
+    expect(meter.getAttribute('aria-valuetext')).toBe(t('planUsage.unknown'));
     expect(
       screen.getByText((text) => text.endsWith(`· ${t('providerSettings.efforts.medium')}`)),
     ).toBeTruthy();
@@ -74,7 +78,7 @@ describe('member profiles', () => {
     const group = await screen.findByRole('group', { name: t('providers.nanogpt') });
     expect(
       within(group)
-        .getByRole('meter', { name: t('planUsage.weekly') })
+        .getByRole('meter', { name: t('planUsage.meterLabel', { provider: t('providers.nanogpt') }) })
         .getAttribute('aria-valuenow'),
     ).toBe('100');
     expect(screen.queryByText(t('profile.noPlanUsage.nanogpt'))).toBeNull();

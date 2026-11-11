@@ -76,6 +76,7 @@ function ProviderUsageDetails({
       <div className={styles.dropdownSection}>
         <MiniMeter
           label={t('planUsage.weekly')}
+          ariaLabel={t('planUsage.meterLabel', { provider: t(`providers.${provider}`) })}
           value={value}
           pauseAbove={pauseAbove}
           valueText={resetText(value, resetsAt)}
@@ -212,6 +213,7 @@ export function PlanUsageMeter({
       <span className={styles.name}>{name}</span>
       <MiniMeter
         label={t('planUsage.weekly')}
+        ariaLabel={t('planUsage.meterLabel', { provider: name })}
         value={week}
         pauseAbove={pauseAbove}
         valueText={resetText(week, weekResetsAt)}

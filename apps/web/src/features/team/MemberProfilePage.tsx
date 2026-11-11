@@ -463,13 +463,13 @@ export function MemberProfilePage() {
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
             {member.machineAccess ? <p>{t('profile.machineAccess')}</p> : null}
             <PermissionLevelControl member={member} />
-            {hasPlanUsage(member.provider ?? DEFAULT_AGENT_PROVIDER) ? (
-              <PlanUsageMeter
-                provider={member.provider ?? DEFAULT_AGENT_PROVIDER}
-                usage={board.data?.planUsageByProvider[member.provider ?? DEFAULT_AGENT_PROVIDER]}
-                pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
-              />
-            ) : (
+            {/* A provider without a plan meter still shows the unknown weekly value, with the explanation. */}
+            <PlanUsageMeter
+              provider={member.provider ?? DEFAULT_AGENT_PROVIDER}
+              usage={board.data?.planUsageByProvider[member.provider ?? DEFAULT_AGENT_PROVIDER]}
+              pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
+            />
+            {hasPlanUsage(member.provider ?? DEFAULT_AGENT_PROVIDER) ? null : (
               <p className={styles.quiet}>
                 {t(`profile.noPlanUsage.${member.provider === 'nanogpt' ? 'nanogpt' : 'gemini'}`)}
               </p>

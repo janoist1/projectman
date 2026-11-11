@@ -17,6 +17,7 @@ import type {
   PermissionBroker,
   RunnerModule,
   RunnerModuleOptions,
+  ScopeProcessSource,
   ScreenshotExecutor,
   WorkspaceDependencyInstaller,
 } from './contracts';
@@ -53,7 +54,7 @@ import {
   startPressureMeter,
   withGithubRuns,
 } from './full-test';
-import type { PressureReading } from './full-test';
+import type { PressureMeter, PressureReading } from './full-test';
 import { createCheckBranchGit, createKeepAwake, freeBytesOf, spawnKeepAwakeProcess } from './engine-host';
 import { nonLocalReason } from './kernel';
 import { assertHomeMayStart } from './instance';
@@ -444,6 +445,15 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     waitMs: DEPENDENCY_GATE_WAIT_S * 1000,
     logger: log.child({ module: 'workspace' }),
   });
+  // The engine's own process inspection: the runner's process scope and the proof of a pid before a signal
+  // (PM-1328). `probe` is created later; the closures read it when called.
+  const scopeProcesses: ScopeProcessSource = {
+    processes: () => probe.processes(),
+    envValues: (pids, names) => probe.envValues(pids, names),
+  };
+  // The engine's own memory pressure measurement, started below (PM-1328): `machine_busy` reads this, never
+  // the members-writable `pressure.json`.
+  let pressureMeter: PressureMeter | undefined;
   const nanogptCodexHome = path.join(home, 'providers', 'nanogpt', 'codex-home');
   const geminiConfigDir = path.join(home, 'providers', 'gemini');
   runnerModule = (modules.createRunnerModule ?? createRunnerModule)({
@@ -463,10 +473,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     instanceTag,
     broker,
     engineGuard,
-    scopeProcesses: {
-      processes: () => probe.processes(),
-      envValues: (pids, names) => probe.envValues(pids, names),
-    },
+    scopeProcesses,
     refreshDependencies: async (cwd) => {
       const key = await memberClones.keyOf(cwd);
       if (!key) {
@@ -517,9 +524,15 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
         roots.workRoot
           ? Math.min(await freeBytesOf(home), await freeBytesOf(roots.worktrees))
           : freeBytesOf(home),
-      machineLoad: () => readMachineLoad(heavyLockDir),
+      machineLoad: () => readMachineLoad(heavyLockDir, { pressure: () => pressureMeter?.level() ?? null }),
       heavyRunSessions: () => readHeavyRunSessions(heavyLockDir),
-      endSessionRuns: (sessionId) => endHeavySessionRuns(heavyLockDir, sessionId),
+      endSessionRuns: (sessionId) =>
+        endHeavySessionRuns(heavyLockDir, sessionId, {
+          processes: scopeProcesses,
+          uid: process.getuid?.() ?? null,
+          onSkip: (skip) =>
+            log.warn({ sessionId, ...skip }, 'a heavy run ticket was not signalled: unproven pid'),
+        }),
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
       repoPath: boundRepoPath,
@@ -712,7 +725,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   }, PENDING_INPUT_POLL_MS);
   poll.unref();
   // The machine's memory pressure for the pool (PM-1314): the members' sandboxes cannot measure it.
-  const pressureMeter = startPressureMeter({
+  pressureMeter = startPressureMeter({
     dir: heavyLockDir,
     ...(modules.measurePressure ? { measure: modules.measurePressure } : {}),
     onError: (err) => log.warn({ err }, 'the memory pressure cannot be measured'),
@@ -855,7 +868,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       if (closed) return;
       closed = true;
       clearInterval(poll);
-      await pressureMeter.close();
+      await pressureMeter?.close();
       handlers.dispose();
       await workspaceDependencies?.close();
       // The sessions stop first so that their last events (exit, paused) are in what is sent.

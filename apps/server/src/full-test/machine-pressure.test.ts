@@ -86,6 +86,23 @@ describe('the pressure file', () => {
     expect(await readFreshPressure(dir)).toBe('warn');
   });
 
+  it('gives its last reading from memory for 30 s, then and before any reading nothing (PM-1328)', async () => {
+    let now = Date.parse('2026-11-06T12:00:00Z');
+    const meter = startPressureMeter({
+      dir,
+      measure: async () => ({ level: 'critical', source: 'sysctl' }),
+      intervalMs: 1_000_000,
+      now: () => now,
+    });
+    expect(meter.level()).toBeNull();
+    await meter.close();
+    expect(meter.level()).toBe('critical');
+    now += 30_000;
+    expect(meter.level()).toBe('critical');
+    now += 1;
+    expect(meter.level()).toBeNull();
+  });
+
   it('tells a failing measurement once and goes on', async () => {
     const errors: unknown[] = [];
     let rounds = 0;

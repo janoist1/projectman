@@ -1695,13 +1695,23 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   (PM-569). PID and heartbeat checks run on the engine; only its own running session ids cross
   to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
   Since PM-1315, `runtime/sessions/sessions.ts` calls `EngineHost.endSessionRuns` when the CLI
-  has ended. `full-test/heavy-lock.ts` signals that session's queue and holder PIDs with SIGTERM,
-  then SIGKILL after 10 seconds if the same ticket and PID still have a heartbeat newer than
-  30 seconds. Stale entries and other sessions receive no signal. This assumes the engine's
-  local PID namespace and queue filesystem; the CLI child guard and vitest stop their children.
+  has ended. `full-test/heavy-lock.ts` takes that session's queue and holder entries as
+  candidates only, since the pool's folder is writable by every member's sandbox and so is not a
+  trusted input (PM-1328, `docs/SECURITY.md` "Heavy-run pool"). A candidate gets SIGTERM only
+  when the engine proves it itself, with its own process inspection (`MachineProbe.processes` /
+  `envValues`: `ps -axww` and `ps -E` on macOS, `/proc/<pid>/environ` on Linux): the process is
+  the engine user's (uid), its environment holds `PROJECTMAN_SESSION_ID` equal to the session id,
+  and its start time (`lstart`, truncated to the second) is not later than the ticket's
+  `queuedAt` (pid reuse). SIGKILL follows after 10 seconds only if the entry still has a fresh
+  heartbeat and the same pid is alive with the same start time and session id. A pid that
+  cannot be proven (no process list, no readable environment, another user, session or a later
+  start) gets no signal; the engine only logs a warning without any environment value. Stale
+  entries and other sessions receive no signal. This assumes the engine's local PID namespace,
+  process inspection and queue filesystem; the CLI child guard and vitest stop their children.
   **Remote engine:** `host.end_session_runs` (an open engine-link method) carries only the
-  session id and returns the number of runs sent SIGTERM. Listing, heartbeat checks, the timer
-  and both signals run on the engine, never in the cloud's PID namespace.
+  session id and returns the number of runs sent SIGTERM. Listing, the proof, the heartbeat
+  checks, the timer and both signals run on the engine, never in the cloud's PID namespace. On
+  another operating system the probe returns no process list, so no signal is sent.
   The queue does not apply in GitHub mode (`FullTestSpec.githubActions`, PM-900): the machine does not run the tests.
   **Module:** `full-test`
 - **Memory pressure of the machine** — `full-test/machine-pressure.ts`, started by `engine-app.ts` (engine
@@ -1717,7 +1727,12 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   writes nothing, so the file goes stale. The file exists because the members' sandboxes may not run
   `sysctl`. The head of the queue reads it every round: while it is `critical` and at most 30 s old no
   places are handed out, and the waiting line of the heavy CLI and the vitest places plugin says so
-  (`HeavyWait.pressure`); a stale, missing or broken file holds nothing back. Assumes the engine process
+  (`HeavyWait.pressure`); a stale, missing or broken file holds nothing back. The folder is writable
+  by every member, so the engine's own decisions do not read the file (PM-1328): `machine_busy`
+  (`EngineHost.machineLoad`, `readMachineLoad`'s `pressure` option) takes the level from the meter's
+  memory (`PressureMeter.level()`, the last successful measurement, at most 30 s old, else none; no
+  meter in cloud mode means no reading). The file is only for the head of the queue in the members'
+  sandboxes, where a forged value affects only their own voluntary queue. Assumes the engine process
   may run `sysctl` (macOS) or read PSI (Linux, kernel 4.20+ with PSI on; a container without it gets
   no reading) and shares `/tmp` and the user id with the members' heavy runs. Two engines on one
   machine (the live one and a dev instance) write the same file with the same kind of reading.

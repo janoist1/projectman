@@ -2983,4 +2983,19 @@ migrations.push({
     CREATE INDEX team_messages_origin_event ON team_messages(json_extract(origin, '$.eventId'));
     CREATE INDEX team_messages_from ON team_messages(project_key, from_handle, created_at);`,
 });
+migrations.push({
+  version: 151,
+  name: 'comment edits',
+  // PM-1277: a comment edit is a `task_note_edited` event. The partial expression index finds the edits of a
+  // note (`editsOfNotes`); the trigger marks the edited note as changed for the history search, which then
+  // re-reads its current text. No old row needs a backfill: there is no edit before this version.
+  sql: `CREATE INDEX timeline_note_edits ON timeline_events(project_key, json_extract(data, '$.noteId'))
+      WHERE type = 'task_note_edited';
+    CREATE TRIGGER history_dirty_note_edit_ai AFTER INSERT ON timeline_events
+      WHEN new.type = 'task_note_edited' BEGIN
+      INSERT INTO history_dirty (project_key, source_type, entity_id)
+        VALUES (new.project_key, 'note', json_extract(new.data, '$.noteId'))
+        ON CONFLICT (project_key, source_type, entity_id) DO UPDATE SET revision = revision + 1;
+    END;`,
+});
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

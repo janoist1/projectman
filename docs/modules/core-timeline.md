@@ -12,6 +12,10 @@ The sealed entry point is `core/timeline/index.ts`. It exports `TimelineService`
 
 The service receives `DomainContext` and uses its repositories, clock and event bus. Shared timeline schemas remain in `@projectman/shared`. Other modules record events through this service.
 
+A comment edit (PM-1277) is a new `task_note_edited` event; the `task_note` stays as written. `TimelineService.withCommentEdits`
+projects the latest text and the `edited` mark onto the comment when it is read, and `visibleTimelineEvent` keeps the
+earlier versions (`revisions`) for the author, the owner and admins only.
+
 ## Files
 
 Final paths under `apps/server/src/core/timeline/`: `index.ts` (facade) and `timeline.ts` (implementation).

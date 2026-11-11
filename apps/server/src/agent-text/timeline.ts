@@ -172,8 +172,9 @@ export function describeEvent(
     case 'task_note': {
       const files = Array.isArray(data.attachments) ? (data.attachments as CommentAttachmentRef[]) : [];
       const replyTo = text('replyTo');
+      const edited = data.edited !== undefined ? ' (edited)' : '';
       const head = isCardComment(event)
-        ? `${replyTo ? `reply ${event.id} to comment ${replyTo}` : `comment ${event.id}`}${importedOrigin(data)}`
+        ? `${replyTo ? `reply ${event.id} to comment ${replyTo}` : `comment ${event.id}`}${edited}${importedOrigin(data)}`
         : 'note';
       const note = `${head}: ${text('text') ?? ''}`.trimEnd();
       if (!files.length) return note;
@@ -182,6 +183,9 @@ export function describeEvent(
         .join(', ');
       return `${note}${text('text') ? ' ·' : ''} files: ${names}`;
     }
+    // The text of an edit stays out: the comment's own line shows the latest version (PM-1277).
+    case 'task_note_edited':
+      return `edited comment ${text('noteId') ?? '?'}`;
     case 'attachment_added':
       return `attached the file ${text('fileName') ?? '?'}`;
     case 'attachment_deleted':

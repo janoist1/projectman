@@ -88,6 +88,7 @@ export const TimelineEventType = z.enum([
   'task_prerequisite_closed',
   'task_parts_left',
   'task_note',
+  'task_note_edited',
   'attachment_added',
   'attachment_deleted',
   'feedback_linked',
@@ -166,6 +167,18 @@ export const TimelineEvent = z.object({
   createdAt: z.string(),
 });
 export type TimelineEvent = z.infer<typeof TimelineEvent>;
+
+/** One version of an edited comment (PM-1277, read-time): the original or an edit. */
+export interface CommentRevision {
+  /** The edit event's id, or the note's id for the original. */
+  id: string;
+  text: string;
+  mentions: string[];
+  /** The original: `importedAt ?? createdAt`. */
+  at: string;
+  actor: Actor;
+  original?: true;
+}
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
@@ -396,7 +409,17 @@ export interface TimelineEventData {
     clientRequestId?: string;
     /** PM-1290: the pm's closing text relayed from this session (written by the reply relay). */
     relayedFrom?: string;
+    /** PM-1277, read-time only (never stored): the latest edit; `revisionId` is what the next edit sends as `baseRevision`. */
+    edited?: { revisionId: string; at: string; actor: Actor; count: number };
+    /** PM-1277, read-time only: the earlier versions, newest first, the original last; only for `canSeeCommentHistory`. */
+    revisions?: CommentRevision[];
   };
+  /**
+   * A comment's text was edited (PM-1277). The note itself stays as written (append-only); readers get the
+   * latest version through `withCommentEdits`. `base`: the version it replaced (the previous edit's id, or the
+   * note's id). `added`: the mentions it notified (in no earlier version).
+   */
+  task_note_edited: { noteId: string; text: string; mentions: string[]; base: string; added: string[] };
   /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };
   /** The actor is who deleted it; the uploader is in the matching `attachment_added`. */

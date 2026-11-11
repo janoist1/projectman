@@ -1294,6 +1294,16 @@ export const CreateTaskCommentRequest = z
   });
 export type CreateTaskCommentRequest = z.infer<typeof CreateTaskCommentRequest>;
 
+export const EditTaskCommentRequest = z.object({
+  text: z.string().trim().max(TASK_COMMENT_MAX).default(''),
+  /** PM-1277: the version the edit is based on: `data.edited.revisionId`, or the comment's id when never edited. */
+  baseRevision: z.string().min(1).max(100),
+});
+export type EditTaskCommentRequest = z.infer<typeof EditTaskCommentRequest>;
+/** The edited comment as the viewer sees it: projected, with the earlier versions only for those who may read them. */
+export const EditTaskCommentResult = z.object({ comment: TimelineEvent });
+export type EditTaskCommentResult = z.infer<typeof EditTaskCommentResult>;
+
 /** The comment list of a card (PM-1290), paged by top-level comments, newest page first. */
 export const TaskCommentsQuery = z.object({
   /** The id of a top-level comment: the page of the ones older than it. */

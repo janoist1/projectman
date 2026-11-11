@@ -877,6 +877,7 @@ export class MemberProfiles {
   private readonly members: MemberService;
   private readonly tasks: TaskService;
   private readonly inbox: InboxService;
+  private readonly timeline: TimelineService;
   private readonly sessions: MemberProfileSessions;
   private readonly admission: MemberCapacity;
 
@@ -886,6 +887,7 @@ export class MemberProfiles {
     members: MemberService;
     tasks: TaskService;
     inbox: InboxService;
+    timeline: TimelineService;
     sessions: MemberProfileSessions;
     admission: MemberCapacity;
   }) {
@@ -894,6 +896,7 @@ export class MemberProfiles {
     this.members = deps.members;
     this.tasks = deps.tasks;
     this.inbox = deps.inbox;
+    this.timeline = deps.timeline;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
   }
@@ -935,8 +938,9 @@ export class MemberProfiles {
               awaitingKeys.has(t.key)),
         ),
       inbox: openInbox,
-      timeline: this.ctx.repos.timeline
-        .forMember(projectKey, handle)
+      // The comments read as they do now, the earlier versions only for those who may see them (PM-1277).
+      timeline: this.timeline
+        .withCommentEdits(projectKey, this.ctx.repos.timeline.forMember(projectKey, handle))
         .filter((event) => canSeeTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id)))
         .map((event) => visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id))),
       // The Operator's sessions and the PM's conversations with others are the owner's and the admin's to see

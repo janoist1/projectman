@@ -1,10 +1,14 @@
 import {
   accessOfHandle,
+  addedCommentMentions,
   canCommentOnTask,
+  canEditComment,
   commentMentions,
   coverAttachmentId,
   effectiveRepo,
   FullTestErrorReason,
+  isCardComment,
+  isImportedComment,
   isOpenTask,
   isTheme,
   LIVE_SESSION_STATES,
@@ -17,6 +21,8 @@ import {
   reviewTestRunnerBeforeReview,
   stageOf,
   stageOwners,
+  withCommentEdits,
+  withGoneCommentFiles,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -532,6 +538,105 @@ export class TaskStore {
       effects.push(() => this.ctx.events.emit('task_note_added', { event, mentions, task }));
       return event;
     });
+  }
+
+  /**
+   * Edits a comment's text (PM-1277): a new `task_note_edited` event, the note itself stays as written. One
+   * unit of work, so the check of `baseRevision` and the write are atomic. The same text again records
+   * nothing. Returns the stored note (not yet projected: the caller projects the edits for its viewer).
+   */
+  async editComment(
+    projectKey: string,
+    taskKey: string,
+    noteId: string,
+    input: { text: string; baseRevision: string },
+    actor: Actor,
+  ): Promise<TimelineEvent> {
+    const task = this.get(projectKey, taskKey);
+    const config = await this.projects.config(projectKey);
+    assertIntegratorAccess(config, 'write', actor);
+    const effects: Effect[] = [];
+    const note = this.ctx.unitOfWork(() => {
+      const note = this.timeline.get(projectKey, noteId);
+      if (!note || note.taskKey !== taskKey || !isCardComment(note)) throw notFound('comment', noteId);
+      // The editor's access now counts, not the one the request was authorized with.
+      const access =
+        actor.kind === 'ai'
+          ? 'ai'
+          : actor.kind === 'human'
+            ? accessOfHandle(config, actor.handle)
+            : undefined;
+      if (
+        access === undefined ||
+        actor.handle === null ||
+        !canEditComment({ access, handle: actor.handle }, note)
+      )
+        throw forbidden('insufficient_access', 'this comment cannot be edited by you');
+      const edits = this.timeline.editsOfNotes(projectKey, [noteId]);
+      const head = edits.at(-1)?.id ?? note.id;
+      const current = String(edits.at(-1)?.data.text ?? note.data.text ?? '');
+      if (input.text === current) return note;
+      if (input.baseRevision !== head)
+        throw new DomainError('comment_edit_conflict', 'the comment changed since this edit began', {
+          status: 409,
+          details: { currentRevision: head },
+        });
+      const files = withGoneCommentFiles(
+        [note],
+        this.ctx.repos.attachments.liveCommentFileIds(projectKey, taskKey),
+      )[0]!;
+      const attachments = Array.isArray(files.data.attachments)
+        ? (files.data.attachments as { gone?: true }[])
+        : [];
+      if (input.text.length === 0 && !attachments.some((file) => !file.gone))
+        throw invalid('invalid_request', 'a comment without files needs a text');
+      const handles = config.team.members.map((member) => member.handle);
+      const mentions = commentMentions(input.text, handles, actor.handle);
+      const imported = isImportedComment(note);
+      const added = imported
+        ? []
+        : addedCommentMentions({
+            text: input.text,
+            handles,
+            editor: actor.handle,
+            earlier: [
+              Array.isArray(note.data.mentions)
+                ? (note.data.mentions as string[])
+                : commentMentions(String(note.data.text ?? ''), handles, note.actor.handle),
+              ...edits.map((edit) => (edit.data.mentions as string[] | undefined) ?? []),
+            ],
+          });
+      const edit = this.timeline.append({
+        projectKey,
+        taskKey,
+        sessionId: null,
+        actor,
+        type: 'task_note_edited',
+        data: { noteId, text: input.text, mentions, base: head, added },
+      });
+      const targets = mentionItemTargets({ config, author: actor, mentions: added, imported: false });
+      if (targets.length > 0)
+        this.mentions.openMentions({
+          projectKey,
+          taskKey,
+          taskTitle: task.title,
+          source: actor.handle,
+          sessionId: null,
+          text: input.text,
+          targets,
+          payload: {
+            eventId: note.id,
+            place: note.data.replyTo ? 'reply' : 'comment',
+            threadId:
+              typeof note.data.replyTo === 'string' && note.data.replyTo ? note.data.replyTo : note.id,
+          },
+        });
+      const projected = withCommentEdits([note], [...edits, edit])[0]!;
+      effects.push(() => this.ctx.events.emit('task_note_edited', { note: projected, edit, added, task }));
+      return note;
+    });
+    await runEffects(effects);
+    return note;
   }
 
   /** The comment a reply to `target` lands on; 400 `reply_target_invalid` unless it is a comment of this card. */

@@ -1686,7 +1686,16 @@ export function createDomain(opts: DomainOptions) {
   });
   // Read models and flows over the services above.
   const board = new BoardService({ projects, tasks, members, inbox, planUsage: usage, pauses });
-  const profiles = new MemberProfiles({ ctx, projects, members, tasks, inbox, sessions, admission });
+  const profiles = new MemberProfiles({
+    ctx,
+    projects,
+    members,
+    tasks,
+    inbox,
+    timeline,
+    sessions,
+    admission,
+  });
   const invitations = new InvitationService({ ctx, projects, members, accounts: opts.accounts });
   const ownerInvitations = new OwnerInvitationService({ ctx, accounts: opts.accounts });
   const emailLogin =
@@ -2176,6 +2185,15 @@ export function createDomain(opts: DomainOptions) {
       background.run(
         () => webPush.onNote(note.event, note.mentions, note.task),
         () => opts.logger.warn('web push note processing failed'),
+      );
+    });
+  // A comment edit notifies only the mentions no earlier version had (PM-1277); no reply, talk or loop work.
+  events.on('task_note_edited', (edited) => messaging.commentEditNotice(edited));
+  if (!opts.standby)
+    events.on('task_note_edited', (edited) => {
+      background.run(
+        () => webPush.onCommentEdited(edited.note, edited.added, edited.task),
+        () => opts.logger.warn('web push comment edit processing failed'),
       );
     });
   // A changed description reaches the sessions working the card; a reviewer restarts on it (PM-184).

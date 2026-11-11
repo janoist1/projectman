@@ -1786,6 +1786,8 @@ export const hu = {
       document_conflict:
         'Közben valaki módosította a dokumentumot. A saját szöveged megmaradt: töltsd be az újat, és egyesítsd.',
       document_too_large: 'A dokumentum legfeljebb 200 000 bájt lehet.',
+      comment_edit_conflict:
+        'Közben megváltozott a hozzászólás. A saját szöveged megmaradt: nézd meg az újat, és mentsd újra.',
       document_message_required: 'Add meg egy sorban, miért változtatod a dokumentumot.',
       message_attachment_unavailable: 'Egy fájl már nem érhető el: vedd ki, és csatold újra.',
       message_attachment_limit: 'Egyszerre legfeljebb 20 el nem küldött csatolmányod lehet.',
@@ -6022,6 +6024,7 @@ export const hu = {
       task_cancelled_duplicate: 'Lezárta duplikátumként: {original}',
       task_reopened: 'Újranyitotta a kártyát.',
       task_reopened_reason: 'Újranyitotta a kártyát: {reason}',
+      note_edited: 'Szerkesztett egy hozzászólást.',
       parts_left_told:
         'Emlékeztető ment ide: {name}. A bontás után a kezdő lépésben maradt alkártyák: {parts}.',
       parts_left_alerted:

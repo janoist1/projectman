@@ -4,7 +4,7 @@ export function createTimelineService(
   return new TimelineService(ctx);
 }
 
-import { isLoopWork } from '@projectman/shared';
+import { isLoopWork, withCommentEdits } from '@projectman/shared';
 import type { Actor, TimelineEvent, TimelineEventData, TimelineEventType } from '@projectman/shared';
 import { isoNow } from '../base';
 import type { DomainContext } from '../base';
@@ -72,6 +72,20 @@ export class TimelineService {
   /** All the notes of a card, oldest first (PM-1290). */
   notesOfCard(projectKey: string, taskKey: string): TimelineEvent[] {
     return this.ctx.repos.timeline.notesOfCard(projectKey, taskKey);
+  }
+
+  /** The edits of the given comments, oldest first (PM-1277). */
+  editsOfNotes(projectKey: string, noteIds: readonly string[]): TimelineEvent[] {
+    return this.ctx.repos.timeline.editsOfNotes(projectKey, noteIds);
+  }
+
+  /** The events with every comment's latest text and its `edited` mark (PM-1277); the stored notes stay as written. */
+  withCommentEdits(projectKey: string, events: readonly TimelineEvent[]): TimelineEvent[] {
+    const noteIds = events.filter((event) => event.type === 'task_note').map((event) => event.id);
+    // An edit event itself still shrinks to its `noteId`, so no earlier text leaves in it.
+    if (noteIds.length === 0 && !events.some((event) => event.type === 'task_note_edited'))
+      return [...events];
+    return withCommentEdits(events, this.editsOfNotes(projectKey, noteIds));
   }
 
   /** The note this author already submitted on the card with this client request id, or null (PM-1290). */

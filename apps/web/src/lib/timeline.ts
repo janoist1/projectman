@@ -771,6 +771,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'task_note':
       return normal(str(d.text));
+    // The Process story leaves it out (`isProcessTimelineEvent`); another list (a member's page) names it.
+    case 'task_note_edited':
+      return normal(t('timeline.events.note_edited'));
     case 'attachment_added':
     case 'attachment_deleted':
       return normal(

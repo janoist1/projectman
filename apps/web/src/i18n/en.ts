@@ -403,6 +403,8 @@ export const en = {
       document_conflict:
         'Someone changed the document meanwhile. Your own text is kept: load the new version and merge.',
       document_too_large: 'A document can be at most 200,000 bytes.',
+      comment_edit_conflict:
+        'The comment changed meanwhile. Your own text is kept: look at the new version and save again.',
       document_message_required: 'Say in one line why you change the document.',
       message_attachment_unavailable: 'A file is no longer available: remove it and attach it again.',
       message_attachment_limit: 'You can have at most 20 unsent attachments at a time.',
@@ -3515,6 +3517,7 @@ export const en = {
       task_cancelled_duplicate: 'Closed as a duplicate: {original}',
       task_reopened: 'Reopened the card.',
       task_reopened_reason: 'Reopened the card: {reason}',
+      note_edited: 'Edited a comment.',
       parts_left_told: 'Reminder sent to {name}. Parts left in the first stage after the split: {parts}.',
       parts_left_alerted:
         'Owner notified: parts that stayed in the first stage even after the reminder ({name}): {parts}.',

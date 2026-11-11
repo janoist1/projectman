@@ -5,6 +5,12 @@ where it went. Newest first. The owner's decisions stay in [DECISIONS.md](DECISI
 file keeps the experience behind them, so that members and the project manager do not learn it
 twice. Anyone may propose a lesson; the project manager adds it.
 
+## 2026-11-11: tests the hand-over check did not reach
+
+**A visibility test outside the import graph.** PM-1331 changed `packages/shared/src/domain/timeline-visibility.ts` and `domain/comments.ts`. The merge test failed in `apps/server/test/visibility.test.ts`: `visibleTimelineEvent` crashed on a `task_note` without `data`. A `handover-check` dry run had not selected the test. _Lesson:_ do not add a line to the hand-over list. Widen the selection instead: a `SELECTION_RULES` rule in `scripts/merge-test/handover.ts` should select `test/visibility.test.ts` when `timeline-visibility.ts` or `domain/comments.ts` changes. (PM-1331)
+
+**A related run became the whole suite again.** On PM-1210 a developer's `vitest related` on the merge facade selected 288 test files and turned into a full run. The member stopped it and ran three behaviour test files instead. This is the third case after PM-363 and PM-1271, so the guard the 2026-11-06 lesson proposed is now a card: a developer's related run above a threshold stops with the file list and says what to run instead. (PM-1210, PM-1330)
+
 ## 2026-11-06: a snapshot in another workspace
 
 **The MCP tool snapshot failed three merges.** PM-1196, PM-1274 and PM-1285 changed a `packages/shared` schema that a team tool takes as input. The tool definition snapshot (`apps/server/src/mcp/__snapshots__/tools.test.ts.snap`) changed with it, but `vitest related` run in `packages/shared` does not select a test in `apps/server`, and the merge test failed. _Lesson:_ after changing a schema a team tool uses, run `npx vitest run src/mcp/tools.test.ts --configLoader runner` in `apps/server` (update with `-u`). A third checklist line for one more cross-workspace case is a patch (decision 75): the hand-over check should select the affected tests across workspaces from the diff, as the merge test does. (PM-1196, PM-1274, PM-1285)

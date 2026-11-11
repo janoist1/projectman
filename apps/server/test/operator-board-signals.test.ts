@@ -151,10 +151,11 @@ describe('merge_blocked signal', () => {
     h.repos.operatorSignals.insert(row('ops_ready', 'ready_waiting', 'open'));
     h.repos.operatorSignals.insert(row('ops_stalled', 'refinement_stalled', 'open'));
     h.repos.operatorSignals.insert(row('ops_nobody', 'nobody', 'open'));
+    h.repos.operatorSignals.insert(row('ops_unreleased', 'unreleased', 'open'));
     h.repos.operatorSignals.insert(row('ops_old', 'merge_waiting', 'resolved'));
     await sweep();
     const byId = (id: string) => h.repos.operatorSignals.get(id)!;
-    for (const id of ['ops_idle', 'ops_ready', 'ops_stalled', 'ops_nobody']) {
+    for (const id of ['ops_idle', 'ops_ready', 'ops_stalled', 'ops_nobody', 'ops_unreleased']) {
       expect(byId(id).state).toBe('resolved');
       expect(byId(id).resolvedAt).not.toBeNull();
     }
@@ -219,13 +220,20 @@ describe('obligation_overdue signal: the dismissal', () => {
   );
 });
 
-describe('unreleased signal (PM-1201)', () => {
+describe('release_due todo (PM-1333)', () => {
   const hours = (n: number) => new Date(now.getTime() - n * 3_600_000).toISOString();
   const withGithub = (config: ProjectConfig) => {
     config.project.repos[0]!.github = 'acme/web';
   };
+  const todos = (state: 'open' | 'cancelled' = 'open') =>
+    h.repos.inbox
+      .list('AR', { kind: 'question', state })
+      .filter(
+        (item) => (item.payload.systemAlert as { alert?: string } | undefined)?.alert === 'release_due',
+      );
+  const markers = () => todos().map((item) => (item.payload.systemAlert as { key: string }).key);
 
-  it('rises once the oldest unreleased merge is a day old, and ends with the release that moves the base', async () => {
+  it('opens one integrator todo once the oldest unreleased merge is a day old, and closes it when the release moves the base', async () => {
     await setup({ adjust: withGithub });
     await mergeCards(h, 'web', [
       { commit: sha(1), at: hours(100) },
@@ -234,12 +242,17 @@ describe('unreleased signal (PM-1201)', () => {
     ]);
     publishRelease(h, 'web', sha(1), hours(100));
     await sweep();
-    expect(open('unreleased').map((s) => [s.caseKey, s.taskKey, s.subject])).toEqual([
-      [`unreleased:web:${sha(1)}`, null, '2'],
+    expect(todos().map((item) => [item.source, item.payload.systemAlert])).toEqual([
+      ['system', { alert: 'release_due', key: `web@${sha(1)}` }],
     ]);
+    // No signal for the PM and nobody to start: the todo is the whole alert.
+    expect(open('unreleased')).toEqual([]);
+    await sweep();
+    expect(todos()).toHaveLength(1);
     publishRelease(h, 'web', sha(3), hours(1));
     await sweep();
-    expect(open('unreleased')).toEqual([]);
+    expect(todos()).toEqual([]);
+    expect(todos('cancelled')).toHaveLength(1);
   });
 
   it('stays closed while the oldest unreleased merge is younger than a day', async () => {
@@ -250,13 +263,43 @@ describe('unreleased signal (PM-1201)', () => {
     ]);
     publishRelease(h, 'web', sha(1), hours(100));
     await sweep();
-    expect(open('unreleased')).toEqual([]);
+    expect(todos()).toEqual([]);
     later(60);
     await sweep();
-    expect(open('unreleased')).toHaveLength(1);
+    expect(todos()).toHaveLength(1);
   });
 
-  it('keeps a separate case for each repository', async () => {
+  it('does not open a closed todo again within a day, and does after it', async () => {
+    await setup({ adjust: withGithub });
+    await mergeCards(h, 'web', [
+      { commit: sha(1), at: hours(100) },
+      { commit: sha(2), at: hours(30) },
+    ]);
+    publishRelease(h, 'web', sha(1), hours(100));
+    await sweep();
+    h.domain.inbox.cancel(todos()[0]!.id);
+    later(23 * 60);
+    await sweep();
+    expect(todos()).toEqual([]);
+    later(2 * 60);
+    await sweep();
+    expect(markers()).toEqual([`web@${sha(1)}`]);
+  });
+
+  it('keeps a todo open past a day without opening a second one', async () => {
+    await setup({ adjust: withGithub });
+    await mergeCards(h, 'web', [
+      { commit: sha(1), at: hours(100) },
+      { commit: sha(2), at: hours(30) },
+    ]);
+    publishRelease(h, 'web', sha(1), hours(100));
+    await sweep();
+    later(30 * 60);
+    await sweep();
+    expect(todos()).toHaveLength(1);
+  });
+
+  it('keeps a separate todo for each repository', async () => {
     await setup({
       adjust: (config) => {
         withGithub(config);
@@ -271,13 +314,10 @@ describe('unreleased signal (PM-1201)', () => {
       publishRelease(h, repo, sha(1), hours(100));
     }
     await sweep();
-    expect(open('unreleased').map((s) => s.caseKey)).toEqual(
-      expect.arrayContaining([`unreleased:web:${sha(1)}`, `unreleased:notes:${sha(1)}`]),
-    );
-    expect(open('unreleased')).toHaveLength(2);
+    expect(markers().sort()).toEqual([`notes@${sha(1)}`, `web@${sha(1)}`]);
     publishRelease(h, 'web', sha(2), hours(1));
     await sweep();
-    expect(open('unreleased').map((s) => s.caseKey)).toEqual([`unreleased:notes:${sha(1)}`]);
+    expect(markers()).toEqual([`notes@${sha(1)}`]);
   });
 });
 

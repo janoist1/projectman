@@ -553,6 +553,19 @@ export const MachineBusyAlert = z.object({
 export type MachineBusyAlert = z.infer<typeof MachineBusyAlert>;
 
 /**
+ * `release_due` (PM-1333): `count` merges on the default branch `base` of repository `repo` have waited for a
+ * release since `oldestAt`, at least a day. One open todo per repository and base (marker `repo@base`); it closes
+ * when the release moves the base.
+ */
+const ReleaseDueAlert = z.object({
+  alert: z.literal('release_due'),
+  repo: z.string().min(1),
+  base: z.string().min(7),
+  count: z.number().int().positive(),
+  oldestAt: z.string(),
+});
+
+/**
  * `worktree_kept` (PM-243): the cleanup of the worktrees of closed cards left the worktree of card
  * `taskKey` (`changes` uncommitted files) in place, because removing it would lose that work. Raised
  * once per closing of the card.
@@ -699,6 +712,7 @@ export const AlertPayload = z.discriminatedUnion('alert', [
   FeedbackForwardedAlert,
   WorkStalledAlert,
   HostRequestAnsweredAlert,
+  ReleaseDueAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 

@@ -1874,7 +1874,6 @@ describe('system prompt', () => {
         return builder.build(input({ project, handle: 'pm' })).guide.role!;
       };
       const ban = 'You change nothing until an owner says yes';
-      const unreleased = 'On an unreleased signal, at any level, start the deployment duty member';
       const step = 'the tool named in its step field (start_task or start_member)';
 
       it('lets a project that sets no level only report, and bans every change until an owner says yes', () => {
@@ -1886,9 +1885,10 @@ describe('system prompt', () => {
       });
 
       it.each(['report', 'unblock', 'drive'] as const)(
-        'lets the PM start the release owner on an unreleased signal at level %s (PM-1201)',
+        'gives the PM no unreleased step at level %s (PM-1333: the release_due todo carries it)',
         (level) => {
-          expect(promptAt(level)).toContain(unreleased);
+          expect(promptAt(level)).not.toMatch(/unreleased/i);
+          expect(promptAt(level, 'en', 'outside_owner_only')).not.toMatch(/unreleased/i);
         },
       );
 
@@ -1914,7 +1914,7 @@ describe('system prompt', () => {
         expect(drive).toContain(
           'up to three steps per signal, at least 30 minutes apart (steps_left, next_step_at)',
         );
-        expect(drive).toContain('When steps_left is 0 on any other signal, bring the signal to the owners.');
+        expect(drive).toContain('When steps_left is 0 on a signal, bring the signal to the owners.');
         expect(drive).not.toContain(ban);
       });
 
@@ -1947,7 +1947,6 @@ describe('system prompt', () => {
           const operator = promptAt(level, 'en', 'outside_owner_only');
           expect(operator).toContain('A signal grants no right of its own');
           expect(operator).toContain('your own authority');
-          expect(operator).toContain(unreleased);
           expect(operator).toContain('signal_not_for_owner');
           expect(operator).not.toContain(ban);
           expect(operator).not.toContain('Apart from the step a signal names');

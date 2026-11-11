@@ -243,10 +243,14 @@ dedicated workflow (`cloud-deploy` and `engine-release`; `isProductionComputeJob
 queue item issued by an AI member runs with that member's rights, so it is refused as well; an item the system
 issued is taken in person and passes. Without a live authenticated execution there is no authority.
 
-**When it starts.** The owner asks for a release, or the connected Claude decides to run the chain. The hub's
-`unreleased` signal (`caseKey` `unreleased:<repo>:<base>`, the oldest merge on the default branch since the
-previous release is at least `OPERATOR_UNRELEASED_HOURS` (24) hours old) may still start the devops, who then only
-prepares: it previews and reports the tag, commit and cards, and does not deploy.
+**When it starts.** The owner asks for a release, or the connected Claude decides to run the chain. A merge that
+waits too long also asks for it: when the oldest merge on a repository's default branch since the previous release is
+at least `OPERATOR_UNRELEASED_HOURS` (24) hours old, the hub's operator sweep opens one `release_due` machine todo
+for the integrator (PM-1333; payload `alert`, `repo`, `base`, `count`, `oldestAt`; marker `<repo>@<base>`, one open
+todo per repository and base). It does not start the devops and raises no `unreleased` signal. The connected Claude
+takes the todo in person (the system issued it, so its step passes the gate above), runs the chain or says why the
+release waits. The todo closes by itself when the base moves after a release; a todo closed by hand is not reopened
+within 24 hours.
 
 **The chain**, run by the connected Claude on its endpoint (`publish_release` and `get_release_status` are
 bound there since PM-1238), reporting to the owner afterwards:

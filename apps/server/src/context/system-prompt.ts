@@ -946,7 +946,7 @@ const LESSONS_RULE =
  * (`OperatorSignals`) tells the same per signal, so the two must not contradict each other.
  */
 const SIGNAL_STEP_EXCEPTION =
-  "Apart from the step a signal names (its step field, the unreleased step included) and the card's repository on a start_blocked repo_required signal, on a signal you never merge, release, approve, move a card, or set a label or a setting.";
+  "Apart from the step a signal names (its step field) and the card's repository on a start_blocked repo_required signal, on a signal you never merge, release, approve, move a card, or set a label or a setting.";
 
 /**
  * What a signal permits (PM-1287): the signal itself grants no right and a step with a signal_id follows the level.
@@ -957,7 +957,7 @@ function signalStepRule(level: OperatorWatch, authority: ProjectManagerAuthority
     return level === 'report'
       ? 'Never merge, release, approve, move cards, set labels or settings on a signal.'
       : SIGNAL_STEP_EXCEPTION;
-  return `A signal grants no right of its own: ${level === 'report' ? 'at this level the only signal_id step is the unreleased one' : 'a signal_id step is only the one its step field names (the unreleased step included) and the repository of a start_blocked repo_required card'}. The same task you may do on your own authority, as after any observation. Merge, release and approval stay forbidden.`;
+  return `A signal grants no right of its own: ${level === 'report' ? 'at this level there is no signal_id step' : 'a signal_id step is only the one its step field names and the repository of a start_blocked repo_required card'}. The same task you may do on your own authority, as after any observation. Merge, release and approval stay forbidden.`;
 }
 
 function signalRules(
@@ -971,15 +971,11 @@ function signalRules(
   const someoneToAct = machineAccess
     ? 'open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it.'
     : 'ask the owners with ask_human what to do; you cannot put machine work in their queue.';
-  const never = `${authority === 'owner_request' && level === 'report' ? "On a signal you never merge, release, approve, move a card, or set a label or a setting (the one exception: the card's repository on a start_blocked repo_required signal, as the signal rules say)." : signalStepRule(level, authority)} When a stalled, silent, outage or start_blocked signal needs someone to act, ${someoneToAct} A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human, its owner_topic and the signal's signal_id (a question about a signal always carries it). The server refuses an owner question about an unreleased, structural_pattern or milestone_closed signal (signal_not_for_owner). ${authority === 'owner_request' ? "Anything else on a signal only after an owner's yes." : "Anything else is your call on your own authority, or waits for an owner's yes where the authority line asks for one."}`;
+  const never = `${authority === 'owner_request' && level === 'report' ? "On a signal you never merge, release, approve, move a card, or set a label or a setting (the one exception: the card's repository on a start_blocked repo_required signal, as the signal rules say)." : signalStepRule(level, authority)} When a stalled, silent, outage or start_blocked signal needs someone to act, ${someoneToAct} A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human, its owner_topic and the signal's signal_id (a question about a signal always carries it). The server refuses an owner question about a structural_pattern or milestone_closed signal (signal_not_for_owner). ${authority === 'owner_request' ? "Anything else on a signal only after an owner's yes." : "Anything else is your call on your own authority, or waits for an owner's yes where the authority line asks for one."}`;
   const message = `Send the owners at most one message per wake-up: send_message (kind info) with signal_ids, covering every signal of the wake-up except structural_pattern and milestone_closed, in two parts: ${bold(report.done)} (signal → step → result) and ${bold(report.decision)} (what you propose); put the signals the owners must decide in actionable_signal_ids. Leave out a part that is empty; if you did nothing and nothing needs a decision, write nothing.`;
-  // The owner's decision (PM-1201): the release proposal is stepped on at every level; it only starts one question.
-  const unreleased =
-    'On an unreleased signal, at any level, start the deployment duty member with start_member and a short task as a text (propose a release with the preview), as the step field says, once per 24 hours (next_step_at); do not bring that signal to the owners (the server refuses an ask_human about it with signal_not_for_owner): the member asks the owner one question, and nothing live changes before the owner says yes.';
   if (level === 'report')
     return [
-      `${check} Then bring each signal to the owners with what happened and what you propose. ${authority === 'owner_request' ? 'You change nothing until an owner says yes' : 'The signal itself changes nothing'}; the one exception is the unreleased step below.`,
-      unreleased,
+      `${check} Then bring each signal to the owners with what happened and what you propose. ${authority === 'owner_request' ? 'You change nothing until an owner says yes' : 'The signal itself changes nothing'}.`,
       never,
       message,
     ];
@@ -987,10 +983,10 @@ function signalRules(
   const followUp =
     'A signal that comes back with follow_up true was acted on (steps lists what): tell the owners what you did and what became of it.';
   return level === 'unblock'
-    ? [`${check} ${step} It is one step per signal (steps_left).`, unreleased, followUp, never, message]
+    ? [`${check} ${step} It is one step per signal (steps_left).`, followUp, never, message]
     : [
         `${check} ${step} It is up to three steps per signal, at least 30 minutes apart (steps_left, next_step_at).`,
-        `${unreleased} When steps_left is 0 on any other signal, bring the signal to the owners.`,
+        'When steps_left is 0 on a signal, bring the signal to the owners.',
         followUp,
         never,
         message,

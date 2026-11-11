@@ -598,7 +598,7 @@ export class ToolCaller {
       throw new TeamToolError('forbidden', `${code}: ${text}`);
     };
     const noRequest = `${step.tool} writes, and the Operator writes only for an open request of an owner`;
-    // At `report` the shared rule refuses every kind but the one the owner granted (`unreleased`).
+    // At `report` the shared rule refuses every kind.
     const { signal, allowed } = await this.operatorSignals
       .stepTargets(ctx.projectKey, step.signalId)
       .catch((err: unknown) => {
@@ -631,7 +631,7 @@ export class ToolCaller {
         'operator_signal_budget',
         refusal.reason === 'used'
           ? 'this signal has no step left; tell the owner what you did and what became of it.'
-          : `the last step on this signal was less than ${operatorSignalStepGapMs(signal.kind) / 60_000} minutes ago; retry after ${refusal.retryAt}.`,
+          : `the last step on this signal was less than ${operatorSignalStepGapMs() / 60_000} minutes ago; retry after ${refusal.retryAt}.`,
       );
     // The budget counts logged steps, and a step is logged only after it ran: a call that arrives while
     // another step on this signal is running would pass the count too. No await between the count and here.

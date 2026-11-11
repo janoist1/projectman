@@ -17,7 +17,7 @@ export function isCoordinatorOnlySignal(kind: OperatorSignalKind): boolean {
 
 /**
  * The signal kinds the owners never get a question about (PM-1243): the coordinator takes the signal's own
- * step (`unreleased`: the deployment duty's member is started, the release closes it) or closes it
+ * step (`unreleased`, a retired kind: a `release_due` integrator todo carries the case now) or closes it
  * (`dismiss_signal`). The server refuses an owner question tied to one (`ownerQuestionSignalRefusal`).
  */
 export const OWNER_SILENT_SIGNAL_KINDS: readonly OperatorSignalKind[] = [
@@ -35,7 +35,7 @@ export function ownerQuestionSignalRefusalMessage(kind: OperatorSignalKind): str
   return (
     `signal_not_for_owner: the owners do not get a question about a ${kind} signal. ` +
     (kind === 'unreleased'
-      ? 'An unreleased signal ends when the release is published, so take its step (start_member on the deployment duty’s member); '
+      ? 'An unreleased signal is retired: the release_due integrator todo carries it, so leave it; '
       : 'It is for you only; ') +
     'a machine step belongs to open_integrator_todo, and a signal meant for you alone is closed with dismiss_signal.'
   );
@@ -65,25 +65,15 @@ export const OPERATOR_SIGNAL_STEP_KINDS: Record<OperatorWatch, readonly Operator
   unblock: ['obligation_overdue', 'merge_blocked', 'answer_stalled', 'start_blocked'],
   drive: ['obligation_overdue', 'merge_blocked', 'answer_stalled', 'start_blocked'],
 };
-/**
- * The signal kinds whose one step the owner has granted at every level, `report` too (PM-1201): an `unreleased`
- * signal lets the coordinator start the deployment duty's member, who asks the owner for the release. The step
- * only starts one question; nothing live changes before the owner's yes.
- */
-const OPERATOR_OWNER_GRANTED_STEP_KINDS: readonly OperatorSignalKind[] = ['unreleased'];
-/** The least time between two steps on one granted signal; such a signal has no limit on their number. */
-export const OPERATOR_UNRELEASED_STEP_GAP_HOURS = 24;
 
-/** Whether the kind is stepped on at this level: by the owner's grant, or by the level's own list. */
+/** Whether the kind is stepped on at this level: by the level's own list. */
 export function operatorSignalStepAllowed(level: OperatorWatch, kind: OperatorSignalKind): boolean {
-  return OPERATOR_OWNER_GRANTED_STEP_KINDS.includes(kind) || OPERATOR_SIGNAL_STEP_KINDS[level].includes(kind);
+  return OPERATOR_SIGNAL_STEP_KINDS[level].includes(kind);
 }
 
-/** The least time between two own steps on a signal of this kind, in milliseconds. */
-export function operatorSignalStepGapMs(kind: OperatorSignalKind): number {
-  return OPERATOR_OWNER_GRANTED_STEP_KINDS.includes(kind)
-    ? OPERATOR_UNRELEASED_STEP_GAP_HOURS * 3_600_000
-    : OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000;
+/** The least time between two own steps on a signal, in milliseconds. */
+export function operatorSignalStepGapMs(): number {
+  return OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000;
 }
 /**
  * The signal kinds whose wake-ups go on the project's fast line (PM-694): at most one wake-up per
@@ -111,19 +101,13 @@ export function operatorSignalBudget(
   level: OperatorWatch,
   stepsAt: readonly string[],
   now: string,
-  kind?: OperatorSignalKind,
 ): { left: number; nextAt: string | null } {
-  // A granted signal has no limit on the number of its steps: one is always left, once its gap has passed.
-  const granted = kind !== undefined && OPERATOR_OWNER_GRANTED_STEP_KINDS.includes(kind);
-  const left = granted ? 1 : Math.max(0, OPERATOR_SIGNAL_STEPS[level] - stepsAt.length);
+  const left = Math.max(0, OPERATOR_SIGNAL_STEPS[level] - stepsAt.length);
   const last = stepsAt.reduce<number | null>((max, at) => {
     const time = Date.parse(at);
     return max === null || time > max ? time : max;
   }, null);
-  const next =
-    last === null
-      ? null
-      : last + (kind ? operatorSignalStepGapMs(kind) : OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000);
+  const next = last === null ? null : last + operatorSignalStepGapMs();
   return {
     left,
     nextAt: left > 0 && next !== null && Date.parse(now) < next ? new Date(next).toISOString() : null,
@@ -132,8 +116,7 @@ export function operatorSignalBudget(
 
 /**
  * Why the coordinator may not take this step on a signal without an owner's request, or null when it may.
- * It decides in this order: the level, the signal kind, the tool, the target, then the budget. A kind the owner
- * granted (`OPERATOR_OWNER_GRANTED_STEP_KINDS`) passes the level check and has a gap but no count limit.
+ * It decides in this order: the level, the signal kind, the tool, the target, then the budget.
  */
 export function operatorSignalStepRefusal(input: {
   level: OperatorWatch;
@@ -145,8 +128,7 @@ export function operatorSignalStepRefusal(input: {
   now: string;
 }): OperatorSignalStepRefusal | null {
   const { level, tool, target, allowed } = input;
-  const granted = OPERATOR_OWNER_GRANTED_STEP_KINDS.includes(input.kind);
-  if (level === 'report' && !granted) return { code: 'operator_no_request', reason: 'level' };
+  if (level === 'report') return { code: 'operator_no_request', reason: 'level' };
   if (!operatorSignalStepAllowed(level, input.kind)) return { code: 'operator_no_request', reason: 'kind' };
   if (tool === 'start_task' ? allowed.startTask === null : allowed.members.length === 0)
     return { code: 'operator_no_request', reason: 'tool' };
@@ -157,8 +139,8 @@ export function operatorSignalStepRefusal(input: {
         allowed.members.includes(target.member) &&
         target.taskKey === allowed.taskKey;
   if (!onTarget) return { code: 'operator_no_request', reason: 'target' };
-  if (!granted && input.stepsAt.length >= OPERATOR_SIGNAL_STEPS[level])
+  if (input.stepsAt.length >= OPERATOR_SIGNAL_STEPS[level])
     return { code: 'operator_signal_budget', reason: 'used', retryAt: null };
-  const { nextAt } = operatorSignalBudget(level, input.stepsAt, input.now, input.kind);
+  const { nextAt } = operatorSignalBudget(level, input.stepsAt, input.now);
   return nextAt ? { code: 'operator_signal_budget', reason: 'too_soon', retryAt: nextAt } : null;
 }

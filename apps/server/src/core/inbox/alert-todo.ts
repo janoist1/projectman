@@ -6,7 +6,7 @@ const GB = 1024 ** 3;
 /** The alert kinds that become a todo for the integrator (`ALERT_ROUTE_CLASS`: `integrator_queue`). */
 export type MachineAlert = Extract<
   AlertPayload,
-  { alert: 'disk_low' | 'machine_busy' | 'worktree_kept' | 'session_input' }
+  { alert: 'disk_low' | 'machine_busy' | 'worktree_kept' | 'session_input' | 'release_due' }
 >;
 
 export function isMachineAlert(alert: AlertPayload): alert is MachineAlert {
@@ -14,7 +14,8 @@ export function isMachineAlert(alert: AlertPayload): alert is MachineAlert {
     alert.alert === 'disk_low' ||
     alert.alert === 'machine_busy' ||
     alert.alert === 'worktree_kept' ||
-    alert.alert === 'session_input'
+    alert.alert === 'session_input' ||
+    alert.alert === 'release_due'
   );
 }
 
@@ -28,11 +29,15 @@ export function isProjectAlert(alert: string): boolean {
   return alert === 'disk_low' || alert === 'machine_busy';
 }
 
-/** The marker an alert todo carries on its payload. `key` is the card, else the session, else empty (the project). */
+/**
+ * The marker an alert todo carries on its payload. `key` is the card, else the session, else empty (the project);
+ * for `release_due` it is `repo@base`.
+ */
 export function alertMarkerOf(
   alert: MachineAlert,
   scope: { taskKey: string | null; sessionId: string | null },
 ): AlertMarker {
+  if (alert.alert === 'release_due') return { alert: alert.alert, key: `${alert.repo}@${alert.base}` };
   return {
     alert: alert.alert,
     key: isProjectAlert(alert.alert) ? '' : (scope.taskKey ?? scope.sessionId ?? ''),
@@ -82,6 +87,12 @@ export function alertTodoOf(
         what: `The session of ${scope.member} has waited for input at its terminal for ${alert.minutes} minutes and no question explains it${alert.activity ? ` (last seen: ${cut(alert.activity, 200)})` : ''}. Messages for it are held back until it carries on.`,
         where: scope.sessionId ? `Session ${scope.sessionId}.` : `The session of ${scope.member}.`,
         expected: 'The session carries on, or it is stopped.',
+      };
+    case 'release_due':
+      return {
+        what: `${alert.count} merged card(s) have waited for a release on the default branch of ${alert.repo} since the last release (${alert.base.slice(0, 12)}), the oldest since ${alert.oldestAt}. Before production changes (decision 68) the connected Claude decides whether to run the release chain now (docs/DEPLOY.md, "The release chain (PM-1193)") and reports afterwards.`,
+        where: `Repository ${alert.repo}, default branch, last release ${alert.base.slice(0, 12)}.`,
+        expected: 'The release is published (the todo closes by itself), or say why it waits.',
       };
   }
 }

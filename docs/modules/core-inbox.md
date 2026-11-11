@@ -103,9 +103,10 @@ an issuer without machine access sends it to the technical decider (PM-1139), an
 (`issuer_without_machine_access`). Nothing is ever opened for the owners as a fallback. The route is stored on the item
 (`InboxItem.route`, column `route`) and written to the timeline as `item_routed`. `screen_question.todo.recipient` is
 optional and does not decide; **alerts** go through one entry point, `InboxService.raiseAlert` (PM-1250), which
-applies `ALERT_ROUTE_CLASS` and never lets its creator choose the class of the recipient. `disk_low`, `machine_busy`, `worktree_kept` and
-`session_input` become an integrator todo (a `question` item with Done and Cannot, marked `payload.systemAlert =
-{alert, key}`; one open per kind and card, `settleAlert` cancels it when the cause is gone); `work_outage` and
+applies `ALERT_ROUTE_CLASS` and never lets its creator choose the class of the recipient. `disk_low`, `machine_busy`, `worktree_kept`,
+`session_input` and `release_due` (PM-1333; key `repo@base`) become an integrator todo (a `question` item with Done and Cannot, marked `payload.systemAlert =
+{alert, key}`; one open per kind and card, `settleAlert` cancels it when the cause is gone, or all but the keys in
+its `keep` list; an open todo also blocks a new one whose `onceSince` has passed); `work_outage` and
 `relation_check` become a signal of the project manager through the `AlertPmSignals` port (registered by
 `services/coordination`), and become an owner notice when the project has no project manager; `session_tokens`,
 `provider_rate_limited`, `refinement` done, `feedback_forwarded`, `host_request_answered` and `email_parked` become a
@@ -130,7 +131,7 @@ one of the project's owner topics (`ownerTopicRefusal` in `packages/shared`); a 
 records `approval` instead, and the system releases (fallback, the connected Claude's refusal) and every todo need none
 (an `owner_topic` given with a todo is accepted and not recorded).
 Signals (PM-1243): `ownerQuestionSignalRefusal` (`packages/shared`, `operator-watch.ts`) makes the MCP
-`ask_human` refuse (`signal_not_for_owner`) a question tied by `signal_id` to an `unreleased`,
+`ask_human` refuse (`signal_not_for_owner`) a question tied by `signal_id` to an `unreleased` (a retired kind, old rows only; the `release_due` alert todo carries it, PM-1333),
 `structural_pattern` or `milestone_closed` signal; no inbox item is made.
 `HumanQuestions.ask` applies the same rule to the coordinator's own question and to a re-ask,
 except for information and approval questions, and refuses `ownerTopic` on any other member's

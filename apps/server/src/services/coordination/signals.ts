@@ -14,7 +14,6 @@ import {
   OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
   memberQueueSourceId,
   coordinationMemberOf,
-  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEPS,
   OPERATOR_UNRELEASED_HOURS,
   operatorSignalBudget,
@@ -85,18 +84,16 @@ type SignalInput = {
 };
 
 /** The kinds raised and closed from the board's facts (PM-547), not from an event. */
-const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
-  'merge_blocked',
-  'unreleased',
-  'answer_stalled',
-]);
+const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set(['merge_blocked', 'answer_stalled']);
 
 /**
  * The kinds of the stall detectors PM-1152 and PM-1226 removed: nothing raises them any more (the `next_step`
  * obligation ladder carries those stalls), so an open row an older build left is resolved by the sweep (state,
- * event and the questions asked about it, as for any ended case).
+ * event and the questions asked about it, as for any ended case). `unreleased` is retired by PM-1333: the
+ * `release_due` integrator todo carries the case.
  */
 const RETIRED_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
+  'unreleased',
   'idle',
   'merge_waiting',
   'ready_waiting',
@@ -122,7 +119,7 @@ const CARD_EVENTS_READ = 300;
 const REBOUND_PREFIX = 'rebound:';
 
 const WAKE_NEVER =
-  "A signal grants no right: on it never merge, release or approve, and change nothing more than your authority line allows. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and the signal's signal_id (never about an unreleased, structural_pattern or milestone_closed signal: the server refuses it); a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
+  "A signal grants no right: on it never merge, release or approve, and change nothing more than your authority line allows. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and the signal's signal_id (never about a structural_pattern or milestone_closed signal: the server refuses it); a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
 const WAKE_ONE_MESSAGE =
   'Send the owners one message for the whole wake-up (send_message with signal_ids, excluding structural_pattern and milestone_closed; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
 const WAKE_STRUCTURAL =
@@ -133,8 +130,6 @@ const WAKE_LOOP =
   'A loop_suspected signal is report-only: inspect current card, commits, review findings and delivery; call triage_loop with evidence and progress or loop. Message count alone is no loop. Never present it to owners as an authorization request, stop work or choose stop/let_run.';
 const WAKE_STEP =
   'Where a signal has a step, you may take it yourself with its signal_id after weighing it, within steps_left and not before next_step_at; a signal with follow_up true was acted on, so tell the owners what you did and what became of it.';
-const WAKE_UNRELEASED =
-  "An unreleased signal is the one exception at every level: take its step (start_member on the deployment member, once per 24 hours) and do not bring it to the owners (the server refuses an owner question about it: signal_not_for_owner); the member asks the owner one question, and nothing live changes before the owner's yes.";
 const WAKE_DISMISS =
   'An obligation_overdue signal says the responsible did not act even after the reminder, and that the step goes to a person at hand_over_at in its facts: check get_task and get_project_state first; when the situation is only intermediate or already resolved (the member works again, the label is on, a question is open, the card moved on) close it with dismiss_signal and a note and write nothing to the owners; otherwise take its step or leave it to go to the person.';
 
@@ -143,9 +138,9 @@ const WAKE_SENIOR =
 
 /** The wake-up text by level; it says in short what `projectManagerRule` (context/system-prompt.ts) says. */
 const WAKE_HEADERS: Record<OperatorWatch, string> = {
-  report: `${WAKE_CHECK} The signal itself changes nothing: your authority line says what you may do.${WAKE_UNRELEASED} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
-  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_UNRELEASED} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  report: `${WAKE_CHECK} The signal itself changes nothing: your authority line says what you may do. ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_SENIOR} ${WAKE_STRUCTURAL} ${WAKE_ONE_MESSAGE}`,
 };
 
 /** The case key of a card's blocked start: one per card and reason (PM-455). */
@@ -224,7 +219,7 @@ export class OperatorSignals {
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     /** What an outage is now (members, cards); null when it is over. The outage has no inbox item since PM-1250. */
     outageFacts: (projectKey: string, outageId: string) => WorkOutageAlert | null;
-    inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal'>;
+    inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal' | 'raiseAlert' | 'settleAlert'>;
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
     startAttempting: (task: Task) => boolean;
@@ -244,7 +239,7 @@ export class OperatorSignals {
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
     outageFacts: (projectKey: string, outageId: string) => WorkOutageAlert | null;
-    inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal'>;
+    inbox: Pick<InboxService, 'list' | 'closeQuestionsOfSignal' | 'raiseAlert' | 'settleAlert'>;
     /** Why the start of AI work on a stored card waits (PM-455): the scheduling reads carry no `startWaiting`. */
     startWaitingOf: (task: Task) => TaskStartWaiting | undefined;
     /** Whether a deferred start of the card is under a new attempt: its wait reads empty meanwhile. */
@@ -479,16 +474,6 @@ export class OperatorSignals {
       const merger = ctx.repos.taskMerges.open(projectKey, task.key)?.merger;
       allowed.members = merger ? startable([merger]) : [];
       allowed.taskKey = task.key;
-    } else if (signal.kind === 'unreleased') {
-      // A member who still waits for a person's answer is not started again: no second proposal beside an open one.
-      const asking = new Set(
-        this.deps.inbox
-          .list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question' })
-          .map((item) => item.source),
-      );
-      allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle)).filter(
-        (handle) => !asking.has(handle),
-      );
     } else if (signal.kind === 'answer_stalled' && task) {
       const stage = stageOf(config, task.stageId);
       const wait = taskWaits.ofCard(config, task);
@@ -576,13 +561,10 @@ export class OperatorSignals {
       : null;
   }
 
-  /** The coordinator took a step on the signal: it is shown again if the case still stands after the step gap (half an hour; a day for `unreleased`). */
+  /** The coordinator took a step on the signal: it is shown again if the case still stands after the step gap (half an hour). */
   stepTaken(signalId: string): void {
     const { ctx } = this.deps;
-    const kind = ctx.repos.operatorSignals.get(signalId)?.kind;
-    const at =
-      ctx.now().getTime() +
-      (kind ? operatorSignalStepGapMs(kind) : OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000);
+    const at = ctx.now().getTime() + operatorSignalStepGapMs();
     ctx.repos.operatorSignals.followUp(signalId, new Date(at).toISOString());
   }
 
@@ -761,7 +743,36 @@ export class OperatorSignals {
       )
         this.resolve(key, signal.caseKey);
     }
+    this.releaseDue(key);
     await this.deliver(key, structural, board);
+  }
+
+  /**
+   * Work merged on a default branch that waited a day for a release (PM-1333): one integrator todo per repository
+   * and base (`release_due`), not opened again within a day of a closed one; a todo whose base moved (the release
+   * was published) or whose work is gone closes. The devops is never started for it.
+   */
+  private releaseDue(projectKey: string): void {
+    const { ctx, inbox } = this.deps;
+    const now = ctx.now().getTime();
+    const keep: string[] = [];
+    for (const work of this.deps.unreleased(projectKey)) {
+      if (now - Date.parse(work.oldestAt) < OPERATOR_UNRELEASED_HOURS * 3_600_000) continue;
+      keep.push(`${work.repo}@${work.base}`);
+      inbox.raiseAlert({
+        projectKey,
+        title: `${work.count} merged card(s) in ${work.repo} wait for a release`,
+        payload: {
+          alert: 'release_due',
+          repo: work.repo,
+          base: work.base,
+          count: work.count,
+          oldestAt: work.oldestAt,
+        },
+        onceSince: new Date(now - 24 * 3_600_000).toISOString(),
+      });
+    }
+    inbox.settleAlert(projectKey, 'release_due', { keep });
   }
 
   /** A recipient change or leave invalidates unpresented delivery, without touching earlier human decisions. */
@@ -891,7 +902,6 @@ export class OperatorSignals {
                   level,
                   steps.filter((step) => step.status !== 'refused').map((step) => step.at),
                   now,
-                  s.kind,
                 );
           return JSON.stringify({
             ...OperatorSignal.parse(s),
@@ -1095,7 +1105,6 @@ export class OperatorSignals {
   ): BoardRead {
     const { ctx, sessions } = this.deps;
     const projectKey = config.project.key;
-    const now = ctx.now().getTime();
     const found = new Map<string, SignalInput>();
     const add = (input: Omit<SignalInput, 'projectKey'>) =>
       found.set(input.caseKey, { projectKey, ...input });
@@ -1138,18 +1147,6 @@ export class OperatorSignals {
           subject: row.failure?.reason ?? row.block?.reason ?? state,
         });
       }
-
-    // Work merged on a default branch that waited a day for a release (PM-1201): one case per repository and base,
-    // so a release (which moves the base) ends it.
-    for (const work of this.deps.unreleased(projectKey)) {
-      if (now - Date.parse(work.oldestAt) < OPERATOR_UNRELEASED_HOURS * 3_600_000) continue;
-      add({
-        kind: 'unreleased',
-        caseKey: `unreleased:${work.repo}:${work.base}`,
-        taskKey: null,
-        subject: String(work.count),
-      });
-    }
 
     return { cases: found };
   }

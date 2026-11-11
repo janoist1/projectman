@@ -1,9 +1,10 @@
 import { machinePlaces } from '@projectman/shared';
 import { Effect, Exit, Scope } from 'effect';
-import type { MachineLoad } from '../contracts';
+import type { MachineLoad, ScopeProcessSource } from '../contracts';
 import { runPromise } from '../kernel';
 import { holderHeartbeat, waitForLock } from './heavy-lock-core';
 import { readFreshPressure } from './machine-pressure';
+import type { PressureLevel } from './machine-pressure';
 import type { HeavyWait, LockWaitAborted, LockWaitTimedOut, LockQueueUnusable } from './heavy-lock-core';
 import { randomBytes } from 'node:crypto';
 import { readFileSync, rmSync } from 'node:fs';
@@ -293,11 +294,19 @@ export async function readHeavyQueue(
  */
 export async function readMachineLoad(
   dir: string,
-  options: { staleMs?: number; capacity?: number } = {},
+  options: {
+    staleMs?: number;
+    capacity?: number;
+    /**
+     * The engine's own measurement (PM-1328): given, the members-writable `pressure.json` is not read at all.
+     * Without it (the heavy CLI, tests of the file) the file counts.
+     */
+    pressure?: () => PressureLevel | null;
+  } = {},
 ): Promise<MachineLoad> {
   const capacity = options.capacity ?? machinePlaces(machineHost());
   const [pressure, queue] = await Promise.all([
-    readFreshPressure(dir),
+    options.pressure ? options.pressure() : readFreshPressure(dir),
     readHeavyQueue(dir, { ...options, capacity }).catch(() => null),
   ]);
   const used = (queue?.holders ?? []).reduce((sum, entry) => sum + placesOf(entry.granted, capacity), 0);
@@ -346,13 +355,80 @@ async function sessionRuns(dir: string, sessionId: string): Promise<Waiter[]> {
   );
 }
 
-/** Stop this session's leftover runs on their engine; never signal a stale or replaced entry. */
+/** Why a ticket's pid got no signal (PM-1328). The ticket is only a candidate: members write it. */
+export type SessionRunSkip = 'unverifiable' | 'other_session' | 'started_after_ticket' | 'other_user';
+
+export interface SessionRunDeps {
+  /** The engine's own process inspection (`ps` / `/proc`); the pool's files prove nothing. */
+  processes: ScopeProcessSource;
+  /** The engine's uid; null (unknown) leaves every pid unverifiable. */
+  uid: number | null;
+  kill?: (pid: number, signal: 'SIGTERM' | 'SIGKILL') => unknown;
+  /** Told of every candidate that gets no signal; never carries an environment value. */
+  onSkip?: (skip: { ticket: string; pid: number; reason: SessionRunSkip }) => void;
+}
+
+const SESSION_ENV = 'PROJECTMAN_SESSION_ID';
+
+/**
+ * The candidates whose process the engine itself proves to be this session's (PM-1328): it is the engine's
+ * user's, its environment carries the session id and it started no later than the ticket was queued
+ * (`lstart` is truncated to the second, so an honest ticket passes). A process that is gone is dropped
+ * silently; anything unprovable is reported and gets no signal.
+ */
+async function verifiedRuns(
+  entries: HeavyLockEntry[],
+  sessionId: string,
+  deps: SessionRunDeps,
+): Promise<Map<string, number>> {
+  const verified = new Map<string, number>();
+  if (entries.length === 0) return verified;
+  const skip = (entry: HeavyLockEntry, reason: SessionRunSkip): void =>
+    deps.onSkip?.({ ticket: entry.ticket, pid: entry.pid, reason });
+  const records = await deps.processes.processes().catch(() => null);
+  if (!records) {
+    for (const entry of entries) skip(entry, 'unverifiable');
+    return verified;
+  }
+  const byPid = new Map(records.map((record) => [record.pid, record]));
+  const live = entries.filter((entry) => byPid.has(entry.pid));
+  const ownUser: HeavyLockEntry[] = [];
+  for (const entry of live) {
+    if (deps.uid === null) skip(entry, 'unverifiable');
+    else if (byPid.get(entry.pid)!.uid !== deps.uid) skip(entry, 'other_user');
+    else ownUser.push(entry);
+  }
+  if (ownUser.length === 0) return verified;
+  const envs = await deps.processes
+    .envValues([...new Set(ownUser.map((entry) => entry.pid))], [SESSION_ENV])
+    .catch(() => new Map<number, Record<string, string>>());
+  for (const entry of ownUser) {
+    const owner = envs.get(entry.pid)?.[SESSION_ENV];
+    if (owner === undefined) skip(entry, 'unverifiable');
+    else if (owner !== sessionId) skip(entry, 'other_session');
+    else {
+      const queuedAt = Date.parse(entry.queuedAt);
+      const startedAt = byPid.get(entry.pid)!.startedAt;
+      if (Number.isNaN(queuedAt)) skip(entry, 'unverifiable');
+      else if (startedAt > queuedAt) skip(entry, 'started_after_ticket');
+      else verified.set(entry.ticket, startedAt);
+    }
+  }
+  return verified;
+}
+
+/**
+ * Stop this session's leftover runs on their engine; never signal a stale or replaced entry, nor a pid the
+ * engine cannot prove to be the session's own (PM-1328). SIGKILL goes only to the same process (same start
+ * time) that is still proven.
+ */
 export async function endHeavySessionRuns(
   dir: string,
   sessionId: string,
-  kill: (pid: number, signal: 'SIGTERM' | 'SIGKILL') => unknown = process.kill,
+  deps: SessionRunDeps,
 ): Promise<number> {
-  const stopped = new Map<string, HeavyLockEntry>();
+  const kill = deps.kill ?? process.kill;
+  const stopped = new Map<string, { entry: HeavyLockEntry; startedAt: number }>();
   const signal = (entry: HeavyLockEntry, value: 'SIGTERM' | 'SIGKILL'): boolean => {
     try {
       kill(entry.pid, value);
@@ -361,15 +437,23 @@ export async function endHeavySessionRuns(
       return false;
     }
   };
-  for (const { entry } of await sessionRuns(dir, sessionId)) {
-    if (!stopped.has(entry.ticket) && signal(entry, 'SIGTERM')) stopped.set(entry.ticket, entry);
+  const candidates = (await sessionRuns(dir, sessionId)).map(({ entry }) => entry);
+  const proven = await verifiedRuns(candidates, sessionId, deps);
+  for (const entry of candidates) {
+    const startedAt = proven.get(entry.ticket);
+    if (startedAt !== undefined && !stopped.has(entry.ticket) && signal(entry, 'SIGTERM'))
+      stopped.set(entry.ticket, { entry, startedAt });
   }
   if (stopped.size > 0)
     setTimeout(() => {
       void sessionRuns(dir, sessionId)
-        .then((entries) => {
-          for (const { entry } of entries) {
-            if (stopped.get(entry.ticket)?.pid === entry.pid) signal(entry, 'SIGKILL');
+        .then(async (entries) => {
+          const again = entries
+            .map(({ entry }) => entry)
+            .filter((entry) => stopped.get(entry.ticket)?.entry.pid === entry.pid);
+          const proven = await verifiedRuns(again, sessionId, deps);
+          for (const entry of again) {
+            if (proven.get(entry.ticket) === stopped.get(entry.ticket)?.startedAt) signal(entry, 'SIGKILL');
           }
         })
         .catch(() => undefined);

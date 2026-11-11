@@ -324,6 +324,29 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   secrets. Authentication records are not broadcast. Markdown builds escaped React
   elements, permits HTTP(S) links only, and uses `noopener noreferrer`.
 
+### Heavy-run pool (PM-1278, PM-1328)
+
+The pool's folder (`<heavyLockDir>`, by default `/tmp/projectman-<uid>/heavy`) is writable from
+every member's sandbox on purpose: `npm run heavy` and `handover-check` write their tickets
+there. Its tickets, holders and `pressure.json` are therefore **untrusted input**, and the pool
+is the members' voluntary queue, not an enforced boundary: a member can run a heavy command
+outside the queue. The engine runs outside the sandbox with the user's rights, so it never sends
+a signal, grants a right or decides a start from the content of the folder alone:
+
+- `endSessionRuns` (PM-1315) signals only a pid the engine itself proves to be the closed
+  session's: the engine user's, `PROJECTMAN_SESSION_ID` in its environment equal to the session
+  id, started no later than the ticket was queued; SIGKILL repeats the proof. An unprovable
+  ticket gets no signal and a warning in the log (no environment value). Without this a forged
+  ticket would make the engine kill any process of the user (confused deputy).
+- `machine_busy` (PM-1318) uses the engine's in-memory measurement (`PressureMeter.level()`),
+  not `pressure.json`, so a forged `critical` file cannot stop session starts.
+- `readHeavyRunSessions` (PM-569; `session-closer.ts`, `pause.ts`) decides from the tickets. A
+  forged, freshly kept ticket can delay the closing of an idle session and mark `needsRestart`
+  on a pause. It sends no signal, discloses no data and refuses no start; this is an accepted
+  risk.
+- The head of the queue reads `pressure.json` and the places from the files in the members'
+  sandboxes; a forgery disturbs only that voluntary queue of the members.
+
 ### Message attachments (PM-516, PM-518, PM-520, PM-524)
 
 Message files live in `PROJECTMAN_HOME/message-attachments/<projectKey>/<id>`, in 0700

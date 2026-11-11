@@ -28,6 +28,41 @@
   max-width: 100%;
 }
 
+/* It took the place of another toast: a short cross-fade, no slide. */
+.swapped {
+  animation: toast-swap 120ms ease-out;
+}
+
+/* The same toast again: a quiet pulse; two names so the animation restarts on every repeat. */
+.pulseA {
+  animation: toast-pulse-a 220ms ease-out;
+}
+
+.pulseB {
+  animation: toast-pulse-b 220ms ease-out;
+}
+
+@keyframes toast-swap {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes toast-pulse-a {
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+@keyframes toast-pulse-b {
+  50% {
+    transform: scale(1.02);
+  }
+}
+
 /* A toast with lines under its message keeps the icon and the close button at the top. */
 .listed {
   align-items: flex-start;

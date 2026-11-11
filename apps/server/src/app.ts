@@ -49,6 +49,7 @@ import type {
   MemberWorkspaceManager,
   RunnerModule,
   RunnerModuleOptions,
+  ScopeProcessSource,
   TerminalMode,
   WorktreeManager,
 } from './contracts';
@@ -61,6 +62,7 @@ import { createEventBus } from './core/base';
 import { freeBytesOf, resolveWorkRoots } from './engine-host';
 import { createHistorySemanticPort } from './history-semantic';
 import { endHeavySessionRuns, readHeavyRunSessions, readMachineLoad, startPressureMeter } from './full-test';
+import type { PressureMeter } from './full-test';
 import type { Domain } from './assembly';
 import type { ScheduleTimer } from './services/schedules';
 import type { TemplateRegistry } from './core/base';
@@ -497,6 +499,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       : undefined;
     const makeRunner = modules.createRunnerModule ?? createRunnerModule;
     let scopeProbe: MachineProbe | undefined;
+    // The engine's own process inspection; no probe means null, so no signal is sent (PM-1328).
+    const scopeProcesses: ScopeProcessSource = {
+      processes: () => scopeProbe?.processes() ?? Promise.resolve(null),
+      envValues: (pids, names) => scopeProbe?.envValues(pids, names) ?? Promise.resolve(new Map()),
+    };
+    // Started below; `machine_busy` reads its memory, never the members-writable `pressure.json` (PM-1328).
+    let pressureMeter: PressureMeter | undefined;
     const auth = new AuthService({ repos, now: options.now });
     // The host machine is the one the host owner's engine runs on (PM-1061).
     engineRegistry?.useHostOwner((userId) => auth.isHostOwner(userId));
@@ -597,10 +606,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
               publicBaseUrl,
               sessionConfigRoot: join(home, SESSION_CONFIG_DIR),
               instanceTag,
-              scopeProcesses: {
-                processes: () => scopeProbe?.processes() ?? Promise.resolve(null),
-                envValues: (pids, names) => scopeProbe?.envValues(pids, names) ?? Promise.resolve(new Map()),
-              },
+              scopeProcesses,
               broker,
               refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
               permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
@@ -665,10 +671,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ...(options.screenQuestions !== undefined ? { screenQuestions: options.screenQuestions } : {}),
       doneTurnLimitMs: options.doneTurnLimitMs,
       freeDiskBytes: options.freeDiskBytes ?? (() => freeBytesOf(home)),
-      machineLoad: options.heavyLockDir ? () => readMachineLoad(options.heavyLockDir!) : undefined,
+      machineLoad: options.heavyLockDir
+        ? () => readMachineLoad(options.heavyLockDir!, { pressure: () => pressureMeter?.level() ?? null })
+        : undefined,
       heavyRunSessions: options.heavyLockDir ? () => readHeavyRunSessions(options.heavyLockDir!) : undefined,
       endSessionRuns: options.heavyLockDir
-        ? (sessionId) => endHeavySessionRuns(options.heavyLockDir!, sessionId)
+        ? (sessionId) =>
+            endHeavySessionRuns(options.heavyLockDir!, sessionId, {
+              processes: scopeProcesses,
+              uid: process.getuid?.() ?? null,
+              onSkip: (skip) =>
+                log.warn({ sessionId, ...skip }, 'a heavy run ticket was not signalled: unproven pid'),
+            })
         : undefined,
     });
     const mcpModule = (modules.createMcpModule ?? createMcpModule)({
@@ -813,7 +827,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       }
     });
     // Single mode is its own engine: it measures the machine's memory pressure for the pool (PM-1314).
-    const pressureMeter =
+    pressureMeter =
       options.heavyLockDir && options.engineMode !== 'cloud'
         ? startPressureMeter({
             dir: options.heavyLockDir,

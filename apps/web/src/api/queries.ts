@@ -63,6 +63,7 @@ import type {
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
+  EditTaskCommentRequest,
   ChangeTaskLabelsRequest,
   LabelView,
 } from '@projectman/shared';
@@ -1136,6 +1137,27 @@ export function useCreateTaskComment(key: string) {
       void client.invalidateQueries({ queryKey: queryKeys.inboxHistory(key) });
       // Mentions message the mentioned members.
       await client.invalidateQueries({ queryKey: queryKeys.messages(key) });
+    },
+  });
+}
+/** An edit of a comment (PM-1277): the card's comments and detail read the new text, and the mention items follow. */
+export function useEditTaskComment(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      taskKey,
+      eventId,
+      body,
+    }: {
+      taskKey: string;
+      eventId: string;
+      body: EditTaskCommentRequest;
+    }) => api.editTaskComment(key, taskKey, eventId, body),
+    onSuccess: async (_result, { taskKey }) => {
+      void client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) });
+      void client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
+      void client.invalidateQueries({ queryKey: queryKeys.messages(key) });
+      await client.invalidateQueries({ queryKey: queryKeys.taskComments(key, taskKey) });
     },
   });
 }

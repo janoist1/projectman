@@ -611,3 +611,281 @@ describe('the files of a comment (PM-1310)', () => {
     ).toBeTruthy();
   });
 });
+
+describe('editing your own comment (PM-1277)', () => {
+  const editButtons = () => screen.queryAllByRole('button', { name: t('task.comments.editAria') });
+  const editBox = () =>
+    screen.findByRole('textbox', { name: t('task.comments.editLabel') }) as Promise<HTMLTextAreaElement>;
+  const saveButton = (form: HTMLElement) =>
+    within(form).getByRole('button', { name: t('task.comments.save') }) as HTMLButtonElement;
+  const patches = (project: Project) =>
+    project.requests.filter((request) => request.method === 'PATCH' && request.path.startsWith(COMMENTS));
+  /** Opens the edit box of the viewer's only comment. */
+  const openEdit = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: t('task.comments.editAria') }));
+    const input = await editBox();
+    return { input, form: input.closest('form')! };
+  };
+  /** The edit another member made meanwhile, as the server stores it. */
+  const editedElsewhere = (project: Project, note: { id: string }, text: string, who = 'owner') =>
+    project.backend.addTimeline('AC-20', who, 'task_note_edited', {
+      noteId: note.id,
+      text,
+      mentions: [],
+      base: note.id,
+      added: [],
+    });
+
+  it('offers the button on the own comment and, to the owner, on an imported one, never on another one', async () => {
+    const project = mockProject();
+    comment(project, 'be-1', 'Their words', {}, 30);
+    comment(project, 'owner', 'My words', {}, 20);
+    comment(project, 'owner', 'History', { importedAuthor: 'Morgan Example' }, 10);
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    await column();
+    const row = (text: string) =>
+      document.getElementById(`timeline-${project.backend.timeline.find((e) => e.data.text === text)!.id}`)!;
+    expect(within(row('My words')).getByRole('button', { name: t('task.comments.editAria') })).toBeTruthy();
+    expect(within(row('Their words')).queryByRole('button', { name: /szerkeszt/i })).toBeNull();
+    // The owner's right over an imported comment: the author's name goes into the label.
+    expect(
+      within(row('History')).getByRole('button', {
+        name: t('task.comments.editAriaOther', { name: 'Morgan Example' }),
+      }),
+    ).toBeTruthy();
+  });
+
+  it('hides the button from a member who may not edit', async () => {
+    const project = mockProject();
+    comment(project, 'be-1', 'Their words');
+    project.backend.viewerHandle = 'fe-1';
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    await column();
+    const row = (await screen.findByText('Their words')).closest('li')!;
+    expect(within(row).queryByRole('button', { name: /szerkeszt/i })).toBeNull();
+  });
+
+  it('opens the box in place with the current text, saves the new one and returns to the button', async () => {
+    const project = mockProject();
+    const note = comment(project, 'owner', 'First text');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const { input, form } = await openEdit();
+    expect(input.value).toBe('First text');
+    // Nothing changed yet: nothing to save, and the other buttons wait.
+    expect(saveButton(form).disabled).toBe(true);
+    expect(editButtons()).toHaveLength(0);
+
+    fireEvent.change(input, { target: { value: 'Second text' } });
+    fireEvent.click(saveButton(form));
+    await waitFor(() => expect(patches(project)).toHaveLength(1));
+    expect(patches(project)[0]!.body).toEqual({ text: 'Second text', baseRevision: note.id });
+    const row = document.getElementById(`timeline-${note.id}`)!;
+    await waitFor(() => expect(within(row).getByText('Second text')).toBeTruthy());
+    expect(within(row).getByText(t('task.comments.saved'))).toBeTruthy();
+    expect(within(row).getByText(t('task.comments.edited'))).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: t('task.comments.editLabel') })).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(row).getByRole('button', { name: t('task.comments.editAria') }),
+      ),
+    );
+  });
+
+  it.each([
+    ['Escape', (input: HTMLElement) => fireEvent.keyDown(input, { key: 'Escape' })],
+    [
+      'Cancel',
+      (input: HTMLElement) =>
+        fireEvent.click(within(input.closest('form')!).getByRole('button', { name: t('common.cancel') })),
+    ],
+  ])('drops the edit and its draft on %s', async (_name, leave) => {
+    const project = mockProject();
+    comment(project, 'owner', 'Untouched');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const { input } = await openEdit();
+    fireEvent.change(input, { target: { value: 'Half done' } });
+    leave(input);
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: t('task.comments.editLabel') })).toBeNull(),
+    );
+    expect(screen.getByText('Untouched')).toBeTruthy();
+    expect(patches(project)).toHaveLength(0);
+    // The draft is gone: the next edit starts from the saved text.
+    fireEvent.click(await screen.findByRole('button', { name: t('task.comments.editAria') }));
+    expect((await editBox()).value).toBe('Untouched');
+  });
+
+  it('keeps an unsent edit across a reload and opens it again', async () => {
+    const project = mockProject();
+    comment(project, 'owner', 'Saved text');
+    const first = project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const { input } = await openEdit();
+    fireEvent.change(input, { target: { value: 'Unsent edit' } });
+    first.unmount();
+    cleanup();
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    expect((await editBox()).value).toBe('Unsent edit');
+  });
+
+  it('says whom the edit newly mentions, and nobody already mentioned before or in an imported comment', async () => {
+    const project = mockProject();
+    comment(project, 'owner', 'Look @be-1', { mentions: ['be-1'] });
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const { input } = await openEdit();
+    fireEvent.change(input, { target: { value: 'Look @be-1 and @fe-1' } });
+    const line = await screen.findByRole('status');
+    expect(line.textContent).toBe(t('task.comments.editMentions', { handles: '@fe-1' }));
+    fireEvent.change(input, { target: { value: 'Look @be-1 again' } });
+    await waitFor(() => expect(screen.queryByText(/@fe-1/)).toBeNull());
+  });
+
+  it('shows no mention line for an imported comment', async () => {
+    const project = mockProject();
+    comment(project, 'owner', 'Old', { importedAuthor: 'Morgan Example' });
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: t('task.comments.editAriaOther', { name: 'Morgan Example' }),
+      }),
+    );
+    const input = (await screen.findByRole('textbox', {
+      name: t('task.comments.editLabelOther'),
+    })) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'Old, now @be-1' } });
+    expect(input.value).toBe('Old, now @be-1');
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('keeps the text on a conflict and saves it on the current revision at the second try', async () => {
+    const project = mockProject();
+    const note = comment(project, 'owner', 'Original');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const { input, form } = await openEdit();
+    const meanwhile = editedElsewhere(project, note, 'Changed in the other window');
+    fireEvent.change(input, { target: { value: 'My version' } });
+    fireEvent.click(saveButton(form));
+    const alert = await within(form).findByRole('alert');
+    expect(alert.textContent).toBe(t('task.comments.editConflict'));
+    expect(input.value).toBe('My version');
+    fireEvent.click(saveButton(form));
+    await waitFor(() => expect(patches(project)).toHaveLength(2));
+    expect(patches(project)[1]!.body).toEqual({ text: 'My version', baseRevision: meanwhile.id });
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: t('task.comments.editLabel') })).toBeNull(),
+    );
+    expect(await screen.findByText('My version')).toBeTruthy();
+  });
+
+  it('turns the box read-only when the right to edit is gone', async () => {
+    const project = mockProject();
+    comment(project, 'owner', 'Mine');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const { input, form } = await openEdit();
+    project.backend.viewerHandle = 'fe-1';
+    fireEvent.change(input, { target: { value: 'Mine, changed' } });
+    fireEvent.click(saveButton(form));
+    const alert = await within(form).findByRole('alert');
+    expect(alert.textContent).toBe(t('task.comments.editForbidden'));
+    expect(input.readOnly).toBe(true);
+    expect(within(form).queryByRole('button', { name: t('task.comments.save') })).toBeNull();
+  });
+
+  it('keeps the text and offers another try when saving fails', async () => {
+    const project = mockProject();
+    comment(project, 'owner', 'Mine');
+    const answer = createMockFetch(project.backend, project.requests);
+    let failing = true;
+    setFetchImplementation(async (input, init) =>
+      failing && (init?.method ?? 'GET') === 'PATCH'
+        ? new Response(JSON.stringify({ error: { code: 'internal_error', message: 'x' } }), {
+            status: 500,
+            headers: { 'content-type': 'application/json' },
+          })
+        : answer(input, init),
+    );
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const { input, form } = await openEdit();
+    fireEvent.change(input, { target: { value: 'Mine, changed' } });
+    fireEvent.click(saveButton(form));
+    const alert = await within(form).findByRole('alert');
+    expect(alert.textContent).toBe(t('task.comments.saveFailed'));
+    expect(input.value).toBe('Mine, changed');
+    failing = false;
+    fireEvent.click(saveButton(form));
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: t('task.comments.editLabel') })).toBeNull(),
+    );
+    expect(await screen.findByText('Mine, changed')).toBeTruthy();
+  });
+
+  it('opens the earlier versions from the mark, the original last', async () => {
+    const project = mockProject();
+    const note = comment(project, 'owner', 'First text');
+    editedElsewhere(project, note, 'Second text');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    const mark = await screen.findByRole('button', {
+      name: t('task.comments.editedAria', { label: t('task.comments.edited') }),
+    });
+    expect(mark.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(mark);
+    expect(mark.getAttribute('aria-expanded')).toBe('true');
+    const box = (await screen.findByText(t('task.comments.history'))).parentElement!;
+    const rows = within(box).getAllByRole('listitem');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.textContent).toContain(t('task.comments.original'));
+    expect(rows[0]!.textContent).toContain('First text');
+    expect(screen.getByText('Second text')).toBeTruthy();
+  });
+
+  it('shows a plain mark, no button, to a reader who may not open the earlier versions', async () => {
+    const project = mockProject();
+    const note = comment(project, 'be-1', 'First text');
+    editedElsewhere(project, note, 'Second text', 'be-1');
+    project.backend.viewerHandle = 'fe-1';
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    expect(await screen.findByText('Second text')).toBeTruthy();
+    expect(screen.getByText(t('task.comments.edited'))).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /korábbi változatok/ })).toBeNull();
+    expect(screen.queryByText('First text')).toBeNull();
+  });
+
+  it('shows an edit that arrives from another window without a reload', async () => {
+    const project = mockProject();
+    const note = comment(project, 'owner', 'First text');
+    let client!: QueryClient;
+    const Grab = () => {
+      client = useQueryClient();
+      return null;
+    };
+    project.render(
+      <>
+        {drawer}
+        <Grab />
+      </>,
+      '/p/AC/tasks/AC-20/thread',
+    );
+    expect(await screen.findByText('First text')).toBeTruthy();
+    const edit = editedElsewhere(project, note, 'Second text');
+    applyServerEvent(client, {
+      type: 'timeline_appended',
+      projectKey: 'AC',
+      event: edit,
+    });
+    expect(await screen.findByText('Second text')).toBeTruthy();
+    expect(screen.getByText(t('task.comments.edited'))).toBeTruthy();
+  });
+
+  it('names the editor of an imported comment the owner edited', async () => {
+    const project = mockProject();
+    const note = comment(project, 'owner', 'Old', { importedAuthor: 'Morgan Example' });
+    editedElsewhere(project, note, 'Corrected');
+    project.render(drawer, '/p/AC/tasks/AC-20/thread');
+    expect(await screen.findByText('Corrected')).toBeTruthy();
+    // The button's name starts with the visible words, so a screen reader hears who edited.
+    expect(
+      screen.getByRole('button', {
+        name: t('task.comments.editedAria', { label: t('task.comments.editedByMe') }),
+      }),
+    ).toBeTruthy();
+  });
+});

@@ -234,6 +234,12 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       if (entry.type === 'session_started' || entry.type === 'session_ended')
         invalidate(queryKeys.involvements(key));
       if (!entry.taskKey) return;
+      // An edit reaches the comment through its projection (new text, the mark, the earlier versions): read again.
+      if (entry.type === 'task_note_edited') {
+        invalidate(queryKeys.taskComments(key, entry.taskKey));
+        invalidate(queryKeys.task(key, entry.taskKey));
+        return;
+      }
       client.setQueryData<TaskDetail>(queryKeys.task(key, entry.taskKey), (detail) =>
         detail ? { ...detail, timeline: appendUnique(detail.timeline, [entry]) } : detail,
       );

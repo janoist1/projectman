@@ -1,8 +1,8 @@
-import { TASK_COMMENT_MAX } from '@projectman/shared';
+import { TASK_COMMENT_MAX, addedCommentMentions } from '@projectman/shared';
 import clsx from 'clsx';
 import { useEffect, useId, useRef, useState } from 'react';
 import { isApiError } from '../../api/client';
-import { useCreateTaskComment } from '../../api/queries';
+import { useCreateTaskComment, useEditTaskComment } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { TextAreaField } from '../../components/Field';
@@ -50,6 +50,19 @@ export interface TaskCommentComposerProps {
   onSendingChange?: (sending: boolean) => void;
   /** Files can be attached (the 📎 button, the tray, paste and drop); a host box without them says false. */
   withFiles?: boolean;
+  /**
+   * The box edits the text of an existing comment instead of sending one (PM-1277): it opens with that text,
+   * Save replaces Send, and the files are not touched. `baseRevision` is the version the edit builds on;
+   * `earlierMentions` are the mentions of every version so far (who is notified is the difference).
+   */
+  editing?: {
+    eventId: string;
+    baseRevision: string;
+    text: string;
+    imported: boolean;
+    hasFiles: boolean;
+    earlierMentions: readonly string[];
+  };
 }
 
 export function TaskCommentComposer({
@@ -67,27 +80,33 @@ export function TaskCommentComposer({
   holdReason,
   onSendingChange,
   withFiles = true,
+  editing,
 }: TaskCommentComposerProps) {
-  const { key } = useProject();
+  const { key, myHandle } = useProject();
   const mutation = useCreateTaskComment(key);
+  const editMutation = useEditTaskComment(key);
   const draft = useCardCommentDraft(key, taskKey, slot);
   const uploads = useCommentAttachmentUploads(key, taskKey, slot, draft);
   const files = uploads.items;
-  const text = draft.text;
+  // An edit box starts from the draft that outlived a reload, else from the comment's own text; the draft holds
+  // only what differs from it. The version it builds on is the one it opened on, until a conflict names a newer.
+  const [editText, setEditText] = useState(() => (draft.text !== '' ? draft.text : (editing?.text ?? '')));
+  const [base, setBase] = useState(editing?.baseRevision ?? '');
+  const text = editing ? editText : draft.text;
   const { notice, dismiss: dismissNotice } = useCardDraftNotice(key, taskKey);
   const showNotice = slot === MAIN_DRAFT ? notice : null;
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null);
   const [selected, setSelected] = useState(0);
   // One line until the reader focuses it; the hint and the Send button follow, and stay while there is a draft.
   const [focused, setFocused] = useState(false);
-  const open = focused || text !== '' || replyTo !== undefined || files.length > 0;
+  const open = focused || text !== '' || replyTo !== undefined || files.length > 0 || editing !== undefined;
   const textarea = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   // One id per submission: a retry of the same text and files reuses it, so the server keeps one comment.
   const attempt = useRef<string | null>(null);
   const listId = useId();
   const contacts = useContacts();
-  const sending = mutation.isPending;
+  const sending = mutation.isPending || editMutation.isPending;
   useEffect(() => onSendingChange?.(sending), [sending, onSendingChange]);
   const isMobile = useIsMobile();
   const fileDrop = useFileDrop({
@@ -109,7 +128,13 @@ export function TaskCommentComposer({
   const active = Math.min(selected, Math.max(0, options.length - 1));
 
   useEffect(() => {
-    if (autoFocus) textarea.current?.focus();
+    const field = textarea.current;
+    if (!autoFocus || !field) return;
+    field.focus();
+    // An edit box puts the cursor after the text it opens with.
+    if (editing) field.setSelectionRange(field.value.length, field.value.length);
+    // Only on opening: a later change of the comment must not move the cursor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFocus]);
 
   // A draft just moved here from the project manager's panel: the box takes the focus (nothing is sent).
@@ -125,7 +150,15 @@ export function TaskCommentComposer({
     attempt.current = null;
     if (mutation.isError) mutation.reset();
     dismissNotice();
-    draft.setText(value);
+    if (!editing) return draft.setText(value);
+    setEditText(value);
+    if (value === editing.text) draft.clear();
+    else draft.setText(value);
+  };
+  // The edit draft goes with the box, whether it is saved or given up (a reply draft stays on Cancel).
+  const cancel = () => {
+    if (editing) draft.clear();
+    onCancel?.();
   };
   // New or removed files are a new submission too, as new words are.
   const changed = () => {
@@ -164,7 +197,29 @@ export function TaskCommentComposer({
       textarea.current?.setSelectionRange(mention.start + insertion.length, mention.start + insertion.length);
     });
   };
+  const saveEdit = () => {
+    if (!editing || sending || saveBlocked) return;
+    editMutation
+      .mutateAsync({ taskKey, eventId: editing.eventId, body: { text: text.trim(), baseRevision: base } })
+      .then(
+        () => {
+          draft.clear();
+          setMention(null);
+          onPosted?.(editing.eventId);
+          onCancel?.();
+        },
+        (error: unknown) => {
+          // The next Save builds on the version that won; the text stays as written.
+          if (isApiError(error) && error.code === 'comment_edit_conflict') {
+            const current = (error.details as { currentRevision?: unknown } | undefined)?.currentRevision;
+            if (typeof current === 'string') setBase(current);
+          }
+          textarea.current?.focus();
+        },
+      );
+  };
   const submit = () => {
+    if (editing) return saveEdit();
     const body = text.trim();
     if (!hasContent || uploads.blockedReason || sending || holdReason) return;
     const attachmentIds = files.flatMap((item) => (item.attachment ? [item.attachment.id] : []));
@@ -213,9 +268,38 @@ export function TaskCommentComposer({
     mutation.error.code === 'comment_attachment_unavailable';
   // The host's hold and the files' block reason each stop Send.
   const sendBlocked = sending ? false : !hasContent || Boolean(uploads.blockedReason) || Boolean(holdReason);
+  // Save waits while the text is the comment's own, or empty with no file left to carry the comment.
+  const saveBlocked = sending
+    ? false
+    : text.trim() === (editing?.text ?? '').trim() || (text.trim() === '' && !editing?.hasFiles);
+  const editFailure = editMutation.isError
+    ? !isApiError(editMutation.error)
+      ? 'saveFailed'
+      : editMutation.error.code === 'comment_edit_conflict'
+        ? 'editConflict'
+        : editMutation.error.code === 'insufficient_access'
+          ? 'editForbidden'
+          : 'saveFailed'
+    : null;
+  // The editor lost the right to edit: the text stays readable (and copyable), nothing can be saved.
+  const locked = editFailure === 'editForbidden';
+  // Who a Save would newly notify (never for an imported comment): the shared rule, against every earlier version.
+  const added =
+    editing && !editing.imported
+      ? addedCommentMentions({
+          text,
+          handles: mentionable.map((member) => member.handle),
+          editor: myHandle,
+          earlier: [editing.earlierMentions],
+        })
+      : [];
   return (
     <form
-      className={clsx(styles.composer, !open && styles.closed, replyTo !== undefined && styles.reply)}
+      className={clsx(
+        styles.composer,
+        !open && styles.closed,
+        (replyTo !== undefined || editing) && styles.reply,
+      )}
       data-comment-composer
       {...fileDrop.props}
       // The box stays open while the focus is anywhere in it (the field, then the 📎 button).
@@ -246,7 +330,7 @@ export function TaskCommentComposer({
         ref={textarea}
         label={label ?? t('task.comments.label')}
         hint={
-          !open
+          !open || editing
             ? undefined
             : hint
               ? hint
@@ -258,7 +342,7 @@ export function TaskCommentComposer({
         maxLength={TASK_COMMENT_MAX}
         value={text}
         // Read-only, not disabled, while it is sent: the focus stays where the reader typed.
-        readOnly={sending}
+        readOnly={sending || locked}
         aria-autocomplete="list"
         aria-controls={options.length ? listId : undefined}
         aria-activedescendant={options.length ? `${listId}-${active}` : undefined}
@@ -283,10 +367,10 @@ export function TaskCommentComposer({
               event.preventDefault();
               event.stopPropagation();
               setMention(null);
-            } else if (onCancel) {
+            } else if (onCancel && !(editing && sending)) {
               event.preventDefault();
               event.stopPropagation();
-              onCancel();
+              cancel();
             }
             return;
           }
@@ -324,6 +408,16 @@ export function TaskCommentComposer({
           ))}
         </ul>
       ) : null}
+      {added.length ? (
+        <p className={styles.live} role="status">
+          {t('task.comments.editMentions', { handles: added.map((handle) => `@${handle}`).join(', ') })}
+        </p>
+      ) : null}
+      {editFailure ? (
+        <p className={styles.failure} role="alert">
+          {t(`task.comments.${editFailure}`)}
+        </p>
+      ) : null}
       {failure && !fileGone ? (
         <div role="alert" className={styles.failure}>
           <p>{failure}</p>
@@ -350,7 +444,7 @@ export function TaskCommentComposer({
         </p>
       ) : null}
       <p className={styles.live} aria-live="polite">
-        {sending ? t('task.comments.sending') : ''}
+        {sending && !editing ? t('task.comments.sending') : ''}
       </p>
       {withFiles ? (
         <input
@@ -392,17 +486,26 @@ export function TaskCommentComposer({
           ) : null}
           {/* Why Send waits sits between the buttons, in reach of the eye, not above the field. */}
           {uploads.blockedReason ? <p className={styles.status}>{uploads.blockedReason}</p> : null}
-          <Button
-            type="submit"
-            // aria-disabled, not disabled: a second click is ignored without the button leaving the focus order.
-            aria-disabled={sending || undefined}
-            disabled={sendBlocked}
-            loading={sending}
-          >
-            {submitLabel ?? t('common.send')}
-          </Button>
+          {locked ? null : (
+            <Button
+              type="submit"
+              // aria-disabled, not disabled: a second click is ignored without the button leaving the focus order.
+              aria-disabled={sending || undefined}
+              disabled={editing ? saveBlocked : sendBlocked}
+              loading={sending}
+            >
+              {editing
+                ? t(sending ? 'task.comments.saving' : 'task.comments.save')
+                : (submitLabel ?? t('common.send'))}
+            </Button>
+          )}
           {onCancel ? (
-            <Button type="button" variant="ghost" onClick={onCancel}>
+            <Button
+              type="button"
+              variant={editing ? 'secondary' : 'ghost'}
+              disabled={editing ? sending : undefined}
+              onClick={cancel}
+            >
               {t('common.cancel')}
             </Button>
           ) : null}

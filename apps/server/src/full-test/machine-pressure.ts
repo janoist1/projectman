@@ -8,7 +8,9 @@ import path from 'node:path';
  * through it; a dev server, Docker, a browser or the owner's own programs show up here instead. The engine
  * measures every 10 s and writes `pressure.json` into the pool's folder, because the members' sandboxes may
  * not run `sysctl`; the head of the queue reads it and hands out no places while a fresh reading is
- * `critical`. No engine (CI, a lone developer): no file, and only the places count. Only node built-ins are
+ * `critical`. The folder is writable by every member, so the engine itself decides (`machine_busy`) from the
+ * meter's memory (`PressureMeter.level`), never from the file (PM-1328). No engine (CI, a lone developer): no
+ * file, and only the places count. Only node built-ins are
  * used: the heavy CLI imports this file through `heavy-lock.ts`.
  */
 
@@ -132,9 +134,17 @@ export interface PressureMeterOptions {
   intervalMs?: number;
   /** Told once, at the first failed round; the meter goes on. */
   onError?: (err: unknown) => void;
+  /** The clock of the freshness of `level()`; default `Date.now`. */
+  now?: () => number;
 }
 
 export interface PressureMeter {
+  /**
+   * The level of the last successful measurement, from this process's memory (PM-1328: the engine never
+   * decides from the members-writable `pressure.json`); null when it is older than `PRESSURE_FRESH_MS` or
+   * there is none.
+   */
+  level(): PressureLevel | null;
   /** Stops the timer and waits for a round in progress; nothing is written after it. */
   close(): Promise<void>;
 }
@@ -142,15 +152,20 @@ export interface PressureMeter {
 /** Measures at once, then every `intervalMs`; a round without a reading writes nothing, so the file goes stale. */
 export function startPressureMeter(options: PressureMeterOptions): PressureMeter {
   const measure = options.measure ?? (() => measurePressure());
+  const now = options.now ?? Date.now;
   let closed = false;
   let warned = false;
   let running: Promise<void> | undefined;
+  let last: { level: PressureLevel; at: number } | undefined;
   const round = (): void => {
     if (closed || running) return;
     running = (async () => {
       try {
         const reading = await measure();
-        if (reading) await writePressure(options.dir, reading);
+        if (reading) {
+          last = { level: reading.level, at: now() };
+          await writePressure(options.dir, reading);
+        }
       } catch (err) {
         if (!warned) {
           warned = true;
@@ -165,6 +180,7 @@ export function startPressureMeter(options: PressureMeterOptions): PressureMeter
   const timer = setInterval(round, options.intervalMs ?? PRESSURE_INTERVAL_MS);
   timer.unref();
   return {
+    level: () => (last && now() - last.at <= PRESSURE_FRESH_MS ? last.level : null),
     async close() {
       closed = true;
       clearInterval(timer);

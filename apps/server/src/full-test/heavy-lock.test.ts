@@ -25,7 +25,8 @@ import {
   readHeavyRunSessions,
   readMachineLoad,
 } from './heavy-lock';
-import type { HeavyLock, HeavyLockEntry, HeavyWait } from './heavy-lock';
+import type { ScopeProcessSource } from '../contracts';
+import type { HeavyLock, HeavyLockEntry, HeavyWait, SessionRunSkip } from './heavy-lock';
 import { writePressure } from './machine-pressure';
 import { waitFor } from '../../test/helpers/wait';
 
@@ -37,6 +38,52 @@ it('lets a holder process exit naturally after release', async () => {
   expect(child.exitCode).toBe(0);
   expect(child.signalCode).toBeNull();
 });
+
+const ENGINE_UID = 501;
+/** A start time well before any ticket of a test, fixed so that fake timers do not move it. */
+const STARTED = Date.now() - 60_000;
+
+interface FakeProcess {
+  uid?: number;
+  /** Epoch ms; default a minute before the test started. */
+  startedAt?: number;
+  /** The `PROJECTMAN_SESSION_ID` of its environment; null: not readable. Default `'ended'`. */
+  session?: string | null;
+}
+
+/** The engine's process inspection, with the given live pids; `source.processes` returns null when `null`. */
+function fakeProcesses(live: Record<number, FakeProcess> | null): ScopeProcessSource {
+  return {
+    processes: async () =>
+      live === null
+        ? null
+        : Object.entries(live).map(([pid, p]) => ({
+            pid: Number(pid),
+            ppid: 1,
+            pgid: null,
+            uid: p.uid ?? ENGINE_UID,
+            rssBytes: 0,
+            cpuSeconds: 0,
+            cpuPercent: 0,
+            startedAt: p.startedAt ?? STARTED,
+            args: 'x',
+          })),
+    envValues: async (pids) =>
+      new Map(
+        pids.flatMap((pid): [number, Record<string, string>][] => {
+          const session = live?.[pid]?.session === undefined ? 'ended' : live[pid]!.session;
+          return session === null ? [] : [[pid, { PROJECTMAN_SESSION_ID: session }]];
+        }),
+      ),
+  };
+}
+
+/** Deps of a verified call: the given pids are the session's own live processes. */
+function endDeps(kill: ReturnType<typeof vi.fn>, live: Record<number, FakeProcess> | null) {
+  return { processes: fakeProcesses(live), uid: ENGINE_UID, kill };
+}
+
+const own = (...pids: number[]): Record<number, FakeProcess> => Object.fromEntries(pids.map((p) => [p, {}]));
 
 describe('heavy-run sessions', () => {
   afterEach(() => vi.useRealTimers());
@@ -50,7 +97,7 @@ describe('heavy-run sessions', () => {
     writeFileSync(path.join(dir, 'holders', 'partial.json'), readFileSync(partial));
     rmSync(partial);
     const kill = vi.fn();
-    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(3);
+    expect(await endHeavySessionRuns(dir, 'ended', endDeps(kill, own(101, 102, 103)))).toBe(3);
     expect(kill.mock.calls).toEqual([
       [102, 'SIGTERM'],
       [101, 'SIGTERM'],
@@ -72,7 +119,7 @@ describe('heavy-run sessions', () => {
     writeHolder({ sessionId: 'ended' }, 60_000);
     writeTicket('stale', { sessionId: 'ended' }, 30_000);
     const kill = vi.fn();
-    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(0);
+    expect(await endHeavySessionRuns(dir, 'ended', endDeps(kill, own(process.pid)))).toBe(0);
     expect(kill).not.toHaveBeenCalled();
   });
 
@@ -80,7 +127,7 @@ describe('heavy-run sessions', () => {
     writeHolder({ sessionId: 'other' });
     writeTicket('anonymous', {});
     const kill = vi.fn();
-    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(0);
+    expect(await endHeavySessionRuns(dir, 'ended', endDeps(kill, own(process.pid)))).toBe(0);
     expect(kill).not.toHaveBeenCalled();
   });
 
@@ -91,12 +138,71 @@ describe('heavy-run sessions', () => {
     writeTicket('aging', { sessionId: 'ended', pid: 103 }, 25_000);
     writeTicket('fresh', { sessionId: 'ended', pid: 105 });
     const kill = vi.fn();
-    expect(await endHeavySessionRuns(dir, 'ended', kill)).toBe(4);
+    expect(await endHeavySessionRuns(dir, 'ended', endDeps(kill, own(101, 102, 103, 104, 105)))).toBe(4);
     rmSync(removed);
     writeTicket('replaced', { sessionId: 'ended', pid: 104 });
     await vi.advanceTimersByTimeAsync(10_000);
     await vi.waitFor(() => expect(kill).toHaveBeenCalledTimes(5));
     expect(kill.mock.calls.filter(([, signal]) => signal === 'SIGKILL')).toEqual([[105, 'SIGKILL']]);
+  });
+
+  // PM-1328: the pool's folder is writable by every member, so a ticket only names a candidate.
+  it.each<[string, Record<number, FakeProcess> | null, SessionRunSkip | null]>([
+    ['the process has another session id', { 101: { session: 'other' } }, 'other_session'],
+    ['the process has no session id', { 101: { session: null } }, 'unverifiable'],
+    ['the process list is unavailable', null, 'unverifiable'],
+    ['the process belongs to another user', { 101: { uid: 0 } }, 'other_user'],
+    [
+      'the process started after the ticket was queued',
+      { 101: { startedAt: Date.now() + 3_600_000 } },
+      'started_after_ticket',
+    ],
+    ['the process is gone', {}, null],
+  ])('sends no signal to a forged ticket when %s', async (_, live, reason) => {
+    writeTicket('forged', { sessionId: 'ended', pid: 101 });
+    const kill = vi.fn();
+    const onSkip = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', { ...endDeps(kill, live), onSkip })).toBe(0);
+    expect(kill).not.toHaveBeenCalled();
+    expect(onSkip.mock.calls).toEqual(reason ? [[{ ticket: 'forged', pid: 101, reason }]] : []);
+  });
+
+  it('sends no signal when the engine does not know its own user', async () => {
+    writeTicket('forged', { sessionId: 'ended', pid: 101 });
+    const kill = vi.fn();
+    const onSkip = vi.fn();
+    expect(await endHeavySessionRuns(dir, 'ended', { ...endDeps(kill, own(101)), uid: null, onSkip })).toBe(
+      0,
+    );
+    expect(kill).not.toHaveBeenCalled();
+    expect(onSkip).toHaveBeenCalledWith({ ticket: 'forged', pid: 101, reason: 'unverifiable' });
+  });
+
+  it('signals only the proven pid of several tickets', async () => {
+    writeTicket('mine', { sessionId: 'ended', pid: 101 });
+    writeTicket('forged', { sessionId: 'ended', pid: 102 });
+    const kill = vi.fn();
+    const live = { 101: {}, 102: { session: 'other' } };
+    expect(await endHeavySessionRuns(dir, 'ended', endDeps(kill, live))).toBe(1);
+    expect(kill.mock.calls).toEqual([[101, 'SIGTERM']]);
+  });
+
+  it('does not kill after ten seconds a pid that is another process by then', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] });
+    writeTicket('reused', { sessionId: 'ended', pid: 101 });
+    const kill = vi.fn();
+    const first = fakeProcesses(own(101));
+    const later = fakeProcesses({ 101: { startedAt: STARTED + 1_000 } });
+    let calls = 0;
+    const processes: ScopeProcessSource = {
+      processes: () => (calls++ === 0 ? first : later).processes(),
+      envValues: (pids, names) => (calls <= 1 ? first : later).envValues(pids, names),
+    };
+    expect(await endHeavySessionRuns(dir, 'ended', { processes, uid: ENGINE_UID, kill })).toBe(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(1));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(kill.mock.calls).toEqual([[101, 'SIGTERM']]);
   });
 
   it('includes live holders and waiters once and does not remove stale entries', async () => {
@@ -589,6 +695,12 @@ describe('the pool of places', () => {
       pressure: 'critical',
       places: { capacity: 4, used: 3, waiting: 1 },
     });
+  });
+
+  it('takes the pressure from the engine, not from the members-writable file (PM-1328)', async () => {
+    await writePressure(dir, { level: 'critical', source: 'sysctl' });
+    expect((await readMachineLoad(dir, { ...POOL, pressure: () => 'normal' })).pressure).toBe('normal');
+    expect((await readMachineLoad(dir, { ...POOL, pressure: () => null })).pressure).toBeNull();
   });
 
   it('shows the sessions of the holders of the pool to the idle guard (PM-569)', async () => {

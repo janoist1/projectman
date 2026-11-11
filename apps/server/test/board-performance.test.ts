@@ -73,9 +73,7 @@ describe('board request performance', () => {
     const { domain } = h.app.projectman;
     domain.bus.subscribe((event) => events.push(event));
     h.runnerModule.planUsage.value = {
-      fiveHourPercent: 12,
       weeklyPercent: 25,
-      fiveHourResetsAt: null,
       weeklyResetsAt: null,
       fetchedAt: new Date().toISOString(),
     };
@@ -88,7 +86,7 @@ describe('board request performance', () => {
       url: '/api/projects/AR/board',
       headers: { cookie },
     });
-    expect(response.json().planUsage.fiveHourPercent).toBe(12);
+    expect(response.json().planUsage.weeklyPercent).toBe(25);
     expect(h.runnerModule.planUsage.calls).toBe(calls);
   });
 });

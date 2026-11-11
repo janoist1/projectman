@@ -473,9 +473,7 @@ export const projectSummary: ProjectSummary = {
 };
 
 export const planUsage: PlanUsage = {
-  fiveHourPercent: 38,
   weeklyPercent: 64,
-  fiveHourResetsAt: hoursFromNow(2.4),
   weeklyResetsAt: hoursFromNow(70),
   fetchedAt: minutesAgo(2),
 };

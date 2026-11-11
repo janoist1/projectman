@@ -724,7 +724,7 @@ export class MockBackend {
   ownerInvites: Array<{ token: string; email: string; inviterName: string; used: boolean }> = [];
   /** Folders the engine says do not exist (`workspace_not_found`); anything else is accepted, as `not_held` is. */
   missingWorkspaces = new Set<string>();
-  codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
+  codexPlanUsage = { ...clone(fixtures.planUsage), weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
   invitations: Array<Invitation & { token: string }> = [];
   /** A password of `null` is an account made by an e-mail code: it logs in with a code only. */

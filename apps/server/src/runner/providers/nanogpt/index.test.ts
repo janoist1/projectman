@@ -260,8 +260,6 @@ describe('NanoGPT adapter', () => {
       fetch: request,
     });
     expect(await adapter.planUsage.get()).toMatchObject({
-      fiveHourPercent: null,
-      fiveHourResetsAt: null,
       weeklyPercent: 99.96247667,
       weeklyResetsAt: new Date(resetAt).toISOString(),
     });

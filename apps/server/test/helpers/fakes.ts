@@ -613,12 +613,10 @@ export function capturingLogger(): CapturingLogger {
   return { logger: logger as unknown as FastifyBaseLogger, errors, warnings };
 }
 
-/** A plan usage probe result: `percent` of the five-hour window used. */
+/** A plan usage probe result: `percent` of the weekly limit used. */
 export function planUsage(percent: number, overrides: Partial<PlanUsage> = {}): PlanUsage {
   return {
-    fiveHourPercent: percent,
-    weeklyPercent: null,
-    fiveHourResetsAt: null,
+    weeklyPercent: percent,
     weeklyResetsAt: null,
     fetchedAt: '2026-09-30T10:00:00.000Z',
     ...overrides,

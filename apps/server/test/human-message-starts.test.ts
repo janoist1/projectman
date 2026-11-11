@@ -88,9 +88,7 @@ describe('human messages wake idle AI members', () => {
         await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
       } else {
         h.runnerModule.planUsage.value = {
-          fiveHourPercent: 90,
-          weeklyPercent: null,
-          fiveHourResetsAt: null,
+          weeklyPercent: 90,
           weeklyResetsAt: null,
           fetchedAt: new Date().toISOString(),
         };

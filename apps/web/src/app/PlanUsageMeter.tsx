@@ -3,7 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { AgentProvider, PlanUsage } from '@projectman/shared';
-import { pausesOnPlanUsage } from '@projectman/shared';
+import { planUsagePause } from '@projectman/shared';
 import { Icon } from '../components/Icon';
 import { MiniMeter, meterLevel } from '../components/MiniMeter';
 import { Tooltip } from '../components/Tooltip';
@@ -13,7 +13,7 @@ import { useDismiss } from '../lib/hooks';
 import styles from './PlanUsageMeter.module.css';
 
 /**
- * Phone header: one small figure, the highest plan usage across providers and both windows,
+ * Phone header: one small figure, the highest weekly plan usage across providers,
  * coloured like the bars; it opens the Team page, where each member's profile has the meter.
  */
 export function PlanUsageBadge({
@@ -25,9 +25,7 @@ export function PlanUsageBadge({
   pauseAbove?: number;
   to: string;
 }) {
-  const known = usages.flatMap((usage) =>
-    [usage?.fiveHourPercent, usage?.weeklyPercent].filter((value): value is number => value != null),
-  );
+  const known = usages.flatMap((usage) => (usage?.weeklyPercent != null ? [usage.weeklyPercent] : []));
   if (known.length === 0) return null;
   const peak = Math.max(...known);
   const percent = formatPercent(peak);
@@ -56,14 +54,12 @@ function resetText(value: number | null, resetsAt: string | null | undefined): s
   return resetsAt ? `${percent}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : percent;
 }
 
+/** The same rule that stops new AI work: a known weekly percent strictly above the threshold. */
 function isPaused(provider: AgentProvider, usage: PlanUsage | null | undefined, pauseAbove: number) {
-  return (
-    pausesOnPlanUsage(provider) &&
-    ((usage?.fiveHourPercent ?? 0) >= pauseAbove || (usage?.weeklyPercent ?? 0) >= pauseAbove)
-  );
+  return planUsagePause(provider, usage ?? null, pauseAbove) !== null;
 }
 
-/** The same window details appear in the individual and combined dropdowns. */
+/** The same weekly details appear in the individual and combined dropdowns. */
 function ProviderUsageDetails({
   provider,
   usage,
@@ -73,32 +69,22 @@ function ProviderUsageDetails({
   usage: PlanUsage | null | undefined;
   pauseAbove: number;
 }) {
+  const value = usage?.weeklyPercent ?? null;
+  const resetsAt = value === null ? null : (usage?.weeklyResetsAt ?? null);
   return (
     <>
-      {[
-        {
-          label: t('planUsage.fiveHour'),
-          value: usage?.fiveHourPercent ?? null,
-          resetsAt: usage?.fiveHourResetsAt,
-        },
-        {
-          label: t('planUsage.weekly'),
-          value: usage?.weeklyPercent ?? null,
-          resetsAt: usage?.weeklyResetsAt,
-        },
-      ].map(({ label, value, resetsAt }) => (
-        <div key={label} className={styles.dropdownSection}>
-          <MiniMeter
-            label={label}
-            value={value}
-            pauseAbove={pauseAbove}
-            valueText={resetText(value, resetsAt)}
-          />
-          {resetsAt ? (
-            <span className={styles.resetText}>{t('planUsage.resets', { time: formatStamp(resetsAt) })}</span>
-          ) : null}
-        </div>
-      ))}
+      <div className={styles.dropdownSection}>
+        <MiniMeter
+          label={t('planUsage.weekly')}
+          ariaLabel={t('planUsage.meterLabel', { provider: t(`providers.${provider}`) })}
+          value={value}
+          pauseAbove={pauseAbove}
+          valueText={resetText(value, resetsAt)}
+        />
+        {resetsAt ? (
+          <span className={styles.resetText}>{t('planUsage.resets', { time: formatStamp(resetsAt) })}</span>
+        ) : null}
+      </div>
       {isPaused(provider, usage, pauseAbove) ? (
         <div className={styles.pausedNotice}>
           <Icon name="alertCircle" size={14} className={styles.pausedIcon} />
@@ -196,18 +182,16 @@ export function PlanUsageMeter({
   variant?: 'full' | 'compact';
 }) {
   const name = t(`providers.${provider}`);
-  const five = usage?.fiveHourPercent ?? null;
   const week = usage?.weeklyPercent ?? null;
+  const weekResetsAt = week === null ? null : (usage?.weeklyResetsAt ?? null);
   if (variant === 'compact') {
-    const known = [five, week].filter((value): value is number => value !== null);
-    if (known.length === 0) return null;
-    const peak = Math.max(...known);
+    if (week === null) return null;
     return (
       <UsageDropdown
         name={name}
-        peak={peak}
+        peak={week}
         pauseAbove={pauseAbove}
-        label={t('planUsage.compactLabel', { provider: name, percent: formatPercent(peak) })}
+        label={t('planUsage.compactLabel', { provider: name, percent: formatPercent(week) })}
         title={t('planUsage.dropdownTitle', { provider: name })}
       >
         <ProviderUsageDetails provider={provider} usage={usage} pauseAbove={pauseAbove} />
@@ -218,8 +202,7 @@ export function PlanUsageMeter({
   const tip = [
     t('planUsage.title', {
       provider: name,
-      fiveHour: valueWithReset(five, usage?.fiveHourResetsAt ?? null),
-      weekly: valueWithReset(week, usage?.weeklyResetsAt ?? null),
+      weekly: valueWithReset(week, weekResetsAt),
     }),
     isPaused(provider, usage, pauseAbove) ? t('planUsage.paused', { limit: pauseAbove }) : null,
   ]
@@ -229,16 +212,11 @@ export function PlanUsageMeter({
     <Tooltip label={name} content={tip} className={styles.provider}>
       <span className={styles.name}>{name}</span>
       <MiniMeter
-        label={t('planUsage.fiveHour')}
-        value={five}
-        pauseAbove={pauseAbove}
-        valueText={resetText(five, usage?.fiveHourResetsAt)}
-      />
-      <MiniMeter
         label={t('planUsage.weekly')}
+        ariaLabel={t('planUsage.meterLabel', { provider: name })}
         value={week}
         pauseAbove={pauseAbove}
-        valueText={resetText(week, usage?.weeklyResetsAt)}
+        valueText={resetText(week, weekResetsAt)}
       />
     </Tooltip>
   );
@@ -252,15 +230,9 @@ export function CombinedPlanUsageMeter({
   usages: ReadonlyArray<{ provider: AgentProvider; usage: PlanUsage | null | undefined }>;
   pauseAbove?: number;
 }) {
-  const knownProviders = usages.filter(
-    ({ usage }) => usage != null && (usage.fiveHourPercent != null || usage.weeklyPercent != null),
-  );
+  const knownProviders = usages.filter(({ usage }) => usage?.weeklyPercent != null);
   if (knownProviders.length === 0) return null;
-  const peak = Math.max(
-    ...knownProviders.flatMap(({ usage }) =>
-      [usage?.fiveHourPercent, usage?.weeklyPercent].filter((value): value is number => value != null),
-    ),
-  );
+  const peak = Math.max(...knownProviders.map(({ usage }) => usage?.weeklyPercent ?? 0));
   return (
     <UsageDropdown
       name={t('planUsage.combinedPrefix')}

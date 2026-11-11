@@ -231,8 +231,8 @@ describe('starting and assigning scored cards', () => {
     const project = complexityProject();
     project.backend.sessions = project.backend.sessions.filter((s) => s.member !== 'be-1');
     const limit = project.backend.config.team.limits.pauseAbovePlanUsagePercent;
-    project.backend.planUsage.fiveHourPercent = limit + 1;
-    project.backend.codexPlanUsage.fiveHourPercent = limit + 1;
+    project.backend.planUsage.weeklyPercent = limit + 1;
+    project.backend.codexPlanUsage.weeklyPercent = limit + 1;
     project.backend.handle('POST', '/api/projects/AC/tasks/AC-24/start', {});
     const task = project.backend.findTask('AC-24')!;
     expect(task.assignee).toBeNull();

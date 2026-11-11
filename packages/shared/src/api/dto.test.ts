@@ -1,5 +1,20 @@
 import { expect, it } from 'vitest';
-import { BoardView, Me, OperatorMemberChanges, RoleView, UpdateMemberRequest } from './dto';
+import { BoardView, Me, OperatorMemberChanges, PlanUsage, RoleView, UpdateMemberRequest } from './dto';
+
+it('drops the five-hour fields of an older engine answer and keeps the weekly ones (PM-1293)', () => {
+  const old = {
+    fiveHourPercent: 42,
+    fiveHourResetsAt: '2026-01-01T05:00:00.000Z',
+    weeklyPercent: 17.5,
+    weeklyResetsAt: null,
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+  };
+  expect(PlanUsage.parse(old)).toEqual({
+    weeklyPercent: 17.5,
+    weeklyResetsAt: null,
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+  });
+});
 
 it.each([
   ['a member update', UpdateMemberRequest],

@@ -16,7 +16,6 @@ function backend() {
   b.sessions = [];
   b.tasks = [];
   b.messages = [];
-  b.planUsage.fiveHourPercent = 0;
   b.planUsage.weeklyPercent = 0;
   return b;
 }

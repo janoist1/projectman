@@ -40,7 +40,6 @@ function setup(standby = false) {
   });
   const observe = (percent: number) =>
     wake.observe('claude', 'local', {
-      fiveHourPercent: percent,
       weeklyPercent: percent,
     } as PlanUsage);
   return { wake, observe, driver, retry, background };

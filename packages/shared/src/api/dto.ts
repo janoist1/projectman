@@ -1049,10 +1049,13 @@ export type CustomRoleRequest = z.input<typeof CustomRoleRequest>;
 
 /* ---------- board & tasks ---------- */
 
+/**
+ * The weekly plan limit of a provider. Providers no longer give a five-hour window; the schema stays a
+ * plain (non-strict) object so an older engine's answer with the five-hour fields still parses and the
+ * extra keys are dropped.
+ */
 export const PlanUsage = z.object({
-  fiveHourPercent: z.number().nullable(),
   weeklyPercent: z.number().nullable(),
-  fiveHourResetsAt: z.string().nullable(),
   weeklyResetsAt: z.string().nullable(),
   fetchedAt: z.string(),
 });

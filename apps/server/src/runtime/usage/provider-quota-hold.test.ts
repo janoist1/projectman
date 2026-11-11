@@ -6,8 +6,6 @@ describe('ProviderQuotaHolds', () => {
   const at = new Date('2026-10-06T12:00:00Z');
   const reset = new Date('2026-10-11T12:00:00Z');
   const usage = (percent: number, until: string | null = reset.toISOString()): PlanUsage => ({
-    fiveHourPercent: null,
-    fiveHourResetsAt: null,
     weeklyPercent: percent,
     weeklyResetsAt: until,
     fetchedAt: at.toISOString(),

@@ -99,14 +99,12 @@ describe('scheduler', () => {
     h = await createDomainHarness();
     await h.domain.tasks.create('AR', { title: 'One' }, OWNER_ACTOR);
     h.runnerModule.planUsage.value = {
-      fiveHourPercent: 91,
-      weeklyPercent: 40,
-      fiveHourResetsAt: null,
+      weeklyPercent: 91,
       weeklyResetsAt: null,
       fetchedAt: '2026-09-29T10:00:00.000Z',
     };
     expect(await code(start(h, 'AR-1'))).toBe('plan_usage_paused');
-    h.runnerModule.planUsage.value = { ...h.runnerModule.planUsage.value, fiveHourPercent: 80 };
+    h.runnerModule.planUsage.value = { ...h.runnerModule.planUsage.value, weeklyPercent: 80 };
     // The member choice reads the last refreshed value, so refresh it as the background poll would.
     await h.domain.planUsage.get('claude', LOCAL_ENGINE_ID);
     expect((await start(h, 'AR-1')).session).not.toBeNull();

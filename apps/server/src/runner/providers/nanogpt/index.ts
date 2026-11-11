@@ -103,8 +103,6 @@ export function createNanogptAdapter(opts: {
           const percent = weekly.percentUsed * 100;
           if (!Number.isFinite(percent)) return null;
           return {
-            fiveHourPercent: null,
-            fiveHourResetsAt: null,
             weeklyPercent: percent,
             weeklyResetsAt: reset?.toISOString() ?? null,
             fetchedAt: new Date().toISOString(),

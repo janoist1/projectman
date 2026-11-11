@@ -407,7 +407,7 @@ describe('the work queue events', () => {
 describe('contract follow-up events', () => {
   it('keeps provider usage separate and preserves the legacy Claude value', () => {
     const client = seed();
-    const codex = { ...planUsage, fiveHourPercent: 23 };
+    const codex = { ...planUsage, weeklyPercent: 23 };
     applyServerEvent(client, { type: 'plan_usage', projectKey: KEY, provider: 'codex', usage: codex });
     expect(client.getQueryData<BoardView>(queryKeys.board(KEY))).toMatchObject({
       planUsage,

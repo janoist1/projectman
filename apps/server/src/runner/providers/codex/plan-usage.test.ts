@@ -46,7 +46,7 @@ async function rollout(
 }
 
 describe('toCodexPlanUsage', () => {
-  it('maps the short and the weekly window by length', () => {
+  it('keeps the weekly window by length and drops the short one', () => {
     expect(
       toCodexPlanUsage(
         {
@@ -58,12 +58,24 @@ describe('toCodexPlanUsage', () => {
         now,
       ),
     ).toEqual({
-      fiveHourPercent: 12.5,
       weeklyPercent: 100,
-      fiveHourResetsAt: '2026-03-10T14:00:00.000Z',
       weeklyResetsAt: '2026-03-14T00:00:00.000Z',
       fetchedAt: '2026-03-10T11:59:00.000Z',
     });
+  });
+
+  it('does not take a 300-minute window for the weekly one', () => {
+    expect(
+      toCodexPlanUsage(
+        {
+          at: '2026-03-10T11:59:00.000Z',
+          limitId: 'codex',
+          primary: { usedPercent: 12.5, windowMinutes: 300, resetsAt: unix('2026-03-10T14:00:00.000Z') },
+          secondary: null,
+        },
+        now,
+      ),
+    ).toEqual({ weeklyPercent: null, weeklyResetsAt: null, fetchedAt: '2026-03-10T11:59:00.000Z' });
   });
 
   it('handles a plan with only a weekly window, and windows that reset since the record', () => {
@@ -78,9 +90,7 @@ describe('toCodexPlanUsage', () => {
         now,
       ),
     ).toEqual({
-      fiveHourPercent: null,
       weeklyPercent: null, // reset on March 5: unknown now, not 90
-      fiveHourResetsAt: null,
       weeklyResetsAt: null,
       fetchedAt: '2026-03-01T00:00:00.000Z',
     });
@@ -113,7 +123,6 @@ describe('CodexPlanUsage', () => {
     );
     const usage = new CodexPlanUsage({ codexHome: home, logger: silentLogger(), now: () => now });
     expect(await usage.get()).toMatchObject({
-      fiveHourPercent: 15,
       weeklyPercent: 40,
       fetchedAt: '2026-03-10T09:30:00.000Z',
     });
@@ -147,7 +156,7 @@ describe('CodexPlanUsage', () => {
     });
     expect(await usage.get()).toBeNull();
     usage.noteTranscript(old);
-    expect(await usage.get()).toMatchObject({ fiveHourPercent: 60, weeklyPercent: 70 });
+    expect(await usage.get()).toMatchObject({ weeklyPercent: 70 });
 
     const cached = new CodexPlanUsage({ codexHome: home, logger: silentLogger(), now: () => now });
     expect(await cached.get()).toBeNull();

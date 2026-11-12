@@ -472,6 +472,8 @@ export interface TaskToolsHandler {
       addLabels?: string[];
       removeLabels?: string[];
       note?: string;
+      /** Non-blocking review remarks for a later card (PM-1351). */
+      followUps?: string[];
       /** PM-1290: the note answers this comment of the card. */
       replyTo?: string;
       title?: string;

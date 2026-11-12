@@ -106,12 +106,30 @@ describe('closed cards comparison (PM-222)', () => {
     expect(cells[3]!.textContent).toContain(t('cardMeasure.changeRequestsOf', { count: 1 }));
     // The send-back that goes with the change request is not a round of its own (PM-1103).
     expect(cells[4]!.textContent).toBe('0');
+    expect([cells[5]!.textContent, cells[6]!.textContent]).toEqual(['0', '0']);
     // Weighted: 200 + a tenth of 1000 cache reads.
     const sonnet = within(table).getByText('AC-13').closest('tr')!;
     expect(within(sonnet).getAllByText(formatTokens(300))).toHaveLength(2);
     expect(project.requests.some((request) => request.path.endsWith('/measure/closed-cards?days=14'))).toBe(
       true,
     );
+  });
+
+  it('shows the failed review full tests and the failed merges by their reason (PM-1341)', async () => {
+    const project = measuredProject();
+    const { backend } = project;
+    addEvent(backend, 'AC-14', 'task_stage_changed', {
+      from: 'code_review',
+      to: 'dev',
+      testsFailed: { runId: 'run', branch: 'b', commit: 'c' },
+    });
+    for (const reason of ['conflict', 'check_failed', 'check_failed'])
+      addEvent(backend, 'AC-14', 'task_merge_failed', { mergeId: 'm', reason });
+    project.render(<ClosedCardsComparison />);
+    const table = await screen.findByRole('table');
+    const cells = within(within(table).getByText('AC-14').closest('tr')!).getAllByRole('cell');
+    expect(cells[4]!.textContent).toContain(t('cardMeasure.reviewTestsFailedOf', { count: 1 }));
+    expect([cells[5]!.textContent, cells[6]!.textContent]).toEqual(['1', '2']);
   });
 
   it('says the model source in one sentence and keeps the weighted-token note behind a fold (PM-240)', async () => {

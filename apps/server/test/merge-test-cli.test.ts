@@ -660,6 +660,8 @@ describe('merge test runner', () => {
         resolve('apps/server/test/release-'),
         resolve('apps/server/test/architecture'),
         resolve('apps/server/test/merge-test-'),
+        resolve('apps/server/test/memory-profile.test.ts'),
+        resolve('apps/server/test/history-semantic-profile.test.ts'),
         resolve('apps/server/test/control-socket.integration.test.ts'),
       ],
     ]);

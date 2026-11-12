@@ -10,6 +10,22 @@ import type { ProjectConfig } from './schema';
 
 type LabelConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
 
+/** A review or test result label whose setters may not judge their own work. */
+export function isReviewResultLabel(label: LabelDefinition): boolean {
+  return label.group !== undefined && label.notByAuthor === true;
+}
+
+/** Whether the member may leave remarks for a later card (PM-1351). */
+export function canLeaveFollowUps(
+  config: LabelConfig,
+  task: Pick<Task, 'assignee' | 'links'>,
+  handle: string,
+): boolean {
+  return config.pipeline.labels.some(
+    (label) => isReviewResultLabel(label) && labelSetters(config, label, task).includes(handle),
+  );
+}
+
 /** Approvals delegated keys cannot give, including conditional gate requirements. */
 export function isOwnerApprovalLabel(config: LabelConfig, label: LabelDefinition): boolean {
   return (

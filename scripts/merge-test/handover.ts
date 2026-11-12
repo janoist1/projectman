@@ -3,7 +3,7 @@ import { sourceImports } from '../../apps/server/test/architecture/check';
 import { importGraph, isCode, isServerTest } from './impact';
 import type { MergeTestFile } from './impact';
 import { refineScope } from './refine';
-import { CLOUD_TEST_FILTERS, isDocumentFile, mergeTestScope } from './scope';
+import { CLOUD_TEST_FILTERS, isDocumentFile, mergeTestScope, TEST_READ_DOCS } from './scope';
 import type { MergeTestScope, MergeTestWorkspace } from './scope';
 import { sharedImpact } from './shared-impact';
 import { MERGE_TEST_WORKSPACES, workspaceOf } from './steps';
@@ -32,6 +32,8 @@ export interface SelectionRule {
   tests: readonly string[];
   /** `any`: a changed, added or deleted file counts (the default); `add-delete`: only an added or deleted one. */
   on?: 'any' | 'add-delete';
+  /** The sources are so wide that matching one does not make a file mapped to a test (the unmapped list). */
+  broad?: boolean;
 }
 
 const STRUCTURE_MAP = 'projectman.structure.yaml';
@@ -65,12 +67,14 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
   {
     reason: 'the architecture tests read the server source folder, the module map and the structure map',
     sources: ['apps/server/', 'scripts/', STRUCTURE_MAP],
+    broad: true,
     tests: ['apps/server/test/architecture/'],
   },
   {
     reason: 'the structure map test reads every tracked file of the repository',
     sources: ['**'],
     on: 'add-delete',
+    broad: true,
     tests: ['apps/server/test/architecture/structure-map.test.ts'],
   },
   {
@@ -111,6 +115,129 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
       'apps/server/test/member-handles-columns.test.ts',
     ],
   },
+  ...Object.entries(TEST_READ_DOCS).map(([doc, tests]): SelectionRule => ({
+    reason: `the tests read ${doc} by path, so a change to it is not a documentation-only change (PM-1337)`,
+    sources: [doc],
+    tests,
+  })),
+  {
+    reason:
+      'the context pack test writes and reads the prompt snapshots (.txt files next to it) with toMatchFileSnapshot, which are no .snap files',
+    sources: ['apps/server/src/context/'],
+    tests: ['apps/server/src/context/context-pack.test.ts'],
+  },
+  {
+    reason:
+      'the visibility test drives the timeline and comment visibility rules through the app, not by import (PM-1331)',
+    sources: ['packages/shared/src/domain/timeline-visibility.ts', 'packages/shared/src/domain/comments.ts'],
+    tests: ['apps/server/test/visibility.test.ts'],
+  },
+  {
+    reason: 'the workflow tests read the workflow files by path',
+    sources: ['.github/workflows/merge-check.yml'],
+    tests: ['apps/server/test/merge-check-workflow.test.ts'],
+  },
+  {
+    reason: 'the workflow tests read the workflow files by path',
+    sources: ['.github/workflows/projectman-engine-release.yml'],
+    tests: ['apps/server/test/engine-release-workflow.test.ts'],
+  },
+  {
+    reason: 'the workflow tests read the workflow files by path',
+    sources: ['.github/workflows/projectman-job.yml'],
+    tests: ['apps/server/test/projectman-job-workflow.test.ts'],
+  },
+  {
+    reason: 'the engine app and service tests read the plist, the menu bar app and the app files by path',
+    sources: ['deploy/mac/'],
+    tests: [
+      'apps/server/test/engine-menubar.test.ts',
+      'apps/server/test/engine-app-*.test.ts',
+      'apps/server/test/engine-service*.test.ts',
+    ],
+  },
+  {
+    reason:
+      'the deploy tests read the cloud and host files by path (the cloud scope runs the same filters when nothing else changed)',
+    sources: ['deploy/aws/', 'deploy/cloud/', 'scripts/cloud/'],
+    tests: [
+      'apps/server/test/cloud-*.test.ts',
+      'apps/server/test/deploy-*.test.ts',
+      'apps/server/test/release-*.test.ts',
+      'apps/server/test/memory-profile.test.ts',
+      'apps/server/test/history-semantic-profile.test.ts',
+    ],
+  },
+  {
+    reason: 'the web PWA tests read the public files, the index page and the style tokens by path',
+    sources: ['apps/web/public/', 'apps/web/index.html', 'apps/web/src/styles/'],
+    tests: ['apps/web/src/pwa/*.test.ts'],
+  },
+  {
+    reason: 'the error code test reads every server source file; the selection test reads the source tree',
+    sources: ['apps/server/src/'],
+    broad: true,
+    tests: ['apps/server/test/error-codes.test.ts', 'apps/server/test/merge-test-impact.test.ts'],
+  },
+  {
+    reason: 'the isolation test checks that every file it lists still exists',
+    sources: ['apps/server/test/'],
+    on: 'add-delete',
+    broad: true,
+    tests: ['apps/server/test/isolation.test.ts'],
+  },
+  {
+    reason:
+      'the merge check tests read the workspaces, their package scripts and the runtime entries by path',
+    sources: ['apps/*/package.json', 'packages/*/package.json'],
+    tests: ['apps/server/test/merge-test-cli.test.ts', 'apps/server/test/merge-test-steps.test.ts'],
+  },
+  {
+    reason: 'the merge check tests read the scripts and the runtime entries by path',
+    sources: ['scripts/merge-test/'],
+    tests: ['apps/server/test/merge-test-*.test.ts'],
+  },
+  {
+    reason: 'the merge check watchdog test (CLAUDE.md: after changing merge-test execution or reporting)',
+    sources: ['scripts/merge-test/', 'scripts/full-test/', 'apps/server/src/full-test/'],
+    tests: ['apps/server/test/merge-test-watchdog.test.ts'],
+  },
+  {
+    reason:
+      'the web GET contract test meters the routes and their queries through the app (CLAUDE.md: after changing web GET responses or hot-read query costs)',
+    sources: ['apps/server/src/api/', 'apps/server/src/http/', 'apps/server/src/db/'],
+    tests: ['apps/server/test/web-get-contracts.test.ts'],
+  },
+  {
+    reason:
+      'the start offer and golden path tests drive admission and start timing through the domain, not by import (CLAUDE.md: after changing admission wake-ups or start timing)',
+    sources: [
+      'apps/server/src/runtime/admission/',
+      'apps/server/src/agent-text/start-offer.ts',
+      'apps/server/src/core/tasks/service.ts',
+    ],
+    tests: ['apps/server/test/start-offer.test.ts', 'apps/server/test/golden-path-*.test.ts'],
+  },
+  {
+    reason: 'the tool scripts are started from their tests as programs, not imported',
+    sources: ['scripts/heavy/', 'scripts/lib/', 'apps/server/src/full-test/heavy-lock.ts'],
+    tests: ['apps/server/test/heavy-cli.test.ts'],
+  },
+  {
+    reason: 'the migration verify test starts scripts/migrate/cli.ts',
+    sources: ['scripts/migrate/', 'apps/server/src/db/'],
+    tests: ['apps/server/test/migration-verify.test.ts'],
+  },
+  {
+    reason: 'the projectman CLI test reads the client scripts by path',
+    sources: ['scripts/projectman/'],
+    tests: ['apps/server/test/projectman-cli.test.ts'],
+  },
+  {
+    reason: 'the shots tests start scripts/shots.mjs and read its scenarios and machine fixtures',
+    sources: ['scripts/shots.mjs', 'scripts/scenarios/', 'scripts/fixtures/'],
+    tests: ['apps/server/test/shots.test.ts', 'apps/server/test/shots-browser.test.ts'],
+  },
 ];
 
 export interface HandoverSelection {
@@ -121,9 +248,10 @@ export interface HandoverSelection {
   tests: { workspace: MergeTestWorkspace; files: string[] }[];
   /** The vitest filters of the cloud scope. */
   testFilters: string[];
-  /** How many tests the change reaches (M), the cap, and how many were left to the merge check. */
+  /** How many tests the change reaches (M), the cap, the nearest ones that run beyond it, and how many were left to the merge check. */
   reached: number;
   cap: number;
+  nearest: number;
   omitted: number;
   /** The tests the cap left out, by how near they are to the change. */
   omittedByProximity: Record<Proximity, string[]>;
@@ -137,6 +265,8 @@ export interface HandoverSelection {
  * importing the file it is in), `graph` (reached through further imports).
  */
 export const PROXIMITIES = ['direct', 'rule', 'name', 'graph'] as const;
+/** How many of the `name` tests run whatever the cap says (the best-ranked ones). */
+export const NAME_TESTS_ALWAYS = 10;
 export type Proximity = (typeof PROXIMITIES)[number];
 
 const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({
@@ -146,6 +276,7 @@ const empty = (kind: HandoverSelection['kind']): HandoverSelection => ({
   testFilters: [],
   reached: 0,
   cap: TARGETED_TEST_FILES_MAX,
+  nearest: 0,
   omitted: 0,
   omittedByProximity: { direct: [], rule: [], name: [], graph: [] },
   unmapped: [],
@@ -361,7 +492,8 @@ export function handoverSelection(
     // no test follows from it here, and the merge check covers it.
     const mapped =
       !isTestSupport(file) && !isConfig(file) && workspace && (isCode(file) || reverse.has(file));
-    if (!mapped && !reverse.has(file) && file !== STRUCTURE_MAP) unmapped.push(file);
+    const ruled = SELECTION_RULES.some((rule) => !rule.broad && matchesPattern(file, rule.sources));
+    if (!mapped && !ruled && !reverse.has(file) && file !== STRUCTURE_MAP) unmapped.push(file);
     if (isCode(file) && workspace) typecheck.add(workspace);
     seeds.add(file);
     changedFiles.push(file);
@@ -457,8 +589,20 @@ export function handoverSelection(
   for (const proximity of PROXIMITIES)
     for (const path of tiers[proximity]) if (!proximityOf.has(path)) proximityOf.set(path, proximity);
   const ordered = [...proximityOf.keys()];
-  const run = ordered.slice(0, TARGETED_TEST_FILES_MAX);
-  const left = ordered.slice(TARGETED_TEST_FILES_MAX);
+  // The cap cuts the farther tests only: the direct and the rule tests and the first name tests always run.
+  let nameSeen = 0;
+  const nearest = ordered.filter((path) => {
+    const proximity = proximityOf.get(path)!;
+    return (
+      proximity === 'direct' ||
+      proximity === 'rule' ||
+      (proximity === 'name' && ++nameSeen <= NAME_TESTS_ALWAYS)
+    );
+  });
+  const farther = ordered.filter((path) => !nearest.includes(path));
+  const room = Math.max(0, TARGETED_TEST_FILES_MAX - nearest.length);
+  const run = [...nearest, ...farther.slice(0, room)];
+  const left = farther.slice(room);
   return {
     kind: 'targeted',
     typecheck: MERGE_TEST_WORKSPACES.filter((workspace) => typecheck.has(workspace)),
@@ -469,7 +613,8 @@ export function handoverSelection(
     testFilters: [],
     reached: ordered.length,
     cap: TARGETED_TEST_FILES_MAX,
-    omitted: Math.max(0, ordered.length - TARGETED_TEST_FILES_MAX),
+    nearest: nearest.length,
+    omitted: left.length,
     omittedByProximity: Object.fromEntries(
       PROXIMITIES.map((proximity) => [proximity, left.filter((path) => proximityOf.get(path) === proximity)]),
     ) as Record<Proximity, string[]>,

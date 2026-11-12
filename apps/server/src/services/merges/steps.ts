@@ -412,6 +412,8 @@ export class MergeSteps {
       }
       if (row.landed === 'remote') {
         if (!row.mergeCommit) return this.block(running, 'merge_error', 'the landed merge has no commit');
+        if (await merger.isAncestor(ref, { ancestor: row.mergeCommit, commit: base.local }))
+          return this.finish(row, config);
         const advance = await merger.advance(ref, { base: row.base, from: base.local, to: row.mergeCommit });
         if (!advance.ok) return this.block(running, 'local_checkout', advance.message);
         return this.finish(row, config);

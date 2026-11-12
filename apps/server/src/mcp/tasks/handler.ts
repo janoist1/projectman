@@ -156,6 +156,7 @@ export class TaskTools implements TaskToolsHandler {
       addLabels?: string[];
       removeLabels?: string[];
       note?: string;
+      followUps?: string[];
       replyTo?: string;
       title?: string;
       description?: string;
@@ -361,6 +362,7 @@ export class TaskTools implements TaskToolsHandler {
           ...(args.acceptance?.length ? { acceptance: args.acceptance } : {}),
           addLabels: args.addLabels,
           removeLabels: args.removeLabels,
+          ...(args.followUps ? { followUps: args.followUps } : {}),
           note: args.note,
           ...(args.replyTo ? { replyTo: args.replyTo } : {}),
           stageId: args.stageId,

@@ -4,7 +4,7 @@ import clsx from 'clsx';
 import { Link } from 'react-router';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { isProcessTimelineEvent } from '@projectman/shared';
-import type { CardStep, Task, TaskDetail, TaskStartWaiting, TimelineEvent } from '@projectman/shared';
+import type { BoardCard, CardStep, TaskDetail, TaskStartWaiting, TimelineEvent } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import type { ChipTone } from '../../components/Chip';
@@ -47,7 +47,11 @@ function stepName(step: CardStep): string {
 }
 
 /** What the step waits for, from its wait code; the code is data, so an unknown one reads "Vár". */
-function waitText(step: CardStep, task: Task, ctx: Pick<TimelineContext, 'members' | 'myHandle' | 'labels'>) {
+function waitText(
+  step: CardStep,
+  task: BoardCard,
+  ctx: Pick<TimelineContext, 'members' | 'myHandle' | 'labels'>,
+) {
   if (!step.waitCode) return null;
   if (step.source === 'start') {
     const waiting = (task.startWaiting ?? {
@@ -81,7 +85,7 @@ function StepRow({
   now,
 }: {
   step: CardStep;
-  task: Task;
+  task: BoardCard;
   ctx: TimelineContext;
   now: number;
 }) {
@@ -168,7 +172,7 @@ function Now({
   round,
   ctx,
 }: {
-  task: Task;
+  task: BoardCard;
   state: TaskState;
   /** Absent: the server did not read them (no waiting rows, no error). */
   steps: readonly CardStep[] | undefined;
@@ -237,7 +241,7 @@ export function TaskProcess({
   earlier,
 }: {
   active: boolean;
-  task: Task;
+  task: BoardCard;
   /** Absent for a theme: it has no "Most" box. */
   state: TaskState | undefined;
   theme: boolean;

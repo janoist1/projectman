@@ -3000,6 +3000,12 @@ migrations.push({
 });
 migrations.push({
   version: 152,
+  name: 'closed card measurement index',
+  // PM-1375: the closed-card measure reads only cards closed within its time window.
+  sql: `CREATE INDEX tasks_closed ON tasks(project_key, closed_at);`,
+});
+migrations.push({
+  version: 153,
   name: 'start failures',
   // PM-1335: the failed session starts of a member at a place, so that the backoff and the stop at the limit
   // survive a restart. `retry_at` is when the next automatic start may run (NULL once stopped); `stopped_at`

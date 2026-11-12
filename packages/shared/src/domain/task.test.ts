@@ -1,8 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { canAutomaticallyStartTask, isOpenTask, subtaskParentRefusal, taskSeq } from './task';
-import type { SubtaskParentRefusal, TaskStatus } from './task';
+import { boardCard, canAutomaticallyStartTask, isOpenTask, subtaskParentRefusal, taskSeq } from './task';
+import type { SubtaskParentRefusal, Task, TaskStatus } from './task';
 
 describe('task helpers', () => {
+  it('summarizes a task for the board without its description and with the tile part of its merge', () => {
+    const task = {
+      key: 'AR-1',
+      title: 'A card',
+      description: 'A long text',
+      merged: {
+        via: 'tool',
+        commit: 'abc',
+        repo: 'app',
+        base: 'main',
+        at: '2026-11-12T10:00:00Z',
+        by: 'lead',
+      },
+    } as unknown as Task;
+    expect(boardCard(task)).toEqual({
+      key: 'AR-1',
+      title: 'A card',
+      merged: { repo: 'app', at: '2026-11-12T10:00:00Z' },
+    });
+  });
+
   it('never automatically starts a theme', () => {
     expect(canAutomaticallyStartTask({ key: 'AR-1', kind: 'theme' }, [])).toBe(false);
   });

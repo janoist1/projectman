@@ -439,7 +439,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`session_start_failed`, or an engine call that fails or times out, which belongs to no session) and a session
   that ended as `failed` (a non-zero exit; a clean exit may be a stop nobody recorded) before its first turn, unless the provider was in a rate-limit cooldown or the stop
   was a setup refusal or on purpose. A session is counted once, however many points see it. The count is in the
-  `start_failures` table (migration 152), so it survives a restart. After a failure the next automatic start at
+  `start_failures` table (migration 153), so it survives a restart. After a failure the next automatic start at
   the place waits 30 s, then 1, 2 and 4 minutes (`start_backoff`, with `until`); the fifth failure in a row stops
   the place (`start_failing`). Both refusals can be waited for, so the deferral stays (it is not dropped) and the
   card, the queue item or the message shows why. A stopped place opens one `work_outage` alert per provider and
@@ -899,12 +899,13 @@ A proposal carries no recommended operations (`propose_operator_knowledge` refus
 approving an agreement sends no continuation. Old continuation messages (`operator_knowledge_approval`
 origin) keep their delivery rules in `OperatorRequests`.
 
-**Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
-behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with
-an Effect program: `kernel`, `runtime/sessions`, `runtime/delivery`, `runtime/watchers`,
-`runtime/usage`, `services/merges`, `services/full-tests`, `services/github`,
-`services/project-docs`, `services/schedules`, `runner`, `worktree`, `full-test`.
-The programs, their files and facades, the pinned version and the rules are in
+**Effect:** long-running work with real concurrency (queues, cancellation that waits for a stop,
+retries, shutdown waits) is an Effect program behind a plain TypeScript facade, so nothing outside a
+module sees an Effect type. A plain timer is plain TypeScript, and a hub module's periodic work is a
+kernel sweep (PM-1388). Modules with an Effect program: `kernel`, `runtime/sessions`,
+`runtime/delivery`, `runtime/watchers`, `runtime/usage`, `services/merges`, `services/full-tests`,
+`services/github`, `services/project-docs`, `services/schedules`, `runner`, `worktree`, `full-test`.
+The boundary, the programs, their files and facades, the pinned version and the rules are in
 [EFFECT.md](EFFECT.md); read it before touching or writing Effect code.
 
 **Packages** (TypeScript source, used directly by both apps):

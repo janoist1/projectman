@@ -602,3 +602,40 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     blockers and communicates. A blocking card it opens is prioritised, scoped and handed
     on in the same step. The owner's words: „Alapvetően a PM egy profi pm” and „Igen,
     mindkettőt”.
+77. **The open questions of the 2026-11-12 review are decided as proposed.** Decided by the
+    owner on 2026-11-12 (PM-1334), through the connected Claude: „egyébként a többire
+    elfogadom a javaslatot”. The Effect question (S-12) stays open.
+    - TD-03: cards up to a set size that touch no central file are reviewed by a Sonnet
+      reviewer instead of the Opus lead, as a two-week trial, measuring whether failed merges
+      grow (PM-1341). When the review is green, the merge starts without a second session.
+    - T-08: the move into review is refused without a green hand-over check, once the check's
+      fix (PM-1337) is in.
+    - T-07: the project manager may bring a member onto a card; extends decision 44.
+    - S-01: database migrations 1–151 are replaced by one baseline; the last release before
+      the cut is marked, because an older backup can only be restored with it.
+    - S-06: single mode (`scripts/live`) stays as the recovery path until cloud operation is
+      proven. The rest of S-06 (config converters, retired kinds) does not depend on this.
+    - L-03: a message counts as read when it was shown on screen, not when its thread opened.
+    - L-06: need/done process labels are folded on the cards; the designer decides the form.
+    - R-07: on Codex, Gemini and NanoGPT, „allow for this session” covers only the folder the
+      decider saw, not the whole tool.
+    - M-06: a green pre-review run does not stand in for the merge check.
+78. **Rules are configurable; AI members are treated like people.** Decided by the owner on
+    2026-11-12 (PM-1334); refines decision 75. We do not hard-code our own way of working:
+    projectman stays customisable, and AI members are addressed as if they were people, with
+    a balance between rules and the member's understanding. A way-of-working rule is a project
+    setting whose default is today's behaviour; the PM project's value lives in its own
+    configuration, not in templates or code. Where the system enforces a rule, the refusal
+    says why and what to do instead; enforcement is kept for where forgetting is expensive,
+    elsewhere the role text explains and the member judges. The owner's words: „ne a mi saját
+    rendszerünket erőltessük, égessük a kódba, hanem tegyük lehetővé, hogy a PM testreszabható
+    legyen, az AI tagok mintha emberek lennének, legyen rendben az egyensúly a szabályozás és
+    a tag megértése között”.
+79. **The architect decides where Effect is used (S-12).** Decided by the owner on 2026-11-12
+    (PM-1334), through the connected Claude, closing the question decision 77 left open: „Döntsön
+    az architekt”. The architect closes the Effect trial (PM-590) on its experience, sets the
+    boundary and writes it in `docs/EFFECT.md` (PM-1388); that boundary is binding without a
+    further owner question. The starting proposal shown to the owner, not binding: Effect where
+    there is concurrency, cancellation and retry (merge queue, test queue, delivery, input
+    queue); not for plain timers; the five wrappers under 40 lines go back to plain TypeScript
+    when next touched.

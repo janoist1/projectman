@@ -819,6 +819,41 @@ describe('formatTaskUpdate relations', () => {
   });
 });
 
+describe('formatTaskUpdate merge after review (PM-1379)', () => {
+  const task = sampleTaskDetail().task;
+  const merge = (mergeAfterReview: Parameters<typeof formatTaskUpdate>[1]['mergeAfterReview']) =>
+    formatTaskUpdate(task, { note: false, ...(mergeAfterReview ? { mergeAfterReview } : {}) })
+      .split('\n')
+      .find((line) => line.startsWith('Merge: '));
+
+  it('says the merge is queued and needs no merge_task', () => {
+    expect(merge({ state: 'queued', mergeId: 'merge_1' })).toContain('no merge_task call is needed');
+  });
+
+  it.each(['uncommitted', 'earlier_request', 'blocked'] as const)(
+    'names the reason and merge_task when the merge waits: %s',
+    (why) => {
+      const line = merge({ state: 'waiting', mergeId: 'merge_1', why })!;
+      expect(line).toContain('Call merge_task');
+      expect(line).toContain('merge_1');
+    },
+  );
+
+  it('names the unmet gate, and the acceptance confirm for an acceptance label', () => {
+    expect(merge({ state: 'not_ready', reason: 'gate', unmet: ['has_label:qa-ok'] })).not.toContain(
+      'acceptance confirm',
+    );
+    const line = merge({ state: 'not_ready', reason: 'gate', unmet: ['lacks_label:acceptance-unconfirmed'] });
+    expect(line).toContain('lacks_label:acceptance-unconfirmed');
+    expect(line).toContain('update_task acceptance confirm');
+  });
+
+  it('says it is still being decided on timeout, and adds no line without an outcome', () => {
+    expect(merge('pending')).toContain('still being decided');
+    expect(merge(undefined)).toBeUndefined();
+  });
+});
+
 describe('themes in the tool results (PM-192)', () => {
   it('shows a card its theme: key, title and state', () => {
     const detail = sampleTaskDetail();
@@ -1014,6 +1049,12 @@ describe('formatSentMessage', () => {
     const roleless = { handle: 'dev', delivery: 'next_input', noWake: 'no_card_role' } as const;
     expect(recipientLine(roleless, 'AR-1')).toContain('ask a person to bring them in');
     expect(recipientLine(roleless, 'AR-1', true)).not.toContain('ask a person');
+  });
+
+  it('names start_member as the coordinator’s way forward for a member without a card role (B-05)', () => {
+    const roleless = { handle: 'dev', delivery: 'next_input', noWake: 'no_card_role' } as const;
+    expect(recipientLine(roleless, 'AR-1', true)).toContain('start_member');
+    expect(recipientLine(roleless, 'AR-1')).not.toContain('start_member');
   });
 
   it('says where a message went when it did not go to its own card (PM-182)', () => {

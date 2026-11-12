@@ -6067,6 +6067,7 @@ export const hu = {
       assignment_note: '{line} Indok: {note}',
       task_created_imported: 'Létrehozva (importálva)',
       task_created: 'Létrehozta a kártyát',
+      review_follow_ups: 'Megjegyzések egy későbbi kártyához{label}: {items}',
       task_updated: 'Módosította: {fields}',
       task_stage_changed: 'Továbbvitte: {from} → {to}',
       task_stage_changed_pulled_urgent: 'Előre húzta a rendszer: {from} → {to}; a kártya sürgős',

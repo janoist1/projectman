@@ -32,6 +32,9 @@ export const CLOUD_TEST_FILTERS = [
   'apps/server/test/release-',
   'apps/server/test/architecture/',
   'apps/server/test/merge-test-',
+  // They read the Dockerfile and the history fixture generator of deploy/cloud by path (PM-1337).
+  'apps/server/test/memory-profile.test.ts',
+  'apps/server/test/history-semantic-profile.test.ts',
   // The real Unix control socket boundary (PM-754): never skipped in a merge.
   'apps/server/test/control-socket.integration.test.ts',
 ];
@@ -41,7 +44,7 @@ export const CLOUD_TEST_FILTERS = [
  * structure map, the merge-test scripts). A change that touches only these (and the tests of the rules)
  * runs the rules' tests instead of the whole suite (PM-1354). `tests` entries are vitest filters: a test
  * file, a file name prefix or a folder. A test that reads one of these paths must be named by a rule
- * (`owned-path-tests.test.ts`).
+ * (the guard in `merge-test-scope.test.ts`).
  */
 export interface OwnedPathRule {
   id: string;
@@ -94,7 +97,10 @@ function ownedScope(files: readonly string[]): MergeTestScope | undefined {
     !hit.length ||
     !files.every(
       (file) =>
-        !isFullRunConfig(file) && (isRuleTest(file) || OWNED_PATH_RULES.some((rule) => isSource(rule, file))),
+        !isFullRunConfig(file) &&
+        (isRuleTest(file) ||
+          Object.hasOwn(TEST_READ_DOCS, file) ||
+          OWNED_PATH_RULES.some((rule) => isSource(rule, file))),
     )
   )
     return undefined;
@@ -106,12 +112,32 @@ function ownedScope(files: readonly string[]): MergeTestScope | undefined {
   return {
     kind: 'owned',
     rules: hit.map((rule) => rule.id),
-    tests: [...new Set([...hit.flatMap((rule) => rule.tests), ...changedTests])],
+    tests: [...new Set([...hit.flatMap((rule) => rule.tests), ...changedTests, ...testsReadingDocs(files)])],
   };
 }
 
+/**
+ * The documents a server test reads by path, and the tests that read each: a change to one is not a
+ * document-only change (PM-1337). A test that reads another document by path adds it here.
+ */
+export const TEST_READ_DOCS: Readonly<Record<string, readonly string[]>> = {
+  'docs/HYBRID.md': [
+    'apps/server/test/deploy-cloud.test.ts',
+    'apps/server/test/deploy-aws.test.ts',
+    'apps/server/test/memory-profile.test.ts',
+  ],
+  'docs/MACHINE-DEPENDENT.md': ['apps/server/test/memory-profile.test.ts'],
+  'docs/ARCHITECTURE.md': ['apps/server/test/history-semantic-recall.test.ts'],
+  'docs/EFFECT.md': ['apps/server/test/architecture/effect-allowlist.test.ts'],
+};
+
+/** The tests that read a changed document by path, sorted. */
+export const testsReadingDocs = (changed: readonly string[]): string[] =>
+  [...new Set(changed.flatMap((file) => TEST_READ_DOCS[file] ?? []))].sort();
+
 /** A change no check reads: documents and the dead-code tool's ignore files. */
 export function isDocumentFile(file: string): boolean {
+  if (Object.hasOwn(TEST_READ_DOCS, file)) return false;
   return file.startsWith('docs/') || /^[^/]+\.md$/.test(file) || ['.gitignore', 'knip.json'].includes(file);
 }
 
@@ -149,7 +175,12 @@ export function mergeTestScope(changed: readonly string[]): MergeTestScope {
       workspaces.add('packages/shared');
       if (file.startsWith('packages/shared/src/')) sharedChanged.push(file);
     } else if (file.startsWith('packages/templates/')) workspaces.add('packages/templates');
-    else if (file.startsWith('apps/server/') || file.startsWith('scripts/')) workspaces.add('apps/server');
+    else if (
+      file.startsWith('apps/server/') ||
+      file.startsWith('scripts/') ||
+      Object.hasOwn(TEST_READ_DOCS, file)
+    )
+      workspaces.add('apps/server');
     else if (file.startsWith('apps/web/')) workspaces.add('apps/web');
     else if (file.startsWith('apps/feedback-widget/')) workspaces.add('apps/feedback-widget');
     else return { kind: 'all', reason: file };

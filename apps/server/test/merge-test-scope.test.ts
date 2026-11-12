@@ -2,16 +2,43 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { refineScope } from '../../../scripts/merge-test/refine';
 import { CLOUD_TEST_FILTERS, mergeTestScope, OWNED_PATH_RULES } from '../../../scripts/merge-test/scope';
 import { mergeTestSteps, scopeLine } from '../../../scripts/merge-test/run';
 import type { MergeTestScope } from '../../../scripts/merge-test/scope';
 
+const file = (path: string, source = '') => ({ path, source });
 const mergeTestCommands = (scope: MergeTestScope) => mergeTestSteps(scope).map((step) => step.args);
 
 describe('merge test scope', () => {
   it('ignores documentation and root markdown', () => {
     expect(mergeTestScope([])).toEqual({ kind: 'none' });
     expect(mergeTestScope(['docs/design/a.ts', 'CLAUDE.md'])).toEqual({ kind: 'none' });
+  });
+  it.each(['docs/HYBRID.md', 'docs/MACHINE-DEPENDENT.md', 'docs/ARCHITECTURE.md', 'docs/EFFECT.md'])(
+    'runs the server tests for %s, which a test reads by path (PM-1337)',
+    (doc) => {
+      expect(mergeTestScope([doc, 'docs/DECISIONS.md'])).toEqual({
+        kind: 'workspaces',
+        workspaces: ['apps/server'],
+      });
+    },
+  );
+  it('adds the tests that read a changed document to the refined merge scope (PM-1337)', () => {
+    const tree = [
+      file('apps/server/src/logging/index.ts', 'export const log = 1;'),
+      file('apps/server/test/history-semantic-recall.test.ts', "import '../src/logging';"),
+      file('apps/server/test/other.test.ts', "import '../src/logging';"),
+    ];
+    const changed = ['docs/ARCHITECTURE.md'];
+    const scope = refineScope(mergeTestScope(changed), changed, tree, tree);
+    expect(scope).toMatchObject({ kind: 'modules' });
+    expect((scope as Extract<MergeTestScope, { kind: 'modules' }>).tests).toContain(
+      'apps/server/test/history-semantic-recall.test.ts',
+    );
+    expect((scope as Extract<MergeTestScope, { kind: 'modules' }>).tests).not.toContain(
+      'apps/server/test/other.test.ts',
+    );
   });
   it.each([
     'packages/templates/package.json',
@@ -156,11 +183,14 @@ describe('merge test scope', () => {
         'apps/server/test/release-',
         'apps/server/test/architecture',
         'apps/server/test/merge-test-',
+        // The tests that read the deploy documents and the memory profile by path (PM-1337).
+        'apps/server/test/memory-profile.test.ts',
+        'apps/server/test/history-semantic-profile.test.ts',
         // The real Unix socket boundary (PM-754): the exact files, so a cloud merge cannot skip them.
         'apps/server/test/control-socket.integration.test.ts',
       ]);
       expect(scopeLine(cloud)).toBe(
-        'merge-test scope: cloud; workspaces: apps/server; test filters: apps/server/test/cloud-, apps/server/test/deploy-, apps/server/test/release-, apps/server/test/architecture/, apps/server/test/merge-test-, apps/server/test/control-socket.integration.test.ts; fallback: none',
+        'merge-test scope: cloud; workspaces: apps/server; test filters: apps/server/test/cloud-, apps/server/test/deploy-, apps/server/test/release-, apps/server/test/architecture/, apps/server/test/merge-test-, apps/server/test/memory-profile.test.ts, apps/server/test/history-semantic-profile.test.ts, apps/server/test/control-socket.integration.test.ts; fallback: none',
       );
     });
   });
@@ -210,6 +240,10 @@ describe('merge test scope', () => {
         ]),
       );
       expect(new Set(scope.tests).size).toBe(scope.tests.length);
+    });
+    it('adds the tests that read a changed document by path', () => {
+      const scope = owned(['deploy/mac/a.plist', 'docs/MACHINE-DEPENDENT.md']);
+      expect(scope.tests).toContain('apps/server/test/memory-profile.test.ts');
     });
     it('also runs a changed test file of another rule', () => {
       const scope = owned(['deploy/mac/a.plist', 'apps/server/test/structure-api.test.ts']);

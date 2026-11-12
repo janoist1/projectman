@@ -16,6 +16,15 @@ const creation: TimelineEvent = {
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
+it('renders follow-up items and the review result', () => {
+  const line = describeEvent(
+    { ...creation, type: 'review_follow_ups', data: { items: ['Reuse helper', 'Add test'], label: 'qa-ok' } },
+    context,
+  ).text;
+  expect(line).toContain('qa-ok');
+  expect(line).toContain('1) Reuse helper; 2) Add test');
+});
+
 it.each([
   [null, 'timeline.events.item_routed'],
   ['integrator', 'timeline.events.item_routed_requested'],

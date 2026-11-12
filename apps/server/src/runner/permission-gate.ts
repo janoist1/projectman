@@ -43,13 +43,15 @@ export interface PermissionGateOptions {
 }
 
 /**
- * The key of a runner-side "allow for this session": the same Bash command again, or the same
- * tool for other tools (see sessionAllowScope).
+ * The key of a runner-side "allow for this session": the same Bash command again, the same tool
+ * in the same folder for a path tool, or the same tool for other tools (see sessionAllowScope).
  */
 function sessionAllowKey(payload: HookPayload): string | null {
   const scope = sessionAllowScope(payload);
   if (!scope) return null;
-  return scope.command === undefined ? scope.toolName : `${scope.toolName}\u0000${scope.command}`;
+  if (scope.command !== undefined) return `${scope.toolName}\u0000${scope.command}`;
+  if (scope.directories) return [scope.toolName, ...scope.directories].join('\u0000');
+  return scope.toolName;
 }
 
 export class PermissionGate {

@@ -27,6 +27,7 @@ import {
   DEVELOPMENT_SHELL_TOOLS,
   LOCAL_PUBLISHING_OPERATIONS,
   placementReadsOnly,
+  runsSessionOperation,
   usesCodexCli,
 } from '@projectman/shared';
 import type { AgentProvider, RoleId, ProjectConfig, Task, SessionReadBoundary } from '@projectman/shared';
@@ -763,10 +764,9 @@ export function withSessionFolders(
  * - allow: read-only commands inside `readableRoots`, for any AI session on a task, see
  *   `read-only-commands.ts`. Without roots this rule gives no verdict.
  * The allow rules and the in-place deny rule read the command with the strict parser in
- * `shell-words.ts`; a command it refuses gets no verdict from them. The publishing deny rule
- * works on the raw text and so holds for such a command too. It leaves quoted text out, read as
- * the parser reads it: a backslash in double quotes also covers the newline after it (a line
- * continuation).
+ * `shell-words.ts`; a command it refuses gets no verdict from them. The publishing deny rule is
+ * the one the runner uses too (`runsSessionOperation` in `@projectman/shared`): it scans any line,
+ * so it holds for such a command too, and quoted prose is no command for it.
  */
 export function commandVerdict(input: {
   config: ProjectConfig;
@@ -783,11 +783,7 @@ export function commandVerdict(input: {
   if (toolName !== 'Bash' || !toolInput || typeof toolInput !== 'object') return null;
   const command = (toolInput as Record<string, unknown>).command;
   if (typeof command !== 'string') return null;
-  // Quoted prose (e.g. a commit message mentioning git push) is not a publishing command. A
-  // backslash in double quotes takes the next character along, a newline too (`s`): the quotes
-  // must pair up as the parser and the shell pair them, or a `git push` could hide between two.
-  const unquoted = command.replace(/'[^']*'|"(?:\\.|[^"\\])*"/gs, '');
-  if (deniedToolsFor(config, task).length && /\bgit\s+push\b|\bgh\s+pr\s+(create|merge)\b/.test(unquoted)) {
+  if (deniedToolsFor(config, task).length && runsSessionOperation(command, LOCAL_PUBLISHING_OPERATIONS)) {
     return { behavior: 'deny', message: 'The owner has not allowed publishing from this repository.' };
   }
   const parsed = parseShellCommand(command);

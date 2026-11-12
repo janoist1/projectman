@@ -23,6 +23,47 @@ describe('sessionAllowScope', () => {
     });
   });
 
+  it('adds the folder of a path tool call, resolved against the working directory', () => {
+    const scope = (extra: Record<string, unknown>) =>
+      sessionAllowScope(payload({ cwd: '/w/repo', ...extra }));
+    expect(scope({ tool_name: 'Read', tool_input: { file_path: '/w/repo/src/a.ts' } })).toEqual({
+      toolName: 'Read',
+      directories: ['/w/repo/src'],
+    });
+    expect(scope({ tool_name: 'Edit', tool_input: { file_path: 'src/x/../a.ts' } })?.directories).toEqual([
+      '/w/repo/src',
+    ]);
+    expect(scope({ tool_name: 'Grep', tool_input: { path: '/w/other', pattern: 'x' } })?.directories).toEqual(
+      ['/w/other'],
+    );
+    expect(scope({ tool_name: 'LS', tool_input: { path: '/w/other' } })?.directories).toEqual(['/w/other']);
+    expect(scope({ tool_name: 'Grep', tool_input: { pattern: 'x' } })?.directories).toEqual(['/w/repo']);
+  });
+
+  it('remembers nothing for a path tool call that shows no folder', () => {
+    const scope = (extra: Record<string, unknown>) => sessionAllowScope(payload(extra));
+    // A file tool without a path, a relative path without a working directory, a folder tool without either.
+    expect(scope({ cwd: '/w/repo', tool_name: 'Read', tool_input: {} })).toBeNull();
+    expect(scope({ tool_name: 'Edit', tool_input: { file_path: 'src/a.ts' } })).toBeNull();
+    expect(scope({ tool_name: 'Grep', tool_input: { pattern: 'x' } })).toBeNull();
+    expect(scope({ tool_name: 'Read', tool_input: { file_path: '/w/a.ts' } })?.directories).toEqual(['/w']);
+  });
+
+  it('lists the folders of every file an apply_patch touches, moves included', () => {
+    const patch =
+      '*** Begin Patch\n*** Update File: src/a.ts\n*** Move to: lib/a.ts\n*** Delete File: /abs/x.ts\n*** End Patch';
+    const scope = (tool_input: unknown) =>
+      sessionAllowScope(payload({ cwd: '/w/repo', tool_name: 'apply_patch', tool_input }));
+    expect(scope({ command: patch })?.directories).toEqual(['/abs', '/w/repo/lib', '/w/repo/src']);
+    expect(scope(patch)?.directories).toEqual(['/abs', '/w/repo/lib', '/w/repo/src']);
+    expect(scope({ command: 'no files here' })).toBeNull();
+    // Codex trims the start of a header line, so an indented header names a file too.
+    expect(
+      scope({ command: '*** Begin Patch\n  *** Update File: src/a.ts\n\t*** Move to: lib/a.ts' })
+        ?.directories,
+    ).toEqual(['/w/repo/lib', '/w/repo/src']);
+  });
+
   it('remembers nothing without a tool or for a Bash call without a command', () => {
     expect(sessionAllowScope(payload({}))).toBeNull();
     expect(sessionAllowScope(payload({ tool_name: 'Bash' }))).toBeNull();

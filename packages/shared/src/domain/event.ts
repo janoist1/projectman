@@ -80,6 +80,7 @@ export const TimelineEventType = z.enum([
   'task_senior_wait',
   'task_check_changed',
   'task_labels_changed',
+  'review_follow_ups',
   'acceptance_item_changed',
   'task_link_added',
   'task_relation_added',
@@ -182,6 +183,8 @@ export interface CommentRevision {
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  /** Non-blocking remarks for a later card; the actor is the reviewer (PM-1351). */
+  review_follow_ups: { items: string[]; label?: string };
   /** The project manager opened a request to the instance's host (PM-1064); on the card when it names one. */
   host_request_opened: { requestId: string; title: string };
   /** The host answered or declined a request (PM-1064); the actor is the system, the answer text stays out. */
@@ -281,7 +284,15 @@ export interface TimelineEventData {
     /** Why the project manager reassigned the card (PM-1040); free text, unlike `reason`. */
     note?: string;
   };
-  task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
+  /** `startedBy`: the request went straight into the queue in that member's name (`team.mergeAfterReview`, PM-1379). */
+  task_merge_requested: {
+    mergeId: string;
+    merger: string;
+    repo: string;
+    base: string;
+    toStageId: string;
+    startedBy?: string;
+  };
   /** The card went to the front of the repository's merge queue; `before`: the card it went ahead of (null: none waited). */
   task_merge_prioritized: { mergeId: string; repo: string; reason: string; ahead: string[] };
   task_merge_failed: MergeFailure & { mergeId: string };

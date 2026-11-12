@@ -62,6 +62,8 @@ export const TEAM_SETTING_POLICY = {
   },
   // `mergerOf` derives an absent merger from the pipeline; the migration stores it (`addMerger`).
   merger: { ownerOnly: null },
+  // PM-1379: the merger's own approval queues the merge (decisions 21, 71, 77, 78); off keeps today's rule.
+  mergeAfterReview: { ownerOnly: null, default: false, stored: true },
   members: { ownerOnly: null },
   contacts: { ownerOnly: null },
   // PM-1102: a read-only viewer writes to the project manager only.

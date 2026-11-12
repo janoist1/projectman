@@ -30,6 +30,11 @@ import { openItemsFor } from '../lib/inbox';
 import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
 
+/** Refreshes independent queries without extending a mutation's pending state. */
+export function invalidateAll(client: QueryClient, keys: readonly QueryKey[]): void {
+  void Promise.all(keys.map((queryKey) => client.invalidateQueries({ queryKey })));
+}
+
 /**
  * The inbox view with an item replaced or added. The owner's summary of what waits for others (PM-1252) is
  * worked out again from the new list, with the rule the server uses, so it never lags behind the items.

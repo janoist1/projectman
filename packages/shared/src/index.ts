@@ -96,6 +96,7 @@ export * from './config/duties';
 export * from './config/senior';
 export * from './config/member-handles';
 export * from './config/session-policy';
+export * from './config/shell-publishing';
 export * from './config/labels';
 export * from './config/gates';
 export * from './config/approval-question';

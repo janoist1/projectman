@@ -1016,6 +1016,12 @@ describe('formatSentMessage', () => {
     expect(recipientLine(roleless, 'AR-1', true)).not.toContain('ask a person');
   });
 
+  it('names start_member as the coordinator’s way forward for a member without a card role (B-05)', () => {
+    const roleless = { handle: 'dev', delivery: 'next_input', noWake: 'no_card_role' } as const;
+    expect(recipientLine(roleless, 'AR-1', true)).toContain('start_member');
+    expect(recipientLine(roleless, 'AR-1')).not.toContain('start_member');
+  });
+
   it('says where a message went when it did not go to its own card (PM-182)', () => {
     expect(
       formatSentMessage({

@@ -640,6 +640,7 @@ describe('team tools', () => {
         { title: 'New title', description: '## Goal\nText.' },
       ],
       ['repo', { repo: ' api ' }, { repo: 'api' }],
+      ['follow-ups', { follow_ups: [' Reuse the helper '] }, { followUps: ['Reuse the helper'] }],
       [
         'complexity',
         { complexity: 8, complexity_reason: '  two modules  ' },

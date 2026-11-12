@@ -72,7 +72,7 @@ export function buildSystemPrompt(
   const sections: Array<[PromptSectionId, string]> = [
     ['identity', identitySection(input)],
     ['team', teamSection(input)],
-    ['teamwork', teamworkSection(input)],
+    ['teamwork', teamworkSection(input, situation)],
     ['token_economy', tokenEconomySection()],
     ['pipeline', pipelineSection(input, situation)],
     ['labels', labelsSection(input)],
@@ -268,7 +268,7 @@ function teamSection(input: ContextPackInput): string {
  * about one tool live here; what a tool does and when to use it lives in its description (see
  * src/mcp/tools.ts), and the MCP server instructions only name the server.
  */
-function teamworkSection({ project, member }: ContextPackInput): string {
+function teamworkSection({ project, member }: ContextPackInput, situation: Situation): string {
   const language = project.project.language;
   const cli = isGemini(member) ? 'Gemini' : isCodex(member) ? 'Codex' : 'Claude Code';
   const rules = isCodex(member) ? "The project's AGENTS.md (or CLAUDE.md)" : "The project's CLAUDE.md";
@@ -278,6 +278,7 @@ function teamworkSection({ project, member }: ContextPackInput): string {
     isGemini(member)
       ? '- Work with the others through the team tools on the MCP server "team", using call_mcp_tool. Each tool description says when and how to use it. Read the project CLAUDE.md at the start: this CLI does not load it automatically.'
       : `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>). Each tool's description says when and how to use it.`,
+    ...claudeToolLoading(project, member, situation),
     '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it. A "via integrator" prefix ("[team message from <handle> via integrator about <task key>]") means the integrator, the AI tool working for that human, sent it.',
     '- send_message requires kind: action when the recipient has something to do, info for status or results (review and QA results live in labels). A plain acknowledgement needs no message; if sent, use info. Do not act on or answer an out-of-date or fulfilled request. Check the message time and card state before acting on delayed requests.',
     '- Before acting on a request, compare its time and version with the current card. Do not carry out a request its sender has since superseded by another message or closed with a result label. Never reset or force-rewrite a branch with approval labels without asking the approving reviewer first.',
@@ -289,6 +290,40 @@ function teamworkSection({ project, member }: ContextPackInput): string {
     '- Check the primary source (the code, the logs, the task) before you state a fact.',
     '- Other sessions may share a checkout: never switch branches, reset, stash or clean in a working directory that is not your own.',
   ].join('\n');
+}
+
+/** Keep the initial batch small; other tools are loaded when the work needs them. */
+function claudeToolLoading(
+  project: ContextPackInput['project'],
+  member: ContextPackInput['member'],
+  situation: Situation,
+): string[] {
+  if ((member.provider ?? DEFAULT_AGENT_PROVIDER) !== 'claude') return [];
+  const duties = roleBundle(project, member.role).duties;
+  const stageDuty =
+    situation.current?.duty ?? (situation.current?.kind === 'work' ? 'implementation' : undefined);
+  const duty = stageDuty && duties.includes(stageDuty) ? stageDuty : duties[0];
+  const extra = isProjectManager(member)
+    ? ['list_tasks', 'get_project_state']
+    : duty === 'implementation'
+      ? ['set_current_work', 'link_pull_request']
+      : duty === 'testing_acceptance' || duty === 'ux_design'
+        ? ['take_screenshots', 'read_attachment']
+        : duty === 'code_review' || duty === 'security_review'
+          ? ['read_attachment', 'search_history']
+          : ['create_task', 'write_document'];
+  const tools = [
+    'get_task',
+    'update_task',
+    'send_message',
+    'ask_human',
+    'get_guide',
+    'read_document',
+    ...extra,
+  ];
+  return [
+    `- Load your team tools once, in one ToolSearch call: select:${tools.map((name) => `mcp__team__${name}`).join(',')}. Load other tools as needed.`,
+  ];
 }
 
 /**

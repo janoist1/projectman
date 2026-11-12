@@ -238,6 +238,7 @@ describe('team tools', () => {
         taskKey: 'AR-1',
         addLabels: ['code-review-ok'],
         note: 'Looks good',
+        followUps: ['Reuse the helper'],
         stageId: 'merge',
       }),
     );
@@ -248,6 +249,10 @@ describe('team tools', () => {
     expect(task.labels).toContain('code-review-ok');
     expect(task.status).toBe('waiting');
     const timeline = h.domain.timeline.list('AR', { taskKey: 'AR-1' });
+    expect(timeline.find((e) => e.type === 'review_follow_ups')?.data).toEqual({
+      items: ['Reuse the helper'],
+      label: 'code-review-ok',
+    });
     expect(timeline.find((e) => e.type === 'task_note')).toMatchObject({
       actor: { kind: 'ai', handle: 'cr' },
       data: { text: 'Looks good' },

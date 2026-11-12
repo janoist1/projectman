@@ -113,6 +113,7 @@ export * from './config/collecting-close';
 export * from './config/lookup';
 export * from './config/leave';
 export * from './config/project-manager';
+export * from './config/member-involvement';
 export * from './config/prerequisite-override';
 export * from './config/project-manager-authority';
 export * from './config/machine-access';

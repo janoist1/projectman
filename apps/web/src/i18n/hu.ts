@@ -1863,6 +1863,8 @@ export const hu = {
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       project_manager_lifecycle_refused:
         'A projekt beállításai ezt a kártyaműveletet nem engedik a Projektmenedzsernek.',
+      member_involvement_refused:
+        'A projekt beállításai szerint tagot a kártyára csak ember vonhat be: kérj meg egy embert, hogy írjon a tagnak.',
       builtin_role: 'A beépített szerep nem módosítható.',
       role_id_mismatch: 'A szerep azonosítója nem egyezik.',
       not_human_member: 'Ez nem emberi tag.',
@@ -6268,6 +6270,7 @@ export const hu = {
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
       member_renamed: 'Azonosító átnevezve: {from} → {to}',
+      member_involved: 'Bevonta a kártyára: {member}. Indok: {reason}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       focus_added: 'Fókuszba tette: {title}, {position}. hely',

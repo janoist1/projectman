@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Task } from '../domain/task';
+import { hasCardRole } from './duties';
 import { validateProjectConfig } from './invariants';
-import { isRefining, projectRefines, refinementTurn } from './refinement';
+import { isRefining, projectRefines, refinementStepSetters, refinementTurn } from './refinement';
 import { ProjectConfig } from './schema';
 
 type Labels = Array<Record<string, unknown>>;
@@ -177,6 +178,27 @@ describe('refinementTurn', () => {
       aiSetters: [],
       humanSetters: ['owner'],
     });
+  });
+});
+
+describe('refinementStepSetters', () => {
+  it('lists the setters of the current step’s label, and nobody for a card not being refined or done', () => {
+    expect(refinementStepSetters(task('backlog', ['refine', 'ui']), config())).toEqual(['analyst']);
+    expect(refinementStepSetters(task('backlog', ['refine', 'ui', 'scope-ok']), config())).toEqual([
+      'designer',
+    ]);
+    expect(refinementStepSetters(task('backlog', []), config())).toEqual([]);
+    expect(refinementStepSetters(task('backlog', ['refine', 'scope-ok']), config())).toEqual([]);
+  });
+
+  it('makes a setter of the step a member with a card role (B-05)', () => {
+    const c = config();
+    const card = task('backlog', ['refine']);
+    const role = (handle: string, stepSetters: readonly string[]) =>
+      hasCardRole(c, card, handle, false, stepSetters);
+    expect(role('analyst', refinementStepSetters(card, c))).toBe(true);
+    expect(role('analyst', [])).toBe(false);
+    expect(role('dev-1', refinementStepSetters(card, c))).toBe(false);
   });
 });
 

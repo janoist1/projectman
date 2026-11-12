@@ -113,3 +113,12 @@ export function refinementTurn(task: RefinementTask, config: RefinementConfig): 
   if (forbidden !== undefined) return { kind: 'blocked', label: forbidden };
   return { kind: 'done', targetStageId: to - 1 > from ? stages[to - 1]!.id : null };
 }
+
+/**
+ * The members who may set the label the card's current refinement step asks for (B-05): the member whose
+ * turn it is is always one of them. Empty when the card is not being refined or has no step now.
+ */
+export function refinementStepSetters(task: RefinementTask, config: RefinementConfig): string[] {
+  const turn = refinementTurn(task, config);
+  return turn?.kind === 'step' ? [...turn.aiSetters, ...turn.humanSetters] : [];
+}

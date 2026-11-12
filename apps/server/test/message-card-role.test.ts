@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
+import { recipientHasCardRole } from '../src/core/messages';
 import { aiActor, SYSTEM_ACTOR } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -144,6 +145,36 @@ describe('a message from an AI member starts only members with a role on the car
     expect(specs).toHaveLength(1);
     expect(specs[0]!.initialMessage).toContain('Take over the cart work.');
     expect(h.repos.messages.pending('AR', 'dev-2')).toHaveLength(0);
+  });
+
+  it('counts a setter of the label the card’s refinement step asks for as having a role (B-05)', async () => {
+    h = await createDomainHarness({
+      adjust(config) {
+        for (const handle of ['ana', 'ana2'])
+          config.team.members.push({
+            kind: 'ai',
+            handle,
+            displayName: handle,
+            role: 'business_analyst',
+            sponsor: 'owner',
+          } as AiMemberConfig);
+        config.pipeline.labels.push(
+          { id: 'refine', name: 'Refine', setBy: 'anyone' },
+          { id: 'scope-ok', name: 'Scope ok', setBy: { duties: ['task_breakdown'] } },
+        );
+        config.pipeline.stages.find((stage) => stage.kind === 'work')!.gate = {
+          conditions: [{ type: 'has_label', label: 'scope-ok' }],
+        };
+      },
+    });
+    await h.domain.tasks.create('AR', { title: 'Checkout', labels: ['refine'] }, OWNER_ACTOR);
+    const config = await h.domain.projects.config('AR');
+    const card = h.domain.tasks.get('AR', 'AR-1');
+    // Neither analyst is the card's assignee or a reviewer, and ana2 has not worked on it.
+    expect(sessionsOf('ana2')).toEqual([]);
+    const role = (handle: string) => recipientHasCardRole(h.domain.ctx, config, card, handle);
+    expect(role('ana2')).toBe(true);
+    expect(role('dev-2')).toBe(false);
   });
 
   it('an @mention in an AI member’s comment starts a member without a role no more than a message does', async () => {

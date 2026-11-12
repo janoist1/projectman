@@ -39,17 +39,18 @@ it(
     expect(repos.startFailures.list()).toHaveLength(1);
     expect(repos.startFailures.list()[0]).toMatchObject({ member: 'dev-1', failures: 1, stoppedAt: null });
 
-    // The item waits with the backoff instead of starting a session again.
+    // The first message was delivered when the session started. The next one waits with the backoff
+    // instead of starting a session again.
+    const sessions = domain.sessions.list('AR', { member: 'dev-1', taskKey: task.key });
+    await domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Try once more', taskKey: task.key });
     await vi.waitFor(
-      async () => {
-        await domain.memberQueueDriver.ensure('AR', 'dev-1');
+      () => {
         expect(repos.memberQueue.listOpen('AR', 'dev-1').map((item) => item.wait?.code)).toContain(
           'start_backoff',
         );
       },
       { timeout: 20_000 },
     );
-    const sessions = domain.sessions.list('AR', { member: 'dev-1', taskKey: task.key });
     expect(runnerModule.runner.list()).toEqual([]);
     expect(repos.startFailures.list()[0]).toMatchObject({ failures: 1 });
     expect(domain.sessions.list('AR', { member: 'dev-1', taskKey: task.key })).toHaveLength(sessions.length);

@@ -6,9 +6,12 @@ import { useReadTeamMessages, useTaskMessages } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
+import { ErrorState, LoadingState } from '../../components/States';
+import { useToast } from '../../components/toastContext';
 import { formatStamp, formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { splitQuestion } from '../../lib/inbox';
+import { failText } from '../../lib/errors';
 import { actorByline, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { QuestionBody } from '../inbox/Question';
@@ -172,6 +175,7 @@ export function EarlierConversations({
   const { key, myHandle, me } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
   const readMessages = useReadTeamMessages(key);
+  const toast = useToast();
   const visible = useDocumentVisible();
   const messages = useMemo(
     () => [...(query.data?.messages ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
@@ -182,6 +186,7 @@ export function EarlierConversations({
   const panel = useId();
   const box = useRef<HTMLUListElement>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const loaded = query.data !== undefined;
 
   // The old link: the block opens, the message is scrolled to the middle and framed for a moment.
   const reached = useRef<string | null>(null);
@@ -206,7 +211,17 @@ export function EarlierConversations({
       clearTimeout(timer);
       setFlash(null);
     };
-  }, [active, messageParam]);
+    // Starts again when the messages arrive: a failed load that a retry fixed still leads to the message.
+  }, [active, messageParam, loaded]);
+
+  // After a retry the Retry button is gone: the focus goes to the block's toggle once the list is there.
+  const toggle = useRef<HTMLButtonElement>(null);
+  const retried = useRef(false);
+  useEffect(() => {
+    if (!loaded || !retried.current) return;
+    retried.current = false;
+    toggle.current?.focus();
+  }, [loaded]);
 
   // Reading: the incoming unread messages of the open block, one request.
   const unreadKey = messages
@@ -216,16 +231,40 @@ export function EarlierConversations({
   const { mutate: markRead } = readMessages;
   useEffect(() => {
     if (!unreadKey || !visible || !active || !open) return;
-    const timer = setTimeout(() => markRead(unreadKey.split(',')), READ_AFTER_MS);
+    const timer = setTimeout(
+      () =>
+        markRead(unreadKey.split(','), {
+          onError: (error) => toast.show(failText(error, t('messages.readFailed')), 'error'),
+        }),
+      READ_AFTER_MS,
+    );
     return () => clearTimeout(timer);
-  }, [unreadKey, visible, active, open, markRead]);
+  }, [unreadKey, visible, active, open, markRead, toast]);
 
-  if (!query.data) return null;
+  if (!query.data) {
+    // A failed first load is shown, with a retry; a plain load only when a `?message=` link waits for it.
+    if (query.isError)
+      return query.isFetching ? (
+        <LoadingState compact />
+      ) : (
+        <ErrorState
+          compact
+          error={query.error}
+          message={t('task.earlier.loadFailed')}
+          onRetry={() => {
+            retried.current = true;
+            void query.refetch();
+          }}
+        />
+      );
+    return query.isPending && messageParam !== null ? <LoadingState compact /> : null;
+  }
   if (messages.length === 0)
     return access === 'client' ? <p className={styles.none}>{t('task.earlier.none')}</p> : null;
   return (
     <section className={styles.earlier} aria-label={t('task.earlier.title', { count: messages.length })}>
       <button
+        ref={toggle}
         type="button"
         className={styles.toggle}
         aria-expanded={open}

@@ -896,7 +896,11 @@ the last 24 hours and 7 days (by the hour).
 review rounds (entries into a code review stage: a `step` stage whose own duty, or its owners'
 duty, is `code_review`), the reviews that asked for changes (`code-review-changes` added) and the
 send-backs (a move into a `work` stage from a later stage; a manual move and a failed merge count
-too). Stage kinds come from the configuration, not from names; old events count the same way. The
+too). `testsFailed` is the part of the send-backs that the review stage's full test made. The failed
+merges are counted apart from `task_merge_failed` by their reason (PM-1341): `mergeConflicts`
+(`conflict`) and `mergeChecksFailed` (`check_failed`, the check on the merge result); the merge
+step does not move the card itself, so they are not send-backs. Stage kinds come from the
+configuration, not from names; old events count the same way. The
 card's detail carries the counts (`TaskDetail.rounds`, not for clients) and the drawer shows them
 with the weighted tokens per model (`limitTokens`: cache reads at a tenth).
 

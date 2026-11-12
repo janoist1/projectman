@@ -75,6 +75,27 @@ describe('the merger in the settings (PM-453)', () => {
     expect(project.backend.config.team.merger?.kind).toBe('member');
   });
 
+  it('saves the merge-after-approval switch, and says when it has no effect', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const section = await teamSection();
+    const toggle = section.getByRole('checkbox', {
+      name: new RegExp(t('settings.team.mergeAfterReview.question')),
+    }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(section.queryByText(t('settings.team.mergeAfterReview.noEffect'))).toBeNull();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(project.backend.config.team.mergeAfterReview).toBe(true));
+    expect(lastConfigPatch(project.requests).mergeAfterReview).toBe(true);
+    await waitFor(() => expect(toggle.closest('fieldset')!.getAttribute('aria-busy')).not.toBe('true'));
+
+    fireEvent.change(section.getByLabelText(t('settings.team.merger.kindLabel')), {
+      target: { value: 'developer' },
+    });
+    expect(await section.findByText(t('settings.team.mergeAfterReview.noEffect'))).toBeTruthy();
+    expect(project.backend.config.team.mergeAfterReview).toBe(true);
+  });
+
   it('only tells a member who may not manage the team who merges', async () => {
     const project = mockProject();
     project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });
@@ -82,6 +103,10 @@ describe('the merger in the settings (PM-453)', () => {
     expect(section.getByRole('region', { name: t('settings.team.merger.label') })).toBeTruthy();
     expect(section.queryByLabelText(t('settings.team.merger.kindLabel'))).toBeNull();
     expect(section.getByText(t('settings.team.merger.help'))).toBeTruthy();
+    expect(
+      section.queryByRole('checkbox', { name: new RegExp(t('settings.team.mergeAfterReview.question')) }),
+    ).toBeNull();
+    expect(section.getByText(t('settings.team.mergeAfterReview.value.off'))).toBeTruthy();
   });
 });
 

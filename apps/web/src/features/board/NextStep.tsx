@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { MemberNames } from '../../components/LeaveChip';
 import { t } from '../../i18n/t';
 import type { MemberIndex } from '../../lib/members';
@@ -9,7 +9,7 @@ import { isTaskClosed } from '../../lib/taskState';
 
 /** What happens next and who carries it: the next stage and its owners, a member on leave marked. */
 export function nextStepLine(
-  task: Task,
+  task: BoardCard,
   pipeline: PipelineIndex,
   members: MemberIndex,
   myHandle: string | null,

@@ -12,7 +12,7 @@ import {
   projectRefines,
   routeFor,
   stageOf,
-  stageOwners,
+  cardStageOwners,
 } from '@projectman/shared';
 import type { ProjectConfig, Session, Task, TeamMessage, WorkItemRef } from '@projectman/shared';
 import type { EngineDirectory, SentMessageHold, WakeStart } from '../../contracts';
@@ -181,7 +181,7 @@ export class MessageRouter implements MessageRouting {
       return { workItem: general, running: this.sessions.findRunning(projectKey, handle, general) };
     }
     const stage = stageOf(config, task.stageId);
-    if (stage && stageOwners(config, stage).includes(handle)) return { workItem, running: null };
+    if (stage && cardStageOwners(config, stage, task).includes(handle)) return { workItem, running: null };
     let latest: Session | null = null;
     for (const relative of this.tasks.family(projectKey, task.key)) {
       if (!isOpenTask(relative)) continue;
@@ -278,7 +278,8 @@ export class MessageRouter implements MessageRouting {
   /**
    * Whether a message about `task` waits for its AI recipient's turn (PM-255): the card is being
    * refined and the recipient is not the member whose turn it is (nobody's turn counts too). Looks at
-   * the message's own card only.
+   * the message's own card only. A member involved on this card (PM-1267) is invited, so its message
+   * does not wait: the hold keeps out uninvited parallel work.
    */
   private heldForTurn(
     config: ProjectConfig,
@@ -287,7 +288,8 @@ export class MessageRouter implements MessageRouting {
     opts: { readonly duringRefinement?: boolean },
   ): boolean {
     if (opts.duringRefinement || !task || !isRefining(task, config)) return false;
-    return this.refinement.turnMember(task.projectKey, task.key) !== handle;
+    if (this.refinement.turnMember(task.projectKey, task.key) === handle) return false;
+    return !this.ctx.repos.timeline.involvedOn(task.projectKey, [task.key], handle);
   }
 
   /**
@@ -308,7 +310,7 @@ export class MessageRouter implements MessageRouting {
   private heldForFullTest(config: ProjectConfig, task: Task | null, from: string, handle: string): boolean {
     if (!task || task.assignee === handle || memberOf(config, from)?.kind === 'human') return false;
     const stage = stageOf(config, task.stageId);
-    if (!stage || !stageOwners(config, stage).includes(handle)) return false;
+    if (!stage || !cardStageOwners(config, stage, task).includes(handle)) return false;
     return this.cardHolds.get('full_test')?.holds(task, config) ?? false;
   }
 

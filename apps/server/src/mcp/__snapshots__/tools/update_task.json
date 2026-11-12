@@ -60,6 +60,17 @@
         "minLength": 1,
         "maxLength": 50000
       },
+      "follow_ups": {
+        "description": "Remarks that do not block this card, for a later card (a missing test, a helper to reuse, a rule to add), one per item. Only a reviewer or tester of the card, with the call that records the result; never send them in a message.",
+        "minItems": 1,
+        "maxItems": 10,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
       "reply_to": {
         "description": "Comment event id: reply to it.",
         "type": "string",

@@ -21,7 +21,7 @@ import {
   memberOf,
   remainingFixExtraRounds,
   stageOf,
-  stageOwners,
+  cardStageOwners,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -628,7 +628,7 @@ export class FixLimitWatch {
   private otherDevelopers(config: ProjectConfig, task: Task): string[] {
     const stage = config.pipeline.stages.find((s) => s.kind === 'work');
     if (!stage) return [];
-    return stageOwners(config, stage).filter(
+    return cardStageOwners(config, stage, task).filter(
       (handle) => handle !== task.assignee && memberOf(config, handle)?.kind === 'ai',
     );
   }

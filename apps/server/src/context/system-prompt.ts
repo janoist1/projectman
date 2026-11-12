@@ -33,7 +33,8 @@ import {
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
-  stageOwners,
+  allStageOwners,
+  cardStageOwners,
   teamRules,
   usesCodexCli,
 } from '@projectman/shared';
@@ -72,7 +73,7 @@ export function buildSystemPrompt(
   const sections: Array<[PromptSectionId, string]> = [
     ['identity', identitySection(input)],
     ['team', teamSection(input)],
-    ['teamwork', teamworkSection(input)],
+    ['teamwork', teamworkSection(input, situation)],
     ['token_economy', tokenEconomySection()],
     ['pipeline', pipelineSection(input, situation)],
     ['labels', labelsSection(input)],
@@ -268,7 +269,7 @@ function teamSection(input: ContextPackInput): string {
  * about one tool live here; what a tool does and when to use it lives in its description (see
  * src/mcp/tools.ts), and the MCP server instructions only name the server.
  */
-function teamworkSection({ project, member }: ContextPackInput): string {
+function teamworkSection({ project, member }: ContextPackInput, situation: Situation): string {
   const language = project.project.language;
   const cli = isGemini(member) ? 'Gemini' : isCodex(member) ? 'Codex' : 'Claude Code';
   const rules = isCodex(member) ? "The project's AGENTS.md (or CLAUDE.md)" : "The project's CLAUDE.md";
@@ -278,6 +279,7 @@ function teamworkSection({ project, member }: ContextPackInput): string {
     isGemini(member)
       ? '- Work with the others through the team tools on the MCP server "team", using call_mcp_tool. Each tool description says when and how to use it. Read the project CLAUDE.md at the start: this CLI does not load it automatically.'
       : `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>). Each tool's description says when and how to use it.`,
+    ...claudeToolLoading(project, member, situation),
     '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it. A "via integrator" prefix ("[team message from <handle> via integrator about <task key>]") means the integrator, the AI tool working for that human, sent it.',
     '- send_message requires kind: action when the recipient has something to do, info for status or results (review and QA results live in labels). A plain acknowledgement needs no message; if sent, use info. Do not act on or answer an out-of-date or fulfilled request. Check the message time and card state before acting on delayed requests.',
     '- Before acting on a request, compare its time and version with the current card. Do not carry out a request its sender has since superseded by another message or closed with a result label. Never reset or force-rewrite a branch with approval labels without asking the approving reviewer first.',
@@ -291,6 +293,40 @@ function teamworkSection({ project, member }: ContextPackInput): string {
   ].join('\n');
 }
 
+/** Keep the initial batch small; other tools are loaded when the work needs them. */
+function claudeToolLoading(
+  project: ContextPackInput['project'],
+  member: ContextPackInput['member'],
+  situation: Situation,
+): string[] {
+  if ((member.provider ?? DEFAULT_AGENT_PROVIDER) !== 'claude') return [];
+  const duties = roleBundle(project, member.role).duties;
+  const stageDuty =
+    situation.current?.duty ?? (situation.current?.kind === 'work' ? 'implementation' : undefined);
+  const duty = stageDuty && duties.includes(stageDuty) ? stageDuty : duties[0];
+  const extra = isProjectManager(member)
+    ? ['list_tasks', 'get_project_state']
+    : duty === 'implementation'
+      ? ['set_current_work', 'link_pull_request']
+      : duty === 'testing_acceptance' || duty === 'ux_design'
+        ? ['take_screenshots', 'read_attachment']
+        : duty === 'code_review' || duty === 'security_review'
+          ? ['read_attachment', 'search_history']
+          : ['create_task', 'write_document'];
+  const tools = [
+    'get_task',
+    'update_task',
+    'send_message',
+    'ask_human',
+    'get_guide',
+    'read_document',
+    ...extra,
+  ];
+  return [
+    `- Load your team tools once, in one ToolSearch call: select:${tools.map((name) => `mcp__team__${name}`).join(',')}. Load other tools as needed.`,
+  ];
+}
+
 /**
  * Who does the code review and when it starts (PM-426), so that nobody writes to other developers for a
  * "developer review". A code review stage is a step or release stage whose duty is code review, or one
@@ -302,11 +338,11 @@ function codeReviewLine(project: ContextPackInput['project']): string[] {
       (stage.kind === 'step' || stage.kind === 'release') &&
       (stage.duty
         ? stage.duty === 'code_review'
-        : stageOwners(project, stage).some((handle) =>
+        : allStageOwners(project, stage).some((handle) =>
             dutyMembers(project, 'code_review').some((m) => m.handle === handle),
           )),
   );
-  const owners = [...new Set(stages.flatMap((stage) => stageOwners(project, stage)))];
+  const owners = [...new Set(stages.flatMap((stage) => allStageOwners(project, stage)))];
   if (stages.length === 0 || owners.length === 0) return [];
   return [
     `- Code review is the job of ${codeList(owners)} in the ${stages.map((stage) => stage.name).join(' or ')} stage: it starts when the card moves there. Do not message other developers for a "developer review" or to integrate your work.`,
@@ -451,9 +487,14 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
   const { current, next } = situation;
   const lines = [heading, `Task ${task.key}: ${task.title}`];
   if (current) {
-    const owners = (current.owners ?? []).length > 0 ? `, owners ${codeList(current.owners ?? [])}` : '';
+    const cardOwners = cardStageOwners(input.project, current, task);
+    const owners = cardOwners.length > 0 ? `, owners ${codeList(cardOwners)}` : '';
     const own = situation.ownsStage ? 'you own this stage' : 'you do not own this stage';
     lines.push(`- Stage: ${stageLabel(current)}${owners}; ${own}.`);
+    if (situation.ownsStage && task.stageOwnerPick?.stageId === current.id && task.stageOwnerPick.small)
+      lines.push(
+        `- This is a small card: the stage gave it to you instead of its main owners, because its points are within the stage's small-card limit and it changes none of the stage's central files. If you find it touches more than that, say so on the card.`,
+      );
   } else {
     lines.push(`- Stage: ${code(task.stageId)} (not in the pipeline).`);
   }

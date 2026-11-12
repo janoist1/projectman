@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { PushDeviceView } from '@projectman/shared';
-import { ApiError } from '../../api/client';
 import { formatStamp, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { codeMessage } from '../../lib/errors';
-import { deviceName, deviceStatus, deviceWhy, failText } from './deviceText';
+import { deviceName, deviceStatus, deviceWhy } from './deviceText';
 import { offsetMinutes, zoneLabel, zoneOffset, zoneOptions } from './timeZones';
 
 const NOW = new Date('2026-07-01T12:00:00Z');
@@ -77,14 +75,6 @@ describe('device text', () => {
       t('notifications.failure.rate_limited'),
     );
     expect(deviceWhy(device({ lastResult: 'failed', lastFailure: null }))).toBeNull();
-  });
-
-  it('shows the server text of a known error code and the fallback otherwise', () => {
-    expect(failText(new ApiError(429, 'web_push_test_too_soon', 'x'), 'fallback')).toBe(
-      codeMessage('web_push_test_too_soon'),
-    );
-    expect(failText(new ApiError(500, 'something_unknown', 'x'), 'fallback')).toBe('fallback');
-    expect(failText(new Error('boom'), 'fallback')).toBe('fallback');
   });
 });
 

@@ -7,7 +7,7 @@ import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { otherProviderSuffix } from '../../lib/handoff';
 import { nameOf } from '../../lib/members';
-import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
+import { deriveTaskState, groupOpenInboxByTask, groupSubtasksByParent } from '../../lib/taskState';
 import type { TaskStateContext } from '../../lib/taskState';
 import { buildConfig, inbox, tasks } from '../../mocks/fixtures';
 import { createMockFetch, mockProject } from '../../test/mockProject';
@@ -251,6 +251,7 @@ describe('the handoff box (PM-342)', () => {
       members,
       openInboxByTask: groupOpenInboxByTask(inbox),
       tasksByKey: new Map(tasks.map((entry) => [entry.key, entry])),
+      subtasksByParent: groupSubtasksByParent(tasks),
       myHandle: 'owner',
     };
     expect(deriveTaskState(task, ctx).phase).toBe('working');
@@ -277,6 +278,7 @@ describe('the board mark of a handoff (PM-342)', () => {
       members,
       openInboxByTask: groupOpenInboxByTask(inbox),
       tasksByKey: new Map(tasks.map((entry) => [entry.key, entry])),
+      subtasksByParent: groupSubtasksByParent(tasks),
       myHandle: 'owner',
     };
     renderUi(

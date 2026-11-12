@@ -178,6 +178,11 @@ export interface MergeBaseState {
   contains: { local: boolean; remote: boolean | null };
   /** The worktree that has the default branch checked out; null: none. */
   checkout: string | null;
+  /**
+   * How many parents `commit` has (PM-1377): a merge reuses a passed review run only of a one-parent commit.
+   * Absent from an older engine. The hub's reply schema is strict, so the hub is updated before the engine (DEPLOY.md).
+   */
+  commitParents?: number;
 }
 
 export type MergeBuildResult =
@@ -240,6 +245,8 @@ export const MERGE_ERROR_CODES = [
   'no_remote',
   'no_identity',
   'git_failed',
+  /** The upstream could not be fetched (network, timeout); the merge may be tried again later. */
+  'remote_unreachable',
 ] as const;
 export type MergeErrorCode = (typeof MERGE_ERROR_CODES)[number];
 

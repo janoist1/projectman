@@ -171,9 +171,17 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   Namespace, side-effect, dynamic or otherwise uncertain consumer imports keep that consumer.
   The architecture checker and shared export analysis share trivia recognition: regex literals at
   proven expression starts cannot create import/export tokens or hide the following real import.
-  Changes to `scripts/merge-test/**`, `scripts/full-test/**`, non-code scripts, the widget, other
-  packages, manifests/lockfiles, TypeScript/Vitest configuration, architecture guards or unknown
-  paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
+  Paths only a few server tests read by path run those tests (PM-1354): `deploy/mac/**` and
+  `.github/workflows/*.yml`, `projectman.structure.yaml` and `apps/server/test/architecture/**`, and
+  `scripts/merge-test/**` each have an `OWNED_PATH_RULES` entry (`scripts/merge-test/scope.ts`) with its
+  test list; a diff made only of such paths (and the rules' own tests) gets the `owned` scope: server
+  type check and those tests. A guard test fails when a server test that reads one of these paths is
+  not named by a rule. A `packages/templates/**` change runs the templates workspace and the
+  workspaces that import `@projectman/templates` (the server through the module/test graph seeded by
+  its importers); next to a shared source change it requires all workspaces.
+  Changes to `scripts/full-test/**`, non-code scripts, the widget, other
+  packages, manifests/lockfiles, TypeScript/Vitest configuration, such paths next to other code or
+  unknown paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
   `merge-test step: npm <args>` without executing checks or checking out the commit (default `HEAD`).
   It compares against the commit's first parent; a non-merge commit retains the full-run scope.
   Scope, selected modules, test count and fallback reason are logged before and after execution. The executor holds
@@ -192,11 +200,26 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   changed file matching one selects the tests), `tests` (test file patterns that then run) and
   optionally `on: 'add-delete'` (only an added or deleted file counts). Patterns are repository
   paths: `*` stays in a folder, `**` crosses folders, a trailing `/` is the folder's subtree. A guard
-  test fails when an `import.meta.glob` test is not covered by a rule or a rule names no existing
-  test. The tool-definition snapshot and the `*-migration` tests need no rule: the shared export
-  analysis and the import graph reach them. **Order by proximity (PM-1306).** At most
-  `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`) files run, so the
-  nearest come first and the alphabet only decides between tests of the same proximity:
+  test fails when a server or web test that reads a repository file by path (an
+  `import.meta.glob`, or a path from `import.meta.url` read with `readFileSync`, `readdirSync`,
+  `existsSync`) is not named by a rule, or a rule names no existing test. The `CLAUDE.md` Commands
+  lines of the form "run this test after changing that" are rules too (`web-get-contracts`, the
+  merge-test watchdog, `start-offer` and the `golden-path-*` tests). The tool-definition snapshot and the
+  `*-migration` tests need no rule: the shared export analysis and the import graph reach them. A rule
+  with `broad: true` has sources so wide that matching one does not make a file "mapped" (the
+  not-mapped list). **Documents a test reads (PM-1337).** `TEST_READ_DOCS`
+  (`scripts/merge-test/scope.ts`) maps the documents tests read by path (`docs/HYBRID.md`,
+  `docs/MACHINE-DEPENDENT.md`, `docs/ARCHITECTURE.md`, `docs/EFFECT.md`) to those tests. Such a document is
+  no documentation-only file: the merge check runs the server tests with the tests that read it added
+  (`refine.ts`), and the hand-over check chooses them by the rule built from the same map. A test
+  that reads another document by path adds it there; the tests check documents' machine-readable
+  facts, never their wording. **Order by proximity (PM-1306).** The tests come
+  nearest first and the alphabet only decides between tests of the same proximity. **The cap
+  (PM-1337).** The cap, `TARGETED_TEST_FILES_MAX` (60, `packages/shared/src/config/test-workers.ts`),
+  cuts only the farther tests: every `direct` and `rule` test and the first `NAME_TESTS_ALWAYS` (10)
+  `name` tests always run, and the remaining room under the cap goes to the rest of the `name` tests
+  and the `graph` tests in order. A run can therefore be larger than 60 files (the nearest tests decide
+  the merge); the last lines say how many tests the cap cut:
   1. `direct`: the changed tests, the tests of a changed snapshot, and the tests that import a changed
      file themselves (snapshot tests first). A test that only imports a changed `packages/shared`
      export through the package is not direct: it is `graph`, however many there are;
@@ -217,9 +240,10 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   4. `graph`: the tests reached through further imports (snapshot tests first, then by distance).
 
   A test counts once, at its nearest proximity. Over the cap the last lines say
-  `ran 60 of M (cap 60); the merge-test runs the other M-60` (exit 0) and
-  `left out by proximity: <n> direct, <n> selection-rule, <n> name-usage, <n> farther import-graph`,
-  and name the omitted tests of the nearer proximities, at most 20 per line and then `(+N more)`
+  `ran R of M (cap 60 cuts only the farther tests, the N nearest always run); the merge-test runs the other C`
+  (exit 0), `the cap cut C test(s)` and
+  `left out by proximity: 0 direct, 0 selection-rule, <n> name-usage, <n> farther import-graph`
+  (the first two are always 0), and name the omitted tests of the `name` tier, at most 20 per line and then `(+N more)`
   (run them yourself with `npx vitest run <files>`); it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
   git error. `--dry-run` prints the steps only. A merge-test change keeps the merge-test output
   unchanged; the shared import analysis is only extended (`valueConsumers`, `typeOnly`).

@@ -2,7 +2,11 @@
 
 ## Responsibility
 
-Session orchestration on the hub. This file describes the team's pause and resume (`PauseService`).
+Session orchestration on the hub. This file describes the team's pause and resume (`PauseService`) and the changed-files read.
+
+## Changed files of a card's branch (PM-1378)
+
+`SessionOrchestrator.changedFiles(config, task, commit)` is the implementation of the `TaskMoves` port of the same name. It publishes the member's commit with `prepareMergeSource`, then asks the card's engine (`cardEngineId`) for `merge.changed_paths` (`BranchMerger.changedPaths`, base: the repository's default branch, at most 1000 paths with a `truncated` flag). It returns `{ paths, truncated }`, or `null` for an unknown commit, a missing engine or any error (logged, never thrown). The same engine calls are made by the merge and the structure service, so nothing new crosses the server/engine boundary. The hand-over (`runtime/admission/hand-over.ts`) and `cardWorkers` start and count the stage's owners by `cardStageOwners`, so a small card's reviewer is the stage's small owner.
 
 ## Pause and resume
 

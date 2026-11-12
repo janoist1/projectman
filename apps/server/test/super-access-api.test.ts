@@ -17,6 +17,94 @@ import { createAppHarness, createForeignProject, createProject, setupOwner } fro
 import type { AppHarness } from './helpers/app-harness';
 
 type Mode = 'own' | 'super' | 'read';
+
+const RETIRED_OPERATOR_APPROVAL = {
+  requestId: 'opr_fixture',
+  stepId: 'ops_fixture',
+  quote: 'Pause the team',
+  action: 'project_pause',
+  operation: { op: 'project_pause' },
+  changes: [],
+  consequence: 'project_pause',
+  baseVersion: null,
+  session: null,
+  stale: null,
+};
+
+const RESOLVE_PARITY_OPTIONS = ['approve', 'answer', 'allow'].map((id) => ({
+  id,
+  label: id,
+  style: 'primary' as const,
+}));
+
+/**
+ * One inbox-resolve rule for the server and the web fake (S-03): the fake's backend.test.ts holds the same cases
+ * and expects the same refusals. An assignee `null` is the resolving owner.
+ */
+const RESOLVE_PARITY_CASES = [
+  {
+    mode: 'own',
+    kind: 'approval',
+    assignees: [null],
+    payload: { operator: RETIRED_OPERATOR_APPROVAL },
+    request: { optionId: 'approve' },
+    status: 409,
+    code: 'inbox_item_closed',
+  },
+  {
+    mode: 'own',
+    kind: 'decision',
+    assignees: ['someone-else'],
+    payload: {},
+    request: { optionId: 'approve' },
+    status: 403,
+    code: 'not_an_assignee',
+  },
+  {
+    mode: 'own',
+    kind: 'question',
+    assignees: [null],
+    payload: {},
+    request: { optionId: 'answer' },
+    status: 400,
+    code: 'answer_required',
+  },
+  {
+    mode: 'own',
+    kind: 'question',
+    assignees: [null],
+    payload: {},
+    request: { optionId: 'nope' },
+    status: 400,
+    code: 'unknown_option',
+  },
+  {
+    mode: 'read',
+    kind: 'question',
+    assignees: [null],
+    payload: {},
+    request: { optionId: 'answer', note: 'Yes' },
+    status: 403,
+    code: 'integrator_read_only',
+  },
+  {
+    mode: 'super',
+    kind: 'permission',
+    assignees: [null],
+    payload: {},
+    request: { optionId: 'allow' },
+    status: 403,
+    code: 'owner_approval_required',
+  },
+] satisfies {
+  mode: Mode;
+  kind: 'approval' | 'decision' | 'question' | 'permission';
+  assignees: (string | null)[];
+  payload: Record<string, unknown>;
+  request: { optionId: string; note?: string };
+  status: number;
+  code: string;
+}[];
 describe('credential REST and domain access (PM-759)', () => {
   let h: AppHarness;
   let cookie: string;
@@ -317,20 +405,7 @@ describe('credential REST and domain access (PM-759)', () => {
       source: 'system',
       assignees: ['owner'],
       title: 'A routine proposal',
-      payload: {
-        operator: {
-          requestId: 'opr_fixture',
-          stepId: 'ops_fixture',
-          quote: 'Pause the team',
-          action: 'project_pause',
-          operation: { op: 'project_pause' },
-          changes: [],
-          consequence: 'project_pause',
-          baseVersion: null,
-          session: null,
-          stale: null,
-        },
-      },
+      payload: { operator: RETIRED_OPERATOR_APPROVAL },
       options: [{ id: 'approve', label: 'approve', style: 'primary' }],
     });
     const response = await h.app.inject({
@@ -368,6 +443,33 @@ describe('credential REST and domain access (PM-759)', () => {
         mode === 'read' ? 'integrator_read_only' : 'owner_approval_required',
       );
   });
+
+  // The same cases as the web fake's "refuses as the server does" (S-03): one shared rule, one answer.
+  it.each(RESOLVE_PARITY_CASES)(
+    '$mode resolving a $kind with $request.optionId is refused like the fake: $code',
+    async ({ mode, kind, assignees, payload, request, status, code }) => {
+      const { headers } = await credential(mode);
+      const { domain } = h.app.projectman;
+      const item = domain.inbox.create({
+        projectKey: 'AR',
+        kind,
+        source: 'dev-1',
+        assignees: assignees.map((handle) => handle ?? 'owner'),
+        title: 'Parity',
+        payload,
+        options: RESOLVE_PARITY_OPTIONS,
+      });
+      const response = await h.app.inject({
+        method: 'POST',
+        url: routes.resolveInbox('AR', item.id),
+        headers,
+        payload: request,
+      });
+      expect(response.statusCode, response.body).toBe(status);
+      expect(response.json().error.code).toBe(code);
+      expect(domain.inbox.get('AR', item.id).state).toBe('open');
+    },
+  );
 
   it.each(['own', 'super', 'read'] as const)(
     '%s writes through existing services with its own provenance',

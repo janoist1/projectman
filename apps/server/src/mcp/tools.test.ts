@@ -46,6 +46,18 @@ async function listToolsFor(audience: MemberAudience) {
 }
 
 describe('tool audience', () => {
+  it('rejects retired operations on member knowledge proposals', () => {
+    const tool = TEAM_TOOLS.find((tool) => tool.name === 'propose_operator_knowledge')!;
+    const proposal = {
+      expected_revision: 0,
+      change: { kind: 'principle_remove', id: 'olp_one' },
+      title: 'Explicit owner request',
+    };
+    expect(tool.inputSchema.shape).not.toHaveProperty('operations');
+    expect(tool.inputSchema.safeParse(proposal).success).toBe(true);
+    expect(tool.inputSchema.safeParse({ ...proposal, operations: [] }).success).toBe(false);
+    expect(tool.external).toBeUndefined();
+  });
   it.each(AI_BUILT_IN_ROLE_IDS)('keeps the %s tools/list within its byte budget', async (role) => {
     const result = await listToolsFor({
       ...developerAudience,
@@ -75,7 +87,8 @@ describe('tool audience', () => {
       translator: 40_000,
       docs: 40_000,
     };
-    expect(bytes).toBeLessThanOrEqual(budgets[role]);
+    // PM-1361 adds the bounded follow_ups schema and its usage description to update_task.
+    expect(bytes).toBeLessThanOrEqual(budgets[role] + 512);
   });
   it.each([fullAudience, developerAudience, { ...developerAudience, projectManager: true }])(
     'registers exactly the tools listed by the context preview for %o',
@@ -379,6 +392,7 @@ describe('team tool registration', () => {
         'reassign_task',
         'cancel_task',
         'reopen_task',
+        'involve_member',
         'start_member',
       ],
       'services/feedback': [

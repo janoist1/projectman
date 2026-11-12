@@ -79,6 +79,8 @@ export const PatchConfigRequest = z
     projectManagerLifecycle: ProjectConfig.shape.team.shape.projectManagerLifecycle,
     /** Who may override an open prerequisite (PM-1099). */
     prerequisiteOverride: ProjectConfig.shape.team.shape.prerequisiteOverride,
+    /** Who may involve a member on a card it has no role on (PM-1267). */
+    memberInvolvement: ProjectConfig.shape.team.shape.memberInvolvement,
     /** What the PM may do on its own authority (PM-1284). Owner-only (`project_manager_authority`). */
     projectManagerAuthority: ProjectConfig.shape.team.shape.projectManagerAuthority,
     /** Who besides people may set a card's priority (PM-1096): the whole list replaces the saved one, [] too. */
@@ -94,6 +96,8 @@ export const PatchConfigRequest = z
     /** The owner topics (PM-1190): the whole list replaces the saved one, [] too. Owner-only (`owner_decision_topics`). */
     ownerDecisionTopics: ProjectConfig.shape.team.shape.ownerDecisionTopics,
     merger: ProjectConfig.shape.team.shape.merger,
+    /** Whether the merger's own approval queues the merge (PM-1379). */
+    mergeAfterReview: ProjectConfig.shape.team.shape.mergeAfterReview,
     /** The project's contacts (PM-985): the whole list replaces the saved one, [] clears it. */
     contacts: ContactHandles.optional(),
     /** Whom a read-only viewer may write to (PM-1102). */
@@ -341,6 +345,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.prerequisiteOverride !== undefined
         ? { prerequisiteOverride: patch.prerequisiteOverride }
         : {}),
+      ...(patch.memberInvolvement !== undefined ? { memberInvolvement: patch.memberInvolvement } : {}),
       ...(patch.projectManagerAuthority !== undefined
         ? { projectManagerAuthority: patch.projectManagerAuthority }
         : {}),
@@ -350,6 +355,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...(patch.ruleReasons !== undefined ? { ruleReasons } : {}),
       ...(patch.ownerDecisionTopics !== undefined ? { ownerDecisionTopics: patch.ownerDecisionTopics } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
+      ...(patch.mergeAfterReview !== undefined ? { mergeAfterReview: patch.mergeAfterReview } : {}),
       ...(patch.contacts !== undefined ? { contacts: patch.contacts } : {}),
       ...(patch.viewerRecipients !== undefined ? { viewerRecipients: patch.viewerRecipients } : {}),
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),

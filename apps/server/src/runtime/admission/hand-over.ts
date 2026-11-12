@@ -4,9 +4,10 @@ import {
   memberOf,
   stageIndex,
   stageOf,
-  stageOwners,
+  cardStageOwners,
   SYSTEM_SENDER,
 } from '@projectman/shared';
+import type { FastifyBaseLogger } from 'fastify';
 import type { AiMemberConfig, ProjectConfig, Session, SessionState, Stage, Task } from '@projectman/shared';
 import { conflict, SYSTEM_ACTOR } from '../../kernel';
 import type { MessageDelivery } from '../delivery';
@@ -35,6 +36,7 @@ export class StageHandOver {
   private readonly admission: Admission;
   private readonly delivery: MessageDelivery;
   private readonly messaging: Pick<Messaging, 'send'>;
+  private readonly logger: Pick<FastifyBaseLogger, 'warn'>;
   private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
   private fullTests: { holds(task: Task, config: ProjectConfig): boolean } | undefined;
 
@@ -45,6 +47,7 @@ export class StageHandOver {
     admission: Admission;
     delivery: MessageDelivery;
     messaging: Pick<Messaging, 'send'>;
+    logger: Pick<FastifyBaseLogger, 'warn'>;
   }) {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
@@ -52,6 +55,7 @@ export class StageHandOver {
     this.admission = deps.admission;
     this.delivery = deps.delivery;
     this.messaging = deps.messaging;
+    this.logger = deps.logger;
   }
 
   /** Binds the fix round limit (PM-262), which is built after the hand-over. */
@@ -69,9 +73,14 @@ export class StageHandOver {
     await this.admission.attempt(this.startFor(change));
   }
 
-  /** An interrupted card keeps its member and conversation, under normal stage admission. */
+  /**
+   * An interrupted card keeps its member and conversation, under normal stage admission. A general conversation (a
+   * desk) cut in a turn starts again with the interruption nudge, without admission, as a resumed pause does (PM-1347).
+   */
   async resumeInterrupted(session: Session, previousState?: SessionState): Promise<void> {
-    if (session.lastStop?.kind !== 'server_restart' || session.workItem.type !== 'task') return;
+    if (session.lastStop?.kind !== 'server_restart') return;
+    if (session.workItem.type === 'general') return this.resumeGeneral(session, previousState);
+    if (session.workItem.type !== 'task') return;
     // Input waits need an answer, not an unsolicited continuation after the process disappeared.
     if (previousState !== 'starting' && previousState !== 'working' && previousState !== 'waiting_permission')
       return;
@@ -80,6 +89,38 @@ export class StageHandOver {
     await this.admission.attempt(
       this.startFor({ task, from: task.stageId, to: task.stageId, actor: SYSTEM_ACTOR }, session.member),
     );
+  }
+
+  /**
+   * The messages that waited go in its first input after the nudge. A start that fails stores the nudge as a message
+   * instead, so the interruption is never lost.
+   */
+  private async resumeGeneral(session: Session, previousState?: SessionState): Promise<void> {
+    if (previousState !== 'working' && previousState !== 'waiting_permission') return;
+    const { projectKey, member, workItem } = session;
+    const nudge = this.sessions.pauseNudge('interrupted', null, true);
+    if (!nudge) return;
+    try {
+      await this.delivery.startAndDeliver(projectKey, member, workItem, (messages) =>
+        this.sessions.ensureSession(projectKey, member, workItem, {
+          messages,
+          nudge,
+          pauseRestart: true,
+          cause: { kind: 'pause_resume' },
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(
+        { err, sessionId: session.id },
+        'could not start an interrupted general session again',
+      );
+      await this.messaging.send(
+        projectKey,
+        SYSTEM_SENDER,
+        { to: [member], text: nudge, taskKey: null },
+        { actor: SYSTEM_ACTOR, workItem },
+      );
+    }
   }
 
   /**
@@ -100,7 +141,7 @@ export class StageHandOver {
     const { projectKey, key: taskKey } = change.task;
     const config = this.projects.cachedConfig(projectKey);
     const stage = config && stageOf(config, change.to);
-    const owners = config && stage ? stageOwners(config, stage) : [];
+    const owners = config && stage ? cardStageOwners(config, stage, change.task) : [];
     let waitsFor =
       resumeMember ??
       (stage?.kind === 'work'
@@ -116,7 +157,7 @@ export class StageHandOver {
         : stage?.kind === 'step' &&
             !isRefinementStage(stage) &&
             task.assignee !== resumeMember &&
-            stageOwners(config, stage).includes(resumeMember);
+            cardStageOwners(config, stage, task).includes(resumeMember);
     };
     return {
       key: resumeMember
@@ -200,7 +241,7 @@ export class StageHandOver {
           throw conflict('full_test_pending', `task ${taskKey} waits for the full test of its commit`, {
             taskKey,
           });
-        const owners = stageOwners(config, stage)
+        const owners = cardStageOwners(config, stage, task)
           .filter((handle) => !resumeMember || handle === resumeMember)
           .map((handle) => memberOf(config, handle))
           .filter((m): m is AiMemberConfig => m?.kind === 'ai' && m.handle !== task.assignee);

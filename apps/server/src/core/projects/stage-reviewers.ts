@@ -1,4 +1,4 @@
-import { LIVE_SESSION_STATES, stageIndex, stageOwners } from '@projectman/shared';
+import { allStageOwners, LIVE_SESSION_STATES, stageIndex } from '@projectman/shared';
 import type { ProjectConfig, Stage, Task } from '@projectman/shared';
 import type { StageReviewerSessions } from './ports';
 
@@ -22,7 +22,7 @@ export async function stopStageReviewers(
   stage: Stage,
   back: Stage,
 ): Promise<void> {
-  const reviewers = stageOwners(config, stage).filter((handle) => handle !== task.assignee);
+  const reviewers = allStageOwners(config, stage).filter((handle) => handle !== task.assignee);
   for (const session of sessions.list(task.projectKey, { taskKey: task.key })) {
     if (session.workItem.type !== 'task' || !reviewers.includes(session.member)) continue;
     if (LIVE_SESSION_STATES.includes(session.state) || sessions.isRunning(session.id))

@@ -16,6 +16,23 @@ const creation: TimelineEvent = {
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
+it('renders follow-up items and the review result', () => {
+  const line = describeEvent(
+    { ...creation, type: 'review_follow_ups', data: { items: ['Reuse helper', 'Add test'], label: 'qa-ok' } },
+    context,
+  ).text;
+  expect(line).toContain('qa-ok');
+  expect(line).toContain('1) Reuse helper; 2) Add test');
+});
+
+it.each([
+  [{ merger: 'cr' }, 'timeline.events.task_merge_requested'],
+  [{ merger: 'cr', startedBy: 'cr' }, 'timeline.events.task_merge_requested_on_approval'],
+] as const)('tells whether the approval queued the merge (%j)', (data, key) => {
+  const event = { ...creation, type: 'task_merge_requested' as const, data };
+  expect(describeEvent(event, context).text).toBe(t(key, { merger: 'cr', startedBy: 'cr' }));
+});
+
 it.each([
   [null, 'timeline.events.item_routed'],
   ['integrator', 'timeline.events.item_routed_requested'],

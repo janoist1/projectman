@@ -50,6 +50,8 @@ export interface DomainEventMap {
   /** A card's assignee requested a new round on the open card (PM-138). Emitted and awaited before
    * recording the message, so listeners queue the pinned commit's full test before recipients get it. */
   task_review_round: { projectKey: string; taskKey: string; from: string };
+  /** A member was involved on a card (PM-1267): its waiting messages may wake it now. */
+  member_involved: { projectKey: string; taskKey: string; member: string };
   /** An operation put relations on cards (PM-421), after it committed; both cards of each, from their own side. */
   task_relations_added: { projectKey: string; actor: Actor; added: AddedRelation[] };
   /** A task's assignee changed (PM-262), after the change committed. `previous` is the one it had. */

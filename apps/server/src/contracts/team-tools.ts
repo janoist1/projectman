@@ -24,6 +24,7 @@ import type {
   MessageAttachmentRef,
   MessageKind,
   RelationsChange,
+  ReviewMergeOutcome,
   TaskRelation,
   MemberView,
   QuestionAttachment,
@@ -462,7 +463,8 @@ export interface TaskToolsHandler {
    * update_task: rewrite the title or description, set or clear the repository, add or remove
    * labels (under the labels' rules), add a note, move stage (gates enforced). Everything else is
    * recorded before the stage move, so labels added in the same call count for the target stage's
-   * gate.
+   * gate. `mergeAfterReview`: what the merger's own approval did to the card's merge (PM-1379); `pending`:
+   * still being decided when the call had to answer; absent for everyone else and when the setting is off.
    */
   updateTask(
     ctx: ToolContext,
@@ -472,6 +474,8 @@ export interface TaskToolsHandler {
       addLabels?: string[];
       removeLabels?: string[];
       note?: string;
+      /** Non-blocking review remarks for a later card (PM-1351). */
+      followUps?: string[];
       /** PM-1290: the note answers this comment of the card. */
       replyTo?: string;
       title?: string;
@@ -492,7 +496,7 @@ export interface TaskToolsHandler {
       /** Changes of the card's acceptance items (PM-1135), applied in order before the stage move. */
       acceptance?: AcceptanceChange[];
     },
-  ): Promise<{ task: Task }>;
+  ): Promise<{ task: Task; mergeAfterReview?: ReviewMergeOutcome | 'pending' }>;
   /**
    * create_task: a new task in the pipeline's first (queue) stage, unassigned and attributed
    * to the calling member; humans prioritise it.
@@ -917,6 +921,8 @@ export interface MessageToolsHandler {
     recipients: SentMessageRecipient[];
     /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
     routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
+    /** The sender may involve a member on a card with involve_member (PM-1267). */
+    mayInvolve: boolean;
   }>;
 }
 
@@ -1154,6 +1160,15 @@ export interface OperatorToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; reason: string },
   ): Promise<{ task_key: string; status: string }>;
+  /**
+   * involve_member (PM-1267): the selected PM gives an AI member a role on a card when the project settings
+   * allow it, so a message to the member wakes its session. `outcome` `already_involved`: nothing was written.
+   * `waiting`: the messages queued for the member on the card.
+   */
+  involveMember(
+    ctx: ToolContext,
+    args: { taskKey: string; member: string; reason: string },
+  ): Promise<{ outcome: 'involved' | 'already_involved'; waiting: number }>;
   /** reopen_task (PM-1098): the selected PM reopens a cancelled card when the project settings allow it. */
   reopenTask(
     ctx: ToolContext,

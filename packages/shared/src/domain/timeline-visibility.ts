@@ -15,6 +15,8 @@ export function canSeeTimelineEvent(
   event: TimelineEvent,
   participants: (id: string) => { from: string; to: string[] } | null,
 ): boolean {
+  if (viewer.access === 'client' && ['review_follow_ups', 'member_involved'].includes(event.type))
+    return false;
   if (viewer.access !== 'client' || !['team_message', 'message_dropped'].includes(event.type)) return true;
   const id = event.data?.messageId;
   const message = typeof id === 'string' ? participants(id) : null;

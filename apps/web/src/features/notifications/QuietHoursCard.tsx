@@ -5,7 +5,7 @@ import type { PushSettings, QuietHours } from '@projectman/shared';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { useNow } from '../../lib/useNow';
-import { failText } from './deviceText';
+import { failText } from '../../lib/errors';
 import styles from './notifications.module.css';
 import { deviceTimeZone, zoneOptions } from './timeZones';
 import { useSavePushSettings } from './usePush';

@@ -420,6 +420,15 @@ describe('message attachments', () => {
     });
   });
 
+  it('offers the hourly sweep of the unsent uploads to the kernel, once at start too (PM-1394)', async () => {
+    const old = await put();
+    clock = new Date(clock.getTime() + 25 * 3600_000);
+    const sweep = h.domain.messageAttachments.unsentSweep();
+    expect(sweep).toMatchObject({ name: 'message-attachments', everyMs: 3600_000, atStart: true });
+    await sweep.run();
+    expect(h.repos.messageAttachments.get(old.id)).toBeNull();
+  });
+
   describe('reading (read_message_attachment)', () => {
     const readAs = (handle: string, id: string) =>
       h.domain.messageAttachments.reading('AR', id, aiViewer(handle));

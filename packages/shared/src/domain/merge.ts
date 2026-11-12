@@ -6,6 +6,10 @@ import { MergeCheckRunner, MergeTestReport } from './merge-test';
 
 export const MERGE_ENGINE_WAIT_MINUTES = 15;
 
+/** Why a queued merge waits for another attempt: the check's runner was unavailable, or the remote was unreachable. */
+export const MergeRetryCause = z.union([CheckInfraCause, z.literal('remote_unreachable')]);
+export type MergeRetryCause = z.infer<typeof MergeRetryCause>;
+
 export const MergeStep = z.enum([
   'queued',
   'merging',
@@ -73,7 +77,7 @@ export const TaskMergeState = z.object({
   retry: z
     .object({
       attempt: z.number().int().min(2).max(4),
-      cause: CheckInfraCause,
+      cause: MergeRetryCause,
       at: z.string(),
       runner: MergeCheckRunner,
     })

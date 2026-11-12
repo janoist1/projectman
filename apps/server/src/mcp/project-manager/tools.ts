@@ -15,7 +15,7 @@ import {
 import { z } from 'zod';
 import { TeamToolError } from '../../contracts';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../../contracts';
-import { formatMemberStart, formatProjectState } from '../format';
+import { formatInvolvement, formatMemberStart, formatProjectState } from '../format';
 import { defineTool, type TeamToolGroup } from '../kit';
 
 /** The guide topic that lists the fields of every operation and command kind (generated from the schemas). */
@@ -299,23 +299,16 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
         'removal with the current expected_revision. Writes nothing until an owner approves in the inbox. ' +
         'What a setting can express (gate, label, permission, priority, limit) goes to operate instead.',
       input: {
-        ...ProposeOperatorKnowledgeRequest.shape,
+        expected_revision: ProposeOperatorKnowledgeRequest.shape.expected_revision,
+        title: ProposeOperatorKnowledgeRequest.shape.title,
         change: ProposeOperatorKnowledgeRequest.shape.change.describe(
           'A null principle id gets a server id. Propose a rule only after a repeated failure and name the ' +
             'cards in its reason; refer to a duty or role, not a member name. Never import principles ' +
             'automatically from memory or documents.',
         ),
-        operations: ProposeOperatorKnowledgeRequest.shape.operations.describe(
-          'Recommended operations, only for the Operator’s agreement_replace (at most ten). Even immediate ' +
-            'ones wait for this approval; protected configuration operations still need a separate approval.',
-        ),
-      },
-      check(args, issue) {
-        if (args.change.kind !== 'agreement_replace' && args.operations.length)
-          issue('operations', 'Only agreement proposals accept operations.');
       },
       async run({ ctx, args, handler }) {
-        return JSON.stringify(await handler.proposeOperatorKnowledge(ctx, args));
+        return JSON.stringify(await handler.proposeOperatorKnowledge(ctx, { ...args, operations: [] }));
       },
     }),
     defineTool({
@@ -749,6 +742,29 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       input: { task_key: TaskKey, reason: z.string().trim().min(1).max(500) },
       async run({ ctx, args, handler }) {
         return JSON.stringify(await handler.reopenTask(ctx, { taskKey: args.task_key, reason: args.reason }));
+      },
+    }),
+
+    defineTool({
+      name: 'involve_member',
+      audience: { roles: ['project_manager'] },
+      title: 'Involve a member on a card',
+      readOnly: false,
+      description:
+        'Give an AI member a role on a card: messages to them about it start their session, and one that ' +
+        'waited for lack of a role starts at once. Needs the project setting (else member_involvement_refused). ' +
+        'No label or approval right. Reason goes on the timeline.',
+      input: { task_key: TaskKey, member: MemberHandle, reason: z.string().trim().min(1).max(500) },
+      async run({ ctx, args, handler }) {
+        return formatInvolvement(
+          await handler.involveMember(ctx, {
+            taskKey: args.task_key,
+            member: args.member,
+            reason: args.reason,
+          }),
+          args.member,
+          args.task_key,
+        );
       },
     }),
 

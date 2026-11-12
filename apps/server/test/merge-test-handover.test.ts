@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { TARGETED_TEST_FILES_MAX } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { handoverSelection, matchesPattern, SELECTION_RULES } from '../../../scripts/merge-test/handover';
+import {
+  handoverSelection,
+  matchesPattern,
+  NAME_TESTS_ALWAYS,
+  SELECTION_RULES,
+} from '../../../scripts/merge-test/handover';
 import { runHandoverCheck } from '../../../scripts/merge-test/handover-run';
 import type { MergeTestFile } from '../../../scripts/merge-test/impact';
 import type { StepRun } from '../../../scripts/merge-test/steps';
@@ -11,6 +16,15 @@ import type { StepRun } from '../../../scripts/merge-test/steps';
 const file = (path: string, source = ''): MergeTestFile => ({ path, source });
 const select = (tree: MergeTestFile[], changed: string[], added: string[] = [], deleted: string[] = []) =>
   handoverSelection({ changed, added, deleted, before: tree, after: tree });
+
+/** A changed `a.ts` and `count` tests that reach it only through `b.ts` (the farther `graph` tier). */
+const farTree = (count: number): MergeTestFile[] => [
+  file('apps/server/src/core/a.ts', 'export const a = { onLeave: false };'),
+  file('apps/server/src/core/b.ts', "import { a } from './a';\nexport const b = a;"),
+  ...Array.from({ length: count }, (_, i) =>
+    file(`apps/server/src/core/f${String(i).padStart(2, '0')}.test.ts`, "import { b } from './b';"),
+  ),
+];
 
 const SNAPSHOT_TEST = 'apps/server/src/mcp/tools.test.ts';
 const teamToolTree = [
@@ -35,6 +49,13 @@ describe('handover selection', () => {
     const selection = select(teamToolTree, ['apps/server/src/mcp/__snapshots__/tools/get_task.json']);
     expect(selection.tests).toEqual([{ workspace: 'apps/server', files: [SNAPSHOT_TEST] }]);
     expect(selection.unmapped).toEqual([]);
+  });
+
+  it('runs the filters of a path-owned change and type checks the server (PM-1354)', () => {
+    const selection = select([], ['deploy/mac/com.projectman.engine.plist']);
+    expect(selection.kind).toBe('cloud');
+    expect(selection.typecheck).toEqual(['apps/server']);
+    expect(selection.testFilters).toContain('apps/server/test/engine-menubar.test.ts');
   });
 
   it('selects the tool snapshot test when a shared schema used by a team tool changes (PM-1285)', () => {
@@ -103,18 +124,49 @@ describe('handover selection', () => {
     ]);
   });
 
-  it('caps the run and reports how many tests it left to the merge check', () => {
-    const tests = Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
-      file(`apps/server/src/core/t${String(i).padStart(2, '0')}.test.ts`, "import { a } from './a';"),
-    );
-    const tree = [file('apps/server/src/core/a.ts', 'export const a = 1;'), ...tests];
-    const selection = select(tree, ['apps/server/src/core/a.ts']);
+  it('caps the farther tests and reports how many tests it left to the merge check', () => {
+    const selection = select(farTree(TARGETED_TEST_FILES_MAX + 5), ['apps/server/src/core/a.ts']);
     expect(selection.tests[0]!.files).toHaveLength(TARGETED_TEST_FILES_MAX);
     expect(selection).toMatchObject({
       reached: TARGETED_TEST_FILES_MAX + 5,
       cap: TARGETED_TEST_FILES_MAX,
+      nearest: 0,
       omitted: 5,
     });
+  });
+
+  it('never cuts the direct tests, even beyond the cap (PM-1337)', () => {
+    const direct = Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
+      file(`apps/server/src/core/d${String(i).padStart(2, '0')}.test.ts`, "import { a } from './a';"),
+    );
+    const selection = select(
+      [file('apps/server/src/core/a.ts', 'export const a = 1;'), ...direct],
+      ['apps/server/src/core/a.ts'],
+    );
+    expect(selection.tests[0]!.files).toHaveLength(TARGETED_TEST_FILES_MAX + 5);
+    expect(selection).toMatchObject({ nearest: TARGETED_TEST_FILES_MAX + 5, omitted: 0 });
+  });
+
+  it('runs the first name tests whatever the cap says and fills the rest with farther tests (PM-1337)', () => {
+    const names = Array.from({ length: NAME_TESTS_ALWAYS + 5 }, (_, i) =>
+      file(`apps/server/test/n${String(i).padStart(2, '0')}.test.ts`, 'setup({ onLeave: true });'),
+    );
+    const tree = [...farTree(TARGETED_TEST_FILES_MAX - 10), ...names];
+    const after = tree.map((f) =>
+      f.path.endsWith('/a.ts') ? file(f.path, 'export const a = { onLeave: true };') : f,
+    );
+    const selection = handoverSelection({
+      changed: ['apps/server/src/core/a.ts'],
+      added: [],
+      deleted: [],
+      before: tree,
+      after,
+    });
+    const files = selection.tests.flatMap((entry) => entry.files);
+    expect(files.slice(0, NAME_TESTS_ALWAYS).every((path) => path.includes('/n'))).toBe(true);
+    expect(files).toHaveLength(TARGETED_TEST_FILES_MAX);
+    expect(selection).toMatchObject({ nearest: NAME_TESTS_ALWAYS, omitted: 5 });
+    expect(selection.omittedByProximity.graph).toHaveLength(5);
   });
 
   it('keeps the direct and the name-using test inside the cap when many farther tests are reached (PM-1306)', () => {
@@ -264,7 +316,7 @@ describe('handover selection', () => {
   });
 
   it('selects nothing but the dead-code check for a documentation-only change', () => {
-    expect(select(teamToolTree, ['docs/ARCHITECTURE.md'])).toMatchObject({
+    expect(select(teamToolTree, ['docs/DECISIONS.md'])).toMatchObject({
       kind: 'none',
       typecheck: [],
       tests: [],
@@ -288,6 +340,21 @@ describe('selection rules', () => {
     .split('\n')
     .filter((path) => /\.test\.tsx?$/.test(path));
   const listed = (path: string) => SELECTION_RULES.some(({ tests }) => matchesPattern(path, tests));
+  // A test that resolves a repository path from its own location (`new URL('../../..', import.meta.url)`,
+  // `import.meta.dirname`, `import.meta.glob`) and reads it. Its own fixtures and models are not a source.
+  const READS = /readFileSync|readFile\(|readdirSync|readdir\(|existsSync|statSync|import\.meta\.glob/;
+  const LOCATION =
+    /import\.meta\.glob|(?:import\.meta\.(?:url|dirname)).*\.\.\/|\.\.\/.*import\.meta\.(?:url|dirname)/;
+  const NOT_REPO_READERS: ReadonlySet<string> = new Set([
+    // Import their own code into a child process, or read a fixture next to them; no repository file is a source.
+    'apps/server/src/full-test/run-sandboxed-core.test.ts',
+    'apps/server/src/exec/exec-command.test.ts',
+  ]);
+  const isPathReader = (path: string, source: string): boolean =>
+    /^apps\/(?:server|web|feedback-widget)\//.test(path) &&
+    !NOT_REPO_READERS.has(path) &&
+    READS.test(source) &&
+    source.split('\n').some((line) => !/fixtures|models\/|^\s*(?:\/\/|\*)/.test(line) && LOCATION.test(line));
   const operatorTree = [
     file('apps/server/src/services/coordination/requests.ts', 'export const r = 1;'),
     file('apps/server/test/operator-knowledge.test.ts'),
@@ -348,16 +415,129 @@ describe('selection rules', () => {
     expect(files).not.toContain('apps/server/test/other.test.ts');
   });
 
-  it('names the rule tests the cap left out', () => {
+  it('never cuts the rule tests, even beyond the cap (PM-1337)', () => {
     const operators = Array.from({ length: TARGETED_TEST_FILES_MAX + 2 }, (_, i) =>
       file(`apps/server/test/operator-t${String(i).padStart(2, '0')}.test.ts`),
     );
     const selection = select([...operatorTree.slice(0, 1), ...operators], [operatorTree[0]!.path]);
-    expect(selection.tests[0]!.files).toHaveLength(TARGETED_TEST_FILES_MAX);
-    expect(selection.omittedByProximity.rule).toEqual([
-      'apps/server/test/operator-t60.test.ts',
-      'apps/server/test/operator-t61.test.ts',
+    expect(selection.tests[0]!.files).toHaveLength(TARGETED_TEST_FILES_MAX + 2);
+    expect(selection.omittedByProximity.rule).toEqual([]);
+  });
+
+  it.each([
+    'apps/server/src/runtime/watchers/outages.ts',
+    'apps/server/src/core/inbox/inbox.ts',
+    'apps/server/src/core/inbox/alert-todo.ts',
+    'apps/server/src/core/inbox/apply-route.ts',
+    'packages/shared/src/domain/item-route.ts',
+  ])('selects the harness-driven alert tests when %s changes (PM-1399)', (changed) => {
+    const tree = [
+      file(changed, 'export const o = 1;'),
+      file('apps/server/test/operator-signals.test.ts', "import { createApp } from './helpers/app-harness';"),
+      file('apps/server/test/question-screening-offline.test.ts'),
+      file('apps/server/test/other.test.ts'),
+    ];
+    const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'apps/server/test/operator-signals.test.ts',
+        'apps/server/test/question-screening-offline.test.ts',
+      ]),
+    );
+    expect(files).not.toContain('apps/server/test/other.test.ts');
+  });
+
+  it('keeps the alert rule tests ahead of the many farther tests that fill the cap (PM-1399)', () => {
+    const outages = 'apps/server/src/runtime/watchers/outages.ts';
+    const tree = [
+      file(outages, 'export const o = 1;'),
+      file(
+        'apps/server/src/core/b.ts',
+        "import { o } from '../runtime/watchers/outages';\nexport const b = o;",
+      ),
+      ...Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
+        file(`apps/server/src/core/f${String(i).padStart(2, '0')}.test.ts`, "import { b } from './b';"),
+      ),
+      file('apps/server/test/operator-signals.test.ts'),
+      file('apps/server/test/question-screening-offline.test.ts'),
+    ];
+    const selection = select(tree, [outages]);
+    const files = selection.tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'apps/server/test/operator-signals.test.ts',
+        'apps/server/test/question-screening-offline.test.ts',
+      ]),
+    );
+    expect(files).toHaveLength(TARGETED_TEST_FILES_MAX);
+    expect(selection.omitted).toBeGreaterThan(0);
+  });
+
+  it('selects the visibility test when the timeline visibility rule changes (PM-1331)', () => {
+    const tree = [
+      file('packages/shared/src/domain/timeline-visibility.ts', 'export const visible = 1;'),
+      file('apps/server/test/visibility.test.ts', "import { createApp } from './helpers/app-harness';"),
+    ];
+    expect(select(tree, ['packages/shared/src/domain/timeline-visibility.ts']).tests).toEqual([
+      { workspace: 'apps/server', files: ['apps/server/test/visibility.test.ts'] },
     ]);
+  });
+
+  it.each([
+    ['docs/HYBRID.md', ['deploy-cloud', 'deploy-aws', 'memory-profile']],
+    ['docs/MACHINE-DEPENDENT.md', ['memory-profile']],
+    ['docs/ARCHITECTURE.md', ['history-semantic-recall']],
+    ['docs/EFFECT.md', ['architecture/effect-allowlist']],
+  ])(
+    'selects the tests that read %s by path, which is no documentation-only change (PM-1337)',
+    (doc, names) => {
+      const tree = [
+        ...[
+          'deploy-cloud',
+          'deploy-aws',
+          'memory-profile',
+          'history-semantic-recall',
+          'architecture/effect-allowlist',
+          'other',
+        ].map((name) => file(`apps/server/test/${name}.test.ts`)),
+      ];
+      const selection = select(tree, [doc]);
+      expect(selection.kind).toBe('targeted');
+      expect(selection.tests.flatMap((entry) => entry.files)).toEqual(
+        expect.arrayContaining(names.map((name) => `apps/server/test/${name}.test.ts`)),
+      );
+      expect(selection.tests.flatMap((entry) => entry.files)).not.toContain('apps/server/test/other.test.ts');
+      expect(selection.unmapped).toEqual([]);
+    },
+  );
+
+  it('selects the snapshot-reading context test when a prompt snapshot changes, though it is no .snap file', () => {
+    const tree = [file('apps/server/src/context/context-pack.test.ts')];
+    const changed = 'apps/server/src/context/__snapshots__/analyst.role-instructions.txt';
+    const selection = select(tree, [changed]);
+    expect(selection.tests).toEqual([
+      { workspace: 'apps/server', files: ['apps/server/src/context/context-pack.test.ts'] },
+    ]);
+    expect(selection.unmapped).toEqual([]);
+  });
+
+  it('selects a test that imports a changed test helper as a direct test (the app harness line of CLAUDE.md)', () => {
+    const tree = [
+      file('apps/server/test/helpers/app-harness.ts', 'export const createAppHarness = 1;'),
+      file(
+        'apps/server/test/uses-harness.test.ts',
+        "import { createAppHarness } from './helpers/app-harness';",
+      ),
+    ];
+    const selection = select(tree, ['apps/server/test/helpers/app-harness.ts']);
+    expect(selection.tests[0]!.files).toEqual(['apps/server/test/uses-harness.test.ts']);
+  });
+
+  it('covers every server or web test that reads a repository file by path', () => {
+    const unlisted = tracked.filter(
+      (path) => isPathReader(path, readFileSync(`${root}${path}`, 'utf8')) && !listed(path),
+    );
+    expect(unlisted, 'add a rule to SELECTION_RULES in scripts/merge-test/handover.ts').toEqual([]);
   });
 
   it.each([
@@ -392,12 +572,7 @@ describe('handover-check command', () => {
   afterEach(() => vi.restoreAllMocks());
 
   const ok: StepRun = { code: 0, signaled: false, output: '' };
-  const tree = [
-    file('apps/server/src/core/a.ts', 'export const a = 1;'),
-    ...Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
-      file(`apps/server/src/core/t${String(i).padStart(2, '0')}.test.ts`, "import { a } from './a';"),
-    ),
-  ];
+  const tree = farTree(TARGETED_TEST_FILES_MAX + 5);
   const git = (args: string[]): string => {
     if (args[0] === 'merge-base') return 'abc\n';
     if (args[0] === 'diff')
@@ -426,9 +601,12 @@ describe('handover-check command', () => {
     const npm = vi.fn(async () => ok);
     expect(await runHandoverCheck([], io({ npm }))).toBe(0);
     expect(printed().join('\n')).toContain(
-      `ran ${TARGETED_TEST_FILES_MAX} of ${TARGETED_TEST_FILES_MAX + 5} (cap ${TARGETED_TEST_FILES_MAX}); the merge-test runs the other 5`,
+      `ran ${TARGETED_TEST_FILES_MAX} of ${TARGETED_TEST_FILES_MAX + 5} (cap ${TARGETED_TEST_FILES_MAX} cuts only the farther tests, the 0 nearest always run); the merge-test runs the other 5`,
     );
-    expect(printed().join('\n')).toMatch(/left out by proximity: 5 direct[^,]*, 0 selection-rule/);
+    expect(printed()).toContain('handover-check: the cap cut 5 test(s)');
+    expect(printed().join('\n')).toMatch(
+      /left out by proximity: 0 direct[^,]*, 0 selection-rule[^,]*, 0 name[^,]*, 5 /,
+    );
     expect(npm).toHaveBeenCalled();
   });
 

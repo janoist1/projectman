@@ -66,6 +66,13 @@ export const projectManagerLifecycleRefused = (action: ProjectManagerLifecycleAc
     `the project settings do not let the project manager ${LIFECYCLE_ACTION_WORDS[action]} cards (team.projectManagerLifecycle)`,
   );
 
+/** An AI member tried to involve a member on a card and the project settings do not let it (PM-1267). */
+export const memberInvolvementRefused = () =>
+  forbidden(
+    'member_involvement_refused',
+    'the project settings let only people involve a member on a card (team.memberInvolvement); ask a person to message the member, or the member gets the work when it is next assigned',
+  );
+
 export const invalid = (code: ErrorCode, message: string, details?: unknown) =>
   new DomainError(code, message, { status: 400, details });
 

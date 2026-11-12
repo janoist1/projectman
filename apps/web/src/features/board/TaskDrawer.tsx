@@ -14,9 +14,10 @@ import {
   isOnLeave,
   isDeveloper,
   isTheme,
+  isCollectingTask,
   loopDecisionOf,
 } from '@projectman/shared';
-import type { Task, TimelineEvent } from '@projectman/shared';
+import type { BoardCard, TimelineEvent } from '@projectman/shared';
 import {
   useBoard,
   useConfig,
@@ -56,7 +57,7 @@ import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from 
 import { ComplexityWarning } from './ComplexityWarning';
 import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
 import type { CardSize } from './cardSize';
-import { useDrawerBase, withQueryParam } from './drawerBase';
+import { useDrawerBase, useDrawerFocusReturn, withQueryParam } from './drawerBase';
 import { RefineButton } from './RefineButton';
 import { MergeBox } from './MergeBox';
 import { SignalBox } from './SignalBox';
@@ -88,9 +89,9 @@ function StartPanel({
   tasks,
   canRefine,
 }: {
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
-  tasks: readonly Task[];
+  tasks: readonly BoardCard[];
   /** Whether the "Kidolgozás" button is shown beside the panel: only then is it pointed at. */
   canRefine: boolean;
 }) {
@@ -275,10 +276,12 @@ export function TaskDrawer() {
   const [sendBack, setSendBack] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const drawerBase = useDrawerBase();
-  const close = () => navigate(drawerBase.close);
+  const close = useDrawerFocusReturn(taskKey);
 
   const boardTask = board.data?.tasks.find((task) => task.key === taskKey);
-  const task = detail.data?.task ?? boardTask;
+  // The board's card shows the drawer at once; the description and the whole merge come with the detail (PM-1336).
+  const detailTask = detail.data?.task;
+  const task = detailTask ?? boardTask;
   const entry = model?.byKey.get(taskKey);
   // The card's comments (PM-1290) are a view of the same open card (`/thread`, the id of the older conversation
   // view, so its links keep working), a theme's too. The earlier team messages are read-only in the Process view,
@@ -354,11 +357,11 @@ export function TaskDrawer() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // A dialog, a popover or a field takes Escape for itself: a draft in the card is not discarded by it.
-      if (isPageEscape(event)) navigate(drawerBase.close);
+      if (isPageEscape(event)) close();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [drawerBase.close, navigate]);
+  }, [close]);
 
   // The large window holds the focus and the pointer: all that lies under it (the menu, the bars, the board)
   // is inert, so Tab stays inside it. Not a modal <dialog>: that would cover the toasts and the popovers.
@@ -483,7 +486,7 @@ export function TaskDrawer() {
     // Start shows as before and the server decides.
     const startBlock = entry?.state.startBlock;
     const startLoading = can.readConfig && configQuery.isPending;
-    const startOffered = isQueued && can.createTasks && !startBlock;
+    const startOffered = isQueued && can.createTasks && !startBlock && !isCollectingTask(task, cards);
     const refineFirst = canRefine && startBlock?.kind === 'unmet' && startBlock.refines;
     const hasActions =
       startOffered ||
@@ -619,6 +622,7 @@ export function TaskDrawer() {
         ) : (
           <TaskProperties
             task={task}
+            merged={detailTask?.merged}
             tasks={cards}
             phases={phases}
             members={members}
@@ -630,7 +634,9 @@ export function TaskDrawer() {
     );
     const content = (
       <div key="content" className={styles.group} hidden={view !== 'card'}>
-        <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
+        {detailTask ? (
+          <TaskDescription key={`description:${task.key}`} task={detailTask} className={styles.description} />
+        ) : null}
 
         {theme ? null : (
           <TaskAcceptance

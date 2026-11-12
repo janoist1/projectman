@@ -5,6 +5,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   LOCAL_ENGINE_ID,
   isOnLeave,
+  isIntegratorTodo,
 } from '@projectman/shared';
 import type { AgentProvider, EngineId, HumanMemberConfig, Task, WorkOutageAlert } from '@projectman/shared';
 import type { ProviderStatus, EngineDirectory } from '../src/contracts';
@@ -18,6 +19,7 @@ import type { ProjectAccess } from '../src/core/members';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { FakeWorktreeManager, capturingLogger, flush } from './helpers/fakes';
+import { systemNotices } from './helpers/notices';
 
 function status(
   provider: AgentProvider,
@@ -176,7 +178,7 @@ describe('work outage watch', () => {
     expect(alerts()).toEqual([]);
     expect(watch.forMember('AR', 'dev-1')?.kind).toBe('provider');
     expect(watch.forMember('AR', 'dev-2')).toBeUndefined();
-    expect(probe).toHaveBeenCalledWith('claude', { member: 'dev-1', refresh: true });
+    expect(probe).toHaveBeenCalledWith('claude', { member: 'dev-1', refresh: false });
   });
 
   it('updates affected cards, tells about an episode once and starts a new episode after recovery', async () => {
@@ -203,6 +205,57 @@ describe('work outage watch', () => {
     await watch.check();
     expect(raised()).toHaveLength(2);
   });
+
+  it('preserves engine login backoff for periodic checks and admission refusals', async () => {
+    await watch.check();
+    await watch.observeRefusal('AR', 'dev-1', 'provider_not_logged_in');
+    expect(probe.mock.calls.every(([, opts]) => opts.refresh === false)).toBe(true);
+    probe.mockClear();
+    await watch.recheckProvider('claude');
+    expect(probe.mock.calls.every(([, opts]) => opts.refresh === true)).toBe(true);
+  });
+
+  it.each(['provider', 'engine'] as const)(
+    'routes a %s outage affecting the project manager to the integrator and informs the owner once',
+    async (kind) => {
+      await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        const pm = config.team.members.find((member) => member.handle === 'pm');
+        if (pm?.kind === 'ai') pm.onLeave = false;
+        return 'Activate the project manager';
+      });
+      const signals = { raise: vi.fn() };
+      h.domain.inbox.registerAlertPmSignals(signals);
+      if (kind === 'engine') {
+        engineId = remote;
+        online = false;
+      }
+      await watch.observeRefusal(
+        'AR',
+        'pm',
+        kind === 'provider' ? 'provider_not_logged_in' : 'engine_offline',
+      );
+      await watch.check();
+      const todos = h.domain.inbox.list('AR', { state: 'open', kind: 'question' });
+      expect(todos).toHaveLength(1);
+      expect(todos[0]).toMatchObject({
+        kind: 'question',
+        payload: { recipient: 'integrator' },
+        route: { kind: 'alert:work_outage', to: 'integrator_queue', reason: 'pm_affected' },
+      });
+      expect(isIntegratorTodo(todos[0]!)).toBe(true);
+      expect(signals.raise).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(systemNotices(h, 'work_outage')).toHaveLength(1));
+      expect(systemNotices(h, 'work_outage')[0]).toMatchObject({ to: ['owner'], kind: 'info' });
+      expect(systemNotices(h, 'work_outage')[0]?.origin.params).toMatchObject({
+        since: raised()[0]!.payload.outage.since,
+        problem: kind === 'provider' ? 'not_logged_in' : 'engine',
+      });
+      online = true;
+      probe.mockImplementation(async (provider) => status(provider, true));
+      await watch.check();
+      expect(h.domain.inbox.list('AR', { state: 'open', kind: 'question' })).toEqual([]);
+    },
+  );
 
   it('resolves an open alert only after confirmed recovery, including a manual check', async () => {
     await watch.check();
@@ -573,28 +626,48 @@ describe('work outage watch', () => {
     },
   );
 
-  it('adopts the original start time of an open alert and does not close it on unknown checks', async () => {
-    await watch.check();
-    const item = legacyAlert();
-    await watch.stop();
-    watch = new WorkOutages({
-      ctx: h.domain.ctx,
-      projects: h.domain.projects,
-      inbox: h.domain.inbox,
-      engines: directory,
-      runner: h.runner,
-      deferred,
-      messageRouter: h.domain.messageRouter,
-      members: h.domain.members,
-      tasks: h.domain.tasks,
-      retry,
-    });
-    probe.mockImplementation(async (provider) => status(provider, null));
-    await watch.check();
-    expect(alerts()).toHaveLength(1);
-    expect(alerts()[0]!.state).toBe('open');
-    expect(watch.forMember('AR', 'dev-1')?.since).toBe((item.payload.outage as { since: string }).since);
-  });
+  it.each(['legacy', 'integrator'] as const)(
+    'adopts an open %s outage after restart and preserves it on unknown checks',
+    async (kind) => {
+      if (kind === 'integrator') {
+        await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+          const pm = config.team.members.find((member) => member.handle === 'pm');
+          if (pm?.kind === 'ai') pm.onLeave = false;
+          return 'Activate the project manager';
+        });
+      }
+      await watch.check();
+      const item =
+        kind === 'legacy'
+          ? legacyAlert()
+          : h.domain.inbox.list('AR', { state: 'open', kind: 'question' })[0]!;
+      const since = raised()[0]!.payload.outage.since;
+      await watch.stop();
+      watch = new WorkOutages({
+        ctx: h.domain.ctx,
+        projects: h.domain.projects,
+        inbox: h.domain.inbox,
+        engines: directory,
+        runner: h.runner,
+        deferred,
+        messageRouter: h.domain.messageRouter,
+        members: h.domain.members,
+        tasks: h.domain.tasks,
+        retry,
+      });
+      probe.mockImplementation(async (provider) => status(provider, null));
+      await watch.check();
+      expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+      expect(watch.forMember('AR', 'dev-1')?.since).toBe(since);
+      expect(raised()).toHaveLength(1);
+      probe.mockImplementation(async (provider) => status(provider, true));
+      await watch.check();
+      expect(h.domain.inbox.get('AR', item.id)).toMatchObject({
+        state: 'resolved',
+        resolution: { rule: 'outage_ended' },
+      });
+    },
+  );
 
   it('publishes member and task outages through the domain views after an admission refusal', async () => {
     const task = await h.domain.tasks.create('AR', { title: 'Unavailable provider' }, OWNER_ACTOR);

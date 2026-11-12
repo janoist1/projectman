@@ -239,6 +239,9 @@ import {
   moveMerge,
   mergeRequestOf,
   ALERT_SEEN_OPTION,
+  TODO_DONE_OPTION,
+  TODO_CANNOT_OPTION,
+  systemNoticeOf,
   WorkOutageAlert,
   limitTokens,
   LOOP_LET_RUN_OPTION,
@@ -1903,9 +1906,8 @@ export class MockBackend {
   }
 
   /**
-   * An outage (PM-468): the open `work_outage` alert for the owners, `outage` on the AI members and
-   * on the cards that stand on it. Returns the alert. `endOutage` / a check that finds it healed
-   * (`outageRecovers`) closes it the way the server does.
+   * An outage on the members and cards. A pm affected by it gets an integrator todo through the shared rule.
+   * Other routes retain the legacy owner alert fixture so tests can exercise alerts left by older versions.
    */
   startOutage(outage: WorkOutage, members: readonly string[], tasks: readonly string[]): InboxItem {
     for (const handle of members) {
@@ -1921,23 +1923,78 @@ export class MockBackend {
       tasks: [...tasks],
       checkedAt: nowIso(),
     };
+    const pm = coordinationMemberOf(this.config);
+    const input = {
+      kind: 'alert:work_outage' as const,
+      topic: null,
+      requested: null,
+      issuerMachineAccess: true,
+      pm: pm ? ('available' as const) : ('none' as const),
+      outageAffectsPm: !!pm && members.includes(pm.handle),
+      integrator: false,
+      decider: false,
+    };
+    const route = routeItem(input);
+    const integrator = route.to === 'integrator_queue';
+    if (integrator) {
+      const existing = this.inbox.find((item) => {
+        const parsed = WorkOutageAlert.safeParse(item.payload.workOutage);
+        return item.state === 'open' && parsed.success && parsed.data.outage.id === outage.id;
+      });
+      if (existing) return existing;
+    }
     const item: InboxItem = {
       id: mockId('inb'),
       projectKey: fixtures.PROJECT_KEY,
-      kind: 'alert',
+      kind: integrator ? 'question' : 'alert',
       assignees: boundaryOwners(this.config),
       source: 'system',
       sessionId: null,
       taskKey: null,
       title: 'Work is stopped by an outage',
       body: null,
-      payload,
-      options: [ALERT_SEEN_OPTION],
+      payload: integrator
+        ? {
+            question: 'Restore the provider login or setup, or reconnect the engine.',
+            recipient: 'integrator',
+            requestedRecipient: 'integrator',
+            integratorOpenedAt: nowIso(),
+            screening: {
+              at: nowIso(),
+              by: 'system',
+              outcome: 'todo',
+              todo: {
+                recipient: 'integrator',
+                what: 'Restore the provider login or setup, or reconnect the engine.',
+                where: outage.engine?.name ?? 'Engine machine',
+                expected: 'Waiting work resumes.',
+              },
+            },
+            systemAlert: { alert: 'work_outage', key: outage.id },
+            workOutage: payload,
+          }
+        : payload,
+      options: integrator ? [TODO_DONE_OPTION, TODO_CANNOT_OPTION] : [ALERT_SEEN_OPTION],
+      route: itemRouteRecord(input, route),
       state: 'open',
       resolution: null,
       createdAt: nowIso(),
     };
     this.upsertInbox(item);
+    if (integrator) {
+      const notice = systemNoticeOf(payload)!;
+      this.sendTeamMessage(
+        'system',
+        boundaryOwners(this.config),
+        null,
+        notice.text,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { origin: { kind: 'system_notice', notice: notice.notice, params: notice.params } },
+      );
+    }
     return item;
   }
 
@@ -2062,7 +2119,9 @@ export class MockBackend {
   endOutage(itemId: string): InboxItem | undefined {
     const item = this.inbox.find((entry) => entry.id === itemId);
     if (!item || item.state !== 'open') return undefined;
-    const alert = WorkOutageAlert.safeParse(item.payload);
+    const alert = WorkOutageAlert.safeParse(
+      item.kind === 'question' ? item.payload.workOutage : item.payload,
+    );
     if (alert.success) {
       for (const handle of alert.data.members) {
         const member = this.findMember(handle);
@@ -2075,7 +2134,7 @@ export class MockBackend {
       ...item,
       state: 'resolved',
       resolution: {
-        optionId: ALERT_SEEN_OPTION.id,
+        optionId: item.kind === 'question' ? TODO_DONE_OPTION.id : ALERT_SEEN_OPTION.id,
         by: 'system',
         at: nowIso(),
         note: null,

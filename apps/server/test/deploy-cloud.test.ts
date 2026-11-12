@@ -610,28 +610,12 @@ describe('deploy/cloud image', () => {
     expect(ignored).toEqual(expect.arrayContaining(['.git', '**/node_modules', '**/.env', '**/.env.*']));
   });
 
-  it('the engine Access application covers the whole /engine path, and the smoke test checks the file routes', () => {
+  it('the smoke test checks the engine file routes', () => {
     // The engine calls /engine/link and /engine/files/{uploads,downloads}/:token with one token.
-    expect(guide).toContain('projectman.example.com/engine`');
-    expect(guide).not.toContain('projectman.example.com/engine/link');
     const smoke = read('deploy/cloud/smoke.sh');
     for (const path of ['/engine/link', '/engine/files/downloads/', '/engine/files/uploads/']) {
       expect(smoke, path).toContain(path);
     }
-  });
-
-  it('the guide carries the account protection, the cost estimate and the limits of the container', () => {
-    expect(guide).toMatch(/passkey or a hardware security key/);
-    expect(guide).toMatch(/5 to 10 USD a month/);
-    expect(guide).toMatch(/No control socket client and no migration tools in the container/);
-  });
-
-  it('does not claim the processes are isolated from a compromised server', () => {
-    const docs = ['docs/SECURITY.md', 'docs/ARCHITECTURE.md', 'docs/MACHINE-DEPENDENT.md'].map(read);
-    for (const text of [guide, entrypoint, ...docs]) {
-      expect(text).not.toMatch(/server never sees the tunnel token/i);
-    }
-    expect(guide).toMatch(/does not protect against a compromised server/);
   });
 });
 

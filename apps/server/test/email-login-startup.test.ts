@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app';
+import { createServerLogStream } from '../src/logging';
 import { EMAIL_LOGIN_ENV_NAMES } from '../src/services/email-login';
 
 const startup = vi.hoisted(() => ({
@@ -89,6 +90,7 @@ describe('e-mail login startup environment', () => {
     await start();
     expectNoEmailLoginEnvironment();
     expect(vi.mocked(buildApp).mock.calls[0]![0]!.emailCodeMailer?.send).toBeTypeOf('function');
+    expect(vi.mocked(createServerLogStream).mock.lastCall?.[1]).toEqual({ terminalOnly: false });
   });
 
   it.each([

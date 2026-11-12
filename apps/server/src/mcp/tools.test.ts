@@ -45,6 +45,18 @@ async function listToolsFor(audience: MemberAudience) {
 }
 
 describe('tool audience', () => {
+  it('rejects retired operations on member knowledge proposals', () => {
+    const tool = TEAM_TOOLS.find((tool) => tool.name === 'propose_operator_knowledge')!;
+    const proposal = {
+      expected_revision: 0,
+      change: { kind: 'principle_remove', id: 'olp_one' },
+      title: 'Explicit owner request',
+    };
+    expect(tool.inputSchema.shape).not.toHaveProperty('operations');
+    expect(tool.inputSchema.safeParse(proposal).success).toBe(true);
+    expect(tool.inputSchema.safeParse({ ...proposal, operations: [] }).success).toBe(false);
+    expect(tool.external).toBeUndefined();
+  });
   it.each(AI_BUILT_IN_ROLE_IDS)('keeps the %s tools/list within its byte budget', async (role) => {
     const result = await listToolsFor({
       ...developerAudience,

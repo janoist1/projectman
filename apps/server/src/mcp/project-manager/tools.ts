@@ -299,23 +299,16 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
         'removal with the current expected_revision. Writes nothing until an owner approves in the inbox. ' +
         'What a setting can express (gate, label, permission, priority, limit) goes to operate instead.',
       input: {
-        ...ProposeOperatorKnowledgeRequest.shape,
+        expected_revision: ProposeOperatorKnowledgeRequest.shape.expected_revision,
+        title: ProposeOperatorKnowledgeRequest.shape.title,
         change: ProposeOperatorKnowledgeRequest.shape.change.describe(
           'A null principle id gets a server id. Propose a rule only after a repeated failure and name the ' +
             'cards in its reason; refer to a duty or role, not a member name. Never import principles ' +
             'automatically from memory or documents.',
         ),
-        operations: ProposeOperatorKnowledgeRequest.shape.operations.describe(
-          'Recommended operations, only for the Operator’s agreement_replace (at most ten). Even immediate ' +
-            'ones wait for this approval; protected configuration operations still need a separate approval.',
-        ),
-      },
-      check(args, issue) {
-        if (args.change.kind !== 'agreement_replace' && args.operations.length)
-          issue('operations', 'Only agreement proposals accept operations.');
       },
       async run({ ctx, args, handler }) {
-        return JSON.stringify(await handler.proposeOperatorKnowledge(ctx, args));
+        return JSON.stringify(await handler.proposeOperatorKnowledge(ctx, { ...args, operations: [] }));
       },
     }),
     defineTool({

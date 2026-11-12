@@ -15,9 +15,10 @@ import { LabelId } from '../domain/label';
 import { MemberHandle } from '../domain/member';
 import { StageId } from '../domain/pipeline';
 import { isTheme, TaskKey, TaskStartWaiting } from '../domain/task';
-import type { Task } from '../domain/task';
+import type { BoardCard, Task } from '../domain/task';
 import { TaskReadyHold } from '../domain/ready-hold';
-import { stageOwners } from './duties';
+import { cardStageOwners } from './stage-owner-pick';
+import type { PickTask } from './stage-owner-pick';
 import { aiLabelSetters, evaluateMove, evaluateStart, stageAdvance, stageIndex } from './gates';
 import { labelDefinition } from './labels';
 import { partLeft, partReadyStage } from './left-parts';
@@ -92,7 +93,8 @@ export const TaskWait = z.object({
 export type TaskWait = z.infer<typeof TaskWait>;
 
 export interface TaskWaitInput {
-  task: Task;
+  /** A board card is enough: the wait reads neither the description nor the whole merge. */
+  task: BoardCard;
   config: Pick<ProjectConfig, 'team' | 'pipeline'>;
   /** The card's open inbox items, any assignee. */
   openItems: readonly InboxItem[];
@@ -201,7 +203,7 @@ function approvalWait(
 function itemWait(
   item: InboxItem,
   items: readonly InboxItem[],
-  task: Task,
+  task: BoardCard,
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
 ): TaskWait {
   const merge = task.merge;
@@ -245,7 +247,7 @@ function fixLimitDeciders(task: Pick<Task, 'fixLimit'>): string[] {
 
 /** The wait of a card whose start the shared start rule refuses (PM-291). */
 function startBlockWait(
-  task: Task,
+  task: BoardCard,
   block: StartBlock,
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
 ): TaskWait {
@@ -453,7 +455,7 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
     return make(config, 'ready', task.createdAt, [], { toStageId: nextStageId(config, task) });
   }
 
-  const owners = stage ? stageOwners(config, stage) : [];
+  const owners = stage ? cardStageOwners(config, stage, task) : [];
   const humanOwners = owners.filter((handle) => memberOf(config, handle)?.kind === 'human');
   if (task.status === 'waiting' && humanOwners.length > 0) {
     return make(config, 'queued', task.updatedAt, humanOwners);
@@ -494,12 +496,12 @@ export interface WaitMember {
  * handoff works on it as `handingOff` (PM-342).
  */
 export function waitWorkers(
-  task: Pick<Task, 'key' | 'stageId' | 'assignee' | 'handoff'>,
+  task: Pick<Task, 'key' | 'stageId' | 'handoff'> & PickTask,
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
   members: readonly WaitMember[],
 ): TaskWaitInput['workers'] {
   const stage = stageOf(config, task.stageId);
-  const stepOwners = stage?.kind === 'step' ? stageOwners(config, stage) : [];
+  const stepOwners = stage?.kind === 'step' ? cardStageOwners(config, stage, task) : [];
   const rank = (handle: string) => (stepOwners.includes(handle) ? 0 : handle === task.assignee ? 1 : 2);
   return members
     .flatMap((member) => {

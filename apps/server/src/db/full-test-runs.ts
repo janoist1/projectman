@@ -25,6 +25,8 @@ export interface FullTestRunRecord {
   runner: MergeCheckRunner;
   /** The GitHub Actions run page of a `github_actions` run, once it has one. */
   externalUrl: string | null;
+  /** The command the run ran, fixed when it starts (PM-1377); null before it started and on older rows. */
+  command: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -44,6 +46,7 @@ interface RunRow {
   duration_ms: number | null;
   runner: MergeCheckRunner;
   external_url: string | null;
+  command: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -63,6 +66,7 @@ const toRecord = (row: RunRow): FullTestRunRecord => ({
   durationMs: row.duration_ms,
   runner: row.runner,
   externalUrl: row.external_url,
+  command: row.command,
   createdAt: row.created_at,
   startedAt: row.started_at,
   finishedAt: row.finished_at,
@@ -82,7 +86,9 @@ export function createFullTestRunRepository(db: Db) {
     'SELECT * FROM full_test_runs WHERE task_key = ? ORDER BY created_at DESC, rowid DESC',
   );
   const byStatus = db.prepare('SELECT * FROM full_test_runs WHERE status = ? ORDER BY created_at, rowid');
-  const markRunning = db.prepare("UPDATE full_test_runs SET status = 'running', started_at = ? WHERE id = ?");
+  const markRunning = db.prepare(
+    "UPDATE full_test_runs SET status = 'running', started_at = ?, command = ? WHERE id = ?",
+  );
   const markEnded = db.prepare(
     `UPDATE full_test_runs SET status = @status, reason = @reason, exit_code = @exitCode, failed_files = @failedFiles,
        duration_ms = @durationMs, external_url = @externalUrl, finished_at = @finishedAt WHERE id = @id`,
@@ -139,8 +145,9 @@ export function createFullTestRunRepository(db: Db) {
     list(status: FullTestStatus): FullTestRunRecord[] {
       return (byStatus.all(status) as RunRow[]).map(toRecord);
     },
-    start(id: string, startedAt: string): void {
-      markRunning.run(startedAt, id);
+    /** Marks a run running with the command it runs (missing: none recorded). */
+    start(id: string, startedAt: string, command?: string): void {
+      markRunning.run(startedAt, command ?? null, id);
     },
     /** Ends a run: `passed`, `failed`, `error` or `cancelled`. */
     finish(

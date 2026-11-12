@@ -539,6 +539,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('reopenTask', ctx, args);
       return { task_key: args.taskKey, status: 'active' };
     },
+    async involveMember(ctx, args) {
+      await enter('involveMember', ctx, args);
+      return { outcome: 'involved' as const, waiting: 0 };
+    },
     async openIntegratorTodo(ctx, args) {
       await enter('openIntegratorTodo', ctx, args);
       return { itemId: 'inb_todo_1', recipient: 'integrator', recipientRefusal: null };
@@ -596,6 +600,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         messageId,
         deliveredTo: args.to,
         recipients: args.to.map((handle) => ({ handle, delivery: 'typed_now' as const })),
+        mayInvolve: false,
       };
     },
 

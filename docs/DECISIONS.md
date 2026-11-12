@@ -631,3 +631,17 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     rendszerünket erőltessük, égessük a kódba, hanem tegyük lehetővé, hogy a PM testreszabható
     legyen, az AI tagok mintha emberek lennének, legyen rendben az egyensúly a szabályozás és
     a tag megértése között”.
+79. **The architect decides where Effect is used (S-12).** Decided by the owner on 2026-11-12
+    (PM-1334), through the connected Claude, closing the question decision 77 left open: „Döntsön
+    az architekt”. The architect closes the Effect trial (PM-590) on its experience, sets the
+    boundary and writes it in `docs/EFFECT.md` (PM-1388); that boundary is binding without a
+    further owner question. The starting proposal shown to the owner, not binding: Effect where
+    there is concurrency, cancellation and retry (merge queue, test queue, delivery, input
+    queue); not for plain timers; the five wrappers under 40 lines go back to plain TypeScript
+    when next touched.
+80. **Effect only for real concurrency (the architect's boundary, S-12).** Set by the architect on
+    2026-11-12 (PM-1388) under decision 79, recorded at the owner's request („az eredményt vedd
+    fel döntésnek a szokásos módon”). The boundary lives in `docs/EFFECT.md`. Effect stays,
+    on version 4.0.4, where there is real concurrency, cancellation or retry: the queues and
+    delivery keep it. Timers are frozen: no new Effect timer code. The five small wrappers go
+    back to plain TypeScript (PM-1393), and periodic work runs as a kernel sweep (PM-1394).

@@ -41,7 +41,7 @@ import type { InboxService } from '../../core/inbox';
 import type { Messaging } from '../../core/messages';
 import { recipientHasCardRole } from '../../core/messages';
 import type { ChecklistService, ProjectService } from '../../core/projects';
-import type { TaskService } from '../../core/tasks';
+import type { InvolvementService, TaskService } from '../../core/tasks';
 import type { SeniorDecisions, TaskStarts } from '../../runtime/admission';
 import { aiActor } from '../../kernel';
 import type {
@@ -74,6 +74,7 @@ export class OperatorTools implements OperatorToolsHandler {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
+  private readonly involvements: Pick<InvolvementService, 'involve'>;
   private readonly inbox: InboxService;
   private readonly systemFeedback: SystemFeedbackLookup;
   private readonly obligations: Pick<ObligationsService, 'listOpen'>;
@@ -94,6 +95,7 @@ export class OperatorTools implements OperatorToolsHandler {
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
+    involvements: Pick<InvolvementService, 'involve'>;
     inbox: InboxService;
     systemFeedback: SystemFeedbackLookup;
     obligations: Pick<ObligationsService, 'listOpen'>;
@@ -114,6 +116,7 @@ export class OperatorTools implements OperatorToolsHandler {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
+    this.involvements = deps.involvements;
     this.inbox = deps.inbox;
     this.systemFeedback = deps.systemFeedback;
     this.obligations = deps.obligations;
@@ -414,6 +417,25 @@ export class OperatorTools implements OperatorToolsHandler {
           reason: args.reason,
         });
         return { task_key: task.key, status: task.status };
+      } catch (err) {
+        if (err instanceof DomainError) throw toToolError(err);
+        throw err;
+      }
+    });
+  }
+
+  async involveMember(ctx: ToolContext, args: { taskKey: string; member: string; reason: string }) {
+    return this.calls.guard(async () => {
+      await this.calls.callerWithRequest(ctx, 'involve_member');
+      const taskKey = this.calls.validTaskKey(ctx, args.taskKey);
+      try {
+        return await this.involvements.involve(
+          ctx.projectKey,
+          taskKey,
+          args.member,
+          args.reason,
+          aiActor(ctx.member),
+        );
       } catch (err) {
         if (err instanceof DomainError) throw toToolError(err);
         throw err;

@@ -23,18 +23,20 @@ import {
   isWorkPaused,
   memberOf,
   memberStorageHandle,
+  repoOf,
   permissionDecidersNow,
   RETIRED_OPERATOR_HANDLE,
   messageRoute,
   sameWorkItem,
   sessionWorkItemOf,
   stageOf,
-  stageOwners,
+  cardStageOwners,
 } from '@projectman/shared';
 import type {
   Actor,
   AgentProvider,
   AiMemberConfig,
+  ChangedFiles,
   ChatItem,
   EngineId,
   HandoffSummary,
@@ -797,6 +799,29 @@ export class SessionOrchestrator {
     if (!effectiveRepo(config, task)) return;
     const workspaces = this.workspacesOf(this.cardEngineId(config.project.key, task));
     await workspaces?.prepareMergeSource(config, task, commit);
+  }
+
+  /**
+   * The files `commit` of the task's branch changes against the default branch (PM-1378): the stage
+   * owner pick reads them before a small card enters a review step. Null when they cannot be read
+   * (no repository, engine offline, a refused hand-over, an unknown commit); never throws.
+   */
+  async changedFiles(config: ProjectConfig, task: Task, commit: string): Promise<ChangedFiles> {
+    const repo = repoOf(config, effectiveRepo(config, task));
+    if (!repo) return null;
+    try {
+      await this.prepareMergeSource(config, task, commit);
+      const merger = this.deps.engines.get(this.cardEngineId(config.project.key, task))?.merger;
+      if (!merger) return null;
+      const [result] = await merger.changedPaths(
+        { projectKey: config.project.key, repo: repo.name },
+        { base: repo.defaultBranch, items: [{ id: task.key, at: { commit } }] },
+      );
+      return result?.ok ? { paths: result.paths, truncated: result.truncated } : null;
+    } catch (err) {
+      this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read the changed files of the task branch');
+      return null;
+    }
   }
 
   /**
@@ -1566,7 +1591,7 @@ export class SessionOrchestrator {
   cardWorkers(projectKey: string, task: Task, config: ProjectConfig): Session[] {
     const stage = stageOf(config, task.stageId);
     return cardWorkerSessions(
-      stage && { kind: stage.kind, owners: stageOwners(config, stage) },
+      stage && { kind: stage.kind, owners: cardStageOwners(config, stage, task) },
       task,
       this.ctx.repos.sessions.list(projectKey, { taskKey: task.key }),
     ).filter((s) => this.isRunning(s.id));

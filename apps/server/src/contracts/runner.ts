@@ -428,6 +428,11 @@ export interface SessionRunner {
    */
   release(sessionId: string, opts?: { nudge?: string }): boolean;
   /**
+   * Whether a call for the session reaches the process now (PM-1348): false while the link to its
+   * remote engine is down, so a `release` would not get there. Absent: always (a local runner).
+   */
+  reaches?(sessionId: string): boolean;
+  /**
    * Login state of a provider's CLI (cached briefly). `start` refuses to spawn a session of a
    * provider that is not logged in, with an error whose `code` is `provider_not_logged_in`.
    */

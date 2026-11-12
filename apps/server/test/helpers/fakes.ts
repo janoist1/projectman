@@ -115,6 +115,11 @@ export class FakeRunner implements SessionRunner {
     this.releases.push({ sessionId, nudge: opts?.nudge });
     return true;
   }
+  /** Sessions whose engine link a test took down (PM-1348): `reaches` is false for them. */
+  readonly unreachable = new Set<string>();
+  reaches(sessionId: string): boolean {
+    return !this.unreachable.has(sessionId);
+  }
   private pauseOutcome(sessionId: string): PauseOutcome | null {
     const outcome = this.pauseOutcomes.get(sessionId);
     return outcome === undefined ? { point: 'idle', tool: null } : outcome;

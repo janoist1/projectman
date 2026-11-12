@@ -46,7 +46,7 @@ import { useToast } from '../../components/toastContext';
 import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
-import { errorMessage } from '../../lib/errors';
+import { errorMessage, failText } from '../../lib/errors';
 import { capacityFrom } from '../../lib/capacity';
 import { inboxHeading } from '../../lib/inbox';
 import { canRenameMember, memberStatusView, renamedTo } from '../../lib/members';
@@ -616,11 +616,14 @@ export function MemberProfilePage() {
             projectKey={key}
             taskTitles={titles}
             onReply={canSend ? setReply : undefined}
-            onRead={(id) => read.mutate(id)}
+            onRead={(id) =>
+              read.mutate(id, {
+                onError: (error) => toast.show(failText(error, t('messages.readFailed')), 'error'),
+              })
+            }
             readPending={read.isPending}
           />
         )}
-        {read.error ? <ErrorBanner>{errorMessage(read.error)}</ErrorBanner> : null}
         {notContact ? (
           <ContactNote className={styles.contactNote} />
         ) : (

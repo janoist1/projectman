@@ -26,7 +26,7 @@ import {
   roleBundle,
   stageDevelopers,
   stageIndex,
-  stageOwners,
+  cardStageOwners,
   startBlock,
   workStageOf,
 } from '@projectman/shared';
@@ -652,7 +652,7 @@ export class TaskStarts implements WorkEntryCheck {
     actor?: Actor,
   ): ChosenMember | { kind: 'senior_busy'; seniors: string[] } {
     const projectKey = config.project.key;
-    const eligible = stageOwners(config, stage).filter(
+    const eligible = cardStageOwners(config, stage, task).filter(
       (handle) => assignee === handle || !exclude.includes(handle),
     );
     const given = (member: MemberConfig) =>

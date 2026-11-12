@@ -1556,10 +1556,14 @@ export const hu = {
     unmeasured:
       '{cards} kártya {sessions} munkamenetéről nincs mérés (a mérés bevezetése előtt futottak); ezek nincsenek beleszámolva.',
     noImplementer: 'nincs megvalósító',
+    reviewerUnknown: 'Nincs átnézőadat',
+    failedByReviewer: 'Bukott merge-ellenőrzés átnézőnként:',
+    reviewerRatio: '{name}: {failed} / {total} kártyán ({percent})',
     sessionsWithoutData: '{count} munkamenet mérés nélkül',
     columns: {
       card: 'Kártya',
       implementer: 'Megvalósító és modellje',
+      reviewer: 'Átnéző',
       tokens: 'Súlyozott token',
       reviewRounds: 'Átnézési körök',
       sendBacks: 'Visszaküldések',
@@ -1859,6 +1863,8 @@ export const hu = {
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       project_manager_lifecycle_refused:
         'A projekt beállításai ezt a kártyaműveletet nem engedik a Projektmenedzsernek.',
+      member_involvement_refused:
+        'A projekt beállításai szerint tagot a kártyára csak ember vonhat be: kérj meg egy embert, hogy írjon a tagnak.',
       builtin_role: 'A beépített szerep nem módosítható.',
       role_id_mismatch: 'A szerep azonosítója nem egyezik.',
       not_human_member: 'Ez nem emberi tag.',
@@ -2999,6 +3005,7 @@ export const hu = {
     earlier: {
       title: 'Korábbi beszélgetések ({count})',
       readOnly: 'Csak olvasható.',
+      loadFailed: 'Nem sikerült betölteni a korábbi beszélgetéseket.',
       to: 'Címzett: {names}',
       none: 'Nincs számodra látható gépi üzenet.',
     },
@@ -5937,6 +5944,7 @@ export const hu = {
         owner_topic_missing: 'hiányzó téma',
         signal_not_for_owner: 'nem a tulajdonosnak szóló jelzés',
         pm_matter: 'projektmenedzseri ügy',
+        pm_affected: 'a kiesés a projektmenedzsert is akadályozza',
         no_pm: 'nincs projektmenedzser',
         information: 'tájékoztatás',
         human_duty: 'emberi feladat',
@@ -6075,6 +6083,7 @@ export const hu = {
         'Előre húzta a rendszer: {from} → {to}; a fókusz {position}. helye miatt ({title}, {key})',
       task_hand_on_requested: '{requestedBy} végzett; {mover} viszi tovább ide: {to}',
       task_merge_requested: 'Beolvasztásra vár: {merger}.',
+      task_merge_requested_on_approval: 'Jóváhagyással sorba állt a beolvasztás: {startedBy}.',
       task_merge_prioritized: 'Előre vette a beolvasztási sorban. Indok: {reason}',
       task_merge_prioritized_ahead: 'Előre vette a beolvasztási sorban ezek elé: {ahead}. Indok: {reason}',
       task_merged: 'Beolvasztotta a {base} ágba: {commit}{parts}',
@@ -6261,6 +6270,7 @@ export const hu = {
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
       member_renamed: 'Azonosító átnevezve: {from} → {to}',
+      member_involved: 'Bevonta a kártyára: {member}. Indok: {reason}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       focus_added: 'Fókuszba tette: {title}, {position}. hely',
@@ -6994,6 +7004,8 @@ export const hu = {
       relation_check:
         'A(z) {taskKey} kártya új kapcsolatai ({relations}) változtathatnak a munkáján, és nincs elemző vagy projektmenedzser, aki ellenőrizné.',
       work_outage: 'Kiesés ({outage}) akadályozza a munkát; érintett kártyák: {tasks}.',
+      work_outage_details:
+        'A munka {since} óta áll: {reason}. Motor: {engine}; érintett kártyák: {tasks}. Teendő: a szolgáltatói bejelentkezés vagy beállítás helyreállítása, illetve a motor újracsatlakoztatása.',
       waiting_digest:
         '{todos} gépi teendő és {questions} szűrésre váró kérdés vár több mint egy napja; a legrégebbi {oldestHours} órája.',
     },
@@ -7735,6 +7747,17 @@ export const hu = {
           automatic: 'Csak a rendszer választása illeszkedik',
         },
       },
+      /** Whether the merger's own approval also queues the merge (PM-1379). */
+      mergeAfterReview: {
+        question: 'Beolvasztás rögtön a jóváhagyás után',
+        note: 'A beolvasztó a merge_task hívással olvaszt be. Bekapcsolva, ha ő a kártya kódátnézője is, a jóváhagyása ezt a hívást is megteszi, feltéve, hogy a kártyán nincs nyitott vagy megerősítetlen elfogadási feltétel. Ha a beolvasztás nem állhat sorba, a jóváhagyására kapott válaszból megtudja, miért, és mi a teendője.',
+        noEffect: 'Most nincs hatása: a beolvasztó nem a kódátnéző.',
+        readOnlyLabel: 'Beolvasztás a jóváhagyás után',
+        value: {
+          on: 'Bekapcsolva',
+          off: 'Kikapcsolva',
+        },
+      },
       /** Who may open a new card (PM-1100). */
       taskCreate: {
         title: 'Új kártya nyitása',
@@ -8059,6 +8082,10 @@ export const hu = {
       mover_not_member: 'A kártyákat továbbvivő ember már nem tagja a projektnek.',
       mover_cannot_move: 'A kártyákat továbbvivő nem mozgathat kártyát.',
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
+      small_cards_not_step: 'A kis kártyák szabálya csak lépés fajtájú lépésen állhat.',
+      small_cards_unknown_owner: 'A kis kártyák gazdája nem tagja a projektnek.',
+      small_cards_invalid_path:
+        'Hibás útvonalminta: nem lehet üres, ‹/›-rel kezdődő, ‹.› vagy ‹..› szegmenses, és legfeljebb 200 karakter.',
       review_test_runner_github:
         'A GitHub Actions futtatóhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
       compute_jobs_github: 'A gépi feladatokhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',

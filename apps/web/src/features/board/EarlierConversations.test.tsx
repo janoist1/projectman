@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router';
 import { isCardMessage, Task } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { openStory } from '../../test/cardStory';
 import { showOnScreen } from '../../test/intersection';
@@ -284,5 +285,69 @@ describe('the links into the earlier conversations (PM-1290)', () => {
     await openStory(screen, true);
     const links = await screen.findAllByRole('link', { name: t('timeline.fullMessage') });
     expect(links.some((link) => link.getAttribute('href')?.includes('message=msg_system'))).toBe(true);
+  });
+});
+
+describe('the failures of the earlier conversations (PM-1358)', () => {
+  const failure = (status: number, code: string) =>
+    new Response(JSON.stringify({ error: { code, message: 'x' } }), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  /** The messages of the card fail to load until `heal` is called. */
+  function failingLoad(project: ReturnType<typeof mockProject>) {
+    const answer = createMockFetch(project.backend, project.requests);
+    let failing = true;
+    setFetchImplementation(async (input, init) =>
+      failing && String(input).includes('place=card') ? failure(500, 'internal_error') : answer(input, init),
+    );
+    return () => {
+      failing = false;
+    };
+  }
+  /** Waits for the error state, lets the load work again and presses Retry. */
+  const retry = async (heal: () => void) => {
+    const alert = (await screen.findByText(t('task.earlier.loadFailed'))).closest<HTMLElement>(
+      '[role="alert"]',
+    )!;
+    heal();
+    fireEvent.click(within(alert).getByRole('button', { name: t('app.retry') }));
+  };
+
+  it('shows an error state with a retry instead of dropping the block, and moves the focus to the toggle after it', async () => {
+    const project = mockProject();
+    const heal = failingLoad(project);
+    project.render(card, '/p/AC/tasks/AC-21/steps');
+    await retry(heal);
+    const button = await toggle(cardMessages(project, 'AC-21').length);
+    expect(screen.queryByText(t('task.earlier.loadFailed'))).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(button));
+  });
+
+  it('leads to the linked message after a retry fixed a failed load', async () => {
+    const project = mockProject();
+    const heal = failingLoad(project);
+    project.render(card, '/p/AC/tasks/AC-21/steps?message=msg_04');
+    await retry(heal);
+    await waitFor(() => expect(row('msg_04')?.hasAttribute('data-flash')).toBe(true));
+  });
+
+  it('shows a toast when the automatic marking as read fails, with the server message of the code', async () => {
+    const project = mockProject();
+    const unread = project.backend.messages.find((message) => message.id === 'msg_04')!;
+    unread.to = [project.backend.viewerHandle];
+    unread.receipts = [
+      { handle: project.backend.viewerHandle, kind: 'human', deliveredAt: unread.createdAt, readAt: null },
+    ];
+    const answer = createMockFetch(project.backend, project.requests);
+    setFetchImplementation(async (input, init) =>
+      String(input).endsWith('/messages/read') ? failure(403, 'not_a_recipient') : answer(input, init),
+    );
+    project.render(<ToastProvider>{card}</ToastProvider>, '/p/AC/tasks/AC-21/steps?message=msg_04');
+    await toggle(cardMessages(project, 'AC-21').length);
+    await waitFor(() => expect(row('msg_04')).not.toBeNull());
+    showOnScreen(within(row('msg_04')!).getByText(t('messages.thread.unread')));
+    expect(await screen.findByText(t('errors.codes.not_a_recipient'), {}, { timeout: 3000 })).toBeTruthy();
   });
 });

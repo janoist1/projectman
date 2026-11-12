@@ -924,6 +924,47 @@ describe('compute_jobs_github (PM-1148)', () => {
   });
 });
 
+describe('small-card rule (PM-1378)', () => {
+  const rule = (extra: Record<string, unknown> = {}) => ({
+    maxPoints: 3,
+    owners: ['ann'],
+    centralPaths: ['apps/server/src/db/**'],
+    ...extra,
+  });
+  const withRule = (kind: string, smallCards: unknown) => (input: ProjectConfigInput) =>
+    insertStage(input, { id: 'gated', kind, smallCards });
+
+  it('accepts a valid rule on a step stage and none at all', () => {
+    for (const code of ['small_cards_not_step', 'small_cards_unknown_owner', 'small_cards_invalid_path'])
+      expect(issuesOf(code, withRule('step', rule()))).toEqual([]);
+    expect(errors(withRule('step', undefined))).toEqual([]);
+  });
+
+  it('refuses the rule on a stage that is not a step', () => {
+    expect(issuesOf('small_cards_not_step', withRule('release', rule()))).toEqual([
+      { code: 'small_cards_not_step', path: 'pipeline.stages[1].smallCards', detail: 'gated' },
+    ]);
+  });
+
+  it('names a small owner who is not a member', () => {
+    expect(issuesOf('small_cards_unknown_owner', withRule('step', rule({ owners: ['ghost'] })))).toEqual([
+      { code: 'small_cards_unknown_owner', path: 'pipeline.stages[1].smallCards.owners[0]', detail: 'ghost' },
+    ]);
+  });
+
+  it('names a central path that is not a valid pattern', () => {
+    expect(
+      issuesOf('small_cards_invalid_path', withRule('step', rule({ centralPaths: ['ok/**', '../x'] }))),
+    ).toEqual([
+      {
+        code: 'small_cards_invalid_path',
+        path: 'pipeline.stages[1].smallCards.centralPaths[1]',
+        detail: '../x',
+      },
+    ]);
+  });
+});
+
 describe('errors a stored configuration may keep', () => {
   it('tolerates the rules added after configurations were written, and nothing else', () => {
     const tolerated = [

@@ -6,6 +6,7 @@ import { useTaskMessages } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
+import { ErrorState, LoadingState } from '../../components/States';
 import { formatStamp, formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { splitQuestion } from '../../lib/inbox';
@@ -195,6 +196,7 @@ export function EarlierConversations({
   const panel = useId();
   const box = useRef<HTMLUListElement>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const loaded = query.data !== undefined;
 
   // The old link: the block opens, the message is scrolled to the middle and framed for a moment.
   const reached = useRef<string | null>(null);
@@ -219,14 +221,42 @@ export function EarlierConversations({
       clearTimeout(timer);
       setFlash(null);
     };
-  }, [active, messageParam]);
+    // Starts again when the messages arrive: a failed load that a retry fixed still leads to the message.
+  }, [active, messageParam, loaded]);
 
-  if (!query.data) return null;
+  // After a retry the Retry button is gone: the focus goes to the block's toggle once the list is there.
+  const toggle = useRef<HTMLButtonElement>(null);
+  const retried = useRef(false);
+  useEffect(() => {
+    if (!loaded || !retried.current) return;
+    retried.current = false;
+    toggle.current?.focus();
+  }, [loaded]);
+
+  if (!query.data) {
+    // A failed first load is shown, with a retry; a plain load only when a `?message=` link waits for it.
+    if (query.isError)
+      return query.isFetching ? (
+        <LoadingState compact />
+      ) : (
+        <ErrorState
+          compact
+          error={query.error}
+          message={t('task.earlier.loadFailed')}
+          onRetry={() => {
+            retried.current = true;
+            void query.refetch();
+          }}
+        />
+      );
+    return query.isPending && messageParam !== null ? <LoadingState compact /> : null;
+  }
   if (messages.length === 0)
     return access === 'client' ? <p className={styles.none}>{t('task.earlier.none')}</p> : null;
   return (
     <section className={styles.earlier} aria-label={t('task.earlier.title', { count: messages.length })}>
       <button
+        ref={toggle}
         type="button"
         className={styles.toggle}
         aria-expanded={open}

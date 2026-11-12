@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TeamMessage } from '@projectman/shared';
-import { isApiError } from '../../api/client';
 import { useReadTeamMessages } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
-import { codeMessage } from '../../lib/errors';
+import { failText } from '../../lib/errors';
 
 /** A message counts as read once its unread mark has been wholly on the screen this long without a break (L-03). */
 const READ_AFTER_MS = 1000;
@@ -102,8 +101,7 @@ export function useReadWhenVisible(
       .then((view) => latest.current.onRead?.(view.messages))
       .catch((error: unknown) => {
         for (const id of ids) s.requested.delete(id);
-        const known = isApiError(error) ? codeMessage(error.code) : null;
-        latest.current.toast.show(known ?? t('messages.readFailed'), 'error');
+        latest.current.toast.show(failText(error, t('messages.readFailed')), 'error');
       });
   }, []);
 

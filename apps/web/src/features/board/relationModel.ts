@@ -8,8 +8,8 @@ import {
 } from '@projectman/shared';
 import type {
   AddableRelationKind,
+  BoardCard,
   RelationsChange,
-  Task,
   TaskRelation,
   TaskRelationKind,
 } from '@projectman/shared';
@@ -35,7 +35,7 @@ export interface RelationGroup {
 }
 
 /** The card's relations from both directions, grouped by kind in the shared order; empty groups left out. */
-export function relationGroups(task: Task, tasks: readonly Task[]): RelationGroup[] {
+export function relationGroups(task: BoardCard, tasks: readonly BoardCard[]): RelationGroup[] {
   const groups: RelationGroup[] = [];
   for (const relation of taskRelations(task, tasks)) {
     const last = groups[groups.length - 1];
@@ -59,7 +59,11 @@ export function groupProgress(group: RelationGroup): { done: number; total: numb
  * What deleting a relation lets happen, as a sentence, or null: the card (or the other one) starts
  * waiting no more, leaves its collection, or stays closed. `tasks` are the cards as the viewer sees them.
  */
-export function removeConsequence(relation: TaskRelation, task: Task, tasks: readonly Task[]): string | null {
+export function removeConsequence(
+  relation: TaskRelation,
+  task: BoardCard,
+  tasks: readonly BoardCard[],
+): string | null {
   const other = tasks.find((card) => card.key === relation.key);
   switch (relation.kind) {
     case 'part_of':
@@ -122,16 +126,16 @@ export function whyText(why: CandidateWhy): string {
 }
 
 export interface Candidate {
-  card: Task;
+  card: BoardCard;
   why: CandidateWhy | null;
 }
 
 /** Why `kind` from `task` to `card` would be refused, with the shared rules (the server's too). */
 export function candidateRefusal(
   kind: AddableRelationKind,
-  task: Task,
-  card: Task,
-  tasks: readonly Task[],
+  task: BoardCard,
+  card: BoardCard,
+  tasks: readonly BoardCard[],
 ): CandidateWhy | null {
   if (kind === 'part_of' && task.parentKey === card.key) return { type: 'sameParent' };
   if (kind === 'prerequisite' || kind === 'duplicate_of') {
@@ -162,8 +166,8 @@ export const CANDIDATE_LIMIT = 8;
  */
 export function candidates(
   kind: AddableRelationKind,
-  task: Task,
-  tasks: readonly Task[],
+  task: BoardCard,
+  tasks: readonly BoardCard[],
   query: string,
 ): { rows: Candidate[]; total: number } {
   const needle = searchText(query.trim());
@@ -180,7 +184,7 @@ export function candidates(
 }
 
 /** The `relations` of the request that adds `kind` to `key` (a card that is part of another is moved). */
-export function addRelationChange(kind: AddableRelationKind, key: string, task: Task): RelationsChange {
+export function addRelationChange(kind: AddableRelationKind, key: string, task: BoardCard): RelationsChange {
   return {
     ...(kind === 'part_of' && task.parentKey
       ? { remove: [{ kind: 'part_of' as const, key: task.parentKey }] }

@@ -5,7 +5,7 @@ import type { Actor } from './event';
 import { ITEM_STATES } from './item-state';
 import { MemberHandle } from './member';
 import { isOpenTask, isTheme, TaskKey } from './task';
-import type { Task } from './task';
+import type { BoardCard, Task } from './task';
 
 /**
  * Acceptance items: the conditions of a card as items. The assignee (or a person) marks each one with its
@@ -115,7 +115,7 @@ function workStarted(config: ProjectConfig, task: Pick<Task, 'stageId'>): boolea
  */
 export function acceptanceRefusal(input: {
   config: ProjectConfig;
-  task: Task;
+  task: BoardCard;
   item: AcceptanceItem | undefined;
   count: number;
   change: AcceptanceChange;
@@ -156,6 +156,6 @@ export function acceptanceRefusal(input: {
 }
 
 /** Whether the AI actor owns the card's current step: it sets one of the labels the next gate asks. */
-function canConfirm(config: ProjectConfig, task: Task, actor: Pick<Actor, 'kind' | 'handle'>): boolean {
+function canConfirm(config: ProjectConfig, task: BoardCard, actor: Pick<Actor, 'kind' | 'handle'>): boolean {
   return actor.handle !== null && stepResult(config, task, actor.handle) !== null;
 }

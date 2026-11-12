@@ -1,5 +1,5 @@
 import { openPrerequisites } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
@@ -7,7 +7,7 @@ import { joinNames, t } from '../../i18n/t';
 import styles from './PrerequisiteWarning.module.css';
 
 /** The keys of the card's prerequisites that are not closed, as far as `tasks` shows them. */
-export function openPrerequisiteKeys(task: Task, tasks: readonly Task[]): string[] {
+export function openPrerequisiteKeys(task: BoardCard, tasks: readonly BoardCard[]): string[] {
   return openPrerequisites(task, tasks).map((card) => card.key);
 }
 
@@ -35,7 +35,7 @@ export function PrerequisiteWarning({
   keys: string[] | null;
   /** A group move (PM-121): one warning for the whole group, a row per card that would wait. */
   rows?: readonly { key: string; prerequisites: readonly string[] }[];
-  tasks: readonly Task[];
+  tasks: readonly BoardCard[];
   loading?: boolean;
   onConfirm: () => void;
   /** A move only: the card moves and waits for its prerequisites instead of starting. */

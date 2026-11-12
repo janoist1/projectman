@@ -81,6 +81,14 @@ signal names `check_infra` for the project manager. No card is blamed or split f
 Other operational errors still block with `check_error`; failed checks retain the existing
 failure/send-back path. Terminal states and non-infrastructure results clear retry state;
 an explicit retry of a blocked or failed merge starts a new series.
+An unreachable remote (the fetch fails: `MergeError` `remote_unreachable`) before anything landed is
+requeued the same way (`retry.cause = remote_unreachable`, same delays, M-02) instead of blocking; unlike
+a check retry, such a row holds its repository's queue (the pump starts no other row of it), and the
+last attempt's failure blocks as `remote_unreachable`. Every failed fetch counts (a permanent one, such
+as bad credentials or a missing ref, too), so it holds the queue for the whole series (5 + 15 + 30 minutes)
+before it blocks. The first successful prepare, in the train reservation or in the individual program,
+clears the retry and frees the queue. A holder with an open prerequisite also keeps the repository's other
+rows waiting.
 The slot finalizer blocks any individual merge still marked `running`, including when an
 interruption discarded a rejection from its error handler (PM-1210). Normal cancellation and
 shutdown requeueing are retained. If `merge_task` finds a `running` row with neither its slot

@@ -2013,6 +2013,8 @@ export const hu = {
       duplicate_repo: 'Ugyanaz a repó kétszer szerepel.',
       invalid_config: 'A beállítás érvénytelen.',
       config_invalid: 'A beállítás érvénytelen.',
+      config_version_outdated:
+        'Ez a változat a beállítások egy régebbi formátumában készült, ezért nem állítható vissza.',
       config_conflict: 'A beállítások közben megváltoztak.',
       stage_in_use: 'A lépésben még vannak kártyák. Előbb helyezd át őket egy másik lépésbe.',
       already_set_up: 'A tulajdonosi fiók már létezik.',

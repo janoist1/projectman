@@ -88,6 +88,7 @@ export const ERROR_CODES = [
   'unknown_version',
   'invalid_config',
   'config_invalid',
+  'config_version_outdated',
   'config_conflict',
   'duplicate_repo',
   'stage_in_use',

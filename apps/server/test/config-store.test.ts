@@ -446,7 +446,7 @@ describe('ConfigStore (customization repository)', () => {
     const current = await store.save('AR', testConfig(), { author, message: 'Rewrite configuration' });
     const before = readFileSync(pipelineYaml, 'utf8');
 
-    await expectConfigError(store.revertTo('AR', legacy, { author }), 'invalid_config');
+    await expectConfigError(store.revertTo('AR', legacy, { author }), 'config_version_outdated');
     expect((await store.load('AR')).version).toBe(current.version);
     expect(readFileSync(pipelineYaml, 'utf8')).toBe(before);
     expect(await store.loadVersion('AR', created.version)).toEqual(testConfig());
@@ -496,6 +496,28 @@ describe('ConfigStore: configurations that predate a rule', () => {
     (err.details as { issues: Array<{ code: string; severity?: string }> }).issues
       .filter((issue) => issue.severity !== 'warning')
       .map((issue) => issue.code);
+
+  it.each(['layout', 'schema'] as const)(
+    'refuses to restore a version whose %s parsing drops a retired key',
+    async (boundary) => {
+      await store.save('AR', testConfig(), { author, message: 'Create' });
+      handEdit('team.yaml', (document) => {
+        if (boundary === 'layout') document.operatorApprovalWaiver = true;
+        else document.members[1].senior = true;
+      });
+      const retired = commitHandEdits('Retired configuration key');
+      // Working-tree loads stay tolerant and do not rewrite the stored file.
+      expect((await store.load('AR')).config).toEqual(testConfig());
+      const current = await store.save('AR', testConfig(), { author, message: 'Rewrite configuration' });
+      const path = join(store.rootDir, 'projects/AR/team.yaml');
+      const before = readFileSync(path, 'utf8');
+
+      await expectConfigError(store.loadVersion('AR', retired), 'config_version_outdated');
+      await expectConfigError(store.revertTo('AR', retired, { author }), 'config_version_outdated');
+      expect((await store.load('AR')).version).toBe(current.version);
+      expect(readFileSync(path, 'utf8')).toBe(before);
+    },
+  );
 
   it('loads duplicates, allows preserving them with previous, and keeps strict saves and restores', async () => {
     await store.save('AR', testConfig(), { author, message: 'Create' });

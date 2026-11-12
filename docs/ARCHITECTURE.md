@@ -563,6 +563,8 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   pipeline, labels, limits) is YAML in a separate git repository. Every change is a commit
   with author and reason; admins can revert to versions that validate against the current
   schema and invariants. Retired shapes are no longer converted on load (PM-1383).
+  Restoring a version that cannot be parsed or loses stored keys during parsing is refused
+  with `config_version_outdated`; current invariant violations retain their usual errors.
 
 ### Code names
 

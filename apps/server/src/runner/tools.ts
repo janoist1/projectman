@@ -50,7 +50,24 @@ export function patchSummary(patch: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
-/** "mcp__team__send_message" -> "team: send_message". */
+/** Every file an apply_patch touches: its Add, Update and Delete File lines and the Move to lines. */
+export function patchPaths(patch: string): string[] {
+  const found: string[] = [];
+  for (const m of patch.matchAll(/^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+)$/gm)) {
+    const file = m[1]!.trim();
+    if (file) found.push(file);
+  }
+  return found;
+}
+
+/** The patch text of an apply_patch input (a bare string, or the `command`, `input` or `patch` field). */
+export function applyPatchText(input: unknown): string | null {
+  if (typeof input === 'string') return input;
+  const record = asRecord(input);
+  return str(record.command) ?? str(record.input) ?? str(record.patch);
+}
+
+/** "mcp__team__send_message" ->"team: send_message". */
 function mcpName(name: string): string | null {
   const m = /^mcp__(.+?)__(.+)$/.exec(name);
   return m ? `${m[1]}: ${m[2]}` : null;

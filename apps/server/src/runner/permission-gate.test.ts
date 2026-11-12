@@ -234,6 +234,51 @@ describe('PermissionGate', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(requests).toHaveLength(2);
     });
+
+    describe('apply_patch', () => {
+      const patchOf = (...lines: string[]): HookPayload => ({
+        hook_event_name: 'PermissionRequest',
+        tool_name: 'apply_patch',
+        tool_input: { command: ['*** Begin Patch', ...lines, '*** End Patch'].join('\n') },
+        cwd: '/work/repo',
+      });
+
+      async function allowPatch(first: HookPayload) {
+        const harness = setup({ remembersSessionAllows: true });
+        const answer = harness.gate.request(first, 'patch', new AbortController().signal);
+        await vi.advanceTimersByTimeAsync(0);
+        harness.requests[0]!.resolve({ behavior: 'allow', rememberForSession: true });
+        await answer;
+        return harness;
+      }
+
+      it('stays valid for a patch of the same folders only', async () => {
+        const { gate, requests } = await allowPatch(
+          patchOf('*** Update File: src/a.ts', '*** Add File: src/b.ts'),
+        );
+        await expect(
+          gate.request(patchOf('*** Update File: src/c.ts'), 'patch', new AbortController().signal),
+        ).resolves.toEqual({ answer: { behavior: 'allow' } });
+        expect(requests).toHaveLength(1);
+        // Another folder, a file moved elsewhere, or one more folder in the patch is asked again.
+        for (const other of [
+          patchOf('*** Update File: other/a.ts'),
+          patchOf('*** Update File: src/a.ts', '*** Move to: elsewhere/a.ts'),
+          patchOf('*** Update File: src/a.ts', '*** Delete File: other/old.ts'),
+        ]) {
+          void gate.request(other, 'patch', new AbortController().signal);
+          await vi.advanceTimersByTimeAsync(0);
+        }
+        expect(requests).toHaveLength(4);
+      });
+
+      it('is not remembered when the patch names no file', async () => {
+        const { gate, requests } = await allowPatch(patchOf('garbage'));
+        void gate.request(patchOf('garbage'), 'patch', new AbortController().signal);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(requests).toHaveLength(2);
+      });
+    });
   });
 
   it('leaves remembering to the CLI when it can', async () => {

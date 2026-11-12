@@ -40,6 +40,16 @@ describe('sessionAllowScope', () => {
     expect(scope({ tool_name: 'Grep', tool_input: { pattern: 'x' } })?.directories).toEqual(['/w/repo']);
   });
 
+  it('lists the folders of every file an apply_patch touches, moves included', () => {
+    const patch =
+      '*** Begin Patch\n*** Update File: src/a.ts\n*** Move to: lib/a.ts\n*** Delete File: /abs/x.ts\n*** End Patch';
+    const scope = (tool_input: unknown) =>
+      sessionAllowScope(payload({ cwd: '/w/repo', tool_name: 'apply_patch', tool_input }));
+    expect(scope({ command: patch })?.directories).toEqual(['/abs', '/w/repo/lib', '/w/repo/src']);
+    expect(scope(patch)?.directories).toEqual(['/abs', '/w/repo/lib', '/w/repo/src']);
+    expect(scope({ command: 'no files here' })).toBeNull();
+  });
+
   it('remembers nothing without a tool or for a Bash call without a command', () => {
     expect(sessionAllowScope(payload({}))).toBeNull();
     expect(sessionAllowScope(payload({ tool_name: 'Bash' }))).toBeNull();

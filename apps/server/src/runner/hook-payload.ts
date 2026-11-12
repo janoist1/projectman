@@ -1,6 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import { claudeFileToolPaths } from './tool-decision';
+import { applyPatchText, patchPaths } from './tools';
 
 /**
  * Hook payloads as the runner handles them (the JSON body of an HTTP hook, or stdin of a
@@ -61,9 +62,15 @@ const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'Notebook
 /** The folders a path tool call works in, or null for a tool without a path (see sessionAllowScope). */
 function toolDirectories(payload: HookPayload, toolName: string): string[] | null {
   const input = payload.tool_input;
+  const cwd = payload.cwd ?? '';
+  if (toolName === 'apply_patch') {
+    // Codex edits with a patch: every file it touches counts, and one that names none is not remembered.
+    const patch = applyPatchText(input);
+    const files = patch ? patchPaths(patch) : [];
+    return [...new Set(files.map((file) => dirname(resolve(cwd || '.', file))))].sort();
+  }
   const found = toolName === 'LS' ? lsPaths(input) : claudeFileToolPaths(toolName, input)?.paths;
   if (!found) return null;
-  const cwd = payload.cwd ?? '';
   // A call without a path works in the working directory.
   const paths = found.length > 0 ? found : [cwd || '.'];
   const folders = paths.map((path) => {
@@ -80,15 +87,16 @@ function lsPaths(input: unknown): string[] {
 
 /**
  * What an "allow for this session" covers when nothing more specific is known: the same Bash
- * command again, the same tool in the same folder for a path tool (Read, Edit, Grep and the
- * like), or the tool itself for any other tool. Null when there is nothing to remember: no
- * tool, or a Bash call without a command.
+ * command again, the same tool in the same folders for a path tool (Read, Edit, Grep, Codex's
+ * apply_patch and the like), or the tool itself for any other tool. Null when there is nothing
+ * to remember: no tool, a Bash call without a command, or an apply_patch naming no file.
  */
 export function sessionAllowScope(payload: HookPayload): SessionAllowScope | null {
   const toolName = payload.tool_name;
   if (!toolName) return null;
   if (toolName !== 'Bash') {
     const directories = toolDirectories(payload, toolName);
+    if (directories?.length === 0) return null;
     return directories ? { toolName, directories } : { toolName };
   }
   const input = payload.tool_input;

@@ -2634,6 +2634,9 @@ export const en = {
         lifecycleNone: 'It can’t assign, cancel or reopen on its own.',
         override: 'It can start a card even with an open prerequisite.',
         noOverride: 'It can’t start a card with an open prerequisite.',
+        involve:
+          'It can bring a member without a role in on a card, with a reason; this gives the member no right to approve.',
+        noInvolve: 'It can’t bring a member in on a card; a person can, with a message.',
         actions: {
           assign: 'assign or change the assignee',
           cancel: 'cancel a card',
@@ -7794,6 +7797,21 @@ export const en = {
         value: {
           people: 'Only a person',
           people_and_project_manager: 'A person and the project manager, with an explicit flag',
+        },
+      },
+      /** Who may bring a member in on a card (PM-1267). */
+      memberInvolvement: {
+        title: 'Bringing a member in on a card',
+        help: 'A person can always bring anyone in on a card: their message starts the member. An AI member’s message only starts members who have a role on the card. A member brought in gets no right to approve.',
+        question: 'Who else can bring a member in?',
+        project_manager: 'Project manager, with a reason',
+        covers: 'Member concerned: {names}',
+        noProjectManager: 'There is no project manager in the team now.',
+        humansOnly: 'Now only a person can bring a member in on a card.',
+        readOnlyLabel: 'Who can bring a member in on a card?',
+        value: {
+          people: 'Only a person',
+          people_and_project_manager: 'A person and the project manager, with a reason',
         },
       },
       /** Who besides people may set a card’s priority (PM-1096). */

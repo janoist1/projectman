@@ -37,6 +37,7 @@ export function issueTarget(path: string, config: ProjectConfig): IssueTarget | 
   if (starts('team.taskCreateAccess')) return { section: 'team', field: 'taskCreateAccess' };
   if (starts('team.projectManagerAuthority')) return { section: 'team', field: 'projectManagerAuthority' };
   if (starts('team.prerequisiteOverride')) return { section: 'team', field: 'prerequisiteOverride' };
+  if (starts('team.memberInvolvement')) return { section: 'team', field: 'memberInvolvement' };
   if (starts('team.prioritySetters')) return { section: 'team', field: 'prioritySetters' };
   if (starts('team.projectManagerLifecycle')) return { section: 'team', field: 'projectManagerLifecycle' };
   if (starts('team.complexitySetters')) return { section: 'team', field: 'complexitySetters' };

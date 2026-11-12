@@ -1,5 +1,6 @@
 import {
   complexitySettersOf,
+  memberInvolvementOf,
   PrioritySetter,
   prioritySettersOf,
   projectManagerAuthorityOf,
@@ -53,6 +54,8 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.prerequisiteOverride !== saved.team.prerequisiteOverride
       ? draft.team.prerequisiteOverride
       : undefined;
+  const memberInvolvement =
+    memberInvolvementOf(draft) !== memberInvolvementOf(saved) ? memberInvolvementOf(draft) : undefined;
   // The project manager's authority goes only when it differs from the saved value (PM-1284); owner-only on the server.
   const projectManagerAuthority =
     projectManagerAuthorityOf(draft) !== projectManagerAuthorityOf(saved)
@@ -95,6 +98,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     ...(projectManagerMoves ? { projectManagerMoves } : {}),
     ...(lifecycleChanged ? { projectManagerLifecycle } : {}),
     ...(prerequisiteOverride ? { prerequisiteOverride } : {}),
+    ...(memberInvolvement ? { memberInvolvement } : {}),
     ...(projectManagerAuthority ? { projectManagerAuthority } : {}),
     ...(prioritySettersChanged ? { prioritySetters } : {}),
     ...(complexityChanged ? { complexitySetters: [...complexitySetters] } : {}),

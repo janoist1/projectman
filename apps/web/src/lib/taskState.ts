@@ -96,6 +96,8 @@ export interface TaskStateContext {
   /** Open inbox items by task key (any assignee). */
   openInboxByTask: ReadonlyMap<string, InboxItem[]>;
   tasksByKey: ReadonlyMap<string, Task>;
+  /** Direct sub-cards indexed once for the board's state derivation. */
+  subtasksByParent: ReadonlyMap<string, readonly Task[]>;
   myHandle: string | null;
   /** Label definitions; a blocking label on a task makes it wait under the label's name. */
   labels?: readonly LabelView[];
@@ -110,6 +112,17 @@ export interface TaskStateContext {
 /** Done and cancelled tasks are closed: they no longer move or start. */
 export function isTaskClosed(task: Pick<Task, 'status'>): boolean {
   return task.status === 'done' || task.status === 'cancelled';
+}
+
+export function groupSubtasksByParent(tasks: readonly Task[]): Map<string, Task[]> {
+  const byParent = new Map<string, Task[]>();
+  for (const task of tasks) {
+    if (!task.parentKey) continue;
+    const children = byParent.get(task.parentKey) ?? [];
+    children.push(task);
+    byParent.set(task.parentKey, children);
+  }
+  return byParent;
 }
 
 export function groupOpenInboxByTask(items: readonly InboxItem[] | undefined): Map<string, InboxItem[]> {
@@ -501,7 +514,7 @@ function deriveOpenState(
   const workers = findWorkers(task, ctx);
   const wait = taskWait({
     task,
-    subtasks: [...ctx.tasksByKey.values()],
+    subtasks: ctx.subtasksByParent.get(task.key) ?? [],
     // Where the configuration is not known (a client, or it still loads) the team and the stages are
     // sketched from what the board has, and the start rule and the gates are not asked (PM-460).
     config: ctx.config ?? sketchConfig(ctx),

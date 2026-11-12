@@ -4,7 +4,7 @@ import type { RankedCard, Task } from '@projectman/shared';
 import { useBoard, useConfig, useEngineStatus, useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import type { MemberIndex } from '../../lib/members';
-import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
+import { deriveTaskState, groupOpenInboxByTask, groupSubtasksByParent } from '../../lib/taskState';
 import type { TaskState, TaskStateContext } from '../../lib/taskState';
 import { engineNameMap } from '../engines/engineView';
 import { pausedSessionMap } from '../pause/pauseView';
@@ -76,24 +76,19 @@ export function useBoardModel() {
 
   const model = useMemo(() => {
     if (!tasks || !pipeline) return null;
+    const subtasksByParent = groupSubtasksByParent(tasks);
     const ctx: TaskStateContext = {
       pipeline,
       members,
       openInboxByTask: groupOpenInboxByTask(items),
       tasksByKey: new Map(tasks.map((task) => [task.key, task])),
+      subtasksByParent,
       myHandle,
       labels,
       pausedSessions: pausedSessionMap(pause),
       config,
       engineNames,
     };
-    const subtasksByParent = new Map<string, Task[]>();
-    for (const task of tasks) {
-      if (!task.parentKey) continue;
-      const children = subtasksByParent.get(task.parentKey) ?? [];
-      children.push(task);
-      subtasksByParent.set(task.parentKey, children);
-    }
     // A theme is no card of the pipeline: it has no state and stays out of the columns and the lists.
     const entries: BoardEntry[] = tasks
       .filter((task) => !isTheme(task))

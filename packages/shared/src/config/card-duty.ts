@@ -53,8 +53,6 @@ export interface CardDutyInput {
   config: Pick<ProjectConfig, 'team' | 'pipeline'>;
   /** The card's open inbox items, any assignee. */
   openItems: readonly InboxItem[];
-  /** @deprecated The shared TaskWait now identifies collecting cards from its sub-cards. */
-  openParts?: number;
 }
 
 type DutyConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
@@ -152,6 +150,7 @@ export function cardDuty({ task, wait, config, openItems }: CardDutyInput): Card
 
   switch (reason) {
     case 'collecting':
+      if (stageAdvance(task, config)?.kind === 'move') return classified({ kind: 'system', step: 'advance' });
       return hold('parts');
     case 'working':
     case 'handing_off':

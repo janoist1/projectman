@@ -273,6 +273,8 @@ export function formatTeamMessageBatch(
         return 'the card is closed';
       case 'stage_moved':
         return `the card has moved to ${item.staleDetail ?? 'another stage'}`;
+      case 'owner_escalated':
+        return 'the card now requires the main stage owners';
       case 'superseded':
         return `${item.from} sent a newer request`;
       case 'sender_result':

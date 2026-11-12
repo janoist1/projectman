@@ -4,6 +4,8 @@ export interface StaleFacts {
   fromHuman: boolean;
   card: { open: boolean; stageId: string } | null;
   recipientOwnsStage: boolean;
+  /** The current main-owner pick excludes this small-only owner (never the card's assignee). */
+  recipientOwnerEscalated: boolean;
   superseded: boolean;
   senderResultLabel: string | null;
   resultCommits: readonly string[];
@@ -21,6 +23,7 @@ export function messageStaleReason(
   if (facts.card && !facts.card.open) return 'card_closed';
   if (facts.card && facts.card.stageId !== message.version.stageId && !facts.recipientOwnsStage)
     return 'stage_moved';
+  if (facts.recipientOwnerEscalated) return 'owner_escalated';
   if (facts.superseded) return 'superseded';
   if (facts.senderResultLabel !== null) return 'sender_result';
   if (message.version.commit && facts.resultCommits.includes(message.version.commit))

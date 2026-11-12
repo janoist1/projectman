@@ -68,6 +68,7 @@ export type MessageSubject = z.infer<typeof MessageSubject>;
 export const StaleReason = z.enum([
   'card_closed',
   'stage_moved',
+  'owner_escalated',
   'superseded',
   'sender_result',
   'result_recorded',

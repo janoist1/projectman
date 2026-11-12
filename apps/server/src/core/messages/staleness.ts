@@ -10,6 +10,7 @@ import {
   permissionDelegationState,
   stageOf,
   cardStageOwners,
+  stageOwners,
 } from '@projectman/shared';
 import type {
   InboxItem,
@@ -69,6 +70,15 @@ export function staleReasonFor(
     recipientOwnsStage:
       task?.assignee === recipient ||
       !!(task && stage && cardStageOwners(config, stage, task).includes(recipient)),
+    recipientOwnerEscalated: !!(
+      task &&
+      stage &&
+      task.stageOwnerPick?.stageId === stage.id &&
+      !task.stageOwnerPick.small &&
+      stage.smallCards?.owners.includes(recipient) &&
+      !stageOwners(config, stage).includes(recipient) &&
+      task.assignee !== recipient
+    ),
     superseded: ctx.repos.messages.hasNewerAction(message, recipient),
     senderResultLabel: senderResultLabelFor(ctx, config, message, recipient, roundEvents),
     resultCommits: results

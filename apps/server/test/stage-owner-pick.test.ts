@@ -192,7 +192,7 @@ describe('the owners a small card has in a review step (smallCards)', () => {
         'AR',
         'dev-1',
         { to: ['dev-2'], text: 'Fixes committed.', taskKey: 'AR-1' },
-        { kind: 'action' },
+        { kind: 'action', awaitWake: true },
       );
 
       expect(card().stageOwnerPick).toMatchObject({
@@ -213,6 +213,9 @@ describe('the owners a small card has in a review step (smallCards)', () => {
       ).toMatchObject({ kind: 'sent_back' });
       expect(round).not.toHaveBeenCalledWith('AR', 'AR-1', 'dev-2');
       await vi.waitFor(() => expect(h.runner.started.some((s) => s.member === 'cr')).toBe(true));
+      await flush();
+      expect(h.domain.sessions.findRunning('AR', 'dev-2', { type: 'task', taskKey: 'AR-1' })).toBeNull();
+      expect(h.runner.started.filter((s) => s.member === 'dev-2')).toHaveLength(1);
     },
   );
 

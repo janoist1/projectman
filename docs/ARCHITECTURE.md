@@ -142,6 +142,11 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   `task_owner_escalated` event. `StageHandOver` stops the former small owners' sessions and hands
   the same stage to its main owners; messaging rereads the card before requesting review rounds.
   Repinning never narrows a main-owner pick.
+  A versioned action to a small-only owner excluded by the current main-owner pick is stale
+  (`owner_escalated`, `messageStaleReason`), including when the developer's send itself repins the
+  card. Delivery and later wake-ups share this check, so that message cannot restart the stopped
+  small owner. Human senders, information messages and messages without a version retain their
+  existing behavior; the recipient list and historical card roles stay intact.
 - **Labels** (decision 17, [design/labels.md](design/labels.md)) — the one way to state facts
   about a task. The pipeline defines each label once: name, colour, meaning (given to AI
   members), group (mutually exclusive states), who may set it, no self-review, comment

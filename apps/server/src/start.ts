@@ -101,7 +101,7 @@ import { createSesEmailSender, parseEmailChannelEnv, scrubEmailChannelEnv } from
 function loggerOptions(env: NodeJS.ProcessEnv, home: string, name: 'server' | 'engine') {
   return {
     ...(env.LOG_LEVEL === undefined ? {} : { level: env.LOG_LEVEL }),
-    stream: createServerLogStream(serverLogFile(home, name)),
+    stream: createServerLogStream(serverLogFile(home, name), { terminalOnly: name === 'engine' }),
   };
 }
 

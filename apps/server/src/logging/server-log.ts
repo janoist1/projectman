@@ -11,7 +11,7 @@ export function serverLogFile(home: string, name: 'server' | 'engine'): string {
 }
 
 /**
- * A stream for pino (Fastify's `logger.stream`): every line goes to an attached terminal and to
+ * A stream for pino (Fastify's `logger.stream`): every line goes to stdout and to
  * `file`, rotated at `maxBytes` with `keep` files (so at most about `keep * maxBytes` on disk). The
  * lines are pino's own JSON, with the same serializers (request URLs carry no tokens), so the file
  * holds nothing the terminal did not. A failing file write never stops logging to the terminal:
@@ -22,10 +22,13 @@ export function createServerLogStream(
   options: {
     maxBytes?: number;
     keep?: number;
+    /** The engine avoids duplicating its rotating log in launchd's unrotated stdout file. */
+    terminalOnly?: boolean;
     terminal?: { write(text: string): unknown; isTTY?: boolean };
   } = {},
 ): { write(text: string): void } {
   const terminal = options.terminal ?? process.stdout;
+  const copyToStdout = !options.terminalOnly || terminal.isTTY;
   const target = createRotatingFile(file, {
     maxBytes: options.maxBytes ?? SERVER_LOG_MAX_BYTES,
     keep: options.keep ?? SERVER_LOG_KEEP_FILES,
@@ -33,13 +36,13 @@ export function createServerLogStream(
   let reported = false;
   return {
     write(text) {
-      if (terminal.isTTY) terminal.write(text);
+      if (copyToStdout) terminal.write(text);
       try {
         target.append(text);
       } catch (error) {
         if (reported) return;
         reported = true;
-        (terminal.isTTY ? terminal : process.stderr).write(
+        (copyToStdout ? terminal : process.stderr).write(
           `${JSON.stringify({ level: 40, time: Date.now(), msg: `the log file ${file} cannot be written: ${String(error)}` })}\n`,
         );
       }

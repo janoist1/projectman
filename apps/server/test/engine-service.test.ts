@@ -168,6 +168,7 @@ describe('service install, uninstall and status', () => {
     writeFileSync(logOut, 'startup\n');
     const file = serverLogFile(options().home, 'engine');
     const stream = createServerLogStream(file, {
+      terminalOnly: true,
       maxBytes: 20,
       keep: 2,
       terminal: { write: (text) => appendFileSync(logOut, text) },

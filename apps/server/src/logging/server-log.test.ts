@@ -42,8 +42,17 @@ describe('server log file (PM-444)', () => {
 
   it('makes no terminal copy without a TTY', () => {
     const file = serverLogFile(dir, 'engine');
-    createServerLogStream(file, { terminal: { ...terminalStream, isTTY: false } }).write('line\n');
+    createServerLogStream(file, { terminalOnly: true, terminal: { ...terminalStream, isTTY: false } }).write(
+      'line\n',
+    );
     expect(terminal).toEqual([]);
+    expect(readFileSync(file, 'utf8')).toBe('line\n');
+  });
+
+  it('keeps server stdout logging without a TTY for container log collection', () => {
+    const file = serverLogFile(dir, 'server');
+    createServerLogStream(file, { terminal: { ...terminalStream, isTTY: false } }).write('line\n');
+    expect(terminal).toEqual(['line\n']);
     expect(readFileSync(file, 'utf8')).toBe('line\n');
   });
 

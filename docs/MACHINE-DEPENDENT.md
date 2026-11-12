@@ -1744,8 +1744,10 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `start.ts` (`loggerOptions`)
   (PM-444), exposed through `logging/index.ts` to `start.ts` and
-  `engine-link/engine-audit.ts` (PM-649). Since PM-1373, every process copies pino's JSON lines to stdout
-  only when it is a TTY, preventing launchd's unrotated stdout file from duplicating the rotating log.
+  `engine-link/engine-audit.ts` (PM-649). Since PM-1373, the engine copies pino's JSON lines to stdout
+  only when it is a TTY (`start.ts` passes `terminalOnly`), preventing launchd's unrotated stdout file
+  from duplicating the rotating log. The cloud and single-mode server always copy to stdout, including
+  without a TTY, so Docker/journald and `npm run cloud -- logs` keep collecting their logs.
   File-write failures are reported once to the terminal or stderr. Every process logs, since PM-444, to
   `<PROJECTMAN_HOME>/logs/server.log` (single mode and the cloud) or `logs/engine.log` (engine
   mode); the terminal's scrollback alone lost the older lines. The file is appended across starts,

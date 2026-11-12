@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import type { HandoverCheckRead, HandoverCheckRecord } from '@projectman/shared';
 import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -34,7 +35,7 @@ const green = (commit: string): HandoverCheckRecord => ({
 
 describe('the hand-over check gate', () => {
   let h: DomainHarness;
-  let read: ReturnType<typeof vi.spyOn<DomainHarness['domain']['sessions'], 'handoverCheck'>>;
+  let read: MockInstance;
 
   async function setup(opts: { withCheck?: boolean; record?: HandoverCheckRead } = {}) {
     h = await createDomainHarness({

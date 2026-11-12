@@ -6,6 +6,7 @@ import { Button } from '../../components/Button';
 import { ErrorState, LoadingState } from '../../components/States';
 import { formatStamp } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { isPageEscape } from '../../lib/hooks';
 import { authorLabel } from './authorLabel';
 import { changeMessage } from './changeMessage';
 import styles from './HistoryDrawer.module.css';
@@ -26,15 +27,17 @@ export function HistoryDrawer({ slug, currentVersion, viewingVersion, onView, on
   const { members } = useProjectIndexes(key);
   const history = useDocumentHistory(key, slug, true);
   const heading = useRef<HTMLHeadingElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   useEffect(() => {
     heading.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (isPageEscape(event)) closeRef.current();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
 
   const versions = history.data?.versions ?? [];
   return (

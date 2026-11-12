@@ -1677,6 +1677,7 @@ export function createDomain(opts: DomainOptions) {
         cardQuestions,
         taskWaits,
         closer: sessionCloser,
+        merges,
       }),
       attachments: new AttachmentTools({
         calls: toolCaller,
@@ -2288,8 +2289,6 @@ export function createDomain(opts: DomainOptions) {
   });
 
   let sweeps: RunningSweeps | undefined;
-  let stopMessageSweep: (() => void) | undefined;
-  let stopCommentSweep: (() => void) | undefined;
 
   /** What the engine's settings view counts (PM-315): its sessions and what waits for it. */
   const engineCounters = (id: EngineId): EngineCounters => ({
@@ -2439,10 +2438,6 @@ export function createDomain(opts: DomainOptions) {
         );
         return;
       }
-      // Uploads no message took within a day are deleted (now, and hourly).
-      stopMessageSweep = messageAttachments.startSweeping();
-      stopCommentSweep = attachments.startSweeping();
-      emailChannel.start();
       emailQueue?.start();
       githubSync.start();
       background.start();
@@ -2475,6 +2470,11 @@ export function createDomain(opts: DomainOptions) {
       );
       sweeps = startSweeps(
         [
+          // The modules' own periodic work (PM-1394): uploads no message took within a day, parked e-mails, the history index.
+          messageAttachments.unsentSweep(),
+          attachments.unsentSweep(),
+          emailChannel.pruneSweep,
+          history.sweep,
           // The owner's questions about super operations that lapsed unanswered are settled every minute.
           {
             name: 'super-handoffs',
@@ -2643,9 +2643,6 @@ export function createDomain(opts: DomainOptions) {
       unsubscribeEngines();
       unsubscribeSignalActivity();
       usage.stop();
-      stopMessageSweep?.();
-      stopCommentSweep?.();
-      emailChannel.stop();
       await emailQueue?.stop();
       const drained = schedules.stop();
       githubSync.stop();

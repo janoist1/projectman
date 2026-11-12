@@ -244,21 +244,24 @@ describe('Operator system signals', () => {
       now: () => now,
       adjust: (config) => {
         const pm = config.team.members.find((m) => m.handle === 'pm')!;
-        if (pm.kind === 'ai') pm.onLeave = false;
+        if (pm.kind === 'ai') {
+          pm.onLeave = false;
+          pm.provider = 'codex';
+        }
       },
     });
     Object.assign(h.runner, {
       providerStatus: async (provider: string) => ({
         provider,
-        loggedIn: false,
-        problem: 'logged_out',
+        loggedIn: provider !== 'claude',
+        problem: 'not_logged_in',
         method: null,
         checkedAt: now.toISOString(),
       }),
     });
     await h.domain.outages.check();
     await flush();
-    // The outage raises no inbox alert: only the project manager's signal (PM-1250).
+    // The outage affects Claude, while the project manager can still run on Codex.
     expect(h.domain.inbox.list('AR', { kind: 'alert' })).toEqual([]);
     const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'outage')!;
     expect(h.domain.outages.activeIds('AR')!.has(signal.subject!)).toBe(true);
@@ -273,8 +276,8 @@ describe('Operator system signals', () => {
     Object.assign(h.runner, {
       providerStatus: async (provider: string) => ({
         provider,
-        loggedIn: false,
-        problem: 'logged_out',
+        loggedIn: provider !== 'claude',
+        problem: 'not_logged_in',
         method: null,
         checkedAt: now.toISOString(),
       }),

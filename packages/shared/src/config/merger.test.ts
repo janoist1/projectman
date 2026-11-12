@@ -9,12 +9,14 @@ import {
   mergeTargetOf,
   moveMerge,
   requiresMerge,
+  reviewMergeSkip,
   reviewTestBeforeReview,
   reviewTestRunnerBeforeReview,
   unresolvedMerger,
 } from './merger';
 import { ProjectConfig } from './schema';
 import type { Merger } from './schema';
+import { TEAM_SETTING_POLICY } from './team-settings';
 
 const queue = { id: 'ready', name: 'Ready', kind: 'queue', columnId: 'all' } as const;
 const work = { id: 'dev', name: 'Dev', kind: 'work', owners: ['dev', 'dev-2'], columnId: 'all' } as const;
@@ -202,6 +204,32 @@ describe('cardMerger', () => {
     expect(member('owner')).toBe('owner');
     expect(member('vera')).toBeNull();
     expect(member('ghost')).toBeNull();
+  });
+});
+
+describe('reviewMergeSkip (PM-1379)', () => {
+  const set = (c: ProjectConfig, mergeAfterReview: boolean): ProjectConfig =>
+    applyConfigPatch(c, PatchConfigRequest.parse({ baseVersion: 'v1', mergeAfterReview }));
+  const on = (): ProjectConfig => set(config(), true);
+
+  it.each([
+    ['off by default', () => config(), 'cr', 'cr', 'off'],
+    ['off when turned off', () => set(on(), false), 'cr', 'cr', 'off'],
+    ['no reviewer', on, null, 'cr', 'no_reviewer'],
+    ['the reviewer is not the merger', on, 'cr-2', 'cr', 'not_merger'],
+    ['nobody merges', on, 'cr', null, 'not_merger'],
+    ['the reviewer is the merger', on, 'cr', 'cr', null],
+  ] as const)('%s', (_name, make, reviewer, merger, expected) => {
+    expect(reviewMergeSkip(make(), reviewer, merger)).toBe(expected);
+  });
+
+  it('is set by a patch that is not owner-only', () => {
+    expect(on().team.mergeAfterReview).toBe(true);
+    expect(TEAM_SETTING_POLICY.mergeAfterReview).toMatchObject({
+      ownerOnly: null,
+      default: false,
+      stored: true,
+    });
   });
 });
 

@@ -1,8 +1,10 @@
 import {
   alertPayloadOf,
+  coordinationMemberOf,
   DEFAULT_AGENT_PROVIDER,
   isOnLeave,
   LOCAL_ENGINE_ID,
+  TODO_DONE_OPTION,
   outageIdOf,
   OUTAGE_REFUSALS,
   ownerHandles,
@@ -15,6 +17,7 @@ import type {
   AiMemberConfig,
   CheckOutageResponse,
   EngineId,
+  InboxItem,
   ProviderOutageProblem,
   Task,
   WorkOutage,
@@ -93,12 +96,12 @@ export class WorkOutages {
   }
 
   /** Ticks are skipped while a previous round is queued or running. Targeted checks are serialized. */
-  async check(_opts?: { refresh?: boolean }): Promise<void> {
+  async check(opts?: { refresh?: boolean }): Promise<void> {
     if (this.checking || this.queued > 0 || this.stopped) return;
     this.checking = true;
     try {
       await this.enqueue(async () => {
-        await this.run();
+        await this.run(undefined, undefined, opts?.refresh ?? false);
       });
     } finally {
       this.checking = false;
@@ -161,6 +164,7 @@ export class WorkOutages {
               problem: providerOutageProblemOf(code, details)!,
             }
           : undefined,
+        false,
       );
     });
   }
@@ -313,13 +317,30 @@ export class WorkOutages {
       : { kind: 'provider', provider: outage.provider, engineId: outage.engine?.id ?? null };
   }
 
+  /** Both legacy owner alerts and the integrator todos retain their episode facts across restarts. */
+  private openAlerts(projectKey: string): Array<{ item: InboxItem; payload: WorkOutageAlert }> {
+    return this.deps.inbox.list(projectKey, { state: 'open' }).flatMap((item) => {
+      if (item.kind === 'alert') {
+        const payload = alertPayloadOf(item);
+        return payload?.alert === 'work_outage' ? [{ item, payload }] : [];
+      }
+      const parsed = WorkOutageAlert.safeParse(item.payload.workOutage);
+      return item.kind === 'question' && parsed.success ? [{ item, payload: parsed.data }] : [];
+    });
+  }
+
+  private updateAlert(item: InboxItem, payload: WorkOutageAlert): void {
+    this.deps.inbox.updateOpenPayload(
+      item.id,
+      item.kind === 'question' ? { ...item.payload, workOutage: payload } : payload,
+    );
+  }
+
   private adopt(): void {
     if (this.adopted) return;
     this.adopted = true;
     for (const { key } of this.deps.projects.summaries()) {
-      for (const item of this.deps.inbox.list(key, { state: 'open', kind: 'alert' })) {
-        const payload = alertPayloadOf(item);
-        if (payload?.alert !== 'work_outage') continue;
+      for (const { payload } of this.openAlerts(key)) {
         const previous = this.since.get(payload.outage.id);
         if (!previous || payload.outage.since < previous)
           this.since.set(payload.outage.id, payload.outage.since);
@@ -349,6 +370,7 @@ export class WorkOutages {
   private async run(
     target?: Target | AgentProvider,
     setup?: { key: string; problem: ProviderOutageProblem },
+    refresh = target !== undefined,
   ): Promise<boolean> {
     this.adopt();
     let targets = this.targets();
@@ -390,7 +412,9 @@ export class WorkOutages {
           this.failures.delete(key);
           old = undefined;
         }
-        const status = await this.status(entry);
+        // A routine tick reads the provider's cached state (no refresh): a new CLI version or a lost login shows
+        // as soon as the cached check expires.
+        const status = await this.status(entry, refresh);
         // The provider changed since the places stopped (a new CLI version, or the login is gone): they get one more try.
         if (old?.setup === 'start_failing' && status && this.providerChanged(old.outage, status))
           this.deps.startFailures.release({
@@ -451,13 +475,13 @@ export class WorkOutages {
     return ended || memberRecovered;
   }
 
-  private async status(entry: MemberTarget): Promise<ProviderStatus | null> {
+  private async status(entry: MemberTarget, refresh: boolean): Promise<ProviderStatus | null> {
     const target = entry.target;
     if (target.kind !== 'provider') return null;
     return waitForStatus(
       () =>
         this.deps.runner.providerStatus?.(target.provider, {
-          refresh: true,
+          refresh,
           member: entry.member.handle,
           ...(entry.target.engineId ? { engineId: entry.target.engineId } : {}),
         }) ?? Promise.resolve(null),
@@ -466,7 +490,8 @@ export class WorkOutages {
 
   /** Whether the provider's state changed since the outage (PM-1335): another CLI version, or the login is gone. */
   private providerChanged(outage: WorkOutage, status: ProviderStatus): boolean {
-    if (status.loggedIn === false) return true;
+    // A lost login is a change once: after it the outage reads as not logged in, and the stopped places wait.
+    if (status.loggedIn === false) return outage.kind === 'provider' && outage.problem === 'start_failing';
     return (
       outage.kind === 'provider' &&
       !!status.cliVersion &&
@@ -592,7 +617,8 @@ export class WorkOutages {
     let ended = false;
     const recoveredEngines = new Set<EngineId>();
     for (const { key } of this.deps.projects.summaries()) {
-      if (!this.deps.projects.cachedConfig(key)) continue;
+      const config = this.deps.projects.cachedConfig(key);
+      if (!config) continue;
       const groups = this.projectOutages.get(key) ?? new Map<string, WorkOutageAlert>();
       for (const payload of groups.values()) {
         payload.members.sort();
@@ -624,10 +650,7 @@ export class WorkOutages {
             for (const taskKey of this.deps.messageRouter.pendingTaskKeys(key, handle)) keys.add(taskKey);
         payload.tasks = [...keys].sort((a, b) => taskSeq(a) - taskSeq(b));
       }
-      const open = this.deps.inbox.list(key, { state: 'open', kind: 'alert' }).flatMap((item) => {
-        const payload = alertPayloadOf(item);
-        return payload?.alert === 'work_outage' ? [{ item, payload }] : [];
-      });
+      const open = this.openAlerts(key);
       const oldIds = new Set([
         ...this.toldFor(key),
         ...(previousProjects.get(key)?.keys() ?? []),
@@ -645,10 +668,14 @@ export class WorkOutages {
               old.members.includes(entry.member.handle) &&
               this.uses(entry, old.outage),
           );
-        for (const { item } of open.filter(({ payload }) => payload.outage.id === id)) {
+        for (const { item, payload } of open.filter(({ payload }) => payload.outage.id === id)) {
           if (used) {
-            this.deps.inbox.updateOpenPayload(item.id, { ...item.payload, checkedAt: isoNow(this.deps.ctx) });
-            this.deps.inbox.resolveByRule(item.id, 'seen', 'outage_ended');
+            this.updateAlert(item, { ...payload, checkedAt: isoNow(this.deps.ctx) });
+            this.deps.inbox.resolveByRule(
+              item.id,
+              item.kind === 'question' ? TODO_DONE_OPTION.id : 'seen',
+              'outage_ended',
+            );
           } else this.deps.inbox.cancel(item.id);
         }
         if (used && old.outage.kind === 'engine' && old.outage.engine)
@@ -670,11 +697,18 @@ export class WorkOutages {
         if (existing) {
           const { checkedAt: _, ...old } = existing.payload;
           const { checkedAt: __, ...current } = WorkOutageAlert.parse(payload);
-          if (JSON.stringify(old) !== JSON.stringify(current))
-            this.deps.inbox.updateOpenPayload(existing.item.id, payload);
+          if (JSON.stringify(old) !== JSON.stringify(current)) this.updateAlert(existing.item, payload);
         } else if (!this.toldFor(key).has(payload.outage.id)) {
-          // The route rule sends a new outage to the project manager as a signal; it opens no inbox item.
-          this.deps.inbox.raiseAlert({ projectKey: key, title: this.title(payload.outage), payload });
+          const pm = coordinationMemberOf(config);
+          const pmTarget = targets.find(
+            (entry) => entry.projectKey === key && entry.member.handle === pm?.handle,
+          );
+          this.deps.inbox.raiseAlert({
+            projectKey: key,
+            title: this.title(payload.outage),
+            payload,
+            outageAffectsPm: !!pmTarget && this.uses(pmTarget, payload.outage),
+          });
           this.toldFor(key).add(payload.outage.id);
         }
       }

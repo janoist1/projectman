@@ -12,7 +12,7 @@ import { KindsCard } from './KindsCard';
 import { NtfyCard } from './NtfyCard';
 import { QuietHoursCard } from './QuietHoursCard';
 import { ThisDeviceCard } from './ThisDeviceCard';
-import { failText } from './deviceText';
+import { failText } from '../../lib/errors';
 import styles from './notifications.module.css';
 import { usePushOverview, useTestPushDevice, useThisDevice } from './usePush';
 

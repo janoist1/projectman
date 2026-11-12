@@ -439,7 +439,7 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   (`session_start_failed`, or an engine call that fails or times out, which belongs to no session) and a session
   that ended as `failed` (a non-zero exit; a clean exit may be a stop nobody recorded) before its first turn, unless the provider was in a rate-limit cooldown or the stop
   was a setup refusal or on purpose. A session is counted once, however many points see it. The count is in the
-  `start_failures` table (migration 153), so it survives a restart. After a failure the next automatic start at
+  `start_failures` table (migration 154), so it survives a restart. After a failure the next automatic start at
   the place waits 30 s, then 1, 2 and 4 minutes (`start_backoff`, with `until`); the fifth failure in a row stops
   the place (`start_failing`). Both refusals can be waited for, so the deferral stays (it is not dropped) and the
   card, the queue item or the message shows why. A stopped place opens one `work_outage` alert per provider and
@@ -1904,6 +1904,9 @@ the config migration `addMerger` writes the default merger into a valid configur
 `PATCH /config` takes `merger` and `repoMerge` (`requireMerge: null` clears the explicit value; an
 unknown repository is `unknown_repo`). No machine-dependent part is touched: this is configuration and
 pure rules; the merge itself (PM-452) runs on the engine through `BranchMerger`.
+`team.mergeAfterReview` (PM-1379, default off) makes the merger's own code review approval queue the merge
+(`reviewMergeSkip`, `Merges.reconcileCard`): see "Merger approval queues the merge" in
+[`services/merges`](modules/services-merges.md).
 
 Inbox resolution checks access and attempts the move as the resolving human before closing the
 item. Refused moves leave it open. Actual movement clears the request and resolves the item if

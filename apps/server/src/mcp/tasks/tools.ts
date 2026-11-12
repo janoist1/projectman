@@ -182,7 +182,10 @@ async function runUpdateTask<C>({
   C,
   UpdateTaskArgs,
   {
-    updateTask(ctx: C, args: Parameters<TaskToolsHandler['updateTask']>[1]): Promise<{ task: Task }>;
+    updateTask(
+      ctx: C,
+      args: Parameters<TaskToolsHandler['updateTask']>[1],
+    ): Promise<Awaited<ReturnType<TaskToolsHandler['updateTask']>>>;
     listMembers(ctx: C): Promise<MemberView[]>;
   }
 >) {
@@ -233,7 +236,7 @@ async function runUpdateTask<C>({
     add: (addRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
     remove: (removeRelations ?? []).map((r) => ({ kind: r.kind, key: r.task_key })),
   };
-  const { task } = await handler.updateTask(ctx, {
+  const { task, mergeAfterReview } = await handler.updateTask(ctx, {
     taskKey,
     ...(stageId ? { stageId } : {}),
     ...(addLabels?.length ? { addLabels } : {}),
@@ -269,6 +272,7 @@ async function runUpdateTask<C>({
     description: !!description,
     repo,
     relations,
+    ...(mergeAfterReview ? { mergeAfterReview } : {}),
   });
 }
 

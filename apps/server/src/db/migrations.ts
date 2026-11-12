@@ -3006,6 +3006,13 @@ migrations.push({
 });
 migrations.push({
   version: 153,
+  name: 'full test run command',
+  // PM-1377: the command a full test run ran, so a merge reuses a pass only of the same command. Older rows stay
+  // NULL and are never reused.
+  sql: `ALTER TABLE full_test_runs ADD COLUMN command TEXT;`,
+});
+migrations.push({
+  version: 154,
   name: 'start failures',
   // PM-1335: the failed session starts of a member at a place, so that the backoff and the stop at the limit
   // survive a restart. `retry_at` is when the next automatic start may run (NULL once stopped); `stopped_at`

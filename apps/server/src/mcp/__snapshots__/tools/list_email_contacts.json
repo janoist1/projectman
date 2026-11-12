@@ -1,0 +1,17 @@
+{
+  "name": "list_email_contacts",
+  "title": "List human e-mail contacts",
+  "description": "List the human teammates who may receive e-mail: whether they ask for it and whether they have an address (never returned).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "List human e-mail contacts",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

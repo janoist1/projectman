@@ -1,0 +1,39 @@
+{
+  "name": "list_attachments",
+  "title": "List attachments",
+  "description": "List a task's attachments (files people and AI members attached), oldest first: id, file name, type, size, who attached it and when. get_task shows the first ones; use this for the rest.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+        "description": "Task key."
+      },
+      "offset": {
+        "default": 0,
+        "description": "How many to skip (for the next page).",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "limit": {
+        "default": 50,
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200
+      }
+    },
+    "required": [
+      "task_key"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "List attachments",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

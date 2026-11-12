@@ -1,0 +1,33 @@
+{
+  "name": "withdraw_question",
+  "title": "Withdraw a question",
+  "description": "Withdraw your own ask_human question that still waits and became moot. Give a short reason; it is recorded on the card.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "item_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Id of the question, as ask_human gave it."
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000,
+        "description": "Why it is moot, briefly."
+      }
+    },
+    "required": [
+      "item_id",
+      "reason"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Withdraw a question",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "name": "write_project_docs",
+  "title": "Write the project documents",
+  "description": "Replace text in the project documents as one pushed commit on the default branch. Lessons-only edits need no owner request (never as a guest or approval continuation); decisions or roadmap need an open owner request in the owner's conversation. A queued write reports later by system message.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "base_commit": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$",
+        "description": "The commit read_project_doc returned. A file changed since refuses the call with docs_stale: read it again (retry lessons; show the owner the new text of the other documents)."
+      },
+      "message": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[^\\r\\n]+$",
+        "description": "The commit subject: one line, English."
+      },
+      "edits": {
+        "minItems": 1,
+        "maxItems": 20,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "doc": {
+              "type": "string",
+              "enum": [
+                "decisions",
+                "roadmap",
+                "lessons"
+              ]
+            },
+            "old_text": {
+              "type": "string",
+              "maxLength": 20000,
+              "description": "The text to replace, exactly as in the file; empty appends at the end of the file."
+            },
+            "new_text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20000
+            }
+          },
+          "required": [
+            "doc",
+            "old_text",
+            "new_text"
+          ],
+          "additionalProperties": false
+        },
+        "description": "Applied in order, in at most TWO document files (use separate calls for three). Each old_text must occur exactly once. The decision log is append-only: no existing line may change or go; lessons and roadmap may be rewritten. An edit that changes nothing is refused."
+      }
+    },
+    "required": [
+      "base_commit",
+      "message",
+      "edits"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Write the project documents",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

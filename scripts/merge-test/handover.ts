@@ -1,5 +1,5 @@
 import { TARGETED_TEST_FILES_MAX } from '@projectman/shared';
-import { importGraph, isCode, isServerTest } from './impact';
+import { importGraph, isCode, isServerTest, snapshotTest } from './impact';
 import type { MergeTestFile } from './impact';
 import { checkedBy, importersOf, refineScope } from './refine';
 import { CLOUD_TEST_FILTERS, isDocumentFile, mergeTestScope, TEST_READ_DOCS } from './scope';
@@ -446,7 +446,6 @@ function nameUsers(
   );
 }
 
-const SNAPSHOT = /^(.*)\/__snapshots__\/([^/]+)\.snap$/;
 const isTestSupport = (path: string): boolean => /\/(?:fixtures|test-fixtures)\//.test(path);
 const isConfig = (path: string): boolean =>
   /^(?:package(?:-lock)?\.json|tsconfig.*\.json|vitest\.config\..*)$/.test(path.split('/').at(-1)!);
@@ -498,9 +497,8 @@ export function handoverSelection(
   const unmapped: string[] = [];
   const typecheck = new Set<MergeTestWorkspace>();
   for (const file of changed) {
-    const snapshot = SNAPSHOT.exec(file);
-    if (snapshot) {
-      const owner = `${snapshot[1]}/${snapshot[2]}`;
+    const owner = snapshotTest(file);
+    if (owner) {
       if (isServerTest(owner) && afterPaths.has(owner)) snapshotOwners.add(owner);
       else unmapped.push(file);
       continue;
@@ -555,8 +553,8 @@ export function handoverSelection(
   }
   const isTest = (path: string): boolean =>
     isServerTest(path) && afterPaths.has(path) && !isTestSupport(path) && workspaceOf(path) !== undefined;
-  const hasSnapshot = (path: string): boolean =>
-    afterPaths.has(`${path.slice(0, path.lastIndexOf('/'))}/__snapshots__/${path.split('/').at(-1)}.snap`);
+  const testsWithSnapshots = new Set([...afterPaths].map(snapshotTest));
+  const hasSnapshot = (path: string): boolean => testsWithSnapshots.has(path);
 
   const change: HandoverChange = { changed: input.changed, added: input.added, deleted: input.deleted };
   const ruleTests = [

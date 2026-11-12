@@ -36,7 +36,7 @@ const teamToolTree = [
     "import { TeamToolInput } from '@projectman/shared';\nexport const tools = [TeamToolInput];",
   ),
   file(SNAPSHOT_TEST, "import { tools } from './tools';"),
-  file('apps/server/src/mcp/__snapshots__/tools.test.ts.snap'),
+  file('apps/server/src/mcp/__snapshots__/tools/get_task.json'),
   file(
     'apps/server/src/mcp/unrelated.ts',
     "import { Other } from '@projectman/shared';\nexport const unrelated = Other;",
@@ -45,6 +45,12 @@ const teamToolTree = [
 ];
 
 describe('handover selection', () => {
+  it('selects the tool definition test for a per-tool JSON snapshot change', () => {
+    const selection = select(teamToolTree, ['apps/server/src/mcp/__snapshots__/tools/get_task.json']);
+    expect(selection.tests).toEqual([{ workspace: 'apps/server', files: [SNAPSHOT_TEST] }]);
+    expect(selection.unmapped).toEqual([]);
+  });
+
   it('runs the filters of a path-owned change and type checks the server (PM-1354)', () => {
     const selection = select([], ['deploy/mac/com.projectman.engine.plist']);
     expect(selection.kind).toBe('cloud');

@@ -85,7 +85,7 @@ const LOCAL_TOOLS = new Set([
 ]);
 
 /** Every file a Codex patch names (`*** Add|Update|Delete File:`, `*** Move to:`), in any string field. */
-function patchPaths(toolInput: unknown): string[] {
+export function patchPaths(toolInput: unknown): string[] {
   const texts =
     typeof toolInput === 'string'
       ? [toolInput]

@@ -38,6 +38,7 @@ describe('sessionAllowScope', () => {
     );
     expect(scope({ tool_name: 'LS', tool_input: { path: '/w/other' } })?.directories).toEqual(['/w/other']);
     expect(scope({ tool_name: 'Grep', tool_input: { pattern: 'x' } })?.directories).toEqual(['/w/repo']);
+    expect(scope({ tool_name: 'Read', tool_input: {} })?.directories).toEqual(['/w/repo']);
   });
 
   it('lists the folders of every file an apply_patch touches, moves included', () => {

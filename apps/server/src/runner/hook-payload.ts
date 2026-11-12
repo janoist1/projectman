@@ -1,7 +1,7 @@
 import { dirname, resolve } from 'node:path';
+import { patchPaths } from '@projectman/shared';
 import { z } from 'zod';
 import { claudeFileToolPaths } from './tool-decision';
-import { applyPatchText, patchPaths } from './tools';
 
 /**
  * Hook payloads as the runner handles them (the JSON body of an HTTP hook, or stdin of a
@@ -65,15 +65,14 @@ function toolDirectories(payload: HookPayload, toolName: string): string[] | nul
   const cwd = payload.cwd ?? '';
   if (toolName === 'apply_patch') {
     // Codex edits with a patch: every file it touches counts, and one that names none is not remembered.
-    const patch = applyPatchText(input);
-    const files = patch ? patchPaths(patch) : [];
+    const files = patchPaths(input);
     return [...new Set(files.map((file) => dirname(resolve(cwd || '.', file))))].sort();
   }
   const found = toolName === 'LS' ? lsPaths(input) : claudeFileToolPaths(toolName, input)?.paths;
   if (!found) return null;
-  // A call without a path works in the working directory.
-  const paths = found.length > 0 ? found : [cwd || '.'];
-  const folders = paths.map((path) => {
+  // A call without a path works in the working directory itself.
+  if (found.length === 0) return [resolve(cwd || '.')];
+  const folders = found.map((path) => {
     const absolute = resolve(cwd || '.', path);
     return FILE_PATH_TOOLS.has(toolName) ? dirname(absolute) : absolute;
   });

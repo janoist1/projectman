@@ -63,21 +63,27 @@
   flex-direction: column;
   gap: 6px;
   margin: 0;
-  padding: 0;
+  padding: 12px 14px;
   list-style: none;
+  border: 1px solid var(--c-warn-border);
+  border-radius: 12px;
+  background: var(--c-warn-bg);
   font-size: 13px;
-  color: var(--c-warn-text);
+  color: var(--c-ink);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .warnings li {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: 8px;
 }
 
 .warnings svg {
   flex: none;
   margin-top: 3px;
+  color: var(--c-warn-mark);
 }
 
 .when {

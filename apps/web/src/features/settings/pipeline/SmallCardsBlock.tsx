@@ -140,6 +140,7 @@ export function SmallCardsBlock({
               id={`${formId}-smallPaths`}
               className={styles.paths}
               value={draft.smallPaths}
+              rows={4}
               spellCheck={false}
               aria-invalid={pathsInvalid}
               aria-describedby={`${formId}-smallPaths-help${pathsInvalid ? ` ${pathsId}` : ''}`}

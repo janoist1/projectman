@@ -10,6 +10,22 @@ import type { ProjectConfig } from './schema';
 
 type LabelConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
 
+/** A review or test result label whose setters may not judge their own work. */
+export function isReviewResultLabel(label: LabelDefinition): boolean {
+  return label.group !== undefined && label.notByAuthor === true;
+}
+
+/** Whether the member may leave remarks for a later card (PM-1351). */
+export function canLeaveFollowUps(
+  config: LabelConfig,
+  task: Pick<Task, 'assignee' | 'links'>,
+  handle: string,
+): boolean {
+  return config.pipeline.labels.some(
+    (label) => isReviewResultLabel(label) && labelSetters(config, label, task).includes(handle),
+  );
+}
+
 /** Approvals delegated keys cannot give, including conditional gate requirements. */
 export function isOwnerApprovalLabel(config: LabelConfig, label: LabelDefinition): boolean {
   return (
@@ -155,6 +171,29 @@ export function labelRefusal(
   if (authors.includes(actor.handle ?? '') || (authority && authors.includes(authority.authorizedBy)))
     return 'self_review';
   return null;
+}
+
+/**
+ * The result labels of a step stage: the `has_label` labels of the next stage's gate (only those in `only`
+ * when given) and the other labels of their groups (`code-review-changes` beside `code-review-ok`): any of
+ * them ends the step. Empty when the stage is not a step or has no next stage.
+ */
+export function stageResultLabels(
+  config: Pick<ProjectConfig, 'pipeline'>,
+  stage: Stage,
+  only?: readonly string[],
+): string[] {
+  const stages = config.pipeline.stages;
+  const next = stages[stages.findIndex((s) => s.id === stage.id) + 1];
+  if (!next || stage.kind !== 'step') return [];
+  const ids = (next.gate?.conditions ?? []).flatMap((c) =>
+    c.type === 'has_label' && (!only || only.includes(c.label)) ? [c.label] : [],
+  );
+  const groups = new Set(ids.map((id) => labelDefinition(config, id)?.group).filter((g) => g !== undefined));
+  const mates = config.pipeline.labels
+    .filter((label) => label.group !== undefined && groups.has(label.group))
+    .map((label) => label.id);
+  return [...new Set([...ids, ...mates])];
 }
 
 /**

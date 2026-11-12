@@ -94,7 +94,14 @@ describe('raiseAlert', () => {
       { alert: 'relation_check', taskKey: 'AR-1', relations: [{ kind: 'prerequisite', key: 'AR-2' }] },
       {
         alert: 'work_outage',
-        outage: { kind: 'provider_down', provider: 'claude' },
+        outage: {
+          id: 'provider:codex:local',
+          kind: 'provider',
+          provider: 'codex',
+          problem: 'not_logged_in',
+          engine: null,
+          since: '2026-10-01T12:00:00.000Z',
+        },
         members: ['dev-1'],
         tasks: ['AR-1'],
         checkedAt: '2026-10-01T12:00:00.000Z',

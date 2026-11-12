@@ -115,6 +115,8 @@ export const ERROR_CODES = [
   'project_manager_move_refused',
   // 403: the PM took a lifecycle action the project settings do not list (PM-1098)
   'project_manager_lifecycle_refused',
+  // 403: an AI member tried to involve a member on a card, which the project settings do not allow it (PM-1267)
+  'member_involvement_refused',
   'builtin_role',
   'role_id_mismatch',
   'already_member',
@@ -136,6 +138,7 @@ export const ERROR_CODES = [
   'unknown_stage',
   'unknown_repo',
   'task_closed',
+  'collecting_task_not_startable',
   // A board move (PM-118): the card or the anchor is not where the request saw it (409); the column
   // is ordered by closing time, or does not exist (400/409).
   'board_stale',

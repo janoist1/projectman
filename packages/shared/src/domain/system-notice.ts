@@ -117,10 +117,14 @@ export function systemNoticeOf(alert: AlertPayload): SystemNotice | null {
           outage: alert.outage.kind === 'provider' ? alert.outage.provider : 'engine',
           members: alert.members.join(', '),
           tasks: alert.tasks.join(', '),
+          since: alert.outage.since,
+          engine: alert.outage.engine?.name,
+          problem: alert.outage.kind === 'provider' ? alert.outage.problem : 'engine',
         }),
         text:
-          `Work is blocked by an outage (${alert.outage.kind === 'provider' ? alert.outage.provider : 'engine'})` +
-          `${alert.tasks.length > 0 ? `; cards: ${alert.tasks.join(', ')}` : ''}.`,
+          `Work is blocked since ${alert.outage.since} by an outage (${alert.outage.kind === 'provider' ? `${alert.outage.provider}: ${alert.outage.problem}` : 'engine disconnected'})` +
+          `${alert.outage.engine ? ` on engine ${alert.outage.engine.name}` : ''}` +
+          `${alert.tasks.length > 0 ? `; cards: ${alert.tasks.join(', ')}` : ''}. Restore the provider's subscription login or setup, or reconnect the engine.`,
       };
     default:
       return null;

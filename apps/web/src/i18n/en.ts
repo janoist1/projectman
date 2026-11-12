@@ -471,6 +471,8 @@ export const en = {
         'The project manager can only put a ready card to work; the owner does every other move.',
       project_manager_lifecycle_refused:
         'The project’s settings don’t allow the project manager this card action.',
+      member_involvement_refused:
+        'The project’s settings let only people involve a member on a card: ask a person to message the member.',
       builtin_role: 'A built-in role can’t be changed.',
       role_id_mismatch: 'The role’s id doesn’t match.',
       not_human_member: 'This isn’t a person.',
@@ -484,6 +486,8 @@ export const en = {
       prerequisite_open: 'The card’s prerequisite isn’t closed yet.',
       unknown_member: 'Unknown team member.',
       task_closed: 'This card is already closed.',
+      collecting_task_not_startable:
+        'This card collects sub-cards: the work happens on them, so it cannot be started.',
       complexity_forbidden: 'You can’t change the points.',
       complexity_points_invalid: 'The points can only be 1, 2, 3, 5, 8 or 13.',
       complexity_limit_not_developer: 'A limit can only be set for a developer member.',
@@ -1382,6 +1386,7 @@ export const en = {
       },
       short: {
         startOffer: 'starts it (moves it to development)',
+        collecting: '{count|# open sub-card|# open sub-cards} to close',
         inbox: {
           question: 'answers a question',
           permission: 'grants permission',
@@ -1426,6 +1431,7 @@ export const en = {
       },
       long: {
         capacity: 'Working on something else. This card is next once that work finishes.',
+        collecting: 'The work happens on its sub-cards; this card is not started.',
         readyHold:
           'The card is ready to start but is intentionally waiting. It starts automatically when the condition clears.',
         startOffer: 'The card is ready and a developer is free. The system has asked for it to be started.',
@@ -1452,6 +1458,7 @@ export const en = {
       },
       todo: {
         startOffer: 'Move the card to development; the system chooses a developer.',
+        collecting: 'Nothing: when its last sub-card closes, this card closes by itself.',
         auto: 'Nothing: it starts automatically. If urgent, check the Team page to see what is holding it.',
         capacity: 'Nothing. {hint}',
         nothing: 'Nothing: it progresses automatically.',
@@ -1536,6 +1543,7 @@ export const en = {
     fixLimitYou: 'Waiting for you: decision · after {rounds|# fix round|# fix rounds}',
     queuedFor: 'Queued for: {stage}',
     ready: 'Ready to start',
+    collecting: '{count|# open sub-card|# open sub-cards}',
     prerequisite: 'Waiting for prerequisite',
     prerequisiteOn: 'Waiting · {ref}',
     prerequisiteRef: '{key} ({stage})',
@@ -1781,6 +1789,7 @@ export const en = {
     earlier: {
       title: 'Earlier conversations ({count})',
       readOnly: 'Read-only.',
+      loadFailed: "Couldn't load the earlier conversations.",
       to: 'To: {names}',
       none: 'No machine messages visible to you.',
     },
@@ -2410,10 +2419,14 @@ export const en = {
     unmeasured:
       'No measurements for {sessions|# session|# sessions} across {cards|# card|# cards} (recorded before measurement was introduced); excluded from the comparison.',
     noImplementer: 'no implementer',
+    reviewerUnknown: 'No reviewer data',
+    failedByReviewer: 'Failed merge checks by reviewer:',
+    reviewerRatio: '{name}: {failed} / {total|# card|# cards} ({percent})',
     sessionsWithoutData: '{count|# session|# sessions} without measurements',
     columns: {
       card: 'Card',
       implementer: 'Implementer and model',
+      reviewer: 'Reviewer',
       tokens: 'Weighted tokens',
       reviewRounds: 'Review rounds',
       sendBacks: 'Send-backs',
@@ -3423,6 +3436,7 @@ export const en = {
         owner_topic_missing: 'no topic',
         signal_not_for_owner: 'a signal not meant for the owner',
         pm_matter: 'a project manager matter',
+        pm_affected: 'the outage also blocks the project manager',
         no_pm: 'there is no project manager',
         information: 'information',
         human_duty: 'a human duty',
@@ -3553,6 +3567,7 @@ export const en = {
       assignment_note: '{line} Reason: {note}',
       task_created_imported: 'Created (imported)',
       task_created: 'Created the card',
+      review_follow_ups: 'Left follow-ups for a later card{label}: {items}',
       task_updated: 'Updated: {fields}',
       task_stage_changed: 'Moved on: {from} → {to}',
       task_stage_changed_pulled_urgent: 'Pulled forward by the system: {from} → {to}; the card is urgent',
@@ -3560,6 +3575,7 @@ export const en = {
         'Pulled forward by the system: {from} → {to}; because of focus position {position} ({title}, {key})',
       task_hand_on_requested: '{requestedBy} is done; {mover} moves it on to {to}',
       task_merge_requested: 'Waiting to be merged: {merger}.',
+      task_merge_requested_on_approval: 'Queued for merge on approval: {startedBy}.',
       task_merge_prioritized: 'Moved ahead in the merge queue. Reason: {reason}',
       task_merge_prioritized_ahead: 'Moved ahead of these in the merge queue: {ahead}. Reason: {reason}',
       task_merged: 'Merged into {base}: {commit}{parts}',
@@ -3748,6 +3764,7 @@ export const en = {
       member_hired: 'Hired: {handle}',
       member_retired: 'Retired: {handle}',
       member_renamed: 'Handle renamed: {from} → {to}',
+      member_involved: 'Involved on the card: {member}. Reason: {reason}',
       member_retired_handover: 'Retired: {handle}, their work moved to {to}',
       config_changed: 'Setting changed: {message}',
       focus_added: 'Added to the focus: {title}, position {position}',
@@ -4474,6 +4491,7 @@ export const en = {
   },
 
   messages: {
+    readFailed: "Couldn't mark as read.",
     new: 'New message',
     recipients: 'To',
     contactsOnlyHint: 'You can only write to contacts.',
@@ -4497,6 +4515,8 @@ export const en = {
       relation_check:
         'The new relations of {taskKey} ({relations}) may change its work, and no analyst or project manager can check them.',
       work_outage: 'An outage ({outage}) blocks the work; affected cards: {tasks}.',
+      work_outage_details:
+        'Work has been blocked since {since}: {reason}. Engine: {engine}; affected cards: {tasks}. Action: restore the provider subscription login or setup, or reconnect the engine.',
       waiting_digest:
         '{todos} machine to-dos and {questions} questions in screening have waited more than a day; the oldest for {oldestHours} hours.',
     },
@@ -7695,6 +7715,17 @@ export const en = {
           automatic: 'Only the system’s choice fits',
         },
       },
+      /** Whether the merger’s own approval also queues the merge (PM-1379). */
+      mergeAfterReview: {
+        question: 'Merge right after approval',
+        note: 'The merger merges with the merge_task call. When this is on and they are also the card’s code reviewer, their approval makes that call too, as long as the card has no open or unconfirmed acceptance item. If the merge cannot be queued, the reply to their approval tells them why and what to do.',
+        noEffect: 'No effect now: the merger is not the code reviewer.',
+        readOnlyLabel: 'Merge after approval',
+        value: {
+          on: 'On',
+          off: 'Off',
+        },
+      },
       /** Who may open a new card (PM-1100). */
       taskCreate: {
         title: 'Opening a new card',
@@ -8018,6 +8049,10 @@ export const en = {
       mover_not_member: 'The person who moves the cards on is no longer a member of the project.',
       mover_cannot_move: 'The one who moves the cards on can’t move cards.',
       mover_on_leave: 'The project manager who moves the cards on is on leave.',
+      small_cards_not_step: 'The small-cards rule can only sit on a step stage.',
+      small_cards_unknown_owner: 'An owner of the small cards is not a member of the project.',
+      small_cards_invalid_path:
+        'Invalid path pattern: it can’t be empty, start with ‹/›, hold a ‹.› or ‹..› segment, or be over 200 characters.',
       review_test_runner_github: 'For the GitHub Actions runner, the repo needs its GitHub owner/name pair.',
       compute_jobs_github: 'For machine jobs, the repo needs its GitHub owner/name pair.',
     },

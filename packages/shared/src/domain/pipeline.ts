@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ComplexityPoints } from './complexity';
 import { DutyId } from './duty';
 import { MemberHandle } from './member';
 import { LabelDefinition, LabelId } from './label';
@@ -59,6 +60,17 @@ export const BoardColumn = z.object({
 });
 export type BoardColumn = z.infer<typeof BoardColumn>;
 
+/**
+ * A `step` stage's rule for small cards (PM-1378): a card with at most `maxPoints` that changes none of the
+ * `centralPaths` is carried by `owners` instead of the stage's own owners. Absent: the rule is off.
+ */
+const SmallCardsRule = z.object({
+  maxPoints: ComplexityPoints,
+  owners: z.array(MemberHandle).min(1),
+  /** Repository-relative path patterns (`config/path-pattern`); at most 50. */
+  centralPaths: z.array(z.string()).max(50).default([]),
+});
+
 export const Stage = z.object({
   id: StageId,
   /** Display name in the project's language. */
@@ -70,6 +82,8 @@ export const Stage = z.object({
   owners: z.array(MemberHandle).optional(),
   duty: DutyId.optional(),
   gate: Gate.optional(),
+  /** Only on a `step` stage (`small_cards_not_step`). */
+  smallCards: SmallCardsRule.optional(),
   /** Board column the stage is shown in; several consecutive stages may share a column. */
   columnId: z.string(),
 });

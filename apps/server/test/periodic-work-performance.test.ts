@@ -6,7 +6,7 @@ import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import Database from 'better-sqlite3';
 import { LOCAL_ENGINE_ID, MessageKind, TaskComplexity } from '@projectman/shared';
-import type { ProjectConfig, Task, TeamMessage, TimelineEvent } from '@projectman/shared';
+import type { AgentProvider, ProjectConfig, Task, TeamMessage, TimelineEvent } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { migrate, migrations } from '../src/db';
 import { MemberQueueWorker } from '../src/runtime/member-queue';
@@ -840,6 +840,34 @@ describe('periodic work performance protocol (PM-733)', () => {
       } finally {
         await h.cleanup();
       }
+    }
+  });
+
+  // P-01: the login check was one engine call per AI member, with refresh, every 30 s.
+  it('asks for one login state per engine and provider on the thirty-second path, without refresh', async () => {
+    const h = await fixture(20, 20, true);
+    try {
+      const providerStatus = vi.fn(
+        async (provider: AgentProvider, _opts?: { refresh?: boolean; member?: string }) => ({
+          provider,
+          loggedIn: true,
+          method: null,
+          checkedAt: NOW,
+        }),
+      );
+      Object.assign(h.runner, { providerStatus });
+      for (let tick = 0; tick < 3; tick++) {
+        providerStatus.mockClear();
+        // 24 AI members of two projects, all Claude on the local engine: one question for the pair.
+        await h.domain.outages.check();
+        // Admission's readiness checks (they name a member and are answered by the hub's cache) come on top.
+        expect(providerStatus.mock.calls.filter(([, opts]) => !opts?.member)).toHaveLength(1);
+        // The other parts of the path (admission's readiness check) never refresh either.
+        await paths(h).thirty();
+        expect(providerStatus.mock.calls.every(([, opts]) => !opts?.refresh)).toBe(true);
+      }
+    } finally {
+      await h.cleanup();
     }
   });
 

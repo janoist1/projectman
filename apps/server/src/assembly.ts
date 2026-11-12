@@ -532,7 +532,6 @@ export function createDomain(opts: DomainOptions) {
 
   const timeline = createTimelineService(ctx);
   const superAudit = createSuperAuditService(ctx);
-  const involvements = new InvolvementService(ctx);
   const projects = createProjectService({
     ctx,
     configStore: opts.configStore,
@@ -542,6 +541,7 @@ export function createDomain(opts: DomainOptions) {
     // `engines` is built below, so it is looked up when asked.
     engines: createNewProjectEngines({ engines: () => engines, registry: opts.engineRegistry }),
   });
+  const involvements = new InvolvementService({ ctx, timeline, projects });
   // A session on a remote engine reads a card's attachments from that engine's cache (PM-315).
   const attachmentDirectory = (projectKey: string, taskKey: string) =>
     opts.engineAttachments
@@ -681,6 +681,7 @@ export function createDomain(opts: DomainOptions) {
     outageOf: (task) => outages.forTask(task),
     // `sessions` is built below; the callback only runs when a task is handed over for review.
     sourceHead: (config, task, opts) => sessions.sourceHead(config, task, opts),
+    changedFiles: (config, task, commit) => sessions.changedFiles(config, task, commit),
     notifyHandOn: async (config, task, request) => {
       const from = config.pipeline.stages.find((s) => s.id === request.fromStageId);
       const to = config.pipeline.stages.find((s) => s.id === request.toStageId);
@@ -988,7 +989,15 @@ export function createDomain(opts: DomainOptions) {
   // A card worked out is offered for starting by the next round; a collecting card that cannot start says so (PM-804).
   refinement.useMessaging(messaging);
   refinement.useNotify((task, recipient) => startRound.refined(task, recipient));
-  const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery, messaging });
+  const handOver = new StageHandOver({
+    projects,
+    tasks,
+    sessions,
+    admission,
+    delivery,
+    messaging,
+    logger: opts.logger,
+  });
   events.on('session_ended', (session) => {
     background.run(
       () => handOver.resumeInterrupted(session, session.previousState),
@@ -1618,6 +1627,7 @@ export function createDomain(opts: DomainOptions) {
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
       operator: new OperatorTools({
+        involvements,
         systemFeedback,
         structuralReviews,
         operatorPreferences,
@@ -1658,6 +1668,7 @@ export function createDomain(opts: DomainOptions) {
         cardQuestions,
         taskWaits,
         closer: sessionCloser,
+        merges,
       }),
       attachments: new AttachmentTools({
         calls: toolCaller,
@@ -2263,8 +2274,6 @@ export function createDomain(opts: DomainOptions) {
   });
 
   let sweeps: RunningSweeps | undefined;
-  let stopMessageSweep: (() => void) | undefined;
-  let stopCommentSweep: (() => void) | undefined;
 
   /** What the engine's settings view counts (PM-315): its sessions and what waits for it. */
   const engineCounters = (id: EngineId): EngineCounters => ({
@@ -2414,10 +2423,6 @@ export function createDomain(opts: DomainOptions) {
         );
         return;
       }
-      // Uploads no message took within a day are deleted (now, and hourly).
-      stopMessageSweep = messageAttachments.startSweeping();
-      stopCommentSweep = attachments.startSweeping();
-      emailChannel.start();
       emailQueue?.start();
       githubSync.start();
       background.start();
@@ -2450,6 +2455,11 @@ export function createDomain(opts: DomainOptions) {
       );
       sweeps = startSweeps(
         [
+          // The modules' own periodic work (PM-1394): uploads no message took within a day, parked e-mails, the history index.
+          messageAttachments.unsentSweep(),
+          attachments.unsentSweep(),
+          emailChannel.pruneSweep,
+          history.sweep,
           // The owner's questions about super operations that lapsed unanswered are settled every minute.
           {
             name: 'super-handoffs',
@@ -2618,9 +2628,6 @@ export function createDomain(opts: DomainOptions) {
       unsubscribeEngines();
       unsubscribeSignalActivity();
       usage.stop();
-      stopMessageSweep?.();
-      stopCommentSweep?.();
-      emailChannel.stop();
       await emailQueue?.stop();
       const drained = schedules.stop();
       githubSync.stop();

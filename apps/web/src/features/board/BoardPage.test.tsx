@@ -18,6 +18,21 @@ function transfer() {
 }
 
 describe('desktop board moving', () => {
+  it('excludes collecting cards from the startable count and removes their start marker', async () => {
+    const project = mockProject();
+    const parent = project.backend.findTask('AC-24')!;
+    for (const task of project.backend.tasks)
+      if (task.key !== parent.key && task.stageId === 'ready') task.stageId = 'dev';
+    project.backend.findTask('AC-17')!.parentKey = parent.key;
+    project.render(<BoardPage />);
+    const ready = await screen.findByRole('region', {
+      name: project.backend.config.pipeline.columns.find((column) => column.id === 'ready')!.name,
+    });
+    await within(ready).findByText(t('taskStatus.collecting', { count: 1 }));
+    expect(within(ready).getByText(t('board.startableNone'))).toBeTruthy();
+    expect(ready.querySelector('[data-startable]')).toBeNull();
+  });
+
   it('applies explicit and positional colours to constrained columns and card lists', async () => {
     const project = mockProject();
     project.backend.config.pipeline.columns[0]!.color = 'purple';

@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import type { Ref } from 'react';
 import { Link } from 'react-router';
-import type { LabelView, Task } from '@projectman/shared';
+import type { BoardCard, LabelView, Task } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
@@ -64,7 +64,7 @@ export function TaskHeader({
   onClose,
   rule = true,
 }: {
-  task: Task;
+  task: BoardCard;
   parent: Pick<Task, 'key' | 'title'> | null | undefined;
   state: TaskState;
   pipeline: PipelineIndex;
@@ -163,7 +163,7 @@ export function TaskHeader({
           <StatusDot phase={state.phase} pulse={state.phase === 'working'} size={9} />
           {state.workers[0]?.doing ? (
             <WorkerText worker={state.workers[0]} />
-          ) : state.next ? (
+          ) : state.next && state.wait?.reason !== 'collecting' ? (
             // The same "{ki} · {mire vár}" row as on the card; the box under the header says the rest.
             <NextLine next={state.next} className={styles.nowText} wrap />
           ) : (

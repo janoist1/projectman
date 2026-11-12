@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { mergeRepoOf, mergeTargetOf } from '@projectman/shared';
-import type { ProjectConfig, Task } from '@projectman/shared';
+import type { BoardCard, ProjectConfig } from '@projectman/shared';
 import { useLabels, useMoveTask } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { useToast } from '../../components/toastContext';
@@ -31,9 +31,9 @@ export function TaskMove({
   config,
   sendBack,
 }: {
-  task: Task;
+  task: BoardCard;
   pipeline: PipelineIndex;
-  tasks: readonly Task[];
+  tasks: readonly BoardCard[];
   /** The configuration, for the merge condition of the move; missing where the viewer may not read it. */
   config?: ProjectConfig;
   /** Grows when the merge box sends the card back: the panel opens at the work stage. */

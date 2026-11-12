@@ -1236,6 +1236,42 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "destructiveHint": false,
       "openWorldHint": false,
       "readOnlyHint": false,
+      "title": "Involve a member on a card",
+    },
+    "description": "Give an AI member a role on a card: messages to them about it start their session, and one that waited for lack of a role starts at once. Needs the project setting (else member_involvement_refused). No label or approval right. Reason goes on the timeline.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "member": {
+          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+          "type": "string",
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
+        "task_key": {
+          "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "task_key",
+        "member",
+        "reason",
+      ],
+      "type": "object",
+    },
+    "name": "involve_member",
+    "title": "Involve a member on a card",
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false,
       "title": "Link a feedback mark to a card",
     },
     "description": "Decide a feedback mark by tying it to a card that already exists (the same matter). The reply (optional) goes into the mark's thread for the marker. Only for members who process feedback; a mark that waits for the owner is refused.",
@@ -3512,6 +3548,17 @@ exports[`team tool definitions > preserves the public tool definitions across mo
         "despite_prerequisites": {
           "description": "Move into the work stage despite an open prerequisite. Honored only for a person, or the project manager when team.prerequisiteOverride allows it; otherwise the start waits.",
           "type": "boolean",
+        },
+        "follow_ups": {
+          "description": "Remarks that do not block this card, for a later card (a missing test, a helper to reuse, a rule to add), one per item. Only a reviewer or tester of the card, with the call that records the result; never send them in a message.",
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array",
         },
         "note": {
           "description": "Timeline note: findings, decisions, what changed; with labels, their comment.",

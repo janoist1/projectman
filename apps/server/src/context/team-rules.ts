@@ -32,7 +32,7 @@ export function summarizeTeamRule(rule: TeamRule, _project: ProjectConfig): stri
     case 'acceptance':
       return `Acceptance items: ${rule.reviewStageId ? `none open to enter ${code(rule.reviewStageId)}` : ''}${rule.reviewStageId && rule.doneStageId ? ', ' : ''}${rule.doneStageId ? `none unconfirmed to enter ${code(rule.doneStageId)}` : ''}.`;
     case 'project_manager_rights':
-      return `Project manager: moves ${code(rule.moves)}, lifecycle ${rule.lifecycle.length ? codeList(rule.lifecycle) : 'none'}, ${rule.prerequisiteOverride ? 'may' : 'may not'} override a prerequisite.`;
+      return `Project manager: moves ${code(rule.moves)}, lifecycle ${rule.lifecycle.length ? codeList(rule.lifecycle) : 'none'}, ${rule.prerequisiteOverride ? 'may' : 'may not'} override a prerequisite, ${rule.memberInvolvement ? 'may' : 'may not'} involve a member.`;
     case 'viewer_recipients':
       return `Viewers write only to ${rule.mode === 'contacts' ? 'the contacts' : 'the project manager'}.`;
   }
@@ -85,7 +85,7 @@ export function describeTeamRule(rule: TeamRule, project: ProjectConfig): string
         .filter(Boolean)
         .join('; ')}.`;
     case 'project_manager_rights':
-      return `Project manager: ${rule.moves === 'start_only' ? 'starts cards only' : 'moves cards between queues and starts them'}; lifecycle actions on its own: ${rule.lifecycle.length ? codeList(rule.lifecycle) : 'none'}; ${rule.prerequisiteOverride ? 'may' : 'may not'} override an open prerequisite; ${rule.authority === 'outside_owner_only' ? 'acts on its own authority outside the owner-only settings, with no owner request' : 'needs an open owner request for settings, members and starts'}.`;
+      return `Project manager: ${rule.moves === 'start_only' ? 'starts cards only' : 'moves cards between queues and starts them'}; lifecycle actions on its own: ${rule.lifecycle.length ? codeList(rule.lifecycle) : 'none'}; ${rule.prerequisiteOverride ? 'may' : 'may not'} override an open prerequisite; ${rule.memberInvolvement ? 'may' : 'may not'} involve a member with no role on a card (involve_member); ${rule.authority === 'outside_owner_only' ? 'acts on its own authority outside the owner-only settings, with no owner request' : 'needs an open owner request for settings, members and starts'}.`;
     case 'viewer_recipients':
       return `Viewers (read-only people) may write only to ${rule.mode === 'contacts' ? "the project's contacts" : 'the project manager'}.`;
     default: {

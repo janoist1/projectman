@@ -74,7 +74,7 @@ Enforced on every task:
 - Priority: people and `pm` set it.
 - Complexity points: `owner` set them.
 - Acceptance items: none open to enter `code_review`, none unconfirmed to enter `done`.
-- Project manager: moves `queues_and_start`, lifecycle `assign`, `cancel`, may not override a prerequisite.
+- Project manager: moves `queues_and_start`, lifecycle `assign`, `cancel`, may not override a prerequisite, may not involve a member.
 - Fixes (`code-review-changes` / send-back): reaches 3 rounds → `code-review`, then humans (`owner`) decide.
 - Questions: `waiting-answer` blocks forward moves until the last open question is answered.
 - Viewers write only to the project manager.
@@ -89,8 +89,9 @@ Task AR-21: Fix the booking confirmation email
 What done means for you here:
 1. Review the pull requests linked to the task; do not edit, commit or push.
 2. Record the result with update_task as `code-review-ok` (Code review ok), `code-review-changes` (Code review: changes needed) with a note or `code-review-blocked` (Code review: blocked) with a note; put a one-line summary of the findings in note.
-3. Send "Blocking" / "Not blocking" findings with file:line to `fe-1` with send_message; review again when they report a fix.
-4. When the review passes, move the task to Integration (`integration`) with update_task and hand over to `devops` with send_message: the facts they need (links, what changed, what to check).
+3. Send Blocking findings with file:line to `fe-1` with send_message; review again when they report a fix.
+4. Put non-blocking remarks in update_task follow_ups with your result, one per item; messages die on closure.
+5. When the review passes, move the task to Integration (`integration`) with update_task and hand over to `devops` with send_message: the facts they need (links, what changed, what to check).
 
 The kick-off brief (description, labels, links, attachments, recent timeline) is the first message of this session; get_task gives the latest state.
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import type { PausedSession, PauseStatus, Task } from '@projectman/shared';
+import type { BoardCard, PausedSession, PauseStatus } from '@projectman/shared';
 import { useBoard, useForcePauseInstance, useForcePauseProject } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -29,7 +29,7 @@ import styles from './PauseProgress.module.css';
 /** The task a row works on: its key and title, or what kind of work it is. */
 function workText(
   row: PausedSession,
-  tasks: ReadonlyMap<string, Task>,
+  tasks: ReadonlyMap<string, BoardCard>,
 ): { key: string | null; title: string } {
   const { workItem } = row;
   if (workItem.type === 'task') {
@@ -42,7 +42,7 @@ function workText(
 export interface PauseLookups {
   members: MemberIndex;
   myHandle: string | null;
-  tasks: ReadonlyMap<string, Task>;
+  tasks: ReadonlyMap<string, BoardCard>;
 }
 
 export const noPauseLookups: PauseLookups = { members: new Map(), myHandle: null, tasks: new Map() };

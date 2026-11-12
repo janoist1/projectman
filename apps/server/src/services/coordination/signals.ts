@@ -10,6 +10,7 @@ import {
   OPERATOR_ANSWER_STALL_WAKE_MS,
   OPERATOR_FAST_SIGNAL_KINDS,
   PENDING_INBOX_STATES,
+  questionPayloadOf,
   WAITING_ANSWER_LABEL,
   OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
   memberQueueSourceId,
@@ -292,7 +293,33 @@ export class OperatorSignals {
     if (signal.state === 'pending' || signal.state === 'open') signal.state = 'resolved';
     this.save(signal, visible);
     // A question asked about the signal has nothing left to answer (PM-455).
-    void this.deps.inbox.closeQuestionsOfSignal(projectKey, signal.id).catch(() => undefined);
+    this.closeQuestionsOf(projectKey, signal.id);
+  }
+
+  /** A failed close is logged; the sweep retries it (`closeLeftQuestions`). */
+  private closeQuestionsOf(projectKey: string, signalId: string): Promise<void> {
+    return this.deps.inbox.closeQuestionsOfSignal(projectKey, signalId).catch((err: unknown) => {
+      this.deps.ctx.logger.warn(
+        { err, projectKey, signalId },
+        'could not close the questions of a resolved signal',
+      );
+    });
+  }
+
+  /** The questions of an already resolved signal that are still pending (a close that failed earlier) close now. */
+  private async closeLeftQuestions(projectKey: string): Promise<void> {
+    const resolved = new Set<string>();
+    const pending = this.deps.inbox.list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question' });
+    for (const item of pending) {
+      const signalId = questionPayloadOf(item)?.signalId;
+      if (
+        signalId &&
+        !resolved.has(signalId) &&
+        this.deps.ctx.repos.operatorSignals.get(signalId)?.resolvedAt
+      )
+        resolved.add(signalId);
+    }
+    for (const signalId of resolved) await this.closeQuestionsOf(projectKey, signalId);
   }
 
   /**
@@ -743,6 +770,7 @@ export class OperatorSignals {
       )
         this.resolve(key, signal.caseKey);
     }
+    await this.closeLeftQuestions(key);
     this.releaseDue(key);
     await this.deliver(key, structural, board);
   }

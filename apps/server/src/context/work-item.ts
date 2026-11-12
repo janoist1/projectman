@@ -22,12 +22,15 @@ import {
   resolvedStages,
   reviewTestRunnerBeforeReview,
   roleBundle,
-  stageOwners,
+  allStageOwners,
+  cardStageOwners,
+  possibleStageOwners,
 } from '@projectman/shared';
 import type { DutyId, LabelDefinition, RepoConfig, Stage, Task } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
 import {
   cardBranchMergeRule,
+  mergeAfterReviewLine,
   code,
   codeList,
   fullTestLine,
@@ -58,7 +61,11 @@ export function assess(input: ContextPackInput): Situation {
     stages,
     current,
     next: current ? stageAfter(stages, current) : null,
-    ownsStage: current?.owners?.includes(input.member.handle) ?? false,
+    // A small card's reviewers are the stage's small owners (PM-1378), not its main owners.
+    // `current` is a resolved stage (its owners come from its duty), so without a pick this is `current.owners`.
+    ownsStage: current
+      ? (task ? cardStageOwners(input.project, current, task) : current.owners).includes(input.member.handle)
+      : false,
     isAssignee: task?.assignee === input.member.handle,
   };
 }
@@ -312,6 +319,10 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
   };
 }
 
+function reviewFollowUps(): string {
+  return 'Put non-blocking remarks in update_task follow_ups with your result, one per item; messages die on closure.';
+}
+
 /**
  * The designer. On a card they are assigned to they build the designs like any builder. On a card
  * that someone else builds (PM-101: they share one working directory) they never edit or commit: in
@@ -323,6 +334,7 @@ function designing(): StepRule {
     (where) => [`Create the designs or mockups the task asks for ${where}.`],
     ({ input, s, author }) => [
       'Compare the finished interface with the design: screen sizes, states and texts.',
+      reviewFollowUps(),
       `Send everything to fix to ${author} in one message with send_message (where it is, what you expect) and record the result as a note with update_task.`,
       `When it follows the design, ${lowerFirst(handover(input, s.next))}`,
     ],
@@ -385,6 +397,7 @@ function designReview(c: StepContext): string[] {
   );
   return [
     'Do one complete review round when asked, in this order: first the images, the attachments and the plan on the card, then the finished interface and the code.',
+    reviewFollowUps(),
     localOnly
       ? reviewBranch(localOnly, task.key)
       : 'Read the pull requests linked to the task; do not edit, commit or push.',
@@ -406,6 +419,7 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
   if (!s.ownsStage) {
     return [
       `Review what you were asked to review. ${recordResult(input, duty, 'your findings')} Report to the sender with send_message.`,
+      reviewFollowUps(),
     ];
   }
   const placement = input.sessionPolicy?.placement;
@@ -432,7 +446,9 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
         : 'Review the pull requests linked to the task; do not edit, commit or push.',
     ...confirmAcceptance(input),
     recordResult(input, duty, 'a one-line summary of the findings'),
-    `Send "Blocking" / "Not blocking" findings with file:line to ${author} with send_message; review again when they report a fix.`,
+    ...(duty === 'code_review' ? [mergeAfterReviewLine(input.project)].filter((line) => line !== null) : []),
+    `Send Blocking findings with file:line to ${author} with send_message; review again when they report a fix.`,
+    reviewFollowUps(),
     // After a review a local-only branch is merged by the owner and nobody else.
     `When the review passes, ${lowerFirst(handover(input, s.next))}${
       localOnly && !requiresMerge(localOnly)
@@ -563,11 +579,13 @@ const DUTY_STEPS: Partial<Record<DutyId, StepRule>> = {
     if (!s.ownsStage) {
       return [
         `Test what you were asked. ${recordResult(input, duty, 'what you tested and the result')} Report to the sender with send_message.`,
+        reviewFollowUps(),
       ];
     }
     return [
       'Test the change where it is deployed: what the task asks and the risky paths around it.',
       recordResult(input, duty, 'a short note (what, where, result)'),
+      reviewFollowUps(),
       `Send failures to ${author} with send_message, with steps to reproduce.`,
       `When the test passes, ${lowerFirst(handover(input, s.next))}`,
     ];
@@ -893,7 +911,12 @@ export function handover(
   if (target.kind === 'done') {
     return `Move the task to ${stageLabel(target)} with update_task as your very last step, after your messages and notes: once the task is done, its sessions stop.`;
   }
-  const owners = stageOwners(input.project, target).filter((h) => h !== input.member.handle);
+  // The target's pick is not made yet: name everyone it could go to (the small owners as well, PM-1378).
+  const owners = (
+    input.task
+      ? possibleStageOwners(input.project, target, input.task)
+      : allStageOwners(input.project, target)
+  ).filter((h) => h !== input.member.handle);
   if (owners.length === 0) {
     return `Move the task to ${stageLabel(target)} with update_task.`;
   }
@@ -920,7 +943,10 @@ function humansWithDuty(input: ContextPackInput, duty: DutyId): string[] {
 
 function humanOwners(input: ContextPackInput, stage: Stage): string[] {
   const humans = new Set(input.project.team.members.filter((m) => m.kind === 'human').map((m) => m.handle));
-  return stageOwners(input.project, stage).filter((h) => humans.has(h));
+  const owners = input.task
+    ? cardStageOwners(input.project, stage, input.task)
+    : allStageOwners(input.project, stage);
+  return owners.filter((h) => humans.has(h));
 }
 
 /** AI members holding client communication, who tell clients that a release is live. */

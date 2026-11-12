@@ -43,6 +43,7 @@ export interface CloudDomain {
       engineId: EngineId,
       reported: ReadonlySet<string>,
       starting: (sessionId: string) => boolean,
+      paused?: ReadonlySet<string>,
     ): Promise<void>;
   };
   pauses: {
@@ -141,6 +142,7 @@ export function createCloudRemote(options: CloudRemoteOptions): CloudRemote {
       id,
       new Set(hello.running.map((info) => info.sessionId)),
       (sessionId) => runner.isStarting(sessionId),
+      new Set(hello.running.filter((info) => info.paused).map((info) => info.sessionId)),
     );
     // Only now: a process the reconcile ended is not running, so what the engine's pause held starts again (PM-1159).
     await bound.domain.pauses.resumeEngine(id);

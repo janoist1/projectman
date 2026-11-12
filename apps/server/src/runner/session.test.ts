@@ -1491,6 +1491,15 @@ describe('pausing (PM-218)', () => {
     expect(s.session.release()).toBe(false);
   });
 
+  it('reports a held session as paused in its info, and says nothing when it is not (PM-1403)', async () => {
+    const s = await ready();
+    expect(s.session.info()).not.toHaveProperty('paused');
+    await s.session.pause();
+    expect(s.session.info().paused).toBe(true);
+    s.session.release();
+    expect(s.session.info()).not.toHaveProperty('paused');
+  });
+
   it('halts the tool call that comes next: it does not run, and the session stops before it', async () => {
     const s = await ready();
     await submit(s);

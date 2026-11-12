@@ -36,6 +36,22 @@ describe('messageText', () => {
     expect(messageText(notice('refinement_done', { taskKey: 'AR-7' }))).toContain('AR-7');
   });
 
+  it('shows the outage start and engine when the new facts are present', () => {
+    const text = messageText(
+      notice('work_outage', {
+        since: '2026-11-12T08:00:00Z',
+        engine: 'Remote Mac',
+        outage: 'claude',
+        problem: 'not_logged_in',
+        tasks: 'AR-7',
+      }),
+    );
+    expect(text).toContain('2026-11-12T08:00:00Z');
+    expect(text).toContain('Remote Mac');
+    expect(text).toContain('AR-7');
+    expect(text).not.toMatch(/\{\w+\}/);
+  });
+
   it('tells an answered and a declined host request apart', () => {
     const params = { title: 'Need a right', answer: 'No.' };
     expect(messageText(notice('host_request_answered', { ...params, outcome: 'answered' }))).not.toBe(

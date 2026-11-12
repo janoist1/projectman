@@ -74,7 +74,7 @@ Enforced on every task:
 - Priority: people and `pm` set it.
 - Complexity points: `owner` set them.
 - Acceptance items: none open to enter `code_review`, none unconfirmed to enter `done`.
-- Project manager: moves `queues_and_start`, lifecycle `assign`, `cancel`, may not override a prerequisite.
+- Project manager: moves `queues_and_start`, lifecycle `assign`, `cancel`, may not override a prerequisite, may not involve a member.
 - Fixes (`code-review-changes` / send-back): reaches 3 rounds → `code-review`, then humans (`owner`) decide.
 - Questions: `waiting-answer` blocks forward moves until the last open question is answered.
 - Viewers write only to the project manager.
@@ -89,8 +89,9 @@ Task AR-21: Fix the booking confirmation email
 What done means for you here:
 1. Test the change where it is deployed: what the task asks and the risky paths around it.
 2. Record the result with update_task as `qa-ok` (QA ok), `qa-failed` (QA: failed) with a note, `qa-retest` (Retest needed), `client-accepted` (Client accepted) or `client-changes` (Client: changes requested) with a note; put a short note (what, where, result) in note.
-3. Send failures to `fe-1` with send_message, with steps to reproduce.
-4. When the test passes, move the task to Client test (`client_test`) with update_task and hand over to `communication` with send_message: the facts they need (links, what changed, what to check).
+3. Put non-blocking remarks in update_task follow_ups with your result, one per item; messages die on closure.
+4. Send failures to `fe-1` with send_message, with steps to reproduce.
+5. When the test passes, move the task to Client test (`client_test`) with update_task and hand over to `communication` with send_message: the facts they need (links, what changed, what to check).
 
 The kick-off brief (description, labels, links, attachments, recent timeline) is the first message of this session; get_task gives the latest state.
 

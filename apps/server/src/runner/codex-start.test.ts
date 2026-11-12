@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RunnerEvent, StartSessionSpec } from '../contracts';
 import { createRunnerModule } from './index';
+import { SessionManager } from './runner';
 import { createCodexAdapter } from './providers/codex';
+import { capturingLogger } from '../../test/helpers/fakes';
 import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs, waitFor } from './test-helpers';
 
 const dirs = tempDirs();
@@ -53,6 +55,79 @@ describe('fail-closed Codex start', () => {
       await runner.start({ ...spec, resume: true, initialMessage: 'Retry the waiting messages' });
       await waitFor(() => events.some((event) => event.type === 'exit'));
       expect(events.filter((event) => event.type === 'first_input_sent')).toEqual([]);
+    } finally {
+      await runner.shutdown();
+    }
+  });
+
+  it('backs off consecutive failed login probes to once a minute', async () => {
+    const { options } = await fixture();
+    const runner = new SessionManager(options);
+    const probe = vi.spyOn(runner.adapters.gemini, 'checkLogin').mockResolvedValue({
+      provider: 'gemini',
+      loggedIn: false,
+      method: null,
+      checkedAt: '2026-11-12T08:00:00Z',
+    });
+    let now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      await runner.providerStatus('gemini');
+      for (const [index, delay] of [3_000, 10_000, 30_000, 60_000, 60_000].entries()) {
+        now += delay - 1;
+        await runner.providerStatus('gemini');
+        expect(probe).toHaveBeenCalledTimes(index + 1);
+        now++;
+        await runner.providerStatus('gemini');
+        expect(probe).toHaveBeenCalledTimes(index + 2);
+      }
+    } finally {
+      clock.mockRestore();
+      await runner.shutdown();
+    }
+  });
+
+  it('refreshes login immediately on request and resets backoff after recovery', async () => {
+    const { options } = await fixture();
+    const runner = new SessionManager(options);
+    const failed = { provider: 'gemini' as const, loggedIn: false, method: null, checkedAt: 'x' };
+    const probe = vi.spyOn(runner.adapters.gemini, 'checkLogin').mockResolvedValue(failed);
+    let now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      await runner.providerStatus('gemini');
+      now += 3_000;
+      await runner.providerStatus('gemini');
+      probe.mockResolvedValueOnce({ ...failed, loggedIn: true });
+      expect((await runner.providerStatus('gemini', { refresh: true })).loggedIn).toBe(true);
+      await runner.providerStatus('gemini', { refresh: true });
+      now += 3_000;
+      await runner.providerStatus('gemini');
+      expect(probe).toHaveBeenCalledTimes(5);
+    } finally {
+      clock.mockRestore();
+      await runner.shutdown();
+    }
+  });
+
+  it('logs an unusable CLI when its state changes, not on every failed check', async () => {
+    const { options } = await fixture();
+    const { logger, warnings } = capturingLogger();
+    const runner = new SessionManager({ ...options, logger });
+    const failed = { provider: 'gemini' as const, loggedIn: false, method: null, checkedAt: 'x' };
+    const probe = vi.spyOn(runner.adapters.gemini, 'checkLogin').mockResolvedValue(failed);
+    const logged = () => warnings.filter((entry) => (entry as unknown[])[1] === 'agent CLI is not usable');
+    try {
+      for (let check = 0; check < 3; check++) await runner.providerStatus('gemini', { refresh: true });
+      expect(logged()).toHaveLength(1);
+      probe.mockResolvedValue({ ...failed, problem: 'cli_missing' });
+      await runner.providerStatus('gemini', { refresh: true });
+      expect(logged()).toHaveLength(2);
+      probe.mockResolvedValue({ ...failed, loggedIn: true });
+      await runner.providerStatus('gemini', { refresh: true });
+      probe.mockResolvedValue(failed);
+      await runner.providerStatus('gemini', { refresh: true });
+      expect(logged()).toHaveLength(3);
     } finally {
       await runner.shutdown();
     }

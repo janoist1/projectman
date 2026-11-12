@@ -1237,7 +1237,7 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   before downloading final data for single-mode activation. Deployment and backup run
   on EC2; the recovery service manages only the single-mode server.
   PM-1381: a restore point below schema 152 must first start with
-  **BASELINE_RELEASE_PENDING**, then the current release. Rebuild that release image at
+  **v2026.11.12**, then the current release. Rebuild that release image at
   its commit if the seven-day build artifact has expired; see DEPLOY.md, "A database
   from before the baseline". The database is on the hub; the remote engine does not
   open it. The baseline is bundled TypeScript, with no new filesystem assumption.
@@ -2908,7 +2908,7 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   PM-1381: `verify` and inventory report a `schema_before_baseline` blocker for
   schema 1–151, using the server's recovery instructions. Before `hybrid back` or
   `instance activate --discard-cloud-data` can use an old restored or pre-hybrid
-  database, open its copy once with **BASELINE_RELEASE_PENDING**, then the current
+  database, open its copy once with **v2026.11.12**, then the current
   release (DEPLOY.md, "A database from before the baseline"). The same applies to old
   development homes. These tools run on the recovery host; no engine RPC changes.
   **Machine assumptions:** local repositories and data directories, POSIX modes and

@@ -6,8 +6,8 @@ and [AWS.md](AWS.md). This page covers operating the Mac engine, releases and th
 ## A database from before the baseline (PM-1381)
 
 The schema baseline replaces migrations 1–152. A database at version 1–151 must
-first be opened once with **BASELINE_RELEASE_PENDING** (the release immediately before
-this change), or a later release from before the baseline switch. Only then start
+first be opened once with **[v2026.11.12](https://github.com/janoist1/projectman/releases/tag/v2026.11.12)**
+(commit `9508a0f45a1e37436ccf707c040d5452f25bb6c2`), or a later release from before the baseline switch. Only then start
 the current release. The server refuses an older database before applying any migration
 and names the required release in its error.
 
@@ -19,6 +19,11 @@ once, then deploy the current image. Build artifacts expire after seven days: if
 old image is unavailable, rebuild at the pre-baseline release commit using
 `projectman-job.yml` or `image-build`. For Mac single mode, use that release's packaged
 server for the first start.
+
+The development home checked before this switch (`~/.projectman-dev/db.sqlite`, last
+used on 2026-10-01) is still at schema 11. This build refuses it: start v2026.11.12
+on it once before using the current build, or discard that disposable development
+home if its data is no longer needed. Its old schema does not block the hub update.
 
 The engine does not open the database. The regular release order remains hub first,
 then engines; before deploying the baseline build the hub must already be at schema

@@ -3,7 +3,7 @@
  * Frozen schema: never edit this SQL, just as a released migration must never be edited.
  */
 export const BASELINE_VERSION = 152;
-export const BASELINE_RELEASE = 'BASELINE_RELEASE_PENDING';
+export const BASELINE_RELEASE = 'v2026.11.12';
 
 export const BASELINE_SQL = String.raw`CREATE TABLE users (
         id            TEXT PRIMARY KEY,

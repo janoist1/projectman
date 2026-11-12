@@ -55,6 +55,47 @@ function report(target: Element, ratio: number) {
   });
 }
 
+/**
+ * A visual viewport a test drives (jsdom has none): `coverFrom(y)` stands for a keyboard from `y` down. An element
+ * given a `placeAt` position has its bounding box faked, as jsdom has no layout. Returns the controls and `restore`.
+ */
+export function fakeVisualViewport(height = 800) {
+  const events = new EventTarget();
+  const viewport = Object.assign(events, { offsetTop: 0, offsetLeft: 0, width: 400, height, scale: 1 });
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+  return {
+    placeAt(target: Element, top: number, size = 16) {
+      target.getBoundingClientRect = () =>
+        ({
+          top,
+          bottom: top + size,
+          left: 20,
+          right: 80,
+          width: 60,
+          height: size,
+          x: 20,
+          y: top,
+          toJSON: () => ({}),
+        }) satisfies DOMRect;
+    },
+    coverFrom(y: number) {
+      viewport.height = y;
+      act(() => {
+        events.dispatchEvent(new Event('resize'));
+      });
+    },
+    uncover() {
+      viewport.height = height;
+      act(() => {
+        events.dispatchEvent(new Event('resize'));
+      });
+    },
+    restore() {
+      Reflect.deleteProperty(window, 'visualViewport');
+    },
+  };
+}
+
 /** The element is wholly on the screen. */
 export const showOnScreen = (target: Element) => report(target, 1);
 /** The element is off the screen (scrolled out, below the fold, folded away). */

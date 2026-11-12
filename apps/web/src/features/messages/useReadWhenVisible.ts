@@ -23,11 +23,30 @@ function useDocumentVisible(): boolean {
   return visible;
 }
 
+/**
+ * Whether the element lies under something that shrinks the visual viewport (a phone's on-screen keyboard): the
+ * layout viewport the IntersectionObserver measures against may not follow it, so the element is checked against the
+ * visual viewport too.
+ */
+function isCoveredByViewport(element: Element): boolean {
+  const viewport = window.visualViewport;
+  if (!viewport) return false;
+  const rect = element.getBoundingClientRect();
+  const area = rect.width * rect.height;
+  if (area <= 0) return false;
+  const width =
+    Math.min(rect.right, viewport.offsetLeft + viewport.width) - Math.max(rect.left, viewport.offsetLeft);
+  const height =
+    Math.min(rect.bottom, viewport.offsetTop + viewport.height) - Math.max(rect.top, viewport.offsetTop);
+  return Math.max(0, width) * Math.max(0, height) < SHOWN_RATIO * area;
+}
+
 type Watch = (id: string) => (element: Element | null) => void;
 
 /**
  * Marks incoming messages read when they have really been seen (L-03): a message is read after its unread mark has
- * been wholly visible (within its scroller and the browser's screen) for `READ_AFTER_MS` while `active` and the tab is
+ * been wholly visible (within its scroller and the browser's screen, not under a phone's keyboard) for `READ_AFTER_MS`
+ * while `active` and the tab is
  * in the foreground. Leaving the screen, hiding the tab or going inactive drops the time not yet elapsed; showing it
  * again starts it anew. The eligible ids are gathered for `READ_BATCH_MS` and sent in one request. A failed request
  * leaves the messages unread, shows one toast and is not retried by itself: showing the mark again tries again.
@@ -92,6 +111,8 @@ export function useReadWhenVisible(
     (id: string) => {
       const s = state.current;
       if (!s.enabled || s.dwell.has(id) || s.pending.has(id) || s.requested.has(id)) return;
+      const element = s.elements.get(id);
+      if (element && isCoveredByViewport(element)) return;
       s.dwell.set(
         id,
         setTimeout(() => {
@@ -133,6 +154,31 @@ export function useReadWhenVisible(
     if (enabled) for (const id of s.shown) startDwell(id);
     else stopTiming();
   }, [enabled, startDwell, stopTiming]);
+
+  // The keyboard coming or going changes the visual viewport without any intersection change: a mark it covers loses
+  // its time, one it uncovers starts anew.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const s = state.current;
+    const sync = () => {
+      for (const id of s.shown) {
+        const element = s.elements.get(id);
+        if (element && isCoveredByViewport(element)) {
+          clearTimeout(s.dwell.get(id));
+          s.dwell.delete(id);
+        } else {
+          startDwell(id);
+        }
+      }
+    };
+    viewport.addEventListener('resize', sync);
+    viewport.addEventListener('scroll', sync);
+    return () => {
+      viewport.removeEventListener('resize', sync);
+      viewport.removeEventListener('scroll', sync);
+    };
+  }, [startDwell]);
 
   // The elements are registered when they mount, before this runs: observe them now, and let go of everything on leaving.
   useEffect(() => {

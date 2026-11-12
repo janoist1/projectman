@@ -6,7 +6,7 @@ import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
-import { hideFromScreen, showOnScreen } from '../../test/intersection';
+import { fakeVisualViewport, hideFromScreen, showOnScreen } from '../../test/intersection';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { MessagesPage } from './MessagesPage';
 
@@ -204,6 +204,56 @@ describe('a conversation', () => {
     showOnScreen(unreadMarks(log)[0]!);
     await new Promise((resolve) => setTimeout(resolve, 1500));
     expect(readRequests(p)).toHaveLength(0);
+  });
+
+  it('does not read a message under the keyboard, and times it anew once the keyboard is gone', async () => {
+    const keyboard = fakeVisualViewport();
+    try {
+      const p = mockProject();
+      p.backend.messages = [];
+      p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme under the keyboard');
+      p.render(<Pages />, '/p/AC/messages/with/fe-1');
+      const log = await screen.findByRole('log');
+      await within(log).findByText('Acme under the keyboard');
+      const [mark] = unreadMarks(log) as [HTMLElement];
+      keyboard.placeAt(mark, 700);
+      // The keyboard covers it from the start: the browser's intersection says it is shown, the viewport says not.
+      keyboard.coverFrom(500);
+      showOnScreen(mark);
+      await new Promise((resolve) => setTimeout(resolve, 1300));
+      expect(readRequests(p)).toHaveLength(0);
+      keyboard.uncover();
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(readRequests(p)).toHaveLength(0);
+      await waitFor(() => expect(readRequests(p)).toHaveLength(1), { timeout: 3000 });
+    } finally {
+      keyboard.restore();
+    }
+  });
+
+  it('drops the time of a message the keyboard covers before the second is over', async () => {
+    const keyboard = fakeVisualViewport();
+    try {
+      const p = mockProject();
+      p.backend.messages = [];
+      p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme covered later');
+      p.render(<Pages />, '/p/AC/messages/with/fe-1');
+      const log = await screen.findByRole('log');
+      await within(log).findByText('Acme covered later');
+      const [mark] = unreadMarks(log) as [HTMLElement];
+      keyboard.placeAt(mark, 700);
+      showOnScreen(mark);
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      keyboard.coverFrom(500);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      keyboard.uncover();
+      // 600 + 800 ms have passed since it was shown, but the covered time does not count: a whole second starts now.
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      expect(readRequests(p)).toHaveLength(0);
+      await waitFor(() => expect(readRequests(p)).toHaveLength(1), { timeout: 3000 });
+    } finally {
+      keyboard.restore();
+    }
   });
 
   it('keeps a message unread and tells so once when the batch fails, and does not try again by itself', async () => {

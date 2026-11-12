@@ -3524,6 +3524,12 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "minItems": 1,
           "type": "array",
         },
+        "handover_check_exception": {
+          "description": "Why the hand-over check could not run (e.g. the sandbox refused it).",
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+        },
         "note": {
           "description": "Timeline note: findings, decisions, what changed; with labels, their comment.",
           "maxLength": 50000,

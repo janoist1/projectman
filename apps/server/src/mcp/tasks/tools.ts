@@ -409,7 +409,7 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .max(500)
           .optional()
           .describe(
-            'For the developer who hands the card over, when the repository has a hand-over check: why the check could not run on your committed work (for example the sandbox refused it). With stage_id the move into review goes on without a green result; alone it covers the commit you have checked out, for the next hand-over or a new review round. Not a way around a failing check.',
+            'Why the hand-over check could not run (e.g. the sandbox refused it).',
           ),
         reply_to: z.string().max(100).optional().describe('Comment event id: reply to it.'),
         title: z

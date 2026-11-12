@@ -902,6 +902,15 @@ describe('cloud mode remote parts', () => {
         expect(asked).toHaveBeenCalledTimes(1);
       });
 
+      it('answers every member of a provider from one engine call', async () => {
+        const engine = await online();
+        const asked = vi.fn(async () => reported());
+        engine.answer('provider.status', asked);
+        await remote.runner.providerStatus!('nanogpt', { member: 'dev-1' });
+        await remote.runner.providerStatus!('nanogpt', { member: 'dev-2' });
+        expect(asked).toHaveBeenCalledTimes(1);
+      });
+
       it('counts a failing key store as no key', async () => {
         const engine = await online();
         engine.answer('provider.status', async () => reported());

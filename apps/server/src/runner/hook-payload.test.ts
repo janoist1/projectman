@@ -57,6 +57,11 @@ describe('sessionAllowScope', () => {
     expect(scope({ command: patch })?.directories).toEqual(['/abs', '/w/repo/lib', '/w/repo/src']);
     expect(scope(patch)?.directories).toEqual(['/abs', '/w/repo/lib', '/w/repo/src']);
     expect(scope({ command: 'no files here' })).toBeNull();
+    // Codex trims the start of a header line, so an indented header names a file too.
+    expect(
+      scope({ command: '*** Begin Patch\n  *** Update File: src/a.ts\n\t*** Move to: lib/a.ts' })
+        ?.directories,
+    ).toEqual(['/w/repo/lib', '/w/repo/src']);
   });
 
   it('remembers nothing without a tool or for a Bash call without a command', () => {

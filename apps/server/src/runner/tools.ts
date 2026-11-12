@@ -50,7 +50,7 @@ export function patchSummary(patch: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
-/** "mcp__team__send_message" ->"team: send_message". */
+/** "mcp__team__send_message" -> "team: send_message". */
 function mcpName(name: string): string | null {
   const m = /^mcp__(.+?)__(.+)$/.exec(name);
   return m ? `${m[1]}: ${m[2]}` : null;

@@ -880,6 +880,7 @@ export class Admission {
       return reason;
     // The member's starts at the place failed (PM-1335): the backoff lasts until its time, a stop until a release.
     if (reason === 'start_backoff' && waiting.until && waiting.until > isoNow(this.ctx)) return reason;
+    // Any stopped place of the member holds all of its deferrals: a release lifts the member's places together.
     if (reason === 'start_failing' && member && this.startFailures.stoppedFor(start.projectKey, member))
       return reason;
     if (reason === 'prerequisite_open' && task) {

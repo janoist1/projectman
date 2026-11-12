@@ -364,6 +364,19 @@ describe('pause of the team', () => {
       expect(h.repos.messages.list('AR').map((m) => m.from)).toContain('system');
     });
 
+    it('keeps the session’s pause row until it started again, so the next start finishes the resume (PM-1347)', async () => {
+      const session = await cutAndGone('before_tool');
+      exit(session.id);
+      vi.spyOn(h.domain.messageRouter, 'holdsMessagesOf').mockRejectedValueOnce(new Error('fictional crash'));
+      await h.domain.pauses.resume(PROJECT, BY);
+      expect(h.runner.started).toHaveLength(1);
+      expect(h.repos.pauses.openSession(session.id)).not.toBeNull();
+      await h.domain.pauses.resumeAfterStartup();
+      await waitFor(() => h.runner.started.length === 2);
+      expect(h.runner.started[1]!.initialMessage).toContain('Nudge before_tool restarted');
+      expect(h.repos.pauses.openSession(session.id)).toBeNull();
+    });
+
     it('stores the nudge and starts nothing when the card holds the member’s messages back', async () => {
       const session = await cutAndGone('before_tool');
       exit(session.id);

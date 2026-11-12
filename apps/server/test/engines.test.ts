@@ -478,6 +478,23 @@ describe('sessions on engines', () => {
       expect(h.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
     });
 
+    it('resumes an interrupted general session with the interruption nudge, but not one waiting for input (PM-1347)', async () => {
+      const general = { type: 'general' } as const;
+      const working = (await h.domain.sessions.ensureSession('AR', 'dev-1', general)).session;
+      const waiting = (await h.domain.sessions.ensureSession('AR', 'dev-2', general)).session;
+      await loseProcess(working);
+      await loseProcess(waiting, 'waiting_input');
+      await h.domain.sessions.reconcileAfterRestart();
+      await waitFor(() => (h.runner.started.length === 3 ? true : undefined));
+      await settle();
+      expect(h.runner.started).toHaveLength(3);
+      expect(h.runner.lastStarted()).toMatchObject({
+        sessionId: working.id,
+        resume: true,
+        initialMessage: 'Nudge interrupted restarted',
+      });
+    });
+
     it.each(['dev', 'code_review', 'fix'])(
       'resumes interrupted %s work after reconnecting',
       async (stage) => {

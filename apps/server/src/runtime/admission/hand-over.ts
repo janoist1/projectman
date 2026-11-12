@@ -69,9 +69,14 @@ export class StageHandOver {
     await this.admission.attempt(this.startFor(change));
   }
 
-  /** An interrupted card keeps its member and conversation, under normal stage admission. */
+  /**
+   * An interrupted card keeps its member and conversation, under normal stage admission. A general conversation (a
+   * desk) cut in a turn starts again with the interruption nudge, without admission, as a resumed pause does (PM-1347).
+   */
   async resumeInterrupted(session: Session, previousState?: SessionState): Promise<void> {
-    if (session.lastStop?.kind !== 'server_restart' || session.workItem.type !== 'task') return;
+    if (session.lastStop?.kind !== 'server_restart') return;
+    if (session.workItem.type === 'general') return this.resumeGeneral(session, previousState);
+    if (session.workItem.type !== 'task') return;
     // Input waits need an answer, not an unsolicited continuation after the process disappeared.
     if (previousState !== 'starting' && previousState !== 'working' && previousState !== 'waiting_permission')
       return;
@@ -80,6 +85,34 @@ export class StageHandOver {
     await this.admission.attempt(
       this.startFor({ task, from: task.stageId, to: task.stageId, actor: SYSTEM_ACTOR }, session.member),
     );
+  }
+
+  /**
+   * The messages that waited go in its first input after the nudge. A start that fails stores the nudge as a message
+   * instead, so the interruption is never lost.
+   */
+  private async resumeGeneral(session: Session, previousState?: SessionState): Promise<void> {
+    if (previousState !== 'working' && previousState !== 'waiting_permission') return;
+    const { projectKey, member, workItem } = session;
+    const nudge = this.sessions.pauseNudge('interrupted', null, true);
+    if (!nudge) return;
+    try {
+      await this.delivery.startAndDeliver(projectKey, member, workItem, (messages) =>
+        this.sessions.ensureSession(projectKey, member, workItem, {
+          messages,
+          nudge,
+          pauseRestart: true,
+          cause: { kind: 'pause_resume' },
+        }),
+      );
+    } catch {
+      await this.messaging.send(
+        projectKey,
+        SYSTEM_SENDER,
+        { to: [member], text: nudge, taskKey: null },
+        { actor: SYSTEM_ACTOR, workItem },
+      );
+    }
   }
 
   /**

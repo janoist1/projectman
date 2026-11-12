@@ -69,6 +69,7 @@ import type {
 } from '@projectman/shared';
 import { isApiError } from './client';
 import {
+  invalidateAll,
   invalidateAttachments,
   patchOpenInboxCount,
   refreshConfigHistory,
@@ -259,8 +260,11 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: (body: CreateProjectRequest) => api.createProject(body),
     onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: queryKeys.projects });
-      await client.invalidateQueries({ queryKey: queryKeys.me });
+      // Navigation needs the new project and its access in the viewer's project list.
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.projects }),
+        client.invalidateQueries({ queryKey: queryKeys.me }),
+      ]);
     },
   });
 }
@@ -943,17 +947,17 @@ export function useResolveInbox(key: string, myHandle: string | null) {
     onError: (_error, _variables, context) => {
       if (context?.previous) client.setQueryData(queryKeys.inbox(key), context.previous);
     },
-    onSettled: async (_data, _error, { item }) => {
-      await client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
-      await client.invalidateQueries({ queryKey: queryKeys.inboxHistory(key) });
-      await client.invalidateQueries({ queryKey: queryKeys.board(key) });
-      if (item.payload.operatorKnowledge) {
-        await client.invalidateQueries({ queryKey: queryKeys.operatorKnowledge(key) });
-        await client.invalidateQueries({ queryKey: queryKeys.projectManager(key) });
-      }
-      // A merge request starts the merge: the open card shows it at once.
-      if (item.kind === 'merge_request' && item.taskKey)
-        await client.invalidateQueries({ queryKey: queryKeys.task(key, item.taskKey) });
+    onSettled: (_data, _error, { item }) => {
+      invalidateAll(client, [
+        queryKeys.inbox(key),
+        queryKeys.inboxHistory(key),
+        queryKeys.board(key),
+        ...(item.payload.operatorKnowledge
+          ? [queryKeys.operatorKnowledge(key), queryKeys.projectManager(key)]
+          : []),
+        // A merge request starts the merge: the open card shows it at once.
+        ...(item.kind === 'merge_request' && item.taskKey ? [queryKeys.task(key, item.taskKey)] : []),
+      ]);
     },
   });
 }
@@ -1110,9 +1114,9 @@ function useTaskMutation<T, R extends Task>(key: string, mutationFn: (variables:
   const client = useQueryClient();
   return useMutation({
     mutationFn,
-    onSuccess: async (task) => {
+    onSuccess: (task) => {
       writeTask(client, key, task);
-      await client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) });
+      invalidateAll(client, [queryKeys.task(key, task.key)]);
     },
   });
 }
@@ -1127,16 +1131,18 @@ export function useCreateTaskComment(key: string) {
   return useMutation({
     mutationFn: ({ taskKey, body }: { taskKey: string; body: CreateTaskCommentRequest }) =>
       api.createTaskComment(key, taskKey, body),
-    onSuccess: async (detail) => {
+    onSuccess: (detail) => {
       writeTaskDetail(client, key, detail);
-      void client.invalidateQueries({ queryKey: queryKeys.taskComments(key, detail.task.key) });
-      // The comment's files are bound to it now: the card's file list links to the comment.
-      void client.invalidateQueries({ queryKey: queryKeys.attachments(key, detail.task.key) });
-      // A reply closes the writer's own mention items of its thread (PM-1276).
-      void client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
-      void client.invalidateQueries({ queryKey: queryKeys.inboxHistory(key) });
-      // Mentions message the mentioned members.
-      await client.invalidateQueries({ queryKey: queryKeys.messages(key) });
+      invalidateAll(client, [
+        queryKeys.taskComments(key, detail.task.key),
+        // The comment's files are bound to it now: the card's file list links to the comment.
+        queryKeys.attachments(key, detail.task.key),
+        // A reply closes the writer's own mention items of its thread (PM-1276).
+        queryKeys.inbox(key),
+        queryKeys.inboxHistory(key),
+        // Mentions message the mentioned members.
+        queryKeys.messages(key),
+      ]);
     },
   });
 }
@@ -1153,11 +1159,13 @@ export function useEditTaskComment(key: string) {
       eventId: string;
       body: EditTaskCommentRequest;
     }) => api.editTaskComment(key, taskKey, eventId, body),
-    onSuccess: async (_result, { taskKey }) => {
-      void client.invalidateQueries({ queryKey: queryKeys.task(key, taskKey) });
-      void client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
-      void client.invalidateQueries({ queryKey: queryKeys.messages(key) });
-      await client.invalidateQueries({ queryKey: queryKeys.taskComments(key, taskKey) });
+    onSuccess: (_result, { taskKey }) => {
+      invalidateAll(client, [
+        queryKeys.task(key, taskKey),
+        queryKeys.inbox(key),
+        queryKeys.messages(key),
+        queryKeys.taskComments(key, taskKey),
+      ]);
     },
   });
 }

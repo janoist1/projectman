@@ -252,6 +252,7 @@ import {
   loopWatchOf,
   usageTotal,
   closedCardsSince,
+  cardReviewer,
   countCardRounds,
   countFixRounds,
   fixLimitDecisionOf,
@@ -4707,7 +4708,17 @@ export class MockBackend {
     const cards = this.tasks
       .filter((task) => isClosedSince(task, since))
       .sort((a, b) => (a.closedAt! < b.closedAt! ? 1 : -1))
-      .map((task) => measureClosedCard(task, this.taskSessions(task.key), this.cardRounds(task.key)));
+      .map((task) =>
+        measureClosedCard(
+          task,
+          this.taskSessions(task.key),
+          this.cardRounds(task.key),
+          cardReviewer(
+            this.timeline.filter((event) => event.taskKey === task.key),
+            this.config,
+          ),
+        ),
+      );
     return { since, days, cards: clone(cards) };
   }
 

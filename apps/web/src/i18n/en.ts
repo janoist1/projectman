@@ -2410,10 +2410,14 @@ export const en = {
     unmeasured:
       'No measurements for {sessions|# session|# sessions} across {cards|# card|# cards} (recorded before measurement was introduced); excluded from the comparison.',
     noImplementer: 'no implementer',
+    reviewerUnknown: 'No reviewer data',
+    failedByReviewer: 'Failed merge checks by reviewer:',
+    reviewerRatio: '{name}: {failed} / {total|# card|# cards} ({percent})',
     sessionsWithoutData: '{count|# session|# sessions} without measurements',
     columns: {
       card: 'Card',
       implementer: 'Implementer and model',
+      reviewer: 'Reviewer',
       tokens: 'Weighted tokens',
       reviewRounds: 'Review rounds',
       sendBacks: 'Send-backs',

@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { Session, TimelineEvent, TokenUsage } from '@projectman/shared';
 import { formatTokens as format } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { setCurrentLanguage } from '../../i18n/language';
+import { http, HttpResponse } from 'msw';
+import { server } from '../../test/msw/server';
 import type { MockBackend } from '../../mocks/backend';
 import { mockProject } from '../../test/mockProject';
 import { TaskDrawer } from '../board/TaskDrawer';
@@ -18,6 +21,7 @@ const addEvent = (
   taskKey: string,
   type: TimelineEvent['type'],
   data: Record<string, unknown>,
+  actor: TimelineEvent['actor'] = { kind: 'system', handle: null },
 ) => {
   events += 1;
   backend.timeline.push({
@@ -25,7 +29,7 @@ const addEvent = (
     projectKey: 'AC',
     taskKey,
     sessionId: null,
-    actor: { kind: 'system', handle: null },
+    actor,
     type,
     data,
     createdAt: new Date().toISOString(),
@@ -92,6 +96,84 @@ const order = () =>
     .filter((key): key is string => key !== undefined);
 
 describe('closed cards comparison (PM-222)', () => {
+  it('returns focus to the selected period when retry removes the error button', async () => {
+    const project = measuredProject();
+    server.use(http.get('http://localhost/api/projects/AC/measure/closed-cards', () => HttpResponse.error()));
+    project.render(<ClosedCardsComparison />);
+    const retry = await screen.findByRole('button', { name: t('app.retry') });
+    retry.focus();
+    server.resetHandlers();
+    fireEvent.click(retry);
+    await screen.findByRole('table');
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: t('cardMeasure.periodDays', { days: 14 }) }),
+    );
+  });
+  it.each(['hu', 'en'] as const)(
+    'shows reviewer ratios in %s, independent of sorting and token coverage',
+    async (language) => {
+      setCurrentLanguage(language);
+      const project = measuredProject();
+      const { backend } = project;
+      for (const [taskKey, reviewer] of [
+        ['AC-15', 'z-reviewer'],
+        ['AC-14', 'a-reviewer'],
+        ['AC-13', 'a-reviewer'],
+      ]) {
+        addEvent(
+          backend,
+          taskKey!,
+          'task_labels_changed',
+          { added: ['code-review-ok'] },
+          { kind: 'ai', handle: reviewer! },
+        );
+      }
+      addEvent(backend, 'AC-14', 'task_merge_failed', { reason: 'check_failed' });
+      addEvent(backend, 'AC-14', 'task_merge_failed', { reason: 'check_failed' });
+      addEvent(backend, 'AC-15', 'task_merge_failed', { reason: 'conflict' });
+      backend.sessions = [];
+      project.render(<ClosedCardsComparison />);
+      const table = await screen.findByRole('table');
+      expect(
+        within(table).getByRole('columnheader', { name: t('cardMeasure.columns.reviewer') }),
+      ).toBeTruthy();
+      const summary = screen.getByText(t('cardMeasure.failedByReviewer')).closest('p')!;
+      expect(summary.textContent).toContain('a-reviewer: 1 / 2');
+      expect(summary.textContent).toContain('50%');
+      expect(summary.textContent).toContain('z-reviewer: 0 / 1');
+      expect(summary.textContent).toContain('0%');
+      const before = summary.textContent;
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: t('cardMeasure.sortBy', { column: t('cardMeasure.columns.tokens') }),
+        }),
+      );
+      expect(summary.textContent).toBe(before);
+      expect(
+        within(within(table).getByText('AC-15').closest('tr')!).getAllByRole('cell')[2]!.textContent,
+      ).toBe('z-reviewer');
+    },
+  );
+
+  it.each([false, true])('omits the summary with zero or one reviewer (approval: %s)', async (approved) => {
+    const project = measuredProject();
+    if (approved)
+      addEvent(
+        project.backend,
+        'AC-15',
+        'task_labels_changed',
+        { added: ['code-review-ok'] },
+        { kind: 'ai', handle: 'cr' },
+      );
+    project.render(<ClosedCardsComparison />);
+    const table = await screen.findByRole('table');
+    expect(screen.queryByText(t('cardMeasure.failedByReviewer'))).toBeNull();
+    const cardCount = within(table).getAllByRole('row').length - 1;
+    expect(within(table).getAllByLabelText(t('cardMeasure.reviewerUnknown')).length).toBe(
+      cardCount - Number(approved),
+    );
+  });
+
   it("lists the closed cards with the implementer's model, weighted tokens per model and rounds", async () => {
     const project = measuredProject();
     project.render(<ClosedCardsComparison />);
@@ -102,11 +184,11 @@ describe('closed cards comparison (PM-222)', () => {
     expect(within(row).getAllByText('claude-opus-5-5')).toHaveLength(2);
     expect(within(row).getAllByText(formatTokens(1000))).toHaveLength(2);
     const cells = within(row).getAllByRole('cell');
-    expect(cells[3]!.textContent).toContain('2');
-    expect(cells[3]!.textContent).toContain(t('cardMeasure.changeRequestsOf', { count: 1 }));
+    expect(cells[4]!.textContent).toContain('2');
+    expect(cells[4]!.textContent).toContain(t('cardMeasure.changeRequestsOf', { count: 1 }));
     // The send-back that goes with the change request is not a round of its own (PM-1103).
-    expect(cells[4]!.textContent).toBe('0');
-    expect([cells[5]!.textContent, cells[6]!.textContent]).toEqual(['0', '0']);
+    expect(cells[5]!.textContent).toBe('0');
+    expect([cells[6]!.textContent, cells[7]!.textContent]).toEqual(['0', '0']);
     // Weighted: 200 + a tenth of 1000 cache reads.
     const sonnet = within(table).getByText('AC-13').closest('tr')!;
     expect(within(sonnet).getAllByText(formatTokens(300))).toHaveLength(2);
@@ -128,8 +210,8 @@ describe('closed cards comparison (PM-222)', () => {
     project.render(<ClosedCardsComparison />);
     const table = await screen.findByRole('table');
     const cells = within(within(table).getByText('AC-14').closest('tr')!).getAllByRole('cell');
-    expect(cells[4]!.textContent).toContain(t('cardMeasure.reviewTestsFailedOf', { count: 1 }));
-    expect([cells[5]!.textContent, cells[6]!.textContent]).toEqual(['1', '2']);
+    expect(cells[5]!.textContent).toContain(t('cardMeasure.reviewTestsFailedOf', { count: 1 }));
+    expect([cells[6]!.textContent, cells[7]!.textContent]).toEqual(['1', '2']);
   });
 
   it('says the model source in one sentence and keeps the weighted-token note behind a fold (PM-240)', async () => {

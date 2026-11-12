@@ -22,7 +22,7 @@ const teamToolTree = [
     "import { TeamToolInput } from '@projectman/shared';\nexport const tools = [TeamToolInput];",
   ),
   file(SNAPSHOT_TEST, "import { tools } from './tools';"),
-  file('apps/server/src/mcp/__snapshots__/tools.test.ts.snap'),
+  file('apps/server/src/mcp/__snapshots__/tools/get_task.json'),
   file(
     'apps/server/src/mcp/unrelated.ts',
     "import { Other } from '@projectman/shared';\nexport const unrelated = Other;",
@@ -31,6 +31,12 @@ const teamToolTree = [
 ];
 
 describe('handover selection', () => {
+  it('selects the tool definition test for a per-tool JSON snapshot change', () => {
+    const selection = select(teamToolTree, ['apps/server/src/mcp/__snapshots__/tools/get_task.json']);
+    expect(selection.tests).toEqual([{ workspace: 'apps/server', files: [SNAPSHOT_TEST] }]);
+    expect(selection.unmapped).toEqual([]);
+  });
+
   it('selects the tool snapshot test when a shared schema used by a team tool changes (PM-1285)', () => {
     const selection = select(teamToolTree, ['packages/shared/src/team-tool.ts']);
     expect(selection.kind).toBe('targeted');

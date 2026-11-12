@@ -120,8 +120,9 @@ export function serverTestImpact(input: {
     if (/\/(?:fixtures|test-fixtures)\//.test(path) || path.startsWith('apps/server/test/setup/'))
       return fail(`test support changed: ${path}`);
     const snapshot = /^(.*)\/__snapshots__\/([^/]+)\.snap$/.exec(path);
-    if (snapshot) {
-      const test = `${snapshot[1]}/${snapshot[2]}`;
+    const toolSnapshot = /^apps\/server\/src\/mcp\/__snapshots__\/tools\/[^/]+\.json$/.test(path);
+    if (snapshot || toolSnapshot) {
+      const test = toolSnapshot ? 'apps/server/src/mcp/tools.test.ts' : `${snapshot![1]}/${snapshot![2]}`;
       if (!isServerTest(test) || !afterPaths.has(test)) return fail(`unmapped snapshot: ${path}`);
       seeded.add(test);
     } else if (path.startsWith('apps/server/') && path.endsWith('.md')) continue;

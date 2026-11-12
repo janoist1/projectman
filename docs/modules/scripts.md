@@ -141,7 +141,13 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   **Server and script impact (PM-864).** Server contracts and config use their source modules;
   script code uses the server workspace. Both server and script files are read from each git tree.
   Changed tests select themselves, deleted tests have no effect, and snapshots select their owning
-  test (an unmapped snapshot falls back). Changed helpers and scripts select tests reaching them in
+  test (an unmapped snapshot falls back). Per-tool JSON snapshots in
+  `apps/server/src/mcp/__snapshots__/tools/` select `apps/server/src/mcp/tools.test.ts` in both
+  merge and hand-over checks. That test compares one JSON file per tool and checks the directory
+  against the registered tool names, so missing and orphaned files fail. Update with
+  `npx vitest run src/mcp/tools.test.ts --configLoader runner -u` in `apps/server`, remove files
+  for retired tools, then rerun without `-u` to verify the complete file set.
+  Changed helpers and scripts select tests reaching them in
   either tree; a script dependency also proves a source dependency. Server markdown is ignored.
   Fixtures, test setup and other non-code changes fall back to the full server workspace, as do
   nonliteral/unresolved production imports, unmapped sources, empty selection and ambiguous Vitest

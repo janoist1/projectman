@@ -1,0 +1,56 @@
+{
+  "name": "mark_decision_candidates",
+  "title": "Mark the offered decision candidates",
+  "description": "Record the owner's verdict on the candidates you offered, in the owner's own conversation during an open owner request. All or nothing: one unknown item_id refuses the whole call with not_found. An item already marked can be marked again when the owner asks.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "items": {
+        "minItems": 1,
+        "maxItems": 50,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "item_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "verdict": {
+              "type": "string",
+              "enum": [
+                "recorded",
+                "declined",
+                "skipped"
+              ],
+              "description": "recorded: the owner said yes and the entry is in the decision log; declined: they said no, never offer it again; skipped: not a decision."
+            },
+            "decision": {
+              "description": "The decision log entry number; only with recorded.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10
+            }
+          },
+          "required": [
+            "item_id",
+            "verdict"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "required": [
+      "items"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Mark the offered decision candidates",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

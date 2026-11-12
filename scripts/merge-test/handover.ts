@@ -350,8 +350,9 @@ export function handoverSelection(
   const typecheck = new Set<MergeTestWorkspace>();
   for (const file of changed) {
     const snapshot = SNAPSHOT.exec(file);
-    if (snapshot) {
-      const owner = `${snapshot[1]}/${snapshot[2]}`;
+    const toolSnapshot = /^apps\/server\/src\/mcp\/__snapshots__\/tools\/[^/]+\.json$/.test(file);
+    if (snapshot || toolSnapshot) {
+      const owner = toolSnapshot ? 'apps/server/src/mcp/tools.test.ts' : `${snapshot![1]}/${snapshot![2]}`;
       if (isServerTest(owner) && afterPaths.has(owner)) snapshotOwners.add(owner);
       else unmapped.push(file);
       continue;
@@ -406,6 +407,8 @@ export function handoverSelection(
   const isTest = (path: string): boolean =>
     isServerTest(path) && afterPaths.has(path) && !isTestSupport(path) && workspaceOf(path) !== undefined;
   const hasSnapshot = (path: string): boolean =>
+    (path === 'apps/server/src/mcp/tools.test.ts' &&
+      [...afterPaths].some((file) => file.startsWith('apps/server/src/mcp/__snapshots__/tools/'))) ||
     afterPaths.has(`${path.slice(0, path.lastIndexOf('/'))}/__snapshots__/${path.split('/').at(-1)}.snap`);
 
   const change: HandoverChange = { changed: input.changed, added: input.added, deleted: input.deleted };

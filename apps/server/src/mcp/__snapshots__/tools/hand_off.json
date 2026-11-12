@@ -1,0 +1,32 @@
+{
+  "name": "hand_off",
+  "title": "Write the handoff note for the member who takes your card",
+  "description": "Write the handoff note for the successor of your card, when a system message asked for it. The tool records the note and closes your session.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+        "description": "Task key."
+      },
+      "note": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 10000
+      }
+    },
+    "required": [
+      "task_key",
+      "note"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Write the handoff note for the member who takes your card",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

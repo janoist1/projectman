@@ -1,0 +1,71 @@
+{
+  "name": "search_history",
+  "title": "Search the project history",
+  "description": "Search the project history you can read: cards, notes, closed questions, team messages, decisions and lessons. Matches come best first, with an excerpt and the call that opens them; semantic ones (other words) are weaker. documents says how fresh each copy is. Searches are counted for the owners.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 400,
+        "description": "What to look for, in plain words: at most 12 are searched, no search syntax."
+      },
+      "project_key": {
+        "description": "Project key; defaults to the project of this session.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}$"
+      },
+      "task_key": {
+        "description": "Only the history of this card.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$"
+      },
+      "source_types": {
+        "description": "Only these kinds of source (default: all five).",
+        "minItems": 1,
+        "maxItems": 5,
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "task",
+            "note",
+            "question",
+            "message",
+            "document"
+          ]
+        }
+      },
+      "since": {
+        "description": "Only sources from this time on, ISO 8601 with a time zone offset.",
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+      },
+      "until": {
+        "description": "Only sources up to this time, ISO 8601 with a time zone offset.",
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+      },
+      "limit": {
+        "description": "How many matches, 1–50 (default 10).",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Search the project history",
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

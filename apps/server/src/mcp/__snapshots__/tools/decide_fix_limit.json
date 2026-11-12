@@ -1,0 +1,72 @@
+{
+  "name": "decide_fix_limit",
+  "title": "Decide how a card at its fix round limit goes on",
+  "description": "Decide how a card at its fix round limit goes on, as the system message that named you describes: continue, replan or to_owner (which requires an assessment).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_key": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{0,9}-\\d+$",
+        "description": "Task key."
+      },
+      "decision": {
+        "type": "string",
+        "enum": [
+          "continue",
+          "replan",
+          "to_owner"
+        ]
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "assessment": {
+        "type": "object",
+        "properties": {
+          "recurrence": {
+            "type": "string"
+          },
+          "current_state": {
+            "type": "string"
+          },
+          "recommendation": {
+            "type": "object",
+            "properties": {
+              "option_id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "option_id",
+              "reason"
+            ]
+          }
+        },
+        "required": [
+          "recurrence",
+          "current_state",
+          "recommendation"
+        ]
+      }
+    },
+    "required": [
+      "task_key",
+      "decision",
+      "reason"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+  },
+  "annotations": {
+    "title": "Decide how a card at its fix round limit goes on",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "openWorldHint": false
+  }
+}

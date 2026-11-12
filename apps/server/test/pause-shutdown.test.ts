@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EngineDirectory } from '../src/contracts';
 import { createLocalEngine } from '../src/engine-host';
 import { LocalEngineDirectory } from '../src/runtime/sessions';
@@ -184,6 +184,32 @@ describe('pause around a restart of the server', () => {
       await h.domain.pauses.resumeEngine(engineId);
       expect(h.runner.started).toHaveLength(0);
       expect(h.repos.pauses.findOpenEngine(engineId)).toBeNull();
+    });
+
+    it('finishes at the next connect what a stop of the hub left of the engine resume (PM-1347)', async () => {
+      await harness();
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fictional/cut.jsonl' });
+      h.runner.pauseOutcomes.set(session.id, { point: 'after_tool', tool: 'Bash' });
+      const engineId = h.domain.sessions.engineOf(session.id);
+      h.runner.started.splice(0);
+      await h.domain.pauses.pauseEngineForShutdown(engineId, 5000);
+      await h.runner.stop(session.id);
+      await h.domain.sessions.reconcileEngine(engineId, new Set(), () => false);
+      // The hub stops while it starts the session again: the call never returns.
+      const holds = vi
+        .spyOn(h.domain.messageRouter, 'holdsMessagesOf')
+        .mockReturnValueOnce(new Promise(() => {}));
+      void h.domain.pauses.resumeEngine(engineId);
+      await waitFor(() => holds.mock.calls.length > 0);
+      expect(h.repos.pauses.findOpenEngine(engineId)).toBeNull();
+      expect(h.repos.pauses.openSession(session.id)).not.toBeNull();
+      expect(h.runner.started).toHaveLength(0);
+
+      await h.domain.pauses.resumeEngine(engineId);
+      await waitFor(() => h.runner.started.length === 1);
+      expect(h.runner.started[0]!.initialMessage).toBe('Nudge after_tool restarted');
+      expect(h.repos.pauses.openSession(session.id)).toBeNull();
     });
 
     it('ends the engine pause without starting anything when the engine is revoked', async () => {

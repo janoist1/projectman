@@ -160,7 +160,7 @@ export function createPauseRepository(db: Db) {
     // The rows a resume left open because it stopped before it started the session again (PM-1347).
     openSessionsOfEndedPauses: db.prepare(
       `SELECT sp.* FROM session_pauses sp JOIN pauses p ON p.id = sp.pause_id
-       WHERE sp.resumed_at IS NULL AND p.resumed_at IS NOT NULL AND p.scope != 'engine'
+       WHERE sp.resumed_at IS NULL AND p.resumed_at IS NOT NULL
        ORDER BY sp.since, sp.session_id`,
     ),
     closeSession: db.prepare(
@@ -242,7 +242,7 @@ export function createPauseRepository(db: Db) {
     openTeamSessions(): SessionPauseRecord[] {
       return (statements.openTeamSessions.all() as SessionPauseRow[]).map(toSessionPause);
     },
-    /** The open rows whose team pause has ended already: a resume that did not finish releasing them. */
+    /** The open rows whose pause (a team's or an engine's) has ended already: a resume that did not finish releasing them. */
     openSessionsOfEndedPauses(): SessionPauseRecord[] {
       return (statements.openSessionsOfEndedPauses.all() as SessionPauseRow[]).map(toSessionPause);
     },

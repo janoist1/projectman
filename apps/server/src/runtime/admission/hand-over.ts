@@ -7,6 +7,7 @@ import {
   stageOwners,
   SYSTEM_SENDER,
 } from '@projectman/shared';
+import type { FastifyBaseLogger } from 'fastify';
 import type { AiMemberConfig, ProjectConfig, Session, SessionState, Stage, Task } from '@projectman/shared';
 import { conflict, SYSTEM_ACTOR } from '../../kernel';
 import type { MessageDelivery } from '../delivery';
@@ -35,6 +36,7 @@ export class StageHandOver {
   private readonly admission: Admission;
   private readonly delivery: MessageDelivery;
   private readonly messaging: Pick<Messaging, 'send'>;
+  private readonly logger: Pick<FastifyBaseLogger, 'warn'>;
   private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
   private fullTests: { holds(task: Task, config: ProjectConfig): boolean } | undefined;
 
@@ -45,6 +47,7 @@ export class StageHandOver {
     admission: Admission;
     delivery: MessageDelivery;
     messaging: Pick<Messaging, 'send'>;
+    logger: Pick<FastifyBaseLogger, 'warn'>;
   }) {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
@@ -52,6 +55,7 @@ export class StageHandOver {
     this.admission = deps.admission;
     this.delivery = deps.delivery;
     this.messaging = deps.messaging;
+    this.logger = deps.logger;
   }
 
   /** Binds the fix round limit (PM-262), which is built after the hand-over. */
@@ -105,7 +109,11 @@ export class StageHandOver {
           cause: { kind: 'pause_resume' },
         }),
       );
-    } catch {
+    } catch (err) {
+      this.logger.warn(
+        { err, sessionId: session.id },
+        'could not start an interrupted general session again',
+      );
       await this.messaging.send(
         projectKey,
         SYSTEM_SENDER,

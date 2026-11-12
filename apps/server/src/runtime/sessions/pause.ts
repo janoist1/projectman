@@ -547,10 +547,14 @@ export class PauseService {
    * open although the pause has ended. They go on as the resume would have let them.
    */
   private async releaseUnfinished(): Promise<void> {
-    const { pauses } = this.ctx.repos;
+    const { pauses, sessions } = this.ctx.repos;
     const byPause = new Map<string, SessionPauseRecord[]>();
-    for (const row of pauses.openSessionsOfEndedPauses())
+    for (const row of pauses.openSessionsOfEndedPauses()) {
+      // An engine's pause ended because the engine connected; one that is not connected now goes on at its next connect.
+      const session = sessions.get(row.sessionId);
+      if (session && this.waitsForEngine(session)) continue;
       byPause.set(row.pauseId, [...(byPause.get(row.pauseId) ?? []), row]);
+    }
     for (const [pauseId, rows] of byPause) {
       const pause = pauses.get(pauseId);
       if (pause) await this.release(pause, new Map(), rows);
@@ -563,8 +567,9 @@ export class PauseService {
    * again.
    */
   async resumeEngine(engineId: EngineId): Promise<void> {
-    if (!this.ctx.repos.pauses.findOpenEngine(engineId)) return;
-    await this.resume({ scope: 'engine', engineId }, { userId: null, source: 'system' });
+    if (this.ctx.repos.pauses.findOpenEngine(engineId))
+      await this.resume({ scope: 'engine', engineId }, { userId: null, source: 'system' });
+    await this.releaseUnfinished();
   }
 
   /**
@@ -749,7 +754,9 @@ export class PauseService {
           if (current && this.sessions.isRunning(current.id)) this.delivery.deliverPauseHeld(current);
         }
       } catch (err) {
+        // A failure in this process (not a stop of the hub) must not leave the session held, deaf to its messages.
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not resume the session');
+        pauses.closeSession(row.sessionId, isoNow(this.ctx));
       }
       this.publishSession(session.id);
     }

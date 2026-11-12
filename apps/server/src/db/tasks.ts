@@ -195,6 +195,10 @@ export function createTaskRepository(db: Db) {
   const statements = {
     get: db.prepare(`${TASK_SELECT} WHERE t.key = ?`),
     list: db.prepare(`${TASK_SELECT} WHERE t.project_key = ? ORDER BY t.seq`),
+    closedSince: db.prepare(
+      `SELECT key, title, closed_at AS closedAt, assignee FROM tasks
+       WHERE project_key = ? AND status = 'done' AND closed_at >= ? ORDER BY closed_at DESC, seq`,
+    ),
     listLinks: db.prepare(
       `SELECT l.* FROM task_links l JOIN tasks t ON t.id = l.task_id
        WHERE t.project_key = ? ORDER BY l.id`,
@@ -421,6 +425,17 @@ export function createTaskRepository(db: Db) {
         statements.list.all(projectKey) as TaskRow[],
         () => statements.listLinks.all(projectKey) as LinkRow[],
       );
+    },
+
+    /** Only the measurement fields of cards closed in the period; no descriptions or links. */
+    readClosedSince(
+      projectKey: string,
+      since: string,
+    ): Pick<Task, 'key' | 'title' | 'closedAt' | 'assignee'>[] {
+      return statements.closedSince.all(projectKey, since) as Pick<
+        Task,
+        'key' | 'title' | 'closedAt' | 'assignee'
+      >[];
     },
 
     /**

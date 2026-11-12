@@ -95,6 +95,12 @@ export function createTimelineRepository(db: Db) {
          AND type IN ('task_stage_changed', 'task_labels_changed', 'task_full_test', 'task_fix_limit',
            'task_merge_failed') ORDER BY seq`,
     ),
+    roundEventsForTasks: db.prepare(
+      `SELECT * FROM timeline_events WHERE project_key = ?
+         AND task_key IN (SELECT value FROM json_each(?))
+         AND type IN ('task_stage_changed', 'task_labels_changed', 'task_full_test', 'task_fix_limit',
+           'task_merge_failed') ORDER BY seq`,
+    ),
     latestOfType: db.prepare(
       'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = ? ORDER BY seq DESC LIMIT 1',
     ),
@@ -295,6 +301,14 @@ export function createTimelineRepository(db: Db) {
     /** All stage, label, full-test, fix-limit and failed-merge sources of a card in database sequence order. */
     roundEvents(projectKey: string, taskKey: string): TimelineEvent[] {
       return (statements.roundEvents.all(projectKey, taskKey) as TimelineRow[]).map(toEvent);
+    },
+
+    /** Whole round histories of the selected cards in one read, preserving event order. */
+    roundEventsForTasks(projectKey: string, taskKeys: readonly string[]): TimelineEvent[] {
+      if (taskKeys.length === 0) return [];
+      return (statements.roundEventsForTasks.all(projectKey, JSON.stringify(taskKeys)) as TimelineRow[]).map(
+        toEvent,
+      );
     },
     /** The most recent event of a type in a session, regardless of project activity. */
     latestForSession(

@@ -309,6 +309,10 @@ export function createSessionRepository(db: Db) {
       `SELECT * FROM sessions WHERE project_key = ? AND work_item_type = 'task' AND work_item_ref = ?
        ORDER BY started_at, id`,
     ),
+    listForTasks: db.prepare(
+      `SELECT * FROM sessions WHERE project_key = ? AND work_item_type = 'task'
+         AND work_item_ref IN (SELECT value FROM json_each(?)) ORDER BY started_at, id`,
+    ),
     listByMemberAndTask: db.prepare(
       `SELECT * FROM sessions WHERE project_key = ? AND member = ? AND work_item_type = 'task'
          AND work_item_ref = ? ORDER BY started_at, id`,
@@ -322,6 +326,15 @@ export function createSessionRepository(db: Db) {
     `SELECT model, scope, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
        SUM(cache_read_tokens) AS cache_read, SUM(cache_write_tokens) AS cache_write
      FROM token_usage WHERE session_id = ? GROUP BY model, scope`,
+  );
+  const usageOfSessions = db.prepare(
+    `SELECT session_id, model, scope, SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+       SUM(cache_read_tokens) AS cache_read, SUM(cache_write_tokens) AS cache_write
+     FROM token_usage WHERE session_id IN (SELECT value FROM json_each(?)) GROUP BY session_id, model, scope`,
+  );
+  const pausesOfSessions = db.prepare(
+    `SELECT session_id, since, point, tool FROM session_pauses
+     WHERE session_id IN (SELECT value FROM json_each(?)) AND resumed_at IS NULL`,
   );
   /** The open row of the pause that holds the session (PM-219). */
   const pauseOf = db.prepare(
@@ -414,6 +427,35 @@ export function createSessionRepository(db: Db) {
               ? statements.listByTask.all(projectKey, filter.taskKey)
               : statements.list.all(projectKey);
       return (rows as SessionRow[]).map(toSession);
+    },
+    /** Sessions of exactly these cards, including usage and pauses, with no per-session reads. */
+    listForTasks(projectKey: string, taskKeys: readonly string[]): Session[] {
+      if (taskKeys.length === 0) return [];
+      const rows = statements.listForTasks.all(projectKey, JSON.stringify(taskKeys)) as SessionRow[];
+      if (rows.length === 0) return [];
+      const ids = JSON.stringify(rows.map((row) => row.id));
+      const usage = new Map<string, TokenUsage[]>();
+      for (const row of usageOfSessions.all(ids) as (UsageRow & { session_id: string })[]) {
+        const entries = usage.get(row.session_id) ?? [];
+        entries.push(tokenUsageOf(row));
+        usage.set(row.session_id, entries);
+      }
+      const pauses = new Map(
+        (pausesOfSessions.all(ids) as (SessionPause & { session_id: string })[]).map((row) => [
+          row.session_id,
+          { since: row.since, point: row.point, tool: row.tool },
+        ]),
+      );
+      return rows.map((row) => {
+        const pause = pauses.get(row.id);
+        return {
+          ...baseSession(row),
+          ...(pause ? { pause } : {}),
+          ...(row.usage_since
+            ? { usage: { since: row.usage_since, rows: mergeTokenUsage(usage.get(row.id) ?? []) } }
+            : {}),
+        };
+      });
     },
     /**
      * The project's sessions that are not closed (not `exited` or `failed`), optionally one member's: the

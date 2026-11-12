@@ -2,10 +2,16 @@ import {
   closedCardsSince,
   countCardRounds,
   DEFAULT_CLOSED_CARDS_DAYS,
-  isClosedSince,
   measureClosedCard,
 } from '@projectman/shared';
-import type { CardRounds, ClosedCardsMeasure, ProjectConfig, Task, TaskDetail } from '@projectman/shared';
+import type {
+  ClosedCardsMeasure,
+  ProjectConfig,
+  Session,
+  Task,
+  TaskDetail,
+  TimelineEvent,
+} from '@projectman/shared';
 import type { DomainContext } from '../base';
 import type { ProjectService } from '../projects';
 
@@ -13,16 +19,6 @@ import type { ProjectService } from '../projects';
 interface FixRoundsMeasure {
   rounds: number;
   limit: number;
-}
-
-/** A card's review rounds and send-backs, counted from its whole timeline (PM-222). */
-function cardRounds(
-  ctx: Pick<DomainContext, 'repos'>,
-  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
-  projectKey: string,
-  taskKey: string,
-): CardRounds {
-  return countCardRounds(ctx.repos.timeline.roundEvents(projectKey, taskKey), config);
 }
 
 /**
@@ -71,17 +67,29 @@ export class CardMeasure {
   async closedCards(projectKey: string, days = DEFAULT_CLOSED_CARDS_DAYS): Promise<ClosedCardsMeasure> {
     const config = await this.projects.config(projectKey);
     const since = closedCardsSince(this.ctx.now(), days);
-    const cards = this.ctx.repos.tasks
-      .list(projectKey)
-      .filter((task) => isClosedSince(task, since))
-      .sort((a, b) => (a.closedAt! < b.closedAt! ? 1 : a.closedAt! > b.closedAt! ? -1 : 0))
-      .map((task) =>
-        measureClosedCard(
-          task,
-          this.ctx.repos.sessions.list(projectKey, { taskKey: task.key }),
-          cardRounds(this.ctx, config, projectKey, task.key),
-        ),
-      );
+    const tasks = this.ctx.repos.tasks.readClosedSince(projectKey, since);
+    const keys = tasks.map((task) => task.key);
+    const sessions = new Map<string, Session[]>();
+    for (const session of this.ctx.repos.sessions.listForTasks(projectKey, keys)) {
+      if (session.workItem.type !== 'task') continue;
+      const key = session.workItem.taskKey;
+      const entries = sessions.get(key) ?? [];
+      entries.push(session);
+      sessions.set(key, entries);
+    }
+    const events = new Map<string, TimelineEvent[]>();
+    for (const event of this.ctx.repos.timeline.roundEventsForTasks(projectKey, keys)) {
+      const entries = events.get(event.taskKey!) ?? [];
+      entries.push(event);
+      events.set(event.taskKey!, entries);
+    }
+    const cards = tasks.map((task) =>
+      measureClosedCard(
+        task,
+        sessions.get(task.key) ?? [],
+        countCardRounds(events.get(task.key) ?? [], config),
+      ),
+    );
     return { since, days, cards };
   }
 }

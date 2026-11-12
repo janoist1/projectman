@@ -2120,6 +2120,11 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   the last hook name/time, blocking-screen detection and at most 500 characters from the last
   15 terminal rows. Message bodies are not logged separately. This assumes the runner owns
   the terminal and receives the CLI hooks.
+  **Command-line first input (PM-1363):** Codex/NanoGPT prompts passed as process arguments
+  count as delivered only after `UserPromptSubmit`. The engine's input queue fails the wait
+  after `argumentSubmitTimeoutMs`; startup or turn activity alone cannot confirm it.
+  The existing `first_input_sent`, `first_input_failed` and exit events carry the result to
+  the hub; no server/engine protocol change is needed.
   **Idempotent delivery (PM-1205):** the wait for the submit report builds on the timing of these
   loopback hooks. A typed message the CLI did not report within `submitTimeoutMs` is taken as
   unconfirmed when the main agent's turn hooks (or a busy CLI) show it worked, and is otherwise

@@ -56,10 +56,6 @@
   .reviewerGroup + .reviewerGroup::before {
     content: none;
   }
-
-  .sortButton {
-    min-height: 44px;
-  }
 }
 
 .table {
@@ -140,4 +136,12 @@
 .number {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+}
+
+@media (max-width: 600px) {
+  .sortButton {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
 }

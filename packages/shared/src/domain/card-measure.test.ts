@@ -41,13 +41,17 @@ const config = ProjectConfig.parse({
         gate: {
           conditions: [
             { type: 'has_label', label: 'custom-approval' },
+            { type: 'has_label', label: 'merge-ok' },
             { type: 'lacks_label', label: 'blocked' },
           ],
         },
       },
       { id: 'done', name: 'Kész', kind: 'done', columnId: 'all' },
     ],
-    labels: [],
+    labels: [
+      { id: 'custom-approval', name: 'Approval', setBy: { duties: ['code_review'] } },
+      { id: 'merge-ok', name: 'Merge approval', setBy: { members: ['owner'], humansOnly: true } },
+    ],
   },
 });
 
@@ -95,6 +99,11 @@ describe('cardReviewer', () => {
         config,
       ),
     ).toBeNull();
+  });
+
+  it('ignores gate labels that the review stage owners cannot set', () => {
+    expect(cardReviewer([approval('reviewer'), approval('owner', ['merge-ok'])], config)).toBe('reviewer');
+    expect(cardReviewer([approval('owner', ['merge-ok'])], config)).toBeNull();
   });
 
   it('defaults older measurement responses to no reviewer', () => {

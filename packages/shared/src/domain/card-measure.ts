@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { isCodeReviewStage } from '../config/duties';
+import { isCodeReviewStage, stageOwners } from '../config/duties';
+import { labelDefinition, labelHolders } from '../config/labels';
 import type { ProjectConfig } from '../config/schema';
 import type { TimelineEvent } from './event';
 import { MemberHandle } from './member';
@@ -59,7 +60,14 @@ export function cardReviewer(
     stages.flatMap((stage, index) =>
       isCodeReviewStage(config, stage)
         ? (stages[index + 1]?.gate?.conditions ?? [])
-            .filter((condition) => condition.type === 'has_label')
+            .filter((condition) => {
+              if (condition.type !== 'has_label') return false;
+              const label = labelDefinition(config, condition.label);
+              return (
+                label !== undefined &&
+                labelHolders(config, label).some((holder) => stageOwners(config, stage).includes(holder))
+              );
+            })
             .map((condition) => condition.label)
         : [],
     ),

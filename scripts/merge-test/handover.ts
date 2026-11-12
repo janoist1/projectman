@@ -71,6 +71,11 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
     tests: ['apps/server/test/architecture/'],
   },
   {
+    reason: 'the session-state list test reads the web, widget and shared sources by path (PM-1357)',
+    sources: ['apps/web/src/', 'apps/feedback-widget/src/', 'packages/'],
+    tests: ['apps/server/test/architecture/session-state-lists.test.ts'],
+  },
+  {
     reason: 'the structure map test reads every tracked file of the repository',
     sources: ['**'],
     on: 'add-delete',

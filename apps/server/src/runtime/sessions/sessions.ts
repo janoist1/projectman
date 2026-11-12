@@ -3,6 +3,7 @@ import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import {
   isBusySession,
   isLiveSessionState,
+  isWorkingSession,
   LIVE_SESSION_STATES,
   SESSION_CHAT_WINDOW,
   workMetadataAfterChat,
@@ -2073,7 +2074,7 @@ export class SessionOrchestrator {
   private recomputeMemberState(projectKey: string, handle: string): void {
     const live = this.ctx.repos.sessions.listLive(projectKey, handle);
     const waiting = live.find((s) => s.state === 'waiting_permission' || s.state === 'waiting_input');
-    const working = live.find((s) => s.state === 'working' || s.state === 'starting');
+    const working = live.find(isWorkingSession);
     let status: MemberStatus = 'idle';
     let activity: string | null = null;
     if (waiting) {

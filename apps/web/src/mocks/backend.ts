@@ -167,6 +167,7 @@ import {
   isBuiltInRole,
   isBusySession,
   isLiveSession,
+  isWorkingSession,
   isOnLeave,
   isRequiredProjectManager,
   isOpenTask,
@@ -2810,8 +2811,7 @@ export class MockBackend {
         swapUsedBytes: 0,
         swapTotalBytes: 0,
         sessionsRunning: live.length,
-        sessionsWorking: live.filter((session) => session.state === 'working' || session.state === 'starting')
-          .length,
+        sessionsWorking: live.filter(isWorkingSession).length,
       },
       sessions: live.map((session, index) => ({
         sessionId: session.id,
@@ -6842,6 +6842,7 @@ export class MockBackend {
   }
 
   private flushTeamMessages(session: Session): void {
+    // Not one of the shared groups (busy, engaged, live, working): the states that take a queued message.
     if (session.state !== 'idle' && session.state !== 'waiting_input') return;
     // Held while the team is paused; the resume flushes them.
     if (this.pauses.isPaused()) return;
@@ -7312,7 +7313,7 @@ export class MockBackend {
       const row = this.machine.sessions.find((row) => row.sessionId === sessionId)!;
       this.machine.sessions = this.machine.sessions.filter((row) => row.sessionId !== sessionId);
       this.machine.summary.sessionsRunning--;
-      if (row.state === 'working' || row.state === 'starting') this.machine.summary.sessionsWorking--;
+      if (isWorkingSession(row)) this.machine.summary.sessionsWorking--;
       this.machine.closedSessions++;
     }
     return ok();

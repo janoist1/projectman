@@ -102,17 +102,15 @@ const CARD_REVIEWER_DUTIES: readonly DutyId[] = [...REVIEW_DUTIES, 'ux_design'];
  * there: its assignee; a member with a duty of CARD_REVIEWER_DUTIES, in any stage of the card; an owner of
  * its current stage when that is a `step` stage (a work stage's owners do not count); or a member who
  * worked on it (`workedOn`, a server fact: has or had a session on the card, or on its parent when it is a
- * subtask); or a setter of the label its current refinement step asks for (`stepSetters`, from
- * `refinementStepSetters`; this covers the member whose refinement turn it is, B-05).
+ * subtask).
  */
 export function hasCardRole(
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
   task: Pick<Task, 'assignee' | 'stageId'>,
   handle: string,
   workedOn: boolean,
-  stepSetters: readonly string[] = [],
 ): boolean {
-  if (workedOn || task.assignee === handle || stepSetters.includes(handle)) return true;
+  if (workedOn || task.assignee === handle) return true;
   const member = config.team.members.find((m) => m.handle === handle);
   if (isProjectManager(member)) return true;
   if (member && memberDuties(config, member).some((duty) => CARD_REVIEWER_DUTIES.includes(duty))) return true;

@@ -8,7 +8,6 @@ import {
   messageWakes,
   permissionDelegationOf,
   permissionDelegationState,
-  refinementStepSetters,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
@@ -144,7 +143,6 @@ export function recipientHasCardRole(
     task,
     recipient,
     worked(task.key) || (!!task.parentKey && worked(task.parentKey)),
-    refinementStepSetters(task, config),
   );
 }
 

@@ -2996,6 +2996,7 @@ export const hu = {
     earlier: {
       title: 'Korábbi beszélgetések ({count})',
       readOnly: 'Csak olvasható.',
+      loadFailed: 'Nem sikerült betölteni a korábbi beszélgetéseket.',
       to: 'Címzett: {names}',
       none: 'Nincs számodra látható gépi üzenet.',
     },
@@ -6965,6 +6966,7 @@ export const hu = {
   },
 
   messages: {
+    readFailed: 'Nem sikerült olvasottnak jelölni.',
     new: 'Új üzenet',
     recipients: 'Címzettek',
     contactsOnlyHint: 'Csak a kapcsolattartóknak írhatsz.',

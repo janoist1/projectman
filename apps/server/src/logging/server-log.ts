@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readdirSync, rmSync } from 'node:fs';
 import { createRotatingFile } from './rotating-file';
 
 const SERVER_LOG_MAX_BYTES = 10 * 1024 * 1024;
@@ -10,7 +11,7 @@ export function serverLogFile(home: string, name: 'server' | 'engine'): string {
 }
 
 /**
- * A stream for pino (Fastify's `logger.stream`): every line goes to the terminal as before and to
+ * A stream for pino (Fastify's `logger.stream`): every line goes to an attached terminal and to
  * `file`, rotated at `maxBytes` with `keep` files (so at most about `keep * maxBytes` on disk). The
  * lines are pino's own JSON, with the same serializers (request URLs carry no tokens), so the file
  * holds nothing the terminal did not. A failing file write never stops logging to the terminal:
@@ -21,7 +22,7 @@ export function createServerLogStream(
   options: {
     maxBytes?: number;
     keep?: number;
-    terminal?: { write(text: string): unknown };
+    terminal?: { write(text: string): unknown; isTTY?: boolean };
   } = {},
 ): { write(text: string): void } {
   const terminal = options.terminal ?? process.stdout;
@@ -32,16 +33,30 @@ export function createServerLogStream(
   let reported = false;
   return {
     write(text) {
-      terminal.write(text);
+      if (terminal.isTTY) terminal.write(text);
       try {
         target.append(text);
       } catch (error) {
         if (reported) return;
         reported = true;
-        terminal.write(
+        (terminal.isTTY ? terminal : process.stderr).write(
           `${JSON.stringify({ level: 40, time: Date.now(), msg: `the log file ${file} cannot be written: ${String(error)}` })}\n`,
         );
       }
     },
   };
+}
+
+/** Single-mode logs retired on the engine; the cloud's logs live in its separate home. */
+export function removeRetiredEngineLogs(home: string): void {
+  const dir = path.join(home, 'logs');
+  try {
+    for (const name of readdirSync(dir)) {
+      if (name === 'live-server.log' || /^server\.log(?:\.\d+)?$/.test(name)) {
+        rmSync(path.join(dir, name), { force: true });
+      }
+    }
+  } catch {
+    // Old logs must never prevent the engine from starting.
+  }
 }

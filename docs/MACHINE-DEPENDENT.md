@@ -1744,13 +1744,17 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `start.ts` (`loggerOptions`)
   (PM-444), exposed through `logging/index.ts` to `start.ts` and
-  `engine-link/engine-audit.ts` (PM-649). Every process logs pino's JSON lines to the terminal and, since PM-444, to
+  `engine-link/engine-audit.ts` (PM-649). Since PM-1373, every process copies pino's JSON lines to stdout
+  only when it is a TTY, preventing launchd's unrotated stdout file from duplicating the rotating log.
+  File-write failures are reported once to the terminal or stderr. Every process logs, since PM-444, to
   `<PROJECTMAN_HOME>/logs/server.log` (single mode and the cloud) or `logs/engine.log` (engine
   mode); the terminal's scrollback alone lost the older lines. The file is appended across starts,
   rotated at 10 MB (`server.log` → `.1` → … `.4`, five files, so about 50 MB at most), mode 0600 in
   a 0700 folder. It holds exactly the lines the terminal gets, with the same serializers (request URLs
   have invitation, hook and MCP tokens redacted; no headers, bodies or keys). A failing file write is
-  reported once on the terminal and never stops logging there. The engine's per-request audit
+  reported once and never stops terminal logging. On engine startup, `engine-app.ts` calls
+  `removeRetiredEngineLogs` to remove `logs/live-server.log` and `logs/server.log[.N]` from its own home
+  (PM-1373); engine and service stderr logs are retained. The engine's per-request audit
   (`logs/engine-audit.jsonl`) uses the same rotation helper but is a separate file. Assumes a
   writable local home on the host that runs the process and one process per home.
   **Remote engine:** each process writes its own log on its own host: the cloud's under the cloud's

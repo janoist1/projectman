@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -32,6 +33,7 @@ import type { LaunchctlResult, ServiceOptions } from '../../../scripts/engine/se
 import { BILLING_ENV_VARS } from '../src/runner/env';
 import { writeInstanceMarker } from '../src/instance';
 import { switchPaths } from '../../../scripts/engine/switch-state';
+import { createServerLogStream, serverLogFile } from '../src/logging';
 
 /**
  * The engine as a LaunchAgent (PM-318): the file is rendered from the template with absolute paths and
@@ -158,6 +160,21 @@ describe('service install, uninstall and status', () => {
     // The service's logs go to the engine's home, which no session may read.
     expect(statSync(path.dirname(logOut)).mode & 0o777).toBe(0o700);
     expect(output.join('\n')).toContain(logOut);
+  });
+
+  it('does not grow launchd stdout alongside the rotating engine log', async () => {
+    await installService(options());
+    const { logOut } = servicePaths(options());
+    writeFileSync(logOut, 'startup\n');
+    const file = serverLogFile(options().home, 'engine');
+    const stream = createServerLogStream(file, {
+      maxBytes: 20,
+      keep: 2,
+      terminal: { write: (text) => appendFileSync(logOut, text) },
+    });
+    for (let i = 0; i < 10; i++) stream.write('engine log\n');
+    expect(readFileSync(logOut, 'utf8')).toBe('startup\n');
+    expect(existsSync(`${file}.1`)).toBe(true);
   });
 
   it('waits for the old engine to leave, between the unload and the first bootstrap', async () => {

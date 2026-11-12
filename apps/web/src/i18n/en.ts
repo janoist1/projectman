@@ -3423,6 +3423,7 @@ export const en = {
         owner_topic_missing: 'no topic',
         signal_not_for_owner: 'a signal not meant for the owner',
         pm_matter: 'a project manager matter',
+        pm_affected: 'the outage also blocks the project manager',
         no_pm: 'there is no project manager',
         information: 'information',
         human_duty: 'a human duty',
@@ -4498,6 +4499,8 @@ export const en = {
       relation_check:
         'The new relations of {taskKey} ({relations}) may change its work, and no analyst or project manager can check them.',
       work_outage: 'An outage ({outage}) blocks the work; affected cards: {tasks}.',
+      work_outage_details:
+        'Work has been blocked since {since}: {reason}. Engine: {engine}; affected cards: {tasks}. Action: restore the provider subscription login or setup, or reconnect the engine.',
       waiting_digest:
         '{todos} machine to-dos and {questions} questions in screening have waited more than a day; the oldest for {oldestHours} hours.',
     },

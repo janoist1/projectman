@@ -168,6 +168,8 @@ interface CreateInboxItemInput {
 export interface RaiseAlertInput {
   projectKey: string;
   payload: AlertPayload;
+  /** Computed by the outage watcher from the project manager's provider and engine. */
+  outageAffectsPm?: boolean;
   /** The English title of the item (or of the todo) the alert becomes. */
   title: string;
   /** Who raised it: the member whose session it is about, else `system`. */
@@ -1809,6 +1811,7 @@ export class InboxService {
       obligation?: ObligationRef;
       sessionId?: string | null;
       extraPayload?: Record<string, unknown>;
+      routed?: AppliedRoute;
     },
   ): InboxItem {
     const owners = ownerHandles(config);
@@ -1845,6 +1848,7 @@ export class InboxService {
       null,
       input.askedBy === 'system' && !memberOf(config, 'system') ? 'system_todo' : 'member_todo',
     );
+    const routed = input.routed ?? route;
     return this.create({
       id: draft.id,
       projectKey: draft.projectKey,
@@ -1856,7 +1860,7 @@ export class InboxService {
       title: draft.title,
       payload,
       options,
-      ...(route ? { routed: route } : {}),
+      ...(routed ? { routed } : {}),
     });
   }
 
@@ -1888,6 +1892,7 @@ export class InboxService {
     const applied = this.applyRoute(config, {
       kind: `alert:${payload.alert}`,
       ...(payload.alert === 'refinement' ? { alertReason: payload.reason } : {}),
+      ...(input.outageAffectsPm ? { outageAffectsPm: true } : {}),
     });
     const owners = ownerHandles(config);
     const taskKey = input.taskKey ?? null;
@@ -1903,15 +1908,25 @@ export class InboxService {
           this.legacyAlertSince(input.projectKey, payload.alert, taskKey, input.onceSince)
         )
           return null;
-        return this.openTodoItem(config, {
+        const item = this.openTodoItem(config, {
           projectKey: input.projectKey,
           taskKey,
           askedBy: 'system',
           question: input.title,
           todo: alertTodoOf(payload, { member: source, sessionId }),
           sessionId,
-          extraPayload: alertMarkerPayload(marker),
+          extraPayload: {
+            ...alertMarkerPayload(marker),
+            ...(payload.alert === 'work_outage' ? { workOutage: payload } : {}),
+          },
+          ...(payload.alert === 'work_outage' ? { routed: applied } : {}),
         });
+        if (payload.alert === 'work_outage') {
+          const notice = systemNoticeOf(payload);
+          if (notice)
+            void this.alertNotices?.send({ projectKey: input.projectKey, recipients: owners, notice });
+        }
+        return item;
       }
       case 'pm':
         if (payload.alert === 'relation_check' || payload.alert === 'work_outage')

@@ -683,6 +683,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       bootId,
       ...(nanogptKeyFile ? { nanogptKey: 'engine' as const } : {}),
       deliveryIds: true as const,
+      welcomeHeartbeat: true as const,
     };
   }
 

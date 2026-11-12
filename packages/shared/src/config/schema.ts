@@ -56,6 +56,10 @@ type ProjectManagerLifecycle = z.infer<typeof ProjectManagerLifecycle>;
 export const PrerequisiteOverride = z.enum(['people', 'people_and_project_manager']);
 export type PrerequisiteOverride = z.infer<typeof PrerequisiteOverride>;
 
+/** Who may involve an AI member on a card it has no role on (PM-1267); people always may, with their message. */
+export const MemberInvolvement = z.enum(['people', 'people_and_project_manager']);
+export type MemberInvolvement = z.infer<typeof MemberInvolvement>;
+
 /**
  * What the project manager may do on its own authority (PM-1284): `outside_owner_only` everything outside the
  * owner-only circle, `owner_request` only what an open owner request asks for.
@@ -473,6 +477,8 @@ export const ProjectConfig = z.object({
     projectManagerLifecycle: ProjectManagerLifecycle.optional(),
     /** PM-1099; absent: its `TEAM_SETTING_POLICY` default. */
     prerequisiteOverride: PrerequisiteOverride.optional(),
+    /** PM-1267; absent: its `TEAM_SETTING_POLICY` default. */
+    memberInvolvement: MemberInvolvement.optional(),
     /** PM-1284; absent: its `TEAM_SETTING_POLICY` default. Owner-only (`project_manager_authority`). */
     projectManagerAuthority: ProjectManagerAuthority.optional(),
     /** Who besides people may set a card's priority (PM-1096); absent: its `TEAM_SETTING_POLICY` default. */

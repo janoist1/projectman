@@ -13,6 +13,7 @@ import { complexitySetterMembers, tempMaxPointsOf } from './complexity';
 import { labelDefinition, labelExcludesAuthors } from './labels';
 import { projectManagerLifecycleOf } from './lifecycle';
 import { ownerHandles } from './lookup';
+import { memberInvolvementOf } from './member-involvement';
 import { prerequisiteOverrideOf } from './prerequisite-override';
 import { prioritySetterMembers } from './priority';
 import { projectManagerAuthorityOf } from './project-manager-authority';
@@ -40,6 +41,7 @@ export type TeamRule =
       moves: ProjectManagerMoves;
       lifecycle: string[];
       prerequisiteOverride: boolean;
+      memberInvolvement: boolean;
       authority: ProjectManagerAuthority;
     }
   | { id: 'fix_limit'; limit: number; labels: string[]; lead: string | null; deciders: string[] }
@@ -103,6 +105,7 @@ export function teamRules(config: Pick<ProjectConfig, 'team' | 'pipeline'>): Tea
       moves: projectManagerMovesOf(config),
       lifecycle: [...projectManagerLifecycleOf(config)],
       prerequisiteOverride: prerequisiteOverrideOf(config) === 'people_and_project_manager',
+      memberInvolvement: memberInvolvementOf(config) === 'people_and_project_manager',
       authority: projectManagerAuthorityOf(config),
     });
   rules.push({

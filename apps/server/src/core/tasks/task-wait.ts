@@ -48,6 +48,10 @@ export class TaskWaits {
     const projectKey = config.project.key;
     if (cards.length === 0) return new Map();
     const roster = this.members.rosterFor(config);
+    const subtasks = this.ctx.repos.tasks.readScheduling(projectKey, {
+      kind: 'children',
+      parentKeys: cards.map((task) => task.key),
+    });
     // The cards the `prerequisite` links name, closed ones too, read now for exactly their keys (PM-771):
     // the wait never reloads the project's whole card list.
     const named = [
@@ -80,6 +84,7 @@ export class TaskWaits {
           task.key,
           taskWait({
             task,
+            subtasks,
             config,
             openItems: itemsByTask.get(task.key) ?? [],
             workers: waitWorkers(task, config, roster),

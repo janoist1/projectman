@@ -1863,6 +1863,8 @@ export const hu = {
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       project_manager_lifecycle_refused:
         'A projekt beállításai ezt a kártyaműveletet nem engedik a Projektmenedzsernek.',
+      member_involvement_refused:
+        'A projekt beállításai szerint tagot a kártyára csak ember vonhat be: kérj meg egy embert, hogy írjon a tagnak.',
       builtin_role: 'A beépített szerep nem módosítható.',
       role_id_mismatch: 'A szerep azonosítója nem egyezik.',
       not_human_member: 'Ez nem emberi tag.',
@@ -1877,6 +1879,7 @@ export const hu = {
       prerequisite_open: 'A kártya előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
       task_closed: 'Ez a kártya már lezárult.',
+      collecting_task_not_startable: 'Ez gyűjtőkártya: a munka az alkártyáin folyik, ezért nem indítható.',
       complexity_forbidden: 'A pontot nem módosíthatod.',
       complexity_points_invalid: 'A pont csak 1, 2, 3, 5, 8 vagy 13 lehet.',
       complexity_limit_not_developer: 'Határ csak fejlesztő tagnak állítható.',
@@ -2557,6 +2560,7 @@ export const hu = {
       /** The short row text per reason; {name} etc. are filled by the code. */
       short: {
         startOffer: 'elindítja (Fejlesztésbe mozgatja)',
+        collecting: '{count} alkártya lezárására',
         inbox: {
           question: 'válaszol egy kérdésre',
           permission: 'engedélyt ad',
@@ -2602,6 +2606,7 @@ export const hu = {
       /** The box's "Mire vár" sentences that the start text does not already say. */
       long: {
         capacity: 'Most egy másik munkán dolgozik. Amint végez, ez a kártya következik.',
+        collecting: 'A munka az alkártyákon folyik; ez a kártya nem indul el.',
         readyHold:
           'A kártya indítható, de most szándékosan vár. Magától sorra kerül, amint a feltétel megszűnik.',
         startOffer: 'A kártya indítható, és van hozzá szabad fejlesztő. A rendszer szólt, hogy indítsa el.',
@@ -2629,6 +2634,7 @@ export const hu = {
       },
       todo: {
         startOffer: 'Mozgasd a kártyát a Fejlesztésbe; a fejlesztőt a rendszer választja.',
+        collecting: 'Semmit: amikor az utolsó alkártyája is lezárul, ez a kártya magától lezárul.',
         auto: 'Semmit: magától sorra kerül. Ha sürgős, a Csapat oldalon látod, mi foglalja.',
         capacity: 'Semmit. {hint}',
         nothing: 'Semmit: magától halad.',
@@ -2727,6 +2733,7 @@ export const hu = {
     fixLimitYou: 'Rád vár: döntés · {rounds} javítási kör után',
     queuedFor: 'Sorra kerül: {stage}',
     ready: 'Indítható',
+    collecting: '{count} alkártya nyitott',
     prerequisite: 'Előfeltételre vár',
     /** No article or suffix after the key: its letters and number differ by project. */
     prerequisiteOn: 'Vár · {ref}',
@@ -2752,6 +2759,7 @@ export const hu = {
 
   taskCard: {
     stageRows: 'Ellenőrzések',
+    processLabelsMore: '{count} további folyamatcímke',
     stageProgress: 'Haladás: {stage}, {index}. lépés a {total}-ból',
     columnSteps: '{column} lépései',
     stepState: {
@@ -3012,6 +3020,9 @@ export const hu = {
       add: 'Címke hozzáadása',
       none: 'Nincs',
       remove: '{label} levétele',
+      foldedShow: '+{count} folyamatcímke ▾',
+      foldedHide: '{count} folyamatcímke ▴',
+      pickerAll: 'Minden felvett címke',
       free: 'Új címke',
       freeHint: 'Szabad címke, külön jelentés nélkül.',
       comment: 'Indoklás: {label}',
@@ -3611,6 +3622,9 @@ export const hu = {
         lifecycleNone: 'Kiosztást, megszakítást és újranyitást önállóan nem végezhet.',
         override: 'Nyitott előfeltétel esetén is elindíthatja a kártyát.',
         noOverride: 'Nyitott előfeltétel esetén nem indíthatja el a kártyát.',
+        involve:
+          'Szerep nélküli tagot is bevonhat egy kártyára, indoklással; a bevont tag ettől nem kap jóváhagyási jogot.',
+        noInvolve: 'Tagot nem vonhat be a kártyára; ezt ember teheti meg az üzenetével.',
         actions: {
           assign: 'felelőst jelölhet ki vagy cserélhet',
           cancel: 'megszakíthat kártyát',
@@ -6283,6 +6297,7 @@ export const hu = {
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
       member_renamed: 'Azonosító átnevezve: {from} → {to}',
+      member_involved: 'Bevonta a kártyára: {member}. Indok: {reason}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       focus_added: 'Fókuszba tette: {title}, {position}. hely',
@@ -7870,6 +7885,21 @@ export const hu = {
         value: {
           people: 'Csak ember',
           people_and_project_manager: 'Ember és a Projektmenedzser, kifejezett jelzéssel',
+        },
+      },
+      /** Who may bring a member in on a card (PM-1267). */
+      memberInvolvement: {
+        title: 'Tag bevonása a kártyára',
+        help: 'Ember mindig bevonhat bárkit egy kártyára: az üzenete elindítja a tagot. Egy AI-tag üzenete csak azt indítja el, akinek szerepe van a kártyán. A bevont tag nem kap jóváhagyási jogot.',
+        question: 'Ki vonhat még be tagot?',
+        project_manager: 'Projektmenedzser, indoklással',
+        covers: 'Érintett tag: {names}',
+        noProjectManager: 'Most nincs Projektmenedzser a csapatban.',
+        humansOnly: 'Most csak ember vonhat be tagot a kártyára.',
+        readOnlyLabel: 'Ki vonhat be tagot a kártyára?',
+        value: {
+          people: 'Csak ember',
+          people_and_project_manager: 'Ember és a Projektmenedzser, indoklással',
         },
       },
       /** Who besides people may set a card's priority (PM-1096). */

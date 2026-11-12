@@ -48,6 +48,7 @@ export const TEAM_TOOL_NAMES = [
   'triage_loop',
   'start_task',
   'start_member',
+  'involve_member',
   'reassign_task',
   'cancel_task',
   'reopen_task',

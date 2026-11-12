@@ -18,7 +18,7 @@ import type {
   Task,
 } from '@projectman/shared';
 import type { BranchMerger, EngineHost, MergeBuildResult } from '../../contracts';
-import { EngineLinkLostError, isEngineLinkLost } from '../../contracts';
+import { EngineLinkLostError, isEngineLinkLost, MergeError } from '../../contracts';
 import { mergedState } from '../../db';
 import type { MergeRecord } from '../../db';
 import { isoNow } from '../../core/base';
@@ -41,6 +41,9 @@ import {
   checkRetryNote,
   checkInfraMessage,
   checkFallbackNote,
+  holdsRepoQueue,
+  nextRemoteAttempt,
+  remoteRetryNote,
 } from './check-retry';
 import type { MergeCheckRetry } from './check-retry';
 import { regenerateConflict } from './regenerate';
@@ -73,6 +76,7 @@ export class MergeSteps {
         return;
       } catch (err: unknown) {
         if (!this.continue(run)) return;
+        if (await this.requeueUnreachable(run, err)) return;
         if (!isEngineLinkLost(err))
           return this.block(run, 'merge_error', err instanceof Error ? err.message : 'merge failed');
         if (++losses > MERGE_ENGINE_LOSSES)
@@ -387,6 +391,8 @@ export class MergeSteps {
     for (let attempt = 0; attempt < 2; attempt++) {
       const base = await merger.prepare(ref, { base: row.base, commit: commit });
       if (!this.continue(running)) return;
+      // The remote answered: its wait is over and the check starts with a clean attempt count.
+      if (holdsRepoQueue(row)) this.save(row, { retry: undefined });
       // A crash may fall between the git push/advance and the following durable write.
       if (
         row.mergeCommit &&
@@ -744,7 +750,29 @@ export class MergeSteps {
     });
   }
 
-  private requeueForRetry(running: MergeRun, retry: MergeCheckRetry): void {
+  /**
+   * An unreachable remote before anything landed is waited out, not blocked (M-02): the row goes back to
+   * the queue with the check's delays and holds its repository's queue; after the last attempt it blocks.
+   * False when `err` is another failure (or work already reached the remote): the caller handles it.
+   */
+  async requeueUnreachable(running: MergeRun, err: unknown): Promise<boolean> {
+    const { row } = running;
+    if (!(err instanceof MergeError) || err.code !== 'remote_unreachable') return false;
+    if (row.landed !== 'nowhere' || running.pushing) return false;
+    const next = nextRemoteAttempt(row.retry, this.deps.ctx.now());
+    if (next.kind === 'exhausted') {
+      await this.block(
+        running,
+        'remote_unreachable',
+        `the remote stayed unreachable after ${next.attempts} attempts: ${err.message}`,
+      );
+      return true;
+    }
+    this.requeueForRetry(running, next.retry, remoteRetryNote(next.retry, err.message));
+    return true;
+  }
+
+  private requeueForRetry(running: MergeRun, retry: MergeCheckRetry, note = checkRetryNote(retry)): void {
     const { row } = running;
     this.deps.ctx.unitOfWork(() => {
       this.save(row, {
@@ -758,7 +786,7 @@ export class MergeSteps {
         finishedAt: undefined,
       });
       this.clearAlert(row);
-      this.note(row, checkRetryNote(retry));
+      this.note(row, note);
     });
   }
 

@@ -2,7 +2,12 @@ import { cleanup, screen, within } from '@testing-library/react';
 import type { Task } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { indexPipeline } from '../../lib/pipeline';
-import { deriveTaskState, groupOpenInboxByTask, prerequisiteRef } from '../../lib/taskState';
+import {
+  deriveTaskState,
+  groupOpenInboxByTask,
+  groupSubtasksByParent,
+  prerequisiteRef,
+} from '../../lib/taskState';
 import { matchesSearch } from './cardModel';
 import type { TaskStateContext } from '../../lib/taskState';
 import { buildConfig, inbox, tasks } from '../../mocks/fixtures';
@@ -17,6 +22,7 @@ const ctx: TaskStateContext = {
   members,
   openInboxByTask: groupOpenInboxByTask(inbox),
   tasksByKey: new Map(tasks.map((task) => [task.key, task])),
+  subtasksByParent: groupSubtasksByParent(tasks),
   myHandle: 'owner',
 };
 
@@ -58,6 +64,37 @@ function renderCard(key: string, selected = false) {
 }
 
 describe('TaskCard', () => {
+  it('folds the process labels of a done card into a +n chip and keeps its area labels', () => {
+    const task = { ...taskByKey('AC-16'), labels: ['checkout', 'code-review-ok', 'qa-ok'] };
+    renderUi(
+      <TaskCard
+        task={task}
+        state={deriveTaskState(task, ctx)}
+        pipeline={pipeline}
+        to="/task"
+        labels={labelViews}
+      />,
+    );
+    const card = screen.getByRole('link');
+    expect(card.querySelector('[data-label="checkout"]')).not.toBeNull();
+    expect(card.querySelector('[data-label="code-review-ok"]')).toBeNull();
+    expect(within(card).getByText(t('taskCard.processLabelsMore', { count: 2 }))).toBeTruthy();
+  });
+
+  it('shows every label of a card that is still in progress', () => {
+    const task = { ...taskByKey('AC-24'), labels: ['code-review-ok', 'qa-ok'] };
+    renderUi(
+      <TaskCard
+        task={task}
+        state={deriveTaskState(task, ctx)}
+        pipeline={pipeline}
+        to="/task"
+        labels={labelViews}
+      />,
+    );
+    expect(screen.getByRole('link').querySelectorAll('[data-label]')).toHaveLength(2);
+  });
+
   it.each(['urgent', 'high', 'normal', 'low'] as const)(
     'names the %s mark accessibly on the card link',
     (priority) => {

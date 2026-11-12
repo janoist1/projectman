@@ -10,6 +10,12 @@ describe('configuration issue targets', () => {
       field: 'ownerDecisionTopics.5.hint',
     });
   });
+  it('leads the member involvement issue to its own field', () => {
+    expect(issueTarget('team.memberInvolvement', config)).toEqual({
+      section: 'team',
+      field: 'memberInvolvement',
+    });
+  });
   it.each(['pipeline.stages.3.gate.conditions.0.label', 'pipeline.stages[3].gate.conditions[0].label'])(
     'normalizes %s',
     (path) => {

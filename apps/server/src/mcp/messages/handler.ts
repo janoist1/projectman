@@ -1,7 +1,14 @@
 import type { ToolContext } from '../../contracts';
 import { TeamToolError } from '../../contracts';
 import type { ToolCaller } from '../caller';
-import { coordinationMemberOf, memberOf, messageRoute, sessionWorkItemOf, UiPlace } from '@projectman/shared';
+import {
+  coordinationMemberOf,
+  mayInvolveMembers,
+  memberOf,
+  messageRoute,
+  sessionWorkItemOf,
+  UiPlace,
+} from '@projectman/shared';
 import type { ProjectConfig, WorkItemRef } from '@projectman/shared';
 import type { MessagePlaceArg, MessageToolsHandler } from '../../contracts';
 import type { SentMessageRecipient, WorkspaceFile } from '../../contracts';
@@ -72,6 +79,7 @@ export class MessageTools implements MessageToolsHandler {
     deliveredTo: string[];
     recipients: SentMessageRecipient[];
     routed?: { handle: string; workItem: WorkItemRef }[];
+    mayInvolve: boolean;
   }> {
     return this.calls.guard(async () => {
       const legacy = args.signalId !== undefined || args.signalActionable !== undefined;
@@ -179,6 +187,7 @@ export class MessageTools implements MessageToolsHandler {
             deliveredTo: message.to,
             recipients,
             ...(routed.length > 0 ? { routed } : {}),
+            mayInvolve: mayInvolveMembers(config, aiActor(ctx.member)),
           };
         },
       );

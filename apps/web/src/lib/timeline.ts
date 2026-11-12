@@ -1239,6 +1239,13 @@ function describeEventBody(event: TimelineEvent, ctx: TimelineContext): Describe
       );
     case 'member_renamed':
       return normal(t('timeline.events.member_renamed', { from: str(d.from), to: str(d.to) }));
+    case 'member_involved':
+      return normal(
+        t('timeline.events.member_involved', {
+          member: nameOf(str(d.member), ctx.members, ctx.myHandle),
+          reason: str(d.reason),
+        }),
+      );
     case 'config_changed':
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
     case 'team_contact_changed':

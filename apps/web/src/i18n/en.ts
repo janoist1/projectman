@@ -471,6 +471,8 @@ export const en = {
         'The project manager can only put a ready card to work; the owner does every other move.',
       project_manager_lifecycle_refused:
         'The project’s settings don’t allow the project manager this card action.',
+      member_involvement_refused:
+        'The project’s settings let only people involve a member on a card: ask a person to message the member.',
       builtin_role: 'A built-in role can’t be changed.',
       role_id_mismatch: 'The role’s id doesn’t match.',
       not_human_member: 'This isn’t a person.',
@@ -484,6 +486,8 @@ export const en = {
       prerequisite_open: 'The card’s prerequisite isn’t closed yet.',
       unknown_member: 'Unknown team member.',
       task_closed: 'This card is already closed.',
+      collecting_task_not_startable:
+        'This card collects sub-cards: the work happens on them, so it cannot be started.',
       complexity_forbidden: 'You can’t change the points.',
       complexity_points_invalid: 'The points can only be 1, 2, 3, 5, 8 or 13.',
       complexity_limit_not_developer: 'A limit can only be set for a developer member.',
@@ -1382,6 +1386,7 @@ export const en = {
       },
       short: {
         startOffer: 'starts it (moves it to development)',
+        collecting: '{count|# open sub-card|# open sub-cards} to close',
         inbox: {
           question: 'answers a question',
           permission: 'grants permission',
@@ -1426,6 +1431,7 @@ export const en = {
       },
       long: {
         capacity: 'Working on something else. This card is next once that work finishes.',
+        collecting: 'The work happens on its sub-cards; this card is not started.',
         readyHold:
           'The card is ready to start but is intentionally waiting. It starts automatically when the condition clears.',
         startOffer: 'The card is ready and a developer is free. The system has asked for it to be started.',
@@ -1452,6 +1458,7 @@ export const en = {
       },
       todo: {
         startOffer: 'Move the card to development; the system chooses a developer.',
+        collecting: 'Nothing: when its last sub-card closes, this card closes by itself.',
         auto: 'Nothing: it starts automatically. If urgent, check the Team page to see what is holding it.',
         capacity: 'Nothing. {hint}',
         nothing: 'Nothing: it progresses automatically.',
@@ -1536,6 +1543,7 @@ export const en = {
     fixLimitYou: 'Waiting for you: decision · after {rounds|# fix round|# fix rounds}',
     queuedFor: 'Queued for: {stage}',
     ready: 'Ready to start',
+    collecting: '{count|# open sub-card|# open sub-cards}',
     prerequisite: 'Waiting for prerequisite',
     prerequisiteOn: 'Waiting · {ref}',
     prerequisiteRef: '{key} ({stage})',
@@ -1556,6 +1564,7 @@ export const en = {
   },
   taskCard: {
     stageRows: 'Checks',
+    processLabelsMore: '{count|# more process label|# more process labels}',
     stageProgress: 'Progress: {stage}, stage {index} of {total}',
     columnSteps: 'Steps of {column}',
     stepState: { done: 'done', current: 'in progress here', todo: 'to do', finished: 'done' },
@@ -1790,6 +1799,9 @@ export const en = {
       add: 'Add label',
       none: 'None',
       remove: 'Remove {label}',
+      foldedShow: '+{count|# process label|# process labels} ▾',
+      foldedHide: '{count|# process label|# process labels} ▴',
+      pickerAll: 'All applied labels',
       free: 'New label',
       freeHint: 'A free label, with no special meaning.',
       comment: 'Reason: {label}',
@@ -2636,6 +2648,9 @@ export const en = {
         lifecycleNone: 'It can’t assign, cancel or reopen on its own.',
         override: 'It can start a card even with an open prerequisite.',
         noOverride: 'It can’t start a card with an open prerequisite.',
+        involve:
+          'It can bring a member without a role in on a card, with a reason; this gives the member no right to approve.',
+        noInvolve: 'It can’t bring a member in on a card; a person can, with a message.',
         actions: {
           assign: 'assign or change the assignee',
           cancel: 'cancel a card',
@@ -3772,6 +3787,7 @@ export const en = {
       member_hired: 'Hired: {handle}',
       member_retired: 'Retired: {handle}',
       member_renamed: 'Handle renamed: {from} → {to}',
+      member_involved: 'Involved on the card: {member}. Reason: {reason}',
       member_retired_handover: 'Retired: {handle}, their work moved to {to}',
       config_changed: 'Setting changed: {message}',
       focus_added: 'Added to the focus: {title}, position {position}',
@@ -7831,6 +7847,21 @@ export const en = {
         value: {
           people: 'Only a person',
           people_and_project_manager: 'A person and the project manager, with an explicit flag',
+        },
+      },
+      /** Who may bring a member in on a card (PM-1267). */
+      memberInvolvement: {
+        title: 'Bringing a member in on a card',
+        help: 'A person can always bring anyone in on a card: their message starts the member. An AI member’s message only starts members who have a role on the card. A member brought in gets no right to approve.',
+        question: 'Who else can bring a member in?',
+        project_manager: 'Project manager, with a reason',
+        covers: 'Member concerned: {names}',
+        noProjectManager: 'There is no project manager in the team now.',
+        humansOnly: 'Now only a person can bring a member in on a card.',
+        readOnlyLabel: 'Who can bring a member in on a card?',
+        value: {
+          people: 'Only a person',
+          people_and_project_manager: 'A person and the project manager, with a reason',
         },
       },
       /** Who besides people may set a card’s priority (PM-1096). */

@@ -574,16 +574,20 @@ export class PauseService {
 
   /**
    * The engine is revoked (PM-1159): it will not come back to resume its pause. The pause and its rows end with it,
-   * and nothing starts again.
+   * and nothing starts again. So do the rows of its sessions that another pause holds or that a resume left open for
+   * the engine's next connect (PM-1348): that connect never comes, and an open row keeps the session's messages waiting.
    */
   endEnginePause(engineId: EngineId): void {
-    const { pauses } = this.ctx.repos;
+    const { pauses, sessions } = this.ctx.repos;
     const pause = pauses.findOpenEngine(engineId);
-    if (!pause) return;
     const at = isoNow(this.ctx);
     this.ctx.unitOfWork(() => {
-      for (const row of pauses.openSessionsOfPause(pause.id)) pauses.closeSession(row.sessionId, at);
-      pauses.close(pause.id, at, null);
+      for (const row of pauses.openSessions()) {
+        const session = sessions.get(row.sessionId);
+        if (row.pauseId === pause?.id || (session && engineIdOf(session) === engineId))
+          pauses.closeSession(row.sessionId, at);
+      }
+      if (pause) pauses.close(pause.id, at, null);
     });
   }
 

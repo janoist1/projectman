@@ -30,7 +30,13 @@ The check goes through two steps (PM-489): `check_waiting` while the full test w
 heavy-run queue (PM-332), then `checking` when the executor reports that the run holds the lock
 (`FullTestExecutor.run`'s `onStarted`; on a remote engine the `full_test_started` event, sent by the
 `full_test.run` handler like `screenshot_started`). An engine that does not send the event leaves the step at
-`check_waiting` until the run ends; a reused passed run goes straight to `checking`. A repository with
+`check_waiting` until the run ends; a reused passed run goes straight to `checking`. A passed engine run of the
+approved commit is reused only when the approved commit contains the base, the run recorded the repository's
+current `reviewTest.command` (`full_test_runs.command`, set when the run starts; migration 153), the approved
+commit has one parent (`MergeBaseState.commitParents` from `prepare`; an older engine leaves it out, so nothing is
+reused; the hub is updated before the engine because the reply schema is strict) and
+`reviewTest.reusePassedRun` is not false (PM-1377, decisions 77 and 78: a way-of-working setting, absent means
+today's reuse; the PM project sets it false in its own configuration). A repository with
 `fullTestAtMerge` and no `reviewTest` blocks (`check_unavailable`): nothing merges unchecked.
 
 A lost engine link is waited for up to 15 minutes per loss, at most five losses per merge

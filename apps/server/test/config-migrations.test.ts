@@ -54,6 +54,8 @@ describe('project configuration migrations', () => {
     const legacy = raw();
     for (const key of Object.keys(storedTeamDefaults())) delete legacy.team[key];
     expect(migrate(legacy).config.team).toMatchObject(storedTeamDefaults());
+    // PM-1379: older projects keep today's rule explicitly.
+    expect(migrate(legacy).config.team.mergeAfterReview).toBe(false);
   });
 
   it('keeps saved team settings across configuration files and migration', () => {
@@ -69,6 +71,7 @@ describe('project configuration migrations', () => {
       viewerRecipients: 'contacts',
       taskCreateAccess: 'client',
       ownerDecisionTopics: [],
+      mergeAfterReview: true,
     } as const satisfies Partial<ProjectConfig['team']>;
     expect(Object.keys(chosen).sort()).toEqual(Object.keys(storedTeamDefaults()).sort());
     Object.assign(saved.team, structuredClone(chosen));

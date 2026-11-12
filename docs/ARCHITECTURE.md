@@ -1886,6 +1886,9 @@ the config migration `addMerger` writes the default merger into a valid configur
 `PATCH /config` takes `merger` and `repoMerge` (`requireMerge: null` clears the explicit value; an
 unknown repository is `unknown_repo`). No machine-dependent part is touched: this is configuration and
 pure rules; the merge itself (PM-452) runs on the engine through `BranchMerger`.
+`team.mergeAfterReview` (PM-1379, default off) makes the merger's own code review approval queue the merge
+(`reviewMergeSkip`, `Merges.reconcileCard`): see "Merger approval queues the merge" in
+[`services/merges`](modules/services-merges.md).
 
 Inbox resolution checks access and attempts the move as the resolving human before closing the
 item. Refused moves leave it open. Actual movement clears the request and resolves the item if

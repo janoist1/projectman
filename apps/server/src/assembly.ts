@@ -1658,6 +1658,7 @@ export function createDomain(opts: DomainOptions) {
         cardQuestions,
         taskWaits,
         closer: sessionCloser,
+        merges,
       }),
       attachments: new AttachmentTools({
         calls: toolCaller,

@@ -488,6 +488,13 @@ export const ProjectConfig = z.object({
     ownerDecisionTopics: OwnerDecisionTopics.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),
+    /**
+     * Whether the merger's own code review approval puts the card's merge in the queue in their name
+     * (PM-1379). The merger still merges with `merge_task` (decisions 21 and 71); the setting only makes
+     * that call for a merger who approved the card themselves (decisions 77 and 78). Absent: its
+     * `TEAM_SETTING_POLICY` default, off.
+     */
+    mergeAfterReview: z.boolean().optional(),
     members: z.array(MemberConfig).min(1),
     /** Who a contact-restricted member may write to (PM-985); absent in older configurations: nobody. */
     contacts: ContactHandles.default([]),

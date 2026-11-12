@@ -70,6 +70,7 @@ const TEAM_SECTION = {
   contacts: 'team',
   cardMover: 'team',
   merger: 'team',
+  mergeAfterReview: 'team',
   taskCreateAccess: 'team',
   projectManagerMoves: 'team',
   projectManagerLifecycle: 'team',

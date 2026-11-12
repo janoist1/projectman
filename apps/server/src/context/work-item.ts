@@ -30,6 +30,7 @@ import type { DutyId, LabelDefinition, RepoConfig, Stage, Task } from '@projectm
 import type { ContextPackInput } from '../contracts';
 import {
   cardBranchMergeRule,
+  mergeAfterReviewLine,
   code,
   codeList,
   fullTestLine,
@@ -445,6 +446,7 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
         : 'Review the pull requests linked to the task; do not edit, commit or push.',
     ...confirmAcceptance(input),
     recordResult(input, duty, 'a one-line summary of the findings'),
+    ...(duty === 'code_review' ? [mergeAfterReviewLine(input.project)].filter((line) => line !== null) : []),
     `Send Blocking findings with file:line to ${author} with send_message; review again when they report a fix.`,
     reviewFollowUps(),
     // After a review a local-only branch is merged by the owner and nobody else.

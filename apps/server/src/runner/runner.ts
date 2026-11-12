@@ -36,9 +36,9 @@ const NOT_RUNNING: PauseOutcome = { point: 'exited', tool: null };
 
 /** Exited sessions kept for a last look at their terminal. */
 const MAX_FINISHED = 20;
-/** A login check is reused this long when it said "logged in", and this long otherwise. */
+/** Successful checks are reused for a minute; consecutive failures back off on the engine. */
 const STATUS_TTL_OK_MS = 60_000;
-const STATUS_TTL_OTHER_MS = 5_000;
+const STATUS_FAILURE_TTLS_MS = [3_000, 10_000, 30_000, 60_000] as const;
 /**
  * A "logged in" check this old still answers at once while a new one runs behind it: the check spawns the
  * CLI, and admission asks for it under its lock (PM-1133). A lost login shows at the next start or at the
@@ -77,7 +77,7 @@ export class SessionManager implements SessionRunner {
   private readonly byToken = new Map<string, AgentSession>();
   private readonly listeners = new Set<(event: RunnerEvent) => void>();
   /** Cached login status by provider. */
-  private readonly statuses = new Map<string, { status: ProviderStatus; at: number }>();
+  private readonly statuses = new Map<string, { status: ProviderStatus; at: number; failures: number }>();
   private readonly statusChecks = new Map<string, Promise<ProviderStatus>>();
   private readonly scopes: ProcessScopeDriver;
   /** The private folders of the sessions' launch files (tokens never reach a command line, PM-156). */
@@ -254,7 +254,10 @@ export class SessionManager implements SessionRunner {
     const cached = this.statuses.get(key);
     let stale = false;
     if (cached && !opts.refresh) {
-      const ttl = cached.status.loggedIn === true ? STATUS_TTL_OK_MS : STATUS_TTL_OTHER_MS;
+      const ttl =
+        cached.status.loggedIn === true
+          ? STATUS_TTL_OK_MS
+          : STATUS_FAILURE_TTLS_MS[Math.min(cached.failures - 1, STATUS_FAILURE_TTLS_MS.length - 1)]!;
       const age = Date.now() - cached.at;
       if (age < ttl) return Promise.resolve(cached.status);
       stale = cached.status.loggedIn === true && age < STATUS_STALE_OK_MS;
@@ -278,7 +281,8 @@ export class SessionManager implements SessionRunner {
         return adapter.checkLogin(env);
       })()
         .then((status) => {
-          this.statuses.set(key, { status, at: Date.now() });
+          const failures = status.loggedIn === true ? 0 : (this.statuses.get(key)?.failures ?? 0) + 1;
+          this.statuses.set(key, { status, at: Date.now(), failures });
           if (status.loggedIn !== true) this.log.warn({ status }, 'agent CLI is not usable');
           return status;
         })

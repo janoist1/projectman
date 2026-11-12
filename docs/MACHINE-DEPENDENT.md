@@ -807,6 +807,15 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
   and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
   rounds. The CLI and its login must live on the machine that runs the sessions.
+  PM-1349: the engine caches consecutive unsuccessful login checks for 3, 10, 30, then
+  60 seconds; a successful check resets this backoff. Periodic outage checks and refused
+  starts reuse the cached result; an explicit recheck still refreshes immediately.
+  On the hub, an outage that blocks the project manager's own provider or engine goes
+  to the integrator's queue and sends one information message to the project owners per
+  episode, including the start time and recovery action. Other outages still signal the
+  project manager. The todo retains the episode facts across a hub restart and closes
+  on recovery. The existing `provider.status` RPC carries the engine's cached status;
+  the hub computes the routing fact from the member's assigned engine and provider.
   The bounded status wait runs on the server in `runtime/watchers/provider-status-wait.ts`
   (Effect, PM-617).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
@@ -954,6 +963,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     (engine → hub) before it stops. The hub resumes it when the engine connects (after `reconcileEngine`); on a hub
     restart a session of an engine that is not connected yet is handed to that engine's pause. Which sessions hold a
     heavy command comes from `EngineHost.heavyRunSessions` (the engine's heavy-run queue folder). Nothing else crosses.
+    A resume that finds the session's engine link down sends no `session.release` and keeps the session's pause row
+    open (`SessionRunner.reaches`, PM-1348); the engine's next connect releases it. The wire contract is unchanged.
   - Offline machine and the question screening (PM-708): the durable queue, the timer and the
     delivery receipt all run on the server. A screened question that waits for the PM's engine stays
     in the inbox with `payload.screening.queue` (`engine_offline`); it raises no owner alert, no

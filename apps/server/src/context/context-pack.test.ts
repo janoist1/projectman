@@ -598,6 +598,22 @@ it('explains member initiated merging and forbids manually landing or pushing th
   expect(pack.initialMessage).not.toContain('the server owns the merge on Done');
 });
 
+it('tells the merger that its own approval queues the merge only with the setting on (PM-1379)', () => {
+  const marker = 'your approval puts the merge in the queue in your name';
+  const texts = (mergeAfterReview: boolean) => {
+    const project = buildProject();
+    project.project.repos[0]!.requireMerge = true;
+    project.team.mergeAfterReview = mergeAfterReview;
+    const reviewer = input({ project, handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
+    return [
+      builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) })).initialMessage,
+      builder.build(reviewer).initialMessage,
+    ];
+  };
+  for (const text of texts(true)) expect(text).toContain(marker);
+  for (const text of texts(false)) expect(text).not.toContain(marker);
+});
+
 // The sentence is built in one provider-independent place (format.ts), so one provider is enough.
 it('allows developers to merge the default branch into their card branch without permission (PM-747)', () => {
   for (const localOnly of [false, true]) {

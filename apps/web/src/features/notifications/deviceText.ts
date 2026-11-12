@@ -1,8 +1,6 @@
 import type { NtfyChannelView, PushDeviceView } from '@projectman/shared';
-import { isApiError } from '../../api/client';
 import { daysBetween, formatStamp, formatTime } from '../../i18n/format';
 import { t, tDynamic } from '../../i18n/t';
-import { codeMessage } from '../../lib/errors';
 
 /** "Chrome · macOS", "Safari · iPhone (telepített app)": what the person calls the device. */
 export function deviceName(device: PushDeviceView): string {
@@ -72,9 +70,4 @@ export function deviceWhy(device: PushDeviceView): string | null {
     return tDynamic(`notifications.failure.${device.lastFailure}`, '') || null;
   }
   return null;
-}
-
-/** A failure's text: the server's own message when it has one for the code, otherwise the screen's `fallback`. */
-export function failText(error: unknown, fallback: string): string {
-  return isApiError(error) && codeMessage(error.code) ? (codeMessage(error.code) as string) : fallback;
 }

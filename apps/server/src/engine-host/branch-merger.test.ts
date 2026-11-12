@@ -126,6 +126,7 @@ describe('prepare', () => {
       relation: 'same',
       contains: { local: true, remote: null },
       checkout: realpathSync(repo),
+      commitParents: 0,
     });
   });
 
@@ -137,6 +138,17 @@ describe('prepare', () => {
     expect(state.contains).toEqual({ local: false, remote: false });
     expect(state.remote).toEqual({ name: 'origin', commit: git(remote, 'rev-parse', 'main') });
     expect(state.checkout).toBe(realpathSync(repo));
+    expect(state.commitParents).toBe(1);
+  });
+
+  it('counts the parents of a merge commit (PM-1377)', async () => {
+    const { merger, repo } = fixture();
+    feature(repo, 'f.txt', 'x\n');
+    write(repo, 'm.txt', 'main\n');
+    commit(repo, 'main work');
+    git(repo, 'merge', '-q', '--no-ff', '-m', 'merge feature', 'feature');
+    const state = await merger.prepare(REF, { base: 'main', commit: git(repo, 'rev-parse', 'HEAD') });
+    expect(state.commitParents).toBe(2);
   });
 
   it('is already contained when the commit is an ancestor of the base', async () => {

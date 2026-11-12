@@ -325,7 +325,6 @@ export function createEmailChannelService(deps: {
     changed,
     notify,
   });
-  let pruning: ReturnType<typeof setInterval> | undefined;
   const prune = () => {
     try {
       const count = repo.prune(now().toISOString());
@@ -397,16 +396,12 @@ export function createEmailChannelService(deps: {
   return {
     inbound,
 
-    start() {
-      if (pruning) return;
-      prune();
-      pruning = setInterval(prune, DAY_MS);
-      pruning.unref();
-    },
-
-    stop() {
-      if (pruning) clearInterval(pruning);
-      pruning = undefined;
+    pruneSweep: {
+      name: 'email-channel-prune',
+      everyMs: DAY_MS,
+      atStart: true,
+      run: async () => prune(),
+      onError: (err) => ctx.logger.warn({ err }, 'clearing old parked e-mails failed'),
     },
 
     configured,

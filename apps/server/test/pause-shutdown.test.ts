@@ -212,6 +212,30 @@ describe('pause around a restart of the server', () => {
       expect(h.repos.pauses.openSession(session.id)).toBeNull();
     });
 
+    it('keeps a session paused that the resume cannot reach, and lets it go at the next connect (PM-1348)', async () => {
+      await harness();
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+      h.runner.setState(session.id, 'idle');
+      await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, BY);
+      await waitFor(() => h.repos.pauses.openSession(session.id)?.point);
+      h.runner.unreachable.add(session.id);
+      await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, BY);
+      expect(h.domain.pauses.isPaused('AR')).toBe(false);
+      expect(h.runner.releases).toEqual([]);
+      expect(h.repos.pauses.openSession(session.id)).not.toBeNull();
+      // What comes for it waits on the hub, not behind the engine's hold.
+      await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Fictional note.' });
+      expect(h.runner.messages).toEqual([]);
+
+      h.runner.unreachable.delete(session.id);
+      const engineId = h.domain.sessions.engineOf(session.id);
+      await h.domain.sessions.reconcileEngine(engineId, new Set([session.id]), () => false);
+      await h.domain.pauses.resumeEngine(engineId);
+      expect(h.runner.releases).toEqual([{ sessionId: session.id, nudge: undefined }]);
+      expect(h.repos.pauses.openSession(session.id)).toBeNull();
+      await waitFor(() => h.runner.messages.some((m) => m.text.includes('Fictional note.')));
+    });
+
     it('ends the engine pause without starting anything when the engine is revoked', async () => {
       await harness();
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);

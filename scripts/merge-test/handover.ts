@@ -104,6 +104,26 @@ export const SELECTION_RULES: readonly SelectionRule[] = [
   },
   {
     reason:
+      'the alert path (provider outage signal, item route) is reached through the app harness: the tests use `outages.` or `work_outage` on the domain, and the screening tests through the operator signals, not by import (PM-1399)',
+    sources: [
+      'apps/server/src/runtime/watchers/outages.ts',
+      'apps/server/src/core/inbox/inbox.ts',
+      'apps/server/src/core/inbox/alert-todo.ts',
+      'apps/server/src/core/inbox/apply-route.ts',
+      'packages/shared/src/domain/item-route.ts',
+    ],
+    tests: [
+      'apps/server/test/alert-routing.test.ts',
+      'apps/server/test/operator-signals.test.ts',
+      'apps/server/test/outages.test.ts',
+      'apps/server/test/outages-api.test.ts',
+      'apps/server/test/periodic-work-performance.test.ts',
+      'apps/server/test/provider-login-wait.test.ts',
+      'apps/server/test/question-screening-offline.test.ts',
+    ],
+  },
+  {
+    reason:
       'the migration tests build an old schema from the migration list; some import it through the db facade, not db/migrations; the schema registry tests read the migrated schema (PM-1324, PM-1325)',
     sources: ['apps/server/src/db/migrations.ts'],
     tests: [

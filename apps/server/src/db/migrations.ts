@@ -3006,6 +3006,13 @@ migrations.push({
 });
 migrations.push({
   version: 153,
+  name: 'full test run command',
+  // PM-1377: the command a full test run ran, so a merge reuses a pass only of the same command. Older rows stay
+  // NULL and are never reused.
+  sql: `ALTER TABLE full_test_runs ADD COLUMN command TEXT;`,
+});
+migrations.push({
+  version: 154,
   name: 'task stage owner pick',
   // PM-1395: whom a step stage with a small-card rule gave the card to on entry (JSON `StageOwnerPick`); NULL:
   // the stage has no such rule. No old row needs a backfill: every card read before keeps the stage's owners.

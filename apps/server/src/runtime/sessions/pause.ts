@@ -817,9 +817,18 @@ export class PauseService {
   /**
    * A session whose process runs goes on: released (with a nudge where it was cut mid-turn), its held
    * messages typed in. One that stopped between turns (`idle`, `turn_end`) gets no nudge, and its turn
-   * ends for the refinement as it would have without the pause.
+   * ends for the refinement as it would have without the pause. While the link to its engine is down the
+   * release would not get there and the engine would keep holding it (PM-1348): its row stays open, so its
+   * messages wait, and the engine's next connect lets it go (`releaseUnfinished`).
    */
   private letGo(session: Session, row: SessionPauseRecord): void {
+    if (this.runner.reaches?.(session.id) === false) {
+      this.ctx.logger.info(
+        { sessionId: session.id },
+        'the engine is not connected: the session goes on at its next connect',
+      );
+      return;
+    }
     const nudge =
       row.point && NUDGE_POINTS.includes(row.point)
         ? this.sessions.pauseNudge(row.point, row.tool, false)

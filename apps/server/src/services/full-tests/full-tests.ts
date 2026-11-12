@@ -454,7 +454,7 @@ export class FullTestRuns {
         'no engine to test on',
       );
     const paths = engine.paths();
-    runs.start(run.id, isoNow(this.ctx));
+    runs.start(run.id, isoNow(this.ctx), command);
     this.tasks.publish(task);
     let result: FullTestResult;
     try {
@@ -542,7 +542,7 @@ export class FullTestRuns {
       return this.end(run, task, config, { outcome: 'error', reason: 'engine_offline' }, '', command);
     if (!repo?.github)
       return this.end(run, task, config, { outcome: 'error', reason: 'github_unavailable' }, '', command);
-    runs.start(run.id, isoNow(this.ctx));
+    runs.start(run.id, isoNow(this.ctx), command);
     this.tasks.publish(task);
     const spec: FullTestSpec = {
       runId: run.id,

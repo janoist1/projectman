@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { Route, Routes, useNavigate } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
@@ -27,21 +28,24 @@ function ToOtherCard({ to }: { to: string }) {
 /** The board and the open card as the app mounts them: the page region is the layout's `<main id="main">`. */
 function renderBoard(route: string) {
   const project = mockProject();
+  // StrictMode like the app: the drawer's effects run twice, and the opener must survive that.
   renderUi(
-    <ToastProvider>
-      <ProjectContext.Provider value={project.context}>
-        <AttachmentUploadsProvider>
-          <ToOtherCard to="/p/AC/tasks/AC-21" />
-          <main id="main" tabIndex={-1}>
-            <Routes>
-              <Route path="/p/:key" element={<BoardPage />}>
-                <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
-              </Route>
-            </Routes>
-          </main>
-        </AttachmentUploadsProvider>
-      </ProjectContext.Provider>
-    </ToastProvider>,
+    <StrictMode>
+      <ToastProvider>
+        <ProjectContext.Provider value={project.context}>
+          <AttachmentUploadsProvider>
+            <ToOtherCard to="/p/AC/tasks/AC-21" />
+            <main id="main" tabIndex={-1}>
+              <Routes>
+                <Route path="/p/:key" element={<BoardPage />}>
+                  <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
+                </Route>
+              </Routes>
+            </main>
+          </AttachmentUploadsProvider>
+        </ProjectContext.Provider>
+      </ToastProvider>
+    </StrictMode>,
     { route },
   );
   return project;

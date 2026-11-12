@@ -70,8 +70,12 @@ export function useDrawerFocusReturn(taskKey: string): () => void {
   const closedKey = useRef(taskKey);
   closedKey.current = taskKey;
 
-  // Before any other effect of the drawer moves the focus (the heading takes it).
+  // Once, before any other effect of the drawer moves the focus (the heading takes it). StrictMode runs the
+  // effect a second time after the heading has the focus: that must not replace the real opener.
+  const remembered = useRef(false);
   useLayoutEffect(() => {
+    if (remembered.current) return;
+    remembered.current = true;
     opener.current = currentOpener();
   }, []);
 

@@ -1781,6 +1781,7 @@ export const en = {
     earlier: {
       title: 'Earlier conversations ({count})',
       readOnly: 'Read-only.',
+      loadFailed: "Couldn't load the earlier conversations.",
       to: 'To: {names}',
       none: 'No machine messages visible to you.',
     },
@@ -4480,6 +4481,7 @@ export const en = {
   },
 
   messages: {
+    readFailed: "Couldn't mark as read.",
     new: 'New message',
     recipients: 'To',
     contactsOnlyHint: 'You can only write to contacts.',

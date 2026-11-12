@@ -56,7 +56,7 @@ import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from 
 import { ComplexityWarning } from './ComplexityWarning';
 import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
 import type { CardSize } from './cardSize';
-import { useDrawerBase, withQueryParam } from './drawerBase';
+import { useDrawerBase, useDrawerFocusReturn, withQueryParam } from './drawerBase';
 import { RefineButton } from './RefineButton';
 import { MergeBox } from './MergeBox';
 import { SignalBox } from './SignalBox';
@@ -275,7 +275,7 @@ export function TaskDrawer() {
   const [sendBack, setSendBack] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const drawerBase = useDrawerBase();
-  const close = () => navigate(drawerBase.close);
+  const close = useDrawerFocusReturn(taskKey);
 
   const boardTask = board.data?.tasks.find((task) => task.key === taskKey);
   // The board's card shows the drawer at once; the description and the whole merge come with the detail (PM-1336).
@@ -356,11 +356,11 @@ export function TaskDrawer() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // A dialog, a popover or a field takes Escape for itself: a draft in the card is not discarded by it.
-      if (isPageEscape(event)) navigate(drawerBase.close);
+      if (isPageEscape(event)) close();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [drawerBase.close, navigate]);
+  }, [close]);
 
   // The large window holds the focus and the pointer: all that lies under it (the menu, the bars, the board)
   // is inert, so Tab stays inside it. Not a modal <dialog>: that would cover the toasts and the popovers.

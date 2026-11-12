@@ -11,6 +11,12 @@ export const isRuntimeImport = (specifier: string): boolean =>
   /^(?:node:)?(?:child_process|worker_threads|vm|module)$/.test(specifier) ||
   specifier === '@lydell/node-pty';
 export const isServerTest = (path: string): boolean => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path);
+export function snapshotTest(path: string): string | undefined {
+  if (/^apps\/server\/src\/mcp\/__snapshots__\/tools\/[^/]+\.json$/.test(path))
+    return 'apps/server/src/mcp/tools.test.ts';
+  const snapshot = /^(.*)\/__snapshots__\/([^/]+)\.snap$/.exec(path);
+  return snapshot ? `${snapshot[1]}/${snapshot[2]}` : undefined;
+}
 const isTestSupport = (path: string): boolean =>
   /\/(?:fixtures|test-fixtures|tests)\//.test(path) || /\/test-helpers\.[cm]?[jt]sx?$/.test(path);
 const isProduction = (path: string): boolean =>
@@ -119,10 +125,8 @@ export function serverTestImpact(input: {
   for (const path of input.changed.filter((p) => p.startsWith('apps/server/') || p.startsWith('scripts/'))) {
     if (/\/(?:fixtures|test-fixtures)\//.test(path) || path.startsWith('apps/server/test/setup/'))
       return fail(`test support changed: ${path}`);
-    const snapshot = /^(.*)\/__snapshots__\/([^/]+)\.snap$/.exec(path);
-    const toolSnapshot = /^apps\/server\/src\/mcp\/__snapshots__\/tools\/[^/]+\.json$/.test(path);
-    if (snapshot || toolSnapshot) {
-      const test = toolSnapshot ? 'apps/server/src/mcp/tools.test.ts' : `${snapshot![1]}/${snapshot![2]}`;
+    const test = snapshotTest(path);
+    if (test) {
       if (!isServerTest(test) || !afterPaths.has(test)) return fail(`unmapped snapshot: ${path}`);
       seeded.add(test);
     } else if (path.startsWith('apps/server/') && path.endsWith('.md')) continue;

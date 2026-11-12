@@ -1,6 +1,6 @@
 import { TARGETED_TEST_FILES_MAX } from '@projectman/shared';
 import { sourceImports } from '../../apps/server/test/architecture/check';
-import { importGraph, isCode, isServerTest } from './impact';
+import { importGraph, isCode, isServerTest, snapshotTest } from './impact';
 import type { MergeTestFile } from './impact';
 import { refineScope } from './refine';
 import { CLOUD_TEST_FILTERS, isDocumentFile, mergeTestScope } from './scope';
@@ -284,7 +284,6 @@ function nameUsers(
 /** The workspace whose checks cover a path: the scripts belong to the server's. */
 const checkedBy = (path: string): MergeTestWorkspace | undefined =>
   path.startsWith('scripts/') ? 'apps/server' : workspaceOf(path);
-const SNAPSHOT = /^(.*)\/__snapshots__\/([^/]+)\.snap$/;
 const isTestSupport = (path: string): boolean => /\/(?:fixtures|test-fixtures)\//.test(path);
 const isConfig = (path: string): boolean =>
   /^(?:package(?:-lock)?\.json|tsconfig.*\.json|vitest\.config\..*)$/.test(path.split('/').at(-1)!);
@@ -349,10 +348,8 @@ export function handoverSelection(
   const unmapped: string[] = [];
   const typecheck = new Set<MergeTestWorkspace>();
   for (const file of changed) {
-    const snapshot = SNAPSHOT.exec(file);
-    const toolSnapshot = /^apps\/server\/src\/mcp\/__snapshots__\/tools\/[^/]+\.json$/.test(file);
-    if (snapshot || toolSnapshot) {
-      const owner = toolSnapshot ? 'apps/server/src/mcp/tools.test.ts' : `${snapshot![1]}/${snapshot![2]}`;
+    const owner = snapshotTest(file);
+    if (owner) {
       if (isServerTest(owner) && afterPaths.has(owner)) snapshotOwners.add(owner);
       else unmapped.push(file);
       continue;
@@ -406,10 +403,8 @@ export function handoverSelection(
   }
   const isTest = (path: string): boolean =>
     isServerTest(path) && afterPaths.has(path) && !isTestSupport(path) && workspaceOf(path) !== undefined;
-  const hasSnapshot = (path: string): boolean =>
-    (path === 'apps/server/src/mcp/tools.test.ts' &&
-      [...afterPaths].some((file) => file.startsWith('apps/server/src/mcp/__snapshots__/tools/'))) ||
-    afterPaths.has(`${path.slice(0, path.lastIndexOf('/'))}/__snapshots__/${path.split('/').at(-1)}.snap`);
+  const testsWithSnapshots = new Set([...afterPaths].map(snapshotTest));
+  const hasSnapshot = (path: string): boolean => testsWithSnapshots.has(path);
 
   const change: HandoverChange = { changed: input.changed, added: input.added, deleted: input.deleted };
   const ruleTests = [

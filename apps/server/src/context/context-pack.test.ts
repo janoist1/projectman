@@ -2738,8 +2738,9 @@ describe('expected steps', () => {
     expect(steps).toContain(
       'When the review passes, move the task to Done (`done`) with update_task as your very last step, after your messages and notes: once the task is done, its sessions stop.',
     );
-    expect(steps.indexOf('Send "Blocking"')).toBeGreaterThan(-1);
-    expect(steps.indexOf('Send "Blocking"')).toBeLessThan(steps.indexOf('When the review passes'));
+    expect(steps).toContain('follow_ups');
+    expect(steps.indexOf('Send Blocking')).toBeGreaterThan(-1);
+    expect(steps.indexOf('Send Blocking')).toBeLessThan(steps.indexOf('When the review passes'));
   });
 
   it('requests an approval gate through update_task instead of approving', () => {
@@ -3523,7 +3524,7 @@ describe('repositories without GitHub', () => {
       expect(steps[0]).toContain(
         '`cd app && git log develop..<branch>` and `cd app && git diff develop...<branch>`',
       );
-      expect(steps[3]).toMatch(/ The owner merges the branch into `develop`\.$/);
+      expect(steps.at(-1)).toMatch(/ The owner merges the branch into `develop`\.$/);
     });
 
     it('reviews the commit checked out in its own workspace when it has one (PM-138)', () => {
@@ -3565,14 +3566,14 @@ describe('repositories without GitHub', () => {
       (project.pipeline.stages.find((s) => s.id === 'code_review')!.owners ??= []).push('security');
       const steps = reviewSteps(project, 'security');
       expect(steps[0]).toContain("Review the task's branch against `main`: there is no pull request");
-      expect(steps[3]).toMatch(/ The owner merges the branch into `main`\.$/);
+      expect(steps.at(-1)).toMatch(/ The owner merges the branch into `main`\.$/);
     });
 
     it('asks a member who does not own the review stage what it was asked, as before', () => {
       const project = buildLocalOnlyProject('.');
       addMember(project, 'security', 'security_review');
       const steps = reviewSteps(project, 'security');
-      expect(steps).toHaveLength(1);
+      expect(steps).toHaveLength(2);
       expect(steps[0]).toMatch(/^1\. Review what you were asked to review\./);
     });
 

@@ -3550,6 +3550,7 @@ export const en = {
       assignment_note: '{line} Reason: {note}',
       task_created_imported: 'Created (imported)',
       task_created: 'Created the card',
+      review_follow_ups: 'Left follow-ups for a later card{label}: {items}',
       task_updated: 'Updated: {fields}',
       task_stage_changed: 'Moved on: {from} → {to}',
       task_stage_changed_pulled_urgent: 'Pulled forward by the system: {from} → {to}; the card is urgent',

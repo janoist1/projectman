@@ -670,6 +670,15 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(checkLine(str(d.check), str(d.to)));
     case 'task_labels_changed':
       return normal(labelsChanged(d, ctx));
+    case 'review_follow_ups':
+      return normal(
+        t('timeline.events.review_follow_ups', {
+          label: d.label ? ` (${str(d.label)})` : '',
+          items: strings(d.items)
+            .map((item, i) => `${i + 1}) ${item}`)
+            .join('; '),
+        }),
+      );
     case 'refinement_turn': {
       const label = d.label ? labelName(str(d.label), ctx.labels ?? []) : '';
       if (d.reason === 'done') return normal(t('timeline.refinement.done'));

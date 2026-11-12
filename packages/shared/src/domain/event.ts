@@ -80,6 +80,7 @@ export const TimelineEventType = z.enum([
   'task_senior_wait',
   'task_check_changed',
   'task_labels_changed',
+  'review_follow_ups',
   'acceptance_item_changed',
   'task_link_added',
   'task_relation_added',
@@ -182,6 +183,8 @@ export interface CommentRevision {
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  /** Non-blocking remarks for a later card; the actor is the reviewer (PM-1351). */
+  review_follow_ups: { items: string[]; label?: string };
   /** The project manager opened a request to the instance's host (PM-1064); on the card when it names one. */
   host_request_opened: { requestId: string; title: string };
   /** The host answered or declined a request (PM-1064); the actor is the system, the answer text stays out. */

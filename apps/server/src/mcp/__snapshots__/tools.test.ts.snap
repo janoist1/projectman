@@ -5352,6 +5352,17 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "description": "Move into the work stage despite an open prerequisite. Honored only for a person, or the project manager when team.prerequisiteOverride allows it; otherwise the start waits.",
           "type": "boolean",
         },
+        "follow_ups": {
+          "description": "Remarks that do not block this card, for a later card (a missing test, a helper to reuse, a rule to add), one per item. Only a reviewer or tester of the card, with the call that records the result; never send them in a message.",
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string",
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array",
+        },
         "note": {
           "description": "Timeline note: findings, decisions, what changed; with labels, their comment.",
           "maxLength": 50000,

@@ -319,7 +319,7 @@ describe('engine link handshake recovery', () => {
       },
       message: (frame: object) =>
         events.dispatchEvent(Object.assign(new Event('message'), { data: JSON.stringify(frame) })),
-      welcome: () =>
+      welcome: (extra: { heartbeatMs?: number } = {}) =>
         events.dispatchEvent(
           Object.assign(new Event('message'), {
             data: JSON.stringify({
@@ -327,6 +327,7 @@ describe('engine link handshake recovery', () => {
               engineId: 'eng_aaaaaaaaaaaa',
               ackedSeq: 0,
               serverTime: new Date().toISOString(),
+              ...extra,
             }),
           }),
         ),
@@ -500,6 +501,20 @@ describe('engine link handshake recovery', () => {
       await vi.advanceTimersByTimeAsync(20_000);
       expect(sockets[0]!.socket.close).toHaveBeenCalledExactlyOnceWith(4000, 'silent');
       expect(status.get().lastError?.code).toBe('link_silent');
+    });
+
+    it('reconnects after silence from the welcome on when the cloud announced its heartbeat, with no ack ever seen', async () => {
+      const made = make();
+      made.sockets[0]!.open();
+      await vi.advanceTimersByTimeAsync(0);
+      made.sockets[0]!.welcome({ heartbeatMs: 20_000 });
+      await vi.advanceTimersByTimeAsync(100_000);
+      expect(made.sockets[0]!.socket.close).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(made.sockets[0]!.socket.close).toHaveBeenCalledExactlyOnceWith(4000, 'silent');
+      made.sockets[0]!.close(4000);
+      await vi.advanceTimersByTimeAsync(ENGINE_BACKOFF_MIN_MS);
+      expect(made.createSocket).toHaveBeenCalledTimes(2);
     });
 
     it('leaves an idle link of a cloud that never repeats its acknowledgement alone', async () => {

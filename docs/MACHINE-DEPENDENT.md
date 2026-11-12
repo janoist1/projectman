@@ -904,10 +904,18 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   with pending events and more than 90 s of silence. Both sides log `engine link: connected` and
   `engine link: disconnected` at info level (code and cause; never the key or URL). Protocol version
   stays 1 and the wire is unchanged: an old engine with a new cloud is tolerated for 90 s (the old
-  engine reconnects after 45 s when events wait). A new engine judges the link by silence only once
-  it has seen the cloud repeat an acknowledgement (an `ack` equal to the highest sequence of the
-  connection, the welcome's included; a cloud that never repeats one is quiet when idle, so an idle
-  link to an old cloud is left alone instead of reconnecting every few minutes).
+  engine reconnects after 45 s when events wait). A new engine judges the link by silence only for a
+  cloud that announced its heartbeat or was seen repeating one: PM-1346 adds the optional
+  `heartbeatMs` field to `welcome` (the cloud sends `ENGINE_HEARTBEAT_MS`, only to an engine whose
+  hello carries `welcomeHeartbeat: true`, as `deliveryIds` does), so the watchdog is armed
+  from the welcome and a link that goes half-dead right after it (no repeated ack ever arrives) is
+  dropped after `ENGINE_DEAD_AFTER_MS` instead of idling for an hour. Without the field (an older
+  cloud) the engine still waits for an `ack` equal to the highest sequence of the connection, the
+  welcome's included; a cloud that never repeats one is quiet when idle, so an idle link to an old
+  cloud is left alone instead of reconnecting every few minutes. The frames are strict, so an
+  engine older than PM-1346 would reject the new field (`bad_frame`); it never gets it, because its
+  hello lacks `welcomeHeartbeat`. The cloud-first release order therefore needs no engine update
+  first (an old engine keeps the old watchdog until it is updated).
   **Remote engine:** the socket, event buffer and method dispatch run on the engine beside its
   CLIs and files; the registry, auth, idempotency store and human websocket broadcasts stay in the
   cloud. Non-JSON/large data uses purpose-scoped uploads (PM-315), with only a hash and size in

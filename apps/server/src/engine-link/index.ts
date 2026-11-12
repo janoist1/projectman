@@ -287,6 +287,8 @@ export function createEngineLinks(options: {
                   engineId: id,
                   ackedSeq: state.ackedSeq,
                   serverTime: new Date(now()).toISOString(),
+                  // Only to an engine that says it takes the field: the frames are strict (PM-1346).
+                  ...(hello.welcomeHeartbeat ? { heartbeatMs: ENGINE_HEARTBEAT_MS } : {}),
                 }),
               );
               options.logger?.info(

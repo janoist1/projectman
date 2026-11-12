@@ -349,6 +349,7 @@ describe('Operator system signals', () => {
     expect(h.repos.memberQueue.listOpen('AR', 'pm')).toMatchObject([{ kind: 'signal', state: 'queued' }]);
     expect(get(signal.id)).toMatchObject({ state: 'pending', deliveredAt: null });
 
+    h.liftStartBackoff();
     await h.domain.memberQueueDriver.ensure('AR', 'pm', { net: true });
     await flush();
 

@@ -169,6 +169,7 @@ export const CHANGE_TRIGGER_TABLES: readonly ChangeTriggerTable[] = [
 export const UNJOURNALED_TABLES: Readonly<Record<string, string>> = {
   project_checklists: 'Private owner/admin checklist; announced through project_checklist_changed.',
   project_checklist_items: 'Private owner/admin checklist; announced through project_checklist_changed.',
+  start_failures: 'the hub’s retry counters of failed session starts (PM-1335), not project state',
   web_push_devices: 'personal notification settings, not project state',
   web_push_settings: 'personal notification settings, not project state',
   web_push_items: 'personal notification settings, not project state',

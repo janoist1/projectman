@@ -344,6 +344,7 @@ describe('the first input of a resumed session', () => {
         expect(h.repos.messages.pending('AR', member)).toHaveLength(2);
 
         // No conversation exists yet: the next start is a new one, and gets the messages in full.
+        h.liftStartBackoff();
         await h.domain.memberQueueDriver.wake('AR', member, task);
         await flush();
         expect(h.runner.started).toHaveLength(2);
@@ -451,7 +452,8 @@ describe('the first input of a resumed session', () => {
       taskKey: 'AR-1',
     });
     await flush();
-    // The queue's driver starts again at once, not only with the sweep: nothing is lost on the way.
+    // The queue's driver starts again once the backoff has passed, not only with the sweep: nothing is lost on the way.
+    h.liftStartBackoff();
     await h.domain.memberQueueDriver.wake('AR', 'dev-1', task);
     expect(h.runner.lastStarted()).toMatchObject({
       resume: true,

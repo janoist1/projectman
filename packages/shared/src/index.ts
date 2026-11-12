@@ -22,6 +22,7 @@ export * from './domain/engine';
 export * from './domain/owner-account';
 export * from './api/administration';
 export * from './domain/outage';
+export * from './domain/start-failure';
 export * from './domain/session';
 export * from './domain/live-session';
 export * from './domain/session-work';

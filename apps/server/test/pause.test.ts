@@ -359,6 +359,8 @@ describe('pause of the team', () => {
       exit(session.id);
       h.runner.failNextStart = new Error('fictional start failure');
       await h.domain.pauses.resume(PROJECT, BY);
+      h.liftStartBackoff();
+      await h.domain.memberQueueDriver.sweep();
       await waitFor(() => h.runner.started.length === 2);
       expect(h.runner.started[1]!.initialMessage).toContain('Nudge before_tool restarted');
       expect(h.repos.messages.list('AR').map((m) => m.from)).toContain('system');

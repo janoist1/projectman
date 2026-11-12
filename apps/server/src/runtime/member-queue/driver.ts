@@ -712,15 +712,18 @@ export class MemberQueueWorker implements MemberQueueDriver {
     // (PM-1108), and whatever a lane reads from an engine for the first input is done outside it.
     const run = async (messages: string[]) => {
       await admission.warm(config.project.key, member.handle);
-      return admission.exclusive('queue-start', () =>
-        admission.start({
-          config,
-          member,
-          workItem: place,
-          messages,
-          cause: lane.cause(first.item),
-          ...memberQueueStartLimits(first.item.kind),
-        }),
+      return admission.exclusive(
+        'queue-start',
+        () =>
+          admission.start({
+            config,
+            member,
+            workItem: place,
+            messages,
+            cause: lane.cause(first.item),
+            ...memberQueueStartLimits(first.item.kind),
+          }),
+        { automatic: true },
       );
     };
     // The first input of the session the start made: the items count as delivered only when it was typed.

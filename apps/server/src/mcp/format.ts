@@ -106,6 +106,8 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
   senior_busy: "No developer whose complexity limit reaches the card's points is currently available.",
   handoff_open: 'The assignee handoff has not finished.',
   engine_offline: 'The execution engine is offline.',
+  start_backoff: 'The last session starts failed; the next try waits for its backoff.',
+  start_failing: 'The session starts keep failing; no more automatic tries until someone acts.',
 };
 
 /** State codes stay English; the Operator explains them in the project's language. */

@@ -306,6 +306,9 @@ export const ERROR_CODES = [
   'full_test_pending',
   // The session's engine is not connected (PM-311): the start waits for it.
   'engine_offline',
+  // The member's automatic starts at a place failed (PM-1335): they back off, then stop until released.
+  'start_backoff',
+  'start_failing',
   // The assignee handoff (PM-342): the card is being handed over to the member, whose start waits for it;
   // the caller is not the member the card is being handed over from.
   'task_handoff_open',

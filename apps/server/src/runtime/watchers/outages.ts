@@ -22,7 +22,7 @@ import type {
 import type { EngineDirectory, ProviderStatus, SessionRunner } from '../../contracts';
 import { ENGINE_OFFLINE_AFTER_MS } from '../../contracts';
 import type { ProjectAccess } from '../../core/members';
-import type { DeferredStarts } from '../admission';
+import type { DeferredStarts, StartFailures, StartHold } from '../admission';
 import { isoNow } from '../../core/base';
 import type { DomainContext } from '../../core/base';
 import { conflict, forbidden } from '../../kernel';
@@ -45,6 +45,8 @@ interface OutageDependencies {
   engines: EngineDirectory;
   runner: SessionRunner;
   deferred: DeferredStarts;
+  /** The places whose starts keep failing (PM-1335): the outage of a stopped place, and what releases it. */
+  startFailures: Pick<StartFailures, 'stoppedFor' | 'release'>;
   messageRouter: Pick<MessageRouter, 'releaseForEngine' | 'pendingTaskKeys'>;
   members: MemberService;
   tasks: TaskService;
@@ -54,6 +56,8 @@ interface OutageDependencies {
 const isOutageRefusal = (code: string): boolean => OUTAGE_REFUSALS.some((value) => value === code);
 const isSetupRefusal = (code: string): boolean =>
   code === 'codex_setup_incomplete' || code === 'nanogpt_setup_incomplete';
+/** The limit of a place's failed starts (PM-1335): hidden like a setup failure, but kept alive by the counter, not by a deferral. */
+const isStartFailing = (code: string): boolean => code === 'start_failing';
 const memberKey = (key: string, handle: string): string => `${key}:${handle}`;
 const PENDING_KEYS_TTL_MS = 2_000;
 
@@ -107,14 +111,20 @@ export class WorkOutages {
     });
   }
 
+  /** The provider's key or setup changed (a NanoGPT key): the places that stopped get one more try (PM-1335). */
   recheckProvider(provider: AgentProvider): Promise<void> {
+    this.deps.startFailures.release({ provider });
     return this.enqueue(async () => {
       await this.run(provider);
     });
   }
 
   engineChanged(id: EngineId, online: boolean): Promise<void> {
-    if (online) this.connectedEngines.add(id);
+    if (online) {
+      this.connectedEngines.add(id);
+      // The counts of a place on an engine that was away are not the member's fault (PM-1335).
+      this.deps.startFailures.release({ engineId: id });
+    }
     return this.enqueue(async () => {
       let ended = false;
       try {
@@ -145,13 +155,23 @@ export class WorkOutages {
       const target = entry.target;
       await this.run(
         target,
-        isSetupRefusal(code)
+        isSetupRefusal(code) || isStartFailing(code)
           ? {
               key: memberKey(projectKey, handle),
               problem: providerOutageProblemOf(code, details)!,
             }
           : undefined,
       );
+    });
+  }
+
+  /** A member's place stopped at the start failure limit (PM-1335): the provider outage that tells people. */
+  startFailureStopped(projectKey: string, handle: string, hold: StartHold): Promise<void> {
+    if (hold.code !== 'start_failing') return Promise.resolve();
+    return this.observeRefusal(projectKey, handle, 'start_failing', {
+      provider: hold.provider,
+      failures: hold.failures,
+      ...(hold.engineId ? { engine: hold.engineId } : {}),
     });
   }
 
@@ -237,6 +257,12 @@ export class WorkOutages {
     const config = await this.deps.projects.config(projectKey);
     if (!item.assignees.includes(access.handle) && !ownerHandles(config).includes(access.handle))
       throw forbidden('not_an_assignee', 'the item is not assigned to this member');
+    // A person asks for the check of failing starts: the stopped places get one more try, and the outage ends with it (PM-1335).
+    if (payload.outage.kind === 'provider' && payload.outage.problem === 'start_failing')
+      this.deps.startFailures.release({
+        provider: payload.outage.provider,
+        engineId: payload.outage.engine?.id ?? null,
+      });
     await this.recheck(this.targetOf(payload.outage));
     const checkedAt = isoNow(this.deps.ctx);
     let updated = this.deps.inbox.get(projectKey, itemId);
@@ -308,7 +334,9 @@ export class WorkOutages {
               outage: payload.outage,
               setup:
                 payload.outage.kind === 'provider' &&
-                (payload.outage.problem === 'setup_incomplete' || (!!entry && this.hasSetupWait(entry)))
+                (payload.outage.problem === 'setup_incomplete' ||
+                  payload.outage.problem === 'start_failing' ||
+                  (!!entry && this.hasSetupWait(entry, payload.outage.problem)))
                   ? payload.outage.problem
                   : null,
             },
@@ -363,27 +391,45 @@ export class WorkOutages {
           old = undefined;
         }
         const status = await this.status(entry);
+        // The provider changed since the places stopped (a new CLI version, or the login is gone): they get one more try.
+        if (old?.setup === 'start_failing' && status && this.providerChanged(old.outage, status))
+          this.deps.startFailures.release({
+            provider: entry.target.provider,
+            engineId: entry.target.engineId,
+          });
         if (status?.loggedIn === false) {
           this.failures.set(key, {
             outage: this.makeOutage(entry.target, status),
             setup: old?.setup ?? null,
           });
+        } else if (setup?.key === key && status?.loggedIn === true) {
+          this.failures.set(key, {
+            outage: this.makeOutage(entry.target, { ...status, problem: setup.problem }),
+            setup: setup.problem,
+          });
+        } else if (
+          status?.loggedIn === true &&
+          old?.setup &&
+          old.setup !== 'start_failing' &&
+          this.hasSetupWait(entry, old.setup)
+        ) {
+          this.failures.set(key, {
+            outage: this.makeOutage(entry.target, { ...status, problem: old.setup }),
+            setup: old.setup,
+          });
+        } else if (
+          (!old?.setup || old.setup === 'start_failing') &&
+          this.hasSetupWait(entry, 'start_failing')
+        ) {
+          // The places stopped at the limit of failed starts; the provider need not tell its state (PM-1335).
+          this.failures.set(key, {
+            outage: this.makeOutage(entry.target, { ...status, problem: 'start_failing' }),
+            setup: 'start_failing',
+          });
         } else if (status?.loggedIn === true) {
-          if (setup?.key === key) {
-            this.failures.set(key, {
-              outage: this.makeOutage(entry.target, { ...status, problem: setup.problem }),
-              setup: setup.problem,
-            });
-          } else if (old?.setup && this.hasSetupWait(entry)) {
-            this.failures.set(key, {
-              outage: this.makeOutage(entry.target, { ...status, problem: old.setup }),
-              setup: old.setup,
-            });
-          } else {
-            this.failures.delete(key);
-            if (old) memberRecovered = true;
-          }
-        } else if (old?.setup && !this.hasSetupWait(entry)) {
+          this.failures.delete(key);
+          if (old) memberRecovered = true;
+        } else if (old?.setup && !this.hasSetupWait(entry, old.setup)) {
           // The deferral ending proves that this hidden setup failure no longer holds work.
           this.failures.delete(key);
           memberRecovered = true;
@@ -418,7 +464,24 @@ export class WorkOutages {
     );
   }
 
-  private hasSetupWait(entry: MemberTarget): boolean {
+  /** Whether the provider's state changed since the outage (PM-1335): another CLI version, or the login is gone. */
+  private providerChanged(outage: WorkOutage, status: ProviderStatus): boolean {
+    if (status.loggedIn === false) return true;
+    return (
+      outage.kind === 'provider' &&
+      !!status.cliVersion &&
+      !!outage.cliVersion &&
+      status.cliVersion !== outage.cliVersion
+    );
+  }
+
+  /**
+   * Whether the hidden setup failure of `problem` still holds work: a start waits for the setup, or (for
+   * `start_failing`) a place of the member stopped at the limit of failed starts.
+   */
+  private hasSetupWait(entry: MemberTarget, problem: ProviderOutageProblem): boolean {
+    if (problem === 'start_failing')
+      return this.deps.startFailures.stoppedFor(entry.projectKey, entry.member.handle);
     return (
       this.deps.deferred
         .list()
@@ -674,6 +737,7 @@ export class WorkOutages {
       cli_missing: 'CLI is not installed',
       chatgpt_login: 'needs a ChatGPT login',
       setup_incomplete: 'setup is incomplete',
+      start_failing: 'sessions keep failing to start',
     }[outage.problem];
     return `${label} ${problem}`;
   }

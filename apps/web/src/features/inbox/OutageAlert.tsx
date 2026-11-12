@@ -84,6 +84,9 @@ export function Todo({ outage, projectKey }: { outage: WorkOutage; projectKey: s
         </Link>
       );
       break;
+    case 'startFailing':
+      line = t(`${prefix}.startFailing`);
+      break;
     case 'engine':
       line = t(`${prefix}.engine`);
       extra = (

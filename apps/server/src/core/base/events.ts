@@ -83,8 +83,11 @@ export interface DomainEventMap {
   session_started: Session;
   /** A task session started or resumed with `announce` (PM-249, not a restart): the card's other workers are told. */
   task_session_joined: { session: Session; resumed: boolean; cause: SessionStartCause | null };
-  /** A session ended; its previous state distinguishes interrupted turns from completed idle ones. */
-  session_ended: Session & { previousState?: SessionState };
+  /**
+   * A session ended; its previous state distinguishes interrupted turns from completed idle ones.
+   * `beforeFirstTurn` (PM-1335): it ended before it took its first input, so it never worked.
+   */
+  session_ended: Session & { previousState?: SessionState; beforeFirstTurn?: boolean };
   /** A running session's turn ended: it idles, and its member may have capacity again (PM-119). */
   session_idle: Session;
   /** A live session's state changed (PM-1290): the messages typed into its open turns show it. */

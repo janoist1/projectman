@@ -432,7 +432,23 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   choice clears it: the start fails and nothing is kept; the board shows the task of an AI
   developer that cannot start for that reason ("Válassz repót a feladathoz", derived from the
   task, see `TaskStore`; also a card without an assignee in a work stage whose every owner is
-  such a developer).
+  such a developer). **A start that fails is not lost (PM-1335).** Only an automatic start is held; a
+  person's start (the Start button, a message typed to a stopped session) is never held, but its
+  failure counts and its success clears the count. `StartFailures` (`admission/start-failures.ts`) counts, per
+  project, member and place, the starts whose session could not run: the start itself failing
+  (`session_start_failed`, or an engine call that fails or times out, which belongs to no session) and a session
+  that ended as `failed` (a non-zero exit; a clean exit may be a stop nobody recorded) before its first turn, unless the provider was in a rate-limit cooldown or the stop
+  was a setup refusal or on purpose. A session is counted once, however many points see it. The count is in the
+  `start_failures` table (migration 152), so it survives a restart. After a failure the next automatic start at
+  the place waits 30 s, then 1, 2 and 4 minutes (`start_backoff`, with `until`); the fifth failure in a row stops
+  the place (`start_failing`). Both refusals can be waited for, so the deferral stays (it is not dropped) and the
+  card, the queue item or the message shows why. A stopped place opens one `work_outage` alert per provider and
+  engine (problem `start_failing`, from `WorkOutages`), and no automatic start is tried at it until something
+  changes: the engine reconnects, the NanoGPT key changes, the provider's CLI version changes or its login is lost
+  (seen by the 30 s check), or a person presses "Check now" on the alert. That gives each stopped place **one** more
+  try; its next failure stops it again at once. A session that works (running, or idle after its first turn)
+  clears the count. A start counts as automatic when it runs under the admission round of a deferred attempt, the
+  member queue's driver or the work-start pull (`Admission.exclusive(..., { automatic: true })`).
 - **Work start** (`admission/work-starts.ts`, PM-119) — an active card moved into a work stage
   without an assignee starts like the Start button starts it: `TaskStarts.startLocked` is the
   same developer choice, temp worker, admission checks and session start, run under the
@@ -995,7 +1011,8 @@ message-attachments/<KEY>/<id>  files of team messages (PM-516): the same modes 
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
 `task_links`, `timeline_events`, `sessions`, `team_messages`, `inbox_items`, `member_state`,
-`schedule_runs`, `deferred_starts`, `attachments`, `member_workspaces` (one per project x member x
+`schedule_runs`, `deferred_starts`, `start_failures` (PM-1335: the failed session starts of a member at a place, with
+their backoff), `attachments`, `member_workspaces` (one per project x member x
 repository, with its reservation), `task_workspace_bindings` (a member's branch or review round of
 a task in it), `task_review_pins` (PM-183: the commit handed over with the task's current review or
 test stage); the feedback tables (PM-506, migration 55): `feedback_marks`, `feedback_events` (the

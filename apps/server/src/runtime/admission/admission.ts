@@ -51,6 +51,7 @@ import { prerequisiteCards, startContext } from '../../core/tasks';
 import type { TaskService } from '../../core/tasks';
 import { KeyedMutex, withoutIntegratorExecution } from '../../kernel';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
+import type { StartFailures } from './start-failures';
 import {
   assertAiEnabled,
   assertNotOnLeave,
@@ -121,6 +122,7 @@ export class Admission {
   private readonly tasks: TaskService;
   private readonly projects: Pick<ProjectService, 'config'>;
   private readonly deferred: DeferredStarts;
+  private readonly startFailures: StartFailures;
   private readonly disk?: Pick<DiskGuard, 'assertRoom'>;
   private readonly machine?: Pick<MachineGuard, 'assertRoom'>;
   private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'projectEngine' | 'get'>;
@@ -129,6 +131,8 @@ export class Admission {
     holder: string;
     member?: string;
     phases: Record<string, number>;
+    /** The round is an automatic start (no person asked for it): a failing place holds it back (PM-1335). */
+    automatic: boolean;
   }>();
   private pull: UrgentPulling | undefined;
   private round: StartRounding | undefined;
@@ -152,6 +156,8 @@ export class Admission {
     tasks: TaskService;
     projects: Pick<ProjectService, 'config'>;
     deferred: DeferredStarts;
+    /** The failed starts of the members' places (PM-1335): an automatic start waits while a place holds. */
+    startFailures: StartFailures;
     onOutageRefusal?: (
       projectKey: string,
       handle: string,
@@ -176,16 +182,19 @@ export class Admission {
     this.tasks = deps.tasks;
     this.projects = deps.projects;
     this.deferred = deps.deferred;
+    this.startFailures = deps.startFailures;
     this.onOutageRefusal = deps.onOutageRefusal;
   }
 
   /**
    * Runs `fn` alone among admission decisions and the starts they allow (across projects). A lock held past
    * `ADMISSION_LOCK_WARN_MS` is logged once with the holder's `label` (PM-1120): every other start waits for it.
+   * `automatic`: no person asked for the starts of the round, so a place whose starts keep failing holds
+   * them back (PM-1335).
    */
-  exclusive<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  exclusive<T>(label: string, fn: () => Promise<T>, opts: { automatic?: boolean } = {}): Promise<T> {
     return this.locks.run('ai-admission', () =>
-      this.lockContext.run({ holder: label, phases: {} }, async () => {
+      this.lockContext.run({ holder: label, phases: {}, automatic: opts.automatic === true }, async () => {
         const heldSince = Date.now();
         const timer = setTimeout(
           () =>
@@ -201,11 +210,10 @@ export class Admission {
         } finally {
           clearTimeout(timer);
           const heldMs = Date.now() - heldSince;
-          if (heldMs > ADMISSION_STEP_WARN_MS)
-            this.ctx.logger.warn(
-              { ...this.lockContext.getStore(), heldMs },
-              'an admission lock round was slow',
-            );
+          if (heldMs > ADMISSION_STEP_WARN_MS) {
+            const { automatic: _automatic, ...round } = this.lockContext.getStore() ?? {};
+            this.ctx.logger.warn({ ...round, heldMs }, 'an admission lock round was slow');
+          }
         }
       }),
     );
@@ -565,17 +573,28 @@ export class Admission {
         );
       return result;
     }
+    const automatic = context?.automatic === true;
     try {
+      this.assertStartable(projectKey, request.member, request.workItem, automatic);
       await this.check(request);
-      return await this.timed('session-start', () =>
-        this.sessions.ensureSession(projectKey, request.member.handle, requested, {
-          messages: request.messages,
-          cause: request.cause,
-        }),
-      );
+      return await this.timed('session-start', async () => {
+        try {
+          return await this.sessions.ensureSession(projectKey, request.member.handle, requested, {
+            messages: request.messages,
+            cause: request.cause,
+          });
+        } catch (err) {
+          throw this.failedStart(err, projectKey, request.member, request.workItem, automatic);
+        }
+      });
     } catch (err) {
       const refusal = err as { code?: unknown; details?: unknown } | null;
-      if (typeof refusal?.code === 'string' && OUTAGE_REFUSALS.some((code) => code === refusal.code)) {
+      // `start_failing` is told once, when the place stops (`StartFailures`), not at every start it holds back.
+      if (
+        typeof refusal?.code === 'string' &&
+        refusal.code !== 'start_failing' &&
+        OUTAGE_REFUSALS.some((code) => code === refusal.code)
+      ) {
         this.onOutageRefusal?.(
           projectKey,
           request.member.handle,
@@ -590,6 +609,38 @@ export class Admission {
   }
 
   /**
+   * An automatic start waits while the failed starts of the member's place hold (PM-1335): `start_backoff`
+   * for a while after each failure, `start_failing` once the limit is reached. A person's start is never held.
+   */
+  assertStartable(projectKey: string, member: AiMemberConfig, place: WorkItemRef, automatic: boolean): void {
+    this.startFailures.beginAttempt(this.startTarget(projectKey, member, place), automatic);
+  }
+
+  /**
+   * The error to throw for a start that failed (PM-1335): the failure is counted when it is a start's own
+   * (the session could not run), and an automatic start gets the refusal it can wait for in its place, so
+   * the deferral stays (`start_backoff` / `start_failing`). Any other error, and a person's start, are unchanged.
+   */
+  failedStart(
+    err: unknown,
+    projectKey: string,
+    member: AiMemberConfig,
+    place: WorkItemRef,
+    automatic: boolean,
+  ): unknown {
+    return this.startFailures.failedStart(err, this.startTarget(projectKey, member, place), automatic);
+  }
+
+  private startTarget(projectKey: string, member: AiMemberConfig, place: WorkItemRef) {
+    return {
+      projectKey,
+      member: member.handle,
+      place: sessionWorkItemOf(member, place),
+      provider: member.provider ?? DEFAULT_AGENT_PROVIDER,
+    };
+  }
+
+  /**
    * One attempt of an automatic start, alone among admission decisions. A refusal that can
    * clear keeps the start, with why it waits, for the retry loop; other failures propagate.
    * Its task is published again when why it waits changed. Says what became of the attempt (PM-543):
@@ -597,54 +648,61 @@ export class Admission {
    */
   async attempt(start: AutomaticStart): Promise<AttemptOutcome> {
     await this.warm(start.projectKey, start.waitsFor());
-    return this.exclusive('deferred-attempt', () =>
-      this.publishingWaitingChanges(start.taskKey, async (): Promise<AttemptOutcome> => {
-        // The previous deferral of this start stays stored until the attempt settles.
-        const previous = this.deferred.take(start.key);
-        const since = previous?.start.stillValid(this.taskOf(start)) ? previous.waiting : undefined;
-        if (!start.stillValid(this.taskOf(start))) {
-          this.deferred.drop(start.key);
-          return { kind: 'done' };
-        }
-        if (this.deferred.held(start)) {
-          const waiting: TaskStartWaiting = {
-            reason: 'waiting_answer',
-            since: since?.reason === 'waiting_answer' ? since.since : isoNow(this.ctx),
-            member: start.waitsFor() ?? since?.member,
-          };
-          this.deferred.keep({
-            start: { ...start, waitsFor: () => start.waitsFor() ?? since?.member },
-            waiting,
-          });
-          return { kind: 'deferred', waiting };
-        }
-        try {
-          await start.run();
-        } catch (err) {
-          if (!isDeferrable(err, start.defers)) {
+    return this.exclusive(
+      'deferred-attempt',
+      () =>
+        this.publishingWaitingChanges(start.taskKey, async (): Promise<AttemptOutcome> => {
+          // The previous deferral of this start stays stored until the attempt settles.
+          const previous = this.deferred.take(start.key);
+          const since = previous?.start.stillValid(this.taskOf(start)) ? previous.waiting : undefined;
+          if (!start.stillValid(this.taskOf(start))) {
             this.deferred.drop(start.key);
-            throw err;
+            return { kind: 'done' };
           }
-          const waiting = waitingOf(err, { member: start.waitsFor(), previous: since, at: isoNow(this.ctx) });
-          this.deferred.keep({ start, waiting });
-          // Capacity-freeing events retry often: it is said when the reason is new, not at every refusal that stays.
-          if (previous?.waiting.reason !== waiting.reason)
-            this.ctx.logger.info(
-              {
-                ...start.log.fields(),
-                reason: waiting.reason,
-                ...(err.code === 'workspace_codex_config'
-                  ? { issues: (err.details as { issues?: unknown })?.issues }
-                  : {}),
-              },
-              start.log.deferred,
-            );
-          return { kind: 'deferred', waiting };
-        }
-        // The start happened, or it no longer applies.
-        this.deferred.started(start.key);
-        return { kind: 'done' };
-      }),
+          if (this.deferred.held(start)) {
+            const waiting: TaskStartWaiting = {
+              reason: 'waiting_answer',
+              since: since?.reason === 'waiting_answer' ? since.since : isoNow(this.ctx),
+              member: start.waitsFor() ?? since?.member,
+            };
+            this.deferred.keep({
+              start: { ...start, waitsFor: () => start.waitsFor() ?? since?.member },
+              waiting,
+            });
+            return { kind: 'deferred', waiting };
+          }
+          try {
+            await start.run();
+          } catch (err) {
+            if (!isDeferrable(err, start.defers)) {
+              this.deferred.drop(start.key);
+              throw err;
+            }
+            const waiting = waitingOf(err, {
+              member: start.waitsFor(),
+              previous: since,
+              at: isoNow(this.ctx),
+            });
+            this.deferred.keep({ start, waiting });
+            // Capacity-freeing events retry often: it is said when the reason is new, not at every refusal that stays.
+            if (previous?.waiting.reason !== waiting.reason)
+              this.ctx.logger.info(
+                {
+                  ...start.log.fields(),
+                  reason: waiting.reason,
+                  ...(err.code === 'workspace_codex_config'
+                    ? { issues: (err.details as { issues?: unknown })?.issues }
+                    : {}),
+                },
+                start.log.deferred,
+              );
+            return { kind: 'deferred', waiting };
+          }
+          // The start happened, or it no longer applies.
+          this.deferred.started(start.key);
+          return { kind: 'done' };
+        }),
+      { automatic: true },
     );
   }
 
@@ -819,6 +877,10 @@ export class Admission {
       start.taskKey !== null &&
       this.ctx.repos.taskHandoffs.open(start.taskKey)
     )
+      return reason;
+    // The member's starts at the place failed (PM-1335): the backoff lasts until its time, a stop until a release.
+    if (reason === 'start_backoff' && waiting.until && waiting.until > isoNow(this.ctx)) return reason;
+    if (reason === 'start_failing' && member && this.startFailures.stoppedFor(start.projectKey, member))
       return reason;
     if (reason === 'prerequisite_open' && task) {
       const open = openPrerequisites(task, prerequisiteCards(this.tasks, task.projectKey, task)).map(

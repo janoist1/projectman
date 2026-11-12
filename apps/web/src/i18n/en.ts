@@ -3567,6 +3567,7 @@ export const en = {
         'Pulled forward by the system: {from} → {to}; because of focus position {position} ({title}, {key})',
       task_hand_on_requested: '{requestedBy} is done; {mover} moves it on to {to}',
       task_merge_requested: 'Waiting to be merged: {merger}.',
+      task_merge_requested_on_approval: 'Queued for merge on approval: {startedBy}.',
       task_merge_prioritized: 'Moved ahead in the merge queue. Reason: {reason}',
       task_merge_prioritized_ahead: 'Moved ahead of these in the merge queue: {ahead}. Reason: {reason}',
       task_merged: 'Merged into {base}: {commit}{parts}',
@@ -7703,6 +7704,17 @@ export const en = {
         value: {
           automaticAndAi: 'AI members’ assignments fit too',
           automatic: 'Only the system’s choice fits',
+        },
+      },
+      /** Whether the merger’s own approval also queues the merge (PM-1379). */
+      mergeAfterReview: {
+        question: 'Merge right after approval',
+        note: 'The merger merges with the merge_task call. When this is on and they are also the card’s code reviewer, their approval makes that call too, as long as the card has no open or unconfirmed acceptance item. If the merge cannot be queued, the reply to their approval tells them why and what to do.',
+        noEffect: 'No effect now: the merger is not the code reviewer.',
+        readOnlyLabel: 'Merge after approval',
+        value: {
+          on: 'On',
+          off: 'Off',
         },
       },
       /** Who may open a new card (PM-1100). */

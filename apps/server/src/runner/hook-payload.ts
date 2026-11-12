@@ -1,4 +1,6 @@
+import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
+import { claudeFileToolPaths } from './tool-decision';
 
 /**
  * Hook payloads as the runner handles them (the JSON body of an HTTP hook, or stdin of a
@@ -49,17 +51,46 @@ interface SessionAllowScope {
   toolName: string;
   /** The exact Bash command; absent for other tools. */
   command?: string;
+  /** The folders a path tool call worked in, sorted; absent for tools without a path. */
+  directories?: string[];
+}
+
+/** File tools whose path names a file; for the other path tools the path is the folder itself. */
+const FILE_PATH_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'NotebookRead']);
+
+/** The folders a path tool call works in, or null for a tool without a path (see sessionAllowScope). */
+function toolDirectories(payload: HookPayload, toolName: string): string[] | null {
+  const input = payload.tool_input;
+  const found = toolName === 'LS' ? lsPaths(input) : claudeFileToolPaths(toolName, input)?.paths;
+  if (!found) return null;
+  const cwd = payload.cwd ?? '';
+  // A call without a path works in the working directory.
+  const paths = found.length > 0 ? found : [cwd || '.'];
+  const folders = paths.map((path) => {
+    const absolute = resolve(cwd || '.', path);
+    return FILE_PATH_TOOLS.has(toolName) ? dirname(absolute) : absolute;
+  });
+  return [...new Set(folders)].sort();
+}
+
+function lsPaths(input: unknown): string[] {
+  const path = input && typeof input === 'object' ? (input as Record<string, unknown>).path : undefined;
+  return typeof path === 'string' && path ? [path] : [];
 }
 
 /**
  * What an "allow for this session" covers when nothing more specific is known: the same Bash
- * command again, or the tool itself for any other tool. Null when there is nothing to remember:
- * no tool, or a Bash call without a command.
+ * command again, the same tool in the same folder for a path tool (Read, Edit, Grep and the
+ * like), or the tool itself for any other tool. Null when there is nothing to remember: no
+ * tool, or a Bash call without a command.
  */
 export function sessionAllowScope(payload: HookPayload): SessionAllowScope | null {
   const toolName = payload.tool_name;
   if (!toolName) return null;
-  if (toolName !== 'Bash') return { toolName };
+  if (toolName !== 'Bash') {
+    const directories = toolDirectories(payload, toolName);
+    return directories ? { toolName, directories } : { toolName };
+  }
   const input = payload.tool_input;
   const command = input && typeof input === 'object' ? (input as Record<string, unknown>).command : undefined;
   return typeof command === 'string' && command ? { toolName, command } : null;

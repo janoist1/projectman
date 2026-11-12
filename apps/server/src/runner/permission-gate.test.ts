@@ -196,6 +196,46 @@ describe('PermissionGate', () => {
     expect(requests).toHaveLength(2);
   });
 
+  describe('remembered "allow for this session" of a path tool', () => {
+    const read = (file_path: string): HookPayload => ({
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Read',
+      tool_input: { file_path },
+      cwd: '/work/repo',
+    });
+
+    async function allowFirst() {
+      const harness = setup({ remembersSessionAllows: true });
+      const first = harness.gate.request(read('/work/repo/src/a.ts'), 'read', new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(0);
+      harness.requests[0]!.resolve({ behavior: 'allow', rememberForSession: true });
+      await first;
+      return harness;
+    }
+
+    it('stays valid for the same tool in the same folder', async () => {
+      const { gate, requests } = await allowFirst();
+      await expect(
+        gate.request(read('/work/repo/src/b.ts'), 'read', new AbortController().signal),
+      ).resolves.toEqual({
+        answer: { behavior: 'allow' },
+      });
+      expect(requests).toHaveLength(1);
+    });
+
+    it.each([
+      '/work/repo/other/b.ts',
+      '/work/repo/src/sub/b.ts',
+      '/etc/b.ts',
+      '/work/repo/src/../../../etc/b.ts',
+    ])('asks again for the same tool in another folder: %s', async (file) => {
+      const { gate, requests } = await allowFirst();
+      void gate.request(read(file), 'read', new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(requests).toHaveLength(2);
+    });
+  });
+
   it('leaves remembering to the CLI when it can', async () => {
     const { gate, requests } = setup({ remembersSessionAllows: false });
     const first = gate.request(bash('npm test'), 'npm test', new AbortController().signal);

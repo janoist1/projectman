@@ -1535,6 +1535,14 @@ describe('merge train execution', () => {
     await h.domain.merges.init();
     expect(row('AR-2')).toMatchObject({ state: 'queued', step: 'pushing', mergeCommit: sha(91) });
     expect(row('AR-1')).toMatchObject({ state: 'queued', step: 'queued' });
+    const pushingCommit = row('AR-2')!.commit;
+    peerBusy = false;
+    pump();
+    await vi.waitFor(() => expect(merger.prepare).toHaveBeenCalled());
+    expect(merger.prepare.mock.calls[0]![1].commit).toBe(pushingCommit);
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+    await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeDefined());
+    await settled();
   });
 
   describe('a running manifest whose first member left it', () => {
@@ -1581,6 +1589,14 @@ describe('merge train execution', () => {
       expect(row('AR-2')?.state).toBe('queued');
       expect(row('AR-3')?.state).toBe('running');
       expect(h.repos.mergeTrains.get(trainId)?.state).toBe('running');
+      // Once it runs, the left member closes the manifest and the survivors merge on their own.
+      peerBusy = false;
+      pump();
+      await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-3').merged).toBeDefined());
+      await settled();
+      expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined();
+      expect(h.repos.mergeTrains.get(trainId)?.state).not.toBe('running');
+      expect(h.repos.mergeTrains.listRunning()).toHaveLength(0);
     });
 
     it('retires the manifest at startup when no member is left in it', async () => {

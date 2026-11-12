@@ -2,7 +2,7 @@ import { BUILT_IN_ROLE_DUTIES, customRoleDuties, isBuiltInRole } from '../domain
 import { DUTIES } from '../domain/duty';
 import type { DutyId } from '../domain/duty';
 import type { Stage } from '../domain/pipeline';
-import { isLiveSession } from '../domain/live-session';
+import { isEngagedSessionState, isLiveSession } from '../domain/session-state';
 import type { Session, SessionState } from '../domain/session';
 import { isOpenTask } from '../domain/task';
 import type { Task } from '../domain/task';
@@ -10,6 +10,8 @@ import { isOnLeave } from './leave';
 import { isProjectManager } from './project-manager';
 import { memberRoles, stageOf } from './lookup';
 import type { MemberConfig, ProjectConfig } from './schema';
+import { allStageOwners, cardStageOwners } from './stage-owner-pick';
+import type { PickTask } from './stage-owner-pick';
 
 export function roleBundle(config: Pick<ProjectConfig, 'team'>, role: string) {
   if (isBuiltInRole(role))
@@ -75,7 +77,7 @@ export function stagesToJoin(
 export function isCodeReviewStage(config: Pick<ProjectConfig, 'team'>, stage: Stage): boolean {
   if (stage.kind !== 'step') return false;
   if (stage.duty) return stage.duty === 'code_review';
-  const owners = new Set(stageOwners(config, stage));
+  const owners = new Set(allStageOwners(config, stage));
   return config.team.members.some(
     (m) => owners.has(m.handle) && memberDuties(config, m).includes('code_review'),
   );
@@ -90,7 +92,7 @@ export const REVIEW_DUTIES: readonly DutyId[] = ['code_review', 'security_review
 export function stageHandsOverForReview(config: Pick<ProjectConfig, 'team'>, stage: Stage): boolean {
   if (stage.kind !== 'step' && stage.kind !== 'release') return false;
   if (stage.duty && REVIEW_DUTIES.includes(stage.duty)) return true;
-  const owners = new Set(stageOwners(config, stage));
+  const owners = new Set(allStageOwners(config, stage));
   return config.team.members.some(
     (m) => owners.has(m.handle) && memberDuties(config, m).some((duty) => REVIEW_DUTIES.includes(duty)),
   );
@@ -106,7 +108,7 @@ const CARD_REVIEWER_DUTIES: readonly DutyId[] = [...REVIEW_DUTIES, 'ux_design'];
  */
 export function hasCardRole(
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
-  task: Pick<Task, 'assignee' | 'stageId'>,
+  task: Pick<Task, 'stageId'> & PickTask,
   handle: string,
   workedOn: boolean,
 ): boolean {
@@ -115,14 +117,8 @@ export function hasCardRole(
   if (isProjectManager(member)) return true;
   if (member && memberDuties(config, member).some((duty) => CARD_REVIEWER_DUTIES.includes(duty))) return true;
   const stage = stageOf(config, task.stageId);
-  return stage?.kind === 'step' && stageOwners(config, stage).includes(handle);
+  return stage?.kind === 'step' && cardStageOwners(config, stage, task).includes(handle);
 }
-/**
- * Session states of a member that is doing something now: a turn runs, or it waits for an answer.
- * The server's `BUSY_SESSION_STATES` (the concurrency limit) leaves out `waiting_input`: a session
- * waiting for a person's answer does no work, but its member still holds the task.
- */
-const ENGAGED_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission', 'waiting_input'];
 /**
  * Whether a member's live session on an open task is work it does now (what counts against its
  * capacity): a turn is running or waiting for an answer, or the task sits in a stage the member
@@ -131,13 +127,13 @@ const ENGAGED_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_
  */
 export function isWorkingOnTask(
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
-  task: Pick<Task, 'stageId' | 'assignee'>,
+  task: Pick<Task, 'stageId'> & PickTask,
   handle: string,
   sessionState: SessionState,
 ): boolean {
   const stage = stageOf(config, task.stageId);
   return isWorkingInStage(
-    stage && { kind: stage.kind, owners: stageOwners(config, stage) },
+    stage && { kind: stage.kind, owners: cardStageOwners(config, stage, task) },
     task,
     handle,
     sessionState,
@@ -168,7 +164,7 @@ export function isSessionAtWork(
   session: Pick<Session, 'state'>,
   signals: { awaitsFirstTurn: boolean; pendingInput: boolean; messageOnItsWay: boolean },
 ): boolean {
-  if (ENGAGED_SESSION_STATES.includes(session.state)) return true;
+  if (isEngagedSessionState(session.state)) return true;
   return (
     session.state === 'idle' && (signals.awaitsFirstTurn || signals.pendingInput || signals.messageOnItsWay)
   );
@@ -182,7 +178,7 @@ function isWorkingInStage(
   handle: string,
   sessionState: SessionState,
 ): boolean {
-  if (ENGAGED_SESSION_STATES.includes(sessionState)) return true;
+  if (isEngagedSessionState(sessionState)) return true;
   if (!stage) return false;
   if (stage.kind === 'work') return task.assignee ? task.assignee === handle : stage.owners.includes(handle);
   return stage.kind !== 'queue' && stage.kind !== 'done' && stage.owners.includes(handle);
@@ -213,12 +209,13 @@ export function cardWorkerSessions(
   return working.filter((s) => !seen.has(s.member) && !!seen.add(s.member));
 }
 /** The task's assignee and the attributed authors of its pull requests. */
-export function taskAuthors(task: Pick<Task, 'assignee' | 'links'>): string[] {
+export function taskAuthors(task: Pick<Task, 'assignee'> & Partial<Pick<Task, 'links'>>): string[] {
   return [
     ...new Set(
-      [task.assignee, ...task.links.filter((l) => l.kind === 'pull_request').map((l) => l.author)].filter(
-        (h): h is string => !!h,
-      ),
+      [
+        task.assignee,
+        ...(task.links ?? []).filter((l) => l.kind === 'pull_request').map((l) => l.author),
+      ].filter((h): h is string => !!h),
     ),
   ];
 }

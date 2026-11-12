@@ -14,6 +14,7 @@ import {
   dutyMembers,
   hasAccess,
   isDeveloper,
+  memberInvolvementOf,
   mergerOf,
   prerequisiteOverrideOf,
   PrioritySetter,
@@ -21,6 +22,7 @@ import {
   prioritySetterMembers,
   prioritySettersOf,
   ProjectManagerAuthority,
+  teamSettingOf,
   projectManagerAuthorityOf,
   ProjectManagerLifecycleAction,
   projectManagerLifecycleOf,
@@ -77,13 +79,25 @@ function memberRole(member: MemberConfig, roles: readonly RoleView[]): string {
 }
 
 /** Who the code reviewer kind resolves to without a card: the first owner of the code review stage. */
-function reviewerName(config: ProjectConfig): string | null {
-  const handle = cardMerger(
+function reviewerHandle(config: ProjectConfig): string | null {
+  return cardMerger(
     { ...config, team: { ...config.team, merger: { kind: 'code_reviewer' } } },
     { assignee: null },
     null,
   );
+}
+
+function reviewerName(config: ProjectConfig): string | null {
+  const handle = reviewerHandle(config);
   return config.team.members.find((member) => member.handle === handle)?.displayName ?? null;
+}
+
+/** Whether the merger can be the card's code reviewer, so that `mergeAfterReview` can act (PM-1379). */
+function mergerIsReviewer(config: ProjectConfig): boolean {
+  const merger = mergerOf(config);
+  const reviewer = reviewerHandle(config);
+  if (!reviewer) return false;
+  return merger.kind === 'code_reviewer' || (merger.kind === 'member' && merger.handle === reviewer);
 }
 
 /** The members who may merge: AI members and humans with developer access or more. */
@@ -117,6 +131,9 @@ function MergerControls({ config }: { config: ProjectConfig }) {
     ? (error.details as { issues?: IssueRef[] } | undefined)?.issues
     : undefined;
   const unresolved = issues?.find((issue) => issue.code === 'merger_unresolved');
+  const noteId = useId();
+  const noEffectId = useId();
+  const noEffect = !mergerIsReviewer(shown);
   return (
     <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
       <SelectField
@@ -164,6 +181,29 @@ function MergerControls({ config }: { config: ProjectConfig }) {
           ))}
         </SelectField>
       ) : null}
+      <label className={`${shared.contactRow} ${shared.choiceRow}`}>
+        <input
+          type="checkbox"
+          checked={teamSettingOf(shown, 'mergeAfterReview')}
+          aria-describedby={noEffect ? `${noteId} ${noEffectId}` : noteId}
+          onChange={(event) =>
+            commit((draft) => {
+              draft.team.mergeAfterReview = event.target.checked;
+            })
+          }
+        />
+        <span className={shared.dutyText}>
+          <span>{t('settings.team.mergeAfterReview.question')}</span>
+          <span id={noteId} className={shared.dutyHolders}>
+            {t('settings.team.mergeAfterReview.note')}
+          </span>
+          {noEffect ? (
+            <span id={noEffectId} className={shared.dutyHolders}>
+              {t('settings.team.mergeAfterReview.noEffect')}
+            </span>
+          ) : null}
+        </span>
+      </label>
       {error && !unresolved ? (
         <p role="alert" className={shared.validation}>
           {errorMessage(error)}
@@ -313,14 +353,26 @@ function ProjectManagerLifecycleControls({ config, helpId }: { config: ProjectCo
   );
 }
 
+/** The settings that give the project manager a right next to people: one tick each, with the same texts. */
+type PeopleAndPmSetting = 'prerequisiteOverride' | 'memberInvolvement';
+
 /**
- * Whether the project manager may start a card despite an open prerequisite (PM-1099): one tick, with the
- * member it reaches now. Saves as it changes.
+ * A "people and the project manager" setting (PM-1099 start despite an open prerequisite, PM-1267 bring a
+ * member in on a card): one tick, with the member it reaches now. Saves as it changes.
  */
-function PrerequisiteOverrideControls({ config, helpId }: { config: ProjectConfig; helpId: string }) {
+function PeopleAndPmControls({
+  config,
+  helpId,
+  setting,
+}: {
+  config: ProjectConfig;
+  helpId: string;
+  setting: PeopleAndPmSetting;
+}) {
   const { shown, saving, commit, error, locked } = useInstantLimits(config);
   const noteId = useId();
-  const allowed = prerequisiteOverrideOf(shown) === 'people_and_project_manager';
+  const valueOf = setting === 'memberInvolvement' ? memberInvolvementOf : prerequisiteOverrideOf;
+  const allowed = valueOf(shown) === 'people_and_project_manager';
   const names = projectManagersOf(shown).map((member) => member.displayName);
   return (
     <fieldset
@@ -329,7 +381,7 @@ function PrerequisiteOverrideControls({ config, helpId }: { config: ProjectConfi
       aria-busy={saving}
       aria-describedby={helpId}
     >
-      <legend className={shared.setterLegend}>{t('settings.team.prerequisiteOverride.question')}</legend>
+      <legend className={shared.setterLegend}>{t(`settings.team.${setting}.question`)}</legend>
       <div>
         <label className={shared.contactRow}>
           <input
@@ -338,21 +390,19 @@ function PrerequisiteOverrideControls({ config, helpId }: { config: ProjectConfi
             aria-describedby={noteId}
             onChange={(event) =>
               commit((draft) => {
-                draft.team.prerequisiteOverride = event.target.checked
-                  ? 'people_and_project_manager'
-                  : 'people';
+                draft.team[setting] = event.target.checked ? 'people_and_project_manager' : 'people';
               })
             }
           />
-          <span>{t('settings.team.prerequisiteOverride.project_manager')}</span>
+          <span>{t(`settings.team.${setting}.project_manager`)}</span>
         </label>
         <p id={noteId} className={`${shared.muted} ${shared.setterNote}`}>
           {names.length
-            ? t('settings.team.prerequisiteOverride.covers', { names: names.join(', ') })
-            : t('settings.team.prerequisiteOverride.noProjectManager')}
+            ? t(`settings.team.${setting}.covers`, { names: names.join(', ') })
+            : t(`settings.team.${setting}.noProjectManager`)}
         </p>
       </div>
-      {allowed ? null : <p className={shared.muted}>{t('settings.team.prerequisiteOverride.humansOnly')}</p>}
+      {allowed ? null : <p className={shared.muted}>{t(`settings.team.${setting}.humansOnly`)}</p>}
       {error ? <ErrorBanner>{errorMessage(error)}</ErrorBanner> : null}
     </fieldset>
   );
@@ -842,6 +892,7 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
   const assigneeFitHelpId = useId();
   const lifecycleHelpId = useId();
   const prerequisiteHelpId = useId();
+  const involvementHelpId = useId();
   const authorityHelpId = useId();
   return (
     <SettingsSection id="settings-team" title={t('settings.sections.team')}>
@@ -968,12 +1019,32 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
             {t('settings.team.prerequisiteOverride.help')}
           </p>
           {can.manageTeam ? (
-            <PrerequisiteOverrideControls config={config} helpId={prerequisiteHelpId} />
+            <PeopleAndPmControls config={config} helpId={prerequisiteHelpId} setting="prerequisiteOverride" />
           ) : (
             <dl className={shared.facts}>
               <div>
                 <dt>{t('settings.team.prerequisiteOverride.readOnlyLabel')}</dt>
                 <dd>{t(`settings.team.prerequisiteOverride.value.${prerequisiteOverrideOf(config)}`)}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
+      </section>
+      <section aria-labelledby="settings-member-involvement-title">
+        <h3 id="settings-member-involvement-title" className={shared.groupTitle}>
+          {t('settings.team.memberInvolvement.title')}
+        </h3>
+        <div className={shared.controls}>
+          <p id={involvementHelpId} className={shared.help}>
+            {t('settings.team.memberInvolvement.help')}
+          </p>
+          {can.manageTeam ? (
+            <PeopleAndPmControls config={config} helpId={involvementHelpId} setting="memberInvolvement" />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.memberInvolvement.readOnlyLabel')}</dt>
+                <dd>{t(`settings.team.memberInvolvement.value.${memberInvolvementOf(config)}`)}</dd>
               </div>
             </dl>
           )}
@@ -1081,6 +1152,15 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
               <dd>
                 {mergerValue(config)}
                 <p className={shared.help}>{t('settings.team.merger.help')}</p>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('settings.team.mergeAfterReview.readOnlyLabel')}</dt>
+              <dd>
+                {teamSettingOf(config, 'mergeAfterReview')
+                  ? t('settings.team.mergeAfterReview.value.on')
+                  : t('settings.team.mergeAfterReview.value.off')}
+                <p className={shared.help}>{t('settings.team.mergeAfterReview.note')}</p>
               </dd>
             </div>
           </dl>

@@ -85,6 +85,20 @@ it('refuses an unversioned nonempty database without writing', () => {
   }
 });
 
+it('upgrades an existing baseline database through the later migrations without replacing its generation', () => {
+  const db = new Database(':memory:');
+  try {
+    db.exec(BASELINE_SQL);
+    db.pragma(`user_version = ${BASELINE_VERSION}`);
+    const before = db.prepare('SELECT * FROM instance_meta').all();
+    expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(schemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+    expect(db.prepare('SELECT * FROM instance_meta').all()).toEqual(before);
+  } finally {
+    db.close();
+  }
+});
+
 it('leaves a database already at the latest version untouched', () => {
   const db = new Database(':memory:');
   try {

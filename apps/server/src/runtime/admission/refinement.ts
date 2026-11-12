@@ -5,6 +5,7 @@ import {
   dutyMembers,
   formatInjectedTeamMessage,
   isOnLeave,
+  isEngagedSession,
   isOpenTask,
   isInformationalAlert,
   memberOf,
@@ -53,9 +54,6 @@ function isClosedTurn(reason: string): boolean {
 }
 
 type TurnReason = TimelineEventData['refinement_turn']['reason'];
-
-/** Session states in which a member is in the middle of a turn. */
-const ENGAGED = new Set<Session['state']>(['starting', 'working', 'waiting_permission', 'waiting_input']);
 
 /**
  * Refinement line (decision 31): a card that is being refined (`refinementTurn`) is worked out one
@@ -421,7 +419,7 @@ export class RefinementSteps {
     return this.sessions
       .list(task.projectKey, { taskKey: task.key })
       .some(
-        (s) => this.sessions.isRunning(s.id) && (ENGAGED.has(s.state) || this.sessions.awaitsFirstTurn(s.id)),
+        (s) => this.sessions.isRunning(s.id) && (isEngagedSession(s) || this.sessions.awaitsFirstTurn(s.id)),
       );
   }
 

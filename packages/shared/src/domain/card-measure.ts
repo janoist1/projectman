@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { isCodeReviewStage } from '../config/duties';
+import { isCodeReviewStage, stageOwners } from '../config/duties';
+import { labelDefinition, labelHolders } from '../config/labels';
 import type { ProjectConfig } from '../config/schema';
 import type { TimelineEvent } from './event';
 import { MemberHandle } from './member';
@@ -48,6 +49,40 @@ export const CardRounds = z.object({
   mergeChecksFailed: Count.default(0),
 });
 export type CardRounds = z.infer<typeof CardRounds>;
+
+/** The last approval label setter, from the timeline in chronological order. */
+export function cardReviewer(
+  events: readonly Pick<TimelineEvent, 'type' | 'data' | 'actor'>[],
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
+): string | null {
+  const stages = config.pipeline.stages;
+  const approvalLabels = new Set(
+    stages.flatMap((stage, index) =>
+      isCodeReviewStage(config, stage)
+        ? (stages[index + 1]?.gate?.conditions ?? [])
+            .filter((condition) => {
+              if (condition.type !== 'has_label') return false;
+              const label = labelDefinition(config, condition.label);
+              return (
+                label !== undefined &&
+                labelHolders(config, label).some((holder) => stageOwners(config, stage).includes(holder))
+              );
+            })
+            .map((condition) => condition.label)
+        : [],
+    ),
+  );
+  let reviewer: string | null = null;
+  for (const event of events) {
+    if (
+      event.type === 'task_labels_changed' &&
+      Array.isArray(event.data.added) &&
+      event.data.added.some((label) => approvalLabels.has(label))
+    )
+      reviewer = event.actor.handle;
+  }
+  return reviewer;
+}
 
 export const CardRoundKind = z.enum([
   'code_review',
@@ -177,6 +212,7 @@ export const ClosedCardMeasure = z.object({
   closedAt: z.string(),
   /** Who carried the card when it closed; without an assignee, the member that used the most tokens. */
   implementer: MemberHandle.nullable(),
+  reviewer: MemberHandle.nullable().default(null),
   /** The models of the implementer's own conversations on this card, as the sessions' usage rows name them. */
   implementerModels: z.array(z.string()),
   /** Weighted tokens of all the card's measured sessions, and the same per model. */
@@ -215,6 +251,7 @@ export function measureClosedCard(
   task: Pick<Task, 'key' | 'title' | 'closedAt' | 'assignee'>,
   sessions: readonly Pick<Session, 'member' | 'usage'>[],
   rounds: CardRounds,
+  reviewer: string | null = null,
 ): ClosedCardMeasure {
   const measured = sessions.filter((session) => session.usage);
   const byMember = new Map<string, number>();
@@ -232,6 +269,7 @@ export function measureClosedCard(
     title: task.title,
     closedAt: task.closedAt ?? '',
     implementer,
+    reviewer,
     implementerModels: weightedTokensByModel(own).map((entry) => entry.model),
     tokens: byModel.reduce((sum, entry) => sum + entry.tokens, 0),
     byModel,
@@ -242,6 +280,23 @@ export function measureClosedCard(
 
 /** Sorts of the comparison list. */
 export type ClosedCardsSort = 'closedAt' | 'tokens' | 'reviewRounds';
+
+/** Failed-check cards per reviewer, independent of token coverage and table sorting. */
+export function failedChecksByReviewer(
+  cards: readonly Pick<ClosedCardMeasure, 'reviewer' | 'rounds'>[],
+): { reviewer: string; failed: number; total: number }[] {
+  const groups = new Map<string, { reviewer: string; failed: number; total: number }>();
+  for (const card of cards) {
+    if (!card.reviewer) continue;
+    const group = groups.get(card.reviewer) ?? { reviewer: card.reviewer, failed: 0, total: 0 };
+    group.total += 1;
+    if (card.rounds.mergeChecksFailed > 0) group.failed += 1;
+    groups.set(card.reviewer, group);
+  }
+  return [...groups.values()].sort((a, b) =>
+    a.reviewer < b.reviewer ? -1 : a.reviewer > b.reviewer ? 1 : 0,
+  );
+}
 
 /** The cards ordered by the column, the largest first; ties by the most recent close. */
 export function sortClosedCards(

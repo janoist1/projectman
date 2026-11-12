@@ -103,6 +103,7 @@ describe('closed cards comparison', () => {
       title: 'Login page',
       closedAt: '2026-10-01T10:00:00.000Z',
       implementer: 'dev-1',
+      reviewer: 'cr',
       implementerModels: ['claude-opus-5-5'],
       // 100 + 1000 / 10 of opus, 50 of the subagent's haiku, 10 of the reviewer's sonnet.
       tokens: 260,

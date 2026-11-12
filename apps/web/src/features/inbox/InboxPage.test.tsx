@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
@@ -407,7 +408,8 @@ describe('the card row of an inbox item (PM-501)', () => {
   it('closes back to the inbox on ✕ and on Esc, with the focus on the link and the started answer kept', async () => {
     const project = mockProject();
     const title = ownAnswer(project);
-    project.render(withDrawer, '/p/AC/inbox');
+    // Like the app: StrictMode runs the drawer's effects twice, and the opener must survive that.
+    project.render(<StrictMode>{withDrawer}</StrictMode>, '/p/AC/inbox');
     const link = await screen.findByRole('link', {
       name: t('inbox.card.openLabel', { key: 'AC-22', title }),
     });

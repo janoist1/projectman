@@ -45,6 +45,13 @@ const teamToolTree = [
 ];
 
 describe('handover selection', () => {
+  it('runs the filters of a path-owned change and type checks the server (PM-1354)', () => {
+    const selection = select([], ['deploy/mac/com.projectman.engine.plist']);
+    expect(selection.kind).toBe('cloud');
+    expect(selection.typecheck).toEqual(['apps/server']);
+    expect(selection.testFilters).toContain('apps/server/test/engine-menubar.test.ts');
+  });
+
   it('selects the tool snapshot test when a shared schema used by a team tool changes (PM-1285)', () => {
     const selection = select(teamToolTree, ['packages/shared/src/team-tool.ts']);
     expect(selection.kind).toBe('targeted');
@@ -409,6 +416,55 @@ describe('selection rules', () => {
     const selection = select([...operatorTree.slice(0, 1), ...operators], [operatorTree[0]!.path]);
     expect(selection.tests[0]!.files).toHaveLength(TARGETED_TEST_FILES_MAX + 2);
     expect(selection.omittedByProximity.rule).toEqual([]);
+  });
+
+  it.each([
+    'apps/server/src/runtime/watchers/outages.ts',
+    'apps/server/src/core/inbox/inbox.ts',
+    'apps/server/src/core/inbox/alert-todo.ts',
+    'apps/server/src/core/inbox/apply-route.ts',
+    'packages/shared/src/domain/item-route.ts',
+  ])('selects the harness-driven alert tests when %s changes (PM-1399)', (changed) => {
+    const tree = [
+      file(changed, 'export const o = 1;'),
+      file('apps/server/test/operator-signals.test.ts', "import { createApp } from './helpers/app-harness';"),
+      file('apps/server/test/question-screening-offline.test.ts'),
+      file('apps/server/test/other.test.ts'),
+    ];
+    const files = select(tree, [changed]).tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'apps/server/test/operator-signals.test.ts',
+        'apps/server/test/question-screening-offline.test.ts',
+      ]),
+    );
+    expect(files).not.toContain('apps/server/test/other.test.ts');
+  });
+
+  it('keeps the alert rule tests ahead of the many farther tests that fill the cap (PM-1399)', () => {
+    const outages = 'apps/server/src/runtime/watchers/outages.ts';
+    const tree = [
+      file(outages, 'export const o = 1;'),
+      file(
+        'apps/server/src/core/b.ts',
+        "import { o } from '../runtime/watchers/outages';\nexport const b = o;",
+      ),
+      ...Array.from({ length: TARGETED_TEST_FILES_MAX + 5 }, (_, i) =>
+        file(`apps/server/src/core/f${String(i).padStart(2, '0')}.test.ts`, "import { b } from './b';"),
+      ),
+      file('apps/server/test/operator-signals.test.ts'),
+      file('apps/server/test/question-screening-offline.test.ts'),
+    ];
+    const selection = select(tree, [outages]);
+    const files = selection.tests.flatMap((entry) => entry.files);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'apps/server/test/operator-signals.test.ts',
+        'apps/server/test/question-screening-offline.test.ts',
+      ]),
+    );
+    expect(files).toHaveLength(TARGETED_TEST_FILES_MAX);
+    expect(selection.omitted).toBeGreaterThan(0);
   });
 
   it('selects the visibility test when the timeline visibility rule changes (PM-1331)', () => {

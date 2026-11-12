@@ -53,7 +53,7 @@ describe('repository fetch queue', () => {
       .mockResolvedValueOnce({ ...ok, code: 1, stderr: 'failed' })
       .mockResolvedValue(ok);
     const first = fetchUpstream('/repo/a', upstream, 42);
-    const rejected = expect(first).rejects.toMatchObject({ code: 'git_failed' });
+    const rejected = expect(first).rejects.toMatchObject({ code: 'remote_unreachable' });
     const second = fetchUpstream('/repo/a', upstream, 42);
     await rejected;
     await second;

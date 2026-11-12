@@ -36,6 +36,8 @@ export const TEAM_SETTING_POLICY = {
   projectManagerLifecycle: { ownerOnly: null, default: ['assign', 'cancel'], stored: true },
   // PM-204, PM-1099: only people override an open prerequisite.
   prerequisiteOverride: { ownerOnly: null, default: 'people', stored: true },
+  // PM-1267: only people involve a member on a card, with their message.
+  memberInvolvement: { ownerOnly: null, default: 'people', stored: true },
   // PM-1284: the PM acts on its own only outside the owner-only circle.
   projectManagerAuthority: {
     ownerOnly: 'project_manager_authority',
@@ -62,6 +64,8 @@ export const TEAM_SETTING_POLICY = {
   },
   // `mergerOf` derives an absent merger from the pipeline; the migration stores it (`addMerger`).
   merger: { ownerOnly: null },
+  // PM-1379: the merger's own approval queues the merge (decisions 21, 71, 77, 78); off keeps today's rule.
+  mergeAfterReview: { ownerOnly: null, default: false, stored: true },
   members: { ownerOnly: null },
   contacts: { ownerOnly: null },
   // PM-1102: a read-only viewer writes to the project manager only.

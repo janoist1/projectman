@@ -216,11 +216,12 @@ describe('InputQueue', () => {
 
   it('types nothing before a prompt given on the command line is reported, or times out', async () => {
     const { queue, typed } = setup();
-    queue.awaitCommandLinePrompt(30_000);
+    const failed = expect(queue.awaitCommandLinePrompt(30_000)).rejects.toThrow('did not take');
     void queue.enqueue('later');
     await vi.advanceTimersByTimeAsync(29_000);
     expect(typed()).toEqual({ pastes: [], enters: 0 });
     await vi.advanceTimersByTimeAsync(1_000 + TYPE_MS);
+    await failed;
     expect(typed()).toEqual({ pastes: ['later'], enters: 1 });
   });
 

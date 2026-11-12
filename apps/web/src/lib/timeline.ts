@@ -333,12 +333,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
   const d = event.data;
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
-    case 'task_merge_requested':
+    case 'task_merge_requested': {
+      const startedBy = str(d.startedBy);
       return normal(
-        t('timeline.events.task_merge_requested', {
-          merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
-        }),
+        startedBy
+          ? t('timeline.events.task_merge_requested_on_approval', {
+              startedBy: nameOf(startedBy, ctx.members, ctx.myHandle),
+            })
+          : t('timeline.events.task_merge_requested', {
+              merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
+            }),
       );
+    }
     case 'task_merge_prioritized': {
       const ahead = strings(d.ahead);
       return normal(
@@ -1202,6 +1208,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'member_renamed':
       return normal(t('timeline.events.member_renamed', { from: str(d.from), to: str(d.to) }));
+    case 'member_involved':
+      return normal(
+        t('timeline.events.member_involved', {
+          member: nameOf(str(d.member), ctx.members, ctx.myHandle),
+          reason: str(d.reason),
+        }),
+      );
     case 'config_changed':
       return normal(t('timeline.events.config_changed', { message: str(d.message) }));
     case 'team_contact_changed':

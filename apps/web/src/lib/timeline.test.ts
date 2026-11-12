@@ -26,6 +26,14 @@ it('renders follow-up items and the review result', () => {
 });
 
 it.each([
+  [{ merger: 'cr' }, 'timeline.events.task_merge_requested'],
+  [{ merger: 'cr', startedBy: 'cr' }, 'timeline.events.task_merge_requested_on_approval'],
+] as const)('tells whether the approval queued the merge (%j)', (data, key) => {
+  const event = { ...creation, type: 'task_merge_requested' as const, data };
+  expect(describeEvent(event, context).text).toBe(t(key, { merger: 'cr', startedBy: 'cr' }));
+});
+
+it.each([
   [null, 'timeline.events.item_routed'],
   ['integrator', 'timeline.events.item_routed_requested'],
 ] as const)('shows where a route went, and who the asker named (requested %s)', (requested, key) => {

@@ -12,6 +12,7 @@ import type {
   MemberView,
   MergeCheckRun,
   QuestionAttachment,
+  ReviewMergeOutcome,
   Task,
   TimelineEvent,
   WorkItemRef,
@@ -693,6 +694,8 @@ export function formatTaskUpdate(
     /** The priority the call set (null: cleared); undefined when it did not touch it (PM-433). */
     priority?: string | null | undefined;
     complexity?: boolean;
+    /** What the merger's own approval did to the card's merge (PM-1379); `pending`: still being decided. */
+    mergeAfterReview?: ReviewMergeOutcome | 'pending';
   },
 ): string {
   const done: string[] = [];
@@ -727,8 +730,37 @@ export function formatTaskUpdate(
     `Updated ${task.key}: ${done.join('; ')}.`,
     ...(change.complexity && task.complexity ? [`Complexity: ${complexityText(task.complexity)}`] : []),
     ...handOn,
+    ...(change.mergeAfterReview ? [mergeAfterReviewLine(task.key, change.mergeAfterReview)] : []),
     `Now: ${taskStatusLine(task)}`,
   ].join('\n');
+}
+
+const MERGE_WAIT_REASONS = {
+  uncommitted: 'the task work is not committed',
+  earlier_request: 'an earlier merge request of the card is still open',
+  blocked: 'an earlier merge of the card is blocked or failed',
+} as const;
+
+/** One line of the merger's reply: what their approval did to the merge and what is left for them (PM-1379). */
+function mergeAfterReviewLine(taskKey: string, outcome: ReviewMergeOutcome | 'pending'): string {
+  if (outcome === 'pending') return 'Merge: still being decided; if it waits for you, you get a message.';
+  switch (outcome.state) {
+    case 'queued':
+      return `Merge: your approval queued the merge of ${taskKey} (${outcome.mergeId}); no merge_task call is needed. If it gets stuck, you get a message.`;
+    case 'waiting':
+      return `Merge: not queued, ${MERGE_WAIT_REASONS[outcome.why]}. Call merge_task for ${taskKey} when it is sorted out (${outcome.mergeId}).`;
+    case 'not_ready': {
+      const acceptance = outcome.unmet.some(
+        (u) => u.endsWith(':acceptance-open') || u.endsWith(':acceptance-unconfirmed'),
+      );
+      return (
+        `Merge: not queued, ${taskKey} does not pass the gate of the merge target yet (${outcome.unmet.join(', ')}).` +
+        (acceptance
+          ? ' Confirm the settled acceptance items with update_task acceptance confirm (an open one goes back to the assignee); the merge then starts by itself.'
+          : ' Once the gate holds, the merge starts by itself.')
+      );
+    }
+  }
 }
 
 /** The assignee handoff of a card (PM-342): the open one, else the latest that ended while the card is with its receiver. */
@@ -790,6 +822,8 @@ export function formatSentMessage(result: {
   /** Recipients that get it somewhere else than on the message's own card. */
   routed?: { handle: string; workItem: WorkItemRef }[];
   taskKey: string | null;
+  /** The sender may involve a member on a card (PM-1267): the way forward for a member without a role. */
+  mayInvolve?: boolean;
 }): string {
   const about = result.taskKey ? ` about ${result.taskKey}` : '';
   const missing = result.requested.filter((h) => !result.deliveredTo.includes(h));
@@ -799,7 +833,9 @@ export function formatSentMessage(result: {
       : `Message ${result.messageId}${about} was not delivered to anyone.`;
   const parts = [sent];
   if (missing.length > 0) parts.push(`Not delivered to: ${missing.join(', ')}.`);
-  const lines = result.recipients.map((r) => `\n- ${recipientLine(r, result.taskKey)}`);
+  const lines = result.recipients.map(
+    (r) => `\n- ${recipientLine(r, result.taskKey, false, result.mayInvolve)}`,
+  );
   const routed: string[] = [];
   for (const { handle, workItem } of result.routed ?? []) {
     if (workItem.type === 'general')
@@ -812,6 +848,21 @@ export function formatSentMessage(result: {
       );
   }
   return parts.join(' ') + lines.join('') + (routed.length > 0 ? `\n${routed.join(' ')}` : '');
+}
+
+/** involve_member's answer (PM-1267): what changed, and how many messages wait for the member on the card. */
+export function formatInvolvement(
+  result: { outcome: 'involved' | 'already_involved'; waiting: number },
+  member: string,
+  taskKey: string,
+): string {
+  const head =
+    result.outcome === 'involved'
+      ? `${member} is now involved in ${taskKey}: a message to them about it starts their session.`
+      : `${member} was already involved in ${taskKey}; nothing changed.`;
+  return result.waiting > 0
+    ? `${head} ${result.waiting} message(s) about ${taskKey} wait for them and are being delivered now; do not resend them.`
+    : `${head} No message about ${taskKey} waits for them: send an action message and it starts them.`;
 }
 
 export function formatMemberStart(result: MemberStartResult): string {
@@ -830,22 +881,26 @@ const staleExplanations: Record<StaleReason, string> = {
 
 /**
  * What happens to a sent message for one recipient, as the sender is told (PM-144, PM-543). `taskKey` is the
- * card it is about; `coordinator`: the sender is the coordinator, who is never sent to a person for it.
+ * card it is about; `coordinator`: the sender is the coordinator, who is never sent to a person for it;
+ * `mayInvolve`: the sender may involve a member on a card with involve_member (PM-1267).
  */
 export function recipientLine(
   { handle, delivery, hold, waitingPermission, noWake, info, stale, start }: SentMessageRecipient,
   taskKey: string | null,
   coordinator = false,
+  mayInvolve = false,
 ): string {
   if (waitingPermission)
     return `${handle}: waiting for a permission decision since ${formatTimestamp(waitingPermission.since)} (decides: ${waitingPermission.deciders.join(', ')}). Your message waits and reaches them in one input with the others when their turn ends after the decision; do not resend it or ask about it.`;
   const card = taskKey ?? 'the card';
   switch (delivery) {
     case 'next_input':
-      if (noWake === 'no_card_role')
-        return coordinator
-          ? `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), so this starts nothing. They get it the next time they work on ${card}.`
-          : `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
+      if (noWake === 'no_card_role') {
+        const noRole = `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it)`;
+        if (coordinator || mayInvolve)
+          return `${noRole}, so this starts nothing. Involve them with involve_member (your reason is on the timeline; the project settings must allow it): this message then starts them, with no resend. Otherwise they get it the next time they work on ${card}.`;
+        return `${noRole}, and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
+      }
       if (stale)
         return `${handle}: not started: ${card} ${staleExplanations[stale]}, so this message is out of date and starts nothing. They get it with their next input.`;
       if (info)
@@ -863,7 +918,7 @@ export function recipientLine(
     case 'held':
       switch (hold) {
         case 'refinement_turn':
-          return `${handle}: held: ${card} is being refined and it is not their turn; they get it on their turn or when the refinement ends.`;
+          return `${handle}: held: ${card} is being refined and it is not their turn; they get it on their turn or when the refinement ends.${mayInvolve ? ' To let them in now, involve them with involve_member.' : ''}`;
         case 'fix_limit':
           return `${handle}: held: ${card} reached its fix round limit; they get it once that is decided.`;
         case 'full_test':

@@ -87,6 +87,17 @@ const ALERT_OUTCOME: Record<string, (i: ItemRouteInput) => string> = {
 };
 
 describe('routeItem', () => {
+  it('sends only a work outage affecting the project manager to the integrator', () => {
+    for (const kind of allItemRouteKinds()) {
+      const input = space(kind).next().value as ItemRouteInput;
+      const baseline = routeItem(input);
+      expect(routeItem({ ...input, outageAffectsPm: false })).toEqual(baseline);
+      expect(routeItem({ ...input, outageAffectsPm: true })).toEqual(
+        kind === 'alert:work_outage' ? { to: 'integrator_queue', reason: 'pm_affected' } : baseline,
+      );
+    }
+  });
+
   it('has a row for every route kind and every alert kind', () => {
     expect(Object.keys(ITEM_ROUTE_TABLE).sort()).toEqual([...PLAIN_ITEM_ROUTE_KINDS].sort());
     expect(allItemRouteKinds()).toHaveLength(

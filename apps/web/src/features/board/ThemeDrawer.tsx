@@ -3,7 +3,7 @@ import type { Ref } from 'react';
 import clsx from 'clsx';
 import { Link, useNavigate } from 'react-router';
 import { isArchivedTheme, isOpenTask } from '@projectman/shared';
-import type { Task, ThemeCard, ThemeCardView } from '@projectman/shared';
+import type { BoardCard, ThemeCard, ThemeCardView } from '@projectman/shared';
 import { useCloseTheme, useReopenTask, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -35,7 +35,7 @@ export function ThemeHeader({
   onClose,
   rule = true,
 }: {
-  task: Task;
+  task: BoardCard;
   headingRef: Ref<HTMLHeadingElement>;
   size: CardSize;
   onToggleSize: (() => void) | undefined;
@@ -63,7 +63,7 @@ export function ThemeHeader({
  * How far the theme is and what a person can do with it: filter the board to it, close it, reopen it.
  * Closing leaves its cards as they are.
  */
-export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task[] }) {
+export function ThemeSummary({ task, tasks }: { task: BoardCard; tasks: readonly BoardCard[] }) {
   const { key, can, setThemeFilter } = useProject();
   const navigate = useNavigate();
   const toast = useToast();
@@ -242,8 +242,8 @@ export function ThemeCards({
   pipeline,
   byKey,
 }: {
-  task: Task;
-  tasks: readonly Task[];
+  task: BoardCard;
+  tasks: readonly BoardCard[];
   pipeline: PipelineIndex;
   byKey: ReadonlyMap<string, BoardEntry>;
 }) {

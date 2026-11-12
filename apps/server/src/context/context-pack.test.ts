@@ -598,6 +598,22 @@ it('explains member initiated merging and forbids manually landing or pushing th
   expect(pack.initialMessage).not.toContain('the server owns the merge on Done');
 });
 
+it('tells the merger that its own approval queues the merge only with the setting on (PM-1379)', () => {
+  const marker = 'your approval puts the merge in the queue in your name';
+  const texts = (mergeAfterReview: boolean) => {
+    const project = buildProject();
+    project.project.repos[0]!.requireMerge = true;
+    project.team.mergeAfterReview = mergeAfterReview;
+    const reviewer = input({ project, handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
+    return [
+      builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) })).initialMessage,
+      builder.build(reviewer).initialMessage,
+    ];
+  };
+  for (const text of texts(true)) expect(text).toContain(marker);
+  for (const text of texts(false)) expect(text).not.toContain(marker);
+});
+
 // The sentence is built in one provider-independent place (format.ts), so one provider is enough.
 it('allows developers to merge the default branch into their card branch without permission (PM-747)', () => {
   for (const localOnly of [false, true]) {
@@ -1565,6 +1581,43 @@ describe('system prompt', () => {
         expect(prompt).not.toContain(HEADING);
       }
     });
+  });
+
+  it('tells the reviewer a card is small only when the stage gave it to them as a small card (PM-1378)', () => {
+    const project = buildProject();
+    project.pipeline.stages.find((s) => s.id === 'code_review')!.smallCards = {
+      maxPoints: 3,
+      owners: ['code-review'],
+      centralPaths: [],
+    };
+    const promptOf = (small: boolean) =>
+      builder.build(
+        input({
+          handle: 'code-review',
+          project,
+          task: makeTask({
+            stageId: 'code_review',
+            stageOwnerPick: { stageId: 'code_review', small, reason: { code: 'small', points: 2 } },
+          }),
+        }),
+      ).appendSystemPrompt;
+    expect(promptOf(true)).toContain('This is a small card');
+    expect(promptOf(false)).not.toContain('This is a small card');
+  });
+
+  it('names the holders of the duty as owners of a stage that lists none, with the small-card rule on or off (PM-1378)', () => {
+    const stageLine = (rule: boolean) => {
+      const project = buildProject();
+      const stage = project.pipeline.stages.find((s) => s.id === 'code_review')!;
+      delete stage.owners;
+      if (rule) stage.smallCards = { maxPoints: 3, owners: ['fe-1'], centralPaths: [] };
+      const prompt = builder.build(
+        input({ handle: 'code-review', project, task: makeTask({ stageId: 'code_review' }) }),
+      ).appendSystemPrompt;
+      return prompt.split('\n').find((line) => line.startsWith('- Stage: '));
+    };
+    expect(stageLine(false)).toContain('you own this stage');
+    expect(stageLine(true)).toBe(stageLine(false));
   });
 
   it('includes the e-mail channel only for an enabled sender in an enabled project', async () => {

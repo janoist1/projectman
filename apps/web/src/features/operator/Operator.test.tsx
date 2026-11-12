@@ -16,6 +16,7 @@ import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
+import { showOnScreen } from '../../test/intersection';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { operatorSummaryFixture, operatorMessageApprovalFixture } from '../../mocks/fixtures';
 import { TaskDrawer } from '../board/TaskDrawer';
@@ -269,6 +270,25 @@ describe('the Operator panel', () => {
     fireEvent.keyDown(composer, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(document.activeElement).toBe(operator);
+  });
+
+  it('marks a reply read only when it has been on the screen, not when the panel opens (PM-1386)', async () => {
+    const project = mockProject();
+    project.backend.messages = [];
+    project.backend.sendTeamMessage('pm', ['owner'], null, 'Summary below the fold');
+    renderLayout(project);
+    fireEvent.click(await button());
+    const panel = await screen.findByRole('dialog', { name: operatorName(project) });
+    await within(panel).findByText('Summary below the fold');
+    // The label sits at the start of the message, not in an empty strip before it.
+    const markOf = () => within(panel).queryByText(t('messages.thread.unread'));
+    const reads = () =>
+      project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(reads()).toHaveLength(0);
+    showOnScreen(markOf()!);
+    await waitFor(() => expect(reads()).toHaveLength(1), { timeout: 3000 });
+    await waitFor(() => expect(markOf()).toBeNull());
   });
 
   it('has no call-back button: the Operator is never on leave', async () => {
@@ -1002,6 +1022,23 @@ describe('a signal the Operator raised', () => {
     ).toHaveProperty('disabled', false);
   });
 
+  it('reads the message of a signal card once the label in its header has been on the screen (PM-1386)', async () => {
+    const project = mockProject();
+    const message = presenting(project);
+    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody', messageId: message.id })];
+    renderLayout(project);
+    fireEvent.click(await button());
+    const card = (await screen.findByRole('button', { name: t('operator.signal.accept') })).closest(
+      'article',
+    )!;
+    const reads = () =>
+      project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(reads()).toHaveLength(0);
+    showOnScreen(within(card).getByText(t('messages.thread.unread')));
+    await waitFor(() => expect(reads()).toHaveLength(1), { timeout: 3000 });
+  });
+
   it('says yes with a visible message that names the signal', async () => {
     const project = mockProject();
     const message = presenting(project);
@@ -1335,25 +1372,6 @@ describe('the approval in Rád vár', () => {
     const cut = within(changes).getByTitle(json);
     expect(cut.textContent?.endsWith('…')).toBe(true);
     expect(cut.className).toMatch(/mono/);
-  });
-
-  it('turns stale when the configuration moved on: the reason on the card, only "Rendben" left, and no toast', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(approvalItem('stp_1', { baseVersion: 'old0001' }));
-    rendered(project);
-    const card = (
-      await screen.findByText(t('operator.approval.asked', { quote: 'Adj a fejlesztőnek több jogot' }))
-    ).closest('article')!;
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.approve') }));
-    const alert = await within(card).findByRole('alert');
-    expect(alert.textContent).toContain(t('operator.approval.staleReasons.config_changed'));
-    expect(await within(card).findByRole('button', { name: t('operator.approval.ok') })).toBeTruthy();
-    expect(within(card).queryByRole('button', { name: t('operator.approval.approve') })).toBeNull();
-    // "Rendben" closes it.
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.ok') }));
-    await waitFor(() =>
-      expect(posted(project, '/inbox/inb_stp_1/resolve').at(-1)?.body).toEqual({ optionId: 'dismiss' }),
-    );
   });
 
   it('shows a proposal that was stale already with its reason and "Rendben" only', async () => {

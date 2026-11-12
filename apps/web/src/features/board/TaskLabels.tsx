@@ -1,6 +1,6 @@
 import clsx from 'clsx';
-import { useState } from 'react';
-import type { Task } from '@projectman/shared';
+import { useId, useState } from 'react';
+import type { BoardCard } from '@projectman/shared';
 import { useChangeTaskLabels, useConfig, useLabels } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -9,6 +9,8 @@ import { LabelChip } from '../../components/LabelChip';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { labelGroups, labelName, viewerLabelRefusal } from '../../lib/labels';
+import { isDoneCard, summarizeLabels } from '../../lib/labelSummary';
+import type { PipelineIndex } from '../../lib/pipeline';
 import styles from './TaskLabels.module.css';
 import drawer from './drawer.module.css';
 
@@ -18,8 +20,10 @@ import drawer from './drawer.module.css';
  * that needs a reason asks for it before it is added. Editing waits for the configuration,
  * which holds the label rules.
  */
-export function TaskLabels({ task }: { task: Task }) {
+export function TaskLabels({ task, pipeline }: { task: BoardCard; pipeline: PipelineIndex }) {
   const { key, myHandle, can } = useProject();
+  const foldedId = useId();
+  const [expanded, setExpanded] = useState(false);
   const labels = useLabels(key);
   const config = useConfig(key, can.createTasks).data?.config;
   const change = useChangeTaskLabels(key);
@@ -47,29 +51,53 @@ export function TaskLabels({ task }: { task: Task }) {
     submit({ add: [id] });
   };
   const pendingLabel = labels.find((label) => label.id === pending);
+  // A done card folds its process labels (PM-1387); the picker below still offers every applied label.
+  const summary = summarizeLabels({
+    labels: task.labels,
+    definitions: labels,
+    stages: pipeline.stages,
+    done: isDoneCard(task, pipeline.stages),
+  });
+  const chip = (id: string, wrap = false) => (
+    <li key={id} className={styles.item}>
+      <LabelChip id={id} labels={labels} wrap={wrap}>
+        {editable && !refusal(id) ? (
+          <button
+            type="button"
+            className={styles.remove}
+            aria-label={t('task.labels.remove', { label: labelName(id, labels) })}
+            disabled={change.isPending}
+            onClick={() => submit({ remove: [id] })}
+          >
+            ×
+          </button>
+        ) : null}
+      </LabelChip>
+    </li>
+  );
 
   return (
     <section className={drawer.prop} aria-label={t('task.labels.title')}>
       <h3 className={drawer.propLabel}>{t('task.labels.title')}</h3>
       {task.labels.length > 0 ? (
         <ul className={drawer.propValue}>
-          {task.labels.map((id) => (
-            <li key={id}>
-              <LabelChip id={id} labels={labels}>
-                {editable && !refusal(id) ? (
-                  <button
-                    type="button"
-                    className={styles.remove}
-                    aria-label={t('task.labels.remove', { label: labelName(id, labels) })}
-                    disabled={change.isPending}
-                    onClick={() => submit({ remove: [id] })}
-                  >
-                    ×
-                  </button>
-                ) : null}
-              </LabelChip>
+          {summary.shown.map((id) => chip(id))}
+          {summary.folded.length > 0 ? (
+            <li>
+              <Button
+                size="sm"
+                variant="ghost"
+                className={styles.fold}
+                aria-expanded={expanded}
+                aria-controls={foldedId}
+                onClick={() => setExpanded(!expanded)}
+              >
+                {t(expanded ? 'task.labels.foldedHide' : 'task.labels.foldedShow', {
+                  count: summary.folded.length,
+                })}
+              </Button>
             </li>
-          ))}
+          ) : null}
         </ul>
       ) : (
         <span className={drawer.propMuted}>{t('task.labels.none')}</span>
@@ -88,8 +116,19 @@ export function TaskLabels({ task }: { task: Task }) {
         <span />
       )}
 
+      {summary.folded.length > 0 ? (
+        <ul
+          id={foldedId}
+          className={clsx(drawer.propValue, drawer.propWide, styles.folded)}
+          hidden={!expanded}
+        >
+          {summary.folded.map((id) => chip(id, true))}
+        </ul>
+      ) : null}
+
       {editable && picking ? (
         <div className={clsx(styles.picker, drawer.propWide)}>
+          <p className={styles.pickerTitle}>{t('task.labels.pickerAll')}</p>
           {labelGroups(labels).map((group) => (
             <div key={group[0]!.group ?? group[0]!.id} className={styles.group} role="group">
               {group.map((label) => {

@@ -5,7 +5,8 @@ import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
 import { formatTokens as format } from '../../i18n/format';
 import { t } from '../../i18n/t';
-import { mockProject } from '../../test/mockProject';
+import { ToastProvider } from '../../components/Toast';
+import { createMockFetch, mockProject } from '../../test/mockProject';
 import { MemberProfilePage } from './MemberProfilePage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -334,6 +335,25 @@ describe('member profiles', () => {
     fireEvent.click(await screen.findByRole('button', { name: t('profile.conversation') }));
     await screen.findByText(t('profile.openSession'));
     expect(p.backend.sessions[0]?.workItem).toEqual({ type: 'general' });
+  });
+  it('shows a failed marking as read as a toast, not as a banner under the thread (PM-1358)', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', [p.backend.viewerHandle], null, 'Please read this');
+    const answer = createMockFetch(p.backend, p.requests);
+    setFetchImplementation(async (input, init) =>
+      /\/messages\/[\w-]+\/read$/.test(String(input))
+        ? new Response(JSON.stringify({ error: { code: 'not_a_recipient', message: 'x' } }), {
+            status: 403,
+            headers: { 'content-type': 'application/json' },
+          })
+        : answer(input, init),
+    );
+    p.render(<ToastProvider>{page()}</ToastProvider>, '/team/fe-1');
+    fireEvent.click(await screen.findByRole('button', { name: t('messages.read') }));
+    const toast = await screen.findByRole('status', { name: t('toast.region') });
+    await waitFor(() => expect(within(toast).getByText(t('errors.codes.not_a_recipient'))).toBeTruthy());
+    expect(screen.queryByRole('alert')).toBeNull();
   });
   it('shows human access and decisions with email and access editing for admins', async () => {
     const p = mockProject();

@@ -12,6 +12,7 @@ export type MergeTestScope =
     }
   | { kind: 'modules'; modules: string[]; tests: string[]; workspaces: MergeTestWorkspace[] }
   | { kind: 'cloud' }
+  | { kind: 'owned'; rules: string[]; tests: string[] }
   | { kind: 'none' };
 
 function isFullRunConfig(file: string): boolean {
@@ -37,6 +38,83 @@ export const CLOUD_TEST_FILTERS = [
   // The real Unix control socket boundary (PM-754): never skipped in a merge.
   'apps/server/test/control-socket.integration.test.ts',
 ];
+
+/**
+ * Paths only a few server tests read, by path and not by import (Swift sources, plists, workflows, the
+ * structure map, the merge-test scripts). A change that touches only these (and the tests of the rules)
+ * runs the rules' tests instead of the whole suite (PM-1354). `tests` entries are vitest filters: a test
+ * file, a file name prefix or a folder. A test that reads one of these paths must be named by a rule
+ * (the guard in `merge-test-scope.test.ts`).
+ */
+export interface OwnedPathRule {
+  id: string;
+  sources: readonly RegExp[];
+  tests: readonly string[];
+}
+
+const ARCHITECTURE_TESTS = 'apps/server/test/architecture/';
+export const OWNED_PATH_RULES: readonly OwnedPathRule[] = [
+  {
+    id: 'deploy-mac-workflows',
+    sources: [/^deploy\/mac\//, /^\.github\/workflows\/[^/]+\.ya?ml$/],
+    tests: [
+      'apps/server/test/engine-menubar.test.ts',
+      'apps/server/test/engine-app-package.test.ts',
+      'apps/server/test/engine-app-build.test.ts',
+      'apps/server/test/engine-app-fetch.test.ts',
+      'apps/server/test/engine-release-workflow.test.ts',
+      'apps/server/test/merge-check-workflow.test.ts',
+      'apps/server/test/projectman-job-workflow.test.ts',
+      // The structure map test reads every tracked file of the repository.
+      ARCHITECTURE_TESTS,
+    ],
+  },
+  {
+    id: 'structure-map',
+    sources: [/^projectman\.structure\.yaml$/, /^apps\/server\/test\/architecture\//],
+    tests: [
+      ARCHITECTURE_TESTS,
+      'apps/server/test/structure-api.test.ts',
+      'apps/server/src/services/structure/structure.test.ts',
+      // The module map reads the structure map, and the impact analysis tests import the module map.
+      'apps/server/test/merge-test-',
+    ],
+  },
+  {
+    id: 'merge-test-scripts',
+    sources: [/^scripts\/merge-test\//],
+    tests: ['apps/server/test/merge-test-', ARCHITECTURE_TESTS],
+  },
+];
+
+/** The owned scope of a change, when every file belongs to a rule or is a test of one. */
+function ownedScope(files: readonly string[]): MergeTestScope | undefined {
+  const isSource = (rule: OwnedPathRule, file: string): boolean => rule.sources.some((re) => re.test(file));
+  const isRuleTest = (file: string): boolean =>
+    OWNED_PATH_RULES.some((rule) => rule.tests.some((entry) => file.startsWith(entry)));
+  const hit = OWNED_PATH_RULES.filter((rule) => files.some((file) => isSource(rule, file)));
+  if (
+    !hit.length ||
+    !files.every(
+      (file) =>
+        !isFullRunConfig(file) &&
+        (isRuleTest(file) ||
+          Object.hasOwn(TEST_READ_DOCS, file) ||
+          OWNED_PATH_RULES.some((rule) => isSource(rule, file))),
+    )
+  )
+    return undefined;
+  // A changed test of another rule runs too: its own path is not a source of the rules that were hit.
+  const changedTests = files.filter(
+    (file) =>
+      isRuleTest(file) && !hit.some((rule) => isSource(rule, file)) && /\.test\.[cm]?[jt]sx?$/.test(file),
+  );
+  return {
+    kind: 'owned',
+    rules: hit.map((rule) => rule.id),
+    tests: [...new Set([...hit.flatMap((rule) => rule.tests), ...changedTests, ...testsReadingDocs(files)])],
+  };
+}
 
 /**
  * The documents a server test reads by path, and the tests that read each: a change to one is not a
@@ -76,12 +154,16 @@ export function mergeTestScope(changed: readonly string[]): MergeTestScope {
     )
   )
     return { kind: 'cloud' };
+  const owned = ownedScope(files);
+  if (owned) return owned;
 
   const workspaces = new Set<MergeTestWorkspace>();
   const sharedChanged: string[] = [];
   for (const file of files) {
     if (
-      (file.startsWith('packages/') && !file.startsWith('packages/shared/')) ||
+      (file.startsWith('packages/') &&
+        !file.startsWith('packages/shared/') &&
+        !file.startsWith('packages/templates/')) ||
       file.startsWith('scripts/merge-test/') ||
       file.startsWith('scripts/full-test/') ||
       (file.startsWith('scripts/') && !/\.[cm]?[jt]sx?$/.test(file)) ||
@@ -92,7 +174,8 @@ export function mergeTestScope(changed: readonly string[]): MergeTestScope {
     if (file.startsWith('packages/shared/')) {
       workspaces.add('packages/shared');
       if (file.startsWith('packages/shared/src/')) sharedChanged.push(file);
-    } else if (
+    } else if (file.startsWith('packages/templates/')) workspaces.add('packages/templates');
+    else if (
       file.startsWith('apps/server/') ||
       file.startsWith('scripts/') ||
       Object.hasOwn(TEST_READ_DOCS, file)

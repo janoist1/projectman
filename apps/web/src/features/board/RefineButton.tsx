@@ -1,5 +1,5 @@
 import { REFINE_LABEL } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { useChangeTaskLabels } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -13,7 +13,7 @@ import drawer from './drawer.module.css';
  * same as a person setting the label). Whether it is offered is `canStartRefinement`'s rule; it is the
  * main action (`primary`) when working the card out is the next step (PM-291).
  */
-export function RefineButton({ task, primary = false }: { task: Task; primary?: boolean }) {
+export function RefineButton({ task, primary = false }: { task: BoardCard; primary?: boolean }) {
   const { key } = useProject();
   const change = useChangeTaskLabels(key);
   const toast = useToast();

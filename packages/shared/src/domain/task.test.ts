@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  boardCard,
   canAutomaticallyStartTask,
   isCollectingTask,
   isOpenTask,
@@ -7,7 +8,7 @@ import {
   subtaskParentRefusal,
   taskSeq,
 } from './task';
-import type { SubtaskParentRefusal, TaskStatus } from './task';
+import type { SubtaskParentRefusal, Task, TaskStatus } from './task';
 
 describe('task helpers', () => {
   it.each<[TaskStatus, boolean]>([
@@ -38,6 +39,27 @@ describe('task helpers', () => {
     ];
     expect(openSubtaskCount({ key: 'AR-1' }, children)).toBe(3);
     expect(isCollectingTask({ key: 'AR-3', status: 'active' }, children)).toBe(false);
+  });
+
+  it('summarizes a task for the board without its description and with the tile part of its merge', () => {
+    const task = {
+      key: 'AR-1',
+      title: 'A card',
+      description: 'A long text',
+      merged: {
+        via: 'tool',
+        commit: 'abc',
+        repo: 'app',
+        base: 'main',
+        at: '2026-11-12T10:00:00Z',
+        by: 'lead',
+      },
+    } as unknown as Task;
+    expect(boardCard(task)).toEqual({
+      key: 'AR-1',
+      title: 'A card',
+      merged: { repo: 'app', at: '2026-11-12T10:00:00Z' },
+    });
   });
 
   it('never automatically starts a theme', () => {

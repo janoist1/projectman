@@ -17,6 +17,7 @@ import type {
   TaskDetail,
 } from '@projectman/shared';
 import {
+  boardCard,
   hasBoundOrigin,
   waitingForOthers,
   operatorApprovalOf,
@@ -28,6 +29,11 @@ import {
 import { openItemsFor } from '../lib/inbox';
 import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
+
+/** Refreshes independent queries without extending a mutation's pending state. */
+export function invalidateAll(client: QueryClient, keys: readonly QueryKey[]): void {
+  void Promise.all(keys.map((queryKey) => client.invalidateQueries({ queryKey })));
+}
 
 /**
  * The inbox view with an item replaced or added. The owner's summary of what waits for others (PM-1252) is
@@ -126,10 +132,10 @@ function patchMemberWork(members: readonly MemberView[], session: Session): Memb
   );
 }
 
-/** A changed task: on the board, in its detail and in the sessions that work on it. */
+/** A changed task: on the board (its summary), in its detail and in the sessions that work on it. */
 export function writeTask(client: QueryClient, key: string, task: Task): void {
   client.setQueryData<BoardView>(queryKeys.board(key), (board) =>
-    board ? { ...board, tasks: upsertBy(board.tasks, task, (entry) => entry.key) } : board,
+    board ? { ...board, tasks: upsertBy(board.tasks, boardCard(task), (entry) => entry.key) } : board,
   );
   client.setQueryData<TaskDetail>(queryKeys.task(key, task.key), (detail) =>
     detail ? { ...detail, task } : detail,

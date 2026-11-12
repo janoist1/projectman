@@ -144,6 +144,30 @@ describe('start_blocked signal', () => {
     });
   });
 
+  it('logs a failed close of the question and the next sweep closes it', async () => {
+    const key = await blocked('repo_required');
+    await sweep();
+    const [signal] = signals();
+    const inboxItemId = await askAbout(signal!.id);
+    // The sweep that resolves the signal fails twice: when it resolves and when it retries.
+    const failing = vi
+      .spyOn(h.domain.inbox, 'closeQuestionsOfSignal')
+      .mockRejectedValue(new Error('question lock timed out'));
+
+    await h.domain.tasks.update('AR', key, { repo: 'web' }, OWNER_ACTOR);
+    await sweep();
+    expect(signals()).toEqual([]);
+    expect(JSON.stringify(h.log.warnings)).toContain('could not close the questions of a resolved signal');
+    expect(h.domain.inbox.get('AR', inboxItemId).state).toBe('open');
+
+    failing.mockRestore();
+    await sweep();
+    expect(h.domain.inbox.get('AR', inboxItemId)).toMatchObject({
+      state: 'cancelled',
+      resolution: { rule: 'signal_resolved' },
+    });
+  });
+
   it('keeps the signal and its question open while a retry of the start is under attempt', async () => {
     await blocked('workspace_dirty');
     await sweep();

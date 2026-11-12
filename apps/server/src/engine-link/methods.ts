@@ -187,6 +187,7 @@ const mergeState = z.strictObject({
   relation: z.enum(['same', 'local_behind', 'local_ahead', 'diverged']),
   contains: z.strictObject({ local: z.boolean(), remote: z.boolean().nullable() }),
   checkout: text.nullable(),
+  commitParents: z.number().int().min(0).optional(),
 });
 const mergeBuilt = z.discriminatedUnion('ok', [
   z.strictObject({ ok: z.literal(true), mergeCommit: mergeText, changed: z.array(text).max(1000) }),

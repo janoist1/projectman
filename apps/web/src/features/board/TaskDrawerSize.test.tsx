@@ -181,7 +181,8 @@ describe('the card in the quick view and in the large window (PM-283)', () => {
   it('reads the reading column first in the window with two columns, and the quick order elsewhere', async () => {
     const order = async () => {
       const dialog = await screen.findByRole('dialog', { name: t('task.drawerLabel') });
-      const description = within(dialog).getByText(t('task.description'));
+      // The description comes with the card's detail, after the board's card (PM-1336).
+      const description = await within(dialog).findByText(t('task.description'));
       const properties = within(dialog).getByText(t('taskLifecycle.assignee'));
       return description.compareDocumentPosition(properties) & Node.DOCUMENT_POSITION_FOLLOWING
         ? 'description'

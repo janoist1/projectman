@@ -37,8 +37,15 @@ export const CardRounds = z.object({
   designChangeRequests: Count.default(0),
   /** Send-backs into a work stage, including failed tests and excluding technical branch moves. */
   sendBacks: Count,
-  /** Failed full tests, already included in sendBacks. */
+  /**
+   * Failed full tests of the review stage (the test run when the card enters review), already included in
+   * sendBacks. A failed check at merge is `mergeChecksFailed`, not this.
+   */
   testsFailed: Count.default(0),
+  /** Merges that stopped on a conflict with the default branch (`task_merge_failed`, reason `conflict`, PM-1341). */
+  mergeConflicts: Count.default(0),
+  /** Merges whose check failed on the merge result (`task_merge_failed`, reason `check_failed`, PM-1341). */
+  mergeChecksFailed: Count.default(0),
 });
 export type CardRounds = z.infer<typeof CardRounds>;
 
@@ -121,8 +128,15 @@ export function countCardRounds(
     designChangeRequests: 0,
     sendBacks: 0,
     testsFailed: 0,
+    mergeConflicts: 0,
+    mergeChecksFailed: 0,
   };
   for (const event of events) {
+    if (event.type === 'task_merge_failed') {
+      if (event.data.reason === 'conflict') rounds.mergeConflicts += 1;
+      if (event.data.reason === 'check_failed') rounds.mergeChecksFailed += 1;
+      continue;
+    }
     if (event.type === 'task_stage_changed') {
       const to = indexOf(event.data.to);
       const target = stages[to];

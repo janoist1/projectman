@@ -88,12 +88,17 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       }
       containsRemote = await isAncestorCommit(repo, commit, remoteCommit);
     }
+    // `rev-list --parents` prints the commit followed by its parents.
+    const parents = (await must(repo, ['rev-list', '--parents', '-n', '1', commit], 'rev-list'))
+      .trim()
+      .split(' ');
     return {
       local,
       remote,
       relation,
       contains: { local: containsLocal, remote: containsRemote },
       checkout: await worktreeOf(repo, base),
+      commitParents: parents.length - 1,
     };
   };
 

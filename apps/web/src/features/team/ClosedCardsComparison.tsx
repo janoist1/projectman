@@ -17,7 +17,8 @@ const PERIODS = [7, DEFAULT_CLOSED_CARDS_DAYS, 30] as const;
 
 /**
  * The cards closed lately side by side (PM-222): who carried them with which model, what they
- * cost in weighted tokens (per model too) and how many review rounds and send-backs they took.
+ * cost in weighted tokens (per model too) and how many review rounds, send-backs and failed
+ * merges (PM-1341) they took.
  * It shows what a cheaper model brings: more rounds, or not.
  */
 export function ClosedCardsComparison() {
@@ -81,6 +82,8 @@ export function ClosedCardsComparison() {
                     onSort={setSort}
                   />
                   <th scope="col">{t('cardMeasure.columns.sendBacks')}</th>
+                  <th scope="col">{t('cardMeasure.columns.mergeConflicts')}</th>
+                  <th scope="col">{t('cardMeasure.columns.mergeChecksFailed')}</th>
                   <SortHeader
                     sort="closedAt"
                     label={t('cardMeasure.columns.closedAt')}
@@ -124,7 +127,16 @@ export function ClosedCardsComparison() {
                         </span>
                       ) : null}
                     </td>
-                    <td className={styles.number}>{card.rounds.sendBacks}</td>
+                    <td className={styles.number}>
+                      {card.rounds.sendBacks}
+                      {card.rounds.testsFailed > 0 ? (
+                        <span className={styles.models}>
+                          {t('cardMeasure.reviewTestsFailedOf', { count: card.rounds.testsFailed })}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className={styles.number}>{card.rounds.mergeConflicts}</td>
+                    <td className={styles.number}>{card.rounds.mergeChecksFailed}</td>
                     <td>{formatDate(card.closedAt)}</td>
                   </tr>
                 ))}

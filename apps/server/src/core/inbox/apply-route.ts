@@ -20,6 +20,7 @@ export interface RouteRequest {
   /** The project's technical decider the item can go to instead (`technicalDeciderOf`), or null. */
   decider?: string | null;
   alertReason?: string;
+  outageAffectsPm?: boolean;
   ownerSilentSignal?: boolean;
   /** What a `owner_topic_required` refusal tells the asker (the project's topics and the other ways out). */
   topicGuidance?: string;
@@ -54,6 +55,7 @@ export function applyRoute(
     integrator: integratorAvailable,
     decider: !!request.decider,
     ...(request.alertReason ? { alertReason: request.alertReason } : {}),
+    ...(request.outageAffectsPm ? { outageAffectsPm: true } : {}),
     ...(request.ownerSilentSignal ? { ownerSilentSignal: true } : {}),
   };
   const route = routeItem(input);

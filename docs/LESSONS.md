@@ -5,6 +5,12 @@ where it went. Newest first. The owner's decisions stay in [DECISIONS.md](DECISI
 file keeps the experience behind them, so that members and the project manager do not learn it
 twice. Anyone may propose a lesson; the project manager adds it.
 
+## 2026-11-12: an alert route reached over the harness
+
+**Two outage tests the hand-over check did not select.** PM-1349 changed where a provider outage alert goes (`runtime/watchers/outages.ts`, the shared item route). The merge test failed in `apps/server/test/operator-signals.test.ts` and `question-screening-offline.test.ts`, which reach the outage only through the app harness, so import-based selection missed them. _Lesson:_ do not add a line to the hand-over list. A `SELECTION_RULES` rule in `scripts/merge-test/handover.ts` should select the `apps/server/test` files that use `outages.` or `work_outage` when `outages.ts` or the item route changes. Harness-reached tests are the recurring gap (PM-1189, PM-1285, PM-1287, PM-1331). (PM-1349)
+
+**The 60-file cap filled before the nearest test.** PM-1335 changed `runtime/admission` and the member queue. The merge test failed in `apps/server/test/automatic-session-starts.test.ts`, which fails on the card's diff locally too. `handover-check` had not selected it: its 60 places were filled by the import graph of the central files (kernel, db) the card also touched. PM-1349 had the same cause with 55 web tests. _Lesson:_ the cap must keep the tests nearest to the change. Tests named after a changed module (`*session-starts*`, `*admission*`, `*deferred-starts*` for `runtime/admission`) rank ahead of tests reached only through central files. (PM-1335, PM-1349)
+
 ## 2026-11-11: tests the hand-over check did not reach
 
 **A visibility test outside the import graph.** PM-1331 changed `packages/shared/src/domain/timeline-visibility.ts` and `domain/comments.ts`. The merge test failed in `apps/server/test/visibility.test.ts`: `visibleTimelineEvent` crashed on a `task_note` without `data`. A `handover-check` dry run had not selected the test. _Lesson:_ do not add a line to the hand-over list. Widen the selection instead: a `SELECTION_RULES` rule in `scripts/merge-test/handover.ts` should select `test/visibility.test.ts` when `timeline-visibility.ts` or `domain/comments.ts` changes. (PM-1331)

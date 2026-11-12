@@ -2,7 +2,7 @@ import type { LabelView, TaskHandoff } from '@projectman/shared';
 import clsx from 'clsx';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -29,8 +29,8 @@ import { NextLine } from './NextLine';
 import styles from './TaskCard.module.css';
 
 interface TaskCardProps {
-  task: Task;
-  subtasks?: readonly Task[];
+  task: BoardCard;
+  subtasks?: readonly BoardCard[];
   state: TaskState;
   pipeline: PipelineIndex;
   to: string;

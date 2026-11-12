@@ -1,9 +1,13 @@
 import { MODULES } from '../../apps/server/test/architecture/module-map';
 import { serverTestImpact } from './impact';
 import type { MergeTestFile } from './impact';
+import { testsReadingDocs } from './scope';
 import type { MergeTestScope } from './scope';
 import { sharedImpact } from './shared-impact';
 import { MERGE_TEST_WORKSPACES } from './steps';
+
+/** The fallback `serverTestImpact` reports when a change reaches no test. */
+const NO_TESTS = 'no tests selected';
 
 const underServer = (file: MergeTestFile): boolean =>
   file.path.startsWith('apps/server/') || file.path.startsWith('scripts/');
@@ -52,9 +56,17 @@ function sharedScope(
     kind: 'shared',
     exports: shared.exports,
     workspaces,
-    ...(server?.fallback ? { fallback: server.fallback } : server ? { tests: server.tests } : {}),
+    ...(server?.fallback
+      ? { fallback: server.fallback }
+      : server
+        ? { tests: withDocTests(server.tests, changed) }
+        : {}),
   };
 }
+
+/** The server tests of the selection plus those that read a changed document by path. */
+const withDocTests = (tests: readonly string[], changed: readonly string[]): string[] =>
+  [...new Set([...tests, ...testsReadingDocs(changed)])].sort();
 
 /**
  * The merge check's scope for a change, from the coarse path scope: the shared export analysis and the
@@ -75,12 +87,21 @@ export function refineScope(
     after: after.filter(underServer),
     modules: MODULES,
   });
+  // A change of a document alone selects no module, only the tests that read it.
+  const docTests = testsReadingDocs(changed).filter((test) => after.some((file) => file.path === test));
+  if (impact.fallback === NO_TESTS && docTests.length)
+    return {
+      kind: 'modules',
+      modules: impact.modules,
+      tests: docTests,
+      workspaces: scope.workspaces.filter((ws) => ws !== 'apps/server'),
+    };
   return impact.fallback
     ? { ...scope, fallback: impact.fallback }
     : {
         kind: 'modules',
         modules: impact.modules,
-        tests: impact.tests,
+        tests: withDocTests(impact.tests, changed),
         workspaces: scope.workspaces.filter((ws) => ws !== 'apps/server'),
       };
 }

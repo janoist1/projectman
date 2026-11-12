@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useState } from 'react';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { useChangeTaskLabels, useConfig, useLabels } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -18,7 +18,7 @@ import drawer from './drawer.module.css';
  * that needs a reason asks for it before it is added. Editing waits for the configuration,
  * which holds the label rules.
  */
-export function TaskLabels({ task }: { task: Task }) {
+export function TaskLabels({ task }: { task: BoardCard }) {
   const { key, myHandle, can } = useProject();
   const labels = useLabels(key);
   const config = useConfig(key, can.createTasks).data?.config;

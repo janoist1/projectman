@@ -807,6 +807,15 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
   and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
   rounds. The CLI and its login must live on the machine that runs the sessions.
+  PM-1349: the engine caches consecutive unsuccessful login checks for 3, 10, 30, then
+  60 seconds; a successful check resets this backoff. Periodic outage checks and refused
+  starts reuse the cached result; an explicit recheck still refreshes immediately.
+  On the hub, an outage that blocks the project manager's own provider or engine goes
+  to the integrator's queue and sends one information message to the project owners per
+  episode, including the start time and recovery action. Other outages still signal the
+  project manager. The todo retains the episode facts across a hub restart and closes
+  on recovery. The existing `provider.status` RPC carries the engine's cached status;
+  the hub computes the routing fact from the member's assigned engine and provider.
   The bounded status wait runs on the server in `runtime/watchers/provider-status-wait.ts`
   (Effect, PM-617).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;

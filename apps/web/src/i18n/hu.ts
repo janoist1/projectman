@@ -1563,9 +1563,12 @@ export const hu = {
       tokens: 'Súlyozott token',
       reviewRounds: 'Átnézési körök',
       sendBacks: 'Visszaküldések',
+      mergeConflicts: 'Beolvasztási ütközések',
+      mergeChecksFailed: 'Bukott beolvasztási ellenőrzések',
       closedAt: 'Lezárva',
     },
     changeRequestsOf: 'ebből javítást kért: {count}',
+    reviewTestsFailedOf: 'ebből az átnézés teljes tesztje bukott: {count}',
     sortBy: 'Rendezés: {column}',
   },
 
@@ -5939,6 +5942,7 @@ export const hu = {
         owner_topic_missing: 'hiányzó téma',
         signal_not_for_owner: 'nem a tulajdonosnak szóló jelzés',
         pm_matter: 'projektmenedzseri ügy',
+        pm_affected: 'a kiesés a projektmenedzsert is akadályozza',
         no_pm: 'nincs projektmenedzser',
         information: 'tájékoztatás',
         human_duty: 'emberi feladat',
@@ -6069,6 +6073,7 @@ export const hu = {
       assignment_note: '{line} Indok: {note}',
       task_created_imported: 'Létrehozva (importálva)',
       task_created: 'Létrehozta a kártyát',
+      review_follow_ups: 'Megjegyzések egy későbbi kártyához{label}: {items}',
       task_updated: 'Módosította: {fields}',
       task_stage_changed: 'Továbbvitte: {from} → {to}',
       task_stage_changed_pulled_urgent: 'Előre húzta a rendszer: {from} → {to}; a kártya sürgős',
@@ -6994,6 +6999,8 @@ export const hu = {
       relation_check:
         'A(z) {taskKey} kártya új kapcsolatai ({relations}) változtathatnak a munkáján, és nincs elemző vagy projektmenedzser, aki ellenőrizné.',
       work_outage: 'Kiesés ({outage}) akadályozza a munkát; érintett kártyák: {tasks}.',
+      work_outage_details:
+        'A munka {since} óta áll: {reason}. Motor: {engine}; érintett kártyák: {tasks}. Teendő: a szolgáltatói bejelentkezés vagy beállítás helyreállítása, illetve a motor újracsatlakoztatása.',
       waiting_digest:
         '{todos} gépi teendő és {questions} szűrésre váró kérdés vár több mint egy napja; a legrégebbi {oldestHours} órája.',
     },

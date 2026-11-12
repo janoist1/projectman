@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import type { Ref } from 'react';
 import { Link } from 'react-router';
-import type { LabelView, Task } from '@projectman/shared';
+import type { BoardCard, LabelView, Task } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
@@ -64,7 +64,7 @@ export function TaskHeader({
   onClose,
   rule = true,
 }: {
-  task: Task;
+  task: BoardCard;
   parent: Pick<Task, 'key' | 'title'> | null | undefined;
   state: TaskState;
   pipeline: PipelineIndex;

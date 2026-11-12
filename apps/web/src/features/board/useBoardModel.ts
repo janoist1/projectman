@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { compareBoardOrder, isTheme } from '@projectman/shared';
-import type { RankedCard, Task } from '@projectman/shared';
+import type { BoardCard, RankedCard } from '@projectman/shared';
 import { useBoard, useConfig, useEngineStatus, useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import type { MemberIndex } from '../../lib/members';
@@ -10,7 +10,7 @@ import { engineNameMap } from '../engines/engineView';
 import { pausedSessionMap } from '../pause/pauseView';
 
 export interface BoardEntry {
-  task: Task;
+  task: BoardCard;
   state: TaskState;
 }
 

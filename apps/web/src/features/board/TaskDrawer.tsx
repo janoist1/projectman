@@ -17,7 +17,7 @@ import {
   isCollectingTask,
   loopDecisionOf,
 } from '@projectman/shared';
-import type { Task, TimelineEvent } from '@projectman/shared';
+import type { BoardCard, TimelineEvent } from '@projectman/shared';
 import {
   useBoard,
   useConfig,
@@ -89,9 +89,9 @@ function StartPanel({
   tasks,
   canRefine,
 }: {
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
-  tasks: readonly Task[];
+  tasks: readonly BoardCard[];
   /** Whether the "Kidolgozás" button is shown beside the panel: only then is it pointed at. */
   canRefine: boolean;
 }) {
@@ -279,7 +279,9 @@ export function TaskDrawer() {
   const close = () => navigate(drawerBase.close);
 
   const boardTask = board.data?.tasks.find((task) => task.key === taskKey);
-  const task = detail.data?.task ?? boardTask;
+  // The board's card shows the drawer at once; the description and the whole merge come with the detail (PM-1336).
+  const detailTask = detail.data?.task;
+  const task = detailTask ?? boardTask;
   const entry = model?.byKey.get(taskKey);
   // The card's comments (PM-1290) are a view of the same open card (`/thread`, the id of the older conversation
   // view, so its links keep working), a theme's too. The earlier team messages are read-only in the Process view,
@@ -620,6 +622,7 @@ export function TaskDrawer() {
         ) : (
           <TaskProperties
             task={task}
+            merged={detailTask?.merged}
             tasks={cards}
             phases={phases}
             members={members}
@@ -631,7 +634,9 @@ export function TaskDrawer() {
     );
     const content = (
       <div key="content" className={styles.group} hidden={view !== 'card'}>
-        <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
+        {detailTask ? (
+          <TaskDescription key={`description:${task.key}`} task={detailTask} className={styles.description} />
+        ) : null}
 
         {theme ? null : (
           <TaskAcceptance

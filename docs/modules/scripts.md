@@ -165,9 +165,17 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   Namespace, side-effect, dynamic or otherwise uncertain consumer imports keep that consumer.
   The architecture checker and shared export analysis share trivia recognition: regex literals at
   proven expression starts cannot create import/export tokens or hide the following real import.
-  Changes to `scripts/merge-test/**`, `scripts/full-test/**`, non-code scripts, the widget, other
-  packages, manifests/lockfiles, TypeScript/Vitest configuration, architecture guards or unknown
-  paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
+  Paths only a few server tests read by path run those tests (PM-1354): `deploy/mac/**` and
+  `.github/workflows/*.yml`, `projectman.structure.yaml` and `apps/server/test/architecture/**`, and
+  `scripts/merge-test/**` each have an `OWNED_PATH_RULES` entry (`scripts/merge-test/scope.ts`) with its
+  test list; a diff made only of such paths (and the rules' own tests) gets the `owned` scope: server
+  type check and those tests. A guard test fails when a server test that reads one of these paths is
+  not named by a rule. A `packages/templates/**` change runs the templates workspace and the
+  workspaces that import `@projectman/templates` (the server through the module/test graph seeded by
+  its importers); next to a shared source change it requires all workspaces.
+  Changes to `scripts/full-test/**`, non-code scripts, the widget, other
+  packages, manifests/lockfiles, TypeScript/Vitest configuration, such paths next to other code or
+  unknown paths require all workspaces; `--all` forces them. `--dry-run [<commit>]` prints the scope and each
   `merge-test step: npm <args>` without executing checks or checking out the commit (default `HEAD`).
   It compares against the commit's first parent; a non-merge commit retains the full-run scope.
   Scope, selected modules, test count and fallback reason are logged before and after execution. The executor holds

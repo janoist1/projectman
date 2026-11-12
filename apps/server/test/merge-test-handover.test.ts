@@ -31,6 +31,13 @@ const teamToolTree = [
 ];
 
 describe('handover selection', () => {
+  it('runs the filters of a path-owned change and type checks the server (PM-1354)', () => {
+    const selection = select([], ['deploy/mac/com.projectman.engine.plist']);
+    expect(selection.kind).toBe('cloud');
+    expect(selection.typecheck).toEqual(['apps/server']);
+    expect(selection.testFilters).toContain('apps/server/test/engine-menubar.test.ts');
+  });
+
   it('selects the tool snapshot test when a shared schema used by a team tool changes (PM-1285)', () => {
     const selection = select(teamToolTree, ['packages/shared/src/team-tool.ts']);
     expect(selection.kind).toBe('targeted');

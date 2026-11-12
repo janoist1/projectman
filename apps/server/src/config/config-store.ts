@@ -18,7 +18,6 @@ import { ConfigStoreError } from './errors';
 import type { GitResult } from './git';
 import { mergeProjectFiles, parseYamlFile, PROJECT_FILES, splitProjectConfig } from './layout';
 import type { ProjectFileName } from './layout';
-import { migrateProjectConfig } from './migrations';
 
 interface ConfigStoreOptions {
   /** Directory of the customization repository, e.g. ~/.projectman/customization. */
@@ -143,7 +142,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
   }
 
   /**
-   * Merges, migrates (older shapes) and validates the parsed files of a project. The working tree
+   * Merges and validates the parsed files of a project. The working tree
    * is stored configuration: it loads with the errors it may still carry, which are logged (every
    * change refuses them). An earlier version is read to be restored, which is a change.
    */
@@ -152,14 +151,8 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
     files: Record<ProjectFileName, unknown>,
     source: 'stored' | 'change' | 'history',
   ): ProjectConfig {
-    // An earlier version shown in the history loads like stored configuration, without the warnings: they
-    // belong to the current one, and a page reads dozens of old ones.
-    const migrated = migrateProjectConfig(mergeProjectFiles(files), {
-      projectKey: key,
-      logger: source === 'history' ? { warn: () => {} } : logger,
-    });
     return validate(
-      migrated,
+      mergeProjectFiles(files),
       key,
       source === 'stored'
         ? (issue) =>

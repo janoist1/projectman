@@ -10,10 +10,9 @@ still say "operator" (`OperatorRequests`, `OPERATOR_READ_TOOLS`, `operator_*` er
 is in the Project plan, chapter 4; this file describes only what the code does.
 
 The project manager has no member of its own role to ask: a project has no built-in Operator member. The shared rules
-that mention one are the retired ones in `packages/shared/src/config/operator-member.ts` (`RETIRED_OPERATOR_ROLE`,
-`RETIRED_OPERATOR_HANDLE`), which let the configuration migration `removeOperator`
-(`apps/server/src/config/migrations.ts`) find and drop the member an older project still holds. The handle `operator`
-stays taken for good: older events and messages name it.
+that mention one are the retired ones in `packages/shared/src/config/operator-member.ts` (`RETIRED_OPERATOR_HANDLE`). Configurations containing the retired member must be rewritten before upgrading;
+runtime configuration converters were removed in PM-1383. The handle `operator` stays taken for good:
+older events and messages name it.
 
 ## Rules that bind the project manager
 
@@ -33,7 +32,7 @@ stays taken for good: older events and messages name it.
   `approval`. Everything not named is `approval`, so a new configuration field is closed until a rule opens it.
   `integratorConfigRefusal` and `ownerOnlyChanges` name more that is at least `approval`. The rules run on the
   server. (The approval waiver setting `team.operatorApprovalWaiver`, with the verdict's `waiverEligible`, was
-  removed in PM-1259: nothing read it. A configuration migration drops the field from older configurations.)
+  removed in PM-1259: nothing read it.)
 - **Targeted configuration edits.** `get_role_configuration` reads one built-in role (the version, the stored override
   or `null`, the effective full bundle) and needs an open owner request. A `config_patch` command can replace only
   named roles (`roleOverrides`; `null` resets one) or label entries (`labels`: `name`, `color`, `meaning` per label id);

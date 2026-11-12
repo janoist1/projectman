@@ -227,7 +227,6 @@ export interface TemplateLocale {
   /** The headings of a system feedback sent as a card or an issue (PM-472). */
   systemFeedback: SystemFeedbackTextLabels;
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */
-  stageApproval: (stageName: string) => string;
   /** Display name of a specialist, e.g. ("Frontend", "Developer") -> "Frontend developer". */
   specialist(specialty: string, roleName: string): string;
 }

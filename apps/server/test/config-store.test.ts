@@ -12,15 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stringify } from 'yaml';
-import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
-import {
-  isReleaseApprovalLabel,
-  labelDefinition,
-  labelHolders,
-  operatorWatchOf,
-  releaseGateAccepts,
-  validateProjectConfig,
-} from '@projectman/shared';
+import { operatorWatchOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { parseYamlFile } from '../src/config/layout';
 import { ConfigStoreError, createConfigStore } from '../src/config';
@@ -63,34 +55,6 @@ describe('ConfigStore (customization repository)', () => {
       expect((await store.load('AR')).config.team.prioritySetters).toEqual(setters);
     },
   );
-
-  it('load, a past version and revert drop a stored Operator member (decision 66)', async () => {
-    await store.save('AR', testConfig(), { author, message: 'Create' });
-    const config = (await store.load('AR')).config;
-    // The role no longer exists in the schema: written as the old file had it.
-    config.team.members.push({
-      kind: 'ai',
-      handle: 'operator',
-      displayName: 'Operator',
-      role: 'ai_operator',
-      sponsor: 'owner',
-    } as unknown as ProjectConfig['team']['members'][number]);
-    const { limits: _limits, ...team } = config.team;
-    writeFileSync(join(store.rootDir, 'projects/AR/team.yaml'), stringify(team));
-    const git = (...args: string[]) =>
-      execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', ...args], {
-        cwd: store.rootDir,
-        encoding: 'utf8',
-      });
-    git('commit', '-q', '--no-verify', '-am', 'Legacy Operator');
-    const legacy = git('rev-parse', 'HEAD').trim();
-    const handles = (c: ProjectConfig) => c.team.members.map((m) => m.handle);
-    expect(handles((await store.load('AR')).config)).not.toContain('operator');
-    expect(handles(await store.loadVersion('AR', legacy))).not.toContain('operator');
-    await store.save('AR', testConfig(), { author, message: 'Current values' });
-    await store.revertTo('AR', legacy, { author });
-    expect(handles((await store.load('AR')).config)).not.toContain('operator');
-  });
 
   it.each(['report', 'unblock', 'drive'] as const)(
     'commits and reloads the watch level %s and its removal',
@@ -277,95 +241,6 @@ describe('ConfigStore (customization repository)', () => {
     expect(legacy.project.timezone).toBe('UTC');
     // The project loads as it always did (the approval stays with the owner) and the log says what to fix.
     expect(legacy.pipeline.labels.find((label) => label.id === 'release-ok')!.setBy).toEqual(approval);
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ projectKey: 'AR', label: 'release-ok' }),
-      expect.stringContaining('nobody holds the duty'),
-    );
-  });
-
-  it('migrates legacy scheduled members in memory and persists them on the next save', async () => {
-    const warn = vi.fn();
-    store = createConfigStore({ rootDir: store.rootDir, logger: { warn } });
-    const { version } = await store.save('AR', testConfig(), { author, message: 'Create' });
-    const path = join(store.rootDir, 'projects/AR/team.yaml');
-    const fixture = readFileSync(new URL('./fixtures/legacy-scheduled-team.yaml', import.meta.url), 'utf8');
-    writeFileSync(path, fixture);
-
-    const loaded = await store.load('AR');
-    expect(loaded.version).toBe(version);
-    expect(loaded.config.team.members[1]).toMatchObject({
-      role: 'maintainer',
-      schedule: DAILY_WORKER_SCHEDULE,
-    });
-    expect(loaded.config.team.members[2]).toMatchObject({
-      role: 'maintainer',
-      schedule: { cron: '0 18 * * *', prompt: 'Review the fictional project backlog.' },
-    });
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(warn).toHaveBeenCalledWith(
-      { projectKey: 'AR', member: 'dev-1' },
-      'Migrated legacy scheduled role to maintainer',
-    );
-    expect(readFileSync(path, 'utf8')).toBe(fixture);
-    await store.save('AR', loaded.config, { author, message: 'Save migrated configuration' });
-    expect(readFileSync(path, 'utf8')).not.toContain('role: scheduled');
-    expect((await store.load('AR')).config).toEqual(loaded.config);
-    expect(warn).toHaveBeenCalledTimes(2);
-  });
-
-  it('reads a Codex member in bypassPermissions as acceptEdits, in memory until the next save', async () => {
-    const warn = vi.fn();
-    store = createConfigStore({ rootDir: store.rootDir, logger: { warn } });
-    await store.save('AR', testConfig(), { author, message: 'Create' });
-    const path = join(store.rootDir, 'projects/AR/team.yaml');
-    const member = (handle: string, settings: string[]) =>
-      [
-        '  - kind: ai',
-        `    handle: ${handle}`,
-        `    displayName: ${handle}`,
-        '    role: developer',
-        '    sponsor: owner',
-        ...settings.map((line) => `    ${line}`),
-      ].join('\n');
-    const legacy = `members:
-  - kind: human
-    handle: owner
-    displayName: Owner Person
-    access: owner
-    roles:
-      - operator
-${member('dev-1', ['provider: codex', 'permissionMode: bypassPermissions'])}
-${member('dev-2', ['permissionMode: bypassPermissions'])}
-  - kind: ai
-    handle: cr
-    displayName: Reviewer
-    role: code_review
-    sponsor: owner
-  - kind: ai
-    handle: pm
-    displayName: Project manager
-    role: project_manager
-    sponsor: owner
-`;
-    writeFileSync(path, legacy);
-
-    const loaded = await store.load('AR');
-    expect(loaded.config.team.members[1]).toMatchObject({ provider: 'codex', permissionMode: 'acceptEdits' });
-    expect(loaded.config.team.members[2]).toMatchObject({ permissionMode: 'bypassPermissions' });
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(
-      { projectKey: 'AR', member: 'dev-1' },
-      'Migrated codex member from bypassPermissions to acceptEdits',
-    );
-    expect(readFileSync(path, 'utf8')).toBe(legacy);
-
-    await store.save('AR', loaded.config, { author, message: 'Save migrated configuration' });
-    const saved = parseYamlFile('team.yaml', readFileSync(path, 'utf8')) as {
-      members: Array<Record<string, unknown>>;
-    };
-    expect(saved.members[1]).toMatchObject({ provider: 'codex', permissionMode: 'acceptEdits' });
-    expect(saved.members[2]).toMatchObject({ permissionMode: 'bypassPermissions' });
-    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('refuses to save a Codex member in bypassPermissions', async () => {
@@ -551,27 +426,31 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     expect(await store.list()).toEqual(['AR']);
   });
 
-  it('migrates earlier versions like the working tree (revert)', async () => {
+  it('refuses to restore a retired configuration without changing the current version or files', async () => {
     const created = await store.save('AR', testConfig(), { author, message: 'Create' });
-    const teamYaml = join(store.rootDir, 'projects/AR/team.yaml');
-    writeFileSync(teamYaml, readFileSync(teamYaml, 'utf8').replace('role: developer', 'role: scheduled'));
+    const pipelineYaml = join(store.rootDir, 'projects/AR/pipeline.yaml');
+    const pipeline = parseYamlFile('pipeline.yaml', readFileSync(pipelineYaml, 'utf8')) as {
+      stages: Array<{ id: string; gate?: { conditions: unknown[] } }>;
+    };
+    pipeline.stages.find((stage) => stage.id === 'merge')!.gate = {
+      conditions: [{ type: 'check_passed', check: 'code_review' }],
+    };
+    writeFileSync(pipelineYaml, stringify(pipeline));
     const git = (...args: string[]) =>
       execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', ...args], {
         cwd: store.rootDir,
         encoding: 'utf8',
       });
-    git('commit', '-q', '--no-verify', '-am', 'Hand-edited legacy role');
+    git('commit', '-q', '--no-verify', '-am', 'Legacy gate');
     const legacy = git('rev-parse', 'HEAD').trim();
-    await store.save('AR', testConfig(), { author, message: 'Back to current' });
+    const current = await store.save('AR', testConfig(), { author, message: 'Rewrite configuration' });
+    const before = readFileSync(pipelineYaml, 'utf8');
 
-    const expected = { role: 'maintainer', schedule: DAILY_WORKER_SCHEDULE };
-    expect((await store.loadVersion('AR', legacy)).team.members[1]).toMatchObject(expected);
-    expect((await store.loadVersion('AR', created.version)).team.members[1]).toMatchObject({
-      role: 'developer',
-    });
-    await store.revertTo('AR', legacy, { author });
-    expect((await store.load('AR')).config.team.members[1]).toMatchObject(expected);
-    await expectConfigError(store.loadVersion('AR', 'deadbeef'), 'unknown_version');
+    await expectConfigError(store.revertTo('AR', legacy, { author }), 'invalid_config');
+    expect((await store.load('AR')).version).toBe(current.version);
+    expect(readFileSync(pipelineYaml, 'utf8')).toBe(before);
+    expect(await store.loadVersion('AR', created.version)).toEqual(testConfig());
+    expect(await store.loadVersions('AR', [current.version, legacy])).toEqual([testConfig(), null]);
   });
 });
 
@@ -678,89 +557,6 @@ describe('ConfigStore: configurations that predate a rule', () => {
     expect((await store.load('AR')).config).toEqual(testConfig());
   });
 
-  it('keeps a project loading whose own role took the id of a role the app ships since, and persists the override on the next save', async () => {
-    await store.save('AR', testConfig(), { author, message: 'Create' });
-    const ownLead = {
-      id: 'lead_developer',
-      name: 'Lead developer',
-      summary: 'Leads the fictional development.',
-      duties: ['technical_direction', 'code_review', 'boundary_authorization'],
-      instructions: 'Review every change twice.',
-    };
-    handEdit('team.yaml', (document) => {
-      document.roles = [ownLead];
-      document.members[1].role = 'lead_developer';
-    });
-    const stored = commitHandEdits('Own lead developer role');
-
-    const loaded = await store.load('AR');
-    expect(loaded.version).toBe(stored);
-    expect(loaded.config.team.roles).toEqual([]);
-    expect(loaded.config.team.roleOverrides?.lead_developer).toMatchObject({
-      duties: ownLead.duties,
-      instructions: ownLead.instructions,
-      summary: ownLead.summary,
-    });
-    expect(loaded.config.team.members[1]).toMatchObject({ role: 'lead_developer' });
-    expect(warn).toHaveBeenCalledWith(
-      { projectKey: 'AR', role: 'lead_developer' },
-      'Migrated custom role that shadows a built-in role to a role override',
-    );
-    // The files keep their content until the next save, which accepts the migrated configuration.
-    expect(readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8')).toContain(
-      'name: Lead developer',
-    );
-    await store.save('AR', loaded.config, { author, message: 'Save it back' });
-    const teamFile = readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8');
-    expect(teamFile).toContain('roleOverrides:');
-    expect(teamFile).not.toContain('name: Lead developer');
-    expect((await store.load('AR')).config).toEqual(loaded.config);
-  });
-
-  it('narrows a release approval any human may set when it loads, persists that on the next save and refuses the wide right', async () => {
-    await store.save('AR', testConfig(), { author, message: 'Create' });
-    const pipelineYaml = join(store.rootDir, 'projects/AR/pipeline.yaml');
-    handEdit('pipeline.yaml', (document) => {
-      document.labels.find((label: { id: string }) => label.id === 'release-ok').setBy = 'humans';
-    });
-    const wide = commitHandEdits('Let every human approve releases');
-
-    const loaded = await store.load('AR');
-    expect(releaseLabel(loaded.config).setBy).toEqual(releaseApproval);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledWith(
-      { projectKey: 'AR', label: 'release-ok', releaseStages: ['release'], otherStages: [], setBy: 'humans' },
-      'Narrowed release approval label to the release approval duty',
-    );
-    // The file keeps its content until the next save, like every migration.
-    expect(readFileSync(pipelineYaml, 'utf8')).toContain('setBy: humans');
-    await store.save('AR', loaded.config, { author, message: 'Save the migrated configuration' });
-    expect(readFileSync(pipelineYaml, 'utf8')).not.toContain('setBy: humans');
-    warn.mockClear();
-    expect(releaseLabel((await store.load('AR')).config).setBy).toEqual(releaseApproval);
-    expect(warn).not.toHaveBeenCalled();
-
-    // A change may not bring the wide right back.
-    const again = structuredClone(loaded.config);
-    releaseLabel(again).setBy = 'humans';
-    const refused = await expectConfigError(
-      store.save('AR', again, { author, message: 'Every human again' }),
-      'invalid_config',
-    );
-    expect((refused.details as { issues: unknown[] }).issues).toContainEqual({
-      code: 'release_approval_needs_duty',
-      path: 'pipeline.stages[4].gate.conditions[1]',
-      detail: 'release-ok',
-    });
-
-    // An earlier version is read like the working tree, so restoring it keeps the narrowed right.
-    expect(releaseLabel(await store.loadVersion('AR', wide)).setBy).toEqual(releaseApproval);
-    await store.revertTo('AR', wide, { author });
-    warn.mockClear();
-    expect(releaseLabel((await store.load('AR')).config).setBy).toEqual(releaseApproval);
-    expect(warn).toHaveBeenCalledTimes(1);
-  });
-
   it('keeps a project loading whose release approval nobody could hold the duty for, and takes the fix as one change', async () => {
     await store.save('AR', testConfig(), { author, message: 'Create' });
     // The owner approves releases by name and holds no duty, as in a file from before roles.
@@ -777,10 +573,6 @@ describe('ConfigStore: configurations that predate a rule', () => {
 
     const loaded = await store.load('AR');
     expect(releaseLabel(loaded.config).setBy).toEqual({ members: ['owner'], humansOnly: true });
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ projectKey: 'AR', label: 'release-ok' }),
-      expect.stringContaining('nobody holds the duty'),
-    );
     expect(warn).toHaveBeenCalledWith(
       {
         projectKey: 'AR',
@@ -813,56 +605,6 @@ describe('ConfigStore: configurations that predate a rule', () => {
     warn.mockClear();
     expect((await store.load('AR')).config).toEqual(granted);
     expect(warn).not.toHaveBeenCalled();
-  });
-
-  it('loads a release stage in the legacy shape, and its gate satisfies the release approval rule', async () => {
-    // A fictional project as it was stored before labels (fixtures/legacy-release-gate): the release
-    // stage has a human_approval condition on the release approval duty and there are no labels.
-    await store.init();
-    const projectDir = join(store.rootDir, 'projects/LG');
-    mkdirSync(projectDir, { recursive: true });
-    for (const file of ['project.yaml', 'team.yaml', 'pipeline.yaml']) {
-      const source = new URL(`./fixtures/legacy-release-gate/${file}`, import.meta.url);
-      writeFileSync(join(projectDir, file), readFileSync(source, 'utf8'));
-    }
-    const pipelineYaml = join(projectDir, 'pipeline.yaml');
-    const stored = readFileSync(pipelineYaml, 'utf8');
-    expect(stored).toContain('type: human_approval');
-
-    const { config } = await store.load('LG');
-    const release = config.pipeline.stages.find((stage) => stage.id === 'release')!;
-    expect(release).toMatchObject({
-      kind: 'release',
-      duty: 'deployment',
-      // The acceptance gate (PM-1135) comes with the migration; it is no approval.
-      gate: {
-        conditions: [
-          { type: 'has_label', label: 'release-approved' },
-          { type: 'lacks_label', label: 'acceptance-unconfirmed' },
-        ],
-      },
-    });
-    const approval = labelDefinition(config, 'release-approved')!;
-    expect(approval.setBy).toEqual(releaseApproval);
-    expect(isReleaseApprovalLabel(approval)).toBe(true);
-    expect(labelHolders(config, approval)).toEqual(['owner']);
-    for (const condition of release.gate!.conditions.filter((c) => c.type === 'has_label'))
-      expect(releaseGateAccepts(labelDefinition(config, condition.label)!)).toBe(true);
-    expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
-    // Nothing had to be narrowed or tolerated, and the file is as it was.
-    expect(warn).not.toHaveBeenCalled();
-    expect(readFileSync(pipelineYaml, 'utf8')).toBe(stored);
-
-    // The rest of the old gates became labels too, and saving writes the current shape.
-    expect(config.pipeline.stages.find((stage) => stage.id === 'merge')!.gate).toEqual({
-      conditions: [
-        { type: 'has_label', label: 'code-review-ok' },
-        { type: 'has_label', label: 'merge-approved' },
-      ],
-    });
-    await store.save('LG', config, { author, message: 'Save the converted configuration' });
-    expect(readFileSync(pipelineYaml, 'utf8')).not.toContain('human_approval');
-    expect((await store.load('LG')).config).toEqual(config);
   });
 });
 

@@ -22,6 +22,8 @@ function labelsOf(wait: TaskWait): string {
 export function describeTaskWait(wait: TaskWait): string {
   const by = wait.next.length > 0 ? ` — ${who(wait)}` : '';
   switch (wait.reason) {
+    case 'collecting':
+      return `waits for ${wait.openSubtaskCount ?? 0} open sub-cards to close; the work happens on them.`;
     case 'working':
       return `${handles(wait)} ${wait.next.length > 1 ? 'work' : 'works'} on it now.`;
     case 'handing_off':
@@ -74,6 +76,8 @@ export function describeTaskWait(wait: TaskWait): string {
 /** The short part `list_tasks` shows per card: who or what it waits for. */
 export function taskWaitShort(wait: TaskWait): string {
   switch (wait.reason) {
+    case 'collecting':
+      return `${wait.openSubtaskCount ?? 0} open sub-cards`;
     case 'working':
       return `worked on by ${handles(wait)}`;
     case 'handing_off':

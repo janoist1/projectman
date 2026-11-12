@@ -130,6 +130,13 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
   };
 
   switch (wait.reason) {
+    case 'collecting':
+      return build({
+        head: nobodyAuto,
+        waiting: t('taskStatus.next.short.collecting', { count: wait.openSubtaskCount ?? 0 }),
+        long: t('taskStatus.next.long.collecting'),
+        todo: t('taskStatus.next.todo.collecting'),
+      });
     case 'working':
     case 'handing_off':
       return null;

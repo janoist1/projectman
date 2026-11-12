@@ -226,6 +226,7 @@ export function* cardStateSpace(config: SpaceConfig): Generator<CardState> {
 
   // Each of these laid on a smaller base: the stage x status x assignee, with no, all the gate and the refine labels.
   const overlays: { name: string; task?: Partial<Task>; input?: Partial<TaskWaitInput> }[] = [];
+  overlays.push({ name: 'collecting', input: { subtasks: [{ parentKey: 'SP-1', status: 'active' }] } });
   const item = (assignees: string[]) =>
     ({
       id: 'inb_space',

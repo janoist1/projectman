@@ -53,8 +53,8 @@ export interface CardDutyInput {
   config: Pick<ProjectConfig, 'team' | 'pipeline'>;
   /** The card's open inbox items, any assignee. */
   openItems: readonly InboxItem[];
-  /** How many open parts (subtasks) the card has; a card with open parts is a collecting card. */
-  openParts: number;
+  /** @deprecated The shared TaskWait now identifies collecting cards from its sub-cards. */
+  openParts?: number;
 }
 
 type DutyConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
@@ -143,7 +143,7 @@ function inFirstStage(task: Pick<Task, 'stageId'>, config: Pick<ProjectConfig, '
  * Whose step the open card waits for, or why it may wait. Each `TaskWaitReason` is classified; the start
  * and ready hold reasons by the tables above, so a new reason does not compile unclassified.
  */
-export function cardDuty({ task, wait, config, openItems, openParts }: CardDutyInput): CardDuty {
+export function cardDuty({ task, wait, config, openItems }: CardDutyInput): CardDuty {
   const reason = wait.reason;
   const next = wait.next.map((entry) => entry.handle);
   const firstStage = inFirstStage(task, config);
@@ -151,6 +151,8 @@ export function cardDuty({ task, wait, config, openItems, openParts }: CardDutyI
   const hold = (code: CardHoldCode) => classified({ kind: 'hold', code });
 
   switch (reason) {
+    case 'collecting':
+      return hold('parts');
     case 'working':
     case 'handing_off':
       return classified({ kind: 'active', members: next });
@@ -197,8 +199,6 @@ export function cardDuty({ task, wait, config, openItems, openParts }: CardDutyI
     }
     case 'ready': {
       if (firstStage) return hold('backlog');
-      // The automatic start never starts a collecting card: its parts are started, each by its own step.
-      if (openParts > 0) return hold('parts');
       const readyHold = wait.hold ?? task.readyHold;
       if (readyHold) return hold(READY_HOLD_CODE[readyHold.reason]);
       if (task.startOffer) return classified(byHandles(config, [task.startOffer.to]));
@@ -207,8 +207,6 @@ export function cardDuty({ task, wait, config, openItems, openParts }: CardDutyI
     case 'queued':
     case 'nobody': {
       if (stageAdvance(task, config)?.kind === 'move') return classified({ kind: 'system', step: 'advance' });
-      // A collecting card in a work stage has no step of its own: it closes with its parts (PM-1240).
-      if (openParts > 0) return hold('parts');
       // An idle stage waits for its owners when `next` names nobody (a step no session holds yet).
       const stage = stageOf(config, task.stageId);
       const owners = reason === 'queued' && next.length === 0 && stage ? stageOwners(config, stage) : next;

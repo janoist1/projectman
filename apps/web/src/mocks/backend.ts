@@ -224,6 +224,7 @@ import {
   startBlock,
   subtaskParentRefusal,
   isTheme,
+  isCollectingTask,
   themeRefusal,
   taskSeq,
   taskWorkOf,
@@ -4330,6 +4331,7 @@ export class MockBackend {
     });
     return taskWait({
       task,
+      subtasks: this.tasks,
       config: this.config,
       openItems: this.inbox.filter((item) => item.taskKey === task.key && item.state === 'open'),
       workers: waitWorkers(task, this.config, roster),
@@ -6041,6 +6043,8 @@ export class MockBackend {
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
     if (isTheme(task)) return error(409, 'task_is_theme', 'A theme is not started');
     if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
+    if (isCollectingTask(task, this.tasks))
+      return error(409, 'collecting_task_not_startable', 'The work happens on the open sub-cards');
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     // Like the server: a person's Start of a card that is not ready to start is refused first (PM-291).
     const block = workStage ? startBlock(task, this.config) : null;

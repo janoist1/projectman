@@ -137,6 +137,7 @@ function dutyOf(task: Task, over: Partial<TaskWaitInput> & { onLeave?: string[];
     holders: [],
     openPrerequisites: [],
     viewer: null,
+    subtasks: Array.from({ length: openParts }, () => ({ parentKey: task.key, status: 'active' as const })),
     ...input,
   };
   const wait = taskWait(state);
@@ -246,12 +247,19 @@ describe('cardDuty', () => {
     [0, { kind: 'member', member: 'dev' }],
   ])('has an unowned card of a work stage with %i open parts as %o', (openParts, expected) => {
     const idle = card({ status: 'waiting', assignee: null });
-    expect(dutyOf(idle, { openParts })).toMatchObject({ reason: 'queued', ...expected });
+    expect(dutyOf(idle, { openParts })).toMatchObject({
+      reason: openParts ? 'collecting' : 'queued',
+      ...expected,
+    });
   });
 
-  it('keeps the automatic advance of a card with open parts', () => {
+  it('waits for open sub-cards even when the parent stage could advance', () => {
     const done = card({ stageId: 'review', status: 'active', assignee: null, labels: ['code-review-ok'] });
-    expect(dutyOf(done, { openParts: 1 })).toMatchObject({ kind: 'system', step: 'advance' });
+    expect(dutyOf(done, { openParts: 1 })).toMatchObject({
+      reason: 'collecting',
+      kind: 'hold',
+      code: 'parts',
+    });
   });
 
   it('gives a card a member on leave holds to nobody', () => {
@@ -290,7 +298,10 @@ describe('cardDuty', () => {
     [0, { kind: 'system', step: 'start' }],
   ])('has a ready card with %i open parts as %o', (openParts, expected) => {
     const ready = card({ stageId: 'ready', status: 'active', assignee: null, labels: ['scope-ok'] });
-    expect(dutyOf(ready, { openParts })).toMatchObject({ reason: 'ready', ...expected });
+    expect(dutyOf(ready, { openParts })).toMatchObject({
+      reason: openParts ? 'collecting' : 'ready',
+      ...expected,
+    });
   });
 
   it('holds a ready card by the reason of its ready hold', () => {

@@ -501,6 +501,7 @@ function deriveOpenState(
   const workers = findWorkers(task, ctx);
   const wait = taskWait({
     task,
+    subtasks: [...ctx.tasksByKey.values()],
     // Where the configuration is not known (a client, or it still loads) the team and the stages are
     // sketched from what the board has, and the start rule and the gates are not asked (PM-460).
     config: ctx.config ?? sketchConfig(ctx),
@@ -653,6 +654,13 @@ function stateOfWait(
   });
 
   switch (wait.reason) {
+    case 'collecting':
+      return {
+        phase: 'waiting',
+        label: t('taskStatus.collecting', { count: wait.openSubtaskCount ?? 0 }),
+        since: wait.since,
+        worker: null,
+      };
     case 'prerequisite':
       return standingOnPrerequisite(prerequisites, wait.since);
     case 'handing_off': {

@@ -22,12 +22,10 @@ import {
   applyMemberEmailChange,
   emailMailboxTaken,
   superAccessVerdict,
-  superDecisionRefusal,
-  externalQuestionAnswerRefusal,
+  inboxResolveRefusal,
   isRelayableQuestionItem,
   isCoordinatorOnlySignal,
   humanInboxAssignment,
-  isIntegratorTodo,
   connectedActorOf,
   ownerReservedEffect,
   canonical,
@@ -115,12 +113,10 @@ import {
   aiLabelSetters,
   applyConfigPatch,
   unknownPatchRepo,
-  approvalRefusal,
   attachmentPreviewOf,
   withQuestionAttachmentGone,
   canDeleteAttachment,
   canSetTaskCover,
-  canResolveInboxItem,
   canSeeInboxItem,
   visibleQuestionItem,
   isPendingQuestion,
@@ -354,7 +350,6 @@ import type {
   GateRequestPayload,
   InboxItem,
   MentionPayload,
-  OperatorApprovalPayload,
   OperatorRequestView,
   OperatorSignal,
   InvitationView as Invitation,
@@ -7095,53 +7090,6 @@ export class MockBackend {
     return ok(clone(signal));
   }
 
-  /**
-   * An Operator proposal decided in the inbox. Approving after the configuration moved on makes the item stale
-   * (the server's 409 `operator_approval_stale`, the card then offers only "Rendben"); "dismiss" closes a stale one.
-   */
-  private resolveOperatorApproval(
-    item: InboxItem,
-    payload: OperatorApprovalPayload,
-    optionId: string,
-    by: string,
-  ): MockResponse {
-    const step = this.operatorRequests
-      .flatMap((request) => request.steps)
-      .find((candidate) => candidate.id === payload.stepId);
-    if (step && step.status !== 'awaiting_approval' && !payload.stale)
-      return error(409, 'operator_approval_used', 'The proposal has already been consumed');
-    const expired = !!payload.expiresAt && Date.parse(payload.expiresAt) <= Date.now();
-    if (
-      optionId === 'approve' &&
-      (payload.stale ||
-        expired ||
-        (payload.baseVersion !== null && payload.baseVersion !== this.configVersion))
-    ) {
-      this.upsertInbox({
-        ...item,
-        options: [OPERATOR_DISMISS_OPTION],
-        payload: {
-          ...item.payload,
-          operator: {
-            ...payload,
-            stale: payload.stale ?? { reason: expired ? 'expired' : 'config_changed', at: nowIso() },
-          },
-        },
-      });
-      if (step) step.status = 'stale';
-      return error(409, 'operator_approval_stale', 'The proposal is out of date');
-    }
-    if (step)
-      step.status = optionId === 'approve' ? 'approved' : optionId === 'reject' ? 'rejected' : 'stale';
-    const resolved: InboxItem = {
-      ...item,
-      state: 'resolved',
-      resolution: { optionId, by, at: nowIso(), note: null },
-    };
-    this.upsertInbox(resolved);
-    return ok(clone(resolved));
-  }
-
   private startConversation(handle: string): MockResponse {
     if (!['owner', 'admin', 'developer'].includes(this.findMember(this.viewerHandle)?.role ?? ''))
       return error(403, 'insufficient_access', 'Developer access required');
@@ -7451,52 +7399,37 @@ export class MockBackend {
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {
-    const pending = this.inbox.find((item) => item.id === itemId);
-    if (pending && isIntegratorTodo(pending) && (this.integratorMode || this.viewerAccess() !== 'owner'))
-      return error(403, 'super_relay_refused', 'Use the dedicated super endpoint or the owner login');
-    if (this.integratorMode && pending && !['question', 'alert'].includes(pending.kind)) {
-      const verdict = superAccessVerdict(this.config, {
-        mode: this.integratorMode,
-        operation: 'approval',
-        ownerMembership: this.viewerAccess() === 'owner',
-      });
-      if (!verdict.allowed) return error(403, verdict.code, 'A human decision is required');
-    }
     const input = parseBody(ResolveInboxRequest, body);
     const item = this.inbox.find((entry) => entry.id === itemId);
     if (!input) return error(400, 'invalid_request', 'Invalid inbox resolution');
     if (!item || !canSeeInboxItem(this.taskViewer(), item))
       return error(404, 'not_found', 'Unknown inbox item');
-    if (input.attachmentIds !== undefined && item.kind !== 'question')
-      return error(400, 'invalid_request', 'Only questions accept attachmentIds', { field: 'attachmentIds' });
-    if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already resolved');
-    let relayed = false;
-    if (this.integratorMode === 'super') {
-      const group = questionPayloadOf(item)?.group;
-      const members = [
-        item,
-        ...(group?.itemIds ?? []).flatMap((id) => {
-          const row = this.inbox.find((entry) => entry.id === id);
-          return row && row.id !== item.id && isPendingQuestion(row) ? [row] : [];
-        }),
-      ];
-      for (const member of members) {
-        const refusal = superDecisionRefusal(member, {
-          operatorHandle: RETIRED_OPERATOR_HANDLE,
-          sessionMember: this.sessions.find((session) => session.id === member.sessionId)?.member,
-        });
-        const question = member.kind === 'question' ? member.payload : null;
-        if (refusal || (question && externalQuestionAnswerRefusal(question, { via: 'integrator' })))
-          return error(403, 'owner_approval_required', 'A person must decide this item');
-      }
-      relayed = members.every(isRelayableQuestionItem);
-    }
-    if (!item.options.some((option) => option.id === input.optionId)) {
-      return error(400, 'unknown_option', `Unknown option ${input.optionId}`);
-    }
-    const viewer = memberOf(this.config, this.viewerHandle);
-    if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
-    const operatorApproval = operatorApprovalOf(item);
+    const groupMembers = (questionPayloadOf(item)?.group?.itemIds ?? []).flatMap((id) => {
+      const row = this.inbox.find((entry) => entry.id === id);
+      return row && row.id !== item.id && isPendingQuestion(row) ? [row] : [];
+    });
+    const refusal = inboxResolveRefusal(
+      item,
+      input,
+      {
+        handle: this.viewerHandle,
+        access: this.viewerAccess(),
+        ...(this.integratorMode ? { via: 'integrator' as const } : {}),
+        ...(this.integratorMode === 'super' ? { superActor: this.viewerActor() } : {}),
+      },
+      {
+        config: this.config,
+        credential: this.integratorMode
+          ? { mode: this.integratorMode, boundOrigin: this.integratorMode === 'super' }
+          : null,
+        groupMembers,
+        sessionMemberOf: (row) => this.sessions.find((session) => session.id === row.sessionId)?.member,
+        task: item.taskKey ? (this.findTask(item.taskKey) ?? null) : null,
+      },
+    );
+    if (refusal) return error(refusal.status, refusal.code, refusal.message, refusal.details);
+    const relayed = this.integratorMode === 'super' && [item, ...groupMembers].every(isRelayableQuestionItem);
+    const viewer = memberOf(this.config, this.viewerHandle)!;
     const knowledge = operatorKnowledgeApprovalOf(item);
     if (knowledge) {
       if (this.viewerAccess() !== 'owner')
@@ -7551,19 +7484,6 @@ export class MockBackend {
       this.upsertInbox(resolved);
       return ok(clone(resolved));
     }
-    if (operatorApproval) {
-      if (!canResolveInboxItem(viewer, item))
-        return error(403, 'not_an_assignee', 'Only assignees may decide');
-      return this.resolveOperatorApproval(item, operatorApproval, input.optionId, viewer.handle);
-    }
-    const gate = item.kind === 'decision' && input.optionId === 'approve' ? gateRequestOf(item) : null;
-    if (gate?.label) {
-      // Approving puts the label on in the approver's name: the label rules apply up front.
-      const task = item.taskKey ? (this.findTask(item.taskKey) ?? null) : null;
-      const refusal = approvalRefusal(this.config, gate.label, viewer.handle, task);
-      if (refusal) return error(403, refusal, 'The approval is not allowed');
-    }
-    if (!canResolveInboxItem(viewer, item)) return error(403, 'not_an_assignee', 'Only assignees may decide');
     const note = input.note?.trim() || null;
     const attached = (input.attachmentIds ?? []).map((id) =>
       this.messageAttachments.find((file) => file.id === id),
@@ -7579,16 +7499,6 @@ export class MockBackend {
       )
     )
       return error(409, 'message_attachment_unavailable', 'Attachment unavailable');
-    if (attached.length && memberOf(this.config, item.source)?.kind !== 'ai')
-      return error(400, 'invalid_request', 'Only AI questions accept attachments', {
-        field: 'attachmentIds',
-      });
-    if (item.kind === 'question' && input.optionId === 'answer' && !note && !attached.length) {
-      return error(400, 'answer_required', 'A free-text answer needs a note');
-    }
-    if (item.kind === 'question' && input.optionId === 'todo_cannot' && !note) {
-      return error(400, 'todo_reason_required', 'A todo that cannot be done needs a reason');
-    }
     if (item.kind === 'hand_on') {
       // Taking the card on is a move under the gates: refused, the item stays open.
       const request = handOnRequestOf(item);
@@ -7606,8 +7516,6 @@ export class MockBackend {
       const started = this.startMerge(request.taskKey);
       if (started.status >= 400) return started;
     }
-    if (item.kind === 'release')
-      return error(409, 'inbox_item_closed', 'Release approvals have been retired');
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',

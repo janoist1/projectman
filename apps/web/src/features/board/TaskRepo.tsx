@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { effectiveRepo, needsRepoChoice } from '@projectman/shared';
 import { useConfig, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -16,7 +16,7 @@ import styles from './TaskRepo.module.css';
  * saves on change. The configuration holds the repositories; members without access to it see the
  * task's own repository only.
  */
-export function TaskRepo({ task }: { task: Task }) {
+export function TaskRepo({ task }: { task: BoardCard }) {
   const { key, can } = useProject();
   // The query cache is shared with the status line's rule (PM-291), so the data may be there for a viewer too:
   // the repositories are shown to whoever may edit the task only.

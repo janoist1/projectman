@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useRef, useState } from 'react';
 import { Link } from 'react-router';
-import type { Task, TaskRelation } from '@projectman/shared';
+import type { BoardCard, TaskRelation } from '@projectman/shared';
 import { useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -33,8 +33,8 @@ function RelationRow({
   onRemoved,
 }: {
   relation: TaskRelation;
-  task: Task;
-  tasks: readonly Task[];
+  task: BoardCard;
+  tasks: readonly BoardCard[];
   phase: TaskPhase;
   pipeline: PipelineIndex;
   editable: boolean;
@@ -142,8 +142,8 @@ export function TaskRelations({
   phases,
   pipeline,
 }: {
-  task: Task;
-  tasks: readonly Task[];
+  task: BoardCard;
+  tasks: readonly BoardCard[];
   phases: ReadonlyMap<string, TaskPhase>;
   pipeline: PipelineIndex;
 }) {

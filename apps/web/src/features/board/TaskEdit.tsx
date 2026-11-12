@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Ref } from 'react';
-import type { Task } from '@projectman/shared';
+import type { BoardCard, Task } from '@projectman/shared';
 import { useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -13,7 +13,7 @@ import drawer from './drawer.module.css';
 import styles from './TaskEdit.module.css';
 
 /** The title, with a pencil that turns it into an input in place: Enter saves, Escape cancels. */
-export function TaskTitle({ task, headingRef }: { task: Task; headingRef: Ref<HTMLHeadingElement> }) {
+export function TaskTitle({ task, headingRef }: { task: BoardCard; headingRef: Ref<HTMLHeadingElement> }) {
   const { key, can } = useProject();
   const update = useUpdateTask(key);
   const [editing, setEditing] = useState(false);

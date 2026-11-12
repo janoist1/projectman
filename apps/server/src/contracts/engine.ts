@@ -178,6 +178,11 @@ export interface MergeBaseState {
   contains: { local: boolean; remote: boolean | null };
   /** The worktree that has the default branch checked out; null: none. */
   checkout: string | null;
+  /**
+   * How many parents `commit` has (PM-1377): a merge reuses a passed review run only of a one-parent commit.
+   * Absent from an older engine. The hub's reply schema is strict, so the hub is updated before the engine (DEPLOY.md).
+   */
+  commitParents?: number;
 }
 
 export type MergeBuildResult =

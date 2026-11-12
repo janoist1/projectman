@@ -419,6 +419,19 @@ describe('history index', () => {
     expect(details).not.toMatch(/SCAN d\b|SCAN history_documents/);
   });
 
+  it('offers its fallback round to the kernel: it applies the changes the events missed (PM-1394)', async () => {
+    h = await historyHarness();
+    await h.domain.tasks.create('AR', { title: 'Alpaca card' }, OWNER_ACTOR);
+    const sweep = h.domain.history.sweep;
+    expect(sweep).toMatchObject({ name: 'history', everyMs: 1000 });
+    await sweep.run();
+    expect(titles(h, 'task')).toEqual(['Alpaca card']);
+    await h.domain.history.stop();
+    await h.domain.tasks.create('AR', { title: 'Late card' }, OWNER_ACTOR);
+    await sweep.run();
+    expect(titles(h, 'task')).toEqual(['Alpaca card']);
+  });
+
   it('keeps a service of its own working over the same database', async () => {
     h = await historyHarness();
     await h.domain.tasks.create('AR', { title: 'Shared database card' }, OWNER_ACTOR);

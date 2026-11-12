@@ -10,6 +10,11 @@ export function codeMessage(code: string): string | null {
   return message || null;
 }
 
+/** A failure's text: the server's own message when it has one for the code, otherwise the screen's `fallback`. */
+export function failText(error: unknown, fallback: string): string {
+  return (isApiError(error) && codeMessage(error.code)) || fallback;
+}
+
 /** User-facing message for any error thrown by the data layer. */
 export function errorMessage(error: unknown): string {
   if (isApiError(error)) {

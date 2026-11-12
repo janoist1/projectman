@@ -1,4 +1,4 @@
-import type { Session, Task, TaskMerged } from '@projectman/shared';
+import type { BoardCard, Session, TaskMerged } from '@projectman/shared';
 import { HandoffNoteButton } from './HandoffNote';
 import { useProject } from '../../app/contexts';
 import { MemberNames } from '../../components/LeaveChip';
@@ -68,15 +68,18 @@ function MergedValue({
  */
 export function TaskProperties({
   task,
+  merged,
   tasks,
   phases,
   members,
   pipeline,
   sessions,
 }: {
-  task: Task;
+  task: BoardCard;
+  /** The whole merge from the card's detail: the board's card carries only that it is merged (PM-1336). */
+  merged: TaskMerged | undefined;
   /** The project's cards as the viewer sees them (the board's, closed ones included). */
-  tasks: readonly Task[];
+  tasks: readonly BoardCard[];
   phases: ReadonlyMap<string, TaskPhase>;
   members: MemberIndex;
   pipeline: PipelineIndex;
@@ -109,7 +112,7 @@ export function TaskProperties({
       {task.merged ? (
         <div className={styles.prop}>
           <span className={styles.propLabel}>{t('task.merge.merged.label')}</span>
-          <MergedValue merged={task.merged} members={members} myHandle={myHandle} />
+          {merged ? <MergedValue merged={merged} members={members} myHandle={myHandle} /> : null}
         </div>
       ) : task.reviewPin ? (
         <div className={styles.prop}>

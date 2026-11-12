@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { useId, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { isOpenTask, isTheme, Task, THEME_REFUSED_KINDS } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { useCreateTask, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -24,7 +25,7 @@ import type { Candidate, DialogKind } from './relationModel';
 import styles from './RelationDialog.module.css';
 
 /** What the dialog says that will happen, with the direction spoken out. */
-function previewText(kind: DialogKind | null, target: string | null, task: Task): string {
+function previewText(kind: DialogKind | null, target: string | null, task: BoardCard): string {
   if (!kind) return t('relationDialog.preview.pickKind');
   if (kind === 'subtask') return t('relationDialog.preview.subtask');
   if (!target) return t('relationDialog.preview.pickCard');
@@ -48,7 +49,7 @@ function previewText(kind: DialogKind | null, target: string | null, task: Task)
 }
 
 /** The reason a kind cannot be chosen for this card, or null. */
-function kindOff(kind: DialogKind, task: Task, tasks: readonly Task[]): string | null {
+function kindOff(kind: DialogKind, task: BoardCard, tasks: readonly BoardCard[]): string | null {
   // What a theme cannot have is the shared rule's (`THEME_REFUSED_KINDS`). A new subtask is the
   // other direction of `part_of` (both are `subtask_theme`), so it follows the same rule.
   if (isTheme(task)) {
@@ -122,8 +123,8 @@ function RelationForm({
   pipeline,
   onClose,
 }: {
-  task: Task;
-  tasks: readonly Task[];
+  task: BoardCard;
+  tasks: readonly BoardCard[];
   pipeline: PipelineIndex;
   onClose: () => void;
 }) {
@@ -394,8 +395,8 @@ export function RelationDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  task: Task;
-  tasks: readonly Task[];
+  task: BoardCard;
+  tasks: readonly BoardCard[];
   pipeline: PipelineIndex;
 }) {
   return (

@@ -62,6 +62,7 @@ export const ItemRouteReason = z.enum([
   'owner_topic_missing',
   'signal_not_for_owner',
   'pm_matter',
+  'pm_affected',
   'no_pm',
   'information',
   'human_duty',
@@ -103,6 +104,8 @@ export interface ItemRouteInput {
   decider: boolean;
   /** Alert kinds that depend on a reason: the `refinement` alert's reason. */
   alertReason?: string;
+  /** The outage blocks the project manager's own provider or engine. */
+  outageAffectsPm?: boolean;
   /** The question is about a system signal the owners are not told about (`OWNER_SILENT_SIGNAL_KINDS`). */
   ownerSilentSignal?: boolean;
 }
@@ -236,6 +239,8 @@ function alertRoute(kind: AlertKind, input: ItemRouteInput): ItemRoute {
     case 'integrator_queue':
       return { to: 'integrator_queue', reason: 'machine_work' };
     case 'pm':
+      if (kind === 'work_outage' && input.outageAffectsPm)
+        return { to: 'integrator_queue', reason: 'pm_affected' };
       return input.pm === 'none'
         ? { to: 'owner_messages', reason: 'no_pm' }
         : { to: 'pm', reason: 'pm_matter' };

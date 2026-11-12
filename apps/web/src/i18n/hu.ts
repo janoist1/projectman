@@ -1556,10 +1556,14 @@ export const hu = {
     unmeasured:
       '{cards} kártya {sessions} munkamenetéről nincs mérés (a mérés bevezetése előtt futottak); ezek nincsenek beleszámolva.',
     noImplementer: 'nincs megvalósító',
+    reviewerUnknown: 'Nincs átnézőadat',
+    failedByReviewer: 'Bukott merge-ellenőrzés átnézőnként:',
+    reviewerRatio: '{name}: {failed} / {total} kártyán ({percent})',
     sessionsWithoutData: '{count} munkamenet mérés nélkül',
     columns: {
       card: 'Kártya',
       implementer: 'Megvalósító és modellje',
+      reviewer: 'Átnéző',
       tokens: 'Súlyozott token',
       reviewRounds: 'Átnézési körök',
       sendBacks: 'Visszaküldések',
@@ -3000,6 +3004,7 @@ export const hu = {
     earlier: {
       title: 'Korábbi beszélgetések ({count})',
       readOnly: 'Csak olvasható.',
+      loadFailed: 'Nem sikerült betölteni a korábbi beszélgetéseket.',
       to: 'Címzett: {names}',
       none: 'Nincs számodra látható gépi üzenet.',
     },
@@ -5941,6 +5946,7 @@ export const hu = {
         owner_topic_missing: 'hiányzó téma',
         signal_not_for_owner: 'nem a tulajdonosnak szóló jelzés',
         pm_matter: 'projektmenedzseri ügy',
+        pm_affected: 'a kiesés a projektmenedzsert is akadályozza',
         no_pm: 'nincs projektmenedzser',
         information: 'tájékoztatás',
         human_duty: 'emberi feladat',
@@ -6973,6 +6979,7 @@ export const hu = {
   },
 
   messages: {
+    readFailed: 'Nem sikerült olvasottnak jelölni.',
     new: 'Új üzenet',
     recipients: 'Címzettek',
     contactsOnlyHint: 'Csak a kapcsolattartóknak írhatsz.',
@@ -6997,6 +7004,8 @@ export const hu = {
       relation_check:
         'A(z) {taskKey} kártya új kapcsolatai ({relations}) változtathatnak a munkáján, és nincs elemző vagy projektmenedzser, aki ellenőrizné.',
       work_outage: 'Kiesés ({outage}) akadályozza a munkát; érintett kártyák: {tasks}.',
+      work_outage_details:
+        'A munka {since} óta áll: {reason}. Motor: {engine}; érintett kártyák: {tasks}. Teendő: a szolgáltatói bejelentkezés vagy beállítás helyreállítása, illetve a motor újracsatlakoztatása.',
       waiting_digest:
         '{todos} gépi teendő és {questions} szűrésre váró kérdés vár több mint egy napja; a legrégebbi {oldestHours} órája.',
     },

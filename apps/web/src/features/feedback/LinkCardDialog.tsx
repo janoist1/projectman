@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import type { FeedbackMarkDetail, Task } from '@projectman/shared';
+import type { BoardCard, FeedbackMarkDetail } from '@projectman/shared';
 import { useBoard, useLinkFeedback } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -38,9 +38,9 @@ function LinkCardForm({ mark, onClose }: { mark: FeedbackMarkDetail; onClose: ()
       : [...all].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return found.slice(0, MAX_OPTIONS);
   }, [tasks, query]);
-  const chosenTask: Task | undefined = (tasks ?? []).find((task) => task.key === chosen);
+  const chosenTask: BoardCard | undefined = (tasks ?? []).find((task) => task.key === chosen);
 
-  const stageName = (task: Task) => pipeline?.stageById.get(task.stageId)?.name ?? task.stageId;
+  const stageName = (task: BoardCard) => pipeline?.stageById.get(task.stageId)?.name ?? task.stageId;
   const submit = () => {
     if (!chosenTask || link.isPending) return;
     link.mutate(

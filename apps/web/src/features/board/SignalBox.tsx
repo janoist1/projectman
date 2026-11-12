@@ -1,4 +1,4 @@
-import type { Session, Task } from '@projectman/shared';
+import type { BoardCard, Session } from '@projectman/shared';
 import { Link } from 'react-router';
 import { HandoffBox } from './HandoffBox';
 import { Icon } from '../../components/Icon';
@@ -11,7 +11,7 @@ import type { MemberIndex } from '../../lib/members';
 import styles from './SignalBox.module.css';
 
 interface SignalBoxProps {
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
   myHandle: string | null;
   /** Where the conversation can be read; only for those who may. */

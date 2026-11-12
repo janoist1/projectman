@@ -95,15 +95,19 @@ describe('cache helpers', () => {
 });
 
 describe('applyServerEvent', () => {
-  it('updates a task on the board, in its detail and in its sessions', () => {
+  it('updates a task on the board as its summary, in its detail and in its sessions', () => {
     const client = seed();
     const task = { ...tasks.find((entry) => entry.key === 'AC-21')!, stageId: 'code_review' };
     applyServerEvent(client, { type: 'task_upserted', projectKey: KEY, task });
-    expect(
-      client.getQueryData<BoardView>(queryKeys.board(KEY))!.tasks.find((entry) => entry.key === 'AC-21')!
-        .stageId,
-    ).toBe('code_review');
-    expect(client.getQueryData<TaskDetail>(queryKeys.task(KEY, 'AC-21'))!.task.stageId).toBe('code_review');
+    const card = client
+      .getQueryData<BoardView>(queryKeys.board(KEY))!
+      .tasks.find((entry) => entry.key === 'AC-21')!;
+    expect(card.stageId).toBe('code_review');
+    expect(card).not.toHaveProperty('description');
+    expect(client.getQueryData<TaskDetail>(queryKeys.task(KEY, 'AC-21'))!.task).toMatchObject({
+      stageId: 'code_review',
+      description: task.description,
+    });
     expect(client.getQueryData<SessionDetail>(queryKeys.session(KEY, 'ses_ac21_fe1'))!.task!.stageId).toBe(
       'code_review',
     );

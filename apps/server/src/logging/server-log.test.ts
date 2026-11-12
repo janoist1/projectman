@@ -4,12 +4,12 @@ import path from 'node:path';
 import Fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { serializeRequest } from '../http';
-import { createServerLogStream, serverLogFile } from './server-log';
+import { createServerLogStream, removeRetiredEngineLogs, serverLogFile } from './server-log';
 
 describe('server log file (PM-444)', () => {
   let dir: string;
   let terminal: string[];
-  const terminalStream = { write: (text: string) => terminal.push(text) };
+  const terminalStream = { isTTY: true, write: (text: string) => terminal.push(text) };
 
   beforeEach(() => {
     dir = mkdtempSync(path.join(tmpdir(), 'pm-server-log-'));
@@ -38,6 +38,44 @@ describe('server log file (PM-444)', () => {
     writeFileSync(file, 'old\n');
     createServerLogStream(file, { terminal: terminalStream }).write('new\n');
     expect(readFileSync(file, 'utf8')).toBe('old\nnew\n');
+  });
+
+  it('makes no terminal copy without a TTY', () => {
+    const file = serverLogFile(dir, 'engine');
+    createServerLogStream(file, { terminalOnly: true, terminal: { ...terminalStream, isTTY: false } }).write(
+      'line\n',
+    );
+    expect(terminal).toEqual([]);
+    expect(readFileSync(file, 'utf8')).toBe('line\n');
+  });
+
+  it('keeps server stdout logging without a TTY for container log collection', () => {
+    const file = serverLogFile(dir, 'server');
+    createServerLogStream(file, { terminal: { ...terminalStream, isTTY: false } }).write('line\n');
+    expect(terminal).toEqual(['line\n']);
+    expect(readFileSync(file, 'utf8')).toBe('line\n');
+  });
+
+  it('removes only retired single-mode logs on engine startup', () => {
+    const logs = path.join(dir, 'logs');
+    mkdirSync(logs);
+    for (const name of [
+      'live-server.log',
+      'server.log',
+      'server.log.1',
+      'engine.log',
+      'engine.log.1',
+      'engine-service.err.log',
+      'server.log.other',
+    ])
+      writeFileSync(path.join(logs, name), 'old');
+    removeRetiredEngineLogs(dir);
+    expect(readdirSync(logs).sort()).toEqual([
+      'engine-service.err.log',
+      'engine.log',
+      'engine.log.1',
+      'server.log.other',
+    ]);
   });
 
   it('rotates by size and keeps a bounded number of files', () => {

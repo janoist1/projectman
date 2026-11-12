@@ -797,7 +797,9 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   trees without a checkout and only prints the scope and commands. Cloud-only infrastructure diffs under `scripts/cloud/`,
   `deploy/aws/` and `deploy/cloud/` (PM-734), optionally with direct cloud/deploy/release test-family
   changes, run server typecheck and the cloud, deploy, release, architecture and merge-test test
-  prefixes. Manifest, lockfile, TypeScript/Vitest configuration, selector/executor scripts and non-code
+  prefixes. Diffs of `deploy/mac/**`, workflows, the structure map, `apps/server/test/architecture/**`
+  and `scripts/merge-test/**` run their rule's test list (`OWNED_PATH_RULES`, PM-1354); the rules are
+  machine-independent path matches. Manifest, lockfile, TypeScript/Vitest configuration, selector/executor scripts and non-code
   scripts retain full checks; test-only diffs select the changed tests. **Remote engine:** selection runs on the engine with
   its two git trees; no engine files or new selection API cross the server/engine boundary.
   **Module:** `scripts`
@@ -807,6 +809,15 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
   and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
   rounds. The CLI and its login must live on the machine that runs the sessions.
+  PM-1349: the engine caches consecutive unsuccessful login checks for 3, 10, 30, then
+  60 seconds; a successful check resets this backoff. Periodic outage checks and refused
+  starts reuse the cached result; an explicit recheck still refreshes immediately.
+  On the hub, an outage that blocks the project manager's own provider or engine goes
+  to the integrator's queue and sends one information message to the project owners per
+  episode, including the start time and recovery action. Other outages still signal the
+  project manager. The todo retains the episode facts across a hub restart and closes
+  on recovery. The existing `provider.status` RPC carries the engine's cached status;
+  the hub computes the routing fact from the member's assigned engine and provider.
   The bounded status wait runs on the server in `runtime/watchers/provider-status-wait.ts`
   (Effect, PM-617).
   **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
@@ -954,6 +965,8 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     (engine → hub) before it stops. The hub resumes it when the engine connects (after `reconcileEngine`); on a hub
     restart a session of an engine that is not connected yet is handed to that engine's pause. Which sessions hold a
     heavy command comes from `EngineHost.heavyRunSessions` (the engine's heavy-run queue folder). Nothing else crosses.
+    A resume that finds the session's engine link down sends no `session.release` and keeps the session's pause row
+    open (`SessionRunner.reaches`, PM-1348); the engine's next connect releases it. The wire contract is unchanged.
   - Offline machine and the question screening (PM-708): the durable queue, the timer and the
     delivery receipt all run on the server. A screened question that waits for the PM's engine stays
     in the inbox with `payload.screening.queue` (`engine_offline`); it raises no owner alert, no
@@ -1744,13 +1757,19 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `start.ts` (`loggerOptions`)
   (PM-444), exposed through `logging/index.ts` to `start.ts` and
-  `engine-link/engine-audit.ts` (PM-649). Every process logs pino's JSON lines to the terminal and, since PM-444, to
+  `engine-link/engine-audit.ts` (PM-649). Since PM-1373, the engine copies pino's JSON lines to stdout
+  only when it is a TTY (`start.ts` passes `terminalOnly`), preventing launchd's unrotated stdout file
+  from duplicating the rotating log. The cloud and single-mode server always copy to stdout, including
+  without a TTY, so Docker/journald and `npm run cloud -- logs` keep collecting their logs.
+  File-write failures are reported once to the terminal or stderr. Every process logs, since PM-444, to
   `<PROJECTMAN_HOME>/logs/server.log` (single mode and the cloud) or `logs/engine.log` (engine
   mode); the terminal's scrollback alone lost the older lines. The file is appended across starts,
   rotated at 10 MB (`server.log` → `.1` → … `.4`, five files, so about 50 MB at most), mode 0600 in
   a 0700 folder. It holds exactly the lines the terminal gets, with the same serializers (request URLs
   have invitation, hook and MCP tokens redacted; no headers, bodies or keys). A failing file write is
-  reported once on the terminal and never stops logging there. The engine's per-request audit
+  reported once and never stops terminal logging. On engine startup, `engine-app.ts` calls
+  `removeRetiredEngineLogs` to remove `logs/live-server.log` and `logs/server.log[.N]` from its own home
+  (PM-1373); engine and service stderr logs are retained. The engine's per-request audit
   (`logs/engine-audit.jsonl`) uses the same rotation helper but is a separate file. Assumes a
   writable local home on the host that runs the process and one process per home.
   **Remote engine:** each process writes its own log on its own host: the cloud's under the cloud's

@@ -1,4 +1,10 @@
-import { DEFAULT_AGENT_PROVIDER, hasPlanUsage, labelHolders, resolvedStages } from '@projectman/shared';
+import {
+  boardCard,
+  DEFAULT_AGENT_PROVIDER,
+  hasPlanUsage,
+  labelHolders,
+  resolvedStages,
+} from '@projectman/shared';
 import type { BoardView } from '@projectman/shared';
 import type { InboxService } from '../inbox';
 import type { MemberService } from '../members';
@@ -56,7 +62,7 @@ export class BoardService {
       })),
       stages: resolvedStages(config),
       labels: config.pipeline.labels.map((label) => ({ ...label, holders: labelHolders(config, label) })),
-      tasks: this.tasks.list(projectKey),
+      tasks: this.tasks.list(projectKey).map(boardCard),
       members: this.members.rosterFor(config),
       openInboxCount: this.inbox.countOpenFor(projectKey, viewer.handle, viewer),
       planUsage: planUsageByProvider.claude ?? null,

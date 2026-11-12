@@ -14,10 +14,13 @@ export function namesOption(arg: string, name: string, minLength = 3): boolean {
   return given.length >= minLength && name.startsWith(given);
 }
 
-/** A short option cluster (`-nr`, `-ofile`) that includes one of `letters`. */
+/**
+ * A short option cluster (`-nr`, `-ofile`) that includes one of `letters`. A count may share the
+ * word (`-5f`), so digits do not end the cluster.
+ */
 export function hasShortOption(arg: string, letters: string): boolean {
   if (!arg.startsWith('-') || arg.startsWith('--')) return false;
-  const run = /^[A-Za-z]*/.exec(arg.slice(1))![0];
+  const run = /^[A-Za-z0-9]*/.exec(arg.slice(1))![0];
   return [...run].some((letter) => letters.includes(letter));
 }
 

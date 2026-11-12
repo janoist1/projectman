@@ -36,7 +36,14 @@ import type {
   HandoffTakeover,
   SessionPolicy,
 } from '../contracts';
-import { commandVerdict, readableRootsFor, sessionSandbox, withSessionFolders } from '../runtime/sessions';
+import {
+  commandVerdict,
+  memberAudience,
+  readableRootsFor,
+  sessionSandbox,
+  withSessionFolders,
+} from '../runtime/sessions';
+import { visibleTeamTools } from '../mcp';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
@@ -47,6 +54,8 @@ import { describeTeamRule, summarizeTeamRule } from './team-rules';
 import { dutyPrompt, handover } from './work-item';
 
 const builder = createContextPackBuilder();
+// PM-1340 adds one Claude-only batch of eight fully qualified tool names.
+const CLAUDE_TOOL_BATCH_BYTES = 400;
 
 describe('repository prompt conventions (PM-1112)', () => {
   const heavyChecks = {
@@ -179,7 +188,7 @@ describe('context preview sections', () => {
       translator: 11_800,
       docs: 11_800,
     };
-    expect(bytes).toBeLessThanOrEqual(budgets[role]);
+    expect(bytes).toBeLessThanOrEqual(budgets[role] + CLAUDE_TOOL_BATCH_BYTES);
   });
   it.each(['claude', undefined, 'codex', 'gemini', 'nanogpt'] as const)(
     'defers only placement-dependent sections for %s',
@@ -1016,6 +1025,53 @@ const dataSteward = {
  * A few whole context packs, built from the live web-client-project template: they show how the
  * sections read together. Details of each section are covered by the focused tests below.
  */
+describe('Claude team tool loading', () => {
+  it.each(['claude', undefined, 'codex', 'gemini', 'nanogpt'] as const)(
+    'only includes the batch for Claude (provider %s)',
+    (provider) => {
+      const source = input();
+      source.member = { ...source.member, provider };
+      const teamwork = section(builder.build(source).appendSystemPrompt, '# How the team works');
+      expect(teamwork.includes('ToolSearch')).toBe(provider === undefined || provider === 'claude');
+    },
+  );
+
+  it('selects six to eight existing tools visible to each role and stage duty', () => {
+    for (const role of AI_BUILT_IN_ROLE_IDS) {
+      const project = buildProject();
+      const member = addMember(project, 'batch-member', role, { provider: 'claude' });
+      for (const duty of [undefined, ...DUTY_IDS]) {
+        const source = input({ project, member });
+        source.stage!.duty = duty;
+        const line = builder
+          .build(source)
+          .appendSystemPrompt.split('\n')
+          .find((line) => line.includes('ToolSearch'))!;
+        const names = [...line.matchAll(/mcp__team__(\w+)/g)].map((match) => match[1]);
+        const visible = visibleTeamTools(memberAudience(project, member.handle)).map((tool) => tool.name);
+        expect(names.length).toBeGreaterThanOrEqual(6);
+        expect(names.length).toBeLessThanOrEqual(8);
+        expect(new Set(names).size).toBe(names.length);
+        for (const name of names) expect(visible, `${role}/${duty}: ${name}`).toContain(name);
+      }
+    }
+  });
+
+  it('uses the current duty when a member holds several duties', () => {
+    const project = buildProject();
+    project.team.roleOverrides = {
+      developer: { duties: ['implementation', 'testing_acceptance'], instructions: '' },
+    };
+    const source = input({ project, handle: 'fe-1' });
+    source.stage!.duty = 'testing_acceptance';
+    let teamwork = section(builder.build(source).appendSystemPrompt, '# How the team works');
+    expect(teamwork).toContain('mcp__team__take_screenshots');
+    source.stage!.duty = 'implementation';
+    teamwork = section(builder.build(source).appendSystemPrompt, '# How the team works');
+    expect(teamwork).toContain('mcp__team__link_pull_request');
+  });
+});
+
 describe('context pack snapshots', () => {
   it('communication member with system-enforced email approval', async () => {
     const project = buildProject();
@@ -1063,7 +1119,7 @@ describe('context pack snapshots', () => {
     );
     // The 300 B are the acceptance items' two labels and gates (PM-1135), the 300 B the rule lines (PM-1137).
     expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThanOrEqual(
-      11000 + 300 + 300 + ROLE_PURPOSES.developer.length,
+      11000 + 300 + 300 + ROLE_PURPOSES.developer.length + CLAUDE_TOOL_BATCH_BYTES,
     );
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/developer-dev.system-prompt.txt',
@@ -2004,7 +2060,9 @@ describe('system prompt', () => {
       );
       // UTF-8 bytes, including the snapshot's final newline; baseline: 22,588 B / 12,295 B / no guide.
       // The prompt cap includes the documents section with the memory log rule (PM-1228, ~1.3 KB).
-      expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(15_300);
+      expect(Buffer.byteLength(`${pack.appendSystemPrompt}\n`)).toBeLessThan(
+        15_300 + CLAUDE_TOOL_BATCH_BYTES,
+      );
       expect(Buffer.byteLength(`${roleOf(pack.appendSystemPrompt).trimEnd()}\n`)).toBeLessThan(7_000);
     });
 

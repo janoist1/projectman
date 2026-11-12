@@ -27,7 +27,8 @@ home if its data is no longer needed. Its old schema does not block the hub upda
 
 The engine does not open the database. The regular release order remains hub first,
 then engines; before deploying the baseline build the hub must already be at schema
-152 or later. An existing database at that version needs no schema change. A rollback
+152 or later. The baseline itself makes no schema change to an existing database at
+that version; later migrations still apply normally. A rollback
 to the preceding image is safe when the new release adds no further migrations.
 The release notes for the switch must also name the pre-baseline release above.
 

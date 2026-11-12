@@ -9,7 +9,7 @@ import type { DeniedSessionOperation } from './session-policy';
 
 const MAX_NESTING = 8;
 
-export interface ShellUnit {
+interface ShellUnit {
   words: string[];
   depth: number;
 }

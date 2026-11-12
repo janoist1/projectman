@@ -1510,7 +1510,7 @@ generic code writes no `obligation_handed_over` event and no todo for the connec
 `senior_waits` row into such a row and dropped the table.
 
 **`review_step` (PM-809).** One entry of a card into a `step` stage (the code review), for each AI owner of the
-stage (`stageOwners`) who may set a label the next stage's gate lacks (`stepResult` in
+stage for the card (`cardStageOwners`) who may set a label the next stage's gate lacks (`stepResult` in
 `packages/shared/src/config/gates.ts`: the gate labels the member sets, `gate`, and with the other labels of
 their groups, `results`: `code-review-ok` and `code-review-changes`). The subject is `<stageId>@<stageEnteredAt>`
 and the clock starts at the entry. Unlike the other kinds this source derives the step from the stage, not from

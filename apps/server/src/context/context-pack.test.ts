@@ -1589,6 +1589,21 @@ describe('system prompt', () => {
     expect(promptOf(false)).not.toContain('This is a small card');
   });
 
+  it('names the holders of the duty as owners of a stage that lists none, with the small-card rule on or off (PM-1378)', () => {
+    const stageLine = (rule: boolean) => {
+      const project = buildProject();
+      const stage = project.pipeline.stages.find((s) => s.id === 'code_review')!;
+      delete stage.owners;
+      if (rule) stage.smallCards = { maxPoints: 3, owners: ['fe-1'], centralPaths: [] };
+      const prompt = builder.build(
+        input({ handle: 'code-review', project, task: makeTask({ stageId: 'code_review' }) }),
+      ).appendSystemPrompt;
+      return prompt.split('\n').find((line) => line.startsWith('- Stage: '));
+    };
+    expect(stageLine(false)).toContain('you own this stage');
+    expect(stageLine(true)).toBe(stageLine(false));
+  });
+
   it('includes the e-mail channel only for an enabled sender in an enabled project', async () => {
     const heading = '# E-mail channel';
     const project = buildProject();

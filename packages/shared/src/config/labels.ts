@@ -173,8 +173,22 @@ export function labelRefusal(
   return null;
 }
 
-/** The labels and the other labels of their groups (`code-review-changes` beside `code-review-ok`): any of them ends a step. */
-export function withGroupMates(config: Pick<ProjectConfig, 'pipeline'>, ids: readonly string[]): string[] {
+/**
+ * The result labels of a step stage: the `has_label` labels of the next stage's gate (only those in `only`
+ * when given) and the other labels of their groups (`code-review-changes` beside `code-review-ok`): any of
+ * them ends the step. Empty when the stage is not a step or has no next stage.
+ */
+export function stageResultLabels(
+  config: Pick<ProjectConfig, 'pipeline'>,
+  stage: Stage,
+  only?: readonly string[],
+): string[] {
+  const stages = config.pipeline.stages;
+  const next = stages[stages.findIndex((s) => s.id === stage.id) + 1];
+  if (!next || stage.kind !== 'step') return [];
+  const ids = (next.gate?.conditions ?? []).flatMap((c) =>
+    c.type === 'has_label' && (!only || only.includes(c.label)) ? [c.label] : [],
+  );
   const groups = new Set(ids.map((id) => labelDefinition(config, id)?.group).filter((g) => g !== undefined));
   const mates = config.pipeline.labels
     .filter((label) => label.group !== undefined && groups.has(label.group))

@@ -4,6 +4,7 @@ import type { ComplexityPoints, ProjectConfig } from '@projectman/shared';
 import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
+import { flush } from './helpers/fakes';
 
 /*
  * PM-1378 A: a step stage with a small-card rule decides on entry whom a card goes to. `dev-2` is the
@@ -23,9 +24,10 @@ describe('the owners a small card has in a review step (smallCards)', () => {
   let h: DomainHarness;
   afterEach(() => h?.cleanup());
 
-  async function setup(points: ComplexityPoints | null = 2, rule = true) {
+  async function setup(points: ComplexityPoints | null = 2, rule = true, humanMover = false) {
     h = await createDomainHarness({
       adjust: (config: ProjectConfig) => {
+        if (humanMover) config.team.cardMover = { kind: 'human', handle: 'owner' };
         if (!rule) return;
         const review = config.pipeline.stages.find((s) => s.id === 'code_review')!;
         review.smallCards = { maxPoints: 3, owners: ['dev-2'], centralPaths: ['src/core/**'] };
@@ -114,6 +116,46 @@ describe('the owners a small card has in a review step (smallCards)', () => {
 
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', aiActor('cr'));
     expect(card().stageOwnerPick ?? null).toBeNull();
+  });
+
+  it.each([
+    ['a small card', ['src/web/login.ts'], undefined],
+    ['a card with a central file', ['src/core/moves.ts'], { type: 'task', taskKey: 'AR-2' }],
+  ] as const)(
+    'routes a message about %s to the card itself for its owner, else to the session on a family card',
+    async (_name, paths, route) => {
+      await setup();
+      files(paths);
+      await toReview();
+      // The hand-over session on the card is over; the small owner works on a sub-card.
+      for (const spec of h.runner.started.filter((s) => s.member === 'dev-2'))
+        h.runner.emit({ type: 'exit', sessionId: spec.sessionId, exitCode: 0, signal: null });
+      await flush();
+      await h.domain.tasks.create('AR', { title: 'Cart', parentKey: 'AR-1' }, OWNER_ACTOR);
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'task', taskKey: 'AR-2' });
+      h.runner.setState(session.id, 'working');
+      await flush();
+
+      const sent = await h.domain.messaging.sendReporting(
+        'AR',
+        'owner',
+        { to: ['dev-2'], text: 'Look at the login page.', taskKey: 'AR-1' },
+        {},
+      );
+      expect(sent.message.receipts[0]!.route).toEqual(route);
+    },
+  );
+
+  it('takes the pick of a hand-on request the owner approves, from the files read at the approval', async () => {
+    await setup(2, true, true);
+    files(['src/web/login.ts']);
+    await toReview();
+    expect(card().stageId).toBe('development');
+    const [item] = h.domain.inbox.list('AR', { kind: 'hand_on', taskKey: 'AR-1' });
+
+    await h.domain.inbox.resolve('AR', item!.id, { optionId: 'move' }, { handle: 'owner', access: 'owner' });
+    expect(card().stageOwnerPick).toMatchObject({ stageId: 'code_review', small: true });
+    expect(stageChange()).toMatchObject({ ownerPick: { small: true, owners: ['dev-2'] } });
   });
 
   it('records no pick for a stage without the rule', async () => {

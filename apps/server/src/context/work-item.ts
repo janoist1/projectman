@@ -61,10 +61,9 @@ export function assess(input: ContextPackInput): Situation {
     current,
     next: current ? stageAfter(stages, current) : null,
     // A small card's reviewers are the stage's small owners (PM-1378), not its main owners.
+    // `current` is a resolved stage (its owners come from its duty), so without a pick this is `current.owners`.
     ownsStage: current
-      ? (task ? cardStageOwners(input.project, current, task) : (current.owners ?? [])).includes(
-          input.member.handle,
-        )
+      ? (task ? cardStageOwners(input.project, current, task) : current.owners).includes(input.member.handle)
       : false,
     isAssignee: task?.assignee === input.member.handle,
   };

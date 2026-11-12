@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import type { OperatorSignal, TeamMessage } from '@projectman/shared';
@@ -61,6 +61,7 @@ export function OperatorSignalCard({
   operatorHandle,
   readOnly,
   onDismiss,
+  unreadMark,
 }: {
   signal: OperatorSignal;
   /** The Operator's message that presented the signal, if the thread holds it. */
@@ -69,6 +70,8 @@ export function OperatorSignalCard({
   readOnly: boolean;
   /** Keep feedback visible for a dismissal made in the current thread. */
   onDismiss?: (id: string) => void;
+  /** The unread label of the presenting message, shown in the card's header. */
+  unreadMark?: ReactNode;
 }) {
   const { key } = useProject();
   const client = useQueryClient();
@@ -106,6 +109,7 @@ export function OperatorSignalCard({
             ? t('operator.signal.raised', { time: formatTime(message.createdAt) })
             : t('operator.signal.noMessage', { time: formatTime(signal.raisedAt) })}
         </span>
+        {unreadMark}
       </div>
       <h3 id={titleId} className={styles.title}>
         <SignalTitle signal={signal} projectKey={key} />

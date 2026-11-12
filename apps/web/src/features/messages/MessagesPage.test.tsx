@@ -638,6 +638,24 @@ describe('all messages', () => {
     fireEvent.click(head);
     await waitFor(() => expect(within(feed).queryByText('Acme unread row')).toBeNull());
   });
+
+  it('does not carry an opened row over to another member filter', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme from the frontend');
+    p.backend.sendTeamMessage('qa', ['owner'], null, 'Acme from QA');
+    p.render(<Pages />, '/p/AC/messages/all?unread=1');
+    const feed = await screen.findByRole('feed', { name: t('messages.all.feed') });
+    const row = (await within(feed).findByText('Acme from the frontend')).closest('article')!;
+    fireEvent.click(within(row).getByRole('button', { expanded: false }));
+    showOnScreen(within(row).getByText(t('messages.thread.unread')));
+    await waitFor(() => expect(readRequests(p)).toHaveLength(1), { timeout: 3000 });
+    await waitFor(() => expect(within(row).queryByRole('img', { name: t('messages.unread') })).toBeNull());
+    expect(within(feed).getByText('Acme from the frontend')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(t('messages.all.member')), { target: { value: 'qa' } });
+    await within(feed).findByText('Acme from QA');
+    expect(within(feed).queryByText('Acme from the frontend')).toBeNull();
+  });
 });
 
 describe('the open thread', () => {

@@ -54,6 +54,13 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
   // In the unread filter a row read while open would drop out of the list under the reader's eyes: the rows opened
   // there are kept (as the server last answered for them) until they are folded.
   const [kept, setKept] = useState<ReadonlyMap<string, TeamMessage>>(new Map());
+  // They belong to the visit of this project and filter combination: another one starts with none.
+  const scope = [key, filter.member, filter.task, filter.unread].join('|');
+  const [keptScope, setKeptScope] = useState(scope);
+  if (keptScope !== scope) {
+    setKeptScope(scope);
+    setKept(new Map());
+  }
   // An opened row is read when the unread mark at the start of its content has been on the screen (PM-1386).
   const watchUnread = useReadWhenVisible(key, {
     onRead: (read) =>
@@ -72,7 +79,6 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
 
   const update = (patch: Partial<AllMessagesFilter>) => {
     const next = { ...filter, ...patch };
-    if (next.unread !== filter.unread) setKept(new Map());
     const query = new URLSearchParams();
     if (next.member) query.set('member', next.member);
     if (next.task) query.set('task', next.task);

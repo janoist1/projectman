@@ -522,6 +522,12 @@ function MessageBubble({
         </span>
       )}
       <div className={styles.col}>
+        {/* At the start of the content: a long message is read once its beginning has been on the screen. */}
+        {unread ? (
+          <span className={styles.unreadMark} ref={watchUnread(message.id)}>
+            {t('messages.thread.unread')}
+          </span>
+        ) : null}
         {message.via || (!mine && entry.firstOfRun) ? (
           <span className={styles.sender}>
             <ActorName
@@ -543,11 +549,6 @@ function MessageBubble({
         </div>
         <div className={styles.meta}>
           <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
-          {unread ? (
-            <span className={styles.unreadMark} ref={watchUnread(message.id)}>
-              {t('messages.thread.unread')}
-            </span>
-          ) : null}
           {also.length ? (
             <span className={styles.also}>
               {t('messages.thread.also', { names: joinNames(namesOf(also, members, myHandle)) })}

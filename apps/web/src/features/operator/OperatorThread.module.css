@@ -13,10 +13,11 @@
   flex-direction: column;
 }
 
-/* The top edge of an unread message: it counts as read once this has been on the screen (PM-1386). */
-.readMark {
-  height: 1px;
-  margin-bottom: -1px;
+/* The label at the start of an unread message: it counts as read once this has been on the screen (PM-1386). */
+.unreadMark {
+  font-size: var(--text-xs);
+  font-weight: 800;
+  color: var(--c-accent-text);
 }
 
 .day {

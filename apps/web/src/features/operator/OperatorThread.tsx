@@ -222,6 +222,13 @@ export function OperatorThread({
     const mine = message.from === myHandle;
     const signal = signalByMessage.get(message.id);
     const steps = anchors.byMessage.get(message.id) ?? [];
+    // The label at the start of the content: the message counts as read once it has been on the screen (PM-1386).
+    const unreadMark =
+      message.from === handle && isUnreadBy(message, myHandle) ? (
+        <span className={styles.unreadMark} ref={watchUnread(message.id)}>
+          {t('messages.thread.unread')}
+        </span>
+      ) : null;
     return (
       <div key={message.id} className={styles.entry}>
         {entry.day ? (
@@ -229,20 +236,13 @@ export function OperatorThread({
             {entry.day}
           </div>
         ) : null}
-        {message.from === handle && isUnreadBy(message, myHandle) ? (
-          <span
-            className={styles.readMark}
-            ref={watchUnread(message.id)}
-            data-unread-mark={message.id}
-            aria-hidden="true"
-          />
-        ) : null}
         {signal && signal.length > 1 ? (
           <OperatorSignalList
             signals={signal}
             message={message}
             operatorHandle={handle}
             readOnly={readOnly}
+            unreadMark={unreadMark}
           />
         ) : signal?.[0] ? (
           <OperatorSignalCard
@@ -250,6 +250,7 @@ export function OperatorThread({
             message={message}
             operatorHandle={handle}
             readOnly={readOnly}
+            unreadMark={unreadMark}
           />
         ) : (
           <div
@@ -261,6 +262,7 @@ export function OperatorThread({
               </span>
             )}
             <div className={styles.col}>
+              {unreadMark}
               {entry.showTask && message.taskKey ? cardKey(message.taskKey) : null}
               <div className={styles.bubble}>
                 {message.body ? (

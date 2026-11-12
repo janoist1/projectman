@@ -1627,7 +1627,10 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   acts only when that checkout's real path equals the bound repository path. A fresh checkout (hidden npm
   lockfile not older than `package-lock.json`, `worktree/dependencies.ts` `dependencyState`) runs nothing;
   otherwise the same sandboxed preparation as a member clone runs in the background (copy from the
-  `_merge-deps` store on an identical key, else sandboxed `npm ci`), with marker
+  `_merge-deps` store on an identical key, else sandboxed `npm ci`); reads/copies hold the sibling
+  `_merge-deps/<repoKey>.lock` (capacity 1, PM-1338).
+  Both writers and readers take machine places before this store lock; store holders never request places.
+  The store and lock remain on the executing engine, with no protocol change. The checkout marker is
   `<home>/workspace-deps/<sha256(JSON [project,repo])>/ready.json`, heavy-lock label
   `workspace-deps <project>/<repo> (checkout)` and a per-path single flight. It never throws or delays the
   merge: a failure is a log line and the next advance or start retries (10-minute memo). A newer advance
@@ -2241,8 +2244,10 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
   card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
   PM-741 adds a read-only consumer of the engine's `_merge-deps/<sha256(JSON [project,repo])>/current`
-  store: member dependency preparation copies a complete matching generation under the same heavy
-  lock, replacing only validated package trees. Member installations never publish into this store.
+  store: member dependency preparation copies a complete matching generation under the same per-store
+  `_merge-deps/<repoKey>.lock` as merge writers (capacity 1, PM-1338), replacing only validated package trees.
+  Machine places are acquired before the store lock; store holders never request machine places.
+  Both locks and the copy stay on the engine; no server/engine protocol changes. Member installations never publish into this store.
   PM-797: the close of a collecting card with no code of its own reads no worktree or source commit; it decides on
   the hub's data (`TaskRepository.sourceEvidence`), so a missing or offline engine does not hold it back.
   **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
@@ -2567,6 +2572,13 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   `full-test/npm-dependency-key.ts` hashes complete lock/root/workspace manifest bytes and engine OS/arch/Node/npm.
   The full-test executor stores the latest installation at
   `<worktreesRoot>/_merge-deps/<sha256(JSON.stringify([projectKey,repo]))>/current/`, outside git worktrees.
+  `full-test/npm-ci.ts` shares the store identity and `withMergeDependencyStore` with workspace readers
+  (PM-1338). The sibling `<repoKey>.lock` uses the existing heavy-lock implementation with capacity 1,
+  separate from the machine's pool and its pressure meter. Machine places always precede the store lock;
+  a store holder never requests machine places. The complete preparation, including cache copies and
+  publication, holds this lock; readers hold it through metadata validation and copying. An unavailable
+  writer lock fails preparation; a reader unable to acquire it falls back to its own npm ci outside the lock.
+  The engine owns the local filesystem lock and store; nothing new crosses the server/engine boundary.
   A strict version-1 `ready.json` contains the key and copied relative package paths; every listed directory
   and the root hidden npm lock must be real. Invalid or missing metadata is a miss; linked store roots
   are refused. The installer cannot write the store. After a successful install, unchanged inputs and a

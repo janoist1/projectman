@@ -19,6 +19,8 @@ import { silentLogger } from '../runner/test-helpers';
 import { dependencyState } from '../worktree';
 import { acquireHeavyLock, HeavyLockError, readHeavyQueue } from './heavy-lock';
 import { npmDependencyKey } from './npm-dependency-key';
+import { mergeDependencyStore } from './npm-ci';
+import { waitFor } from '../../test/helpers/wait';
 import type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
 import { createWorkspaceDependencyInstaller, WORKSPACE_DEPENDENCY_RETRY_MS } from './workspace-dependencies';
 
@@ -37,7 +39,7 @@ const end = (overrides: Partial<SandboxedEnd> = {}): SandboxedEnd => ({
 });
 const write = (root: string, relative: string, content = '{}') => {
   const target = path.join(root, relative);
-  mkdirSync(path.dirname(target), { recursive: true });
+  mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   writeFileSync(target, content);
 };
 const trees = (root: string) => {
@@ -172,6 +174,32 @@ describe('engine-owned member dependency preparation', () => {
     );
     return key;
   };
+
+  it('waits for the merge store writer before reading and copying its complete generation', async () => {
+    const key = seedMergeStore();
+    const store = path.join(root, 'worktrees', mergeDependencyStore('PM', 'app'));
+    const lockDir = `${store}.lock`;
+    const writer = await acquireHeavyLock({ dir: lockDir, capacity: 1, places: 'all', label: 'writer' });
+    rmSync(path.join(store, 'current/ready.json'));
+    const preparing = prepare();
+    try {
+      await waitFor(
+        async () => (await readHeavyQueue(lockDir, { capacity: 1 })).waiting.length === 1,
+        'reader waiting for the merge store',
+      );
+      expect(installs()).toHaveLength(0);
+      expect(existsSync(path.join(request.repoPath, 'node_modules/pkg/index.js'))).toBe(false);
+      seedMergeStore();
+    } finally {
+      await writer.release();
+    }
+    expect(await preparing).toEqual({ status: 'ready', key, changed: true });
+    expect(installs()).toHaveLength(0);
+    expect(readFileSync(path.join(request.repoPath, 'node_modules/pkg/index.js'), 'utf8')).toBe('installed');
+    expect(readFileSync(path.join(request.repoPath, 'apps/server/node_modules/pkg/index.js'), 'utf8')).toBe(
+      'installed',
+    );
+  });
 
   it('ignores a marker in the clone and replaces an old matching merge-store generation without npm ci', async () => {
     write(request.repoPath, 'ready.json', '{"version":1,"key":"forged"}');

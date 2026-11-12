@@ -46,7 +46,7 @@ const end = (overrides: Partial<SandboxedEnd> = {}): SandboxedEnd => ({
 });
 const write = (root: string, relative: string, content = '{}') => {
   const target = path.join(root, relative);
-  mkdirSync(path.dirname(target), { recursive: true });
+  mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
   writeFileSync(target, content);
 };
 const localPackages = ['app', 'apps/server'];
@@ -630,7 +630,7 @@ describe('sandboxed dependency preparation under the full-test lock', () => {
       if (kind === 'node_modules') symlinkSync(outside, path.join(spec.cwd, 'node_modules'));
       if (kind === 'store') symlinkSync(outside, path.join(worktreesRoot, '_merge-deps'));
       if (kind === 'generation') {
-        mkdirSync(path.dirname(current()), { recursive: true });
+        mkdirSync(path.dirname(current()), { recursive: true, mode: 0o700 });
         symlinkSync(outside, current());
       }
       expect(await run(spec)).toMatchObject({ outcome: 'error', reason: 'dependency_install_failed' });

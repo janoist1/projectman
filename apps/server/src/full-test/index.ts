@@ -28,6 +28,7 @@ import {
   assertRegenerateCheckout,
   DependencyPreparationError,
   prepareNpmCi,
+  withMergeDependencyStore,
 } from './npm-ci';
 import { prepareStepCache } from './step-cache';
 export { assertNpmCiCheckout, assertRegenerateCheckout } from './npm-ci';
@@ -334,16 +335,28 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         return failure('pty_unavailable', started, pty.output, pty.exitCode);
 
       if (spec.npmCi)
-        await prepareNpmCi({
-          spec,
-          paths,
-          worktreesRoot: options.worktreesRoot!,
-          nodeVersion: base.output.trim(),
-          remaining,
-          signal,
-          execute: (command, settings, timeoutMs) =>
-            execute(paths, spec, command, timeoutMs, signal, settings),
-        });
+        await withMergeDependencyStore(
+          {
+            worktreesRoot: options.worktreesRoot!,
+            projectKey: spec.npmCi.ref.projectKey,
+            repo: spec.npmCi.ref.repo,
+            signal,
+            maxWaitMs: remaining(),
+          },
+          async () => {
+            remaining();
+            await prepareNpmCi({
+              spec,
+              paths,
+              worktreesRoot: options.worktreesRoot!,
+              nodeVersion: base.output.trim(),
+              remaining,
+              signal,
+              execute: (command, settings, timeoutMs) =>
+                execute(paths, spec, command, timeoutMs, signal, settings),
+            });
+          },
+        );
       const cache = await prepareStepCache(
         options.stepCacheFile,
         path.join(paths.sandbox, 'merge-test-passed-keys'),

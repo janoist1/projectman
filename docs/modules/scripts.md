@@ -99,6 +99,9 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   makes a missing or unusable queue end the run as `error` / `heavy_lock_unavailable` (`durationMs` 0, no
   sandbox, no `onStarted`), so the merge blocks as `check_error` and never runs one without the queue.
   These required-lock runs reserve `mergeTestPlaces` instead of `all`, and cap their workers to the grant.
+  Merge dependency writers and workspace readers additionally hold the per-repository store lock
+  (`_merge-deps/<repoKey>.lock`, capacity 1; PM-1338) while using a generation. Machine places come first;
+  store holders never request places. This lock is separate from the machine pool and pressure meter.
   A merge train (PM-660) submits one common candidate through that same executor and lock;
   its repository slot and card locks do not permit parallel heavy runs or bypass the queue.
   Dependency preparation (`FullTestSpec.npmCi`, PM-710) requires that lock too: probes, sandboxed

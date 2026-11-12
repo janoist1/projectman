@@ -16,7 +16,7 @@ import { MAX_ATTACHMENT_BYTES } from '@projectman/shared';
 import { copyTree } from '../../../scripts/migrate/copy';
 import type { Attachment, ServerEvent } from '@projectman/shared';
 import type { AttachmentStorage } from '../src/contracts';
-import { aiActor } from '../src/kernel';
+import { aiActor, startSweeps } from '../src/kernel';
 import { pngBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -228,6 +228,21 @@ describe('attachments service', () => {
       expect(h.repos.attachments.get(recent.id)).not.toBeNull();
       expect(attachmentEvents(h)).toEqual([]);
       expect(changes(events)).toEqual([]);
+    });
+
+    it('runs the unsent sweep as a kernel sweep: at start, with the slow-round report, stopped in order (PM-1394)', async () => {
+      let time = new Date('2026-11-01T00:00:00Z');
+      const h = await harness({ now: () => time });
+      const stale = await put(h, pngBytes(), { forComment: true });
+      time = new Date('2026-11-02T00:00:01Z');
+      const onSlow = vi.fn();
+      let tick = 0;
+      const sweep = h.domain.attachments.unsentSweep();
+      expect(sweep).toMatchObject({ name: 'comment-attachments', everyMs: 60 * 60_000, atStart: true });
+      const running = startSweeps([sweep], { onSlow, clock: () => (tick += 100) });
+      await running.stop();
+      expect(h.repos.attachments.get(stale.id)).toBeNull();
+      expect(onSlow).toHaveBeenCalledWith('comment-attachments', 100);
     });
 
     it('binds files atomically, publishes their cover and snapshots metadata in submission order', async () => {

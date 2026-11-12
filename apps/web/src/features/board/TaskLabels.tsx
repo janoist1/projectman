@@ -58,9 +58,9 @@ export function TaskLabels({ task, pipeline }: { task: Task; pipeline: PipelineI
     stages: pipeline.stages,
     done: isDoneCard(task, pipeline.stages),
   });
-  const chip = (id: string) => (
-    <li key={id}>
-      <LabelChip id={id} labels={labels}>
+  const chip = (id: string, wrap = false) => (
+    <li key={id} className={styles.item}>
+      <LabelChip id={id} labels={labels} wrap={wrap}>
         {editable && !refusal(id) ? (
           <button
             type="button"
@@ -81,7 +81,7 @@ export function TaskLabels({ task, pipeline }: { task: Task; pipeline: PipelineI
       <h3 className={drawer.propLabel}>{t('task.labels.title')}</h3>
       {task.labels.length > 0 ? (
         <ul className={drawer.propValue}>
-          {summary.shown.map(chip)}
+          {summary.shown.map((id) => chip(id))}
           {summary.folded.length > 0 ? (
             <li>
               <Button
@@ -116,9 +116,13 @@ export function TaskLabels({ task, pipeline }: { task: Task; pipeline: PipelineI
         <span />
       )}
 
-      {summary.folded.length > 0 && expanded ? (
-        <ul id={foldedId} className={clsx(drawer.propValue, drawer.propWide)}>
-          {summary.folded.map(chip)}
+      {summary.folded.length > 0 ? (
+        <ul
+          id={foldedId}
+          className={clsx(drawer.propValue, drawer.propWide, styles.folded)}
+          hidden={!expanded}
+        >
+          {summary.folded.map((id) => chip(id, true))}
         </ul>
       ) : null}
 

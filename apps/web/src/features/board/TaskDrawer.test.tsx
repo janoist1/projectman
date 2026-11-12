@@ -377,15 +377,18 @@ describe('task drawer labels', () => {
     expect(section.querySelector('[data-label="checkout"]')).not.toBeNull();
     const toggle = within(section).getByRole('button', { name: t('task.labels.foldedShow', { count: 2 }) });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(within(section).queryByText('Code review rendben')).toBeNull();
+    // The controlled list is in the page even when closed, so aria-controls always points at something.
+    const folded = section.querySelector<HTMLElement>(`[id="${toggle.getAttribute('aria-controls')}"]`)!;
+    expect(folded.hidden).toBe(true);
 
     fireEvent.click(toggle);
     const hide = within(section).getByRole('button', { name: t('task.labels.foldedHide', { count: 2 }) });
     expect(hide.getAttribute('aria-expanded')).toBe('true');
-    expect(within(section).getAllByText(/Code review rendben|QA rendben/)).toHaveLength(2);
+    expect(folded.hidden).toBe(false);
+    expect(within(folded).getAllByText(/Code review rendben|QA rendben/)).toHaveLength(2);
 
     fireEvent.click(hide);
-    expect(within(section).queryByText('Code review rendben')).toBeNull();
+    expect(folded.hidden).toBe(true);
 
     fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
     expect(within(section).getByText(t('task.labels.pickerAll'))).toBeTruthy();

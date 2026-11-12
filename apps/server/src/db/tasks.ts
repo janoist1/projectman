@@ -196,8 +196,8 @@ export function createTaskRepository(db: Db) {
     get: db.prepare(`${TASK_SELECT} WHERE t.key = ?`),
     list: db.prepare(`${TASK_SELECT} WHERE t.project_key = ? ORDER BY t.seq`),
     closedSince: db.prepare(
-      `SELECT key, title, closed_at AS closedAt, assignee FROM tasks
-       WHERE project_key = ? AND status = 'done' AND closed_at >= ? ORDER BY closed_at DESC, seq`,
+      `SELECT key, title, status, closed_at AS closedAt, assignee FROM tasks
+       WHERE project_key = ? AND closed_at >= ? ORDER BY closed_at DESC, seq`,
     ),
     listLinks: db.prepare(
       `SELECT l.* FROM task_links l JOIN tasks t ON t.id = l.task_id
@@ -431,10 +431,10 @@ export function createTaskRepository(db: Db) {
     readClosedSince(
       projectKey: string,
       since: string,
-    ): Pick<Task, 'key' | 'title' | 'closedAt' | 'assignee'>[] {
+    ): Pick<Task, 'key' | 'title' | 'status' | 'closedAt' | 'assignee'>[] {
       return statements.closedSince.all(projectKey, since) as Pick<
         Task,
-        'key' | 'title' | 'closedAt' | 'assignee'
+        'key' | 'title' | 'status' | 'closedAt' | 'assignee'
       >[];
     },
 

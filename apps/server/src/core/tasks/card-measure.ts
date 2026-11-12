@@ -2,16 +2,10 @@ import {
   closedCardsSince,
   countCardRounds,
   DEFAULT_CLOSED_CARDS_DAYS,
+  isClosedSince,
   measureClosedCard,
 } from '@projectman/shared';
-import type {
-  ClosedCardsMeasure,
-  ProjectConfig,
-  Session,
-  Task,
-  TaskDetail,
-  TimelineEvent,
-} from '@projectman/shared';
+import type { ClosedCardsMeasure, ProjectConfig, Task, TaskDetail } from '@projectman/shared';
 import type { DomainContext } from '../base';
 import type { ProjectService } from '../projects';
 
@@ -67,22 +61,12 @@ export class CardMeasure {
   async closedCards(projectKey: string, days = DEFAULT_CLOSED_CARDS_DAYS): Promise<ClosedCardsMeasure> {
     const config = await this.projects.config(projectKey);
     const since = closedCardsSince(this.ctx.now(), days);
-    const tasks = this.ctx.repos.tasks.readClosedSince(projectKey, since);
+    const tasks = this.ctx.repos.tasks
+      .readClosedSince(projectKey, since)
+      .filter((task) => isClosedSince(task, since));
     const keys = tasks.map((task) => task.key);
-    const sessions = new Map<string, Session[]>();
-    for (const session of this.ctx.repos.sessions.listForTasks(projectKey, keys)) {
-      if (session.workItem.type !== 'task') continue;
-      const key = session.workItem.taskKey;
-      const entries = sessions.get(key) ?? [];
-      entries.push(session);
-      sessions.set(key, entries);
-    }
-    const events = new Map<string, TimelineEvent[]>();
-    for (const event of this.ctx.repos.timeline.roundEventsForTasks(projectKey, keys)) {
-      const entries = events.get(event.taskKey!) ?? [];
-      entries.push(event);
-      events.set(event.taskKey!, entries);
-    }
+    const sessions = this.ctx.repos.sessions.listForTasks(projectKey, keys);
+    const events = this.ctx.repos.timeline.roundEventsFor(projectKey, keys);
     const cards = tasks.map((task) =>
       measureClosedCard(
         task,

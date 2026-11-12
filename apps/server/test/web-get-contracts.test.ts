@@ -58,7 +58,7 @@ describe('web GET contracts and SQL budgets', () => {
     [routes.projects(), ProjectSummary.array(), 10],
     [routes.board('AR'), BoardView, 250],
     [routes.tasks('AR'), Task.array(), 230],
-    [routes.closedCardsMeasure('AR'), ClosedCardsMeasure, 15],
+    [routes.closedCardsMeasure('AR'), ClosedCardsMeasure, 10],
     [routes.task('AR', 'AR-1'), TaskDetail, 45],
     [routes.taskComments('AR', 'AR-1'), TaskCommentsPage, 20],
     [routes.inbox('AR'), InboxView, 85],
@@ -165,7 +165,7 @@ describe('web GET contracts and SQL budgets', () => {
       }
       expect(counts[0]).toBeGreaterThan(0);
       expect(counts[1]).toBe(counts[0]);
-      expect(counts[1]).toBeLessThanOrEqual(15);
+      expect(counts[1]).toBeLessThanOrEqual(10);
     } finally {
       meter.restore();
     }

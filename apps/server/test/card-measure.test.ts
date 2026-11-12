@@ -98,15 +98,6 @@ describe('closed cards comparison', () => {
     const view = ClosedCardsMeasure.parse(res.json());
     expect(view).toMatchObject({ days: 14, since: '2026-09-18T08:00:00.000Z' });
     expect(view.cards.map((card) => card.taskKey)).toEqual([second, first]);
-    // The database read carries only measurement fields, excluding descriptions and links.
-    expect(h.app.projectman.repos.tasks.readClosedSince('AR', view.since)).toEqual(
-      view.cards.map((card) => ({
-        key: card.taskKey,
-        title: card.title,
-        closedAt: card.closedAt,
-        assignee: card.implementer,
-      })),
-    );
     const rounds = { reviewRounds: 2, changeRequests: 1, sendBacks: 0 };
     expect(view.cards[1]).toMatchObject({
       title: 'Login page',

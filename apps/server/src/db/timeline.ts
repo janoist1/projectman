@@ -39,6 +39,9 @@ const toEvent = (r: TimelineRow): TimelineEvent => ({
   createdAt: r.created_at,
 });
 
+const ROUND_EVENT_TYPES =
+  "'task_stage_changed', 'task_labels_changed', 'task_full_test', 'task_fix_limit', 'task_merge_failed'";
+
 /** The reads whose query plan a test pins (PM-771). */
 export const TIMELINE_SQL = {
   /**
@@ -92,14 +95,12 @@ export function createTimelineRepository(db: Db) {
     // What the card's rounds are counted from (PM-222), all of it: the card's whole history.
     roundEvents: db.prepare(
       `SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ?
-         AND type IN ('task_stage_changed', 'task_labels_changed', 'task_full_test', 'task_fix_limit',
-           'task_merge_failed') ORDER BY seq`,
+         AND type IN (${ROUND_EVENT_TYPES}) ORDER BY seq`,
     ),
-    roundEventsForTasks: db.prepare(
+    roundEventsFor: db.prepare(
       `SELECT * FROM timeline_events WHERE project_key = ?
          AND task_key IN (SELECT value FROM json_each(?))
-         AND type IN ('task_stage_changed', 'task_labels_changed', 'task_full_test', 'task_fix_limit',
-           'task_merge_failed') ORDER BY seq`,
+         AND type IN (${ROUND_EVENT_TYPES}) ORDER BY seq`,
     ),
     latestOfType: db.prepare(
       'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = ? ORDER BY seq DESC LIMIT 1',
@@ -304,11 +305,18 @@ export function createTimelineRepository(db: Db) {
     },
 
     /** Whole round histories of the selected cards in one read, preserving event order. */
-    roundEventsForTasks(projectKey: string, taskKeys: readonly string[]): TimelineEvent[] {
-      if (taskKeys.length === 0) return [];
-      return (statements.roundEventsForTasks.all(projectKey, JSON.stringify(taskKeys)) as TimelineRow[]).map(
-        toEvent,
-      );
+    roundEventsFor(projectKey: string, taskKeys: readonly string[]): Map<string, TimelineEvent[]> {
+      const events = new Map<string, TimelineEvent[]>();
+      if (taskKeys.length === 0) return events;
+      for (const row of statements.roundEventsFor.all(
+        projectKey,
+        JSON.stringify(taskKeys),
+      ) as TimelineRow[]) {
+        const entries = events.get(row.task_key!) ?? [];
+        entries.push(toEvent(row));
+        events.set(row.task_key!, entries);
+      }
+      return events;
     },
     /** The most recent event of a type in a session, regardless of project activity. */
     latestForSession(

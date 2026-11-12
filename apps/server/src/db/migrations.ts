@@ -3002,6 +3002,6 @@ migrations.push({
   version: 152,
   name: 'closed card measurement index',
   // PM-1375: the closed-card measure reads only cards closed within its time window.
-  sql: `CREATE INDEX tasks_closed_measure ON tasks(project_key, closed_at) WHERE status = 'done';`,
+  sql: `CREATE INDEX tasks_closed ON tasks(project_key, closed_at);`,
 });
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

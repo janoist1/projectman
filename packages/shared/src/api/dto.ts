@@ -241,8 +241,25 @@ export const OperatorSignalKind = z.enum([
   'obligation_overdue',
   'senior_wait',
   'relation_check',
+  'review_follow_ups',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
+/** The facts of a `review_follow_ups` signal (PM-1351): the remarks reviewers left for a later card on a card that closed. */
+export const ReviewFollowUpsFacts = z.object({
+  taskKey: TaskKey,
+  title: z.string(),
+  status: z.enum(['done', 'cancelled']),
+  items: z.array(
+    z.object({
+      eventId: z.string(),
+      by: z.string(),
+      label: z.string().nullable(),
+      at: z.iso.datetime(),
+      text: z.string(),
+    }),
+  ),
+});
+export type ReviewFollowUpsFacts = z.infer<typeof ReviewFollowUpsFacts>;
 /** The start waits a `start_blocked` signal tells the project manager about (PM-455). */
 export const START_BLOCKED_REASONS = ['repo_required', 'workspace_dirty', 'workspace_fetch_failed'] as const;
 export type StartBlockedReason = (typeof START_BLOCKED_REASONS)[number];

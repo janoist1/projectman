@@ -259,6 +259,8 @@ function signalLine(signal: OperatorSignal): string {
       'Repeated structured evidence across independent cards; coordinator only, never put in signal_ids. Weigh request_structural_review (owner approval required); otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
     milestone_closed:
       'A theme or collecting milestone closed; coordinator only, never put in signal_ids. Consider request_structural_review; otherwise dismiss_signal with a note. Summarize only reviews worth attention in one short list with card keys and reasons.',
+    review_follow_ups:
+      'A card closed with non-blocking remarks its reviewers left for a later card (facts.items); coordinator only, never put in signal_ids, never a question to the owners. For each item: add it to an open card that already covers it, open a card with create_task related to the closed card, or drop it. Then close the signal with dismiss_signal and a note saying what became of each item.',
     loop_suspected:
       'A suspected loop awaits PM assessment with triage_loop; report only, no stop or approval authority.',
     process_cleanup_failed:

@@ -4,6 +4,7 @@ import {
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEP_KINDS,
   OWNER_SILENT_SIGNAL_KINDS,
+  isCoordinatorOnlySignal,
   operatorSignalBudget,
   ownerQuestionSignalRefusal,
   ownerQuestionSignalRefusalMessage,
@@ -20,7 +21,12 @@ const mergeAllowed: OperatorSignalStepTargets = { startTask: null, members: ['cl
 
 describe('ownerQuestionSignalRefusal (PM-1243)', () => {
   it('lists the kinds the owners get no question about', () => {
-    expect(OWNER_SILENT_SIGNAL_KINDS).toEqual(['unreleased', 'structural_pattern', 'milestone_closed']);
+    expect(OWNER_SILENT_SIGNAL_KINDS).toEqual([
+      'unreleased',
+      'structural_pattern',
+      'milestone_closed',
+      'review_follow_ups',
+    ]);
   });
   it.each(OperatorSignalKind.options)('refuses exactly the owner-silent kinds: %s', (kind) => {
     const silent = (OWNER_SILENT_SIGNAL_KINDS as readonly string[]).includes(kind);
@@ -29,6 +35,12 @@ describe('ownerQuestionSignalRefusal (PM-1243)', () => {
   it('tells the coordinator what to do instead', () => {
     expect(ownerQuestionSignalRefusalMessage('unreleased')).toContain('release_due');
     expect(ownerQuestionSignalRefusalMessage('milestone_closed')).toContain('dismiss_signal');
+  });
+  it('keeps a review_follow_ups signal for the coordinator: owner-silent, dismissible, no step', () => {
+    expect(isCoordinatorOnlySignal('review_follow_ups')).toBe(true);
+    expect(OPERATOR_DISMISSIBLE_SIGNAL_KINDS).toContain('review_follow_ups');
+    for (const level of ['report', 'unblock', 'drive'] as const)
+      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('review_follow_ups');
   });
 });
 

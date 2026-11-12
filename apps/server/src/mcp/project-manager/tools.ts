@@ -3,6 +3,7 @@ import {
   BuiltInRoleId,
   CHECKLIST_ITEM_STATES,
   ChecklistCondition,
+  coordinatorOnlySignalKindsText,
   CombineQuestionsRequest,
   OperatorOperation,
   OperatorPreferenceData,
@@ -583,9 +584,9 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Dismiss a system signal',
       readOnly: false,
       description:
-        'Close an obligation_overdue, structural_pattern, milestone_closed or relation_check signal of your ' +
-        'wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: ' +
-        "role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
+        `Close an obligation_overdue or relation_check signal, or one of ${coordinatorOnlySignalKindsText()}, ` +
+        'of your wake-up with the reason in note: a plain closing, not a human decision. When: role guide. ' +
+        "A signal you already presented is the owners' to decide.",
       input: { signal_id: z.string().min(1).max(64), note: z.string().trim().min(1).max(1000) },
       async run({ ctx, args, handler }) {
         const result = await handler.dismissSignal(ctx, { signalId: args.signal_id, note: args.note });

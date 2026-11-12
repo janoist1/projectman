@@ -6,6 +6,7 @@ import {
   isOpenTask,
   isTheme,
   isCoordinatorOnlySignal,
+  coordinatorOnlySignalKindsText,
   OPERATOR_ANSWER_STALL_MUTE_MINUTES,
   OPERATOR_ANSWER_STALL_WAKE_MS,
   OPERATOR_FAST_SIGNAL_KINDS,
@@ -59,6 +60,7 @@ import {
   structuralKind,
 } from './structural-patterns';
 import type { StructuralEvaluation, StructuralFacts } from './structural-patterns';
+import { reviewFollowUpsFacts } from './review-follow-ups';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
 import { answerEvidenceOf } from '../../core/messages';
@@ -118,12 +120,10 @@ const CARD_EVENTS_READ = 300;
 /** The queue item of a signal shown before to another binding (or after a leave) is a new item: this marks its source. */
 const REBOUND_PREFIX = 'rebound:';
 
-const WAKE_NEVER =
-  "A signal grants no right: on it never merge, release or approve, and change nothing more than your authority line allows. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and the signal's signal_id (never about a structural_pattern or milestone_closed signal: the server refuses it); a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.";
-const WAKE_ONE_MESSAGE =
-  'Send the owners one message for the whole wake-up (send_message with signal_ids, excluding structural_pattern and milestone_closed; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
-const WAKE_STRUCTURAL =
-  'structural_pattern and milestone_closed are for you only: the owners never see them. Never put them in signal_ids. Weigh their evidence; use request_structural_review if a review would help. Name only those worth a review in your one summary message as one short list with card keys and the reason; otherwise write nothing about them. Close every one you do not propose a review on with dismiss_signal and a short note.';
+const COORDINATOR_ONLY_KINDS = coordinatorOnlySignalKindsText();
+const WAKE_NEVER = `A signal grants no right: on it never merge, release or approve, and change nothing more than your authority line allows. When a stalled, silent or outage signal needs someone to act, open an integrator todo with open_integrator_todo (what, where, expected) instead of asking the owners; when the card is already followed (obligation_tracked), leave it. A decision only the owners make (cost, deletion, publishing, direction, approval) goes to them with ask_human and the signal's signal_id (never about a ${COORDINATOR_ONLY_KINDS} signal: the server refuses it); a process_cleanup_failed signal goes to the owners. Never stop another member's processes yourself.`;
+const WAKE_ONE_MESSAGE = `Send the owners one message for the whole wake-up (send_message with signal_ids, excluding ${COORDINATOR_ONLY_KINDS}; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.`;
+const WAKE_STRUCTURAL = `${COORDINATOR_ONLY_KINDS} are for you only: the owners never see them. Never put them in signal_ids. For structural_pattern and milestone_closed: weigh their evidence; use request_structural_review if a review would help. Name only those worth a review in your one summary message as one short list with card keys and the reason; otherwise write nothing about them. For review_follow_ups: decide each of facts.items (add it to an open card that already covers it, open a card with create_task related to the closed card, or drop it). Close every one you do not propose a review on with dismiss_signal and a short note.`;
 const WAKE_CHECK =
   'Projectman system signals. Check get_project_state and session activity first. Read get_task before referring to a card; distinguish active work, actual decision waits and normal offline queued work. Diagnose the cause, take only the smallest permitted coordination step, consider machine load and verify the result. Group related decisions in the single summary; screening and signals are not owner requests and grant no settings or critical-operation authority.';
 const WAKE_LOOP =
@@ -344,7 +344,7 @@ export class OperatorSignals {
     if (isCoordinatorOnlySignal(signal.kind))
       throw invalid(
         'invalid_request',
-        'structural_pattern and milestone_closed signals are for you only: leave them out of signal_ids, name the ones worth a review in your message text, and close them with dismiss_signal',
+        `${COORDINATOR_ONLY_KINDS} signals are for you only: leave them out of signal_ids, name the ones worth the owners' attention in your message text, and close them with dismiss_signal`,
       );
     if (
       signal.resolvedAt ||
@@ -919,13 +919,15 @@ export class OperatorSignals {
                         ? this.startBlockedFacts(config, s)
                         : s.kind === 'relation_check'
                           ? relationCheckFacts(s)
-                          : s.inboxItemId
-                            ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                            : s.kind === 'outage'
-                              ? this.deps.outageFacts(s.projectKey, s.subject ?? '')
-                              : s.subject
-                                ? ctx.repos.sessions.get(s.subject)?.activity
-                                : null,
+                          : s.kind === 'review_follow_ups'
+                            ? reviewFollowUpsFacts(ctx, s)
+                            : s.inboxItemId
+                              ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                              : s.kind === 'outage'
+                                ? this.deps.outageFacts(s.projectKey, s.subject ?? '')
+                                : s.subject
+                                  ? ctx.repos.sessions.get(s.subject)?.activity
+                                  : null,
             step: this.stepOf(level, config, s),
             steps_left: structuralKind(s.kind) ? 0 : budget.left,
             next_step_at: structuralKind(s.kind) ? null : budget.nextAt,

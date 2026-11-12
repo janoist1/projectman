@@ -5949,6 +5949,7 @@ export const en = {
         obligation_overdue: '{key}: the step is still stuck after the reminder',
         relation_check: '{key}: the card got new relations',
         senior_wait: '{key}: waiting for a developer who can take it',
+        review_follow_ups: '{key}: non-blocking remarks left when it closed',
       },
       bodies: {
         loop_suspected: 'The PM checks whether the work is moving; a person decides on a confirmed loop.',
@@ -5978,6 +5979,8 @@ export const en = {
           'The relations of the card changed. The PM checks that they still hold; when they are gone, the signal closes by itself.',
         senior_wait:
           'The card is waiting for a developer whose limit reaches its points. The PM decides: keep waiting for the Senior, or let anyone take it; if the choice costs money, the PM asks the owners first. The signal closes by itself once decided.',
+        review_follow_ups:
+          'The card closed, but the non-blocking remarks its reviewers left for a later card are still there. The PM decides per item: add it to an existing card, open a new card, or drop it; then closes the signal by hand.',
       },
     },
   },

@@ -156,7 +156,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "type": "string",
         },
         "signal_id": {
-          "description": "Only the project manager: the open system signal delivered to you that this question is about; always give it for a question about a signal. The question closes by itself when the signal's case ends; task_key defaults to the signal's card. Refused (signal_not_for_owner) for an unreleased, structural_pattern or milestone_closed signal: the owners are not asked about those.",
+          "description": "Only the project manager: the open system signal delivered to you that this question is about; always give it for a question about a signal. The question closes by itself when the signal's case ends; task_key defaults to the signal's card. Refused (signal_not_for_owner) for an unreleased, structural_pattern, milestone_closed and review_follow_ups signal: the owners are not asked about those.",
           "maxLength": 100,
           "minLength": 1,
           "type": "string",
@@ -676,7 +676,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Dismiss a system signal",
     },
-    "description": "Close an obligation_overdue, structural_pattern, milestone_closed or relation_check signal of your wake-up that needs nothing, with the reason in note: a plain closing, not a human decision. When: role guide. A signal you already presented is the owners' to decide (operator_signal_closed).",
+    "description": "Close an obligation_overdue or relation_check signal, or one of structural_pattern, milestone_closed and review_follow_ups, of your wake-up with the reason in note: a plain closing, not a human decision. When: role guide. A signal you already presented is the owners' to decide.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,

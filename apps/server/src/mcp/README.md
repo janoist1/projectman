@@ -227,7 +227,8 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   `markDecisionCandidates(ctx, { items })`. See `docs/modules/services-coordination.md`, "Decision candidates".
 - `dismiss_signal { signal_id, note }` closes a delivered, unpresented `obligation_overdue`
   that needs nothing, or a coordinator-only
-  `structural_pattern` / `milestone_closed` that needs no review. Structural signals never go in
+  `structural_pattern` / `milestone_closed` that needs no review, or a coordinator-only `review_follow_ups`
+  once each remark is placed (PM-1362). Coordinator-only signals never go in
   `signal_ids`; summarize only worthwhile reviews in one short owner message. Only the selected PM in its internal general conversation, without an owner
   request. Returns `{ signal_id, state: 'dismissed' }`; presented or ended cases return
   `operator_signal_closed`, other kinds `operator_signal_not_dismissible`. Handler: `dismissSignal`.
@@ -285,7 +286,7 @@ The table lists the tools every member has. The other groups are in `mcp/<module
   (`owner_topic_required`, `owner_topic_unknown`); an approval question records `approval` without one. A
   `todo` accepts `owner_topic` but does not record it, and its `recipient` is optional and not decisive
   (PM-1243: the integrator gets it when one can take it). `ask_human` with the `signal_id` of an `unreleased`,
-  `structural_pattern` or `milestone_closed` signal answers `signal_not_for_owner`. `ask_human` takes `owner_topic` only
+  `structural_pattern`, `milestone_closed` or `review_follow_ups` signal answers `signal_not_for_owner`. `ask_human` takes `owner_topic` only
   for the PM's own question, a re-ask and a question nobody screens (no PM, or the screening is off; PM-1249;
   `owner_topic_not_allowed` otherwise), which need it unless they are information or an approval (a question
   nobody screens may ask `recipient: integrator` instead and becomes an integrator todo); the external bearer `ask_human` has no such field. Optional `feedback_id` is accepted only for

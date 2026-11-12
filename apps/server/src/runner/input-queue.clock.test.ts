@@ -203,6 +203,23 @@ describe('input queue under the TestClock', () => {
     );
   });
 
+  it('keeps a message pending, and presses Enter again, when only a subagent made the CLI busy (PM-1364)', async () => {
+    const { host, state, typed } = hostOf({ subagentOnlyBusy: () => !state.idle });
+    await run(host, (queue) =>
+      Effect.gen(function* () {
+        const message = yield* start(queue.enqueueSubmitted('lost'));
+        yield* adjust(TYPE_MS);
+        state.idle = false;
+        yield* adjust(timing.enterRetryMs);
+        expect(typed().enters).toBe(2);
+        yield* adjust(timing.submitTimeoutMs);
+        expect(message.pollUnsafe()).toBeUndefined();
+        yield* adjust(timing.lateSubmitMs);
+        expect(String(yield* failureOf(message))).toContain(new NotSubmittedError('ses_1').message);
+      }),
+    );
+  });
+
   it.each([
     ['a submission', (queue: InputQueueEffects) => queue.submitted],
     ['a turn hook', (queue: InputQueueEffects) => queue.noteTurnActivity],

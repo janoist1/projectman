@@ -530,6 +530,16 @@ function testsAtMerge(input: ContextPackInput, task: Task): boolean {
 
 /** The checks a developer runs depend on who owns the full test. */
 function developerTests(input: ContextPackInput, task: Task): string {
+  const repo = repoOf(input.project, effectiveRepo(input.project, task));
+  const handover = repo?.handoverCheck;
+  if (!handover) return testsText(input, task, false);
+  // The move into review and a new review round need the check's green result on the commit (PM-1380).
+  const rule = `Before you hand over and in every fix round, commit, then run ${code(handover.command)} in your workspace: the move into review and a new review round need its green result on the commit you hand over. If your sandbox does not let it run (exit 78, a local port, a pseudo-terminal), give the reason with update_task ${code('handover_check_exception')} instead.`;
+  return `${testsText(input, task, true)} ${rule}`;
+}
+
+/** `checkNamed`: the repository's hand-over check is named separately, so the generic "fast local checks" line is left out. */
+function testsText(input: ContextPackInput, task: Task, checkNamed: boolean): string {
   const reviewTest = repoOf(input.project, effectiveRepo(input.project, task))?.reviewTest;
   const repo = repoOf(input.project, effectiveRepo(input.project, task));
   if (input.serverFullTest && reviewTest && repo && reviewTestRunnerBeforeReview(repo) === 'github_actions')
@@ -537,7 +547,7 @@ function developerTests(input: ContextPackInput, task: Task): string {
   return input.serverFullTest && reviewTest
     ? `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: the server runs ${code(reviewTest.command)} once on the commit you hand over, PTY tests included, and sends the task back if it fails.`
     : testsAtMerge(input, task)
-      ? `While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Also run the repository's fast local hand-over checks and record the results on the card. Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step runs the full check once before the task enters the default branch'}.`
+      ? `While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched.${checkNamed ? '' : " Also run the repository's fast local hand-over checks and record the results on the card."} Do not run the whole test suite: ${mergeStepCheckLine(input.project, task) ?? 'the integrator or merge step runs the full check once before the task enters the default branch'}.`
       : "While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.";
 }
 

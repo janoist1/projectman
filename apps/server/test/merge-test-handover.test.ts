@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TARGETED_TEST_FILES_MAX } from '@projectman/shared';
+import { HANDOVER_CHECK_RECORD_PATH, HandoverCheckRecord, TARGETED_TEST_FILES_MAX } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   handoverSelection,
@@ -511,8 +513,12 @@ describe('handover-check command', () => {
 
   const ok: StepRun = { code: 0, signaled: false, output: '' };
   const tree = farTree(TARGETED_TEST_FILES_MAX + 5);
+  const HEAD = 'a'.repeat(40);
+  let dirtyStates: string[] = [''];
   const git = (args: string[]): string => {
     if (args[0] === 'merge-base') return 'abc\n';
+    if (args[0] === 'rev-parse' && args[1] === 'HEAD') return `${HEAD}\n`;
+    if (args[0] === 'status') return dirtyStates.length > 1 ? dirtyStates.shift()! : dirtyStates[0]!;
     if (args[0] === 'diff')
       return args.includes('--diff-filter=A') || args.includes('--diff-filter=D')
         ? ''
@@ -529,6 +535,7 @@ describe('handover-check command', () => {
     readWorktree: () => tree,
     deadCode: async () => ok,
     npm: async () => ok,
+    writeRecord: () => {},
     ...extra,
   });
   const printed = () =>
@@ -568,6 +575,92 @@ describe('handover-check command', () => {
   it('exits 1 when a step fails', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     expect(await runHandoverCheck([], io({ npm: async () => ({ ...ok, code: 1 }) }))).toBe(1);
+  });
+
+  describe('result record (PM-1380)', () => {
+    const written = () => {
+      const records: HandoverCheckRecord[] = [];
+      return { records, writeRecord: (record: HandoverCheckRecord) => void records.push(record) };
+    };
+
+    it('writes a clean passed record of the starting commit after a green run', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      dirtyStates = [''];
+      const { records, writeRecord } = written();
+      expect(await runHandoverCheck([], io({ writeRecord }))).toBe(0);
+      expect(records).toHaveLength(1);
+      expect(HandoverCheckRecord.parse(records[0])).toMatchObject({
+        commit: HEAD,
+        clean: true,
+        outcome: 'passed',
+        exitCode: 0,
+      });
+      expect(records[0]!.summary).toContain('handover-check:');
+    });
+
+    it('writes a failed record after a failing step', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      dirtyStates = [''];
+      const { records, writeRecord } = written();
+      expect(await runHandoverCheck([], io({ writeRecord, npm: async () => ({ ...ok, code: 1 }) }))).toBe(1);
+      expect(records[0]).toMatchObject({ outcome: 'failed', exitCode: 1, clean: true });
+    });
+
+    it('marks the record not clean when the work tree changed during the run', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      dirtyStates = ['', ' M apps/server/src/core/a.ts\n'];
+      const { records, writeRecord } = written();
+      expect(await runHandoverCheck([], io({ writeRecord }))).toBe(0);
+      expect(records[0]).toMatchObject({ outcome: 'passed', clean: false });
+    });
+
+    it('writes nothing with --dry-run', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      const { records, writeRecord } = written();
+      expect(await runHandoverCheck(['--dry-run'], io({ writeRecord }))).toBe(0);
+      expect(records).toEqual([]);
+    });
+
+    it('warns and keeps the exit code when the record cannot be written', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      dirtyStates = [''];
+      const writeRecord = () => {
+        throw new Error('disk full');
+      };
+      expect(await runHandoverCheck([], io({ writeRecord }))).toBe(0);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('was not written'));
+    });
+
+    it('writes the record to the git-path in a real repository, readable by the reader', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      const repo = mkdtempSync(join(tmpdir(), 'handover-record-'));
+      const sh = (...args: string[]) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+      try {
+        sh('init', '-q');
+        sh('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
+        const head = sh('rev-parse', 'HEAD').trim();
+        // The script runs at the repository root; the test runs elsewhere, so the git-path is made absolute.
+        const real = (args: string[]) =>
+          args[1] === '--git-path' ? join(repo, sh(...args).trim()) : sh(...args);
+        // A tree-free selection: nothing changed against HEAD itself.
+        await runHandoverCheck(['--base', 'HEAD'], {
+          git: real,
+          readBase: () => [],
+          readWorktree: () => [],
+          deadCode: async () => ok,
+          npm: async () => ok,
+        });
+        const file = real(['rev-parse', '--git-path', HANDOVER_CHECK_RECORD_PATH]).trim();
+        expect(HandoverCheckRecord.parse(JSON.parse(readFileSync(file, 'utf8')))).toMatchObject({
+          commit: head,
+          clean: true,
+          outcome: 'passed',
+        });
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
   });
 
   it.each([[['--nope']], [['--base']], [['--base', '--dry-run']]])(

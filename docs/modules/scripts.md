@@ -233,6 +233,18 @@ handover-check` (`--places 2-4`), and every workspace `typecheck` and `build` sc
   (run them yourself with `npx vitest run <files>`); it never falls back to a full package. Exit codes: 0 green, 1 a step failed, 2 usage or
   git error. `--dry-run` prints the steps only. A merge-test change keeps the merge-test output
   unchanged; the shared import analysis is only extended (`valueConsumers`, `typeOnly`).
+  New `dead-code` findings are fixed, not added to the baseline. A test that no import reaches gets a rule in
+  `SELECTION_RULES` and a file that starts programs an entry in `RUNTIME_ENTRIES`, not a new line in
+  `CLAUDE.md`. The command takes two to four machine places once; its steps run under that ticket.
+  **Result record (PM-1380).** A real (not `--dry-run`) run writes `projectman/handover-check.json` under
+  the workspace's git directory (`git rev-parse --git-path`, so a clone and a linked worktree resolve it
+  alike), atomically (temp file + rename): `{version: 1, commit, clean, outcome, exitCode, startedAt,
+finishedAt, summary?}` (`HandoverCheckRecord`, `packages/shared/src/domain/handover-check.ts`). The commit
+  and the cleanliness are read before the steps and again after them; `clean` is true only when both reads
+  saw the same commit and no uncommitted or untracked file. A failed write is a warning and leaves the exit
+  code as it was. The record is what the gate of the move into review reads when the repository's
+  `handoverCheck.command` is set (`docs/modules/core-tasks.md`); a repository that sets another command
+  must write the same record, or its developers can only hand over with a recorded reason.
   **Merge check records.** Every merge check is recorded in `merge_check_runs` (time, queue wait, the `maxWorkers`
   the hub passed, scope and step timings from the engine; `list_merge_checks`, `get_task`). Requested-to-merged
   timeline intervals include queue time and retries, so they are upper bounds, not run times.

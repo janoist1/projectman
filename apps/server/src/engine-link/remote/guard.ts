@@ -58,6 +58,7 @@ const SCOPES: Scopes = {
   'workspace.ensure': { project: ([key]) => inConfig(key) },
   'workspace.status': { project: ([key]) => inConfig(key) },
   'workspace.sourceHead': { project: ([key]) => inConfig(key) },
+  'workspace.handoverCheck': { project: ([key]) => inConfig(key) },
   'workspace.fetchBase': { project: ([key]) => inConfig(key) },
   'workspace.prepareDependencies': { project: ([key]) => inConfig(key) },
   'workspace.findTaskBranch': { project: ([key]) => inConfig(key) },

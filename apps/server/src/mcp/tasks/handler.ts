@@ -157,6 +157,7 @@ export class TaskTools implements TaskToolsHandler {
       removeLabels?: string[];
       note?: string;
       followUps?: string[];
+      handoverCheckException?: string;
       replyTo?: string;
       title?: string;
       description?: string;
@@ -363,6 +364,7 @@ export class TaskTools implements TaskToolsHandler {
           addLabels: args.addLabels,
           removeLabels: args.removeLabels,
           ...(args.followUps ? { followUps: args.followUps } : {}),
+          ...(args.handoverCheckException ? { handoverCheckException: args.handoverCheckException } : {}),
           note: args.note,
           ...(args.replyTo ? { replyTo: args.replyTo } : {}),
           stageId: args.stageId,

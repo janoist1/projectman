@@ -2606,6 +2606,19 @@ describe('expected steps', () => {
     );
   });
 
+  it('names the hand-over check command only when the repository has one (PM-1380)', () => {
+    const project = buildProject();
+    const task = makeTask({ stageId: 'dev', assignee: 'fe-1' });
+    const without = doneSteps(builder.build(input({ project, task, handle: 'fe-1' })).appendSystemPrompt);
+    expect(without).not.toContain('handover_check_exception');
+    project.project.repos[0]!.fullTestAtMerge = true;
+    project.project.repos[0]!.handoverCheck = { command: 'npm run handover-check' };
+    const steps = doneSteps(builder.build(input({ project, task, handle: 'fe-1' })).appendSystemPrompt);
+    expect(steps).toContain('npm run handover-check');
+    expect(steps).toContain('handover_check_exception');
+    expect(steps).not.toContain('local hand-over checks');
+  });
+
   it('uses the task repository rather than another repository merge policy', () => {
     const project = buildProjectWithTwoRepos();
     project.project.repos.find((repo) => repo.name === 'app')!.fullTestAtMerge = true;

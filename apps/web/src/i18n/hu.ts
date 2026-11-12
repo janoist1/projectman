@@ -1593,6 +1593,8 @@ export const hu = {
     invalidResponse: 'A szerver válasza nem a várt formátumú.',
     /** Detail of `handover_uncommitted`: the working directory and how many files are uncommitted. */
     handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
+    /** Detail of `handover_check_missing`: the command that must pass and the commit it must pass on. */
+    handoverCheckMissing: 'Az átadás-ellenőrzés parancsa: {command}; a commit: {commit}.',
     /** `member_session_live` with what holds the member named (PM-1026). */
     memberSessionLive: 'Most nem nevezhető át, mert {reason}. Próbáld újra, ha végzett.',
     /** Why an acceptance change is refused (`acceptance_item_refused.details.reason`, PM-1137). */
@@ -1772,6 +1774,8 @@ export const hu = {
       handoff_not_open: 'Ezt a kártyát most nem adják át tőled, ezért nem írhatsz átadó jegyzetet.',
       handover_uncommitted:
         'A fejlesztő munkafájában mentetlen változás van, ezért a kártya nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
+      handover_check_missing:
+        'A kártya nem adható át átnézésre: a tárhely átadás-ellenőrzésének nincs zöld eredménye az átadott commiton. Mentsd el a munkát egy commitban, futtasd a megnevezett parancsot, és add át újra; ha a homokozó nem engedi futtatni, adj meg indoklást.',
       merge_not_merger: 'A beolvasztást csak a kártya beolvasztója indíthatja.',
       merge_not_ready: 'A kártya még nem áll készen a beolvasztásra.',
       merge_not_prioritizable:
@@ -2291,6 +2295,7 @@ export const hu = {
         holding: 'Visszatartja: {label}',
         approval: 'Jóváhagyásra vár, utána átkerül',
         uncommitted: 'Mentetlen változás van a munkafájában',
+        handoverCheck: 'Nincs zöld átadás-ellenőrzés az átadott commiton',
         notMerged: 'nincs beolvasztva a fő ágba',
         noApprover: 'Senki sem adhatja meg a jóváhagyást: {label}',
         noApproverUnnamed: 'Senki sem adhatja meg a szükséges jóváhagyást',
@@ -6068,6 +6073,8 @@ export const hu = {
       task_created_imported: 'Létrehozva (importálva)',
       task_created: 'Létrehozta a kártyát',
       review_follow_ups: 'Megjegyzések egy későbbi kártyához{label}: {items}',
+      handover_check_exception:
+        'Zöld átadás-ellenőrzés nélkül adta át a(z) {commit} commitot, indoklás: {reason}',
       task_updated: 'Módosította: {fields}',
       task_stage_changed: 'Továbbvitte: {from} → {to}',
       task_stage_changed_pulled_urgent: 'Előre húzta a rendszer: {from} → {to}; a kártya sürgős',

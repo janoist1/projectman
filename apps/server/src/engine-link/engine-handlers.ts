@@ -325,6 +325,11 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'workspace.sourceHead'([key, branch]) {
       return memberWorkspaces().sourceHead(key, branch);
     },
+    async 'workspace.handoverCheck'([key]) {
+      // 'unsupported' is what the hub makes of an engine without this method; the engine's own manager never says it.
+      const read = await memberWorkspaces().handoverCheck(key);
+      return read === 'unsupported' ? null : read;
+    },
     async 'workspace.fetchBase'([key]) {
       return memberWorkspaces().fetchBase(key);
     },

@@ -57,6 +57,7 @@ export * from './domain/fix-limit';
 export * from './domain/obligation';
 export * from './domain/card-step';
 export * from './domain/full-test';
+export * from './domain/handover-check';
 export * from './domain/merge';
 export * from './domain/merge-input';
 export * from './domain/merge-test';

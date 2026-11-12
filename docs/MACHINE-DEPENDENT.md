@@ -2170,6 +2170,15 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   but disconnected engine and a recorded developer workspace retain strict read failures (a stage
   hand-over for review reads strictly since PM-1110: `engine_offline` refuses the move). Remote git
   still runs on the selected engine; no engine path is read by the hub and no RPC contract changes.
+  **Hand-over check record (PM-1380):** `scripts/merge-test/handover-run.ts` writes the result of the
+  repository's hand-over check to `projectman/handover-check.json` under the developer workspace's git
+  directory (`git rev-parse --git-path`, so a clone and a linked worktree resolve it alike). The gate of the
+  move into review and of a new review round reads it through the new RPC `workspace.handoverCheck([key])`
+  (`MemberWorkspaceManager.handoverCheck`: a regular file within 16 KiB, null for a missing or broken one).
+  `SourceHead` and the `head` schema are unchanged. Remote engine: the record is read on the engine that
+  holds the developer's checkout; an engine without the method answers `unknown_method`, which the hub's
+  proxy turns into `unsupported` and the gate into the `engine_outdated` refusal (update the engine, or give
+  the reason with `update_task handover_check_exception`).
   **Remote engine:** `worktree.*` and `workspace.*` execute git, status and cleanup
   beside the repositories and return attributed branch heads. Member clones exchange
   commits through the publication and bundle transfer paths below; hub paths are never

@@ -59,6 +59,31 @@ describe('repoHeavyChecks patch', () => {
   });
 });
 
+describe('repoHandoverCheck patch', () => {
+  it('sets and removes the hand-over check of one repository', () => {
+    const original = config([
+      { name: 'web', path: '.' },
+      { name: 'other', path: 'other' },
+    ]);
+    const handoverCheck = { command: 'npm run handover-check' };
+    const patch = PatchConfigRequest.parse({
+      baseVersion: 'v1',
+      repoHandoverCheck: [{ repo: 'web', handoverCheck }],
+    });
+    const next = applyConfigPatch(original, patch);
+    expect(next.project.repos[0]!.handoverCheck).toEqual(handoverCheck);
+    expect(next.project.repos[1]).toEqual(original.project.repos[1]);
+    expect(
+      unknownPatchRepo(original, { ...patch, repoHandoverCheck: [{ repo: 'ghost', handoverCheck: null }] }),
+    ).toBe('ghost');
+    const cleared = applyConfigPatch(next, {
+      baseVersion: 'v2',
+      repoHandoverCheck: [{ repo: 'web', handoverCheck: null }],
+    });
+    expect(cleared).toEqual(original);
+  });
+});
+
 describe('isRepoFilePath', () => {
   it('accepts relative POSIX paths inside the repository', () => {
     for (const ok of [

@@ -679,6 +679,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             .join('; '),
         }),
       );
+    case 'handover_check_exception':
+      return normal(
+        t('timeline.events.handover_check_exception', {
+          commit: str(d.commit).slice(0, 7),
+          reason: str(d.reason),
+        }),
+      );
     case 'refinement_turn': {
       const label = d.label ? labelName(str(d.label), ctx.labels ?? []) : '';
       if (d.reason === 'done') return normal(t('timeline.refinement.done'));

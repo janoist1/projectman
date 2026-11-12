@@ -142,7 +142,7 @@ npm run dev          # server (4700) + web (5173)
 npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); takes 3 places
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>, --places all|<n>|<min>-<max>)
 npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all); takes all places, none again when the server runs it
-npm run handover-check      # before hand-over and in fix rounds: dead-code, type check and the nearest tests selected from your diff in every workspace (-- --dry-run lists them); takes 2-4 machine places once
+npm run handover-check      # before hand-over and in fix rounds, on the committed work (the step names it; the move into review needs its green result)
 npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (takes 2-4 machine places)
 npx vitest run src/i18n/i18n.test.ts --configLoader runner  # in apps/web: after changing locale keys or their usage
@@ -173,20 +173,15 @@ before hand-over and in fix rounds. A change in a **central file** (`packages/sh
 `apps/server/src/contracts/**`, `apps/server/src/kernel/**`, `apps/server/src/db/migrations.ts`,
 `apps/server/src/assembly.ts`, `apps/server/test/helpers/**`, the web `i18n/{hu,en}.ts` and `mocks/**`)
 makes `related` select a large share of the suite; run the test files of the behaviour you changed and
-`npm run handover-check` instead. When removing a capability, also search tests for its
+the hand-over check instead. When removing a capability, also search tests for its
 retired tool names, inbox kinds and route or file paths, then run the matching boundary tests:
 HTTP calls and string fixtures are not covered by import-based related selection.
 When changing the shared `ErrorCode` union, update
 `errors.codes` in `apps/web/src/i18n/hu.ts`, run `npm run typecheck -w @projectman/web`, and
 run the web i18n test listed above.
-Before hand-over and in fix rounds run `npm run handover-check` from the repository root. It
-selects the nearest tests of your diff in every workspace (a shared schema, the architecture and
-other path-reading tests and the tool snapshot included; at most 60 files, and it says how many
-the merge-test runs on top), runs them with the type check of the affected workspaces and
-`dead-code`; it takes two to four machine places once, and its steps run under that ticket. Fix new `dead-code` findings rather than extending the baseline.
-It does not replace the merge-test. A test that no import reaches (it reads the repository by path, or
-uses the code over HTTP) gets a rule in `SELECTION_RULES` (`scripts/merge-test/handover.ts`) and a file that starts programs into
-`RUNTIME_ENTRIES`, not into a new line of this list. They never run the full suite. The merger (`team.merger`,
+Before hand-over and in fix rounds: commit, then `npm run handover-check` (the step names it; the move
+into review needs its green result; what it selects and runs, `SELECTION_RULES`, `RUNTIME_ENTRIES` and
+the dead-code baseline are in `docs/modules/scripts.md`). It does not replace the merge-test. The merger (`team.merger`,
 `lead` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
 before `main` moves: `npm run merge-test`, in the sandbox of the card's engine or on GitHub
 Actions, as the repository is set up (`docs/modules/services-merges.md`).

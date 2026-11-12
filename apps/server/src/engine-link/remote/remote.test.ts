@@ -545,6 +545,27 @@ describe('cloud mode remote parts', () => {
       });
     });
 
+    it('reads the hand-over check record through the engine, and calls an engine without the method unsupported (PM-1380)', async () => {
+      const engine = await online();
+      const manager = remote.directory.host('eng_a' as never)!.memberWorkspaces!;
+      const key = { project: testConfig(), repoName: testConfig().project.repos[0]!.name, member: 'dev' };
+      expect(await manager.handoverCheck(key)).toBe('unsupported');
+      const record = {
+        version: 1 as const,
+        commit: 'a'.repeat(40),
+        clean: true,
+        outcome: 'passed' as const,
+        exitCode: 0,
+        startedAt: '2026-11-12T10:00:00.000Z',
+        finishedAt: '2026-11-12T10:01:00.000Z',
+      };
+      engine.answer('workspace.handoverCheck', () => record);
+      expect(await manager.handoverCheck(key)).toEqual(record);
+      expect(engine.requests.at(-1)).toEqual({ method: 'workspace.handoverCheck', params: [key] });
+      engine.answer('workspace.handoverCheck', () => null);
+      expect(await manager.handoverCheck(key)).toBeNull();
+    });
+
     it('lists worktrees and snapshots and removes only the requested task refs through the engine', async () => {
       const engine = await online();
       const host = remote.directory.host('eng_a' as never)!;

@@ -146,7 +146,12 @@ export class GithubSync {
     try {
       await this.tasks.moveToStage(projectKey, taskKey, next.id, SYSTEM_ACTOR);
     } catch (err) {
-      if (err instanceof DomainError && (err.code === 'gate_blocked' || err.code === 'handover_uncommitted'))
+      if (
+        err instanceof DomainError &&
+        (err.code === 'gate_blocked' ||
+          err.code === 'handover_uncommitted' ||
+          err.code === 'handover_check_missing')
+      )
         return;
       throw err;
     }

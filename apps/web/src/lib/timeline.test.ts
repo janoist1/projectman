@@ -25,6 +25,19 @@ it('renders follow-up items and the review result', () => {
   expect(line).toContain('1) Reuse helper; 2) Add test');
 });
 
+it('renders the reason a hand-over went without a green check', () => {
+  const line = describeEvent(
+    {
+      ...creation,
+      type: 'handover_check_exception',
+      data: { commit: 'abcdef0123456789', reason: 'no pseudo-terminal' },
+    },
+    context,
+  ).text;
+  expect(line).toContain('abcdef0');
+  expect(line).toContain('no pseudo-terminal');
+});
+
 it.each([
   [null, 'timeline.events.item_routed'],
   ['integrator', 'timeline.events.item_routed_requested'],

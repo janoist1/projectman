@@ -121,6 +121,15 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       ensure: (key) => call('workspace.ensure', [key]),
       status: (key) => call('workspace.status', [key]),
       sourceHead: (key, branch) => call('workspace.sourceHead', [key, branch]),
+      handoverCheck: async (key) => {
+        try {
+          return await call('workspace.handoverCheck', [key]);
+        } catch (err) {
+          // An engine from before PM-1380 cannot read the record: the gate then says the engine is outdated.
+          if (err instanceof EngineCallError && err.linkCode === 'unknown_method') return 'unsupported';
+          throw err;
+        }
+      },
       fetchBase: (key) => call('workspace.fetchBase', [key]),
       prepareDependencies: async (key) => {
         try {

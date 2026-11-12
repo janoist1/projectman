@@ -161,6 +161,7 @@ interface UpdateTaskArgs {
   remove_labels?: string[] | undefined;
   note?: string | undefined;
   follow_ups?: string[] | undefined;
+  handover_check_exception?: string | undefined;
   reply_to?: string | undefined;
   title?: string | undefined;
   description?: string | undefined;
@@ -194,6 +195,7 @@ async function runUpdateTask<C>({
     remove_labels: removeLabels,
     note,
     follow_ups: followUps,
+    handover_check_exception: handoverCheckException,
     reply_to: replyTo,
     title,
     description,
@@ -215,6 +217,7 @@ async function runUpdateTask<C>({
     !removeLabels?.length &&
     !note &&
     !followUps?.length &&
+    !handoverCheckException &&
     !title &&
     !description &&
     repo === undefined &&
@@ -224,7 +227,7 @@ async function runUpdateTask<C>({
   ) {
     throw new TeamToolError(
       'invalid',
-      'Nothing to update: pass stage_id, add_labels, remove_labels, note, follow_ups, title, description, repo, ' +
+      'Nothing to update: pass stage_id, add_labels, remove_labels, note, follow_ups, handover_check_exception, title, description, repo, ' +
         'add_relations, remove_relations, theme_key, archived, priority, complexity and/or acceptance.',
     );
   }
@@ -240,6 +243,7 @@ async function runUpdateTask<C>({
     ...(removeLabels?.length ? { removeLabels } : {}),
     ...(note ? { note } : {}),
     ...(followUps ? { followUps } : {}),
+    ...(handoverCheckException ? { handoverCheckException } : {}),
     ...(replyTo ? { replyTo } : {}),
     ...(title ? { title } : {}),
     ...(description ? { description } : {}),
@@ -397,6 +401,15 @@ export const TASK_TOOL_GROUP: TeamToolGroup = {
           .optional()
           .describe(
             'Remarks that do not block this card, for a later card (a missing test, a helper to reuse, a rule to add), one per item. Only a reviewer or tester of the card, with the call that records the result; never send them in a message.',
+          ),
+        handover_check_exception: z
+          .string()
+          .trim()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe(
+            'For the developer who hands the card over, when the repository has a hand-over check: why the check could not run on your committed work (for example the sandbox refused it). With stage_id the move into review goes on without a green result; alone it covers the commit you have checked out, for the next hand-over or a new review round. Not a way around a failing check.',
           ),
         reply_to: z.string().max(100).optional().describe('Comment event id: reply to it.'),
         title: z

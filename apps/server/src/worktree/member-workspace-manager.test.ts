@@ -16,6 +16,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { FastifyBaseLogger } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { HANDOVER_CHECK_RECORD_PATH } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { getTemplate } from '@projectman/templates';
 import type { MemberWorkspaceKey, MemberWorkspaceManager, WorkspaceDependencyInstaller } from '../contracts';
@@ -402,6 +403,35 @@ describe('member workspaces', { timeout: 30_000 }, () => {
       changes: 1,
     });
     expect(await manager.sourceHead(key('dev'), 'AR-3-missing')).toBeNull();
+  });
+
+  it('reads the hand-over check record from the git path of the workspace, null when it is missing or broken (PM-1380)', async () => {
+    const ws = await manager.ensure(key('dev'));
+    await startTask('dev', 'AR-1-first');
+    expect(await manager.handoverCheck(key('dev'))).toBeNull();
+
+    const commit = await git('-C', ws.path, 'rev-parse', 'HEAD');
+    const record = {
+      version: 1,
+      commit,
+      clean: true,
+      outcome: 'passed',
+      exitCode: 0,
+      startedAt: '2026-11-12T10:00:00.000Z',
+      finishedAt: '2026-11-12T10:01:00.000Z',
+    };
+    const file = path.resolve(
+      ws.path,
+      await git('-C', ws.path, 'rev-parse', '--git-path', HANDOVER_CHECK_RECORD_PATH),
+    );
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, JSON.stringify(record));
+    expect(await manager.handoverCheck(key('dev'))).toEqual(record);
+
+    await writeFile(file, '{ not json');
+    expect(await manager.handoverCheck(key('dev'))).toBeNull();
+    await writeFile(file, JSON.stringify({ ...record, outcome: 'maybe' }));
+    expect(await manager.handoverCheck(key('dev'))).toBeNull();
   });
 
   it('refuses to switch during an unfinished git operation', async () => {

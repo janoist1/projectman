@@ -12,7 +12,12 @@ import type {
   WorkspaceSource,
   WorkspaceDependenciesResult,
 } from '../contracts';
-import { isTaskBranch } from '@projectman/shared';
+import {
+  HANDOVER_CHECK_RECORD_MAX_BYTES,
+  HANDOVER_CHECK_RECORD_PATH,
+  HandoverCheckRecord,
+  isTaskBranch,
+} from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { git, GitCommandError, isoOrNull } from './git';
 import { isStrictlyWithin } from '../kernel';
@@ -406,6 +411,29 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
         await gitIn(info.path, ['log', '-1', '--format=%cI', commit]).catch(() => null),
       );
       return { commit, branch, dirty: changes > 0, changes, path: info.path, committedAt };
+    });
+  }
+
+  async function handoverCheck(key: MemberWorkspaceKey): Promise<HandoverCheckRecord | null> {
+    const { dir, info } = await locate(key);
+    return withLock(dir, async () => {
+      await assertWorkspace(info);
+      // The writer resolves the same git-path, so a clone and a linked worktree meet at one place.
+      const located = await gitIn(info.path, ['rev-parse', '--git-path', HANDOVER_CHECK_RECORD_PATH]).catch(
+        () => null,
+      );
+      if (!located?.trim()) return null;
+      const file = path.resolve(info.path, located.trim());
+      const stat = await maybeLstat(file).catch(() => null);
+      if (!stat?.isFile() || stat.size > HANDOVER_CHECK_RECORD_MAX_BYTES) return null;
+      const text = await readFile(file, 'utf8').catch(() => null);
+      if (text === null) return null;
+      try {
+        const parsed = HandoverCheckRecord.safeParse(JSON.parse(text));
+        return parsed.success ? parsed.data : null;
+      } catch {
+        return null;
+      }
     });
   }
 
@@ -872,6 +900,7 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     ensure,
     status,
     sourceHead,
+    handoverCheck,
     fetchBase,
     prepareDependencies,
     findTaskBranch,

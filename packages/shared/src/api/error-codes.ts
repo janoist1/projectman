@@ -190,6 +190,8 @@ export const ERROR_CODES = [
   'release_four_eyes',
   // The handed-over work has uncommitted changes (PM-183)
   'handover_uncommitted',
+  // The repository's hand-over check has no green result on the handed-over commit (PM-1380)
+  'handover_check_missing',
   // Attachments
   'attachment_too_large',
   'attachment_storage_failed',

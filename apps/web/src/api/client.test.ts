@@ -78,6 +78,21 @@ describe('apiRequest', () => {
     expect(errorMessage(error)).toBe('A csatolmány legfeljebb 25 MB lehet.');
   });
 
+  it('names the command and the short commit of a hand-over without a green check (PM-1380)', async () => {
+    respond(409, {
+      error: {
+        code: 'handover_check_missing',
+        message: 'no result',
+        details: { command: 'npm run handover-check', commit: 'a'.repeat(40) },
+      },
+    });
+    const error = await apiRequest('/api/x', { method: 'POST', body: {} }).catch((e: unknown) => e);
+    const message = errorMessage(error);
+    expect(message).toContain('npm run handover-check');
+    expect(message).toContain('aaaaaaa');
+    expect(message).not.toContain('a'.repeat(8));
+  });
+
   it('names the working directory and the file count of a refused hand-over (PM-183)', async () => {
     respond(409, {
       error: {

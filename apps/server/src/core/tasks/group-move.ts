@@ -63,7 +63,7 @@ export class BoardGroupMove {
       } catch (error) {
         if (
           !(error instanceof DomainError) ||
-          !['handover_uncommitted', 'task_not_merged'].includes(error.code)
+          !['handover_uncommitted', 'handover_check_missing', 'task_not_merged'].includes(error.code)
         )
           throw error;
         prepared.set(card.key, { blocked: blockedItem(card.key, error) });
@@ -221,8 +221,8 @@ function blockedItem(taskKey: string, error: DomainError): BlockedItem {
     code:
       error.code === 'task_not_merged'
         ? 'task_not_merged'
-        : error.code === 'handover_uncommitted'
-          ? 'handover_uncommitted'
+        : error.code === 'handover_uncommitted' || error.code === 'handover_check_missing'
+          ? error.code
           : 'gate_blocked',
     message: error.message,
     unmet: details.unmet ?? [],

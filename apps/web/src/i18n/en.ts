@@ -212,6 +212,7 @@ export const en = {
     notFound: 'Not found.',
     invalidResponse: 'The server’s answer isn’t in the expected format.',
     handoverUncommitted: 'The worktree: {path}; uncommitted files: {count}.',
+    handoverCheckMissing: 'The hand-over check command: {command}; the commit: {commit}.',
     memberSessionLive: 'Can’t be renamed right now, because {reason}. Try again when they’re done.',
     acceptanceRefusal: {
       card_closed: 'The items of a closed card can’t be changed any more.',
@@ -387,6 +388,8 @@ export const en = {
       handoff_not_open: 'This card isn’t being handed off from you now, so you can’t write a handoff note.',
       handover_uncommitted:
         'The developer’s worktree has uncommitted changes, so the card can’t be handed over for review. The reviewer only sees saved (committed) work: commit the changes first, then hand it over again.',
+      handover_check_missing:
+        'The card can’t be handed over for review: the repository’s hand-over check has no green result on the commit handed over. Commit the work, run the command named, then hand it over again; if your sandbox doesn’t let it run, give a reason.',
       merge_not_merger: 'Only the card’s merger can start the merge.',
       merge_not_ready: 'The card isn’t ready to merge yet.',
       merge_not_prioritizable:
@@ -1140,6 +1143,7 @@ export const en = {
         holding: 'Held by: {label}',
         approval: 'Waiting for approval, then moves',
         uncommitted: 'Uncommitted changes in the worktree',
+        handoverCheck: 'No green hand-over check on the commit handed over',
         notMerged: 'not merged into the default branch',
         noApprover: 'Nobody can grant approval: {label}',
         noApproverUnnamed: 'Nobody can grant the required approval',
@@ -3554,6 +3558,7 @@ export const en = {
       task_created_imported: 'Created (imported)',
       task_created: 'Created the card',
       review_follow_ups: 'Left follow-ups for a later card{label}: {items}',
+      handover_check_exception: 'Handed over commit {commit} without a green hand-over check: {reason}',
       task_updated: 'Updated: {fields}',
       task_stage_changed: 'Moved on: {from} → {to}',
       task_stage_changed_pulled_urgent: 'Pulled forward by the system: {from} → {to}; the card is urgent',

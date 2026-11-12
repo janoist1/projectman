@@ -369,6 +369,29 @@ describe('task drawer labels', () => {
     ]);
   });
 
+  it('folds the process labels of a done card behind a button and still lists every label to edit', async () => {
+    const project = mockProject();
+    project.backend.updateTask('AC-16', { labels: ['checkout', 'code-review-ok', 'qa-ok'] });
+    project.render(drawer, '/p/AC/tasks/AC-16');
+    const section = await labelsSection();
+    expect(section.querySelector('[data-label="checkout"]')).not.toBeNull();
+    const toggle = within(section).getByRole('button', { name: t('task.labels.foldedShow', { count: 2 }) });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(within(section).queryByText('Code review rendben')).toBeNull();
+
+    fireEvent.click(toggle);
+    const hide = within(section).getByRole('button', { name: t('task.labels.foldedHide', { count: 2 }) });
+    expect(hide.getAttribute('aria-expanded')).toBe('true');
+    expect(within(section).getAllByText(/Code review rendben|QA rendben/)).toHaveLength(2);
+
+    fireEvent.click(hide);
+    expect(within(section).queryByText('Code review rendben')).toBeNull();
+
+    fireEvent.click(within(section).getByRole('button', { name: t('task.labels.add') }));
+    expect(within(section).getByText(t('task.labels.pickerAll'))).toBeTruthy();
+    expect(within(section).getByRole('button', { name: /Code review rendben/ })).toBeTruthy();
+  });
+
   it('explains why a label cannot be set', async () => {
     const project = mockProject();
     project.backend.config.pipeline.labels.push({

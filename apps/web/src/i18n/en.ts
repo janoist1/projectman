@@ -1556,6 +1556,7 @@ export const en = {
   },
   taskCard: {
     stageRows: 'Checks',
+    processLabelsMore: '{count|# more process label|# more process labels}',
     stageProgress: 'Progress: {stage}, stage {index} of {total}',
     columnSteps: 'Steps of {column}',
     stepState: { done: 'done', current: 'in progress here', todo: 'to do', finished: 'done' },
@@ -1789,6 +1790,9 @@ export const en = {
       add: 'Add label',
       none: 'None',
       remove: 'Remove {label}',
+      foldedShow: '+{count|# process label|# process labels} ▾',
+      foldedHide: '{count|# process label|# process labels} ▴',
+      pickerAll: 'All applied labels',
       free: 'New label',
       freeHint: 'A free label, with no special meaning.',
       comment: 'Reason: {label}',

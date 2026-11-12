@@ -11,6 +11,25 @@
   cursor: pointer;
 }
 
+/* The button that opens the process labels folded on a done card. */
+.fold {
+  min-height: 28px;
+}
+
+@media (max-width: 767px) {
+  .fold {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+.pickerTitle {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-ink-3);
+}
+
 .picker {
   display: grid;
   gap: 10px;

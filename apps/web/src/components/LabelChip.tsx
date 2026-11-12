@@ -4,6 +4,16 @@ import type { LabelView } from '@projectman/shared';
 import { labelName } from '../lib/labels';
 import styles from './LabelChip.module.css';
 
+/** "+3": the process labels folded on a done card; a neutral chip of the labels' size, named for screen readers. */
+export function LabelCountChip({ count, text }: { count: number; text: string }) {
+  return (
+    <span className={clsx(styles.chip, styles.plain)} title={text}>
+      <span aria-hidden="true">+{count}</span>
+      <span className="visually-hidden">{text}</span>
+    </span>
+  );
+}
+
 /** A label in its colour, with its meaning on hover; plain tags (no definition) stay neutral. */
 export function LabelChip({
   id,

@@ -119,7 +119,7 @@ export function TaskProperties({
           </span>
         </div>
       ) : null}
-      <TaskLabels task={task} />
+      <TaskLabels key={`labels:${task.key}`} task={task} pipeline={pipeline} />
       <TaskTheme task={task} tasks={tasks} />
       <TaskRelations
         key={`relations:${task.key}`}

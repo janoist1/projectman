@@ -2748,6 +2748,7 @@ export const hu = {
 
   taskCard: {
     stageRows: 'Ellenőrzések',
+    processLabelsMore: '{count} további folyamatcímke',
     stageProgress: 'Haladás: {stage}, {index}. lépés a {total}-ból',
     columnSteps: '{column} lépései',
     stepState: {
@@ -3007,6 +3008,9 @@ export const hu = {
       add: 'Címke hozzáadása',
       none: 'Nincs',
       remove: '{label} levétele',
+      foldedShow: '+{count} folyamatcímke ▾',
+      foldedHide: '{count} folyamatcímke ▴',
+      pickerAll: 'Minden felvett címke',
       free: 'Új címke',
       freeHint: 'Szabad címke, külön jelentés nélkül.',
       comment: 'Indoklás: {label}',

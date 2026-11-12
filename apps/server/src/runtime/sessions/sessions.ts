@@ -1484,11 +1484,16 @@ export class SessionOrchestrator {
    * stopped; and the engine's folders of other sessions are removed. A session whose start is still being
    * answered (`starting`) is neither. Run for every connect, a resumed link too: the engine may have
    * restarted in between. Safe to repeat.
+   *
+   * `paused` are the reported sessions whose input the engine holds for a pause (PM-1403). One that no pause of this
+   * server holds (`isPaused`) is let go: the release that should have ended the hold was lost with the link. A
+   * session a pause holds (the engine's own, a team's) is left to the resume.
    */
   async reconcileEngine(
     engineId: EngineId,
     reported: ReadonlySet<string>,
     starting: (sessionId: string) => boolean,
+    paused: ReadonlySet<string> = new Set(),
   ): Promise<void> {
     for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
       if (engineIdOf(session) !== engineId || reported.has(session.id) || starting(session.id)) continue;
@@ -1504,6 +1509,16 @@ export class SessionOrchestrator {
       await this.deps.runner.stop(sessionId, { force: true }).catch((err: unknown) => {
         this.ctx.logger.warn({ err, engineId, sessionId }, 'could not stop an unknown session of an engine');
       });
+    }
+    for (const sessionId of paused) {
+      const session = this.ctx.repos.sessions.get(sessionId);
+      if (!session || !isLiveSessionState(session.state) || starting(sessionId)) continue;
+      if (this.isPaused(session)) continue;
+      this.ctx.logger.warn(
+        { engineId, sessionId },
+        'letting go a session the engine holds for a pause that ended',
+      );
+      this.deps.runner.release(sessionId);
     }
     const folders = this.deps.engines.get(engineId)?.sessionFolders;
     if (!folders) return;

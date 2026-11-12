@@ -236,6 +236,57 @@ describe('pause around a restart of the server', () => {
       await waitFor(() => h.runner.messages.some((m) => m.text.includes('Fictional note.')));
     });
 
+    describe('a release lost with the link (PM-1403)', () => {
+      /** The team's pause ended and its row closed, but the engine never got the release and still holds the session. */
+      async function resumedWithReleaseLost() {
+        await harness();
+        const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+        h.runner.setState(session.id, 'idle');
+        await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, BY);
+        await waitFor(() => h.repos.pauses.openSession(session.id)?.point);
+        await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, BY);
+        expect(h.repos.pauses.openSession(session.id)).toBeNull();
+        h.runner.releases.splice(0);
+        return { session, engineId: h.domain.sessions.engineOf(session.id) };
+      }
+
+      it('lets the session go at the next connect when the engine still holds it', async () => {
+        const { session, engineId } = await resumedWithReleaseLost();
+        const reported = new Set([session.id]);
+        await h.domain.sessions.reconcileEngine(engineId, reported, () => false, reported);
+        expect(h.runner.releases).toEqual([{ sessionId: session.id, nudge: undefined }]);
+      });
+
+      it('leaves a session alone that a pause of the hub still holds', async () => {
+        await harness();
+        const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+        h.runner.setState(session.id, 'idle');
+        await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, BY);
+        await waitFor(() => h.repos.pauses.openSession(session.id)?.point);
+        const reported = new Set([session.id]);
+        await h.domain.sessions.reconcileEngine(
+          h.domain.sessions.engineOf(session.id),
+          reported,
+          () => false,
+          reported,
+        );
+        expect(h.runner.releases).toEqual([]);
+      });
+    });
+
+    it('closes the pause row a resume left open for an engine that is revoked before it connects (PM-1403)', async () => {
+      await harness();
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+      h.runner.setState(session.id, 'idle');
+      await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, BY);
+      await waitFor(() => h.repos.pauses.openSession(session.id)?.point);
+      h.runner.unreachable.add(session.id);
+      await h.domain.pauses.resume({ scope: 'project', projectKey: 'AR' }, BY);
+      expect(h.repos.pauses.openSession(session.id)).not.toBeNull();
+      h.domain.pauses.endEnginePause(h.domain.sessions.engineOf(session.id));
+      expect(h.repos.pauses.openSession(session.id)).toBeNull();
+    });
+
     it('ends the engine pause without starting anything when the engine is revoked', async () => {
       await harness();
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);

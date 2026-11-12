@@ -41,7 +41,7 @@ describe('the owners a small card has in a review step (smallCards)', () => {
     await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
     h.worktrees.heads.set(h.worktrees.existing.get('AR/AR-1/web')!.path, head);
   }
-  const files = (paths: string[], truncated = false) =>
+  const files = (paths: readonly string[], truncated = false) =>
     vi.spyOn(h.domain.sessions, 'changedFiles').mockResolvedValue({ paths, truncated });
   const toReview = () => h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
   const card = () => h.domain.tasks.get('AR', 'AR-1');
@@ -132,7 +132,10 @@ describe('the owners a small card has in a review step (smallCards)', () => {
         h.runner.emit({ type: 'exit', sessionId: spec.sessionId, exitCode: 0, signal: null });
       await flush();
       await h.domain.tasks.create('AR', { title: 'Cart', parentKey: 'AR-1' }, OWNER_ACTOR);
-      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'task', taskKey: 'AR-2' });
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', {
+        type: 'task',
+        taskKey: 'AR-2',
+      });
       h.runner.setState(session.id, 'working');
       await flush();
 
@@ -142,7 +145,7 @@ describe('the owners a small card has in a review step (smallCards)', () => {
         { to: ['dev-2'], text: 'Look at the login page.', taskKey: 'AR-1' },
         {},
       );
-      expect(sent.message.receipts[0]!.route).toEqual(route);
+      expect(sent.message.receipts![0]!.route).toEqual(route);
     },
   );
 

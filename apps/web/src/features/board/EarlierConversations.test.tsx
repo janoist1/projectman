@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { openStory } from '../../test/cardStory';
+import { showOnScreen } from '../../test/intersection';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
 
@@ -65,6 +66,24 @@ describe('the earlier conversations of the Process view (PM-1290)', () => {
     // Nothing is written here: a new message is a comment.
     expect(within(section).queryByRole('textbox')).toBeNull();
     expect(within(section).queryByRole('button', { name: t('messages.reply') })).toBeNull();
+  });
+
+  it('reads an unread message only once its mark has been on the screen of the open block (PM-1386)', async () => {
+    const project = mockProject();
+    const unread = project.backend.sendTeamMessage('fe-1', ['owner'], 'AC-21', 'Earlier unread');
+    const reads = () =>
+      project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
+    project.render(card, '/p/AC/tasks/AC-21/steps');
+    const button = await toggle(cardMessages(project, 'AC-21').length);
+    const mark = () => row(unread.id)?.querySelector<HTMLElement>('p span:last-child');
+    expect(mark()?.textContent).toBe(t('messages.thread.unread'));
+    // Opening the block is no reading.
+    fireEvent.click(button);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(reads()).toHaveLength(0);
+    showOnScreen(mark()!);
+    await waitFor(() => expect(reads()).toHaveLength(1), { timeout: 3000 });
+    expect((reads()[0]!.body as { ids: string[] }).ids).toEqual([unread.id]);
   });
 
   it('names who got a message under it', async () => {

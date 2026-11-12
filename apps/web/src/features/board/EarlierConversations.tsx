@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { hasConnectedOrigin, isUnreadBy, SYSTEM_SENDER } from '@projectman/shared';
 import type { TeamMessage } from '@projectman/shared';
-import { useReadTeamMessages, useTaskMessages } from '../../api/queries';
+import { useTaskMessages } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
 import { Markdown } from '../../components/Markdown';
@@ -12,8 +12,8 @@ import { splitQuestion } from '../../lib/inbox';
 import { actorByline, nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import { QuestionBody } from '../inbox/Question';
-import { READ_AFTER_MS, useDocumentVisible } from '../messages/ConversationThread';
 import { MessageAttachments } from '../messages/MessageAttachments';
+import { useReadWhenVisible } from '../messages/useReadWhenVisible';
 import styles from './EarlierConversations.module.css';
 
 /** How long a message reached by a link stays highlighted. */
@@ -61,16 +61,20 @@ function senderOf(message: TeamMessage, members: MemberIndex, myHandle: string |
   return message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
 }
 
+type WatchUnread = (id: string) => (element: Element | null) => void;
+
 function Message({
   message,
   members,
   myHandle,
   flash,
+  watchUnread,
 }: {
   message: TeamMessage;
   members: MemberIndex;
   myHandle: string | null;
   flash: boolean;
+  watchUnread: WatchUnread;
 }) {
   const unread = isUnreadBy(message, myHandle);
   return (
@@ -85,7 +89,11 @@ function Message({
         <span className={styles.author}>{senderOf(message, members, myHandle)}</span>
         <span aria-hidden="true"> · </span>
         <time dateTime={message.createdAt}>{formatStamp(message.createdAt)}</time>
-        {unread ? <span className={styles.unreadMark}>{t('messages.thread.unread')}</span> : null}
+        {unread ? (
+          <span className={styles.unreadMark} ref={watchUnread(message.id)}>
+            {t('messages.thread.unread')}
+          </span>
+        ) : null}
       </p>
       {message.body.trim() ? <Markdown text={message.body} /> : null}
       <MessageAttachments files={message.attachments ?? []} from={message.from} />
@@ -105,12 +113,14 @@ function QuestionAndAnswer({
   members,
   myHandle,
   flash,
+  watchUnread,
 }: {
   message: TeamMessage;
   answer: NonNullable<TeamMessage['answer']>;
   members: MemberIndex;
   myHandle: string | null;
   flash: boolean;
+  watchUnread: WatchUnread;
 }) {
   const asker = nameOf(message.to[0], members, myHandle);
   const { title, body } = splitQuestion(answer.question);
@@ -122,7 +132,10 @@ function QuestionAndAnswer({
       data-message-id={message.id}
       data-flash={flash ? '' : undefined}
     >
-      <div className={styles.qaHead}>
+      <div
+        className={styles.qaHead}
+        ref={isUnreadBy(message, myHandle) ? watchUnread(message.id) : undefined}
+      >
         <span>{t('task.thread.qa')}</span>
         <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
       </div>
@@ -171,14 +184,14 @@ export function EarlierConversations({
 }) {
   const { key, myHandle, me } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
-  const readMessages = useReadTeamMessages(key);
-  const visible = useDocumentVisible();
   const messages = useMemo(
     () => [...(query.data?.messages ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     [query.data],
   );
   // The old link opens the block; the reader may close it again.
   const [open, setOpen] = useState(messageParam !== null);
+  // A message is read when its mark has been on the screen of the open block in the showing Process view (PM-1386).
+  const watchUnread = useReadWhenVisible(key, { active: active && open });
   const panel = useId();
   const box = useRef<HTMLUListElement>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -208,18 +221,6 @@ export function EarlierConversations({
     };
   }, [active, messageParam]);
 
-  // Reading: the incoming unread messages of the open block, one request.
-  const unreadKey = messages
-    .filter((message) => isUnreadBy(message, myHandle))
-    .map((message) => message.id)
-    .join(',');
-  const { mutate: markRead } = readMessages;
-  useEffect(() => {
-    if (!unreadKey || !visible || !active || !open) return;
-    const timer = setTimeout(() => markRead(unreadKey.split(',')), READ_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [unreadKey, visible, active, open, markRead]);
-
   if (!query.data) return null;
   if (messages.length === 0)
     return access === 'client' ? <p className={styles.none}>{t('task.earlier.none')}</p> : null;
@@ -246,6 +247,7 @@ export function EarlierConversations({
               members={members}
               myHandle={myHandle}
               flash={flash === message.id}
+              watchUnread={watchUnread}
             />
           ) : (
             <Message
@@ -254,6 +256,7 @@ export function EarlierConversations({
               members={members}
               myHandle={myHandle}
               flash={flash === message.id}
+              watchUnread={watchUnread}
             />
           ),
         )}

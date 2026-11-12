@@ -2,14 +2,7 @@ import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isUnreadBy, PROJECT_MANAGER_ROLE } from '@projectman/shared';
 import type { InboxItem, ResolveInboxRequest, RoleView, TeamMessage } from '@projectman/shared';
-import {
-  useBoard,
-  useConversation,
-  useInbox,
-  useInboxHistory,
-  useReadTeamMessages,
-  useResolveInbox,
-} from '../../api/queries';
+import { useBoard, useConversation, useInbox, useInboxHistory, useResolveInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { ActorName } from '../../components/ActorName';
@@ -46,25 +39,14 @@ import styles from './ConversationThread.module.css';
 import { MessageAttachments } from './MessageAttachments';
 import { useMessageAttachmentUploads } from './useMessageAttachmentUploads';
 import { useCardBusySend } from './useCardBusySend';
+import { useReadWhenVisible } from './useReadWhenVisible';
 import { useFileDrop } from '../board/useFileDrop';
 import attachmentStyles from './MessageAttachments.module.css';
 
-/** An opened thread marks its incoming messages read after this long, so a glance in passing does not. */
-export const READ_AFTER_MS = 1000;
 /** The server's page of one thread (`limit` of the request); a full page means older messages are not shown. */
 const PAGE_LIMIT = 500;
 /** Within this distance of the bottom the thread follows new messages. */
 export const STICK_PX = 48;
-
-export function useDocumentVisible(): boolean {
-  const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
-  useEffect(() => {
-    const update = () => setVisible(document.visibilityState !== 'hidden');
-    document.addEventListener('visibilitychange', update);
-    return () => document.removeEventListener('visibilitychange', update);
-  }, []);
-  return visible;
-}
 
 export interface ThreadComposeRequest {
   to: string[];
@@ -89,7 +71,8 @@ export function ConversationThread({
   const history = useInboxHistory(key);
   const conversation = useConversation(key, peer);
   const resolve = useResolveInbox(key, myHandle);
-  const readMessages = useReadTeamMessages(key);
+  // Reading is seeing: a message is marked read once its mark was on the screen (PM-1386), not when the thread opens.
+  const watchUnread = useReadWhenVisible(key);
   const {
     mutation: send,
     send: sendConfirmed,
@@ -98,7 +81,6 @@ export function ConversationThread({
   const toast = useToast();
   const isMobile = useIsMobile();
   const uploads = useMessageAttachmentUploads(key);
-  const visible = useDocumentVisible();
   const member = members.get(peer);
   const quotaWaiting = member?.kind === 'ai' ? member.quotaWaiting : undefined;
   const quotaUntil = quotaWaiting?.until;
@@ -126,7 +108,7 @@ export function ConversationThread({
     [history.data, peer, myHandle],
   );
 
-  // The "new messages" line stays where the visit started, though the messages become read at once.
+  // The "new messages" line stays where the visit started, though the messages become read as they are seen.
   const [newFromId, setNewFromId] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     if (newFromId !== undefined || !conversation.data) return;
@@ -137,16 +119,6 @@ export function ConversationThread({
     () => layoutThread(threadItems(messages, open, answered), newFromId ?? null),
     [messages, open, answered, newFromId],
   );
-
-  // Opening is reading: the incoming unread messages of a visible thread, one request.
-  const unreadIds = messages.filter((m) => m.from === peer && isUnreadBy(m, myHandle)).map((m) => m.id);
-  const unreadKey = unreadIds.join(',');
-  const { mutate: markRead } = readMessages;
-  useEffect(() => {
-    if (!unreadKey || !visible) return;
-    const timer = setTimeout(() => markRead(unreadKey.split(',')), READ_AFTER_MS);
-    return () => clearTimeout(timer);
-  }, [unreadKey, visible, markRead]);
 
   // Scrolling: to the "new messages" line (or the end) when opened; then follow new messages only
   // while the reader is at the bottom, otherwise offer a pill.
@@ -246,6 +218,7 @@ export function ConversationThread({
             projectKey={key}
             titles={titles}
             canSend={canSend}
+            watchUnread={watchUnread}
             canReplyAll={canReplyAll(item.message)}
             onReply={reply}
             onReplyAll={replyAll}
@@ -501,6 +474,7 @@ function MessageBubble({
   projectKey,
   titles,
   canSend,
+  watchUnread,
   canReplyAll,
   onReply,
   onReplyAll,
@@ -513,6 +487,8 @@ function MessageBubble({
   projectKey: string;
   titles: ReadonlyMap<string, string>;
   canSend: boolean;
+  /** The ref callback of an unread mark: the message is read once the mark has been seen. */
+  watchUnread: (id: string) => (element: Element | null) => void;
   canReplyAll: boolean;
   onReply: (message: TeamMessage) => void;
   onReplyAll: (message: TeamMessage) => void;
@@ -567,7 +543,11 @@ function MessageBubble({
         </div>
         <div className={styles.meta}>
           <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
-          {unread ? <span className={styles.unreadMark}>{t('messages.thread.unread')}</span> : null}
+          {unread ? (
+            <span className={styles.unreadMark} ref={watchUnread(message.id)}>
+              {t('messages.thread.unread')}
+            </span>
+          ) : null}
           {also.length ? (
             <span className={styles.also}>
               {t('messages.thread.also', { names: joinNames(namesOf(also, members, myHandle)) })}

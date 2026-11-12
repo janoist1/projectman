@@ -4476,6 +4476,7 @@ export const en = {
 
   messages: {
     new: 'New message',
+    readFailed: "Couldn't mark as read.",
     recipients: 'To',
     contactsOnlyHint: 'You can only write to contacts.',
     managerOnlyHint: 'You can only write to the project manager.',

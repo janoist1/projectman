@@ -4,8 +4,10 @@ import { Route, Routes, useLocation } from 'react-router';
 import { projectManagerOf } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
-import { mockProject } from '../../test/mockProject';
+import { hideFromScreen, showOnScreen } from '../../test/intersection';
+import { createMockFetch, mockProject } from '../../test/mockProject';
 import { MessagesPage } from './MessagesPage';
 
 afterEach(() => {
@@ -133,25 +135,62 @@ describe('a conversation', () => {
     expect(within(log).getByText('Mail subject').tagName).toBe('STRONG');
   });
 
-  it('reads the incoming messages in one request after a moment and keeps the new-messages line', async () => {
+  const unreadMarks = (log: HTMLElement) => within(log).queryAllByText(t('messages.thread.unread'));
+  const readByOwner = (p: ReturnType<typeof mockProject>, text: string) =>
+    Boolean(
+      p.backend.messages.find((m) => m.body === text)?.receipts?.find((r) => r.handle === 'owner')?.readAt,
+    );
+
+  it('leaves a message below the fold unread when the thread opens and reads it once it is on the screen', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme above the fold');
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme below the fold');
+    p.render(<Pages />, '/p/AC/messages/with/fe-1');
+    const log = await screen.findByRole('log');
+    await within(log).findByText('Acme below the fold');
+    const [above, below] = unreadMarks(log) as [HTMLElement, HTMLElement];
+    showOnScreen(above);
+    await waitFor(() => expect(readByOwner(p, 'Acme above the fold')).toBe(true), { timeout: 3000 });
+    expect(readByOwner(p, 'Acme below the fold')).toBe(false);
+    expect(unreadMarks(log)).toHaveLength(1);
+    showOnScreen(below);
+    await waitFor(() => expect(readByOwner(p, 'Acme below the fold')).toBe(true), { timeout: 3000 });
+    // The line of this visit stays although the messages are read now.
+    expect(within(log).getByText(t('messages.thread.newMessages'))).toBeTruthy();
+  });
+
+  it('reads the messages that came on the screen together in one request', async () => {
     const p = mockProject();
     p.backend.messages = [];
     p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme unread one');
     p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme unread two');
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme unread three');
     p.render(<Pages />, '/p/AC/messages/with/fe-1');
     const log = await screen.findByRole('log');
-    await within(log).findByText('Acme unread two');
+    await within(log).findByText('Acme unread three');
     expect(readRequests(p)).toHaveLength(0);
+    for (const mark of unreadMarks(log)) showOnScreen(mark);
     await waitFor(() => expect(readRequests(p)).toHaveLength(1), { timeout: 3000 });
-    expect((readRequests(p)[0]!.body as { ids: string[] }).ids).toHaveLength(2);
-    await waitFor(() =>
-      expect(p.backend.messages.every((m) => m.receipts?.find((r) => r.handle === 'owner')?.readAt)).toBe(
-        true,
-      ),
-    );
-    // The marker of this visit stays although the messages are read now.
-    expect(within(log).getByText(t('messages.thread.newMessages'))).toBeTruthy();
-    expect(screen.queryByRole('button', { name: t('messages.read') })).toBeNull();
+    expect((readRequests(p)[0]!.body as { ids: string[] }).ids).toHaveLength(3);
+    await waitFor(() => expect(unreadMarks(log)).toHaveLength(0));
+    expect(readRequests(p)).toHaveLength(1);
+  });
+
+  it('does not read a message that left the screen within the second', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme scrolled past');
+    p.render(<Pages />, '/p/AC/messages/with/fe-1');
+    const log = await screen.findByRole('log');
+    await within(log).findByText('Acme scrolled past');
+    const [mark] = unreadMarks(log) as [HTMLElement];
+    showOnScreen(mark);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    hideFromScreen(mark);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(readRequests(p)).toHaveLength(0);
+    expect(unreadMarks(log)).toHaveLength(1);
   });
 
   it('does not read while the tab is hidden', async () => {
@@ -160,9 +199,45 @@ describe('a conversation', () => {
     p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme unseen');
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
     p.render(<Pages />, '/p/AC/messages/with/fe-1');
-    await within(await screen.findByRole('log')).findByText('Acme unseen');
+    const log = await screen.findByRole('log');
+    await within(log).findByText('Acme unseen');
+    showOnScreen(unreadMarks(log)[0]!);
     await new Promise((resolve) => setTimeout(resolve, 1500));
     expect(readRequests(p)).toHaveLength(0);
+  });
+
+  it('keeps a message unread and tells so once when the batch fails, and does not try again by itself', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme one');
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme two');
+    const mockFetch = createMockFetch(p.backend, p.requests);
+    setFetchImplementation(async (path, init) =>
+      init?.method === 'POST' && String(path).endsWith('/messages/read')
+        ? new Response(JSON.stringify({ error: { code: 'not_a_recipient', message: 'no' } }), {
+            status: 403,
+            headers: { 'content-type': 'application/json' },
+          })
+        : mockFetch(String(path), init),
+    );
+    p.render(
+      <ToastProvider>
+        <Pages />
+      </ToastProvider>,
+      '/p/AC/messages/with/fe-1',
+    );
+    const log = await screen.findByRole('log');
+    await within(log).findByText('Acme two');
+    for (const mark of unreadMarks(log)) showOnScreen(mark);
+    expect(await screen.findByText(t('errors.codes.not_a_recipient'), {}, { timeout: 3000 })).toBeTruthy();
+    expect(unreadMarks(log)).toHaveLength(2);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(screen.getAllByText(t('errors.codes.not_a_recipient'))).toHaveLength(1);
+    // Showing a mark again is a new try.
+    const [first] = unreadMarks(log) as [HTMLElement];
+    hideFromScreen(first);
+    showOnScreen(first);
+    await waitFor(() => expect(readRequests(p)).toHaveLength(2), { timeout: 3000 });
   });
 
   it('sends the typed text to the member of the thread with the chosen task', async () => {
@@ -508,7 +583,7 @@ describe('all messages', () => {
     expect((screen.getByLabelText(t('messages.all.member')) as HTMLSelectElement).value).toBe('kata');
   });
 
-  it('expands a row to read it whole, marks it read and shows the delivery per recipient', async () => {
+  it('expands a row to read it whole, marks it read once its content is on the screen and shows the delivery per recipient', async () => {
     const p = mockProject();
     p.backend.messages = [];
     p.backend.sendTeamMessage('fe-1', ['owner', 'qa'], null, 'Acme long text');
@@ -516,10 +591,15 @@ describe('all messages', () => {
     const feed = await screen.findByRole('feed', { name: t('messages.all.feed') });
     const head = await within(feed).findByRole('button', { expanded: false });
     expect(within(feed).getByRole('img', { name: t('messages.unread') })).toBeTruthy();
+    // The closed row's preview is no reading, and opening alone is none either.
+    expect(within(feed).queryByText(t('messages.thread.unread'))).toBeNull();
     fireEvent.click(head);
     expect(head.getAttribute('aria-expanded')).toBe('true');
     expect(within(feed).getByText(/QA: /)).toBeTruthy();
-    await waitFor(() => expect(readRequests(p)).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(readRequests(p)).toHaveLength(0);
+    showOnScreen(within(feed).getByText(t('messages.thread.unread')));
+    await waitFor(() => expect(readRequests(p)).toHaveLength(1), { timeout: 3000 });
     expect(
       within(feed)
         .getByRole('link', { name: t('messages.all.openConversation') })
@@ -539,6 +619,22 @@ describe('all messages', () => {
     await waitFor(() => expect(within(feed).queryByText('Acme read row')).toBeNull());
     expect(within(feed).getByText('Acme unread row')).toBeTruthy();
   });
+
+  it('keeps an opened row in the only-unread list after it is read, until it is folded', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], null, 'Acme unread row');
+    p.render(<Pages />, '/p/AC/messages/all?unread=1');
+    const feed = await screen.findByRole('feed', { name: t('messages.all.feed') });
+    const head = await within(feed).findByRole('button', { expanded: false });
+    fireEvent.click(head);
+    showOnScreen(within(feed).getByText(t('messages.thread.unread')));
+    await waitFor(() => expect(readRequests(p)).toHaveLength(1), { timeout: 3000 });
+    await waitFor(() => expect(within(feed).queryByRole('img', { name: t('messages.unread') })).toBeNull());
+    expect(within(feed).getByText('Acme unread row')).toBeTruthy();
+    fireEvent.click(head);
+    await waitFor(() => expect(within(feed).queryByText('Acme unread row')).toBeNull());
+  });
 });
 
 describe('the open thread', () => {
@@ -552,6 +648,8 @@ describe('the open thread', () => {
     await within(log).findByText('Acme from the frontend');
     // Someone else writes: the list reorders, the open thread stays.
     p.backend.sendTeamMessage('qa', ['owner'], null, 'Acme from QA');
+    // Nothing pushes in the test: the list learns of it when the tab comes back to the front.
+    document.dispatchEvent(new Event('visibilitychange'));
     const nav = screen.getByRole('navigation', { name: t('messages.list.label') });
     await waitFor(() => expect(within(nav).getAllByRole('link')[0]!.getAttribute('href')).toContain('/qa'));
     expect(where()).toBe('/p/AC/messages/with/fe-1');

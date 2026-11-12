@@ -287,6 +287,7 @@ export function createEngineLinks(options: {
                   engineId: id,
                   ackedSeq: state.ackedSeq,
                   serverTime: new Date(now()).toISOString(),
+                  heartbeatMs: ENGINE_HEARTBEAT_MS,
                 }),
               );
               options.logger?.info(

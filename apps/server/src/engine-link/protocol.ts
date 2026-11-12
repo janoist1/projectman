@@ -240,6 +240,8 @@ export const EngineFrame = z.discriminatedUnion('t', [
     engineId: EngineId,
     ackedSeq: int.max(Number.MAX_SAFE_INTEGER),
     serverTime: text,
+    // PM-1346: set by a cloud that repeats its acknowledgement every `heartbeatMs` (an older one omits it).
+    heartbeatMs: z.number().int().positive().optional(),
   }),
   z.strictObject({
     t: z.literal('refuse'),

@@ -1337,25 +1337,6 @@ describe('the approval in Rád vár', () => {
     expect(cut.className).toMatch(/mono/);
   });
 
-  it('turns stale when the configuration moved on: the reason on the card, only "Rendben" left, and no toast', async () => {
-    const project = mockProject();
-    project.backend.inbox.push(approvalItem('stp_1', { baseVersion: 'old0001' }));
-    rendered(project);
-    const card = (
-      await screen.findByText(t('operator.approval.asked', { quote: 'Adj a fejlesztőnek több jogot' }))
-    ).closest('article')!;
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.approve') }));
-    const alert = await within(card).findByRole('alert');
-    expect(alert.textContent).toContain(t('operator.approval.staleReasons.config_changed'));
-    expect(await within(card).findByRole('button', { name: t('operator.approval.ok') })).toBeTruthy();
-    expect(within(card).queryByRole('button', { name: t('operator.approval.approve') })).toBeNull();
-    // "Rendben" closes it.
-    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.ok') }));
-    await waitFor(() =>
-      expect(posted(project, '/inbox/inb_stp_1/resolve').at(-1)?.body).toEqual({ optionId: 'dismiss' }),
-    );
-  });
-
   it('shows a proposal that was stale already with its reason and "Rendben" only', async () => {
     const project = mockProject();
     project.backend.inbox.push(

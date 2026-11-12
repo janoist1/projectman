@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import { Link } from 'react-router';
 import { acceptanceRefusal, isOpenTask, isTheme } from '@projectman/shared';
-import type { AcceptanceChange, AcceptanceItem, AcceptanceRefusal, Task } from '@projectman/shared';
+import type { AcceptanceChange, AcceptanceItem, AcceptanceRefusal, BoardCard } from '@projectman/shared';
 import { useConfig, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -106,7 +106,7 @@ function ItemForm({
 }: {
   kind: FormKind;
   item: AcceptanceItem;
-  candidates: readonly Task[];
+  candidates: readonly BoardCard[];
   saving: boolean;
   error: string | null;
   onSubmit: (change: AcceptanceChange) => void;
@@ -309,7 +309,7 @@ export function TaskAcceptance({
   items,
   loading,
 }: {
-  task: Task;
+  task: BoardCard;
   items: readonly AcceptanceItem[] | undefined;
   loading: boolean;
 }) {

@@ -15,7 +15,7 @@ import { LabelId } from '../domain/label';
 import { MemberHandle } from '../domain/member';
 import { StageId } from '../domain/pipeline';
 import { isTheme, TaskKey, TaskStartWaiting } from '../domain/task';
-import type { Task } from '../domain/task';
+import type { BoardCard, Task } from '../domain/task';
 import { TaskReadyHold } from '../domain/ready-hold';
 import { cardStageOwners } from './stage-owner-pick';
 import type { PickTask } from './stage-owner-pick';
@@ -93,7 +93,8 @@ export const TaskWait = z.object({
 export type TaskWait = z.infer<typeof TaskWait>;
 
 export interface TaskWaitInput {
-  task: Task;
+  /** A board card is enough: the wait reads neither the description nor the whole merge. */
+  task: BoardCard;
   config: Pick<ProjectConfig, 'team' | 'pipeline'>;
   /** The card's open inbox items, any assignee. */
   openItems: readonly InboxItem[];
@@ -202,7 +203,7 @@ function approvalWait(
 function itemWait(
   item: InboxItem,
   items: readonly InboxItem[],
-  task: Task,
+  task: BoardCard,
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
 ): TaskWait {
   const merge = task.merge;
@@ -246,7 +247,7 @@ function fixLimitDeciders(task: Pick<Task, 'fixLimit'>): string[] {
 
 /** The wait of a card whose start the shared start rule refuses (PM-291). */
 function startBlockWait(
-  task: Task,
+  task: BoardCard,
   block: StartBlock,
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
 ): TaskWait {

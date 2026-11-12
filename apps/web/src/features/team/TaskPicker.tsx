@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { isTheme } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import styles from './MemberContextPage.module.css';
@@ -11,7 +11,7 @@ export function TaskPicker({
   onChange,
   error,
 }: {
-  tasks: readonly Task[];
+  tasks: readonly BoardCard[];
   value: string;
   onChange: (key: string) => void;
   error?: string;

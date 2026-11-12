@@ -32,19 +32,17 @@ import {
   fallbackIntegratorTodo,
   technicalDeciderOf,
   FixLimitOptionId,
+  inboxResolveRefusal,
+  reservedSuperDecisionRefusal,
   ResolveIntegratorFixLimitRequest as IntegratorFixLimitRequestSchema,
   ResolveIntegratorTodoRequest as IntegratorTodoRequestSchema,
   ScreeningTodo as ScreeningTodoSchema,
-  approvalRefusal,
-  canResolveInboxItem,
   canSeeInboxItem,
   DELEGATED_INPUT_LIMIT,
   PERMISSION_LEAD_CAP_MS,
   canDecidePermission,
   deliveredLeadDeadline,
   emailApprovalOf,
-  externalQuestionAnswerRefusal,
-  superDecisionRefusal,
   gateRequestOf,
   handOnRequestOf,
   hasBoundOrigin,
@@ -54,7 +52,6 @@ import {
   machineTodoIssuerAllowed,
   machineTodoIssuerOf,
   memberOf,
-  operatorApprovalOf,
   operatorKnowledgeApprovalOf,
   structuralReviewOf,
   OPERATOR_DISMISS_OPTION,
@@ -108,7 +105,6 @@ import {
   ownerHandles,
   ownerQuestionsSince,
   weeklyOwnerQuestions,
-  RETIRED_OPERATOR_HANDLE,
   TEAM_SETTING_POLICY,
 } from '@projectman/shared';
 import { isoNow } from '../base';
@@ -127,7 +123,7 @@ import {
   isMachineAlert,
   isProjectAlert,
 } from './alert-todo';
-import { conflict, forbidden, invalid, notFound } from '../../kernel';
+import { DomainError, conflict, forbidden, invalid, notFound } from '../../kernel';
 import type { ProjectService } from '../projects';
 import type { TimelineService } from '../timeline';
 import { SYSTEM_ACTOR, aiActor, attributedActor, excerpt, humanActor, newId, KeyedMutex } from '../../kernel';
@@ -144,12 +140,6 @@ export const DECISION_OPTIONS: InboxOption[] = [
   { id: 'approve', label: 'approve', style: 'primary' },
   { id: 'reject', label: 'reject', style: 'danger' },
 ];
-
-const APPROVAL_REFUSALS = {
-  not_an_assignee: 'the current gate does not authorize this approver',
-  release_four_eyes: 'release approval requires an independent human',
-  self_review_forbidden: 'the assignee and PR authors cannot set this label',
-} as const;
 
 /** Free-text answer to a question (the text is the resolution note). */
 export const ANSWER_OPTION: InboxOption = { id: 'answer', label: 'answer', style: 'secondary' };
@@ -628,7 +618,7 @@ export class InboxService {
     // queue item does not lend the owner's authority (PM-1010, decision 66).
     if (!hasBoundOrigin(scope.actor) || (hasConnectedOrigin(scope.actor) && scope.actor.kind !== 'human'))
       throw forbidden('owner_approval_required', 'an Operator or connected-Claude origin is required');
-    const refusal = this.reservedDecisionRefusal(item, scope.actor);
+    const refusal = reservedSuperDecisionRefusal(item, scope.actor.handle, this.sessionMemberOf(item));
     if (refusal) throw forbidden(refusal, 'this item requires a person using their own login');
     return this.resolution(
       optionId,
@@ -638,17 +628,9 @@ export class InboxService {
     );
   }
 
-  /**
-   * Whether a decision stays reserved to the owner's own login. A connected step is the holder's in person, yet what
-   * the connected Claude asked itself (the holder's name is its source) stays reserved, as it was for the old
-   * super step.
-   */
-  private reservedDecisionRefusal(item: InboxItem, actor: Actor): 'owner_approval_required' | null {
-    const sessionMember = item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null;
-    // What the retired Operator asked stays the owner's too (decision 66): its member is gone, its items remain.
-    if (item.source === RETIRED_OPERATOR_HANDLE || sessionMember === RETIRED_OPERATOR_HANDLE)
-      return 'owner_approval_required';
-    return superDecisionRefusal(item, { operatorHandle: actor.handle, sessionMember });
+  /** The member whose session asked the item. */
+  private sessionMemberOf(item: InboxItem): string | null {
+    return (item.sessionId ? this.ctx.repos.sessions.get(item.sessionId)?.member : null) ?? null;
   }
 
   private resolution(
@@ -1103,129 +1085,37 @@ export class InboxService {
     integratorTodo = false,
   ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
-    const initialConfig = await this.projects.config(projectKey);
-    const principalOwner = assertIntegratorAccess(initialConfig, 'write', by.superActor);
-    const superScope = integratorExecution()?.principal.mode === 'super';
+    const config = await this.projects.config(projectKey);
+    const principalOwner = assertIntegratorAccess(config, 'write', by.superActor);
+    const scope = integratorExecution();
+    const superScope = scope?.principal.mode === 'super';
     if (superScope) {
-      assertOwnOrSuperApproval(by);
       if (!principalOwner || principalOwner.handle !== by.handle)
         throw forbidden('insufficient_access', 'the resolver must be the authenticated owner');
       by = { ...by, handle: principalOwner.handle, access: principalOwner.access, via: 'integrator' };
     }
-    if (integratorTodo) {
-      if (integratorExecution()?.principal.mode !== 'super' || !by.superActor)
-        throw forbidden(
-          'integrator_not_allowed',
-          'only an explicit super credential resolves an integrator todo',
-        );
-      if (by.access !== 'owner')
-        throw forbidden('insufficient_access', 'a current project owner is required');
-      if (item.state !== 'open') throw conflict('inbox_item_closed', 'the inbox item is closed');
-      if (hasProtectedQuestionPayload(item))
-        throw forbidden('owner_approval_required', 'only a person may approve');
-      if (!isIntegratorTodo(item))
-        throw forbidden('super_relay_refused', 'only a current integrator todo may be resolved');
-      if (req.optionId !== 'todo_done' && req.optionId !== 'todo_cannot')
-        throw invalid('invalid_request', 'only todo result options are accepted');
-    } else if (
-      isIntegratorInboxItem(item) &&
-      (by.via || by.superActor || integratorExecution() || by.access !== 'owner')
-    ) {
-      throw forbidden(
-        'super_relay_refused',
-        'an integrator item needs the dedicated super endpoint or the owner login',
-      );
-    }
-    if (item.kind === 'permission') assertOwnApproval(by);
-    else if (!['question', 'alert', 'mention'].includes(item.kind)) assertOwnOrSuperApproval(by);
-    if (req.attachmentIds !== undefined && item.kind !== 'question')
-      throw invalid('invalid_request', 'only questions accept attachments', { field: 'attachmentIds' });
-    if (
-      by.via &&
-      !['question', 'alert', 'mention'].includes(item.kind) &&
-      (!by.superActor || item.kind === 'permission')
-    )
-      throw forbidden(
-        'owner_approval_required',
-        'Only the owner may give this approval using their own login',
-        { kind: item.kind },
-      );
-    if (item.state !== 'open')
-      throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`, { id, state: item.state });
-    // The owner's question about a super operation (PM-762) is answered by their own login only: neither a
-    // token, nor the integrator's relay, nor anyone but an owner closes it.
-    const superOperation = item.kind === 'question' ? questionPayloadOf(item)?.superOperation : undefined;
-    if (superOperation && (by.via || by.superActor || by.access !== 'owner'))
-      throw forbidden('owner_approval_required', 'Only the owner may decide this, using their own login', {
-        kind: item.kind,
+    const group = this.ctx.repos.inbox.groupOf(id);
+    const groupMembers = (group?.itemIds ?? []).flatMap((memberId) => {
+      const row = this.ctx.repos.inbox.get(memberId);
+      return row && row.id !== id && isPendingQuestion(row) ? [row] : [];
+    });
+    const refusal = inboxResolveRefusal(item, req, by, {
+      config,
+      credential: scope ? { mode: scope.principal.mode, boundOrigin: hasBoundOrigin(scope.actor) } : null,
+      integratorTodo,
+      groupMembers,
+      sessionMemberOf: (row) => this.sessionMemberOf(row),
+      task: item.taskKey ? this.ctx.repos.tasks.get(item.taskKey) : null,
+    });
+    if (refusal)
+      throw new DomainError(refusal.code, refusal.message, {
+        status: refusal.status,
+        details: refusal.details,
       });
-    // A question the integrator asked itself (PM-784) is answered by an owner's own login: neither a token nor
-    // the integrator, in any mode, closes it, including by a direct core call.
-    const asked = item.kind === 'question' ? item.payload : null;
-    const askedRefusal = asked
-      ? externalQuestionAnswerRefusal(asked, {
-          via: by.via ?? (integratorExecution() ? 'integrator' : undefined),
-          superActor: by.superActor,
-        })
-      : null;
-    if (askedRefusal)
-      throw forbidden(
-        superScope ? 'owner_approval_required' : askedRefusal,
-        askedRefusal === 'super_relay_refused'
-          ? 'The integrator cannot answer its own question'
-          : 'Only the owner may decide this, using their own login',
-      );
-    // Every pending group member must be decidable; only an entirely relayable group is an information relay.
-    let relayed = false;
-    if (superScope) {
-      // A connected step on a member's queue item is named for the issuer, so it relays nothing for the holder.
-      if (hasConnectedOrigin(by.superActor) && by.superActor!.kind !== 'human')
-        throw forbidden('owner_approval_required', 'this item requires a person using their own login');
-      const group = this.ctx.repos.inbox.groupOf(id);
-      const members = [
-        item,
-        ...(group?.itemIds ?? []).flatMap((memberId) => {
-          const row = this.ctx.repos.inbox.get(memberId);
-          return row && row.id !== id && isPendingQuestion(row) ? [row] : [];
-        }),
-      ];
-      for (const member of members) {
-        const refusal = this.reservedDecisionRefusal(member, by.superActor!);
-        const question = member.kind === 'question' ? member.payload : null;
-        if (refusal || (question && externalQuestionAnswerRefusal(question, by)))
-          throw forbidden('owner_approval_required', 'this item requires a person using their own login');
-      }
-      relayed = !integratorTodo && members.every(isRelayableQuestionItem);
-    }
-    if (operatorApprovalOf(item)) throw conflict('inbox_item_closed', 'Operator approvals have been retired');
-    if (operatorKnowledgeApprovalOf(item)?.stale && req.optionId !== 'dismiss')
-      throw conflict('operator_knowledge_stale', 'the knowledge proposal is stale; dismiss it');
-    if (!item.options.some((o) => o.id === req.optionId)) {
-      throw invalid('unknown_option', `unknown option: ${req.optionId}`);
-    }
-    const config = await this.projects.config(projectKey);
-    if (memberOf(config, by.handle)?.kind !== 'human')
-      throw forbidden('ai_approval_forbidden', 'only human members may resolve inbox items');
-    const gate = item.kind === 'decision' && req.optionId === 'approve' ? gateRequestOf(item) : null;
-    if (gate?.label) {
-      // Approving puts the label on in the approver's name: the label rules apply up front.
-      const task = item.taskKey ? this.ctx.repos.tasks.get(item.taskKey) : null;
-      const refusal = approvalRefusal(config, gate.label, by.handle, task);
-      if (refusal) throw forbidden(refusal, APPROVAL_REFUSALS[refusal]);
-    }
-    if (!canResolveInboxItem(by, item))
-      throw forbidden('not_an_assignee', 'only the assignees may resolve this item');
+    // Only an entirely relayable group is an information relay.
+    const relayed = superScope && !integratorTodo && [item, ...groupMembers].every(isRelayableQuestionItem);
+    const superOperation = item.kind === 'question' ? questionPayloadOf(item)?.superOperation : undefined;
     const note = req.note?.trim() ? req.note.trim() : null;
-    if (
-      item.kind === 'question' &&
-      req.optionId === ANSWER_OPTION.id &&
-      !note &&
-      !req.attachmentIds?.length
-    ) {
-      throw invalid('answer_required', 'a free-text answer needs a note');
-    }
-    if (item.kind === 'question' && req.optionId === TODO_CANNOT_OPTION.id && !note)
-      throw invalid('todo_reason_required', 'say why the task cannot be done');
     if (item.kind === 'merge_request') {
       const decide = this.deciders.get('merge_request');
       if (!decide) throw conflict('inbox_item_closed', 'the merge request is no longer available');
@@ -1234,7 +1124,6 @@ export class InboxService {
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
     }
-    if (item.kind === 'release') throw conflict('inbox_item_closed', 'release approvals have been retired');
     if (item.kind === 'hand_on') {
       const decide = this.deciders.get('hand_on');
       if (!handOnRequestOf(item) || !decide)
@@ -1274,7 +1163,6 @@ export class InboxService {
       note,
       integratorTodo ? 'todo' : relayed ? 'relay' : 'decision',
     );
-    const group = this.ctx.repos.inbox.groupOf(id);
     if (group) {
       if (id !== group.primaryItemId || !this.groupAnswer)
         throw conflict('question_group_incompatible', 'answer the primary question');
@@ -1374,6 +1262,7 @@ export class InboxService {
             close,
           )
         : null;
+    // The shared rule refused files nobody takes; this guards an answerer that took none (or is missing).
     if (!answered && req.attachmentIds?.length)
       throw invalid('invalid_request', 'only AI questions accept attachments', { field: 'attachmentIds' });
     const resolvingGate = item.kind === 'decision' ? gateRequestOf(item) : null;

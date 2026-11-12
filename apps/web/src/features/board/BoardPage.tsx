@@ -3,7 +3,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { Outlet, useMatch, useNavigate } from 'react-router';
 import type { DragEvent, KeyboardEvent } from 'react';
 import { isChronologicalColumn, placeInOrder, placementAt, subtasksMovingAlong } from '@projectman/shared';
-import type { BoardColumnView, BoardPlacement, LabelView, Task } from '@projectman/shared';
+import type { BoardCard as Card, BoardColumnView, BoardPlacement, LabelView } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -87,12 +87,12 @@ interface ColumnDrag {
   landedKeys: ReadonlySet<string>;
   /** The cards of a group move that stayed where they were. */
   heldKeys: ReadonlySet<string>;
-  start: (event: DragEvent, task: Task) => void;
+  start: (event: DragEvent, task: Card) => void;
   end: () => void;
   over: (event: DragEvent, column: BoardColumnView) => void;
   leave: (event: DragEvent) => void;
   drop: (event: DragEvent, column: BoardColumnView) => void;
-  keyDown: (event: KeyboardEvent, task: Task) => void;
+  keyDown: (event: KeyboardEvent, task: Card) => void;
 }
 
 /** Where a card dropped at `clientY` lands among the cards of a column, the dragged card not counted. */
@@ -138,7 +138,7 @@ function Column({
   searching: boolean;
   members: MemberIndex;
   myHandle: string | null;
-  subtasksByParent: Map<string, Task[]>;
+  subtasksByParent: Map<string, Card[]>;
   column: BoardColumnView;
   entries: BoardEntry[];
   pipeline: PipelineIndex;
@@ -283,8 +283,8 @@ function BoardCard({
   uploading,
   drag,
 }: {
-  task: Task;
-  subtasks: Task[] | undefined;
+  task: Card;
+  subtasks: Card[] | undefined;
   state: BoardEntry['state'];
   pipeline: PipelineIndex;
   projectKey: string;
@@ -354,7 +354,7 @@ export function BoardPage() {
   const { board, pipeline, model } = useBoardModel();
   const move = useBoardMove(key);
   const toast = useToast();
-  const [dragged, setDragged] = useState<Task | null>(null);
+  const [dragged, setDragged] = useState<Card | null>(null);
   const [hover, setHover] = useState<DragHover | null>(null);
   const [pending, setPending] = useState<BoardDrop | null>(null);
   const [landed, setLanded] = useState<readonly string[]>([]);
@@ -513,12 +513,12 @@ export function BoardPage() {
   if (board.isError) return <ErrorState error={board.error} onRetry={() => void board.refetch()} />;
   if (!model || !pipeline) return <LoadingState />;
 
-  const columnOf = (task: Task) => pipeline.columnOfStage.get(task.stageId)?.id ?? null;
+  const columnOf = (task: Card) => pipeline.columnOfStage.get(task.stageId)?.id ?? null;
   // The subtasks of a collecting card that stand in its column: they go along when it changes column
   // (all of them, the ones a filter hides too).
-  const alongOf = (task: Task): Task[] =>
+  const alongOf = (task: Card): Card[] =>
     subtasksMovingAlong(pipeline.stages, task, model.subtasksByParent.get(task.key) ?? []);
-  const dropOf = (task: Task, column: BoardColumnView, placement: BoardPlacement): BoardDrop | null => {
+  const dropOf = (task: Card, column: BoardColumnView, placement: BoardPlacement): BoardDrop | null => {
     // A card of another column enters the column's first stage; within the column it keeps its own.
     const own = columnOf(task) === column.id;
     const stageId = own ? task.stageId : dropStage(task, column, pipeline);
@@ -535,7 +535,7 @@ export function BoardPage() {
       : null;
   };
   // A card that would start with an open prerequisite asks first (PM-204); a group asks once for all of its cards.
-  const startDrop = (drop: BoardDrop, task: Task) => {
+  const startDrop = (drop: BoardDrop, task: Card) => {
     if (drop.stageId === drop.fromStageId) {
       runMove(drop);
       return;
@@ -557,7 +557,7 @@ export function BoardPage() {
       });
   };
   /** Where the held card would land over `column` (null: it is not taken there). */
-  const hoverOver = (event: DragEvent, task: Task, column: BoardColumnView): DragHover | null => {
+  const hoverOver = (event: DragEvent, task: Card, column: BoardColumnView): DragHover | null => {
     const own = columnOf(task) === column.id;
     const chronological = isChronologicalColumn(pipeline.stages, column.id);
     if (own ? chronological : !dropStage(task, column, pipeline)) return null;

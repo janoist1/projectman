@@ -844,7 +844,7 @@ export function recipientLine(
     case 'next_input':
       if (noWake === 'no_card_role')
         return coordinator
-          ? `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), so this starts nothing. They get it the next time they work on ${card}.`
+          ? `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), so this starts nothing. Start them with start_member (it needs your own open owner request, your own authority or a permitted signal), or they get it the next time they work on ${card}.`
           : `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
       if (stale)
         return `${handle}: not started: ${card} ${staleExplanations[stale]}, so this message is out of date and starts nothing. They get it with their next input.`;

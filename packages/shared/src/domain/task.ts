@@ -356,6 +356,22 @@ export const Task = z.object({
 });
 export type Task = z.infer<typeof Task>;
 
+/**
+ * A card as the board carries it (PM-1336): the task without its description and with only the tile's part
+ * of `merged` (that it is merged, into which repository and when). The description and the whole merge come
+ * with the task's detail (`GET task`).
+ */
+export const BoardCard = Task.omit({ description: true, merged: true }).extend({
+  merged: TaskMerged.pick({ repo: true, at: true }).optional(),
+});
+export type BoardCard = z.infer<typeof BoardCard>;
+
+/** The board's summary of a task. */
+export function boardCard(task: Task): BoardCard {
+  const { description: _description, merged, ...card } = task;
+  return merged ? { ...card, merged: { repo: merged.repo, at: merged.at } } : card;
+}
+
 /** Whoever looks at a task: a project member's access level (`ai` for an AI member) and handle. */
 export interface TaskViewer {
   access: HumanAccess | 'ai';

@@ -21,6 +21,7 @@ import {
   prioritySetterMembers,
   prioritySettersOf,
   ProjectManagerAuthority,
+  teamSettingOf,
   projectManagerAuthorityOf,
   ProjectManagerLifecycleAction,
   projectManagerLifecycleOf,
@@ -77,13 +78,25 @@ function memberRole(member: MemberConfig, roles: readonly RoleView[]): string {
 }
 
 /** Who the code reviewer kind resolves to without a card: the first owner of the code review stage. */
-function reviewerName(config: ProjectConfig): string | null {
-  const handle = cardMerger(
+function reviewerHandle(config: ProjectConfig): string | null {
+  return cardMerger(
     { ...config, team: { ...config.team, merger: { kind: 'code_reviewer' } } },
     { assignee: null },
     null,
   );
+}
+
+function reviewerName(config: ProjectConfig): string | null {
+  const handle = reviewerHandle(config);
   return config.team.members.find((member) => member.handle === handle)?.displayName ?? null;
+}
+
+/** Whether the merger can be the card's code reviewer, so that `mergeAfterReview` can act (PM-1379). */
+function mergerIsReviewer(config: ProjectConfig): boolean {
+  const merger = mergerOf(config);
+  const reviewer = reviewerHandle(config);
+  if (!reviewer) return false;
+  return merger.kind === 'code_reviewer' || (merger.kind === 'member' && merger.handle === reviewer);
 }
 
 /** The members who may merge: AI members and humans with developer access or more. */
@@ -117,6 +130,9 @@ function MergerControls({ config }: { config: ProjectConfig }) {
     ? (error.details as { issues?: IssueRef[] } | undefined)?.issues
     : undefined;
   const unresolved = issues?.find((issue) => issue.code === 'merger_unresolved');
+  const noteId = useId();
+  const noEffectId = useId();
+  const noEffect = !mergerIsReviewer(shown);
   return (
     <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
       <SelectField
@@ -164,6 +180,29 @@ function MergerControls({ config }: { config: ProjectConfig }) {
           ))}
         </SelectField>
       ) : null}
+      <label className={`${shared.contactRow} ${shared.choiceRow}`}>
+        <input
+          type="checkbox"
+          checked={teamSettingOf(shown, 'mergeAfterReview')}
+          aria-describedby={noEffect ? `${noteId} ${noEffectId}` : noteId}
+          onChange={(event) =>
+            commit((draft) => {
+              draft.team.mergeAfterReview = event.target.checked;
+            })
+          }
+        />
+        <span className={shared.dutyText}>
+          <span>{t('settings.team.mergeAfterReview.question')}</span>
+          <span id={noteId} className={shared.dutyHolders}>
+            {t('settings.team.mergeAfterReview.note')}
+          </span>
+          {noEffect ? (
+            <span id={noEffectId} className={shared.dutyHolders}>
+              {t('settings.team.mergeAfterReview.noEffect')}
+            </span>
+          ) : null}
+        </span>
+      </label>
       {error && !unresolved ? (
         <p role="alert" className={shared.validation}>
           {errorMessage(error)}
@@ -1081,6 +1120,15 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
               <dd>
                 {mergerValue(config)}
                 <p className={shared.help}>{t('settings.team.merger.help')}</p>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('settings.team.mergeAfterReview.readOnlyLabel')}</dt>
+              <dd>
+                {teamSettingOf(config, 'mergeAfterReview')
+                  ? t('settings.team.mergeAfterReview.value.on')
+                  : t('settings.team.mergeAfterReview.value.off')}
+                <p className={shared.help}>{t('settings.team.mergeAfterReview.note')}</p>
               </dd>
             </div>
           </dl>

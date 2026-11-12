@@ -6075,6 +6075,7 @@ export const hu = {
         'Előre húzta a rendszer: {from} → {to}; a fókusz {position}. helye miatt ({title}, {key})',
       task_hand_on_requested: '{requestedBy} végzett; {mover} viszi tovább ide: {to}',
       task_merge_requested: 'Beolvasztásra vár: {merger}.',
+      task_merge_requested_on_approval: 'Jóváhagyással sorba állt a beolvasztás: {startedBy}.',
       task_merge_prioritized: 'Előre vette a beolvasztási sorban. Indok: {reason}',
       task_merge_prioritized_ahead: 'Előre vette a beolvasztási sorban ezek elé: {ahead}. Indok: {reason}',
       task_merged: 'Beolvasztotta a {base} ágba: {commit}{parts}',
@@ -7732,6 +7733,17 @@ export const hu = {
         value: {
           automaticAndAi: 'Az AI-tagok kiosztása is illeszkedik',
           automatic: 'Csak a rendszer választása illeszkedik',
+        },
+      },
+      /** Whether the merger's own approval also queues the merge (PM-1379). */
+      mergeAfterReview: {
+        question: 'Beolvasztás rögtön a jóváhagyás után',
+        note: 'A beolvasztó a `merge_task` hívással olvaszt be. Bekapcsolva, ha ő a kártya kódátnézője is, a jóváhagyása ezt a hívást is megteszi, feltéve, hogy a kártyán nincs nyitott vagy megerősítetlen elfogadási feltétel. Ha a beolvasztás nem állhat sorba, a jóváhagyására kapott válaszból megtudja, miért, és mi a teendője.',
+        noEffect: 'Most nincs hatása: a beolvasztó nem a kódátnéző.',
+        readOnlyLabel: 'Beolvasztás a jóváhagyás után',
+        value: {
+          on: 'Bekapcsolva',
+          off: 'Kikapcsolva',
         },
       },
       /** Who may open a new card (PM-1100). */

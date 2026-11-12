@@ -5,7 +5,13 @@ import { members as fixtureMembers, tasks } from '../mocks/fixtures';
 import { mockIndexes } from '../test/render';
 import { memberStatusView } from './members';
 import { outageEndedToast, outageHeading, outageReason, outageStuckLabel, outageStuckTitle } from './outage';
-import { deriveTaskState, groupOpenInboxByTask, matchesFilter, phaseOrder } from './taskState';
+import {
+  deriveTaskState,
+  groupOpenInboxByTask,
+  groupSubtasksByParent,
+  matchesFilter,
+  phaseOrder,
+} from './taskState';
 import type { TaskStateContext } from './taskState';
 
 const since = '2026-10-08T08:00:00.000Z';
@@ -134,6 +140,7 @@ describe('a card that stands on an outage (PM-468)', () => {
     members,
     openInboxByTask: groupOpenInboxByTask([]),
     tasksByKey: new Map(tasks.map((entry) => [entry.key, entry])),
+    subtasksByParent: groupSubtasksByParent(tasks),
     myHandle: 'owner',
   };
   const card = (patch: Partial<Task>): Task => ({ ...tasks[0]!, ...patch });

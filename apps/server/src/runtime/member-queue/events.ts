@@ -61,6 +61,8 @@ export function wireMemberQueue(deps: {
   providerKeys?.onChange(() => ensureMembers());
   memberQueue.onChange((projectKey, member) => ensureMember(projectKey, member, false));
   events.on('message_waiting', ({ projectKey, handle }) => ensureMember(projectKey, handle));
+  // An involvement (PM-1267) gives the member a card role: its waiting messages wake it without a resend.
+  events.on('member_involved', ({ projectKey, member }) => ensureMember(projectKey, member));
   events.on('session_started', (session) => ensureMember(session.projectKey, session.member));
   events.on('session_idle', (session) => ensureMember(session.projectKey, session.member));
   events.on('session_ended', (session) => ensureMember(session.projectKey, session.member));

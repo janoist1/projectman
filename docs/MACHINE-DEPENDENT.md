@@ -904,10 +904,18 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
   with pending events and more than 90 s of silence. Both sides log `engine link: connected` and
   `engine link: disconnected` at info level (code and cause; never the key or URL). Protocol version
   stays 1 and the wire is unchanged: an old engine with a new cloud is tolerated for 90 s (the old
-  engine reconnects after 45 s when events wait). A new engine judges the link by silence only once
-  it has seen the cloud repeat an acknowledgement (an `ack` equal to the highest sequence of the
-  connection, the welcome's included; a cloud that never repeats one is quiet when idle, so an idle
-  link to an old cloud is left alone instead of reconnecting every few minutes).
+  engine reconnects after 45 s when events wait). A new engine judges the link by silence only for a
+  cloud that announced its heartbeat or was seen repeating one: PM-1346 adds the optional
+  `heartbeatMs` field to `welcome` (the cloud sends `ENGINE_HEARTBEAT_MS`, only to an engine whose
+  hello carries `welcomeHeartbeat: true`, as `deliveryIds` does), so the watchdog is armed
+  from the welcome and a link that goes half-dead right after it (no repeated ack ever arrives) is
+  dropped after `ENGINE_DEAD_AFTER_MS` instead of idling for an hour. Without the field (an older
+  cloud) the engine still waits for an `ack` equal to the highest sequence of the connection, the
+  welcome's included; a cloud that never repeats one is quiet when idle, so an idle link to an old
+  cloud is left alone instead of reconnecting every few minutes. The frames are strict, so an
+  engine older than PM-1346 would reject the new field (`bad_frame`); it never gets it, because its
+  hello lacks `welcomeHeartbeat`. The cloud-first release order therefore needs no engine update
+  first (an old engine keeps the old watchdog until it is updated).
   **Remote engine:** the socket, event buffer and method dispatch run on the engine beside its
   CLIs and files; the registry, auth, idempotency store and human websocket broadcasts stay in the
   cloud. Non-JSON/large data uses purpose-scoped uploads (PM-315), with only a hash and size in
@@ -972,7 +980,14 @@ on|off`. While a session, a merge check or a screenshot run is active the engine
     restart a session of an engine that is not connected yet is handed to that engine's pause. Which sessions hold a
     heavy command comes from `EngineHost.heavyRunSessions` (the engine's heavy-run queue folder). Nothing else crosses.
     A resume that finds the session's engine link down sends no `session.release` and keeps the session's pause row
-    open (`SessionRunner.reaches`, PM-1348); the engine's next connect releases it. The wire contract is unchanged.
+    open (`SessionRunner.reaches`, PM-1348); the engine's next connect releases it. A release that is lost while the
+    call is in flight (the link drops or times out after `session.release` went out, PM-1403) closes the row, so the
+    engine's hello says what it still holds: an additive optional `paused: true` on a `hello.running[]` entry (set only
+    when the session's input is held, `runner/session.ts` `info()`; an older engine sends none and an older hub never
+    sees it from a session that is not paused). `reconcileEngine` (`runtime/sessions/sessions.ts`, fed by
+    `engine-link/remote/index.ts`) calls `release` for a reported paused session that no pause of the hub holds
+    (`isPaused`); one a pause holds is left to the resume. When an engine is revoked (`endEnginePause`), every open
+    pause row of its sessions closes, not only its own pause's rows: no next connect will release them.
   - Offline machine and the question screening (PM-708): the durable queue, the timer and the
     delivery receipt all run on the server. A screened question that waits for the PM's engine stays
     in the inbox with `payload.screening.queue` (`engine_offline`); it raises no owner alert, no
@@ -2105,6 +2120,11 @@ instructions … sandbox-exec: execvp() … exit status 71`, shown as `thread/st
   the last hook name/time, blocking-screen detection and at most 500 characters from the last
   15 terminal rows. Message bodies are not logged separately. This assumes the runner owns
   the terminal and receives the CLI hooks.
+  **Command-line first input (PM-1363):** Codex/NanoGPT prompts passed as process arguments
+  count as delivered only after `UserPromptSubmit`. The engine's input queue fails the wait
+  after `argumentSubmitTimeoutMs`; startup or turn activity alone cannot confirm it.
+  The existing `first_input_sent`, `first_input_failed` and exit events carry the result to
+  the hub; no server/engine protocol change is needed.
   **Idempotent delivery (PM-1205):** the wait for the submit report builds on the timing of these
   loopback hooks. A typed message the CLI did not report within `submitTimeoutMs` is taken as
   unconfirmed when the main agent's turn hooks (or a busy CLI) show it worked, and is otherwise

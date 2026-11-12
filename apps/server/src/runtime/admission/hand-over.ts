@@ -1,4 +1,5 @@
 import {
+  isBusySession,
   isOnLeave,
   LIVE_SESSION_STATES,
   isRefinementStage,
@@ -115,8 +116,7 @@ export class StageHandOver {
     if (session.workItem.type === 'general') return this.resumeGeneral(session, previousState);
     if (session.workItem.type !== 'task') return;
     // Input waits need an answer, not an unsolicited continuation after the process disappeared.
-    if (previousState !== 'starting' && previousState !== 'working' && previousState !== 'waiting_permission')
-      return;
+    if (!previousState || !isBusySession({ state: previousState })) return;
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task || task.status !== 'active') return;
     await this.admission.attempt(

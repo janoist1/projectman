@@ -98,7 +98,7 @@ async function fetchOne(repo: string, upstream: Upstream, timeoutMs: number): Pr
   );
   if (fetched.code !== 0)
     throw new MergeError(
-      'git_failed',
+      'remote_unreachable',
       `fetch failed${fetched.timedOut ? ' (timed out)' : ''}: ${outputTail(fetched.stderr || fetched.stdout, 500)}`,
     );
 }

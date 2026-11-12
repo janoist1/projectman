@@ -166,7 +166,9 @@ import {
   holdersAllow,
   isArchivedTheme,
   isBuiltInRole,
+  isBusySession,
   isLiveSession,
+  isWorkingSession,
   isOnLeave,
   isRequiredProjectManager,
   isOpenTask,
@@ -223,6 +225,7 @@ import {
   startBlock,
   subtaskParentRefusal,
   isTheme,
+  isCollectingTask,
   themeRefusal,
   taskSeq,
   taskWorkOf,
@@ -2872,8 +2875,7 @@ export class MockBackend {
         swapUsedBytes: 0,
         swapTotalBytes: 0,
         sessionsRunning: live.length,
-        sessionsWorking: live.filter((session) => session.state === 'working' || session.state === 'starting')
-          .length,
+        sessionsWorking: live.filter(isWorkingSession).length,
       },
       sessions: live.map((session, index) => ({
         sessionId: session.id,
@@ -4388,6 +4390,7 @@ export class MockBackend {
     });
     return taskWait({
       task,
+      subtasks: this.tasks,
       config: this.config,
       openItems: this.inbox.filter((item) => item.taskKey === task.key && item.state === 'open'),
       workers: waitWorkers(task, this.config, roster),
@@ -6124,6 +6127,8 @@ export class MockBackend {
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
     if (isTheme(task)) return error(409, 'task_is_theme', 'A theme is not started');
     if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
+    if (isCollectingTask(task, this.tasks))
+      return error(409, 'collecting_task_not_startable', 'The work happens on the open sub-cards');
     const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     // Like the server: a person's Start of a card that is not ready to start is refused first (PM-291).
     const block = workStage ? startBlock(task, this.config) : null;
@@ -6801,13 +6806,7 @@ export class MockBackend {
     if (opts.scheduleRun && live.some((s) => s.member === member.handle && s.workItem.type === 'schedule'))
       return 'previous_run_live';
     if (this.memberLoad(member.handle) >= member.capacity) return 'member_at_capacity';
-    if (
-      aiLimitReached(
-        this.config,
-        live.filter((s) => ['starting', 'working', 'waiting_permission'].includes(s.state)).length,
-      )
-    )
-      return 'ai_limit_reached';
+    if (aiLimitReached(this.config, live.filter(isBusySession).length)) return 'ai_limit_reached';
     // Like the server: after the AI limit, before the plan usage (PM-324).
     if (provider === 'nanogpt') {
       const status = this.providerStatus.nanogpt;
@@ -6935,7 +6934,8 @@ export class MockBackend {
   }
 
   private flushTeamMessages(session: Session): void {
-    if (!['idle', 'waiting_input'].includes(session.state)) return;
+    // Not one of the shared groups (busy, engaged, live, working): the states that take a queued message.
+    if (session.state !== 'idle' && session.state !== 'waiting_input') return;
     // Held while the team is paused; the resume flushes them.
     if (this.pauses.isPaused()) return;
     for (const message of this.messages) {
@@ -7405,7 +7405,7 @@ export class MockBackend {
       const row = this.machine.sessions.find((row) => row.sessionId === sessionId)!;
       this.machine.sessions = this.machine.sessions.filter((row) => row.sessionId !== sessionId);
       this.machine.summary.sessionsRunning--;
-      if (row.state === 'working' || row.state === 'starting') this.machine.summary.sessionsWorking--;
+      if (isWorkingSession(row)) this.machine.summary.sessionsWorking--;
       this.machine.closedSessions++;
     }
     return ok();

@@ -135,7 +135,7 @@ export function WhyBox({
         <div className={styles.row}>
           <dt>{t('task.whyBox.waiting')}</dt>
           <dd>
-            {next.long}
+            {wait.reason === 'collecting' ? <span title={next.long}>{next.waiting}</span> : next.long}
             {capacity ? (
               <CapacityList
                 capacity={capacity}

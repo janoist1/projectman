@@ -5,6 +5,23 @@
 The repository's command-line tools (`scripts/`, `apps/server/scripts/`). This file describes the heavy-run queue
 (`scripts/heavy`, with its lock in `apps/server/src/full-test`) and the merge-test runner it schedules.
 
+## Sorted registries and generated barrels (PM-1339)
+
+Run `npm run generate:barrels` from the repository root after adding, removing or renaming a
+source file in `packages/shared/src/` or `apps/server/src/contracts/`, and commit the generated
+`index.ts` files with the source change. Do not edit these barrels by hand. The generator
+(`scripts/barrels/generate.ts`) recursively exports TypeScript source files, excluding tests,
+declarations, snapshots and the root barrel itself. Its explicit shared-helper exclusions preserve
+the existing public API. A new private helper belongs in that exclusion list.
+
+Exports are sorted by extensionless relative module path using JavaScript's default string sort
+(case-sensitive, locale-independent). `ERROR_CODES` in `packages/shared/src/api/error-codes.ts`
+uses the same order by code: insert a new code at its alphabetical position, keeping any code-specific
+comment with it, and add its translations to both web locales. MCP imports in
+`apps/server/src/mcp/tools.ts` are sorted by module path; `TEAM_TOOL_GROUPS` is sorted by constant name.
+`apps/server/test/architecture/registries.test.ts` checks all five registries and compares both
+committed barrels with the generator output; handover-check selects it for changes in these folders.
+
 ## Machine places (PM-332, PM-1278)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest

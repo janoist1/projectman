@@ -64,10 +64,25 @@ const ruleApplies = (rule: SelectionRule, change: HandoverChange): boolean =>
 
 export const SELECTION_RULES: readonly SelectionRule[] = [
   {
+    reason: 'registry tests read both barrel folders and the error-code registry by path',
+    sources: [
+      'packages/shared/src/',
+      'apps/server/src/contracts/',
+      'apps/server/src/mcp/tools.ts',
+      'scripts/barrels/',
+    ],
+    tests: ['apps/server/test/architecture/registries.test.ts'],
+  },
+  {
     reason: 'the architecture tests read the server source folder, the module map and the structure map',
     sources: ['apps/server/', 'scripts/', STRUCTURE_MAP],
     broad: true,
     tests: ['apps/server/test/architecture/'],
+  },
+  {
+    reason: 'the session-state list test reads the web, widget and shared sources by path (PM-1357)',
+    sources: ['apps/web/src/', 'apps/feedback-widget/src/', 'packages/'],
+    tests: ['apps/server/test/architecture/session-state-lists.test.ts'],
   },
   {
     reason: 'the structure map test reads every tracked file of the repository',

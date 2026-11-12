@@ -1,6 +1,7 @@
 import {
   coordinationMemberOf,
   dutyMembers,
+  isLiveSession,
   isOnLeave,
   memberOf,
   ownerHandles,
@@ -59,10 +60,7 @@ export class StructuralReviews {
             member.handle !== coordinationMemberOf(config)?.handle &&
             !sessions.some(
               (s) =>
-                s.member === member.handle &&
-                !s.endedAt &&
-                ['starting', 'working', 'waiting_input', 'waiting_permission', 'idle'].includes(s.state) &&
-                s.workItem.type !== 'general',
+                s.member === member.handle && !s.endedAt && isLiveSession(s) && s.workItem.type !== 'general',
             ),
         )
         .map((member) => ({ member, load: this.deps.admission.memberLoad(config, member.handle) }))

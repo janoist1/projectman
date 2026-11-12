@@ -75,6 +75,7 @@ const TEAM_SECTION = {
   projectManagerMoves: 'team',
   projectManagerLifecycle: 'team',
   prerequisiteOverride: 'team',
+  memberInvolvement: 'team',
   projectManagerAuthority: 'team',
   prioritySetters: 'team',
   complexitySetters: 'team',

@@ -329,6 +329,8 @@ export interface RunningSessionInfo {
   state: SessionState;
   cols: number;
   rows: number;
+  /** The session's input is held by a pause (PM-1403). Set only when true, so an older hub reads the hello as before. */
+  paused?: boolean;
 }
 
 /** Where a paused session stopped (PM-218). */

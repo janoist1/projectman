@@ -10,6 +10,7 @@ import {
   decodeFrame,
   encodeFrame,
   ENGINE_HELLO_TIMEOUT_MS,
+  ENGINE_HEARTBEAT_MS,
   ENGINE_MAX_FRAME_BYTES,
 } from '../src/engine-link';
 import type { EngineFrame, Hello } from '../src/engine-link';
@@ -252,6 +253,15 @@ describe('cloud engine registry and link', () => {
     await vi.waitFor(() => expect(two.closed()).toBe(4403));
     expect(h.app.projectman.engineLinks!.get(engine.engine.id)).toBeNull();
     expect(h.app.projectman.engineRegistry!.list()[0]!.online).toBe(false);
+  });
+
+  it('announces its heartbeat in the welcome only to an engine that advertises it (PM-1346)', async () => {
+    const engine = await create();
+    const old = await handshake(engine.key);
+    expect(old.frames[0]).toMatchObject({ t: 'welcome' });
+    expect(old.frames[0]).not.toHaveProperty('heartbeatMs');
+    const current = await handshake(engine.key, { ...hello, welcomeHeartbeat: true });
+    expect(current.frames[0]).toMatchObject({ t: 'welcome', heartbeatMs: ENGINE_HEARTBEAT_MS });
   });
 
   it('refuses protocol mismatch and oversized frames', async () => {

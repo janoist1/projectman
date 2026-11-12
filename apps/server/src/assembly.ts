@@ -532,7 +532,6 @@ export function createDomain(opts: DomainOptions) {
 
   const timeline = createTimelineService(ctx);
   const superAudit = createSuperAuditService(ctx);
-  const involvements = new InvolvementService(ctx);
   const projects = createProjectService({
     ctx,
     configStore: opts.configStore,
@@ -542,6 +541,7 @@ export function createDomain(opts: DomainOptions) {
     // `engines` is built below, so it is looked up when asked.
     engines: createNewProjectEngines({ engines: () => engines, registry: opts.engineRegistry }),
   });
+  const involvements = new InvolvementService({ ctx, timeline, projects });
   // A session on a remote engine reads a card's attachments from that engine's cache (PM-315).
   const attachmentDirectory = (projectKey: string, taskKey: string) =>
     opts.engineAttachments
@@ -1628,6 +1628,7 @@ export function createDomain(opts: DomainOptions) {
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
       operator: new OperatorTools({
+        involvements,
         systemFeedback,
         structuralReviews,
         operatorPreferences,

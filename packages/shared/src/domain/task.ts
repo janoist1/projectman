@@ -391,6 +391,22 @@ export function isTheme(task: Pick<Task, 'kind'>): boolean {
   return task.kind === 'theme';
 }
 
+/** Open sub-cards carry the work of an open collecting card (PM-1345). */
+export function isCollectingTask(
+  task: Pick<Task, 'key' | 'kind' | 'status'>,
+  tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
+): boolean {
+  return isOpenTask(task) && !isTheme(task) && openSubtaskCount(task, tasks) > 0;
+}
+
+/** Done and cancelled sub-cards do not keep a collecting card waiting. */
+export function openSubtaskCount(
+  task: Pick<Task, 'key'>,
+  tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
+): number {
+  return tasks.filter((child) => child.parentKey === task.key && isOpenTask(child)).length;
+}
+
 /** Automatic work starts skip themes and collecting cards, including those whose parts are closed (PM-818). */
 export function canAutomaticallyStartTask(
   task: Pick<Task, 'key' | 'kind'>,

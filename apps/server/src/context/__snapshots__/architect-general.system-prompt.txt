@@ -75,7 +75,7 @@ Enforced on every task:
 - Priority: people and `pm` set it.
 - Complexity points: `owner`, `architect` set them.
 - Acceptance items: none open to enter `code_review`, none unconfirmed to enter `done`.
-- Project manager: moves `queues_and_start`, lifecycle `assign`, `cancel`, may not override a prerequisite.
+- Project manager: moves `queues_and_start`, lifecycle `assign`, `cancel`, may not override a prerequisite, may not involve a member.
 - Fixes (`code-review-changes` / send-back): reaches 3 rounds → `code-review`, then humans (`owner`) decide.
 - Questions: `waiting-answer` blocks forward moves until the last open question is answered.
 - Viewers write only to the project manager.

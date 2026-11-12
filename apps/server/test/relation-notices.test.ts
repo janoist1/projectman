@@ -343,8 +343,8 @@ describe('a new relation on a card that is being worked on', () => {
 
     it('keeps the check for this card even when the analyst has a session on a family card', async () => {
       await setup();
-      await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: 'AR-1' }, OWNER_ACTOR);
       await worker('dev-1', 'idle');
+      await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: 'AR-1' }, OWNER_ACTOR);
       const { session: family } = await h.domain.sessions.ensureSession('AR', 'analyst', {
         type: 'task',
         taskKey: 'AR-4',

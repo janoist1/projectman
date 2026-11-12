@@ -306,15 +306,17 @@ describe('message delivery under the TestClock', () => {
   });
 
   it('types the messages again after 10 seconds when the first input was not taken', async () => {
-    const { deps, typeInto, control, add, markRecipientDelivered, logger } = setup();
+    const { deps, typeInto, control, add, markRecipientDelivered, logger, waiting } = setup();
     add('m1');
+    add('m2');
     await run(deps, (delivery) =>
       Effect.gen(function* () {
         control.typeInto = 'ok';
-        const messages = [messageOf('m1')];
+        const messages = [messageOf('m1'), messageOf('m2')];
         yield* delivery.deliverWithFirstInput('dev', messages, Promise.resolve(false), session);
         yield* settled;
         expect(markRecipientDelivered).not.toHaveBeenCalled();
+        expect([...waiting.keys()]).toEqual(['m1', 'm2']);
         expect(logger.warn).toHaveBeenCalledWith(
           { sessionId: 'ses_1', handle: 'dev' },
           'team messages in the first input not taken',
@@ -324,6 +326,8 @@ describe('message delivery under the TestClock', () => {
         yield* advance(1);
         expect(typeInto).toHaveBeenCalledTimes(1);
         expect(markRecipientDelivered).toHaveBeenCalledWith('m1', 'dev', 'ses_1');
+        expect(markRecipientDelivered).toHaveBeenCalledWith('m2', 'dev', 'ses_1');
+        expect(waiting.size).toBe(0);
       }),
     );
   });

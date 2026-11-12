@@ -25,7 +25,7 @@ import {
   sessionWorkItemOf,
   questionPayloadOf,
   stageOf,
-  stageOwners,
+  cardStageOwners,
   teamMessageRecipientRefusal,
   uiPlaceKey,
   uiPlaceRefusal,
@@ -360,7 +360,7 @@ export class Messaging {
       // testers who were asked: that is a new round, not a branch that moved behind their back.
       // It comes first: an offline engine (`engine_offline`) refuses the request before any round starts.
       const stage = stageOf(config, task.stageId);
-      if (stage && stageOwners(config, stage).some((handle) => recipients.includes(handle)))
+      if (stage && cardStageOwners(config, stage, task).some((handle) => recipients.includes(handle)))
         await this.tasks.repinReview(projectKey, task.key, from).catch((err: unknown) => {
           if (err instanceof DomainError && err.code === 'engine_offline') throw err;
           this.ctx.logger.warn(

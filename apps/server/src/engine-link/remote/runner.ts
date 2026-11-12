@@ -197,8 +197,8 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
     });
   };
 
-  const statusKey = (engineId: EngineId, provider: AgentProvider, member?: string) =>
-    `${engineId}\0${provider}\0${member ?? ''}`;
+  // The login state is the engine's and the provider's, whoever asks: one cached answer for all members.
+  const statusKey = (engineId: EngineId, provider: AgentProvider) => `${engineId}\0${provider}`;
 
   const runner: RemoteRunner = {
     engineOf,
@@ -413,7 +413,7 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
           checkedAt: new Date(now()).toISOString(),
           detail: 'The engine is not connected',
         };
-      const key = statusKey(engineId, provider, opts?.member);
+      const key = statusKey(engineId, provider);
       const cached = statuses.get(key);
       // The cache keeps the engine's own answer: the key fact is added on every read, so saving or
       // deleting the key shows at the next read.

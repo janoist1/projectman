@@ -3013,6 +3013,13 @@ migrations.push({
 });
 migrations.push({
   version: 154,
+  name: 'task stage owner pick',
+  // PM-1395: whom a step stage with a small-card rule gave the card to on entry (JSON `StageOwnerPick`); NULL:
+  // the stage has no such rule. No old row needs a backfill: every card read before keeps the stage's owners.
+  sql: `ALTER TABLE tasks ADD COLUMN stage_owner_pick TEXT;`,
+});
+migrations.push({
+  version: 155,
   name: 'start failures',
   // PM-1335: the failed session starts of a member at a place, so that the backoff and the stop at the limit
   // survive a restart. `retry_at` is when the next automatic start may run (NULL once stopped); `stopped_at`

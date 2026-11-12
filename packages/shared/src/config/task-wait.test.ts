@@ -123,6 +123,57 @@ function wait(task: Task, over: Partial<TaskWaitInput> = {}, options: Options = 
 }
 
 type StartWaiting = NonNullable<Task['startWaiting']>;
+
+describe('collecting cards (PM-1345)', () => {
+  const subtasks = [
+    ...Array.from({ length: 10 }, () => ({ parentKey: 'AC-1', status: 'done' as const })),
+    ...Array.from({ length: 2 }, () => ({ parentKey: 'AC-1', status: 'cancelled' as const })),
+    ...Array.from({ length: 3 }, () => ({ parentKey: 'AC-1', status: 'active' as const })),
+  ];
+
+  it('waits for open sub-cards instead of offering a start', () => {
+    expect(wait(card({ stageId: 'ready', labels: ['scope-ok'] }), { subtasks })).toMatchObject({
+      reason: 'collecting',
+      openSubtaskCount: 3,
+      next: [],
+      toStageId: null,
+    });
+  });
+
+  it('replaces missing-label and unrefined start hints', () => {
+    expect(wait(card({ stageId: 'backlog', labels: [] }), { subtasks }, { refines: true })?.reason).toBe(
+      'collecting',
+    );
+  });
+
+  it.each([
+    ['working', {}, { workers: [{ handle: 'dev-1', since: NOW, handingOff: false }] }],
+    ['inbox', {}, { openItems: [item()] }],
+    ['held', { labels: ['waiting-answer'] }, {}],
+    ['refinement', { stageId: 'backlog', labels: ['refine'] }, {}],
+    ['approval', { stageId: 'merge', labels: [] }, {}],
+  ] satisfies [string, Partial<Task>, Partial<TaskWaitInput>][])(
+    'keeps an actionable %s ahead of collecting',
+    (reason, overrides, input) => {
+      expect(wait(card(overrides), { subtasks, ...input }, { refines: true })?.reason).toBe(reason);
+    },
+  );
+
+  it('ignores a stale start wait on a collector', () => {
+    expect(wait(card({ startWaiting: { reason: 'no_free_member', since: NOW } }), { subtasks })?.reason).toBe(
+      'collecting',
+    );
+  });
+
+  it('returns to the ordinary state when every sub-card closes, and collects reopened ones again', () => {
+    const ready = card({ stageId: 'ready', labels: ['scope-ok'] });
+    const closed = subtasks.map((child) => ({ ...child, status: 'done' as const }));
+    expect(wait(ready, { subtasks: closed })?.reason).toBe('ready');
+    expect(wait(ready, { subtasks: [...closed, { parentKey: ready.key, status: 'active' }] })?.reason).toBe(
+      'collecting',
+    );
+  });
+});
 type FixLimit = NonNullable<Task['fixLimit']>;
 
 /** A card held at the fix round limit, decided by the lead by default. */

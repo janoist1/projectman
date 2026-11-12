@@ -1,7 +1,9 @@
 import { wakesFor } from '../../core/messages';
 import { assertIntegratorAccess, assertSuperMutation } from '../../kernel';
 import {
+  isBusySession,
   isLiveSessionState,
+  isWorkingSession,
   LIVE_SESSION_STATES,
   SESSION_CHAT_WINDOW,
   workMetadataAfterChat,
@@ -23,18 +25,20 @@ import {
   isWorkPaused,
   memberOf,
   memberStorageHandle,
+  repoOf,
   permissionDecidersNow,
   RETIRED_OPERATOR_HANDLE,
   messageRoute,
   sameWorkItem,
   sessionWorkItemOf,
   stageOf,
-  stageOwners,
+  cardStageOwners,
 } from '@projectman/shared';
 import type {
   Actor,
   AgentProvider,
   AiMemberConfig,
+  ChangedFiles,
   ChatItem,
   EngineId,
   HandoffSummary,
@@ -115,8 +119,6 @@ import { memberAudience } from './audience';
 import { SessionContextInput } from './context-input';
 
 export { LIVE_SESSION_STATES } from '@projectman/shared';
-/** A turn is in progress: these count against `maxConcurrentAi`. */
-const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission'];
 
 export { MESSAGE_SEPARATOR } from './launch';
 export { COMPACT_MIN_CONTEXT_TOKENS } from './compaction';
@@ -719,8 +721,9 @@ export class SessionOrchestrator {
 
   /** Running AI sessions with a turn in progress, across all projects. */
   busyCount(): number {
-    return this.ctx.repos.sessions.listInStates(BUSY_SESSION_STATES).filter((s) => this.isRunning(s.id))
-      .length;
+    return this.ctx.repos.sessions
+      .listInStates(LIVE_SESSION_STATES)
+      .filter((s) => isBusySession(s) && this.isRunning(s.id)).length;
   }
 
   /**
@@ -798,6 +801,29 @@ export class SessionOrchestrator {
     if (!effectiveRepo(config, task)) return;
     const workspaces = this.workspacesOf(this.cardEngineId(config.project.key, task));
     await workspaces?.prepareMergeSource(config, task, commit);
+  }
+
+  /**
+   * The files `commit` of the task's branch changes against the default branch (PM-1378): the stage
+   * owner pick reads them before a small card enters a review step. Null when they cannot be read
+   * (no repository, engine offline, a refused hand-over, an unknown commit); never throws.
+   */
+  async changedFiles(config: ProjectConfig, task: Task, commit: string): Promise<ChangedFiles> {
+    const repo = repoOf(config, effectiveRepo(config, task));
+    if (!repo) return null;
+    try {
+      await this.prepareMergeSource(config, task, commit);
+      const merger = this.deps.engines.get(this.cardEngineId(config.project.key, task))?.merger;
+      if (!merger) return null;
+      const [result] = await merger.changedPaths(
+        { projectKey: config.project.key, repo: repo.name },
+        { base: repo.defaultBranch, items: [{ id: task.key, at: { commit } }] },
+      );
+      return result?.ok ? { paths: result.paths, truncated: result.truncated } : null;
+    } catch (err) {
+      this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read the changed files of the task branch');
+      return null;
+    }
   }
 
   /**
@@ -1485,11 +1511,16 @@ export class SessionOrchestrator {
    * stopped; and the engine's folders of other sessions are removed. A session whose start is still being
    * answered (`starting`) is neither. Run for every connect, a resumed link too: the engine may have
    * restarted in between. Safe to repeat.
+   *
+   * `paused` are the reported sessions whose input the engine holds for a pause (PM-1403). One that no pause of this
+   * server holds (`isPaused`) is let go: the release that should have ended the hold was lost with the link. A
+   * session a pause holds (the engine's own, a team's) is left to the resume.
    */
   async reconcileEngine(
     engineId: EngineId,
     reported: ReadonlySet<string>,
     starting: (sessionId: string) => boolean,
+    paused: ReadonlySet<string> = new Set(),
   ): Promise<void> {
     for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
       if (engineIdOf(session) !== engineId || reported.has(session.id) || starting(session.id)) continue;
@@ -1505,6 +1536,16 @@ export class SessionOrchestrator {
       await this.deps.runner.stop(sessionId, { force: true }).catch((err: unknown) => {
         this.ctx.logger.warn({ err, engineId, sessionId }, 'could not stop an unknown session of an engine');
       });
+    }
+    for (const sessionId of paused) {
+      const session = this.ctx.repos.sessions.get(sessionId);
+      if (!session || !isLiveSessionState(session.state) || starting(sessionId)) continue;
+      if (this.isPaused(session)) continue;
+      this.ctx.logger.warn(
+        { engineId, sessionId },
+        'letting go a session the engine holds for a pause that ended',
+      );
+      this.deps.runner.release(sessionId);
     }
     const folders = this.deps.engines.get(engineId)?.sessionFolders;
     if (!folders) return;
@@ -1567,7 +1608,7 @@ export class SessionOrchestrator {
   cardWorkers(projectKey: string, task: Task, config: ProjectConfig): Session[] {
     const stage = stageOf(config, task.stageId);
     return cardWorkerSessions(
-      stage && { kind: stage.kind, owners: stageOwners(config, stage) },
+      stage && { kind: stage.kind, owners: cardStageOwners(config, stage, task) },
       task,
       this.ctx.repos.sessions.list(projectKey, { taskKey: task.key }),
     ).filter((s) => this.isRunning(s.id));
@@ -2086,7 +2127,7 @@ export class SessionOrchestrator {
   private recomputeMemberState(projectKey: string, handle: string): void {
     const live = this.ctx.repos.sessions.listLive(projectKey, handle);
     const waiting = live.find((s) => s.state === 'waiting_permission' || s.state === 'waiting_input');
-    const working = live.find((s) => s.state === 'working' || s.state === 'starting');
+    const working = live.find(isWorkingSession);
     let status: MemberStatus = 'idle';
     let activity: string | null = null;
     if (waiting) {

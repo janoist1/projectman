@@ -73,6 +73,8 @@ export class StartFailures {
   private readonly awaitsFirstTurn: (sessionId: string) => boolean;
   private released: ((projectKey: string, member: string) => void) | undefined;
   private reachedLimit: ((projectKey: string, member: string, hold: StartHold) => void) | undefined;
+  /** Whether the table may hold a row: false (the usual case) spares a query per start; null: not read yet. */
+  private rows: boolean | null = null;
 
   constructor(deps: {
     ctx: Pick<DomainContext, 'repos' | 'now'>;
@@ -127,6 +129,7 @@ export class StartFailures {
         : new Date(this.ctx.now().getTime() + startRetryDelayMs(failures)).toISOString(),
       stoppedAt: stopped ? now : null,
     };
+    this.rows = true;
     repo.save(record);
     const hold = this.holdOfRecord(record);
     if (stopped && existing?.stoppedAt == null) this.reachedLimit?.(target.projectKey, target.member, hold);
@@ -135,6 +138,7 @@ export class StartFailures {
 
   /** How the place holds now; none: the next automatic start may go ahead. */
   holdOf(target: Pick<StartFailureTarget, 'projectKey' | 'member' | 'place'>): StartHold | null {
+    if (!this.mayHoldRows()) return null;
     const row = this.ctx.repos.startFailures.get(target.projectKey, target.member, placeOf(target.place));
     if (!row) return null;
     if (row.stoppedAt === null && row.retryAt !== null && row.retryAt <= isoNow(this.ctx)) return null;
@@ -150,6 +154,7 @@ export class StartFailures {
     target: Pick<StartFailureTarget, 'projectKey' | 'member' | 'place'>,
     automatic: boolean,
   ): void {
+    if (!this.mayHoldRows()) return;
     const repo = this.ctx.repos.startFailures;
     const row = repo.get(target.projectKey, target.member, placeOf(target.place));
     if (!row) return;
@@ -171,6 +176,7 @@ export class StartFailures {
 
   /** The member's session at the place works: the failures are over. */
   succeeded(target: Pick<StartFailureTarget, 'projectKey' | 'member' | 'place'>): void {
+    if (!this.mayHoldRows()) return;
     this.ctx.repos.startFailures.remove(target.projectKey, target.member, placeOf(target.place));
   }
 
@@ -232,6 +238,11 @@ export class StartFailures {
   /** The member's handle changed: the counts of the old handle are of no use. */
   memberRenamed(projectKey: string, from: string): void {
     this.ctx.repos.startFailures.removeMember(projectKey, from);
+  }
+
+  private mayHoldRows(): boolean {
+    this.rows ??= this.ctx.repos.startFailures.list().length > 0;
+    return this.rows;
   }
 
   private holdOfRecord(row: StartFailureRecord): StartHold {

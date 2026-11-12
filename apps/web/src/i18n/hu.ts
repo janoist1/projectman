@@ -1869,6 +1869,8 @@ export const hu = {
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       project_manager_lifecycle_refused:
         'A projekt beállításai ezt a kártyaműveletet nem engedik a Projektmenedzsernek.',
+      member_involvement_refused:
+        'A projekt beállításai szerint tagot a kártyára csak ember vonhat be: kérj meg egy embert, hogy írjon a tagnak.',
       builtin_role: 'A beépített szerep nem módosítható.',
       role_id_mismatch: 'A szerep azonosítója nem egyezik.',
       not_human_member: 'Ez nem emberi tag.',
@@ -1883,6 +1885,7 @@ export const hu = {
       prerequisite_open: 'A kártya előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
       task_closed: 'Ez a kártya már lezárult.',
+      collecting_task_not_startable: 'Ez gyűjtőkártya: a munka az alkártyáin folyik, ezért nem indítható.',
       complexity_forbidden: 'A pontot nem módosíthatod.',
       complexity_points_invalid: 'A pont csak 1, 2, 3, 5, 8 vagy 13 lehet.',
       complexity_limit_not_developer: 'Határ csak fejlesztő tagnak állítható.',
@@ -2571,6 +2574,7 @@ export const hu = {
       /** The short row text per reason; {name} etc. are filled by the code. */
       short: {
         startOffer: 'elindítja (Fejlesztésbe mozgatja)',
+        collecting: '{count} alkártya lezárására',
         inbox: {
           question: 'válaszol egy kérdésre',
           permission: 'engedélyt ad',
@@ -2616,6 +2620,7 @@ export const hu = {
       /** The box's "Mire vár" sentences that the start text does not already say. */
       long: {
         capacity: 'Most egy másik munkán dolgozik. Amint végez, ez a kártya következik.',
+        collecting: 'A munka az alkártyákon folyik; ez a kártya nem indul el.',
         readyHold:
           'A kártya indítható, de most szándékosan vár. Magától sorra kerül, amint a feltétel megszűnik.',
         startOffer: 'A kártya indítható, és van hozzá szabad fejlesztő. A rendszer szólt, hogy indítsa el.',
@@ -2643,6 +2648,7 @@ export const hu = {
       },
       todo: {
         startOffer: 'Mozgasd a kártyát a Fejlesztésbe; a fejlesztőt a rendszer választja.',
+        collecting: 'Semmit: amikor az utolsó alkártyája is lezárul, ez a kártya magától lezárul.',
         auto: 'Semmit: magától sorra kerül. Ha sürgős, a Csapat oldalon látod, mi foglalja.',
         capacity: 'Semmit. {hint}',
         nothing: 'Semmit: magától halad.',
@@ -2742,6 +2748,7 @@ export const hu = {
     fixLimitYou: 'Rád vár: döntés · {rounds} javítási kör után',
     queuedFor: 'Sorra kerül: {stage}',
     ready: 'Indítható',
+    collecting: '{count} alkártya nyitott',
     prerequisite: 'Előfeltételre vár',
     /** No article or suffix after the key: its letters and number differ by project. */
     prerequisiteOn: 'Vár · {ref}',
@@ -6100,6 +6107,7 @@ export const hu = {
         'Előre húzta a rendszer: {from} → {to}; a fókusz {position}. helye miatt ({title}, {key})',
       task_hand_on_requested: '{requestedBy} végzett; {mover} viszi tovább ide: {to}',
       task_merge_requested: 'Beolvasztásra vár: {merger}.',
+      task_merge_requested_on_approval: 'Jóváhagyással sorba állt a beolvasztás: {startedBy}.',
       task_merge_prioritized: 'Előre vette a beolvasztási sorban. Indok: {reason}',
       task_merge_prioritized_ahead: 'Előre vette a beolvasztási sorban ezek elé: {ahead}. Indok: {reason}',
       task_merged: 'Beolvasztotta a {base} ágba: {commit}{parts}',
@@ -6286,6 +6294,7 @@ export const hu = {
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
       member_renamed: 'Azonosító átnevezve: {from} → {to}',
+      member_involved: 'Bevonta a kártyára: {member}. Indok: {reason}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',
       config_changed: 'Beállítás módosítva: {message}',
       focus_added: 'Fókuszba tette: {title}, {position}. hely',
@@ -7762,6 +7771,17 @@ export const hu = {
           automatic: 'Csak a rendszer választása illeszkedik',
         },
       },
+      /** Whether the merger's own approval also queues the merge (PM-1379). */
+      mergeAfterReview: {
+        question: 'Beolvasztás rögtön a jóváhagyás után',
+        note: 'A beolvasztó a merge_task hívással olvaszt be. Bekapcsolva, ha ő a kártya kódátnézője is, a jóváhagyása ezt a hívást is megteszi, feltéve, hogy a kártyán nincs nyitott vagy megerősítetlen elfogadási feltétel. Ha a beolvasztás nem állhat sorba, a jóváhagyására kapott válaszból megtudja, miért, és mi a teendője.',
+        noEffect: 'Most nincs hatása: a beolvasztó nem a kódátnéző.',
+        readOnlyLabel: 'Beolvasztás a jóváhagyás után',
+        value: {
+          on: 'Bekapcsolva',
+          off: 'Kikapcsolva',
+        },
+      },
       /** Who may open a new card (PM-1100). */
       taskCreate: {
         title: 'Új kártya nyitása',
@@ -8086,6 +8106,10 @@ export const hu = {
       mover_not_member: 'A kártyákat továbbvivő ember már nem tagja a projektnek.',
       mover_cannot_move: 'A kártyákat továbbvivő nem mozgathat kártyát.',
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
+      small_cards_not_step: 'A kis kártyák szabálya csak lépés fajtájú lépésen állhat.',
+      small_cards_unknown_owner: 'A kis kártyák gazdája nem tagja a projektnek.',
+      small_cards_invalid_path:
+        'Hibás útvonalminta: nem lehet üres, ‹/›-rel kezdődő, ‹.› vagy ‹..› szegmenses, és legfeljebb 200 karakter.',
       review_test_runner_github:
         'A GitHub Actions futtatóhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',
       compute_jobs_github: 'A gépi feladatokhoz a repónak meg kell adni a GitHub tulajdonos/név párját.',

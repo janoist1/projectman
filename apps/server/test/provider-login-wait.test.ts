@@ -114,7 +114,8 @@ describe('a start while the provider is not logged in', () => {
     ).toMatchObject({ provider: 'codex' });
 
     state.loggedIn = true;
-    await h.domain.outages.check();
+    // A failing provider is not asked again by the periodic check for a while; a check now is.
+    await h.domain.outages.recheckProvider('codex');
     await waitFor(() => h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key }));
     expect(h.runner.started).toHaveLength(1);
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();

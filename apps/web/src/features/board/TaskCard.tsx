@@ -310,7 +310,7 @@ export function TaskCard({
               </span>
             ))}
           </span>
-        ) : state.next ? (
+        ) : state.next && state.wait?.reason !== 'collecting' ? (
           <NextLine
             next={state.next}
             className={styles.statusText}

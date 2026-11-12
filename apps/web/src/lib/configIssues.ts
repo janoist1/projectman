@@ -52,6 +52,9 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   mover_not_member: 'settings.issues.mover_not_member',
   mover_cannot_move: 'settings.issues.mover_cannot_move',
   mover_on_leave: 'settings.issues.mover_on_leave',
+  small_cards_not_step: 'settings.issues.small_cards_not_step',
+  small_cards_unknown_owner: 'settings.issues.small_cards_unknown_owner',
+  small_cards_invalid_path: 'settings.issues.small_cards_invalid_path',
 };
 
 function isInvariantCode(code: string): code is ConfigIssue['code'] {

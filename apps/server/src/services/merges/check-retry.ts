@@ -1,4 +1,4 @@
-import type { CheckInfraCause, MergeCheckRunner } from '@projectman/shared';
+import type { CheckInfraCause, MergeCheckRunner, MergeRetryCause } from '@projectman/shared';
 import type { FullTestResult } from '../../contracts';
 
 const MERGE_CHECK_ATTEMPTS = 4;
@@ -7,11 +7,41 @@ export const GITHUB_RUNNER_OUTAGE_MS = 30 * 60_000;
 
 export interface MergeCheckRetry {
   attempt: number;
-  cause: CheckInfraCause;
+  cause: MergeRetryCause;
   at: string;
   runner: MergeCheckRunner;
   lastRunId: string;
   lastUrl?: string;
+}
+
+/**
+ * The next attempt after an unreachable remote (same attempts and delays as a check's); null when they
+ * are used up. The row waits holding its repository's queue: every other card needs the same remote.
+ */
+export function nextRemoteAttempt(
+  previous: MergeCheckRetry | undefined,
+  now: Date,
+): { kind: 'retry'; retry: MergeCheckRetry } | { kind: 'exhausted'; attempts: number } {
+  const attempt = (previous?.cause === 'remote_unreachable' ? previous.attempt : 1) + 1;
+  if (attempt > MERGE_CHECK_ATTEMPTS) return { kind: 'exhausted', attempts: attempt - 1 };
+  return {
+    kind: 'retry',
+    retry: {
+      attempt,
+      cause: 'remote_unreachable',
+      at: new Date(now.getTime() + MERGE_CHECK_RETRY_DELAYS_MS[attempt - 2]!).toISOString(),
+      runner: 'engine',
+      lastRunId: '',
+    },
+  };
+}
+
+export function holdsRepoQueue(row: { retry?: Pick<MergeCheckRetry, 'cause'> }): boolean {
+  return row.retry?.cause === 'remote_unreachable';
+}
+
+export function remoteRetryNote(retry: MergeCheckRetry, message: string): string {
+  return `The remote was unreachable (${message}); attempt ${retry.attempt} of ${MERGE_CHECK_ATTEMPTS} starts at ${retry.at}. The repository's other merges wait for it.`;
 }
 
 export function nextCheckAttempt(input: {
@@ -27,7 +57,8 @@ export function nextCheckAttempt(input: {
   | { kind: 'exhausted'; attempts: number; cause: CheckInfraCause }
   | null {
   if (input.result.outcome !== 'error' || !input.result.infra) return null;
-  const attempt = (input.previous?.attempt ?? 1) + 1;
+  const previous = input.previous?.cause === 'remote_unreachable' ? undefined : input.previous;
+  const attempt = (previous?.attempt ?? 1) + 1;
   if (attempt > MERGE_CHECK_ATTEMPTS)
     return { kind: 'exhausted', attempts: attempt - 1, cause: input.result.infra };
   const fallback = input.ranOn === 'github_actions' && input.fallback;

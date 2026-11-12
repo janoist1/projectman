@@ -6,6 +6,7 @@ import {
   ProjectManagerLifecycleAction,
   projectManagerLifecycleOf,
   taskCreateAccessOf,
+  teamSettingOf,
   DEFAULT_OWNER_DECISION_TOPICS,
 } from '@projectman/shared';
 import type { ProjectConfig, PatchConfigRequest } from '@projectman/shared';
@@ -77,6 +78,11 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     (draft.team.assigneeFit ?? 'automatic') !== (saved.team.assigneeFit ?? 'automatic')
       ? (draft.team.assigneeFit ?? 'automatic')
       : undefined;
+  // The merge-after-approval switch goes only when it differs from the saved one (PM-1379); a missing value is off.
+  const mergeAfterReview =
+    teamSettingOf(draft, 'mergeAfterReview') !== teamSettingOf(saved, 'mergeAfterReview')
+      ? teamSettingOf(draft, 'mergeAfterReview')
+      : undefined;
   // The contacts go as the whole list when it changed, an empty one too: a missing field keeps the stored list.
   const contacts = draft.team.contacts ?? [];
   const contactsChanged = JSON.stringify(contacts) !== JSON.stringify(saved.team.contacts ?? []);
@@ -99,6 +105,7 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
       : {}),
     ...(viewerRecipients ? { viewerRecipients } : {}),
     ...(assigneeFit ? { assigneeFit } : {}),
+    ...(mergeAfterReview !== undefined ? { mergeAfterReview } : {}),
     ...(repoMerge.length ? { repoMerge } : {}),
     limits: {
       ...draft.team.limits,

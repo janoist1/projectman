@@ -9,7 +9,7 @@ import { abortable, runFork } from '../../kernel';
 import type { MergeRun } from './deps';
 import type { MergeSlotPeer } from './ports';
 import type { MergeSteps } from './steps';
-import { waitingForRetry } from './check-retry';
+import { holdsRepoQueue, waitingForRetry } from './check-retry';
 
 export type MergeQueueDeps = {
   ctx: Pick<DomainContext, 'repos' | 'logger' | 'now'>;
@@ -101,9 +101,16 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
           const key = `${row.projectKey}:${row.repo}`;
           if (!recovering.has(key)) recovering.set(key, row.id);
         }
+      // A row waiting for the remote holds its repository's queue: every other card needs the same remote.
+      const holding = new Map<string, string>();
+      for (const row of queued) {
+        const key = `${row.projectKey}:${row.repo}`;
+        if (holdsRepoQueue(row) && !holding.has(key)) holding.set(key, row.id);
+      }
       for (const row of queued) {
         if (waitingForRetry(row, now)) continue;
         const key = `${row.projectKey}:${row.repo}`;
+        if (holding.has(key) && holding.get(key) !== row.id) continue;
         if (recovering.has(key) && recovering.get(key) !== row.id) continue;
         const task = deps.tasks.find(row.projectKey, row.taskKey);
         if (

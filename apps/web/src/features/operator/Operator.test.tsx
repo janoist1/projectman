@@ -16,6 +16,7 @@ import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
+import { showOnScreen } from '../../test/intersection';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { operatorSummaryFixture, operatorMessageApprovalFixture } from '../../mocks/fixtures';
 import { TaskDrawer } from '../board/TaskDrawer';
@@ -269,6 +270,25 @@ describe('the Operator panel', () => {
     fireEvent.keyDown(composer, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(document.activeElement).toBe(operator);
+  });
+
+  it('marks a reply read only when it has been on the screen, not when the panel opens (PM-1386)', async () => {
+    const project = mockProject();
+    project.backend.messages = [];
+    project.backend.sendTeamMessage('pm', ['owner'], null, 'Summary below the fold');
+    renderLayout(project);
+    fireEvent.click(await button());
+    const panel = await screen.findByRole('dialog', { name: operatorName(project) });
+    await within(panel).findByText('Summary below the fold');
+    // The label sits at the start of the message, not in an empty strip before it.
+    const markOf = () => within(panel).queryByText(t('messages.thread.unread'));
+    const reads = () =>
+      project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(reads()).toHaveLength(0);
+    showOnScreen(markOf()!);
+    await waitFor(() => expect(reads()).toHaveLength(1), { timeout: 3000 });
+    await waitFor(() => expect(markOf()).toBeNull());
   });
 
   it('has no call-back button: the Operator is never on leave', async () => {
@@ -1000,6 +1020,23 @@ describe('a signal the Operator raised', () => {
     expect(
       within(rows[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.accept') }),
     ).toHaveProperty('disabled', false);
+  });
+
+  it('reads the message of a signal card once the label in its header has been on the screen (PM-1386)', async () => {
+    const project = mockProject();
+    const message = presenting(project);
+    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody', messageId: message.id })];
+    renderLayout(project);
+    fireEvent.click(await button());
+    const card = (await screen.findByRole('button', { name: t('operator.signal.accept') })).closest(
+      'article',
+    )!;
+    const reads = () =>
+      project.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/messages/read'));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(reads()).toHaveLength(0);
+    showOnScreen(within(card).getByText(t('messages.thread.unread')));
+    await waitFor(() => expect(reads()).toHaveLength(1), { timeout: 3000 });
   });
 
   it('says yes with a visible message that names the signal', async () => {

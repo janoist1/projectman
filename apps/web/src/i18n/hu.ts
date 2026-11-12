@@ -6991,8 +6991,8 @@ export const hu = {
   },
 
   messages: {
-    readFailed: 'Nem sikerült olvasottnak jelölni.',
     new: 'Új üzenet',
+    readFailed: 'Nem sikerült olvasottnak jelölni.',
     recipients: 'Címzettek',
     contactsOnlyHint: 'Csak a kapcsolattartóknak írhatsz.',
     managerOnlyHint: 'Csak a projektmenedzsernek írhatsz.',

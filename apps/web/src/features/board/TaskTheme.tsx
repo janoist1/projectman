@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import { isArchivedTheme, isOpenTask } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import type { BoardCard } from '@projectman/shared';
 import { useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { useToast } from '../../components/toastContext';
@@ -17,7 +17,7 @@ import styles from './TaskLifecycle.module.css';
  * open themes (saved the moment it changes); a collecting card says that its subtasks follow. A subtask
  * reads its collecting card's theme and cannot change it. Shown only when the project has a theme.
  */
-export function TaskTheme({ task, tasks }: { task: Task; tasks: readonly Task[] }) {
+export function TaskTheme({ task, tasks }: { task: BoardCard; tasks: readonly BoardCard[] }) {
   const { key, can } = useProject();
   const cardLink = useCardLink();
   const drawerBase = useDrawerBase();

@@ -1,6 +1,6 @@
 import { isTheme } from '@projectman/shared';
 import type { LabelView } from '@projectman/shared';
-import type { BoardColumnView, Task } from '@projectman/shared';
+import type { BoardCard, BoardColumnView } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isGateBlocked } from '../../lib/errors';
@@ -11,7 +11,7 @@ import type { PipelineIndex } from '../../lib/pipeline';
 import { isTaskClosed } from '../../lib/taskState';
 import { openPrerequisiteKeys } from './PrerequisiteWarning';
 
-export function canMoveTask(task: Task, allowed: boolean): boolean {
+export function canMoveTask(task: BoardCard, allowed: boolean): boolean {
   return allowed && !isTaskClosed(task) && !isTheme(task);
 }
 
@@ -23,7 +23,7 @@ export function enteredStages(pipeline: PipelineIndex, from: string, to: string)
 }
 
 /** Columns may contain several stages: dropping enters their first stage in pipeline order. */
-export function dropStage(task: Task, column: BoardColumnView, pipeline: PipelineIndex): string | null {
+export function dropStage(task: BoardCard, column: BoardColumnView, pipeline: PipelineIndex): string | null {
   if (pipeline.columnOfStage.get(task.stageId)?.id === column.id) return null;
   return pipeline.stages.find((stage) => pipeline.columnOfStage.get(stage.id)?.id === column.id)?.id ?? null;
 }
@@ -34,10 +34,10 @@ export function dropStage(task: Task, column: BoardColumnView, pipeline: Pipelin
  * prerequisite it would rather wait. Empty when the move starts nothing, or nothing is open.
  */
 export function prerequisitesToWarnAbout(
-  task: Task,
+  task: BoardCard,
   stageId: string,
   pipeline: PipelineIndex,
-  tasks: readonly Task[],
+  tasks: readonly BoardCard[],
 ): string[] {
   if (task.assignee || pipeline.stageById.get(stageId)?.kind !== 'work') return [];
   return openPrerequisiteKeys(task, tasks);

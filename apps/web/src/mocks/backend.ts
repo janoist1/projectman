@@ -10,6 +10,7 @@ import {
   ACCEPTANCE_OPEN_LABEL,
   ACCEPTANCE_UNCONFIRMED_LABEL,
   acceptanceLabels,
+  boardCard,
   acceptanceRefusal,
   pageCommentThreads,
   replyParentOf,
@@ -2158,7 +2159,7 @@ export class MockBackend {
         ...clone(label),
         holders: labelHolders(this.config, label),
       })),
-      tasks: clone(this.tasks),
+      tasks: clone(this.tasks).map(boardCard),
       members: this.members.filter((member) => member.status !== 'retired').map((m) => this.viewOf(m)),
       openInboxCount: this.inbox.filter(
         (item) =>

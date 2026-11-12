@@ -2412,6 +2412,105 @@ describe('member initiated merge', () => {
     });
   });
 
+  describe('the merger approving the card queues its merge (PM-1379)', () => {
+    const mergerCr = (mergeAfterReview: boolean) => (config: ProjectConfig) => {
+      config.team.merger = { kind: 'code_reviewer' };
+      config.team.mergeAfterReview = mergeAfterReview;
+    };
+    // `cr` owns the code review stage: its label event makes it the card's reviewer, so also its merger.
+    const approve = async (handle = 'cr') => {
+      h!.repos.tasks.update(task().id, { labels: [] });
+      await h!.domain.tasks.update('AR', 'AR-1', { addLabels: ['code-review-ok'] }, aiActor(handle));
+    };
+    const outcome = (handle = 'cr') => h!.domain.merges.reviewOutcome('AR', 'AR-1', aiActor(handle));
+    const askedForMerge = () =>
+      h!.repos.messages.list('AR', { taskKey: 'AR-1' }).some((m) => m.body.includes('Call merge_task'));
+    const dirty = () => {
+      h!.repos.db.prepare('DELETE FROM task_handovers').run();
+      const tree = h!.worktrees.existing.get('AR/AR-1/web')!;
+      h!.worktrees.heads.set(tree.path, { ...h!.worktrees.heads.get(tree.path)!, dirty: true, changes: 1 });
+      return tree;
+    };
+
+    it('queues the merge in the merger name, without a merge message, and runs it', async () => {
+      await setup({ adjust: mergerCr(true) });
+      await approve();
+      expect(await outcome()).toEqual({ state: 'queued', mergeId: row()!.id });
+      expect(row()).toMatchObject({ merger: 'cr', startedBy: 'cr', commit: 'approved-AR-1' });
+      expect(row()!.startedAt).toBeDefined();
+      expect(events('task_merge_requested')).toHaveLength(1);
+      expect(events('task_merge_requested')[0]!.data).toMatchObject({ merger: 'cr', startedBy: 'cr' });
+      expect(askedForMerge()).toBe(false);
+      await merged();
+    });
+
+    it('keeps today’s request and message when the setting is off', async () => {
+      await setup({ adjust: mergerCr(false) });
+      await approve();
+      expect(await outcome()).toBeNull();
+      expect(row()).toMatchObject({ state: 'requested', merger: 'cr' });
+      expect(row()!.startedBy).toBeUndefined();
+      expect(events('task_merge_requested')[0]!.data).not.toHaveProperty('startedBy');
+      expect(askedForMerge()).toBe(true);
+    });
+
+    it('says nothing to a caller who is not the merger', async () => {
+      await setup({ adjust: mergerCr(true) });
+      await approve();
+      expect(await outcome('dev-1')).toBeNull();
+    });
+
+    it('requests only, with the message, when the source has uncommitted work, and never starts it later', async () => {
+      await setup({ adjust: mergerCr(true) });
+      const tree = dirty();
+      await approve();
+      expect(await outcome()).toMatchObject({ state: 'waiting', why: 'uncommitted' });
+      expect(row()).toMatchObject({ state: 'requested', merger: 'cr' });
+      expect(askedForMerge()).toBe(true);
+      // The work is committed now: the existing request still waits for merge_task.
+      h!.worktrees.heads.set(tree.path, { ...h!.worktrees.heads.get(tree.path)!, dirty: false, changes: 0 });
+      await h!.domain.merges.reconcile('AR', 'AR-1');
+      expect(await outcome()).toMatchObject({ state: 'waiting', why: 'earlier_request' });
+      expect(row()?.state).toBe('requested');
+      expect(merger.build).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      [true, { state: 'queued' }],
+      [false, undefined],
+    ])('answers the approving update_task call with the outcome (setting %s)', async (on, expected) => {
+      await setup({ adjust: mergerCr(on) });
+      h!.repos.tasks.update(task().id, { labels: [] });
+      const ctx = { projectKey: 'AR', member: 'cr', taskKey: 'AR-1', sessionId: 'ses_cr' };
+      const result = await h!.domain.teamTools.updateTask(ctx, {
+        taskKey: 'AR-1',
+        addLabels: ['code-review-ok'],
+      });
+      if (expected) expect(result).toMatchObject({ mergeAfterReview: expected });
+      else expect(result).not.toHaveProperty('mergeAfterReview');
+    });
+
+    it('names a blocked earlier merge and the unmet gate', async () => {
+      await setup({ adjust: mergerCr(true) });
+      // An uncommitted source keeps the row from running, so it can be set to blocked.
+      dirty();
+      await approve();
+      await outcome();
+      h!.repos.taskMerges.save({
+        ...row()!,
+        state: 'blocked',
+        block: { reason: 'check_error', message: 'the check could not run', at: new Date().toISOString() },
+      });
+      expect(await outcome()).toMatchObject({ state: 'waiting', why: 'blocked' });
+      h!.repos.tasks.update(task().id, { labels: [] });
+      expect(await outcome()).toEqual({
+        state: 'not_ready',
+        reason: 'gate',
+        unmet: ['has_label:code-review-ok'],
+      });
+    });
+  });
+
   it('reads the head at start and refuses uncommitted work without a handover', async () => {
     await setup();
     h!.repos.db.prepare('DELETE FROM task_handovers').run();

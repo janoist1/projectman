@@ -12,6 +12,7 @@ import type {
   MemberView,
   MergeCheckRun,
   QuestionAttachment,
+  ReviewMergeOutcome,
   Task,
   TimelineEvent,
   WorkItemRef,
@@ -693,6 +694,8 @@ export function formatTaskUpdate(
     /** The priority the call set (null: cleared); undefined when it did not touch it (PM-433). */
     priority?: string | null | undefined;
     complexity?: boolean;
+    /** What the merger's own approval did to the card's merge (PM-1379); `pending`: still being decided. */
+    mergeAfterReview?: ReviewMergeOutcome | 'pending';
   },
 ): string {
   const done: string[] = [];
@@ -727,8 +730,37 @@ export function formatTaskUpdate(
     `Updated ${task.key}: ${done.join('; ')}.`,
     ...(change.complexity && task.complexity ? [`Complexity: ${complexityText(task.complexity)}`] : []),
     ...handOn,
+    ...(change.mergeAfterReview ? [mergeAfterReviewLine(task.key, change.mergeAfterReview)] : []),
     `Now: ${taskStatusLine(task)}`,
   ].join('\n');
+}
+
+const MERGE_WAIT_REASONS = {
+  uncommitted: 'the task work is not committed',
+  earlier_request: 'an earlier merge request of the card is still open',
+  blocked: 'an earlier merge of the card is blocked or failed',
+} as const;
+
+/** One line of the merger's reply: what their approval did to the merge and what is left for them (PM-1379). */
+function mergeAfterReviewLine(taskKey: string, outcome: ReviewMergeOutcome | 'pending'): string {
+  if (outcome === 'pending') return 'Merge: still being decided; if it waits for you, you get a message.';
+  switch (outcome.state) {
+    case 'queued':
+      return `Merge: your approval queued the merge of ${taskKey} (${outcome.mergeId}); no merge_task call is needed. If it gets stuck, you get a message.`;
+    case 'waiting':
+      return `Merge: not queued, ${MERGE_WAIT_REASONS[outcome.why]}. Call merge_task for ${taskKey} when it is sorted out (${outcome.mergeId}).`;
+    case 'not_ready': {
+      const acceptance = outcome.unmet.some(
+        (u) => u.endsWith(':acceptance-open') || u.endsWith(':acceptance-unconfirmed'),
+      );
+      return (
+        `Merge: not queued, ${taskKey} does not pass the gate of the merge target yet (${outcome.unmet.join(', ')}).` +
+        (acceptance
+          ? ' Confirm the settled acceptance items with update_task acceptance confirm (an open one goes back to the assignee); the merge then starts by itself.'
+          : ' Once the gate holds, the merge starts by itself.')
+      );
+    }
+  }
 }
 
 /** The assignee handoff of a card (PM-342): the open one, else the latest that ended while the card is with its receiver. */

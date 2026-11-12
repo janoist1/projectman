@@ -284,7 +284,15 @@ export interface TimelineEventData {
     /** Why the project manager reassigned the card (PM-1040); free text, unlike `reason`. */
     note?: string;
   };
-  task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
+  /** `startedBy`: the request went straight into the queue in that member's name (`team.mergeAfterReview`, PM-1379). */
+  task_merge_requested: {
+    mergeId: string;
+    merger: string;
+    repo: string;
+    base: string;
+    toStageId: string;
+    startedBy?: string;
+  };
   /** The card went to the front of the repository's merge queue; `before`: the card it went ahead of (null: none waited). */
   task_merge_prioritized: { mergeId: string; repo: string; reason: string; ahead: string[] };
   task_merge_failed: MergeFailure & { mergeId: string };

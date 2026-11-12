@@ -1,4 +1,11 @@
-import { effectiveRepo, isHumanOnlyLabel, needsRepoChoice, repoOf, requiresMerge } from '@projectman/shared';
+import {
+  effectiveRepo,
+  isHumanOnlyLabel,
+  needsRepoChoice,
+  repoOf,
+  requiresMerge,
+  teamSettingOf,
+} from '@projectman/shared';
 import type { Gate, LabelDefinition, ProjectConfig, Stage, Task } from '@projectman/shared';
 import { describeRepo } from '../agent-text';
 import type { TextStyle } from '../agent-text';
@@ -17,6 +24,16 @@ export function codeList(values: readonly string[]): string {
 export function cardBranchMergeRule(defaultBranch: string): string {
   const base = code(defaultBranch);
   return `Merging ${base} into your own task branch (for example to resolve review conflicts) is always allowed and needs no permission. Never merge into ${base} or push manually: only the card merger's merge_task may move ${base} by merging the approved commit and push it when the branch has an upstream.`;
+}
+
+/**
+ * With `team.mergeAfterReview` on (PM-1379), what the merger's own approval does; null when the setting is off.
+ * The merger still merges with `merge_task` (decisions 21 and 71): the approval only makes that call.
+ */
+export function mergeAfterReviewLine(project: Pick<ProjectConfig, 'team'>): string | null {
+  return teamSettingOf(project, 'mergeAfterReview')
+    ? `If you are the card merger and you give the code review approval yourself, your approval puts the merge in the queue in your name: call merge_task only when the reply to your update_task says it is needed.`
+    : null;
 }
 
 /**

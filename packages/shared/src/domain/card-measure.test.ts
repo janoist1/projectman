@@ -49,6 +49,8 @@ const NO_ROUNDS = {
   designChangeRequests: 0,
   sendBacks: 0,
   testsFailed: 0,
+  mergeConflicts: 0,
+  mergeChecksFailed: 0,
 };
 
 describe('countCardRounds (PM-222)', () => {
@@ -63,12 +65,24 @@ describe('countCardRounds (PM-222)', () => {
       labels(['code-review-ok']),
       move('cr', 'done'),
     ];
+    expect(countCardRounds(events, config)).toEqual({ ...NO_ROUNDS, reviewRounds: 2, changeRequests: 1 });
+  });
+
+  it('counts the failed merges by their reason apart from the send-backs (PM-1341)', () => {
+    const failed = (reason: string) => ({
+      type: 'task_merge_failed' as const,
+      data: { reason, mergeId: 'm' },
+    });
+    const events = [
+      failed('conflict'),
+      failed('check_failed'),
+      failed('check_failed'),
+      { type: 'task_merge_failed' as const, data: {} },
+    ];
     expect(countCardRounds(events, config)).toEqual({
-      reviewRounds: 2,
-      changeRequests: 1,
-      designChangeRequests: 0,
-      sendBacks: 0,
-      testsFailed: 0,
+      ...NO_ROUNDS,
+      mergeConflicts: 1,
+      mergeChecksFailed: 2,
     });
   });
 
@@ -136,13 +150,7 @@ describe('weightedTokensByModel (PM-222)', () => {
 });
 
 describe('measureClosedCard (PM-222)', () => {
-  const rounds = {
-    reviewRounds: 2,
-    changeRequests: 1,
-    designChangeRequests: 0,
-    sendBacks: 1,
-    testsFailed: 0,
-  };
+  const rounds = { ...NO_ROUNDS, reviewRounds: 2, changeRequests: 1, sendBacks: 1 };
   const row = (model: string, scope: TokenUsage['scope'], input: number): TokenUsage => ({
     model,
     scope,

@@ -56,6 +56,7 @@ describe('roundEvents', () => {
       put('PM-1', 'task_fix_limit', { phase: 'decided', decision: 'another_round' }, T(1)),
       stage('PM-1', 'development', T(1)),
       put('PM-1', 'task_labels_changed', { added: ['code-review-changes'] }, T(1)),
+      put('PM-1', 'task_merge_failed', { mergeId: 'm', reason: 'conflict' }, T(1)),
     ];
     put('PM-1', 'task_note', { text: 'Excluded' }, T(1));
     stage('PM-2', 'development', T(1));

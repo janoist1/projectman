@@ -1,26 +1,26 @@
-import type { TeamTool, TeamToolGroup } from './kit';
-export { TEAM_TOOL_NAMES, toolOutputText, type TeamTool } from './kit';
-import { MEMBER_TOOL_GROUP } from './members';
-import { TASK_TOOL_GROUP } from './tasks';
+import { ADMISSION_TOOL_GROUP } from './admission';
 import { ATTACHMENT_TOOL_GROUP } from './attachments';
-import { MERGE_TOOL_GROUP } from './merges';
-import { PROJECT_DOC_TOOL_GROUP } from './project-docs';
-import { SYSTEM_FEEDBACK_TOOL_GROUP } from './system-feedback';
-import { HISTORY_TOOL_GROUP } from './history';
-import { FEEDBACK_TOOL_GROUP } from './feedback';
-import { GITHUB_TOOL_GROUP } from './github';
-import { SCREENSHOT_TOOL_GROUP } from './full-tests';
-import { RELEASE_TOOL_GROUP } from './releases';
 import { COMPUTE_JOB_TOOL_GROUP } from './compute-jobs';
 import { DOCUMENT_TOOL_GROUP } from './documents';
-import { OPERATOR_TOOL_GROUP } from './project-manager';
-import { INBOX_TOOL_GROUP } from './inbox';
-import { MESSAGE_TOOL_GROUP } from './messages';
 import { EMAIL_CHANNEL_TOOL_GROUP } from './email-channel';
+import { FEEDBACK_TOOL_GROUP } from './feedback';
+import { SCREENSHOT_TOOL_GROUP } from './full-tests';
+import { GITHUB_TOOL_GROUP } from './github';
+import { HISTORY_TOOL_GROUP } from './history';
 import { HOST_REQUEST_TOOL_GROUP } from './host-requests';
-import { ADMISSION_TOOL_GROUP } from './admission';
-import { WATCHER_TOOL_GROUP } from './watchers';
+import { INBOX_TOOL_GROUP } from './inbox';
+import type { TeamTool, TeamToolGroup } from './kit';
+import { MEMBER_TOOL_GROUP } from './members';
+import { MERGE_TOOL_GROUP } from './merges';
+import { MESSAGE_TOOL_GROUP } from './messages';
+import { PROJECT_DOC_TOOL_GROUP } from './project-docs';
+import { OPERATOR_TOOL_GROUP } from './project-manager';
+import { RELEASE_TOOL_GROUP } from './releases';
 import { SESSION_TOOL_GROUP } from './sessions';
+import { SYSTEM_FEEDBACK_TOOL_GROUP } from './system-feedback';
+import { TASK_TOOL_GROUP } from './tasks';
+import { WATCHER_TOOL_GROUP } from './watchers';
+export { TEAM_TOOL_NAMES, toolOutputText, type TeamTool } from './kit';
 /**
  * Server-level instructions, sent once at initialization. Claude Code appends them to the
  * system prompt; Codex (0.159.1) shows them to the model as the description of the server's
@@ -33,26 +33,26 @@ export const TEAM_INSTRUCTIONS =
 
 /** Every module's team tools (PM-592). A new tool goes into its module's group (mcp/<module>/tools.ts), never into this file. */
 export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
-  MEMBER_TOOL_GROUP,
-  TASK_TOOL_GROUP,
+  ADMISSION_TOOL_GROUP,
   ATTACHMENT_TOOL_GROUP,
-  MERGE_TOOL_GROUP,
-  FEEDBACK_TOOL_GROUP,
-  GITHUB_TOOL_GROUP,
-  SCREENSHOT_TOOL_GROUP,
-  RELEASE_TOOL_GROUP,
   COMPUTE_JOB_TOOL_GROUP,
   DOCUMENT_TOOL_GROUP,
+  EMAIL_CHANNEL_TOOL_GROUP,
+  FEEDBACK_TOOL_GROUP,
+  GITHUB_TOOL_GROUP,
+  HISTORY_TOOL_GROUP,
+  HOST_REQUEST_TOOL_GROUP,
+  INBOX_TOOL_GROUP,
+  MEMBER_TOOL_GROUP,
+  MERGE_TOOL_GROUP,
+  MESSAGE_TOOL_GROUP,
   OPERATOR_TOOL_GROUP,
   PROJECT_DOC_TOOL_GROUP,
-  SYSTEM_FEEDBACK_TOOL_GROUP,
-  HISTORY_TOOL_GROUP,
-  INBOX_TOOL_GROUP,
-  MESSAGE_TOOL_GROUP,
-  EMAIL_CHANNEL_TOOL_GROUP,
-  HOST_REQUEST_TOOL_GROUP,
-  ADMISSION_TOOL_GROUP,
-  WATCHER_TOOL_GROUP,
+  RELEASE_TOOL_GROUP,
+  SCREENSHOT_TOOL_GROUP,
   SESSION_TOOL_GROUP,
+  SYSTEM_FEEDBACK_TOOL_GROUP,
+  TASK_TOOL_GROUP,
+  WATCHER_TOOL_GROUP,
 ];
 export const TEAM_TOOLS: readonly TeamTool[] = TEAM_TOOL_GROUPS.flatMap((group) => group.tools);

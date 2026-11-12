@@ -337,12 +337,12 @@ export function createTimelineRepository(db: Db) {
         .get(projectKey, sessionId, type) as TimelineRow | undefined;
       return row ? toEvent(row) : null;
     },
-    /** The most recent event of a type on a card, or null. */
     /** Whether `member` was involved (PM-1267) on any of the cards: the card and its parent. */
     involvedOn(projectKey: string, taskKeys: readonly string[], member: string): boolean {
       if (taskKeys.length === 0) return false;
       return !!statements.involvedOn.get(projectKey, JSON.stringify(taskKeys), member);
     },
+    /** The most recent event of a type on a card, or null. */
     latestOfType(projectKey: string, taskKey: string, type: TimelineEvent['type']): TimelineEvent | null {
       const row = statements.latestOfType.get(projectKey, taskKey, type) as TimelineRow | undefined;
       return row ? toEvent(row) : null;

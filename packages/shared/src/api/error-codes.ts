@@ -42,6 +42,7 @@ export const ERROR_CODES = [
   'checklist_item_not_found',
   'checklist_missing',
   'codex_setup_incomplete',
+  'collecting_task_not_startable',
   // The app project manager must hand machine and unsupported commands to the integrator (403).
   'command_not_for_project_manager',
   'comment_attachment_limit',
@@ -197,6 +198,8 @@ export const ERROR_CODES = [
   'member_at_capacity',
   'member_has_account',
   'member_invite_pending',
+  // 403: an AI member tried to involve a member on a card, which the project settings do not allow it (PM-1267)
+  'member_involvement_refused',
   'member_not_scheduled',
   'member_on_leave',
   // 409: a start while the member is being renamed

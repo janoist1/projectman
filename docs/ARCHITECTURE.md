@@ -122,7 +122,19 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   owners are the holders of its duty unless it lists members explicitly. A **gate** is a list
   of label conditions (`has_label`, `lacks_label`) that must hold before a task may enter the
   stage; a condition with `when: <label>` binds only the cards carrying that label (never on a
-  release gate).
+  release gate). A `step` stage may carry a **small-card rule** (`Stage.smallCards`, PM-1378 A:
+  `maxPoints`, `owners`, `centralPaths`): on entry the move decides once whether the card goes to
+  the small owners instead of the stage's main owners (`pickStageOwners` in
+  `packages/shared/src/config/stage-owner-pick.ts`: points within the limit, no small owner
+  among the card's authors or on leave, and no changed file matching a central path). The
+  changed files come from the `TaskMoves` port `changedFiles` (`prepareMergeSource`, then the
+  engine's `merge.changed_paths`); a read that fails never stops the move, the card then goes
+  to the main owners (`unreadable`). The decision is stored in `tasks.stage_owner_pick`, cleared
+  when the card leaves the stage, and recorded as `ownerPick` in the `task_stage_changed` event.
+  Every reading of "the owners of this card" (hand-over, `hasCardRole`, routing, the wait
+  display, the context) goes through `cardStageOwners`; places that need every possible owner
+  use `allStageOwners` or, before entry, `possibleStageOwners`. A stage without the rule behaves
+  as before.
 - **Labels** (decision 17, [design/labels.md](design/labels.md)) — the one way to state facts
   about a task. The pipeline defines each label once: name, colour, meaning (given to AI
   members), group (mutually exclusive states), who may set it, no self-review, comment
@@ -345,6 +357,14 @@ text cross the boundary. No new machine-dependent operation is added beyond the 
   when a card gets its assignee the waiting messages of the new assignee wake them. People, the
   connected-Claude (`via: 'integrator'`) and `system` messages start anyone; a message about no card or a theme is not
   limited.
+  PM-1267: where `team.memberInvolvement` is `people_and_project_manager` the selected project manager can give
+  such a member a role with `involve_member { task_key, member, reason }`: `InvolvementService.involve` writes a
+  `member_involved` timeline event (hidden from client viewers) and a domain event of the same name, on which the
+  member queue wakes the member, so a message that waited with `no_card_role` starts them with no resend.
+  `recipientHasCardRole` reads the event (`timeline.involvedOn`) on the card or its parent, and
+  `MessageRouter.heldForTurn` lets an involved member through a refinement turn that is not theirs. The
+  involvement gives no label or approval right: those read the label setters, never the card role. With the
+  default `people` the tool is refused with `member_involvement_refused`.
   PM-662: REST team-message sends, MCP `send_message` and the project manager's `start_member` check for
   same-role workers before review rounds, repinning or recording anything. Only an action that
   is not held, is placed on this open non-theme card and reaches a running session or would wake
@@ -1499,7 +1519,7 @@ generic code writes no `obligation_handed_over` event and no todo for the connec
 `senior_waits` row into such a row and dropped the table.
 
 **`review_step` (PM-809).** One entry of a card into a `step` stage (the code review), for each AI owner of the
-stage (`stageOwners`) who may set a label the next stage's gate lacks (`stepResult` in
+stage for the card (`cardStageOwners`) who may set a label the next stage's gate lacks (`stepResult` in
 `packages/shared/src/config/gates.ts`: the gate labels the member sets, `gate`, and with the other labels of
 their groups, `results`: `code-review-ok` and `code-review-changes`). The subject is `<stageId>@<stageEnteredAt>`
 and the clock starts at the entry. Unlike the other kinds this source derives the step from the stage, not from

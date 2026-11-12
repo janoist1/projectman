@@ -174,6 +174,78 @@ describe('the project manager’s rights on the server', () => {
     });
   });
 
+  describe('involving a member (PM-1267)', () => {
+    const allow = (mode: 'people' | 'people_and_project_manager') =>
+      h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
+        config.team.memberInvolvement = mode;
+        return 'Set the member involvement';
+      });
+    const involve = (member = 'dev-2', taskKey = 'AR-1') =>
+      h.domain.teamTools.involveMember(pm, { taskKey, member, reason: 'Knows the area' });
+    const involvedEvents = () =>
+      h.domain.tasks.detail('AR', 'AR-1').timeline.filter((event) => event.type === 'member_involved');
+
+    it('is refused with the default setting, and writes nothing', async () => {
+      const refused = await toolError(involve());
+      expect(refused.message).toContain('member_involvement_refused');
+      expect(involvedEvents()).toEqual([]);
+    });
+
+    it('gives the role when the setting allows it, with the reason on the timeline, once', async () => {
+      await allow('people_and_project_manager');
+      await expect(involve()).resolves.toEqual({ outcome: 'involved', waiting: 0 });
+      expect(involvedEvents()).toMatchObject([
+        { actor: { kind: 'ai', handle: 'pm' }, data: { member: 'dev-2', reason: 'Knows the area' } },
+      ]);
+      await expect(involve()).resolves.toEqual({ outcome: 'already_involved', waiting: 0 });
+      expect(involvedEvents()).toHaveLength(1);
+    });
+
+    it('grants no label right: the involved member still cannot set an approval label', async () => {
+      await allow('people_and_project_manager');
+      await involve('dev-2');
+      const before = timelineLength();
+      const err = await toolError(
+        h.domain.teamTools.updateTask(dev, { taskKey: 'AR-1', addLabels: ['code-review-ok'] }),
+      );
+      expect(err.code).toBe('forbidden');
+      expect(card().labels).toEqual([]);
+      expect(timelineLength()).toBe(before);
+    });
+
+    it('refuses a person, the PM itself, an unknown member, a theme and a closed card', async () => {
+      await allow('people_and_project_manager');
+      const theme = await h.domain.tasks.create('AR', { title: 'Theme', kind: 'theme' }, OWNER_ACTOR);
+      const closed = await h.domain.tasks.create('AR', { title: 'Closed' }, OWNER_ACTOR);
+      await h.domain.teamTools.cancelTask(pm, { taskKey: closed.key, reason: 'Obsolete' });
+      const refused = [
+        await toolError(involve('owner')),
+        await toolError(involve('pm')),
+        await toolError(involve('nobody')),
+        await toolError(involve('dev-2', theme.key)),
+        await toolError(involve('dev-2', closed.key)),
+      ];
+      // The tool's own codes are coarse; each of the five is refused and none writes an event.
+      expect(refused.map((err) => err.code)).toEqual([
+        'invalid',
+        'invalid',
+        'not_found',
+        'invalid',
+        'invalid',
+      ]);
+      expect(involvedEvents()).toEqual([]);
+    });
+
+    it('is refused to another AI member even when the setting allows it', async () => {
+      await allow('people_and_project_manager');
+      const refused = await toolError(
+        h.domain.teamTools.involveMember(dev, { taskKey: 'AR-1', member: 'dev-1', reason: 'Help' }),
+      );
+      expect(refused.code).toBe('forbidden');
+      expect(involvedEvents()).toEqual([]);
+    });
+  });
+
   describe('starting a card', () => {
     beforeEach(async () => {
       await h.domain.tasks.update('AR', 'AR-1', { stageId: 'ready' }, OWNER_ACTOR);

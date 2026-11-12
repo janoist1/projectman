@@ -1,8 +1,46 @@
 import { describe, expect, it } from 'vitest';
-import { boardCard, canAutomaticallyStartTask, isOpenTask, subtaskParentRefusal, taskSeq } from './task';
+import {
+  boardCard,
+  canAutomaticallyStartTask,
+  isCollectingTask,
+  isOpenTask,
+  openSubtaskCount,
+  subtaskParentRefusal,
+  taskSeq,
+} from './task';
 import type { SubtaskParentRefusal, Task, TaskStatus } from './task';
 
 describe('task helpers', () => {
+  it.each<[TaskStatus, boolean]>([
+    ['active', true],
+    ['waiting', true],
+    ['blocked', true],
+    ['done', false],
+    ['cancelled', false],
+  ])('collects a %s sub-card: %s', (status, collecting) => {
+    expect(isCollectingTask({ key: 'AR-1', status: 'active' }, [{ parentKey: 'AR-1', status }])).toBe(
+      collecting,
+    );
+  });
+
+  it('excludes themes and closed parents from collecting cards', () => {
+    const children = [{ parentKey: 'AR-1', status: 'active' as const }];
+    expect(isCollectingTask({ key: 'AR-1', status: 'active', kind: 'theme' }, children)).toBe(false);
+    expect(isCollectingTask({ key: 'AR-1', status: 'done' }, children)).toBe(false);
+    expect(isCollectingTask({ key: 'AR-1', status: 'cancelled' }, children)).toBe(false);
+  });
+
+  it('counts only open direct sub-cards', () => {
+    const children = [
+      ...Array.from({ length: 10 }, () => ({ parentKey: 'AR-1', status: 'done' as const })),
+      ...Array.from({ length: 2 }, () => ({ parentKey: 'AR-1', status: 'cancelled' as const })),
+      ...Array.from({ length: 3 }, () => ({ parentKey: 'AR-1', status: 'active' as const })),
+      { parentKey: 'AR-2', status: 'active' as const },
+    ];
+    expect(openSubtaskCount({ key: 'AR-1' }, children)).toBe(3);
+    expect(isCollectingTask({ key: 'AR-3', status: 'active' }, children)).toBe(false);
+  });
+
   it('summarizes a task for the board without its description and with the tile part of its merge', () => {
     const task = {
       key: 'AR-1',

@@ -245,6 +245,8 @@ export const MERGE_ERROR_CODES = [
   'no_remote',
   'no_identity',
   'git_failed',
+  /** The upstream could not be fetched (network, timeout); the merge may be tried again later. */
+  'remote_unreachable',
 ] as const;
 export type MergeErrorCode = (typeof MERGE_ERROR_CODES)[number];
 

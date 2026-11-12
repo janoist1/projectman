@@ -68,6 +68,7 @@ export const RunningSession: z.ZodType<RunningSessionInfo> = z.strictObject({
   state: SessionState,
   cols: int,
   rows: int,
+  paused: z.boolean().optional(),
 });
 export const PullRequest: z.ZodType<PullRequestInfo> = z.strictObject({
   repo: text,
@@ -184,6 +185,8 @@ export const Hello = z.strictObject({
   nanogptKey: z.literal('engine').optional(),
   /** true: `session.send` takes a `deliveryId` and does not type a repeated one again (PM-1205); absent: an older engine. */
   deliveryIds: z.literal(true).optional(),
+  /** true: the engine's welcome may carry `heartbeatMs` (PM-1346); absent: an older engine rejects that field. */
+  welcomeHeartbeat: z.literal(true).optional(),
 });
 export type Hello = z.infer<typeof Hello>;
 export const EngineErrorCode = z.enum([
@@ -240,6 +243,8 @@ export const EngineFrame = z.discriminatedUnion('t', [
     engineId: EngineId,
     ackedSeq: int.max(Number.MAX_SAFE_INTEGER),
     serverTime: text,
+    // PM-1346: set by a cloud that repeats its acknowledgement every `heartbeatMs` (an older one omits it).
+    heartbeatMs: z.number().int().positive().optional(),
   }),
   z.strictObject({
     t: z.literal('refuse'),

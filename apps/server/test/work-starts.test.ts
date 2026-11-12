@@ -53,13 +53,15 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     expect(h.runner.started).toHaveLength(0);
   });
 
-  it('keeps a person able to explicitly start a collecting card', async () => {
+  it('refuses a person explicitly starting a collecting card', async () => {
     h = await createDomainHarness({ adjust: roomy });
     const parent = await create('Collecting card');
     await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR);
-    await h.domain.taskStarts.start('AR', parent, by());
-    expect(task(parent).assignee).toBe('dev-1');
-    expect(sessionsOf(parent)).toHaveLength(1);
+    await expect(h.domain.taskStarts.start('AR', parent, by())).rejects.toMatchObject({
+      code: 'collecting_task_not_startable',
+    });
+    expect(task(parent).assignee).toBeNull();
+    expect(sessionsOf(parent)).toEqual([]);
   });
 
   it('leaves a card whose subtasks are all closed unassigned', async () => {
@@ -71,6 +73,21 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     await move(parent);
     await h.domain.admission.retryDeferred();
     await flush();
+    expect(task(parent).assignee).toBeNull();
+    expect(sessionsOf(parent)).toEqual([]);
+  });
+
+  it('refuses a manual start when an open sub-card appears during admission', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    const parent = await create('Collecting card');
+    const check = h.domain.admission.check.bind(h.domain.admission);
+    vi.spyOn(h.domain.admission, 'check').mockImplementationOnce(async (request) => {
+      await check(request);
+      await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR);
+    });
+    await expect(h.domain.taskStarts.start('AR', parent, by())).rejects.toMatchObject({
+      code: 'collecting_task_not_startable',
+    });
     expect(task(parent).assignee).toBeNull();
     expect(sessionsOf(parent)).toEqual([]);
   });

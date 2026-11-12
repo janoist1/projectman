@@ -65,6 +65,7 @@ describe('project configuration migrations', () => {
       projectManagerMoves: 'start_only',
       projectManagerLifecycle: [],
       prerequisiteOverride: 'people_and_project_manager',
+      memberInvolvement: 'people_and_project_manager',
       projectManagerAuthority: 'owner_request',
       prioritySetters: [],
       complexitySetters: [],

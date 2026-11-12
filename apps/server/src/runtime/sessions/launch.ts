@@ -677,7 +677,7 @@ export class SessionLauncher {
     this.live.guides.set(session.id, pack.guide);
     this.live.providers.set(session.id, provider);
     if (resume) this.live.resuming.add(session.id);
-    // Before the process starts: Codex reports its first input as it starts.
+    // Register before starting the process so even an immediate CLI submission or exit settles the wait.
     const firstInput = messages.length > 0 ? this.live.awaitFirstInput(session.id) : Promise.resolve(true);
     // A pause's nudge (PM-219) goes first on a resumed conversation: before the messages, or in place of
     // the continue message. A new conversation has nothing to be nudged about.

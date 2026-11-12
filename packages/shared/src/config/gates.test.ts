@@ -15,6 +15,7 @@ import {
   stepResult,
 } from './gates';
 import type { GateEvaluation } from './gates';
+import { stageResultLabels } from './labels';
 import { ProjectConfig } from './schema';
 
 function config(fourEyes = false) {
@@ -506,6 +507,14 @@ describe('stepResult (PM-809)', () => {
       gate: ['review-ok'],
       results: ['review-ok', 'review-changes', 'review-blocked'],
     });
+  });
+
+  it('is the same list stageResultLabels gives for the stage, whoever the member is (PM-1378)', () => {
+    const c = grouped();
+    const stage = (id: string) => c.pipeline.stages.find((s) => s.id === id)!;
+    expect(stageResultLabels(c, stage('review'))).toEqual(stepResult(c, at('review'), 'rev')!.results);
+    expect(stageResultLabels(c, stage('review'), [])).toEqual([]);
+    expect(stageResultLabels(c, stage('dev'))).toEqual([]);
   });
 
   it('has only the gate label for a label with no group', () => {

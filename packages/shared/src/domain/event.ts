@@ -26,6 +26,7 @@ import type { CardVersion, MessageKind } from './message';
 import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
+import type { StageOwnerPickReason } from './stage-owner-pick';
 import type { ReleaseFailure, ReleaseState } from './release';
 import { ActorCredential, ActorThrough, actorOriginIssue } from './actor-origin';
 // The origin helpers (`hasSuperOrigin`, `SuperActor`, ...) live in actor-origin.ts, a leaf of the domain.
@@ -117,6 +118,7 @@ export const TimelineEventType = z.enum([
   'question_closed',
   'question_answer_delivery',
   'refinement_turn',
+  'member_involved',
   'task_loop',
   'loop_triaged',
   'task_fix_limit',
@@ -273,6 +275,8 @@ export interface TimelineEventData {
     pulled?: StagePull;
     /** The card went to the done stage without the gates because its subtasks are all closed (PM-647). */
     partsClosed?: PartsClosed;
+    /** Whom the stage gave the card to, when the stage has a small-card rule (PM-1378): the decision, its reason and the owners it left. */
+    ownerPick?: { small: boolean; reason: StageOwnerPickReason; owners: string[] };
   };
   /** `reason`: the assignee left the team, or handed the task over (`from` is the one who left). */
   task_assigned: {
@@ -683,6 +687,11 @@ export interface TimelineEventData {
     /** `on_leave`: the member of the open turn was sent on leave, and the turn is free again (PM-1300). */
     reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped' | 'on_leave';
   };
+  /**
+   * The actor (an AI member the project allows, PM-1267) involved `member` on the card: a role it had no
+   * other way to get, so a message to it wakes its session. `reason` is why, in the actor's words.
+   */
+  member_involved: { member: string; reason: string };
   /** A report-only PM assessment (PM-712); the private note is kept only in the loop record. */
   loop_triaged: {
     loopId: string;

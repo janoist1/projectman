@@ -3000,6 +3000,19 @@ migrations.push({
 });
 migrations.push({
   version: 152,
+  name: 'closed card measurement index',
+  // PM-1375: the closed-card measure reads only cards closed within its time window.
+  sql: `CREATE INDEX tasks_closed ON tasks(project_key, closed_at);`,
+});
+migrations.push({
+  version: 153,
+  name: 'full test run command',
+  // PM-1377: the command a full test run ran, so a merge reuses a pass only of the same command. Older rows stay
+  // NULL and are never reused.
+  sql: `ALTER TABLE full_test_runs ADD COLUMN command TEXT;`,
+});
+migrations.push({
+  version: 154,
   name: 'the review_follow_ups operator signal',
   // PM-1362: the non-blocking remarks a closed card still holds go to the project manager as one
   // `review_follow_ups` signal. operator_signals is rebuilt as in version 143 (the kind CHECK grows by

@@ -117,6 +117,11 @@ other's message (the daily e-mail count, the Gemini hold's stored copy). A `sess
 two sessions wait on one card, settling one closes the other's todo too. Only a `refinement` `manual_step` (an owner approval) and a `merge_blocked` for a human merger stay alert items.
 `release_failed`, `message_burst`, `parts_left`, `work_stalled` and `refinement` `stalled` are retired: the route
 refuses them (`alert_retired`), the old rows still render, and an open old alert closes with "seen".
+
+PM-1349: a `work_outage` affecting the project manager itself instead becomes an integrator todo
+and one owner information message. The watcher computes `outageAffectsPm`; the shared route
+returns `integrator_queue` with reason `pm_affected`. The todo keeps `payload.workOutage` for
+restart adoption and closes with `outage_ended` on recovery. Other outage routes stay unchanged.
 `sendWaitingDigest` (a periodic sweep) tells the owners in one `waiting_digest` notice, at most once a day, when the
 oldest open integrator todo or the oldest question in screening has waited more than 24 hours; the newest such
 notice is its marker, so a restart does not repeat it. The pieces stay on the hub, so no machine-dependent entry

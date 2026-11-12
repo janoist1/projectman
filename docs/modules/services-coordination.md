@@ -260,7 +260,7 @@ remain, raises one coordinator-only signal: `caseKey` `review_follow_ups:<taskKe
 event ids. A reopened and re-closed card passes on only the new remarks. The signal has no expiry and does not close
 by itself (`caseHolds` defaults to true): the pm adds each item to an open card, opens a follow-up card or drops it,
 then closes the signal with `dismiss_signal` and a note. `noticeText` carries `ReviewFollowUpsFacts`
-(`reviewFollowUpsFacts`). Migration 152 adds the kind to the `operator_signals` CHECK. Server only; no
+(`reviewFollowUpsFacts`). Migration 154 adds the kind to the `operator_signals` CHECK. Server only; no
 machine-dependent part.
 
 ## Question screening

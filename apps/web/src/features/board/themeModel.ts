@@ -7,7 +7,7 @@ import {
   themeCards,
   themeProgress,
 } from '@projectman/shared';
-import type { Task, ThemeCard, ThemeCardView, ThemeProgress } from '@projectman/shared';
+import type { BoardCard, Task, ThemeCard, ThemeCardView, ThemeProgress } from '@projectman/shared';
 import { columnSegments } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 
@@ -15,7 +15,11 @@ import type { PipelineIndex } from '../../lib/pipeline';
  * The themes of the project in three groups, each by priority and number (`compareThemes`, PM-1283): the
  * open ones that are not archived, the closed ones that are not archived, and the archived ones.
  */
-export function themeGroups(tasks: readonly Task[]): { open: Task[]; closed: Task[]; archived: Task[] } {
+export function themeGroups(tasks: readonly BoardCard[]): {
+  open: BoardCard[];
+  closed: BoardCard[];
+  archived: BoardCard[];
+} {
   const themes = tasks.filter((task) => isTheme(task)).sort(compareThemes);
   return {
     open: themes.filter((theme) => !isArchivedTheme(theme) && isOpenTask(theme)),
@@ -25,22 +29,26 @@ export function themeGroups(tasks: readonly Task[]): { open: Task[]; closed: Tas
 }
 
 /** Every theme of the project: the open ones first, then the closed, then the archived. */
-export function sortedThemes(tasks: readonly Task[]): Task[] {
+export function sortedThemes(tasks: readonly BoardCard[]): BoardCard[] {
   const { open, closed, archived } = themeGroups(tasks);
   return [...open, ...closed, ...archived];
 }
 
 /** The themes a card can be put into: the open ones that are not archived. */
-export function openThemes(tasks: readonly Task[]): Task[] {
+export function openThemes(tasks: readonly BoardCard[]): BoardCard[] {
   return themeGroups(tasks).open;
 }
 
-export function progressOf(theme: Pick<Task, 'key'>, tasks: readonly Task[]): ThemeProgress {
+export function progressOf(theme: Pick<Task, 'key'>, tasks: readonly BoardCard[]): ThemeProgress {
   return themeProgress(theme.key, tasks);
 }
 
 /** Count the same cards as themeProgress, grouped in board column order. */
-export function columnProgressOf(theme: Pick<Task, 'key'>, tasks: readonly Task[], pipeline: PipelineIndex) {
+export function columnProgressOf(
+  theme: Pick<Task, 'key'>,
+  tasks: readonly BoardCard[],
+  pipeline: PipelineIndex,
+) {
   const byStage: Record<string, number> = {};
   for (const card of themeCards(theme.key, tasks).flatMap((card) => [card, ...card.subtasks])) {
     if (card.status === 'cancelled') continue;
@@ -54,7 +62,7 @@ export function percentOf(progress: ThemeProgress): number {
 }
 
 /** Cancelled cards of a theme: they are listed but do not count towards its progress. */
-export function cancelledIn(theme: Pick<Task, 'key'>, tasks: readonly Task[]): number {
+export function cancelledIn(theme: Pick<Task, 'key'>, tasks: readonly BoardCard[]): number {
   return tasks.filter((task) => !isTheme(task) && task.themeKey === theme.key && task.status === 'cancelled')
     .length;
 }
@@ -64,7 +72,7 @@ function closed(card: Pick<ThemeCardView, 'status'>): number {
 }
 
 /** The cards of a theme as a tree (collecting cards with their subtasks), the open ones first. */
-export function themeTree(theme: Pick<Task, 'key'>, tasks: readonly Task[]): ThemeCard[] {
+export function themeTree(theme: Pick<Task, 'key'>, tasks: readonly BoardCard[]): ThemeCard[] {
   const byOpen = <T extends Pick<ThemeCardView, 'status' | 'key'>>(a: T, b: T) =>
     closed(a) - closed(b) || taskSeq(a.key) - taskSeq(b.key);
   return themeCards(theme.key, tasks)

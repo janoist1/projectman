@@ -8,7 +8,7 @@ import {
   canUploadAttachment,
   routes,
 } from '@projectman/shared';
-import type { Attachment, AttachmentViewer, Task, TaskCoverChoice } from '@projectman/shared';
+import type { Attachment, AttachmentViewer, BoardCard, TaskCoverChoice } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { Link } from 'react-router';
 import { useAttachments, useDeleteAttachment, useSetTaskCover } from '../../api/queries';
@@ -32,7 +32,7 @@ import type { UploadItem } from './attachmentUploads';
 const isRefusal = (error: unknown) => isApiError(error) && (error.status === 403 || error.status === 404);
 
 /** Everything about the file reaches the browser through the protected content routes, by URL. */
-function useUrls(task: Task) {
+function useUrls(task: BoardCard) {
   const { key } = useProject();
   return {
     content: (id: string) => routes.attachmentContent(key, task.key, id),
@@ -115,7 +115,7 @@ function AttachmentRow({
   deleteError,
 }: {
   attachment: Attachment;
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
   canDelete: boolean;
   /** The comment this file was sent with, in the Comments view; null for a file of the card itself. */
@@ -298,7 +298,7 @@ export function TaskAttachments({
   onPasted,
   commentHref = null,
 }: {
-  task: Task;
+  task: BoardCard;
   members: MemberIndex;
   /** Where a comment is in the Comments view; a comment's file links to it. */
   commentHref?: ((eventId: string) => string) | null;

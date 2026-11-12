@@ -62,7 +62,15 @@ import {
   MAX_ACCEPTANCE_ITEMS,
 } from '../domain/acceptance';
 import { UiLocation } from '../domain/ui-place';
-import { CapacityHolder, Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting } from '../domain/task';
+import {
+  BoardCard,
+  CapacityHolder,
+  Task,
+  TaskKey,
+  TaskKind,
+  TaskPriority,
+  TaskStartWaiting,
+} from '../domain/task';
 
 export const ServerVersionView = z.object({
   /** What the server reports: a commit id, dev, or a version override. */
@@ -1093,7 +1101,8 @@ export const BoardView = z.object({
   stages: z.array(Stage),
   /** The project's label vocabulary, for chips, pickers and gate hints. */
   labels: z.array(LabelView).default([]),
-  tasks: z.array(Task),
+  /** Card summaries: the description and the whole merge come with the task's detail (PM-1336). */
+  tasks: z.array(BoardCard),
   members: z.array(MemberView),
   openInboxCount: z.number().int(),
   planUsage: PlanUsage.nullable(),

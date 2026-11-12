@@ -1,4 +1,5 @@
 import type {
+  BoardCard,
   MergeBlockReason,
   MergeCheckRunner,
   ProjectConfig,
@@ -114,7 +115,7 @@ export function mergeBlockText(
 /** Where the merge condition of a move stands, from the card's own fields only (the server has the last word). */
 export type MergeConditionState = 'met' | 'waiting' | 'running' | 'fixing' | 'failed' | 'blocked' | 'none';
 
-export function mergeConditionState(task: Pick<Task, 'merge' | 'merged'>): MergeConditionState {
+export function mergeConditionState(task: Pick<BoardCard, 'merge' | 'merged'>): MergeConditionState {
   const merge = task.merge;
   if (merge) {
     if (merge.state === 'queued' || merge.state === 'running') return 'running';
@@ -269,7 +270,7 @@ export function failureKind(merge: Pick<TaskMergeState, 'failure'>): 'conflict' 
 }
 
 /** The handle of whoever merges the card: the open merge's, else the one the configuration names; null: nobody. */
-export function mergerHandleOf(task: Task, config: MergeConfig | undefined): string | null {
+export function mergerHandleOf(task: BoardCard, config: MergeConfig | undefined): string | null {
   return task.merge?.merger ?? (config ? cardMerger(config, task, null) : null);
 }
 

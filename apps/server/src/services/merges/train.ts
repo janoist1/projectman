@@ -38,6 +38,7 @@ import {
   checkRetryNote,
   checkInfraMessage,
   checkFallbackNote,
+  holdsRepoQueue,
 } from './check-retry';
 import type { MergeCheckRetry } from './check-retry';
 import type { MergeSteps } from './steps';
@@ -232,6 +233,8 @@ export class MergeTrains {
       }
       if (eligible && !solo) {
         const base = await merger!.prepare(this.steps.ref(row), { base: row.base, commit: row.commit! });
+        // The remote answered: the row no longer holds the repository's queue.
+        if (holdsRepoQueue(row)) this.steps.save(row, { retry: undefined });
         // Reconcile existing work individually before attributing any new train work.
         solo = base.contains.local || base.contains.remote === true;
       }

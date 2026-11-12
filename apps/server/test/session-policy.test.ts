@@ -254,6 +254,19 @@ describe('automatic command policy', () => {
     ).toBe('deny');
   });
 
+  // Each `eval` reads the rest of its command again: the scan keeps to a budget and stops there.
+  it('denies at once a line whose nested readings outgrow the scan', () => {
+    const started = Date.now();
+    expect(verdict(`${'eval '.repeat(60)}ls`)?.behavior).toBe('deny');
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('reads a long command only as far as it decides', () => {
+    const files = Array.from({ length: 300 }, (_, i) => `f${i}.ts`).join(' ');
+    expect(verdict(`git add ${files}`)?.behavior).not.toBe('deny');
+    expect(verdict(`git -C . ${'-p '.repeat(200)}status`)?.behavior).toBe('deny');
+  });
+
   it.each([
     'npm ci',
     'npm install',

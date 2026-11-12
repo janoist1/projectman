@@ -8,6 +8,18 @@ import type { DeniedSessionOperation } from './session-policy';
  */
 
 const MAX_NESTING = 8;
+/**
+ * How many characters one scan reads in all, the nested readings (`eval`, `sh -c`, substitutions,
+ * here-documents) included. Each `eval` reads the rest of its command again, so without a budget a
+ * short line could cost combinatorial work; past it the line is not trusted.
+ */
+const MAX_SCAN_CHARACTERS = 256 * 1024;
+/** How many words after a command name the scan reads; a longer command counts where it decides. */
+const MAX_COMMAND_WORDS = 128;
+
+interface ScanBudget {
+  left: number;
+}
 
 interface ShellUnit {
   words: string[];
@@ -18,7 +30,7 @@ export interface ShellLineScan {
   units: ShellUnit[];
   /** Files named by a redirection (`> file`, `< file`). */
   redirects: string[];
-  /** Nesting went deeper than the scan follows: the line is not trusted. */
+  /** Nesting went deeper, or the line further, than the scan follows: the line is not trusted. */
   overflow: boolean;
   /** A shell that reads its script from the input (`… | sh`, `sh <<< '…'`): not seen by the scan. */
   stdinShell: boolean;
@@ -148,8 +160,10 @@ const commandName = (word: string): string => word.slice(word.lastIndexOf('/') +
  * --input file` or by `curl` against the pulls endpoint is also beyond a line scan: the sandbox's
  * network deny is what stops it.
  */
-function parseShell(line: string, state: ShellLineScan, depth: number): void {
-  if (depth > MAX_NESTING) {
+function parseShell(line: string, state: ShellLineScan, depth: number, budget: ScanBudget): void {
+  if (state.overflow) return;
+  budget.left -= line.length;
+  if (depth > MAX_NESTING || budget.left < 0) {
     state.overflow = true;
     return;
   }
@@ -175,7 +189,7 @@ function parseShell(line: string, state: ShellLineScan, depth: number): void {
     words = [];
   };
   const substitution = (inner: string): void => {
-    parseShell(inner, state, depth + 1);
+    parseShell(inner, state, depth + 1, budget);
     word += DYNAMIC;
     inWord = true;
   };
@@ -237,7 +251,7 @@ function parseShell(line: string, state: ShellLineScan, depth: number): void {
       for (const heredoc of pending) {
         const { body, end } = heredocBody(line, i, heredoc);
         const text = emptyScan();
-        parseShell(body, text, depth + 1);
+        parseShell(body, text, depth + 1, budget);
         state.units.push(...text.units);
         state.redirects.push(...text.redirects);
         state.overflow ||= text.overflow;
@@ -293,33 +307,42 @@ const WRAPPERS = new Set([
   'stdbuf',
 ]);
 
-/** Whether every word before `index` only prepares the command at `index` (a wrapper, its options). */
-function atCommandPosition(words: string[], index: number): boolean {
-  return words
-    .slice(0, index)
-    .every(
-      (word) =>
+/**
+ * How many words at the start only prepare the command after them (a wrapper, its options): a word
+ * at that index or before it is in the command's place.
+ */
+function preparingWords(words: string[]): number {
+  const index = words.findIndex(
+    (word) =>
+      !(
         WRAPPERS.has(commandName(word)) ||
         word.startsWith('-') ||
         /^[A-Za-z_]\w*=/.test(word) ||
-        /^\d+$/.test(word),
-    );
+        /^\d+$/.test(word)
+      ),
+  );
+  return index < 0 ? words.length : index;
 }
 
 /**
  * Follows `sh -c '…'` and `eval …` into the script they run, as commands of their own, and notes
  * a shell that takes its script from the input instead: the scan cannot see that script.
  */
-function expandNested(state: ShellLineScan): void {
-  for (let index = 0; index < state.units.length; index += 1) {
+function expandNested(state: ShellLineScan, budget: ScanBudget): void {
+  for (let index = 0; index < state.units.length && !state.overflow; index += 1) {
     const { words, depth } = state.units[index]!;
-    for (let i = 0; i < words.length; i += 1) {
+    const prepared = preparingWords(words);
+    for (let i = 0; i < words.length && !state.overflow; i += 1) {
       const name = commandName(words[i]!);
       if (name === 'eval') {
-        parseShell(words.slice(i + 1).join(' '), state, depth + 1);
+        parseShell(words.slice(i + 1).join(' '), state, depth + 1, budget);
       } else if (SHELLS.has(name)) {
         let readsInput = true;
         for (let j = i + 1; j < words.length; j += 1) {
+          if (j > i + MAX_COMMAND_WORDS) {
+            state.overflow = true;
+            break;
+          }
           const arg = words[j]!;
           if (arg === '-') break;
           if (!arg.startsWith('-')) {
@@ -329,12 +352,12 @@ function expandNested(state: ShellLineScan): void {
           if (SHELL_VALUE_OPTIONS.has(arg)) {
             j += 1;
           } else if (!arg.startsWith('--') && arg.includes('c')) {
-            parseShell(words[j + 1] ?? '', state, depth + 1);
+            parseShell(words[j + 1] ?? '', state, depth + 1, budget);
             readsInput = false;
             break;
           }
         }
-        if (readsInput && atCommandPosition(words, i)) state.stdinShell = true;
+        if (readsInput && i <= prepared) state.stdinShell = true;
       }
     }
   }
@@ -342,8 +365,11 @@ function expandNested(state: ShellLineScan): void {
 
 const GIT_PUSH_SUBCOMMANDS = new Set(['push', 'send-pack']);
 
-/** Whether `args` (after `git`) push: the subcommand after the global options, or an alias for it. */
-function gitPushes(args: string[], aliasedByEnvironment = false): boolean {
+/**
+ * Whether `args` (after `git`) push: the subcommand after the global options, or an alias for it.
+ * `cut`: the command goes on past `args`, so what is not decided within them counts as a push.
+ */
+function gitPushes(args: string[], cut: boolean, aliasedByEnvironment: boolean): boolean {
   // An alias set on the command line or in the environment may stand for `push`; its value
   // can come from a variable, so any such alias counts.
   let aliasedPush = aliasedByEnvironment;
@@ -353,7 +379,7 @@ function gitPushes(args: string[], aliasedByEnvironment = false): boolean {
       if (isDynamic(arg) || GIT_PUSH_SUBCOMMANDS.has(arg)) return true;
       if (arg === 'subtree') {
         const action = args.slice(i + 1).find((word) => !word.startsWith('-'));
-        if (action !== undefined && (action === 'push' || isDynamic(action))) return true;
+        if (action === undefined ? cut : action === 'push' || isDynamic(action)) return true;
       }
       return aliasedPush;
     }
@@ -362,7 +388,7 @@ function gitPushes(args: string[], aliasedByEnvironment = false): boolean {
     if (/^--config-env=alias\./.test(arg)) aliasedPush = true;
     if (GIT_VALUE_OPTIONS.has(arg)) i += 1;
   }
-  return aliasedPush;
+  return aliasedPush || cut;
 }
 
 /** The first two words of a gh command (`pr create`), with the options left out. */
@@ -404,32 +430,44 @@ function ghApiOperations(args: string[]): DeniedSessionOperation[] {
   return [...found];
 }
 
+/**
+ * The operations of one simple command. Each word reads at most `MAX_COMMAND_WORDS` after it, so the
+ * work grows with the number of words, not with its square.
+ */
 function unitOperations(words: string[]): Set<DeniedSessionOperation> {
   const found = new Set<DeniedSessionOperation>();
+  const environmentAlias = words.findIndex((word) => /^GIT_CONFIG_(KEY_\d+|PARAMETERS)=.*alias\./.test(word));
+  const lastPush = words.lastIndexOf('push');
+  const lastPr = words.lastIndexOf('pr');
+  const lastCreate = words.lastIndexOf('create');
+  const lastMerge = words.lastIndexOf('merge');
   // Every word may start the command a wrapper runs (`env A=1 git push`, `xargs git push`).
   for (let i = 0; i < words.length; i += 1) {
     const word = words[i]!;
     const name = commandName(word);
-    const rest = words.slice(i + 1);
-    if (name === 'git') {
-      const environmentAlias = words
-        .slice(0, i)
-        .some((before) => /^GIT_CONFIG_(KEY_\d+|PARAMETERS)=.*alias\./.test(before));
-      if (gitPushes(rest, environmentAlias)) found.add('git_push');
-    } else if (name === 'gh') {
+    if (name === 'git' || name === 'gh') {
+      const rest = words.slice(i + 1, i + 1 + MAX_COMMAND_WORDS);
+      const cut = words.length - i - 1 > MAX_COMMAND_WORDS;
+      if (name === 'git') {
+        if (gitPushes(rest, cut, environmentAlias >= 0 && environmentAlias < i)) found.add('git_push');
+        continue;
+      }
       const [group, action] = ghSubcommands(rest);
       if (group === 'api') {
-        for (const operation of ghApiOperations(rest)) found.add(operation);
-      } else if (group === 'pr' || (group !== undefined && isDynamic(group))) {
-        const unknown = action !== undefined && isDynamic(action);
+        const operations: DeniedSessionOperation[] = cut
+          ? ['pull_request_create', 'pull_request_merge']
+          : ghApiOperations(rest);
+        for (const operation of operations) found.add(operation);
+      } else if (group === undefined ? cut : group === 'pr' || isDynamic(group)) {
+        const unknown = action === undefined ? cut : isDynamic(action);
         if (action === 'create' || unknown) found.add('pull_request_create');
         if (action === 'merge' || unknown) found.add('pull_request_merge');
       }
     } else if (isDynamic(word)) {
       // A variable in the command's place (`$GIT push`) may be git or gh.
-      if (rest.includes('push')) found.add('git_push');
-      if (rest.includes('pr') && rest.includes('create')) found.add('pull_request_create');
-      if (rest.includes('pr') && rest.includes('merge')) found.add('pull_request_merge');
+      if (lastPush > i) found.add('git_push');
+      if (lastPr > i && lastCreate > i) found.add('pull_request_create');
+      if (lastPr > i && lastMerge > i) found.add('pull_request_merge');
     }
   }
   return found;
@@ -438,8 +476,9 @@ function unitOperations(words: string[]): Set<DeniedSessionOperation> {
 /** The simple commands of a shell line, the nested ones included. */
 export function scanShellLine(line: string): ShellLineScan {
   const state = emptyScan();
-  parseShell(line, state, 0);
-  expandNested(state);
+  const budget: ScanBudget = { left: MAX_SCAN_CHARACTERS };
+  parseShell(line, state, 0, budget);
+  expandNested(state, budget);
   return state;
 }
 

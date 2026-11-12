@@ -627,6 +627,8 @@ function commandWordsReach(
   hitPath: (path: string) => boolean,
   hitPattern: (lexical: string) => boolean,
 ): boolean {
+  // A line the scan did not read to its end may name anything in the part it left out.
+  if (parsed.overflow) return true;
   const bases = [cwd];
   const touches = (word: string): boolean =>
     pathCandidates(word, home).some((candidate) =>

@@ -74,6 +74,16 @@ describe('closed cards comparison', () => {
       usage('claude-haiku-4-5', 'subagent', 50),
     ]);
     await measure(first, 'cr', [usage('claude-sonnet-5-5', 'main', 10)]);
+    // Its merge stopped once on a conflict and once on the check (PM-1341).
+    for (const reason of ['conflict', 'check_failed'] as const)
+      domain().timeline.append({
+        projectKey: 'AR',
+        taskKey: first,
+        sessionId: null,
+        actor: SYSTEM_ACTOR,
+        type: 'task_merge_failed',
+        data: { mergeId: `m-${reason}`, reason, at: now.toISOString(), base: 'b' },
+      });
     const second = await closedCard('Logout', '2026-10-02T07:00:00.000Z', 'dev-2');
     await measure(second, 'dev-2', [usage('claude-sonnet-5-5', 'main', 40)]);
     // Closed before the period, still open and cancelled cards are left out.
@@ -101,14 +111,14 @@ describe('closed cards comparison', () => {
         { model: 'claude-haiku-4-5', tokens: 50 },
         { model: 'claude-sonnet-5-5', tokens: 10 },
       ],
-      rounds,
+      rounds: { ...rounds, mergeConflicts: 1, mergeChecksFailed: 1 },
       unmeasuredSessions: 0,
     });
     expect(view.cards[0]).toMatchObject({
       implementer: 'dev-2',
       implementerModels: ['claude-sonnet-5-5'],
       tokens: 40,
-      rounds,
+      rounds: { ...rounds, mergeConflicts: 0, mergeChecksFailed: 0 },
     });
   });
 
@@ -148,6 +158,8 @@ describe('rounds on the card detail', () => {
       designChangeRequests: 0,
       sendBacks: 0,
       testsFailed: 0,
+      mergeConflicts: 0,
+      mergeChecksFailed: 0,
     };
     const detail = TaskDetail.parse((await get('owner', routes.task('AR', key))).json());
     expect(detail.rounds).toEqual(rounds);
@@ -157,12 +169,22 @@ describe('rounds on the card detail', () => {
 
   it('adds the stage and label events older than the timeline window, oldest first (PM-1160)', async () => {
     const key = await closedCard('Login page', '2026-10-01T10:00:00.000Z');
-    const { cardMeasure, tasks } = domain();
+    const { cardMeasure, tasks, timeline } = domain();
+    // A failed merge outside the window is counted but not added (PM-1341).
+    const on = { projectKey: 'AR', taskKey: key, sessionId: null, actor: SYSTEM_ACTOR };
+    timeline.append({
+      ...on,
+      type: 'task_merge_failed',
+      data: { mergeId: 'm', reason: 'conflict', at: now.toISOString(), base: 'b' },
+    });
+    for (let i = 0; i < 3; i++) timeline.append({ ...on, type: 'task_note', data: { text: `Note ${i}` } });
     const detail = cardMeasure.withRounds(tasks.detail('AR', key, 3));
     const earlier = detail.earlierEvents ?? [];
     expect(detail.timeline).toHaveLength(3);
+    expect(detail.rounds?.mergeConflicts).toBe(1);
     expect(earlier.length).toBeGreaterThan(0);
     expect(earlier[0]?.type).toBe('task_stage_changed');
+    expect(earlier.some((event) => event.type === 'task_merge_failed')).toBe(false);
     const shown = new Set(detail.timeline.map((event) => event.id));
     expect(earlier.some((event) => shown.has(event.id))).toBe(false);
     expect(earlier.map((event) => event.createdAt)).toEqual(

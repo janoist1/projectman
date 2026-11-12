@@ -55,13 +55,14 @@ export class CardMeasure {
     const config = this.projects.cachedConfig(projectKey);
     if (!config) return detail;
     const fixRounds = this.fixRounds?.(detail.task, config);
-    // The same read gives the events the timeline window cut off, for the card's story (PM-1160).
+    // The same read gives the events the timeline window cut off, for the card's story (PM-1160); the
+    // failed merges are only counted (PM-1341), their check output stays out of the detail.
     const events = this.ctx.repos.timeline.roundEvents(projectKey, key);
     const shown = new Set(detail.timeline.map((event) => event.id));
     return {
       ...detail,
       rounds: countCardRounds(events, config),
-      earlierEvents: events.filter((event) => !shown.has(event.id)),
+      earlierEvents: events.filter((event) => !shown.has(event.id) && event.type !== 'task_merge_failed'),
       ...(fixRounds ? { fixRounds } : {}),
     };
   }

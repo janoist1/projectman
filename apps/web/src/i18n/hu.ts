@@ -1563,9 +1563,12 @@ export const hu = {
       tokens: 'Súlyozott token',
       reviewRounds: 'Átnézési körök',
       sendBacks: 'Visszaküldések',
+      mergeConflicts: 'Beolvasztási ütközések',
+      mergeChecksFailed: 'Bukott beolvasztási ellenőrzések',
       closedAt: 'Lezárva',
     },
     changeRequestsOf: 'ebből javítást kért: {count}',
+    reviewTestsFailedOf: 'ebből az átnézés teljes tesztje bukott: {count}',
     sortBy: 'Rendezés: {column}',
   },
 

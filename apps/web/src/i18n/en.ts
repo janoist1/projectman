@@ -2417,9 +2417,12 @@ export const en = {
       tokens: 'Weighted tokens',
       reviewRounds: 'Review rounds',
       sendBacks: 'Send-backs',
+      mergeConflicts: 'Merge conflicts',
+      mergeChecksFailed: 'Failed merge checks',
       closedAt: 'Closed',
     },
     changeRequestsOf: 'of which requested changes: {count}',
+    reviewTestsFailedOf: 'of which the review full test failed: {count}',
     sortBy: 'Sort by: {column}',
   },
   // ---- Timeline, sessions, how we work ----

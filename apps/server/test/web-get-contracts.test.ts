@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   BoardView,
+  ClosedCardsMeasure,
   ConfigView,
   InboxView,
   Me,
@@ -57,6 +58,7 @@ describe('web GET contracts and SQL budgets', () => {
     [routes.projects(), ProjectSummary.array(), 10],
     [routes.board('AR'), BoardView, 250],
     [routes.tasks('AR'), Task.array(), 230],
+    [routes.closedCardsMeasure('AR'), ClosedCardsMeasure, 10],
     [routes.task('AR', 'AR-1'), TaskDetail, 45],
     [routes.taskComments('AR', 'AR-1'), TaskCommentsPage, 20],
     [routes.inbox('AR'), InboxView, 85],
@@ -102,6 +104,68 @@ describe('web GET contracts and SQL budgets', () => {
       expect(tasks).toHaveLength(20);
       expect(count).toBeGreaterThan(0);
       expect(count).toBeLessThanOrEqual(235);
+    } finally {
+      meter.restore();
+    }
+  });
+
+  it('keeps the closed card measure SQL count constant from 20 to 200 measured cards', async () => {
+    const { domain, repos } = h.app.projectman;
+    const template = repos.tasks.get('AR-1')!;
+    const { session } = await domain.sessions.ensureSession('AR', 'dev-1', {
+      type: 'task',
+      taskKey: template.key,
+    });
+    await flush();
+    const at = new Date();
+    const counts: number[] = [];
+    let inserted = 0;
+    const meter = instrumentSql(undefined, true);
+    try {
+      for (const size of [20, 200]) {
+        for (; inserted < size; inserted++) {
+          const key = `AR-${1000 + inserted}`;
+          repos.tasks.insert({
+            ...template,
+            id: `closed-${inserted}`,
+            key,
+            status: 'done',
+            closedAt: at.toISOString(),
+            description: 'Large description '.repeat(1000),
+          });
+          const sessionId = `ses_measure_${inserted}`;
+          repos.sessions.insert({
+            ...session,
+            id: sessionId,
+            state: 'exited',
+            workItem: { type: 'task', taskKey: key },
+          });
+          repos.sessions.update(sessionId, { usageSince: at.toISOString() });
+          repos.tokenUsage.add({ sessionId, projectKey: 'AR', member: 'dev-1', taskKey: key }, at, [
+            { model: 'claude-sonnet-5-5', scope: 'main', input: 10, output: 0, cacheRead: 0, cacheWrite: 0 },
+          ]);
+          repos.timeline.insert({
+            id: `evt_measure_${inserted}`,
+            projectKey: 'AR',
+            taskKey: key,
+            sessionId: null,
+            actor: OWNER_ACTOR,
+            type: 'task_stage_changed',
+            data: { from: 'development', to: 'code_review' },
+            createdAt: at.toISOString(),
+          });
+        }
+        meter.start();
+        const response = await inject(h.app, 'GET', routes.closedCardsMeasure('AR'), cookie);
+        counts.push(meter.stop());
+        expect(response.statusCode, response.body).toBe(200);
+        const view = ClosedCardsMeasure.parse(response.json());
+        expect(view.cards).toHaveLength(size);
+        expect(view.cards.every((card) => card.tokens === 10 && card.rounds.reviewRounds === 1)).toBe(true);
+      }
+      expect(counts[0]).toBeGreaterThan(0);
+      expect(counts[1]).toBe(counts[0]);
+      expect(counts[1]).toBeLessThanOrEqual(10);
     } finally {
       meter.restore();
     }

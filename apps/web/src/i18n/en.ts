@@ -486,6 +486,8 @@ export const en = {
       prerequisite_open: 'The card’s prerequisite isn’t closed yet.',
       unknown_member: 'Unknown team member.',
       task_closed: 'This card is already closed.',
+      collecting_task_not_startable:
+        'This card collects sub-cards: the work happens on them, so it cannot be started.',
       complexity_forbidden: 'You can’t change the points.',
       complexity_points_invalid: 'The points can only be 1, 2, 3, 5, 8 or 13.',
       complexity_limit_not_developer: 'A limit can only be set for a developer member.',
@@ -1384,6 +1386,7 @@ export const en = {
       },
       short: {
         startOffer: 'starts it (moves it to development)',
+        collecting: '{count|# open sub-card|# open sub-cards} to close',
         inbox: {
           question: 'answers a question',
           permission: 'grants permission',
@@ -1428,6 +1431,7 @@ export const en = {
       },
       long: {
         capacity: 'Working on something else. This card is next once that work finishes.',
+        collecting: 'The work happens on its sub-cards; this card is not started.',
         readyHold:
           'The card is ready to start but is intentionally waiting. It starts automatically when the condition clears.',
         startOffer: 'The card is ready and a developer is free. The system has asked for it to be started.',
@@ -1454,6 +1458,7 @@ export const en = {
       },
       todo: {
         startOffer: 'Move the card to development; the system chooses a developer.',
+        collecting: 'Nothing: when its last sub-card closes, this card closes by itself.',
         auto: 'Nothing: it starts automatically. If urgent, check the Team page to see what is holding it.',
         capacity: 'Nothing. {hint}',
         nothing: 'Nothing: it progresses automatically.',
@@ -1538,6 +1543,7 @@ export const en = {
     fixLimitYou: 'Waiting for you: decision · after {rounds|# fix round|# fix rounds}',
     queuedFor: 'Queued for: {stage}',
     ready: 'Ready to start',
+    collecting: '{count|# open sub-card|# open sub-cards}',
     prerequisite: 'Waiting for prerequisite',
     prerequisiteOn: 'Waiting · {ref}',
     prerequisiteRef: '{key} ({stage})',

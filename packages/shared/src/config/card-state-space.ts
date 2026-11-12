@@ -118,7 +118,7 @@ export function cardStateProblem(state: CardState): string | null {
   const { task, config, openItems } = state;
   const wait = taskWait(state);
   if (!wait) return `${state.description}: no wait`;
-  const duty = cardDuty({ task, wait, config, openItems, openParts: 0 });
+  const duty = cardDuty({ task, wait, config, openItems });
   const found = (what: string) => `${state.description}: ${wait.reason} -> ${what}`;
   switch (duty.kind) {
     case 'member': {
@@ -227,6 +227,7 @@ export function* cardStateSpace(config: SpaceConfig): Generator<CardState> {
 
   // Each of these laid on a smaller base: the stage x status x assignee, with no, all the gate and the refine labels.
   const overlays: { name: string; task?: Partial<Task>; input?: Partial<Omit<TaskWaitInput, 'task'>> }[] = [];
+  overlays.push({ name: 'collecting', input: { subtasks: [{ parentKey: 'SP-1', status: 'active' }] } });
   const item = (assignees: string[]) =>
     ({
       id: 'inb_space',

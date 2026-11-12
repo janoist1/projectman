@@ -2,7 +2,12 @@ import { cleanup, screen, within } from '@testing-library/react';
 import type { Task } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { indexPipeline } from '../../lib/pipeline';
-import { deriveTaskState, groupOpenInboxByTask, prerequisiteRef } from '../../lib/taskState';
+import {
+  deriveTaskState,
+  groupOpenInboxByTask,
+  groupSubtasksByParent,
+  prerequisiteRef,
+} from '../../lib/taskState';
 import { matchesSearch } from './cardModel';
 import type { TaskStateContext } from '../../lib/taskState';
 import { buildConfig, inbox, tasks } from '../../mocks/fixtures';
@@ -17,6 +22,7 @@ const ctx: TaskStateContext = {
   members,
   openInboxByTask: groupOpenInboxByTask(inbox),
   tasksByKey: new Map(tasks.map((task) => [task.key, task])),
+  subtasksByParent: groupSubtasksByParent(tasks),
   myHandle: 'owner',
 };
 

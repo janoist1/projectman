@@ -1879,6 +1879,7 @@ export const hu = {
       prerequisite_open: 'A kártya előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
       task_closed: 'Ez a kártya már lezárult.',
+      collecting_task_not_startable: 'Ez gyűjtőkártya: a munka az alkártyáin folyik, ezért nem indítható.',
       complexity_forbidden: 'A pontot nem módosíthatod.',
       complexity_points_invalid: 'A pont csak 1, 2, 3, 5, 8 vagy 13 lehet.',
       complexity_limit_not_developer: 'Határ csak fejlesztő tagnak állítható.',
@@ -2559,6 +2560,7 @@ export const hu = {
       /** The short row text per reason; {name} etc. are filled by the code. */
       short: {
         startOffer: 'elindítja (Fejlesztésbe mozgatja)',
+        collecting: '{count} alkártya lezárására',
         inbox: {
           question: 'válaszol egy kérdésre',
           permission: 'engedélyt ad',
@@ -2604,6 +2606,7 @@ export const hu = {
       /** The box's "Mire vár" sentences that the start text does not already say. */
       long: {
         capacity: 'Most egy másik munkán dolgozik. Amint végez, ez a kártya következik.',
+        collecting: 'A munka az alkártyákon folyik; ez a kártya nem indul el.',
         readyHold:
           'A kártya indítható, de most szándékosan vár. Magától sorra kerül, amint a feltétel megszűnik.',
         startOffer: 'A kártya indítható, és van hozzá szabad fejlesztő. A rendszer szólt, hogy indítsa el.',
@@ -2631,6 +2634,7 @@ export const hu = {
       },
       todo: {
         startOffer: 'Mozgasd a kártyát a Fejlesztésbe; a fejlesztőt a rendszer választja.',
+        collecting: 'Semmit: amikor az utolsó alkártyája is lezárul, ez a kártya magától lezárul.',
         auto: 'Semmit: magától sorra kerül. Ha sürgős, a Csapat oldalon látod, mi foglalja.',
         capacity: 'Semmit. {hint}',
         nothing: 'Semmit: magától halad.',
@@ -2729,6 +2733,7 @@ export const hu = {
     fixLimitYou: 'Rád vár: döntés · {rounds} javítási kör után',
     queuedFor: 'Sorra kerül: {stage}',
     ready: 'Indítható',
+    collecting: '{count} alkártya nyitott',
     prerequisite: 'Előfeltételre vár',
     /** No article or suffix after the key: its letters and number differ by project. */
     prerequisiteOn: 'Vár · {ref}',

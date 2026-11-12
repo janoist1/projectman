@@ -47,6 +47,7 @@ export * from './domain/message-wake';
 export * from './domain/member-queue';
 export * from './domain/work-queues';
 export * from './domain/inbox';
+export * from './domain/inbox-resolve';
 export * from './domain/item-route';
 export * from './domain/system-notice';
 export * from './domain/owner-questions';

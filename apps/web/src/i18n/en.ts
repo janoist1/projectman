@@ -1812,6 +1812,7 @@ export const en = {
         humans_only: 'only a person can set it',
         owner_approval: 'only the owner can grant it with their own login',
         not_holder: 'not your duty',
+        small_cards_only: 'you can only change it on a small card assigned to you in this stage',
         self_review: 'not on your own work',
       },
     },

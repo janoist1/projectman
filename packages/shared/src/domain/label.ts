@@ -129,6 +129,7 @@ export const LabelRefusal = z.enum([
   'not_holder',
   'self_review',
   'owner_approval',
+  'small_cards_only',
 ]);
 export type LabelRefusal = z.infer<typeof LabelRefusal>;
 

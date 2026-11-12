@@ -329,7 +329,7 @@ export class Messaging {
     if (attachmentIds.length > 0 && !opts.questionGroupShare)
       this.messageAttachments.assertSendable(projectKey, sender, attachmentIds);
     const taskKey = input.taskKey ?? null;
-    const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
+    let task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
     if (opts.workerCheck && task && isOpenTask(task) && !isTheme(task)) {
       const busy = this.cardBusyOf(config, task, from, recipients, opts);
@@ -363,13 +363,17 @@ export class Messaging {
       if (stage && cardStageOwners(config, stage, task).some((handle) => recipients.includes(handle)))
         await this.tasks.repinReview(projectKey, task.key, from).catch((err: unknown) => {
           if (err instanceof DomainError && err.code === 'engine_offline') throw err;
-          this.ctx.logger.warn(
-            { err, taskKey: task.key },
-            'could not pin the commit of the new review round',
-          );
+          this.ctx.logger.warn({ err, taskKey }, 'could not pin the commit of the new review round');
         });
+      const previousOwners = stage ? cardStageOwners(config, stage, task) : [];
+      task = this.tasks.get(projectKey, task.key);
+      const currentOwners = stage ? cardStageOwners(config, stage, task) : [];
       for (const handle of recipients)
-        if (!humans.includes(handle) && (!fromAi || recipientHasCardRole(this.ctx, config, task, handle)))
+        if (
+          !humans.includes(handle) &&
+          (!previousOwners.includes(handle) || currentOwners.includes(handle)) &&
+          (!fromAi || recipientHasCardRole(this.ctx, config, task, handle))
+        )
           this.sessions.requestReviewRound(projectKey, task.key, handle);
       // A new commit pinned: its full test is queued before the reviewers get this message (PM-217).
       await this.ctx.events.emit('task_review_round', { projectKey, taskKey: task.key, from });

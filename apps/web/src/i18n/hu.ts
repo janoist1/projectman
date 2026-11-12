@@ -1556,10 +1556,14 @@ export const hu = {
     unmeasured:
       '{cards} kártya {sessions} munkamenetéről nincs mérés (a mérés bevezetése előtt futottak); ezek nincsenek beleszámolva.',
     noImplementer: 'nincs megvalósító',
+    reviewerUnknown: 'Nincs átnézőadat',
+    failedByReviewer: 'Bukott merge-ellenőrzés átnézőnként:',
+    reviewerRatio: '{name}: {failed} / {total} kártyán ({percent})',
     sessionsWithoutData: '{count} munkamenet mérés nélkül',
     columns: {
       card: 'Kártya',
       implementer: 'Megvalósító és modellje',
+      reviewer: 'Átnéző',
       tokens: 'Súlyozott token',
       reviewRounds: 'Átnézési körök',
       sendBacks: 'Visszaküldések',

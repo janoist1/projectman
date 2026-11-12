@@ -313,6 +313,7 @@ export class AgentSession {
       state: this.current.state,
       cols: this.screen.cols,
       rows: this.screen.rows,
+      ...(this.pauseState ? { paused: true } : {}),
     };
   }
 

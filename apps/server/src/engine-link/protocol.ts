@@ -68,6 +68,7 @@ export const RunningSession: z.ZodType<RunningSessionInfo> = z.strictObject({
   state: SessionState,
   cols: int,
   rows: int,
+  paused: z.boolean().optional(),
 });
 export const PullRequest: z.ZodType<PullRequestInfo> = z.strictObject({
   repo: text,

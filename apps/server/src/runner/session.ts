@@ -286,15 +286,19 @@ export class AgentSession {
     // A resumed conversation that owes a compaction gets it before the message that woke it (PM-213).
     if (args.spec.compactFirst) void this.compact(args.spec.compactFirst);
     if (args.spec.initialMessage?.trim() && !this.initialMessageSent) {
-      this.send(args.spec.initialMessage).then(
-        () => this.deps.emit({ type: 'first_input_sent', sessionId: this.id }),
-        (err: unknown) => {
-          // A process that ended first says so by its exit; a typed brief the CLI never took does not (PM-571).
-          if (err instanceof NotSubmittedError)
-            this.deps.emit({ type: 'first_input_failed', sessionId: this.id });
-        },
-      );
+      this.reportFirstInput(this.send(args.spec.initialMessage));
     }
+  }
+
+  private reportFirstInput(submitted: Promise<void>): void {
+    submitted.then(
+      () => this.deps.emit({ type: 'first_input_sent', sessionId: this.id }),
+      (err: unknown) => {
+        // A process that ended first says so by its exit; a brief the CLI never took does not.
+        if (err instanceof NotSubmittedError)
+          this.deps.emit({ type: 'first_input_failed', sessionId: this.id });
+      },
+    );
   }
 
   get state(): StateSnapshot {
@@ -382,8 +386,7 @@ export class AgentSession {
     proc.onExit(({ exitCode, signal }) => void this.onExit(exitCode, signal ?? null));
     if (this.initialMessageSent) {
       // The CLI submits the brief itself; nothing is typed before it reports the prompt.
-      this.input.awaitCommandLinePrompt(this.timing.argumentSubmitTimeoutMs);
-      this.deps.emit({ type: 'first_input_sent', sessionId: this.id });
+      this.reportFirstInput(this.input.awaitCommandLinePrompt(this.timing.argumentSubmitTimeoutMs));
     }
     this.startWatch();
     this.watchProcess();

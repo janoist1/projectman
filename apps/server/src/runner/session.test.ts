@@ -1341,11 +1341,25 @@ describe('AgentSession of Codex', () => {
     return started;
   }
 
-  it('reports its first input as sent when it is started with it on the command line', () => {
-    const { events } = resumedWithPrompt();
+  it('reports its command-line first input as sent only after the CLI submits it', async () => {
+    const { events, hook } = resumedWithPrompt();
+    expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'Your session was restarted.' });
     expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([
       { type: 'first_input_sent', sessionId: 'ses_1' },
     ]);
+  });
+
+  it('reports failure when the command-line prompt times out even if the CLI is busy', async () => {
+    const { events, hook } = resumedWithPrompt();
+    await hook({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: '/tmp/file' } });
+    await vi.advanceTimersByTimeAsync(CODEX_TIMING.argumentSubmitTimeoutMs + CODEX_TIMING.enterRetryMs);
+    expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
+    expect(events.filter((e) => e.type === 'first_input_failed')).toEqual([
+      { type: 'first_input_failed', sessionId: 'ses_1' },
+    ]);
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'late prompt' });
+    expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
   });
 
   it.each(['startup', 'resume', 'clear'])(

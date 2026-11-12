@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { StartSessionSpec } from '../contracts';
+import type { RunnerEvent, StartSessionSpec } from '../contracts';
 import { createRunnerModule } from './index';
 import { createCodexAdapter } from './providers/codex';
-import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs } from './test-helpers';
+import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs, waitFor } from './test-helpers';
 
 const dirs = tempDirs();
 afterEach(() => dirs.cleanup());
@@ -43,6 +43,21 @@ async function fixture(version = '0.159.1') {
 }
 
 describe('fail-closed Codex start', () => {
+  it('does not report the first input as sent when the CLI exits before submitting it', async () => {
+    const { options, spec } = await fixture();
+    const runner = createRunnerModule(options).runner;
+    const events: RunnerEvent[] = [];
+    runner.onEvent((event) => events.push(event));
+    try {
+      // The fake CLI refuses a resume id with no saved conversation before submitting the prompt.
+      await runner.start({ ...spec, resume: true, initialMessage: 'Retry the waiting messages' });
+      await waitFor(() => events.some((event) => event.type === 'exit'));
+      expect(events.filter((event) => event.type === 'first_input_sent')).toEqual([]);
+    } finally {
+      await runner.shutdown();
+    }
+  });
+
   it.each(['claude', 'codex'] as const)(
     'reports a missing %s CLI as unusable with an empty PATH',
     async (provider) => {
